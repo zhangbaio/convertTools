@@ -5,3 +5,5 @@
 **/.vs/
 **/.idea/
 **/.vscode/
+.dotnet/
+.setup-cache/
