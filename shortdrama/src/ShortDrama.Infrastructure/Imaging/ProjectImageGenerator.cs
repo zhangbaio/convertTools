@@ -45,13 +45,13 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
     {
         if (!Directory.Exists(request.InputDir))
         {
-            throw new DirectoryNotFoundException($"宸ョ▼鍥捐緭鍏ヨ棰戠洰褰曚笉瀛樺湪: {request.InputDir}");
+            throw new DirectoryNotFoundException($"工程图输入视频目录不存在: {request.InputDir}");
         }
 
         var templateDirectory = request.TemplateImageDir;
         if (string.IsNullOrWhiteSpace(templateDirectory))
         {
-            throw new InvalidOperationException("鐢熸垚宸ョ▼鍥惧繀椤绘彁渚涙ā鏉跨洰褰曪紝骞朵笖鏍规枃浠跺す涓嬪繀椤诲惈鏈? template.json銆?");
+            throw new InvalidOperationException("生成工程图必须提供模板目录，并且根文件夹下必须包含 template.json。");
         }
 
         Directory.CreateDirectory(request.OutputDir);
@@ -77,7 +77,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
 
         if (sourceVideo is null)
         {
-            throw new InvalidOperationException($"鏈湪鐩綍涓壘鍒板彲鐢ㄨ棰戞枃浠? {request.InputDir}");
+            throw new InvalidOperationException($"未在目录中找到可用视频文件: {request.InputDir}");
         }
 
         var ffmpeg = ResolveBinary("ffmpeg");
@@ -90,7 +90,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var outputPath = Path.Combine(request.OutputDir, $"宸ョ▼鍥綺{index + 1}.png");
+            var outputPath = Path.Combine(request.OutputDir, $"工程图_{index + 1}.png");
             if (File.Exists(outputPath) && !request.Overwrite)
             {
                 outputs.Add(outputPath);
@@ -178,13 +178,13 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
 
         if (result.ExitCode != 0)
         {
-            throw new InvalidOperationException($"ffprobe 鑾峰彇瑙嗛鏃堕暱澶辫触: {result.StandardError}");
+            throw new InvalidOperationException($"ffprobe 获取视频时长失败: {result.StandardError}");
         }
 
         if (!double.TryParse(result.StandardOutput.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) ||
             seconds <= 0)
         {
-            throw new InvalidOperationException($"鏃犳硶瑙ｆ瀽瑙嗛鏃堕暱: {result.StandardOutput}");
+            throw new InvalidOperationException($"无法解析视频时长: {result.StandardOutput}");
         }
 
         return seconds;
@@ -249,7 +249,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
 
             if (result.ExitCode != 0)
             {
-                throw new InvalidOperationException($"FFmpeg 鎶藉抚澶辫触: {result.StandardError}");
+                throw new InvalidOperationException($"FFmpeg 抽帧失败: {result.StandardError}");
             }
 
             return await Image.LoadAsync<Rgba32>(tempPath, cancellationToken);
@@ -277,7 +277,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         {
             if (!page.Regions.ContainsKey(regionKey))
             {
-                throw new InvalidOperationException($"宸ョ▼鍥炬ā鏉跨己灏戝叧閿尯鍩燂細{regionKey} -> {page.File}");
+                throw new InvalidOperationException($"工程图模板缺少关键区域：{regionKey} -> {page.File}");
             }
         }
 

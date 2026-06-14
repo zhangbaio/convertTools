@@ -24,7 +24,7 @@ public sealed record ProjectImageTemplateManifest(
         var manifestPath = Path.Combine(templateDirectory, "template.json");
         if (!File.Exists(manifestPath))
         {
-            throw new FileNotFoundException($"缂哄皯宸ョ▼鍥炬ā鏉挎竻鍗曟枃浠? {manifestPath}");
+            throw new FileNotFoundException($"缺少工程图模板清单文件: {manifestPath}");
         }
 
         using var document = JsonDocument.Parse(File.ReadAllText(manifestPath));
@@ -35,7 +35,7 @@ public sealed record ProjectImageTemplateManifest(
 
         if (!root.TryGetProperty("templates", out var templatesElement) || templatesElement.ValueKind != JsonValueKind.Array)
         {
-            throw new InvalidOperationException($"宸ョ▼鍥炬ā鏉挎竻鍗曟牸寮忛敊璇細templates 缂哄け鎴栦笉鏄暟缁? {manifestPath}");
+            throw new InvalidOperationException($"工程图模板清单格式错误：templates 缺失或不是数组: {manifestPath}");
         }
 
         var pages = new List<ProjectImageTemplatePage>();
@@ -49,7 +49,7 @@ public sealed record ProjectImageTemplateManifest(
 
             if (!pageElement.TryGetProperty("regions", out var regionsElement) || regionsElement.ValueKind != JsonValueKind.Object)
             {
-                throw new InvalidOperationException($"宸ョ▼鍥炬ā鏉跨己灏戝尯鍩熷畾涔? {manifestPath}::{file}");
+                throw new InvalidOperationException($"工程图模板缺少区域定义: {manifestPath}::{file}");
             }
 
             var regions = new Dictionary<string, ProjectImageTemplateRegion>(StringComparer.OrdinalIgnoreCase);

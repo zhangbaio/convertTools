@@ -41,7 +41,7 @@
 
     <Grid Margin="20">
         <TabControl Classes="sidebar" TabStripPlacement="Left">
-            <TabItem Header="鐭墽鎼滅储">
+            <TabItem Header="短剧搜索">
                 <Grid RowDefinitions="Auto,*" RowSpacing="16">
                     <Border Background="{DynamicResource DesktopPanelBrush}"
                             CornerRadius="18"
@@ -50,7 +50,7 @@
                             <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding SearchKeyword}"
-                                         Watermark="杈撳叆鐭墽鍚嶇О锛屼緥濡?濠嗗﹩銆侀棯濠氥€侀€嗚...">
+                                         Watermark="输入短剧名称，例如: 婆婆、闪婚、逆袭...">
                                     <TextBox.KeyBindings>
                                         <KeyBinding Gesture="Enter"
                                                     Command="{Binding SearchDramaCommand}" />
@@ -59,11 +59,11 @@
                                 <Button Grid.Column="1"
                                         MinWidth="100"
                                         Command="{Binding SearchDramaCommand}"
-                                        Content="鎼滅储" />
+                                        Content="搜索" />
                                 <Button Grid.Column="2"
                                         MinWidth="110"
                                         Command="{Binding LoadTodayDramaCommand}"
-                                        Content="浠婃棩涓婃柊" />
+                                        Content="今日上新" />
                                 <Border Grid.Column="3"
                                         MinWidth="120"
                                         Padding="14,10"
@@ -76,40 +76,40 @@
                                 <Button Grid.Column="4"
                                         MinWidth="90"
                                         Command="{Binding GoPreviousSearchPageCommand}"
-                                        Content="涓婁竴椤?" />
+                                        Content="上一页" />
                                 <Button Grid.Column="5"
                                         MinWidth="90"
                                         Command="{Binding GoNextSearchPageCommand}"
-                                        Content="涓嬩竴椤?" />
+                                        Content="下一页" />
                             </Grid>
 
                             <StackPanel Grid.Row="1" Spacing="12">
                                 <Grid ColumnDefinitions="Auto,180,*,Auto" ColumnSpacing="10">
                                     <TextBlock VerticalAlignment="Center"
-                                               Text="闆嗘暟鑼冨洿" />
+                                               Text="集数范围" />
                                     <ComboBox Grid.Column="1"
                                               ItemsSource="{Binding DownloadEpisodeRangeOptions}"
                                               SelectedItem="{Binding SelectedDownloadEpisodeRangeOption}"
                                               DisplayMemberBinding="{Binding Label}" />
                                     <TextBox Grid.Column="2"
                                              Text="{Binding CustomDownloadEpisodeRange}"
-                                             Watermark="濡傦細1-5 鎴?1,3,5"
+                                             Watermark="如：1-5 或 1,3,5"
                                              IsEnabled="{Binding IsCustomDownloadEpisodeRange}" />
                                     <Button Grid.Column="3"
                                             MinWidth="120"
                                             Command="{Binding DownloadCheckedDramaCommand}"
-                                            Content="涓嬭浇閫変腑" />
+                                            Content="下载选中" />
                                 </Grid>
 
                                 <WrapPanel Orientation="Horizontal">
                                 <Button MinWidth="150"
                                         Margin="0,0,10,0"
                                         Command="{Binding ImportCheckedDramaCommand}"
-                                        Content="鍕鹃€夊鍏ュ伐浣滅洰褰?" />
+                                        Content="勾选导入工作目录" />
                                 <Button MinWidth="190"
                                         Margin="0,0,10,0"
                                         Command="{Binding ImportAndRunCheckedDramaCommand}"
-                                        Content="鍕鹃€夐」鐩竴閿墽琛屽叏娴佺▼" />
+                                        Content="勾选项目一键执行全流程" />
                                 </WrapPanel>
                             </StackPanel>
                         </Grid>
@@ -122,11 +122,11 @@
                         <StackPanel Spacing="12">
                             <Border Background="{DynamicResource DesktopPanelAltBrush}" CornerRadius="14" Padding="12">
                                 <Grid ColumnDefinitions="56,300,90,180,*" ColumnSpacing="12">
-                                    <TextBlock Text="鍕鹃€?" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="1" Text="鍓у悕" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="2" Text="闆嗘暟" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="3" Text="绫诲瀷" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="4" Text="绠€浠?" FontWeight="SemiBold" />
+                                    <TextBlock Text="勾选" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="剧名" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Text="集数" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="3" Text="类型" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="4" Text="简介" FontWeight="SemiBold" />
                                 </Grid>
                             </Border>
 
@@ -179,7 +179,7 @@
                 <localviews:TranscodeTemplateView />
             </TabItem>
 
-            <TabItem Header="宸插綊妗ｉ」鐩?">
+            <TabItem Header="已归档项目">
                 <Border Background="{DynamicResource DesktopPanelBrush}"
                         CornerRadius="18"
                         Padding="16">
@@ -190,11 +190,11 @@
                             <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="12">
                                 <Button MinWidth="120"
                                         Command="{Binding RefreshArchivedProjectsCommand}"
-                                        Content="鍒锋柊褰掓。鍒楄〃" />
+                                        Content="刷新归档列表" />
                                 <Button Grid.Column="1"
                                         MinWidth="160"
                                         Click="DeleteCheckedArchivedProjects_Click"
-                                        Content="鍒犻櫎鍕鹃€夊綊妗ｉ」鐩?" />
+                                        Content="删除勾选归档项目" />
                                 <Border Grid.Column="2"
                                         MinWidth="150"
                                         Padding="14,10"
@@ -202,12 +202,12 @@
                                         CornerRadius="12">
                                     <TextBlock HorizontalAlignment="Center"
                                                VerticalAlignment="Center"
-                                               Text="{Binding ArchivedProjects.Count, StringFormat=宸插綊妗? {0}}" />
+                                               Text="{Binding ArchivedProjects.Count, StringFormat=已归档 {0}}" />
                                 </Border>
                                 <TextBlock Grid.Column="3"
                                            VerticalAlignment="Center"
                                            HorizontalAlignment="Right"
-                                           Text="{Binding RootDir, StringFormat=褰掓。鏍圭洰褰? {0}/archive}"
+                                           Text="{Binding RootDir, StringFormat=归档根目录: {0}/archive}"
                                            Foreground="{DynamicResource DesktopTextSecondaryBrush}"
                                            TextWrapping="Wrap" />
                             </Grid>
@@ -220,14 +220,14 @@
                                     CornerRadius="14"
                                     Padding="12">
                                 <Grid ColumnDefinitions="56,240,170,120,120,120,120,100" ColumnSpacing="12">
-                                    <TextBlock Text="鍕鹃€?" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="1" Text="椤圭洰鍚?" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="2" Text="褰掓。鏃堕棿" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="3" Text="宸插垹瑙嗛" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="4" Text="褰掓。鐩綍" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="5" Text="鍘熼」鐩洰褰?" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="6" Text="鐢熸垚鐩綍" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="7" Text="鍒犻櫎" FontWeight="SemiBold" />
+                                    <TextBlock Text="勾选" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="项目名" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Text="归档时间" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="3" Text="已删视频" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="4" Text="归档目录" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="5" Text="原项目目录" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="6" Text="生成目录" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="7" Text="删除" FontWeight="SemiBold" />
                                 </Grid>
                             </Border>
 
@@ -257,16 +257,16 @@
                                                            Text="{Binding DeletedVideoFileCount}"
                                                            VerticalAlignment="Center" />
                                                 <Button Grid.Column="4"
-                                                        Content="鎵撳紑"
+                                                        Content="打开"
                                                         Click="OpenArchivedProjectRow_Click" />
                                                 <Button Grid.Column="5"
-                                                        Content="鎵撳紑"
+                                                        Content="打开"
                                                         Click="OpenArchivedSourceRow_Click" />
                                                 <Button Grid.Column="6"
-                                                        Content="鎵撳紑"
+                                                        Content="打开"
                                                         Click="OpenArchivedWorkflowRow_Click" />
                                                 <Button Grid.Column="7"
-                                                        Content="鍒犻櫎"
+                                                        Content="删除"
                                                         Click="DeleteArchivedProjectRow_Click" />
                                             </Grid>
                                         </Border>
@@ -278,14 +278,14 @@
                 </Border>
             </TabItem>
 
-            <TabItem Header="宸ヤ綔鍙?">
+            <TabItem Header="工作台">
                 <Grid ColumnDefinitions="320,*" ColumnSpacing="16">
                     <Border Grid.Column="0"
                             Background="{DynamicResource DesktopPanelBrush}"
                             CornerRadius="18"
                             Padding="16">
                         <Grid RowDefinitions="Auto,*" RowSpacing="12">
-                            <TextBlock Text="椤圭洰鍒楄〃" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock Text="项目列表" FontSize="20" FontWeight="SemiBold" />
                             <ListBox Grid.Row="1"
                                      ItemsSource="{Binding Projects}"
                                      SelectedItem="{Binding SelectedProject}">
@@ -322,7 +322,7 @@
                                 <StackPanel>
                                     <TextBlock Text="{Binding SelectedProjectTitle}" FontSize="24" FontWeight="SemiBold" />
                                     <TextBlock Margin="0,6,0,0"
-                                               Text="{Binding SelectedProject.SchedulingStatus, FallbackValue=璇烽€夋嫨宸︿晶椤圭洰}"
+                                               Text="{Binding SelectedProject.SchedulingStatus, FallbackValue=请选择左侧项目}"
                                                Foreground="{Binding SelectedProject.SchedulingStatusBrush}" />
                                     <TextBlock Margin="0,6,0,0"
                                                Text="{Binding SelectedProject.CurrentStepLabel}"
@@ -334,7 +334,7 @@
 
                                 <Border Background="{DynamicResource DesktopPanelAltBrush}" CornerRadius="16" Padding="16">
                                     <Grid ColumnDefinitions="170,*,Auto" ColumnSpacing="12">
-                                        <TextBlock VerticalAlignment="Center" Text="鍗曟鎵ц" Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                                        <TextBlock VerticalAlignment="Center" Text="单步执行" Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
                                         <ComboBox Grid.Column="1"
                                                   ItemsSource="{Binding StepOptions}"
                                                   SelectedItem="{Binding SelectedStepOption}"
@@ -342,7 +342,7 @@
                                         <Button Grid.Column="2"
                                                 MinWidth="120"
                                                 Command="{Binding RunSelectedStepCommand}"
-                                                Content="杩愯褰撳墠姝ラ" />
+                                                Content="运行当前步骤" />
                                     </Grid>
                                 </Border>
 
@@ -350,27 +350,27 @@
                                     <Button MinWidth="130"
                                             Margin="0,0,10,0"
                                             Command="{Binding RunSelectedProjectCommand}"
-                                            Content="閲嶆柊鎵ц椤圭洰" />
+                                            Content="重新执行项目" />
                                     <Button MinWidth="130"
                                             Margin="0,0,10,0"
                                             Command="{Binding RunSelectedTranscodeCommand}"
-                                            Content="鍙墽琛岃浆鐮?" />
+                                            Content="只执行转码" />
                                     <Button MinWidth="170"
                                             Margin="0,0,10,0"
                                             Command="{Binding RunSelectedProjectMaterialCommand}"
-                                            Content="涓€閿敓鎴愰」鐩礌鏉?" />
+                                            Content="一键生成项目素材" />
                                     <Button MinWidth="150"
                                             Margin="0,0,10,0"
                                             Command="{Binding RunSelectedWeixinUploadCommand}"
-                                            Content="鍙墽琛屼笂浼犲墽闆?" />
+                                            Content="只执行上传剧集" />
                                     <Button MinWidth="150"
                                             Margin="0,0,10,0"
                                             Command="{Binding RunSelectedWeixinMaterialUploadCommand}"
-                                            Content="鍙墽琛屼笂浼犵礌鏉?" />
+                                            Content="只执行上传素材" />
                                     <Button MinWidth="130"
                                             Margin="0,0,10,0"
                                             Command="{Binding StopCurrentRunCommand}"
-                                            Content="鍋滄褰撳墠姝ラ" />
+                                            Content="停止当前步骤" />
                                 </WrapPanel>
 
                                 <Border Background="{DynamicResource DesktopPanelAltBrush}" CornerRadius="16" Padding="16">
@@ -395,7 +395,7 @@
                                                 </ComboBox.ItemTemplate>
                                             </ComboBox>
                                             <CheckBox Grid.Column="2"
-                                                      Content="鍙湅澶辫触"
+                                                      Content="只看失败"
                                                       IsChecked="{Binding OnlyShowFailedLogs}"
                                                       VerticalAlignment="Center" />
                                         </Grid>
@@ -417,16 +417,16 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="鐜">
+            <TabItem Header="环境">
                 <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="18" Padding="18">
                     <Grid RowDefinitions="Auto,*" RowSpacing="14">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <TextBlock VerticalAlignment="Center"
                                        FontSize="20"
                                        FontWeight="SemiBold"
-                                       Text="澶栭儴渚濊禆妫€娴?" />
-                            <Button Content="鍒锋柊渚濊禆鐘舵€?" Command="{Binding RefreshDependenciesCommand}" />
-                            <Button Content="鎵ц渚濊禆娴嬭瘯" Command="{Binding TestDependenciesCommand}" />
+                                       Text="外部依赖检测" />
+                            <Button Content="刷新依赖状态" Command="{Binding RefreshDependenciesCommand}" />
+                            <Button Content="执行依赖测试" Command="{Binding TestDependenciesCommand}" />
                         </StackPanel>
 
                         <ListBox Grid.Row="1" ItemsSource="{Binding Dependencies}">
@@ -451,7 +451,7 @@
                                                            TextWrapping="Wrap" />
                                             </Grid>
                                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                                                <TextBlock Text="鎻愮ず" Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                                                <TextBlock Text="提示" Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
                                                 <TextBlock Grid.Column="1"
                                                            Text="{Binding Hint}"
                                                            Foreground="{DynamicResource DesktopTextSecondaryBrush}"

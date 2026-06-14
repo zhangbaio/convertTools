@@ -64,7 +64,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
     {
         if (!Directory.Exists(request.ProjectDir))
         {
-            return new WeixinUploadResult(false, request.ProjectDir, request.ConfigPath, "涓婁紶椤圭洰鐩綍涓嶅瓨鍦ㄣ€");
+            return new WeixinUploadResult(false, request.ProjectDir, request.ConfigPath, "上传项目目录不存在。");
         }
 
         var resolvedConfigPath = ResolveConfigPath(request);
@@ -175,7 +175,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             return publishResult;
         }
 
-        progress?.Report($"寰俊鍓ч泦涓婁紶锛氭鍦ㄥ鑸埌 {config.Navigation.Section} -> {config.Navigation.Item} -> {config.Navigation.EntryButton}");
+        progress?.Report($"微信剧集上传：正在导航到 {config.Navigation.Section} -> {config.Navigation.Item} -> {config.Navigation.EntryButton}");
         var resolution = await ExecuteSeriesStageAsync(
             request,
             config,
@@ -244,7 +244,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             request,
             config,
             "second-page-before-upload",
-            "鎵ц绗簩椤典笂浼犲墠鍔ㄤ綔",
+            "执行第二页上传前动作",
             () => _seriesSubmissionPage.ExecuteSecondPageActionsBeforeUploadAsync(page, config, progress, cancellationToken),
             progress,
             cancellationToken);
@@ -270,7 +270,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             request,
             config,
             "second-page-after-upload",
-            "鎵ц绗簩椤典笂浼犲悗鍔ㄤ綔",
+            "执行第二页上传后动作",
             () => _seriesSubmissionPage.ExecuteSecondPageActionsAfterUploadAsync(page, config, progress, cancellationToken),
             progress,
             cancellationToken);
@@ -284,7 +284,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             "weixin-series-second-page.png",
             cancellationToken);
         await _homePage.SaveDebugArtifactsAsync(page, config, "weixin-series-second-page", cancellationToken);
-        progress?.Report($"寰俊鍓ч泦涓婁紶锛氱浜岄〉瑙嗛涓婁紶宸插畬鎴愶紝鎴浘宸蹭繚瀛樺埌 {secondPageScreenshotPath}");
+        progress?.Report($"微信剧集上传：第二页视频上传已完成，截图已保存到 {secondPageScreenshotPath}");
 
         resolution = await ExecuteSeriesStageAsync(
             request,
@@ -308,7 +308,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             "weixin-series-submit-page.png",
             cancellationToken);
         await _homePage.SaveDebugArtifactsAsync(page, config, "weixin-series-submit-page", cancellationToken);
-        progress?.Report($"寰俊鍓ч泦涓婁紶锛氭彁瀹￠〉宸插氨缁紝鎴浘宸蹭繚瀛樺埌 {submitPageScreenshotPath}");
+        progress?.Report($"微信剧集上传：提审页已就绪，截图已保存到 {submitPageScreenshotPath}");
 
         var decision = await WaitForSeriesOperatorAsync(
             request,
@@ -461,7 +461,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                         Entries = UpsertMaterialPublishEntry(
                             publishState.Entries,
                             publishItem.EpisodeIndex.ToString(),
-                            new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "鐢ㄦ埛鍋滄"))
+                            new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "用户停止"))
                     });
                     return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "寰俊绱犳潗涓婁紶宸插仠姝紝鍙户缁繍琛屻€");
                 }
