@@ -1,0 +1,53 @@
+{
+  "id": "image-template-project-image-3",
+  "name": "图片模板工程图 3",
+  "mode": "image_template",
+  "count": 5,
+  "templates": [
+    {
+      "file": "工程图_1.png",
+      "regions": {
+        "player": { "x": 900, "y": 180, "width": 1455, "height": 1080 },
+        "material_panel": { "x": 262, "y": 327, "width": 240, "height": 194 },
+        "timeline_strip": { "x": 267, "y": 1637, "width": 2728, "height": 78 },
+        "timeline_marker": { "x": 267, "y": 1602, "width": 6, "height": 148 }
+      }
+    },
+    {
+      "file": "工程图_2.png",
+      "regions": {
+        "player": { "x": 900, "y": 180, "width": 1455, "height": 1080 },
+        "material_panel": { "x": 262, "y": 327, "width": 240, "height": 194 },
+        "timeline_strip": { "x": 267, "y": 1637, "width": 2728, "height": 78 },
+        "timeline_marker": { "x": 267, "y": 1602, "width": 6, "height": 148 }
+      }
+    },
+    {
+      "file": "工程图_3.png",
+      "regions": {
+        "player": { "x": 900, "y": 180, "width": 1455, "height": 1080 },
+        "material_panel": { "x": 262, "y": 327, "width": 240, "height": 194 },
+        "timeline_strip": { "x": 267, "y": 1637, "width": 2728, "height": 78 },
+        "timeline_marker": { "x": 267, "y": 1602, "width": 6, "height": 148 }
+      }
+    },
+    {
+      "file": "工程图_4.png",
+      "regions": {
+        "player": { "x": 900, "y": 180, "width": 1455, "height": 1080 },
+        "material_panel": { "x": 262, "y": 327, "width": 240, "height": 194 },
+        "timeline_strip": { "x": 267, "y": 1637, "width": 2728, "height": 78 },
+        "timeline_marker": { "x": 267, "y": 1602, "width": 6, "height": 148 }
+      }
+    },
+    {
+      "file": "工程图_5.png",
+      "regions": {
+        "player": { "x": 900, "y": 180, "width": 1455, "height": 1080 },
+        "material_panel": { "x": 262, "y": 327, "width": 240, "height": 194 },
+        "timeline_strip": { "x": 267, "y": 1637, "width": 2728, "height": 78 },
+        "timeline_marker": { "x": 267, "y": 1602, "width": 6, "height": 148 }
+      }
+    }
+  ]
+}

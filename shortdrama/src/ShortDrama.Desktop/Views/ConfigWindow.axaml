@@ -1,287 +1,73 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="ShortDrama.Desktop.Views.ConfigWindow"
-        Width="980"
-        Height="860"
-        MinWidth="860"
-        MinHeight="760"
+        Width="1100"
+        Height="900"
+        MinWidth="920"
+        MinHeight="780"
         Title="流程配置">
 
-    <Grid RowDefinitions="Auto,*,Auto" Margin="20">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="20" RowSpacing="16">
         <Border Background="{DynamicResource DesktopPanelBrush}"
                 CornerRadius="18"
-                Padding="18"
-                Margin="0,0,0,16">
-            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
-                <TextBlock VerticalAlignment="Center"
-                           Text="{Binding ConfigFilePath, FallbackValue=未定位到 config.txt}"
+                Padding="18">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="10">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding ConfigFilePath, FallbackValue=未定位到 config.txt}"
+                               Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="1" Content="选择工作目录" Click="PickRootDir_Click" />
+                    <Button Grid.Column="2" Content="定位项目配置" Command="{Binding OpenConfigFileCommand}" />
+                    <Button Grid.Column="3" Content="定位全局配置" Command="{Binding OpenGlobalSettingsFileCommand}" />
+                </Grid>
+                <TextBlock Grid.Row="1"
+                           Text="{Binding GlobalSettingsFilePath, FallbackValue=未定位到 global-settings.json}"
                            Foreground="{DynamicResource DesktopTextSecondaryBrush}"
                            TextWrapping="Wrap" />
-                <Button Grid.Column="1" Content="选择工作目录" Click="PickRootDir_Click" />
-                <Button Grid.Column="2" Content="选择模板目录" Click="PickProjectImageTemplateDir_Click" />
-                <Button Grid.Column="3" Content="选择报表模板" Click="PickTemplateDocx_Click" />
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="16">
-            <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="16" Padding="16">
-                <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
-                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-                        <TextBlock VerticalAlignment="Center"
-                                   Text="{Binding ConfigValidationSummary}"
-                                   FontSize="18"
-                                   FontWeight="SemiBold" />
-                        <Button Grid.Column="1" Content="定位配置文件" Command="{Binding OpenConfigFileCommand}" />
-                        <Button Grid.Column="2" Content="立即校验" Command="{Binding ValidateConfigCommand}" />
-                    </Grid>
-
-                    <TextBlock Grid.Row="1"
-                               Text="配置项已按模块拆分，优先在对应页签内维护。"
-                               Foreground="{DynamicResource DesktopTextSecondaryBrush}"
-                               TextWrapping="Wrap" />
-
-                    <ListBox Grid.Row="2"
-                             MaxHeight="220"
-                             ItemsSource="{Binding ConfigIssues}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Border Margin="0,0,0,8" Padding="12" CornerRadius="12" Background="{DynamicResource DesktopPanelAltBrush}">
-                                    <Grid ColumnDefinitions="70,*" ColumnSpacing="10">
-                                        <TextBlock Text="{Binding Severity}" FontWeight="SemiBold" />
-                                        <TextBlock Grid.Column="1" Text="{Binding Message}" TextWrapping="Wrap" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+        <Border Grid.Row="1"
+                Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="16"
+                Padding="16">
+            <Grid RowDefinitions="Auto,*" RowSpacing="10">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding ConfigValidationSummary}"
+                               FontSize="18"
+                               FontWeight="SemiBold" />
+                    <Button Grid.Column="1" Content="立即校验" Command="{Binding ValidateConfigCommand}" />
+                    <Button Grid.Column="2" Content="重新加载" Command="{Binding ReloadConfigCommand}" />
                 </Grid>
-            </Border>
 
-            <TabControl Grid.Row="1">
-                <TabItem Header="基础">
-                    <ScrollViewer>
-                        <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="16" Padding="16">
-                            <Grid ColumnDefinitions="220,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="12">
-                                <TextBlock Text="工作目录" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1" Text="{Binding RootDir}" />
-                                <TextBlock Grid.Row="1" Text="公司名称" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding CompanyName}" />
-                                <TextBlock Grid.Row="2" Text="搜索分页大小" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SearchPageSize}" Watermark="默认 20" />
-                                <TextBlock Grid.Row="3" Text="成本报表模板" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding TemplateDocxPath}" />
-                            </Grid>
-                        </Border>
-                    </ScrollViewer>
-                </TabItem>
-
-                <TabItem Header="文本模型">
-                    <ScrollViewer>
-                        <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="16" Padding="16">
-                            <Grid ColumnDefinitions="220,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="12">
-                                <TextBlock Text="文本模型 ID" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1" Text="{Binding ChatModelId}" />
-                                <TextBlock Grid.Row="1" Text="文本模型密钥" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ChatModelApiKey}" />
-                                <TextBlock Grid.Row="2" Text="文本模型地址" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ChatModelEndpoint}" />
-                            </Grid>
-                        </Border>
-                    </ScrollViewer>
-                </TabItem>
-
-                <TabItem Header="AI 文案">
-                    <ScrollViewer>
-                        <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="16" Padding="16">
-                            <Grid ColumnDefinitions="220,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="12">
-                                <TextBlock Text="文案接口地址" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1" Text="{Binding AiTextEndpoint}" />
-                                <TextBlock Grid.Row="1" Text="文案 API Key" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding AiTextApiKey}" />
-                                <TextBlock Grid.Row="2" Text="文案模型名称" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding AiTextModel}" />
-                                <TextBlock Grid.Row="3" Text="请求超时（秒）" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding AiTextTimeoutSeconds}" />
-                                <TextBlock Grid.Row="4" Text="单批项目数" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding AiTextMaxBatchSize}" />
-                                <TextBlock Grid.Row="5" Text="System Prompt" VerticalAlignment="Top" />
-                                <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding AiTextSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="120" />
-                                <TextBlock Grid.Row="6" Text="Batch Prompt" VerticalAlignment="Top" />
-                                <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding AiTextBatchPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="220" />
-                                <TextBlock Grid.Row="7" Text="Retry Prompt" VerticalAlignment="Top" />
-                                <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding AiTextRetryPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="140" />
-                            </Grid>
-                        </Border>
-                    </ScrollViewer>
-                </TabItem>
-
-                <TabItem Header="剧集信息配置">
-                    <ScrollViewer>
-                        <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="16" Padding="16">
-                            <Grid ColumnDefinitions="220,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="12">
-                                <TextBlock Text="变现类型" VerticalAlignment="Center" />
-                                <ComboBox Grid.Column="1"
-                                          ItemsSource="{Binding WeixinMonetizationTypeOptions}"
-                                          SelectedItem="{Binding WeixinMonetizationType}" />
-                                <TextBlock Grid.Row="1" Text="剧目类型" VerticalAlignment="Center" />
-                                <ComboBox Grid.Row="1"
-                                          Grid.Column="1"
-                                          ItemsSource="{Binding WeixinDramaTypeOptions}"
-                                          SelectedItem="{Binding WeixinDramaType}" />
-                                <TextBlock Grid.Row="2" Text="剧目资质" VerticalAlignment="Center" />
-                                <ComboBox Grid.Row="2"
-                                          Grid.Column="1"
-                                          ItemsSource="{Binding WeixinDramaQualificationOptions}"
-                                          SelectedItem="{Binding WeixinDramaQualification}" />
-                                <TextBlock Grid.Row="3" Text="提审身份" VerticalAlignment="Center" />
-                                <ComboBox Grid.Row="3"
-                                          Grid.Column="1"
-                                          ItemsSource="{Binding WeixinSubmitterIdentityOptions}"
-                                          SelectedItem="{Binding WeixinSubmitterIdentity}" />
-                                <TextBlock Grid.Row="4" Text="试看集数" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding WeixinTrialEpisodes}" />
-                                <CheckBox Grid.Row="5" Grid.ColumnSpan="2"
-                                          Content="填写推荐语"
-                                          IsChecked="{Binding WeixinFillRecommendation}" />
-                                <TextBlock Grid.Row="6" Text="提审记录目录" VerticalAlignment="Center" />
-                                <Grid Grid.Row="6" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-                                    <TextBox Text="{Binding WeixinSubmissionReportDir}" />
-                                    <Button Grid.Column="1" Content="浏览" Click="PickWeixinSubmissionReportDir_Click" />
-                                    <Button Grid.Column="2" Content="清空" Click="ClearWeixinSubmissionReportDir_Click" />
+                <ListBox Grid.Row="1"
+                         MaxHeight="220"
+                         ItemsSource="{Binding ConfigIssues}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Margin="0,0,0,8"
+                                    Padding="12"
+                                    CornerRadius="12"
+                                    Background="{DynamicResource DesktopPanelAltBrush}">
+                                <Grid ColumnDefinitions="70,*" ColumnSpacing="10">
+                                    <TextBlock Text="{Binding Severity}" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Message}" TextWrapping="Wrap" />
                                 </Grid>
-                            </Grid>
-                        </Border>
-                    </ScrollViewer>
-                </TabItem>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
 
-                <TabItem Header="提交配置">
-                    <ScrollViewer>
-                        <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="16" Padding="16">
-                            <Grid ColumnDefinitions="220,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="12">
-                                <CheckBox Grid.ColumnSpan="2"
-                                          Content="无头模式（Headless）"
-                                          IsChecked="{Binding WeixinHeadless}" />
-                                <TextBlock Grid.Row="1" Text="操作间隔（ms）" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding WeixinSlowMoMs}" />
-                                <TextBlock Grid.Row="2" Text="运行结束保持浏览器（秒）" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding WeixinKeepOpenSeconds}" />
-                                <TextBlock Grid.Row="3" Text="扫码登录超时（秒）" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding WeixinLoginTimeoutSeconds}" />
-                                <CheckBox Grid.Row="4" Grid.ColumnSpan="2"
-                                          Content="启用提审（submit enabled）"
-                                          IsChecked="{Binding WeixinSubmitEnabled}" />
-                                <CheckBox Grid.Row="5" Grid.ColumnSpan="2"
-                                          Content="上传出错时询问人工接管"
-                                          IsChecked="{Binding WeixinPauseOnError}" />
-                                <CheckBox Grid.Row="6" Grid.ColumnSpan="2"
-                                          Content="保存 HTML 快照"
-                                          IsChecked="{Binding WeixinSaveHtml}" />
-                                <CheckBox Grid.Row="7" Grid.ColumnSpan="2"
-                                          Content="保存页面文本"
-                                          IsChecked="{Binding WeixinSaveText}" />
-                            </Grid>
-                        </Border>
-                    </ScrollViewer>
-                </TabItem>
+        <TabControl Grid.Row="2" x:Name="SettingsTabControl" />
 
-                <TabItem Header="图片模型">
-                    <ScrollViewer>
-                        <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="16" Padding="16">
-                            <Grid ColumnDefinitions="220,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="12">
-                                <TextBlock Text="出图模型 ID" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1" Text="{Binding ImageModelId}" />
-                                <TextBlock Grid.Row="1" Text="出图模型密钥" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ImageModelApiKey}" />
-                                <TextBlock Grid.Row="2" Text="出图模型地址" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ImageModelEndpoint}" />
-                                <TextBlock Grid.Row="3" Text="图片编辑路径" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ImageEditPath}" />
-                                <TextBlock Grid.Row="4" Text="图片编辑模型 ID" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ImageEditModelId}" />
-                                <TextBlock Grid.Row="5" Text="图片编辑模型密钥" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding ImageEditApiKey}" />
-                                <TextBlock Grid.Row="6" Text="图片编辑模型地址" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding ImageEditEndpoint}" />
-                                <TextBlock Grid.Row="7" Text="布局检测 Prompt" VerticalAlignment="Top" />
-                                <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding PosterLayoutDetectPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="140" />
-                                <TextBlock Grid.Row="8" Text="局部改字 Prompt" VerticalAlignment="Top" />
-                                <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding PosterInpaintPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="140" />
-                                <TextBlock Grid.Row="9" Text="局部改字安全 Prompt" VerticalAlignment="Top" />
-                                <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding PosterInpaintSafeRetryPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="120" />
-                                <TextBlock Grid.Row="10" Text="整图改字 Prompt" VerticalAlignment="Top" />
-                                <TextBox Grid.Row="10" Grid.Column="1" Text="{Binding PosterGenerationPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="140" />
-                                <TextBlock Grid.Row="11" Text="整图改字安全 Prompt" VerticalAlignment="Top" />
-                                <TextBox Grid.Row="11" Grid.Column="1" Text="{Binding PosterGenerationSafeRetryPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="120" />
-                                <TextBlock Grid.Row="12" Text="海报名 System Prompt" VerticalAlignment="Top" />
-                                <TextBox Grid.Row="12" Grid.Column="1" Text="{Binding PosterNameSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" />
-                                <TextBlock Grid.Row="13" Text="海报名 User Prompt" VerticalAlignment="Top" />
-                                <TextBox Grid.Row="13" Grid.Column="1" Text="{Binding PosterNameUserPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="140" />
-                            </Grid>
-                        </Border>
-                    </ScrollViewer>
-                </TabItem>
-
-                <TabItem Header="视频转码">
-                    <ScrollViewer>
-                        <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="16" Padding="16">
-                            <Grid ColumnDefinitions="220,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="12">
-                                <TextBlock Text="短边分辨率" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1" Text="{Binding VideoRes}" />
-                                <TextBlock Grid.Row="1" Text="视频码率" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding VideoBitrateBps}" />
-                                <TextBlock Grid.Row="2" Text="码率模式" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding VideoBitrateMode}" />
-                                <TextBlock Grid.Row="3" Text="音频码率" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding VideoAudioBitrateBps}" />
-                                <TextBlock Grid.Row="4" Text="帧率" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding VideoFps}" />
-                                <TextBlock Grid.Row="5" Text="单项目并发数" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding VideoConcurrentCount}" Watermark="默认 1" />
-                                <TextBlock Grid.Row="6" Text="视频命名模板" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding VideoNameTemplate}" />
-                                <CheckBox Grid.Row="7" Grid.ColumnSpan="2"
-                                          Content="启用硬件编码加速"
-                                          IsChecked="{Binding VideoUseHardwareEncoder}" />
-                                <CheckBox Grid.Row="8" Grid.ColumnSpan="2"
-                                          Content="启用素材转换"
-                                          IsChecked="{Binding MaterialConvertEnabled}" />
-                                <TextBlock Grid.Row="9" Text="素材裁头（秒）" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding MaterialTrimHeadSeconds}" />
-                                <TextBlock Grid.Row="10" Text="素材裁尾（秒）" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="10" Grid.Column="1" Text="{Binding MaterialTrimTailSeconds}" />
-                                <TextBlock Grid.Row="11" Text="素材变速（%）" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="11" Grid.Column="1" Text="{Binding MaterialSpeedPercent}" />
-                                <TextBlock Grid.Row="12" Text="抽帧周期" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="12" Grid.Column="1" Text="{Binding MaterialDropEveryNFrames}" />
-                                <TextBlock Grid.Row="13" Text="每次抽掉帧数" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="13" Grid.Column="1" Text="{Binding MaterialDropCount}" />
-                                <TextBlock Grid.Row="14" Text="宽度裁切（%）" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="14" Grid.Column="1" Text="{Binding MaterialCropWidthPercent}" />
-                                <TextBlock Grid.Row="15" Text="高度裁切（%）" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="15" Grid.Column="1" Text="{Binding MaterialCropHeightPercent}" />
-                            </Grid>
-                        </Border>
-                    </ScrollViewer>
-                </TabItem>
-
-                <TabItem Header="工程图">
-                    <ScrollViewer>
-                        <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="16" Padding="16">
-                            <Grid ColumnDefinitions="220,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="12">
-                                <TextBlock Text="工程图数量" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1" Text="{Binding ProjectImageCount}" />
-                                <TextBlock Grid.Row="1" Text="工程图模板目录" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ProjectImageTemplateDir}" />
-                            </Grid>
-                        </Border>
-                    </ScrollViewer>
-                </TabItem>
-            </TabControl>
-        </Grid>
-
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
-            <Button Content="校验配置" Command="{Binding ValidateConfigCommand}" />
-            <Button Content="重新加载配置" Command="{Binding ReloadConfigCommand}" />
+        <StackPanel Grid.Row="3"
+                    Orientation="Horizontal"
+                    Spacing="10"
+                    HorizontalAlignment="Right">
             <Button Content="保存并关闭" Click="SaveAndClose_Click" />
             <Button Content="取消" Click="Cancel_Click" />
         </StackPanel>
