@@ -1,4 +1,4 @@
-using ShortDrama.Core.Interfaces;
+﻿using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Desktop.Models;
 using ShortDrama.Infrastructure.Automation;
@@ -26,6 +26,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private readonly HttpClient _httpClient;
     private readonly GlobalSettingsService _globalSettingsService;
+    private readonly HongguoLocalApiService _hglocalApiService;
     private readonly HongguoNewApiService _hgnewApiService;
     private readonly HongguoDramaSearchService _hgnewSearchService;
     private readonly HongguoDramaDownloader _hgnewDownloader;
@@ -39,6 +40,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     {
         _httpClient = httpClient;
         _globalSettingsService = globalSettingsService;
+        _hglocalApiService = new HongguoLocalApiService(httpClient);
         _hgnewApiService = hgnewApiService;
         _hgnewSearchService = hgnewSearchService;
         _hgnewDownloader = hgnewDownloader;
@@ -59,7 +61,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 var result = source switch
                 {
                     "hgnew" => await SearchHgnewAsync(keyword, page, settings, cancellationToken),
-                    "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
+                    "hglocal" => await SearchLocalViaServiceAsync(keyword, page, settings, cancellationToken),
                     "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken),
                     _ => []
                 };
@@ -86,6 +88,75 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     public async Task<IReadOnlyList<DramaSearchItem>> GetTodayAsync(CancellationToken cancellationToken)
     {
         var settings = _globalSettingsService.Load();
+        return await LoadNewReleaseAsync(
+            settings,
+            hgnewLoader: ct => _hgnewApiService.GetTodayNewAsync(settings, "djnew", ct),
+            hglocalLoader: ct => _hglocalApiService.GetTodayNewAsync(settings, "short_play", ct),
+            cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DramaSearchItem>> GetMangaTodayAsync(int days, CancellationToken cancellationToken)
+    {
+        var settings = _globalSettingsService.Load();
+        return await LoadNewReleaseAsync(
+            settings,
+            hgnewLoader: ct => LoadHgnewMangaTodayAsync(settings, days, ct),
+            hglocalLoader: ct => _hglocalApiService.GetLatestByGenreAsync(settings, "comic_series", days, ct),
+            cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(int days, CancellationToken cancellationToken)
+    {
+        var settings = _globalSettingsService.Load();
+        return await LoadNewReleaseAsync(
+            settings,
+            hgnewLoader: ct => LoadHgnewAiTodayAsync(settings, days, ct),
+            hglocalLoader: ct => _hglocalApiService.GetLatestByGenreAsync(settings, "ai_series", days, ct),
+            cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)
+    {
+        var settings = _globalSettingsService.Load();
+        return await LoadNewReleaseAsync(
+            settings,
+            hgnewLoader: ct => LoadHgnewHistoryAsync(settings, days, ct),
+            hglocalLoader: ct => _hglocalApiService.GetLatestByGenreAsync(settings, "short_play", days, ct),
+            cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> SearchHgnewAsync(
+        string keyword,
+        int page,
+        GlobalConfigSnapshot settings,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _hgnewApiService.SearchAsync(settings, keyword, page, cancellationToken);
+        }
+        catch
+        {
+            // Fall back to the legacy proxy-based search when the authenticated path is unavailable.
+            return await _hgnewSearchService.SearchAsync(keyword, page, cancellationToken);
+        }
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> SearchLocalViaServiceAsync(
+        string keyword,
+        int page,
+        GlobalConfigSnapshot settings,
+        CancellationToken cancellationToken)
+    {
+        return await _hglocalApiService.SearchAsync(settings, keyword, page, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> LoadNewReleaseAsync(
+        GlobalConfigSnapshot settings,
+        Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> hgnewLoader,
+        Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> hglocalLoader,
+        CancellationToken cancellationToken)
+    {
         Exception? lastError = null;
 
         foreach (var source in ResolveServiceOrder(settings.DramaServiceOrderNewRelease, NewReleaseDefaults, settings.DramaSourceChain))
@@ -94,8 +165,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             {
                 var result = source switch
                 {
-                    "hgnew" => await _hgnewApiService.GetTodayNewAsync(settings, "djnew", cancellationToken),
-                    "hglocal" => await GetLocalTodayAsync(settings, cancellationToken),
+                    "hgnew" => await hgnewLoader(cancellationToken),
+                    "hglocal" => await hglocalLoader(cancellationToken),
                     _ => []
                 };
 
@@ -118,14 +189,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return [];
     }
 
-    public async Task<IReadOnlyList<DramaSearchItem>> GetMangaTodayAsync(int days, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<DramaSearchItem>> LoadHgnewMangaTodayAsync(
+        GlobalConfigSnapshot settings,
+        int days,
+        CancellationToken cancellationToken)
     {
-        var settings = _globalSettingsService.Load();
-        if (string.Equals((settings.DramaSourceChain ?? string.Empty).Trim(), "hglocal", StringComparison.OrdinalIgnoreCase))
-        {
-            return await GetLatestByGenreAsync(settings, "comic_series", days, cancellationToken);
-        }
-
         try
         {
             return await _hgnewApiService.GetDailyByDatesAsync(
@@ -142,14 +210,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
     }
 
-    public async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(int days, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<DramaSearchItem>> LoadHgnewAiTodayAsync(
+        GlobalConfigSnapshot settings,
+        int days,
+        CancellationToken cancellationToken)
     {
-        var settings = _globalSettingsService.Load();
-        if (string.Equals((settings.DramaSourceChain ?? string.Empty).Trim(), "hglocal", StringComparison.OrdinalIgnoreCase))
-        {
-            return await GetLatestByGenreAsync(settings, "ai_series", days, cancellationToken);
-        }
-
         try
         {
             return await _hgnewApiService.GetDailyByDatesAsync(
@@ -166,14 +231,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
     }
 
-    public async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<DramaSearchItem>> LoadHgnewHistoryAsync(
+        GlobalConfigSnapshot settings,
+        int days,
+        CancellationToken cancellationToken)
     {
-        var settings = _globalSettingsService.Load();
-        if (string.Equals((settings.DramaSourceChain ?? string.Empty).Trim(), "hglocal", StringComparison.OrdinalIgnoreCase))
-        {
-            return await GetLatestByGenreAsync(settings, "short_play", days, cancellationToken);
-        }
-
         try
         {
             return await _hgnewApiService.GetHistoryByDatesAsync(
@@ -187,23 +249,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             return await FilterByRecentDaysAsync(
                 () => _hgnewSearchService.GetTodayAsync(cancellationToken),
                 days);
-        }
-    }
-
-    private async Task<IReadOnlyList<DramaSearchItem>> SearchHgnewAsync(
-        string keyword,
-        int page,
-        GlobalConfigSnapshot settings,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await _hgnewApiService.SearchAsync(settings, keyword, page, cancellationToken);
-        }
-        catch
-        {
-            // Fall back to the legacy proxy-based search when the authenticated path is unavailable.
-            return await _hgnewSearchService.SearchAsync(keyword, page, cancellationToken);
         }
     }
 
@@ -221,8 +266,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 request,
                 progress,
                 cancellationToken,
-                resolveEpisodes: ct => GetLocalEpisodesAsync(bookId, settings, ct),
-                resolveVideo: (videoId, quality, ct) => GetLocalVideoUrlAsync(videoId, settings, ct),
+                resolveEpisodes: ct => GetLocalEpisodesViaServiceAsync(bookId, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetLocalVideoUrlViaServiceAsync(videoId, settings, ct),
                 posterPrefix: HongguoLocalBookPrefix);
         }
 
@@ -382,85 +427,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
     }
 
-    private async Task<IReadOnlyList<DramaSearchItem>> SearchLocalAsync(
-        string keyword,
-        int page,
-        GlobalConfigSnapshot settings,
-        CancellationToken cancellationToken)
-    {
-        var baseUrl = NormalizeLocalBaseUrl(settings.HongguoLocalBaseUrl);
-        if (string.IsNullOrWhiteSpace(baseUrl))
-        {
-            throw new InvalidOperationException("未配置 hglocal 地址。");
-        }
-
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            $"{baseUrl}/search?q={Uri.EscapeDataString(keyword)}&limit=40&page={Math.Max(1, page)}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.TryAddWithoutValidation("User-Agent", "ShortDramaDesktop/1.0");
-        if (!string.IsNullOrWhiteSpace(settings.HongguoLocalApiKey))
-        {
-            request.Headers.TryAddWithoutValidation("x-api-key", settings.HongguoLocalApiKey);
-        }
-
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if (!document.RootElement.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array)
-        {
-            return [];
-        }
-
-        return results.EnumerateArray()
-            .Where(item => item.ValueKind == JsonValueKind.Object)
-            .Select(item => new DramaSearchItem(
-                BookId: EnsurePrefixed(GetString(item, "series_id") ?? GetString(item, "book_id") ?? GetString(item, "id"), HongguoLocalBookPrefix),
-                Title: GetString(item, "title") ?? GetString(item, "name") ?? string.Empty,
-                Category: GetString(item, "category") ?? GetString(item, "type") ?? string.Empty,
-                EpisodeTotal: GetInt(item, "episode_cnt") ?? GetInt(item, "episode_total") ?? GetInt(item, "total") ?? 0,
-                Intro: GetString(item, "intro") ?? GetString(item, "description") ?? GetString(item, "desc") ?? string.Empty,
-                PosterUrl: GetString(item, "cover") ?? GetString(item, "poster") ?? GetString(item, "poster_url") ?? string.Empty,
-                Author: GetString(item, "author") ?? GetString(item, "producer") ?? GetString(item, "copyright") ?? string.Empty,
-                PublishTime: GetString(item, "publish_time") ?? GetString(item, "first_seen") ?? GetString(item, "created_at") ?? string.Empty,
-                FavoriteCount: GetInt(item, "favorite_count") ?? GetInt(item, "collect_count") ?? 0))
-            .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
-            .ToArray();
-    }
-
-    private async Task<IReadOnlyList<DramaSearchItem>> GetLocalTodayAsync(
-        GlobalConfigSnapshot settings,
-        CancellationToken cancellationToken)
-    {
-        var baseUrl = NormalizeLocalBaseUrl(settings.HongguoLocalBaseUrl);
-        if (string.IsNullOrWhiteSpace(baseUrl))
-        {
-            throw new InvalidOperationException("未配置 hglocal 地址。");
-        }
-
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            $"{baseUrl}/latest?genre=short_play&only_today=true&limit=1000");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.TryAddWithoutValidation("User-Agent", "ShortDramaDesktop/1.0");
-        if (!string.IsNullOrWhiteSpace(settings.HongguoLocalApiKey))
-        {
-            request.Headers.TryAddWithoutValidation("x-api-key", settings.HongguoLocalApiKey);
-        }
-
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if (!document.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
-        {
-            return [];
-        }
-
-        var today = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        return MapLocalItems(items.EnumerateArray()
-            .Where(item => item.ValueKind == JsonValueKind.Object && IsTodayItem(item, today)));
-    }
-
     private async Task<IReadOnlyList<DramaSearchItem>> SearchPikachuAsync(
         string keyword,
         int page,
@@ -549,42 +515,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return results;
     }
 
-    private async Task<IReadOnlyList<DramaSearchItem>> GetLatestByGenreAsync(
-        GlobalConfigSnapshot settings,
-        string genre,
-        int days,
-        CancellationToken cancellationToken)
-    {
-        var baseUrl = NormalizeLocalBaseUrl(settings.HongguoLocalBaseUrl);
-        if (string.IsNullOrWhiteSpace(baseUrl))
-        {
-            throw new InvalidOperationException("当前数据源未配置 hglocal，本功能暂不可用。");
-        }
-
-        var queryDays = Math.Clamp(days, 1, 30);
-        var onlyTodayQuery = queryDays <= 1 ? "&only_today=true" : string.Empty;
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            $"{baseUrl}/latest?genre={Uri.EscapeDataString(genre)}{onlyTodayQuery}&limit=1000");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.TryAddWithoutValidation("User-Agent", "ShortDramaDesktop/1.0");
-        if (!string.IsNullOrWhiteSpace(settings.HongguoLocalApiKey))
-        {
-            request.Headers.TryAddWithoutValidation("x-api-key", settings.HongguoLocalApiKey);
-        }
-
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if (!document.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
-        {
-            return [];
-        }
-
-        var mapped = MapLocalItems(items.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.Object));
-        return FilterByRecentDays(mapped, queryDays);
-    }
-
     private static async Task<IReadOnlyList<DramaSearchItem>> FilterByRecentDaysAsync(
         Func<Task<IReadOnlyList<DramaSearchItem>>> loader,
         int days)
@@ -653,76 +583,53 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             .ToArray();
     }
 
-    private async Task<IReadOnlyList<SourceEpisode>> GetLocalEpisodesAsync(string prefixedBookId, GlobalConfigSnapshot settings, CancellationToken cancellationToken)
+    private Task<IReadOnlyList<DramaSearchItem>> SearchLocalAsync(
+        string keyword,
+        int page,
+        GlobalConfigSnapshot settings,
+        CancellationToken cancellationToken)
     {
-        var baseUrl = NormalizeLocalBaseUrl(settings.HongguoLocalBaseUrl);
-        var bookId = StripPrefix(prefixedBookId, HongguoLocalBookPrefix);
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/episodes?series_id={Uri.EscapeDataString(bookId)}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.TryAddWithoutValidation("User-Agent", "ShortDramaDesktop/1.0");
-        if (!string.IsNullOrWhiteSpace(settings.HongguoLocalApiKey))
-        {
-            request.Headers.TryAddWithoutValidation("x-api-key", settings.HongguoLocalApiKey);
-        }
-
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if (!document.RootElement.TryGetProperty("episodes", out var episodes) || episodes.ValueKind != JsonValueKind.Array)
-        {
-            return [];
-        }
-
-        var result = new List<SourceEpisode>();
-        var index = 1;
-        foreach (var item in episodes.EnumerateArray())
-        {
-            if (item.ValueKind != JsonValueKind.Object)
-            {
-                continue;
-            }
-
-            var videoId = GetString(item, "vid") ?? GetString(item, "video_id") ?? GetString(item, "id");
-            if (string.IsNullOrWhiteSpace(videoId))
-            {
-                continue;
-            }
-
-            var episodeNumber = GetInt(item, "index") ?? index;
-            result.Add(new SourceEpisode(
-                episodeNumber,
-                GetString(item, "title") ?? $"第{episodeNumber}集",
-                EnsurePrefixed(videoId, HongguoLocalEpisodePrefix),
-                GetString(item, "cover") ?? string.Empty));
-            index++;
-        }
-
-        return result;
+        return _hglocalApiService.SearchAsync(settings, keyword, page, cancellationToken);
     }
 
-    private async Task<SourceVideoDetail> GetLocalVideoUrlAsync(string prefixedVideoId, GlobalConfigSnapshot settings, CancellationToken cancellationToken)
+    private Task<IReadOnlyList<DramaSearchItem>> GetLocalTodayAsync(
+        GlobalConfigSnapshot settings,
+        CancellationToken cancellationToken)
     {
-        var baseUrl = NormalizeLocalBaseUrl(settings.HongguoLocalBaseUrl);
-        var videoId = StripPrefix(prefixedVideoId, HongguoLocalEpisodePrefix);
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/video_url?vid={Uri.EscapeDataString(videoId)}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.TryAddWithoutValidation("User-Agent", "ShortDramaDesktop/1.0");
-        if (!string.IsNullOrWhiteSpace(settings.HongguoLocalApiKey))
-        {
-            request.Headers.TryAddWithoutValidation("x-api-key", settings.HongguoLocalApiKey);
-        }
+        return _hglocalApiService.GetTodayNewAsync(settings, "short_play", cancellationToken);
+    }
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        var root = document.RootElement;
-        var url = GetString(root, "url") ?? GetString(root, "play_url") ?? GetString(root, "playUrl") ?? GetString(root, "video_url");
-        if (string.IsNullOrWhiteSpace(url))
-        {
-            throw new InvalidOperationException("hglocal 未返回可用播放链接。");
-        }
+    private Task<IReadOnlyList<DramaSearchItem>> GetLatestByGenreAsync(
+        GlobalConfigSnapshot settings,
+        string genre,
+        int days,
+        CancellationToken cancellationToken)
+    {
+        return _hglocalApiService.GetLatestByGenreAsync(settings, genre, days, cancellationToken);
+    }
 
-        return new SourceVideoDetail(url);
+    private async Task<IReadOnlyList<SourceEpisode>> GetLocalEpisodesAsync(
+        string prefixedBookId,
+        GlobalConfigSnapshot settings,
+        CancellationToken cancellationToken)
+    {
+        var episodes = await _hglocalApiService.GetEpisodesAsync(settings, prefixedBookId, cancellationToken);
+        return episodes
+            .Select(item => new SourceEpisode(
+                item.EpisodeNumber,
+                item.Title,
+                item.VideoId,
+                item.PosterUrl))
+            .ToArray();
+    }
+
+    private async Task<SourceVideoDetail> GetLocalVideoUrlAsync(
+        string prefixedVideoId,
+        GlobalConfigSnapshot settings,
+        CancellationToken cancellationToken)
+    {
+        var detail = await _hglocalApiService.GetVideoPlaybackAsync(settings, prefixedVideoId, cancellationToken);
+        return new SourceVideoDetail(detail.Url);
     }
 
     private async Task<IReadOnlyList<SourceEpisode>> GetPikachuEpisodesAsync(string prefixedBookId, GlobalConfigSnapshot settings, CancellationToken cancellationToken)
@@ -794,6 +701,30 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private async Task<SourceVideoDetail> GetHgnewVideoUrlAsync(string videoId, string quality, GlobalConfigSnapshot settings, CancellationToken cancellationToken)
     {
         var detail = await _hgnewApiService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
+        return new SourceVideoDetail(detail.Url);
+    }
+
+    private async Task<IReadOnlyList<SourceEpisode>> GetLocalEpisodesViaServiceAsync(
+        string prefixedBookId,
+        GlobalConfigSnapshot settings,
+        CancellationToken cancellationToken)
+    {
+        var items = await _hglocalApiService.GetEpisodesAsync(settings, prefixedBookId, cancellationToken);
+        return items
+            .Select(item => new SourceEpisode(
+                item.EpisodeNumber,
+                item.Title,
+                item.VideoId,
+                item.PosterUrl))
+            .ToArray();
+    }
+
+    private async Task<SourceVideoDetail> GetLocalVideoUrlViaServiceAsync(
+        string prefixedVideoId,
+        GlobalConfigSnapshot settings,
+        CancellationToken cancellationToken)
+    {
+        var detail = await _hglocalApiService.GetVideoPlaybackAsync(settings, prefixedVideoId, cancellationToken);
         return new SourceVideoDetail(detail.Url);
     }
 
@@ -1012,9 +943,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (items.Count == 0 && !string.IsNullOrWhiteSpace(legacyFirst))
+        if (!string.IsNullOrWhiteSpace(legacyFirst) &&
+            defaults.Contains(legacyFirst, StringComparer.OrdinalIgnoreCase))
         {
-            items.Add(legacyFirst.Trim().ToLowerInvariant());
+            var preferred = legacyFirst.Trim().ToLowerInvariant();
+            items.RemoveAll(item => string.Equals(item, preferred, StringComparison.OrdinalIgnoreCase));
+            items.Insert(0, preferred);
         }
 
         foreach (var item in defaults)

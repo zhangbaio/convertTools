@@ -183,66 +183,55 @@ public sealed class HongguoNewApiServiceTests
 
     private static GlobalConfigSnapshot CreateSettings()
     {
-        return new GlobalConfigSnapshot(
-            SettingsFilePath: "C:\\temp\\global-settings.json",
-            DramaSourceChain: "hgnew",
-            DramaServiceOrderSearch: "hgnew,hglocal,pikachu",
-            DramaServiceOrderDownload: "hgnew,hglocal,pikachu",
-            DramaServiceOrderNewRelease: "hgnew,hglocal",
-            DramaServiceOrderRanking: "hglocal,pikachu",
-            XingeEnabled: false,
-            XingeServerUrl: string.Empty,
-            XingeUsername: string.Empty,
-            XingePassword: string.Empty,
-            XingeClientId: string.Empty,
-            XingeClientToken: string.Empty,
-            XingeUserRole: string.Empty,
-            XingeClientName: string.Empty,
-            XingeWsEnabled: true,
-            XingePollIntervalSeconds: "3",
-            XingeUploadLoginQr: true,
-            HgnewAccount: "test@example.com",
-            HgnewPassword: "secret",
-            HgnewUdid: "64437E32-40BB-440C-8300-99232D63E8F7",
-            HgnewClientVersion: "1.3.6",
-            HongguoLocalBaseUrl: string.Empty,
-            HongguoLocalApiKey: string.Empty,
-            PikachuServerUrl: string.Empty,
-            PikachuFanqieCookie: string.Empty,
-            PikachuDramaType: "short",
-            AiTextEndpoint: string.Empty,
-            AiTextApiKey: string.Empty,
-            AiTextModel: string.Empty,
-            AiTextTimeoutSeconds: string.Empty,
-            AiTextMaxBatchSize: string.Empty,
-            AiTextSystemPrompt: string.Empty,
-            AiTextBatchPrompt: string.Empty,
-            AiTextRetryPrompt: string.Empty,
-            ImageModelId: string.Empty,
-            ImageModelApiKey: string.Empty,
-            ImageModelEndpoint: string.Empty,
-            ImageEditModelId: string.Empty,
-            ImageEditApiKey: string.Empty,
-            ImageEditEndpoint: string.Empty,
-            ImageEditPath: string.Empty,
-            PosterLayoutDetectPrompt: string.Empty,
-            PosterInpaintPrompt: string.Empty,
-            PosterInpaintSafeRetryPrompt: string.Empty,
-            PosterGenerationPrompt: string.Empty,
-            PosterGenerationSafeRetryPrompt: string.Empty,
-            PosterNameSystemPrompt: string.Empty,
-            PosterNameUserPrompt: string.Empty,
-            FeishuNotificationEnabled: false,
-            FeishuAppId: string.Empty,
-            FeishuAppSecret: string.Empty,
-            FeishuReceiveId: string.Empty,
-            FeishuReceiveIdType: "chat_id",
-            FeishuNotifyOnStepStart: false,
-            FeishuNotifyOnStepSuccess: true,
-            FeishuNotifyOnStepFailure: true,
-            FeishuNotifyOnQueueSummary: true,
-            FeishuNotifyOnLoginQr: true,
-            FeishuNotifyStepKeysText: string.Empty);
+        return CreateSnapshot(new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["SettingsFilePath"] = "C:\\temp\\global-settings.json",
+            ["DramaSourceChain"] = "hgnew",
+            ["DramaServiceOrderSearch"] = "hgnew,hglocal,pikachu",
+            ["DramaServiceOrderDownload"] = "hgnew,hglocal,pikachu",
+            ["DramaServiceOrderNewRelease"] = "hgnew,hglocal",
+            ["DramaServiceOrderRanking"] = "hglocal,pikachu",
+            ["XingeEnabled"] = false,
+            ["XingeWsEnabled"] = true,
+            ["XingePollIntervalSeconds"] = "3",
+            ["XingeUploadLoginQr"] = true,
+            ["HgnewAccount"] = "test@example.com",
+            ["HgnewPassword"] = "secret",
+            ["HgnewUdid"] = "64437E32-40BB-440C-8300-99232D63E8F7",
+            ["HgnewClientVersion"] = "1.3.6",
+            ["PikachuDramaType"] = "short",
+            ["FeishuReceiveIdType"] = "chat_id",
+            ["FeishuNotifyOnStepSuccess"] = true,
+            ["FeishuNotifyOnStepFailure"] = true,
+            ["FeishuNotifyOnQueueSummary"] = true,
+            ["FeishuNotifyOnLoginQr"] = true,
+        });
+    }
+
+    private static GlobalConfigSnapshot CreateSnapshot(IReadOnlyDictionary<string, object?> values)
+    {
+        var ctor = typeof(GlobalConfigSnapshot).GetConstructors().Single();
+        var args = ctor.GetParameters()
+            .Select(parameter => values.TryGetValue(parameter.Name ?? string.Empty, out var value)
+                ? value
+                : GetDefaultValue(parameter.ParameterType))
+            .ToArray();
+        return (GlobalConfigSnapshot)ctor.Invoke(args);
+    }
+
+    private static object? GetDefaultValue(Type type)
+    {
+        if (type == typeof(string))
+        {
+            return string.Empty;
+        }
+
+        if (type == typeof(bool))
+        {
+            return false;
+        }
+
+        return type.IsValueType ? Activator.CreateInstance(type) : null;
     }
 
     private static string EncryptOuter(object innerData)
