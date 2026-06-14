@@ -345,18 +345,6 @@ public partial class MainWindowViewModel : ViewModelBase
     private WorkflowStepOption? selectedExecutionModeOption;
 
     [ObservableProperty]
-    private bool queueStepDownloadEnabled = true;
-
-    [ObservableProperty]
-    private bool queueStepProjectMaterialEnabled = true;
-
-    [ObservableProperty]
-    private bool queueStepEpisodeUploadEnabled = false;
-
-    [ObservableProperty]
-    private bool queueStepMaterialUploadEnabled = false;
-
-    [ObservableProperty]
     private bool isTaskQueueDetailOpen;
 
     [ObservableProperty]
@@ -678,10 +666,6 @@ public partial class MainWindowViewModel : ViewModelBase
     partial void OnSelectedStepOptionChanged(WorkflowStepOption? value) => RefreshCommandStates();
 
     partial void OnSelectedExecutionModeOptionChanged(WorkflowStepOption? value) => RefreshCommandStates();
-    partial void OnQueueStepDownloadEnabledChanged(bool value) => RefreshCommandStates();
-    partial void OnQueueStepProjectMaterialEnabledChanged(bool value) => RefreshCommandStates();
-    partial void OnQueueStepEpisodeUploadEnabledChanged(bool value) => RefreshCommandStates();
-    partial void OnQueueStepMaterialUploadEnabledChanged(bool value) => RefreshCommandStates();
 
     partial void OnSelectedProjectLogFilterChanged(LogFilterOption? value) => ApplyActivityLogFilter();
 
@@ -806,13 +790,13 @@ public partial class MainWindowViewModel : ViewModelBase
         !IsBusy &&
         CanOperateWithRootDir() &&
         Projects.Any(item => item.IsChecked) &&
-        HasAnyQueueStepSelected();
+        HasAnyTaskQueueStepSelected();
 
     private bool CanRunCurrentTask() =>
         !IsBusy &&
         CanOperateWithRootDir() &&
         SelectedProject is not null &&
-        HasAnyQueueStepSelected();
+        HasAnyTaskQueueStepSelected();
 
     private bool CanArchiveSelectedProject() =>
         CanOperateWithRootDir() &&
@@ -2162,7 +2146,7 @@ public partial class MainWindowViewModel : ViewModelBase
         project.MarkRunning("任务队列");
         ClearLogsForProject(project.ProjectKey);
 
-        var selectedSteps = GetQueueSelectedSteps();
+        var selectedSteps = GetTaskQueueSelectedSteps();
         var prefix = total > 1 ? $"[{index}/{total}] " : string.Empty;
 
         foreach (var (stepKey, stepLabel) in selectedSteps)
@@ -2207,40 +2191,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         project.MarkCompleted();
-    }
-
-    private (string Key, string Label)[] GetQueueSelectedSteps()
-    {
-        var steps = new List<(string Key, string Label)>();
-        if (QueueStepDownloadEnabled)
-        {
-            steps.Add(("download", "下载剧集"));
-        }
-
-        if (QueueStepProjectMaterialEnabled)
-        {
-            steps.Add(("__project-material__", "生成项目素材"));
-        }
-
-        if (QueueStepEpisodeUploadEnabled)
-        {
-            steps.Add(("weixin-upload", "剧集上传"));
-        }
-
-        if (QueueStepMaterialUploadEnabled)
-        {
-            steps.Add(("weixin-material-upload", "素材上传"));
-        }
-
-        return steps.ToArray();
-    }
-
-    private bool HasAnyQueueStepSelected()
-    {
-        return QueueStepDownloadEnabled ||
-               QueueStepProjectMaterialEnabled ||
-               QueueStepEpisodeUploadEnabled ||
-               QueueStepMaterialUploadEnabled;
     }
 
     private async Task ExecuteCheckedProjectsSerialAsync(
@@ -2807,6 +2757,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 "project-image" => "project-image",
                 "cost-report" => "cost-report",
                 "batch-file-rename" => "batch-file-rename",
+                "material-convert" => "material-convert",
                 "weixin-upload" => "weixin-upload",
                 "weixin-material-upload" => "weixin-material-upload",
                 _ => stepKey

@@ -11,7 +11,7 @@ public partial class MainWindowViewModel
     private string taskQueueFilterText = string.Empty;
 
     public string TaskQueueSummary =>
-        $"项目数: {Projects.Count} | 当前筛选: {FilteredProjects.Count} | 已勾选: {Projects.Count(item => item.IsChecked)} | 启用步骤: {GetQueueSelectedSteps().Length}";
+        $"项目数: {Projects.Count} | 当前筛选: {FilteredProjects.Count} | 已勾选: {Projects.Count(item => item.IsChecked)} | 启用步骤: {GetTaskQueueSelectedSteps().Length}";
 
     partial void OnTaskQueueFilterTextChanged(string value)
     {
@@ -54,9 +54,19 @@ public partial class MainWindowViewModel
 
         return Contains(project.OriginalTitle, token)
                || Contains(project.NewTitle, token)
+               || Contains(project.SourceSummary, token)
+               || Contains(project.EpisodeCountText, token)
+               || Contains(project.VideoSizeSummary, token)
+               || Contains(project.CreatedAtSummary, token)
                || Contains(project.SchedulingStatus, token)
                || Contains(project.DownloadNodeStatus, token)
                || Contains(project.ProjectMaterialNodeStatus, token)
+               || Contains(project.TranscodeStepStatus, token)
+               || Contains(project.RewriteStepStatus, token)
+               || Contains(project.PosterRenameStepStatus, token)
+               || Contains(project.CostReportStepStatus, token)
+               || Contains(project.ProjectImageStepStatus, token)
+               || Contains(project.MaterialConvertStepStatus, token)
                || Contains(project.EpisodeUploadNodeStatus, token)
                || Contains(project.MaterialUploadNodeStatus, token)
                || Contains(project.SourceProjectDir, token)

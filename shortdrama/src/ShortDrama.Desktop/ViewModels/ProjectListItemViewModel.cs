@@ -19,7 +19,7 @@ public partial class ProjectListItemViewModel : ViewModelBase
     private static readonly Regex DownloadProgressRegex = new(@"\[(\d+)/(\d+)\].*?(\d+(?:\.\d+)?)%", RegexOptions.Compiled);
     private static readonly Regex DownloadSpeedRegex = new(@"(\d+(?:\.\d+)?)\s*(KB|MB|GB)/s", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex FractionProgressRegex = new(@"\b(\d+)/(\d+)\b", RegexOptions.Compiled);
-    private static readonly string[] ProjectMaterialStepKeys = ["transcode", "rewrite", "poster-rename", "project-image", "cost-report", "batch-file-rename"];
+    private static readonly string[] ProjectMaterialStepKeys = ["transcode", "rewrite", "poster-rename", "project-image", "cost-report", "batch-file-rename", "material-convert"];
     private readonly Dictionary<int, double> _downloadEpisodeProgress = [];
     private readonly Dictionary<int, string> _downloadEpisodeSpeeds = [];
     private readonly HashSet<int> _transcodedEpisodes = [];
@@ -121,10 +121,40 @@ public partial class ProjectListItemViewModel : ViewModelBase
     private string dramaInfoSummary = "未知";
 
     [ObservableProperty]
+    private string sourceSummary = "本地项目";
+
+    [ObservableProperty]
+    private string episodeCountText = "-";
+
+    [ObservableProperty]
+    private string videoSizeSummary = "-";
+
+    [ObservableProperty]
+    private string createdAtSummary = "-";
+
+    [ObservableProperty]
     private string downloadStepStatus = "未开始";
 
     [ObservableProperty]
     private string transcodeStepStatus = "未开始";
+
+    [ObservableProperty]
+    private string rewriteStepStatus = "未开始";
+
+    [ObservableProperty]
+    private string posterRenameStepStatus = "未开始";
+
+    [ObservableProperty]
+    private string costReportStepStatus = "未开始";
+
+    [ObservableProperty]
+    private string projectImageStepStatus = "未开始";
+
+    [ObservableProperty]
+    private string batchFileRenameStepStatus = "未开始";
+
+    [ObservableProperty]
+    private string materialConvertStepStatus = "未开始";
 
     [ObservableProperty]
     private string episodeUploadStepStatus = "未开始";
@@ -138,6 +168,12 @@ public partial class ProjectListItemViewModel : ViewModelBase
     public IBrush SchedulingStatusBrush => ResolveStatusBrush(SchedulingStatus);
     public IBrush DownloadStepStatusBrush => ResolveStatusBrush(DownloadStepStatus);
     public IBrush TranscodeStepStatusBrush => ResolveStatusBrush(TranscodeStepStatus);
+    public IBrush RewriteStepStatusBrush => ResolveStatusBrush(RewriteStepStatus);
+    public IBrush PosterRenameStepStatusBrush => ResolveStatusBrush(PosterRenameStepStatus);
+    public IBrush CostReportStepStatusBrush => ResolveStatusBrush(CostReportStepStatus);
+    public IBrush ProjectImageStepStatusBrush => ResolveStatusBrush(ProjectImageStepStatus);
+    public IBrush BatchFileRenameStepStatusBrush => ResolveStatusBrush(BatchFileRenameStepStatus);
+    public IBrush MaterialConvertStepStatusBrush => ResolveStatusBrush(MaterialConvertStepStatus);
     public IBrush EpisodeUploadStepStatusBrush => ResolveStatusBrush(EpisodeUploadStepStatus);
     public IBrush MaterialUploadStepStatusBrush => ResolveStatusBrush(MaterialUploadStepStatus);
     public string DownloadNodeStatus => NormalizeNodeStatus(DownloadStepStatus);
@@ -170,19 +206,15 @@ public partial class ProjectListItemViewModel : ViewModelBase
     public string GetProjectMaterialStepStatus(string stepKey)
     {
         stepKey = stepKey.Trim();
-        if (string.Equals(stepKey, "transcode", StringComparison.Ordinal))
-        {
-            return TranscodeStepStatus;
-        }
-
-        var stepStates = ReadStepStates(WorkflowProjectDir) ?? ReadStepStates(SourceProjectDir);
         return stepKey switch
         {
-            "rewrite" => ResolveStepStatus("rewrite", stepStates, File.Exists(Path.Combine(WorkflowProjectDir ?? string.Empty, "短剧信息.txt"))),
-            "poster-rename" => ResolveStepStatus("poster-rename", stepStates, File.Exists(Path.Combine(WorkflowProjectDir ?? string.Empty, "海报图片.jpg"))),
-            "project-image" => ResolveStepStatus("project-image", stepStates, CountProjectImages(WorkflowProjectDir) > 0),
-            "cost-report" => ResolveStepStatus("cost-report", stepStates, File.Exists(Path.Combine(WorkflowProjectDir ?? string.Empty, "成本报表.png"))),
-            "batch-file-rename" => ResolveStepStatus("batch-file-rename", stepStates, HasRenamedWorkflowVideos()),
+            "transcode" => TranscodeStepStatus,
+            "rewrite" => RewriteStepStatus,
+            "poster-rename" => PosterRenameStepStatus,
+            "project-image" => ProjectImageStepStatus,
+            "cost-report" => CostReportStepStatus,
+            "batch-file-rename" => BatchFileRenameStepStatus,
+            "material-convert" => MaterialConvertStepStatus,
             _ => "未开始"
         };
     }
@@ -201,6 +233,11 @@ public partial class ProjectListItemViewModel : ViewModelBase
             },
             "cost-report" => File.Exists(Path.Combine(WorkflowProjectDir ?? string.Empty, "成本报表.png")) ? "成本报表已生成" : "等待生成成本报表",
             "batch-file-rename" => HasRenamedWorkflowVideos() ? "视频文件名已同步" : "等待重命名视频文件",
+            "material-convert" => CountVideoFiles(Path.Combine(WorkflowProjectDir ?? string.Empty, "material-videos")) switch
+            {
+                > 0 and var count => $"素材视频 {count} 个",
+                _ => "等待转换素材视频"
+            },
             _ => "待开始"
         };
     }
@@ -215,6 +252,12 @@ public partial class ProjectListItemViewModel : ViewModelBase
         OnPropertyChanged(nameof(DownloadNodeForegroundBrush));
     }
     partial void OnTranscodeStepStatusChanged(string value) => OnPropertyChanged(nameof(TranscodeStepStatusBrush));
+    partial void OnRewriteStepStatusChanged(string value) => OnPropertyChanged(nameof(RewriteStepStatusBrush));
+    partial void OnPosterRenameStepStatusChanged(string value) => OnPropertyChanged(nameof(PosterRenameStepStatusBrush));
+    partial void OnCostReportStepStatusChanged(string value) => OnPropertyChanged(nameof(CostReportStepStatusBrush));
+    partial void OnProjectImageStepStatusChanged(string value) => OnPropertyChanged(nameof(ProjectImageStepStatusBrush));
+    partial void OnBatchFileRenameStepStatusChanged(string value) => OnPropertyChanged(nameof(BatchFileRenameStepStatusBrush));
+    partial void OnMaterialConvertStepStatusChanged(string value) => OnPropertyChanged(nameof(MaterialConvertStepStatusBrush));
     partial void OnEpisodeUploadStepStatusChanged(string value)
     {
         OnPropertyChanged(nameof(EpisodeUploadStepStatusBrush));
@@ -352,10 +395,15 @@ public partial class ProjectListItemViewModel : ViewModelBase
         _downloadExpectedEpisodes = expectedEpisodes;
         var sourcePosterExists = FindSourcePoster(SourceProjectDir, metadata.Title ?? DisplayName);
         var workflowVideoCount = CountVideoFiles(Path.Combine(WorkflowProjectDir ?? string.Empty, "videos"));
+        var materialVideoCount = CountVideoFiles(Path.Combine(WorkflowProjectDir ?? string.Empty, "material-videos"));
         var workflowPosterExists = File.Exists(Path.Combine(WorkflowProjectDir ?? string.Empty, "海报图片.jpg"));
         var workflowProjectImageCount = CountProjectImages(WorkflowProjectDir);
         var workflowCostExists = File.Exists(Path.Combine(WorkflowProjectDir ?? string.Empty, "成本报表.png"));
 
+        SourceSummary = ResolveSourceSummary(metadata);
+        EpisodeCountText = expectedEpisodes > 0 ? expectedEpisodes.ToString() : "-";
+        VideoSizeSummary = FormatFileSize(CountVideoBytes(SourceProjectDir));
+        CreatedAtSummary = FormatCreatedAt(project.CreatedAt);
         MaterialSummary =
             $"视频 {VideoCount} / 海报 {(sourcePosterExists || workflowPosterExists ? "有" : "无")} / 工程图 {workflowProjectImageCount} / 报表 {(workflowCostExists ? "有" : "无")}";
         DramaInfoSummary = BuildDramaInfoSummary(metadata);
@@ -381,9 +429,15 @@ public partial class ProjectListItemViewModel : ViewModelBase
         var stepStates = ReadStepStates(WorkflowProjectDir) ?? ReadStepStates(SourceProjectDir);
         DownloadStepStatus = ResolveDownloadStepStatus(stepStates, downloadInspection);
         TranscodeStepStatus = ResolveStepStatus("transcode", stepStates, workflowVideoCount > 0);
+        RewriteStepStatus = ResolveStepStatus("rewrite", stepStates, File.Exists(Path.Combine(WorkflowProjectDir ?? string.Empty, "短剧信息.txt")));
+        PosterRenameStepStatus = ResolveStepStatus("poster-rename", stepStates, File.Exists(Path.Combine(WorkflowProjectDir ?? string.Empty, "海报图片.jpg")));
+        ProjectImageStepStatus = ResolveStepStatus("project-image", stepStates, workflowProjectImageCount > 0);
+        CostReportStepStatus = ResolveStepStatus("cost-report", stepStates, workflowCostExists);
+        BatchFileRenameStepStatus = ResolveStepStatus("batch-file-rename", stepStates, HasRenamedWorkflowVideos());
+        MaterialConvertStepStatus = ResolveStepStatus("material-convert", stepStates, materialVideoCount > 0);
         EpisodeUploadStepStatus = ResolveStepStatus("weixin-upload", stepStates, false);
         MaterialUploadStepStatus = ResolveStepStatus("weixin-material-upload", stepStates, false);
-        ProjectMaterialNodeStatus = ResolveProjectMaterialNodeStatus(stepStates);
+        RefreshProjectMaterialNodeStatus();
 
         _transcodeTotalEpisodes = expectedEpisodes > 0 ? expectedEpisodes : workflowVideoCount;
         for (var index = 1; index <= workflowVideoCount; index++)
@@ -565,6 +619,7 @@ public partial class ProjectListItemViewModel : ViewModelBase
     private void ApplyTranscodeProgress(WorkRunEvent evt)
     {
         TranscodeStepStatus = ResolveRuntimeStepStatus(evt, TranscodeStepStatus);
+        RefreshProjectMaterialNodeStatus();
 
         if (string.Equals(evt.Kind, "step-completed", StringComparison.Ordinal) ||
             string.Equals(evt.Kind, "step-skipped", StringComparison.Ordinal))
@@ -747,14 +802,75 @@ public partial class ProjectListItemViewModel : ViewModelBase
 
     private void ApplyProjectMaterialProgress(WorkRunEvent evt)
     {
-        ProjectMaterialNodeStatus = evt.Kind switch
+        if (string.IsNullOrWhiteSpace(evt.StepType))
         {
-            "step-started" or "step-output" => "处理中",
-            "step-failed" => "失败",
-            "step-cancelled" => "未完成",
-            "step-skipped" or "step-completed" when string.Equals(evt.StepType, "batch-file-rename", StringComparison.Ordinal) => "已完成",
-            _ => ProjectMaterialNodeStatus
+            return;
+        }
+
+        var nextStatus = ResolveRuntimeStepStatus(evt, GetProjectMaterialStepStatus(evt.StepType));
+        switch (evt.StepType)
+        {
+            case "rewrite":
+                RewriteStepStatus = nextStatus;
+                break;
+            case "poster-rename":
+                PosterRenameStepStatus = nextStatus;
+                break;
+            case "project-image":
+                ProjectImageStepStatus = nextStatus;
+                break;
+            case "cost-report":
+                CostReportStepStatus = nextStatus;
+                break;
+            case "batch-file-rename":
+                BatchFileRenameStepStatus = nextStatus;
+                break;
+            case "material-convert":
+                MaterialConvertStepStatus = nextStatus;
+                break;
+        }
+
+        RefreshProjectMaterialNodeStatus();
+    }
+
+    private void RefreshProjectMaterialNodeStatus()
+    {
+        var statuses = new[]
+        {
+            TranscodeStepStatus,
+            RewriteStepStatus,
+            PosterRenameStepStatus,
+            ProjectImageStepStatus,
+            CostReportStepStatus,
+            BatchFileRenameStepStatus,
+            MaterialConvertStepStatus
         };
+
+        if (statuses.All(status => string.Equals(status, "已完成", StringComparison.Ordinal)))
+        {
+            ProjectMaterialNodeStatus = "已完成";
+            return;
+        }
+
+        if (statuses.Any(status => string.Equals(status, "失败", StringComparison.Ordinal)))
+        {
+            ProjectMaterialNodeStatus = "失败";
+            return;
+        }
+
+        if (statuses.Any(status => string.Equals(status, "进行中", StringComparison.Ordinal)))
+        {
+            ProjectMaterialNodeStatus = "处理中";
+            return;
+        }
+
+        if (statuses.Any(status => string.Equals(status, "待继续", StringComparison.Ordinal) || string.Equals(status, "已停止", StringComparison.Ordinal)))
+        {
+            ProjectMaterialNodeStatus = "待继续";
+            return;
+        }
+
+        ProjectMaterialNodeStatus = "未完成";
     }
 
     private void UpdateOverallProgress()
@@ -1046,10 +1162,21 @@ public partial class ProjectListItemViewModel : ViewModelBase
                 episodeCount = InferEpisodeCountFromLocalVideos(sourceProjectDir);
             }
 
+            var sourceLabel = GetString(root, "source")
+                ?? GetString(root, "sourceName")
+                ?? GetString(root, "source_name")
+                ?? GetString(root, "sourceType")
+                ?? GetString(root, "source_type")
+                ?? GetString(root, "downloadSource")
+                ?? GetString(root, "download_source");
+            var bookId = GetString(root, "bookId") ?? GetString(root, "book_id");
+
             return new ProjectMetadataSnapshot(
                 Title: GetString(root, "title") ?? GetString(root, "originalTitle"),
                 Category: GetString(root, "category"),
-                EpisodeCount: episodeCount);
+                EpisodeCount: episodeCount,
+                SourceLabel: sourceLabel,
+                HasBookId: !string.IsNullOrWhiteSpace(bookId));
         }
         catch
         {
@@ -1074,6 +1201,21 @@ public partial class ProjectListItemViewModel : ViewModelBase
         }
 
         return parts.Count == 0 ? "信息待补充" : string.Join(" / ", parts);
+    }
+
+    private static string ResolveSourceSummary(ProjectMetadataSnapshot metadata)
+    {
+        if (!string.IsNullOrWhiteSpace(metadata.SourceLabel))
+        {
+            return metadata.SourceLabel!;
+        }
+
+        return metadata.HasBookId ? "下载页" : "本地项目";
+    }
+
+    private static string FormatCreatedAt(DateTimeOffset? createdAt)
+    {
+        return createdAt?.LocalDateTime.ToString("yyyy-MM-dd HH:mm") ?? "-";
     }
 
     private static bool FindSourcePoster(string sourceProjectDir, string displayName)
@@ -1106,6 +1248,50 @@ public partial class ProjectListItemViewModel : ViewModelBase
             .Count(path => VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase));
     }
 
+    private static long CountVideoBytes(string? directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        {
+            return 0L;
+        }
+
+        long total = 0;
+        foreach (var path in Directory.EnumerateFiles(directory, "*.*", SearchOption.TopDirectoryOnly)
+                     .Where(path => VideoExtensions.Any(extension => string.Equals(extension, Path.GetExtension(path), StringComparison.OrdinalIgnoreCase))))
+        {
+            try
+            {
+                total += new FileInfo(path).Length;
+            }
+            catch
+            {
+            }
+        }
+
+        return total;
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes <= 0)
+        {
+            return "-";
+        }
+
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        double value = bytes;
+        var unitIndex = 0;
+        while (value >= 1024d && unitIndex < units.Length - 1)
+        {
+            value /= 1024d;
+            unitIndex++;
+        }
+
+        return unitIndex == 0
+            ? $"{value:0} {units[unitIndex]}"
+            : $"{value:0.#} {units[unitIndex]}";
+    }
+
     private static int CountProjectImages(string? workflowProjectDir)
     {
         if (string.IsNullOrWhiteSpace(workflowProjectDir) || !Directory.Exists(workflowProjectDir))
@@ -1113,7 +1299,7 @@ public partial class ProjectListItemViewModel : ViewModelBase
             return 0;
         }
 
-        return Directory.EnumerateFiles(workflowProjectDir, "工程图_*.png", SearchOption.TopDirectoryOnly).Count();
+        return Directory.EnumerateFiles(workflowProjectDir, "工程图*.png", SearchOption.TopDirectoryOnly).Count();
     }
 
     private bool HasRenamedWorkflowVideos()
@@ -1621,8 +1807,13 @@ public partial class ProjectListItemViewModel : ViewModelBase
         return null;
     }
 
-    private sealed record ProjectMetadataSnapshot(string? Title, string? Category, int EpisodeCount)
+    private sealed record ProjectMetadataSnapshot(
+        string? Title,
+        string? Category,
+        int EpisodeCount,
+        string? SourceLabel,
+        bool HasBookId)
     {
-        public static ProjectMetadataSnapshot Empty { get; } = new(null, null, 0);
+        public static ProjectMetadataSnapshot Empty { get; } = new(null, null, 0, null, false);
     }
 }

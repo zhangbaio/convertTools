@@ -38,40 +38,6 @@ public partial class TranscodeTemplateView : UserControl
         VideoPresetComboBox.ItemsSource = new[] { "veryfast", "fast", "medium" };
     }
 
-    private CheckBox MaterialConvertEnabledCheckBox => this.FindControl<CheckBox>(nameof(MaterialConvertEnabledCheckBox))!;
-    private TextBlock ConfigPathTextBlock => this.FindControl<TextBlock>(nameof(ConfigPathTextBlock))!;
-    private Button ReloadButton => this.FindControl<Button>(nameof(ReloadButton))!;
-    private Button ResetProfilesButton => this.FindControl<Button>(nameof(ResetProfilesButton))!;
-    private Button SaveButton => this.FindControl<Button>(nameof(SaveButton))!;
-    private ComboBox VideoEncoderComboBox => this.FindControl<ComboBox>(nameof(VideoEncoderComboBox))!;
-    private ComboBox VideoPresetComboBox => this.FindControl<ComboBox>(nameof(VideoPresetComboBox))!;
-    private TextBox NvencCqTextBox => this.FindControl<TextBox>(nameof(NvencCqTextBox))!;
-    private TextBox NvencMaxParallelTextBox => this.FindControl<TextBox>(nameof(NvencMaxParallelTextBox))!;
-    private CheckBox VerboseTranscodeLogCheckBox => this.FindControl<CheckBox>(nameof(VerboseTranscodeLogCheckBox))!;
-    private CheckBox SkipBitrateDownscaleCheckBox => this.FindControl<CheckBox>(nameof(SkipBitrateDownscaleCheckBox))!;
-    private TextBox UploadTargetBitrateTextBox => this.FindControl<TextBox>(nameof(UploadTargetBitrateTextBox))!;
-    private TextBox UploadMaxBitrateTextBox => this.FindControl<TextBox>(nameof(UploadMaxBitrateTextBox))!;
-    private TextBox UploadMinBitrateTextBox => this.FindControl<TextBox>(nameof(UploadMinBitrateTextBox))!;
-    private TextBox UploadAudioBitrateTextBox => this.FindControl<TextBox>(nameof(UploadAudioBitrateTextBox))!;
-    private CheckBox UploadFallbackEnabledCheckBox => this.FindControl<CheckBox>(nameof(UploadFallbackEnabledCheckBox))!;
-    private TextBox UploadFallbackBitrateTextBox => this.FindControl<TextBox>(nameof(UploadFallbackBitrateTextBox))!;
-    private CheckBox Profile720EnabledCheckBox => this.FindControl<CheckBox>(nameof(Profile720EnabledCheckBox))!;
-    private TextBox Profile720MinTextBox => this.FindControl<TextBox>(nameof(Profile720MinTextBox))!;
-    private TextBox Profile720MaxTextBox => this.FindControl<TextBox>(nameof(Profile720MaxTextBox))!;
-    private TextBox Profile720BitrateTextBox => this.FindControl<TextBox>(nameof(Profile720BitrateTextBox))!;
-    private TextBox Profile720AudioTextBox => this.FindControl<TextBox>(nameof(Profile720AudioTextBox))!;
-    private CheckBox Profile1080EnabledCheckBox => this.FindControl<CheckBox>(nameof(Profile1080EnabledCheckBox))!;
-    private TextBox Profile1080MinTextBox => this.FindControl<TextBox>(nameof(Profile1080MinTextBox))!;
-    private TextBox Profile1080MaxTextBox => this.FindControl<TextBox>(nameof(Profile1080MaxTextBox))!;
-    private TextBox Profile1080BitrateTextBox => this.FindControl<TextBox>(nameof(Profile1080BitrateTextBox))!;
-    private TextBox Profile1080AudioTextBox => this.FindControl<TextBox>(nameof(Profile1080AudioTextBox))!;
-    private CheckBox Profile2kEnabledCheckBox => this.FindControl<CheckBox>(nameof(Profile2kEnabledCheckBox))!;
-    private TextBox Profile2kMinTextBox => this.FindControl<TextBox>(nameof(Profile2kMinTextBox))!;
-    private TextBox Profile2kMaxTextBox => this.FindControl<TextBox>(nameof(Profile2kMaxTextBox))!;
-    private TextBox Profile2kBitrateTextBox => this.FindControl<TextBox>(nameof(Profile2kBitrateTextBox))!;
-    private TextBox Profile2kAudioTextBox => this.FindControl<TextBox>(nameof(Profile2kAudioTextBox))!;
-    private TextBlock StatusTextBlock => this.FindControl<TextBlock>(nameof(StatusTextBlock))!;
-
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
         if (_mainWindowViewModel is not null)
