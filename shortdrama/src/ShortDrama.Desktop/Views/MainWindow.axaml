@@ -193,7 +193,7 @@
                             Background="{DynamicResource DesktopPanelBrush}"
                             CornerRadius="18"
                             Padding="16">
-                        <StackPanel Spacing="12">
+                        <Grid RowDefinitions="Auto,*" RowSpacing="12">
                             <Border Background="{DynamicResource DesktopPanelAltBrush}" CornerRadius="14" Padding="12">
                                 <Grid ColumnDefinitions="64,2.2*,1.2*,90,110,120,150,2.8*" ColumnSpacing="12">
                                     <TextBlock Text="勾选" FontWeight="SemiBold" />
@@ -207,9 +207,12 @@
                                 </Grid>
                             </Border>
 
-                            <ListBox ItemsSource="{Binding SearchResults}"
+                            <ListBox Grid.Row="1"
+                                     ItemsSource="{Binding SearchResults}"
                                      SelectedItem="{Binding SelectedSearchResult}"
-                                     MinHeight="420">
+                                     MinHeight="420"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Border Margin="0,0,0,8"
@@ -253,7 +256,7 @@
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
-                        </StackPanel>
+                        </Grid>
                     </Border>
 
                 </Grid>
