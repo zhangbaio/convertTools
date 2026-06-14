@@ -1,0 +1,39 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ShortDrama.Desktop.Views.ArchiveMaterialPromptWindow"
+        Width="620"
+        Height="260"
+        MinWidth="560"
+        MinHeight="220"
+        Title="归档确认">
+
+    <Grid RowDefinitions="*,Auto" Margin="20" RowSpacing="16">
+        <Border Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="16"
+                Padding="16">
+            <StackPanel Spacing="12">
+                <TextBlock Text="检测到所选项目中存在“素材上传”未完成的项目。"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap" />
+                <TextBlock Text="归档时，是否保留 workflow/videos 中的第 2-4 集视频文件？"
+                           TextWrapping="Wrap" />
+                <TextBlock Text="保留后，其他视频文件仍会删除；仅归档后的 workflow/videos/ 第2-4集会被保留。"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
+        <StackPanel Grid.Row="1"
+                    Orientation="Horizontal"
+                    Spacing="10"
+                    HorizontalAlignment="Right">
+            <Button Content="取消"
+                    Click="Cancel_Click" />
+            <Button Content="不保留"
+                    Click="DeleteAll_Click" />
+            <Button Content="保留2-4集"
+                    Click="KeepEpisodes_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

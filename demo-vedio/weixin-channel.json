@@ -1,0 +1,283 @@
+{
+  "base_url": "https://channels.weixin.qq.com",
+  "auth_file": "/Users/zhangbiao/.weixin_channel_tool/runtime/wx_auth_state.json",
+  "output_dir": "/Users/zhangbiao/.weixin_channel_tool/output/weixin-channel-submit-五岁孤女闯东宫",
+  "browser": {
+    "headless": false,
+    "slow_mo_ms": 50,
+    "keep_open_seconds": 0
+  },
+  "login": {
+    "timeout_seconds": 300
+  },
+  "notify": {
+    "enabled": false
+  },
+  "debug": {
+    "log_file": "/Users/zhangbiao/.weixin_channel_tool/output/weixin-channel-submit-五岁孤女闯东宫/run.log",
+    "save_html": true,
+    "save_text": true
+  },
+  "navigation": {
+    "section": "收入与服务",
+    "item": "剧集管理",
+    "entry_button": "上架剧集"
+  },
+  "first_page": {
+    "next_button_text": "下一步",
+    "actions": [
+      {
+        "type": "fill",
+        "label": "剧目名称",
+        "value": "五岁孤女闯东宫"
+      },
+      {
+        "type": "fill",
+        "label": "剧目简介",
+        "control": "textarea",
+        "value": "将门孤女卫彤彤五岁被叔父推入东宫，为病弱太子冲喜，她凭赤诚良善化解深宫争斗，治愈孤寂太子，在冰冷深宫中活出温暖，守住了忠勇风骨"
+      },
+      {
+        "type": "fill",
+        "label": "推荐语",
+        "value": "五岁入宫冲喜，暖了整座冰冷东宫"
+      },
+      {
+        "type": "fill",
+        "label": "总集数",
+        "value": "49"
+      },
+      {
+        "type": "choose",
+        "field_label": "变现类型",
+        "option_text": "IAA广告变现"
+      },
+      {
+        "type": "fill",
+        "label": "试看集数",
+        "value": "3"
+      },
+      {
+        "type": "choose",
+        "field_label": "剧目类型",
+        "option_text": "真人"
+      },
+      {
+        "type": "set_checked",
+        "label": "AI内容声明",
+        "enabled": true
+      },
+      {
+        "type": "upload",
+        "label": "剧目海报",
+        "text": "选择图片",
+        "paths": [
+          "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/海报图片.png"
+        ]
+      },
+      {
+        "type": "upload",
+        "label": "推广海报",
+        "text": "选择图片",
+        "paths": [
+          "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/海报图片.png"
+        ]
+      },
+      {
+        "type": "choose",
+        "field_label": "提审身份",
+        "option_text": "剧目制作方"
+      },
+      {
+        "type": "fill",
+        "label": "制作方名称",
+        "value": "武汉云起漫影科技有限公司"
+      },
+      {
+        "type": "upload",
+        "label": "剧目制作证明材料",
+        "text": "选择文件",
+        "paths": [
+          "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/工程图_1.png",
+          "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/工程图_2.png",
+          "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/工程图_3.png",
+          "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/工程图_4.png"
+        ]
+      },
+      {
+        "type": "choose",
+        "field_label": "剧目资质",
+        "option_text": "其他微短剧"
+      },
+      {
+        "type": "fill",
+        "selector": "input[placeholder*='制作成本'], input[placeholder*='成本']",
+        "value": "7"
+      },
+      {
+        "type": "upload",
+        "label": "剧目资质",
+        "paths": [
+          "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/成本报表.png"
+        ]
+      },
+      {
+        "type": "set_checked",
+        "label": "我已知悉并同意",
+        "enabled": true
+      },
+      {
+        "type": "screenshot",
+        "name": "first-page-filled",
+        "message": "五岁孤女闯东宫第一页已填完。"
+      }
+    ]
+  },
+  "second_page": {
+    "ready_text": "请选择要上传的视频文件",
+    "actions_before_upload": [],
+    "upload": {
+      "input_selector": ".weui-desktop-form__control-group_label-r:has(.weui-desktop-form__label:has-text(\"选取视频\")) input[type=file]",
+      "paths": [
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第10集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第11集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第12集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第13集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第14集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第15集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第16集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第17集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第18集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第19集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第1集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第20集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第21集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第22集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第23集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第24集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第25集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第26集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第27集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第28集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第29集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第2集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第30集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第31集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第32集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第33集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第34集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第35集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第36集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第37集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第38集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第39集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第3集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第40集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第41集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第42集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第43集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第44集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第45集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第46集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第47集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第48集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第49集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第4集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第5集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第6集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第7集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第8集.mp4",
+        "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/workflow/_五岁孤女闯东宫/videos/五岁孤女闯东宫-第9集.mp4"
+      ],
+      "timeout_seconds": 3600,
+      "success_texts": [
+        "已上传成功",
+        "上传成功",
+        "处理完成"
+      ],
+      "error_texts": [
+        "上传失败",
+        "未能上传",
+        "上传异常",
+        "不符合要求",
+        "格式不支持",
+        "超出限制"
+      ]
+    },
+    "enter_submit_page": {
+      "enabled": true,
+      "text": "确认提审"
+    },
+    "actions_after_upload": [
+      {
+        "type": "screenshot",
+        "name": "second-page-uploaded",
+        "message": "五岁孤女闯东宫第二页视频已上传完成。"
+      }
+    ]
+  },
+  "submit": {
+    "enabled": false,
+    "text": "确认提审"
+  },
+  "video_publish": {
+    "enabled": true,
+    "prefer_material_videos": true,
+    "fast_mode": false,
+    "capture_flow_screenshots": false,
+    "capture_flow_debug_dumps": false,
+    "episode_selection_mode": "range",
+    "start_episode_index": 2,
+    "publish_count": 4,
+    "episode_indexes": [
+      2,
+      3,
+      4,
+      5
+    ],
+    "run_strategy": "all",
+    "state_file": ".weixin-channel-publish-state.json",
+    "final_action": "publish",
+    "single_test_final_action": "draft",
+    "pause_on_error": true,
+    "fill_description": true,
+    "fill_short_title": false,
+    "declare_original": false,
+    "prepend_hash_to_description": true,
+    "original_dialog_title": "原创权益",
+    "original_dialog_confirm_text": "声明原创",
+    "original_dialog_agreement_text": "我已阅读并同意",
+    "replace_cover_with_local_image": false,
+    "cover_image_path": "",
+    "navigation": {
+      "section": "内容管理",
+      "item": "视频",
+      "entry_button": "发表视频"
+    },
+    "ready_text": "发表视频",
+    "description_template": "{剧集名称}，热播爆火剧，点击上方链接，免费观看全集。#热门#爆火",
+    "location_option_text": "不显示",
+    "link_option_text": "视频号剧集",
+    "link_picker_button_text": "选择需要添加的视频号剧集",
+    "link_picker_selector": ".post-with-link .post-component-choose-wrap .content-wrap, .post-with-link .post-component-choose-wrap",
+    "link_dialog_title": "选择需要关联的视频号剧集",
+    "link_search_placeholder": "搜索内容",
+    "activity_option_text": "不参与活动",
+    "timing_option_text": "不定时",
+    "short_title_max_length": 15,
+    "cover_trigger_selector": ".cover-preview-wrap .edit-btn-zIndex, .cover-preview-wrap .vertical-cover-wrap, .cover-preview-wrap .vertical-mask-layer, .cover-preview-wrap .horizon-cover-wrap",
+    "cover_upload_tab_text": "上传封面",
+    "cover_upload_selector": ".edit-cover-dialog .single-cover-uploader-wrap input[type='file']",
+    "cover_edit_dialog_title": "编辑封面",
+    "cover_edit_confirm_text": "确认",
+    "cover_crop_dialog_title": "裁剪封面图",
+    "cover_crop_confirm_text": "确定",
+    "video_upload_action": {
+      "type": "upload",
+      "input_selector": "input[type='file'][accept*='video'], input[type='file']"
+    },
+    "wait_after_upload_seconds": 0.5,
+    "wait_after_final_action_seconds": 0
+  },
+  "config_version": 2
+}

@@ -1,0 +1,53 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ShortDrama.Desktop.Views.RenameProjectTitleWindow"
+        Width="620"
+        Height="280"
+        MinWidth="560"
+        MinHeight="240"
+        Title="修改新剧名">
+
+    <Grid RowDefinitions="*,Auto" Margin="20" RowSpacing="16">
+        <Border Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="16"
+                Padding="16">
+            <Grid ColumnDefinitions="120,*"
+                  RowDefinitions="Auto,Auto,Auto"
+                  ColumnSpacing="12"
+                  RowSpacing="12">
+                <TextBlock Text="原剧名"
+                           VerticalAlignment="Center" />
+                <TextBox Grid.Column="1"
+                         IsReadOnly="True"
+                         Text="{Binding OriginalTitle}" />
+
+                <TextBlock Grid.Row="1"
+                           Text="当前新剧名"
+                           VerticalAlignment="Center" />
+                <TextBox Grid.Row="1"
+                         Grid.Column="1"
+                         IsReadOnly="True"
+                         Text="{Binding CurrentTitle}" />
+
+                <TextBlock Grid.Row="2"
+                           Text="新的剧名"
+                           VerticalAlignment="Center" />
+                <TextBox Grid.Row="2"
+                         Grid.Column="1"
+                         x:Name="NewTitleTextBox"
+                         Text="{Binding NewTitle}"
+                         Watermark="输入新的剧集名称" />
+            </Grid>
+        </Border>
+
+        <StackPanel Grid.Row="1"
+                    Orientation="Horizontal"
+                    Spacing="10"
+                    HorizontalAlignment="Right">
+            <Button Content="取消"
+                    Click="Cancel_Click" />
+            <Button Content="确定"
+                    Click="Confirm_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

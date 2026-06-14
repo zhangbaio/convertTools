@@ -1,0 +1,102 @@
+{
+  "canvasWidth": 1241,
+  "canvasHeight": 1754,
+  "eraseRegions": [
+    { "x": 118, "y": 500, "width": 74, "height": 118 },
+    { "x": 193, "y": 500, "width": 100, "height": 118 },
+    { "x": 294, "y": 500, "width": 94, "height": 118 },
+    { "x": 388, "y": 500, "width": 78, "height": 118 },
+    { "x": 430, "y": 1310, "width": 430, "height": 60 },
+    { "x": 430, "y": 1400, "width": 430, "height": 60 },
+    { "x": 736, "y": 1504, "width": 320, "height": 70 },
+    { "x": 690, "y": 1240, "width": 370, "height": 292 }
+  ],
+  "textFields": {
+    "projectTitle": {
+      "x": 118,
+      "y": 548,
+      "width": 72,
+      "height": 64,
+      "fontSize": 22,
+      "minFontSize": 16,
+      "color": "#5A5A5A",
+      "align": "center"
+    },
+    "duration": {
+      "x": 194,
+      "y": 548,
+      "width": 98,
+      "height": 64,
+      "fontSize": 20,
+      "minFontSize": 16,
+      "color": "#5A5A5A",
+      "align": "center"
+    },
+    "cost": {
+      "x": 295,
+      "y": 560,
+      "width": 90,
+      "height": 42,
+      "fontSize": 22,
+      "minFontSize": 18,
+      "color": "#6C6C6C",
+      "align": "center"
+    },
+    "actorRatio": {
+      "x": 389,
+      "y": 556,
+      "width": 73,
+      "height": 48,
+      "fontSize": 22,
+      "minFontSize": 18,
+      "color": "#6C6C6C",
+      "align": "center"
+    },
+    "companyName": {
+      "x": 506,
+      "y": 1330,
+      "width": 320,
+      "height": 34,
+      "fontSize": 18,
+      "minFontSize": 14,
+      "color": "#6D6D6D",
+      "align": "left"
+    },
+    "legalRepresentative": {
+      "x": 506,
+      "y": 1418,
+      "width": 250,
+      "height": 34,
+      "fontSize": 18,
+      "minFontSize": 14,
+      "color": "#6D6D6D",
+      "align": "left"
+    },
+    "reportDate": {
+      "x": 760,
+      "y": 1526,
+      "width": 256,
+      "height": 44,
+      "fontSize": 18,
+      "minFontSize": 14,
+      "color": "#6D6D6D",
+      "align": "center"
+    }
+  },
+  "imageFields": {
+    "seal": {
+      "x": 734,
+      "y": 1278,
+      "width": 214,
+      "height": 214,
+      "opacity": 0.46
+    },
+    "sign": {
+      "x": 928,
+      "y": 1438,
+      "width": 118,
+      "height": 44,
+      "opacity": 0.92
+    }
+  }
+}

@@ -1,0 +1,77 @@
+# WorkflowCommand 配置文件
+# 必填项（带 * 标记）
+
+# 公司名称 *
+CompanyName=湖北云漫科技有限公司
+
+# 公章图片路径（相对于 source-dir，或绝对路径）
+SealImagePath=./config/seal.png
+
+# 签名图片路径（相对于 source-dir，或绝对路径）
+SignImagePath=./config/sign.png
+
+# 对话模型 ID *
+ChatModelId=doubao-seed-2-0-lite-260215
+
+# 对话模型 API Key *
+ChatModelApiKey=0fabb089-c485-4d81-9dd7-4dc1c9fa5f25
+
+# 对话模型 Endpoint *
+ChatModelEndpoint=https://ark.cn-beijing.volces.com/api/v3
+
+# 可选：覆盖短剧信息改写提示词
+# AiTextSystemPrompt=
+# AiTextBatchPrompt=
+# AiTextRetryPrompt=
+
+# 图片生成模型 ID *
+ImageModelId=doubao-seedream-5-0-lite-260128
+
+# 图片生成模型 API Key *
+ImageModelApiKey=0fabb089-c485-4d81-9dd7-4dc1c9fa5f25
+
+# 图片生成模型 Endpoint *
+ImageModelEndpoint=https://ark.cn-beijing.volces.com/api/v3
+
+# 可选：覆盖海报相关 AI 提示词，支持变量：
+# {title} {project_title} {original_title} {tagline} {synopsis}
+# PosterLayoutDetectPrompt=
+# PosterInpaintPrompt=
+# PosterInpaintSafeRetryPrompt=
+# PosterGenerationPrompt=
+# PosterGenerationSafeRetryPrompt=
+# PosterNameSystemPrompt=
+# PosterNameUserPrompt=
+
+# 视频分辨率（宽高中较小一边的像素值，另一边按比例计算；留空保持原始分辨率）
+VideoRes=1080
+
+# 视频目标码率（bps）
+VideoBitrateBps=6000000
+
+# 视频目标码率模式（Abr 或 Cbr）
+VideoBitrateMode=Cbr
+
+# 音频目标比特率（bps），留空保持原始音频（直通）
+VideoAudioBitrateBps=96000
+
+# 视频目标帧率
+VideoFps=30
+
+# 视频是否使用硬件编码器（true 或 false，默认 true）
+VideoUseHardwareEncoder=true
+
+# 每个项目生成的工程图数量
+ProjectImageCount=5
+
+# 工程图模板目录（包含 工程图_1.png … 工程图_N.png，留空则使用内置编辑器风格合成）
+ProjectImageTemplateDir=/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/shortdrama/templates/project-image
+
+# 视频文件命名模板（{name}=剧名，{index}=集数）
+VideoNameTemplate={name}-第{index}集
+
+# 项目子任务并发数
+SubTaskConcurrency=4
+
+# 任务并发数
+TaskConcurrency=1

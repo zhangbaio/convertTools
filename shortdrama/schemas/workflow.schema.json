@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/shortdrama/workflow.schema.json",
+  "title": "ShortDrama Workflow",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["projectDir", "steps"],
+  "properties": {
+    "projectDir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "configDir": {
+      "type": "string"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["cost-report", "transcode", "rewrite", "poster-rename", "project-image", "batch-file-rename", "material-convert"]
+          },
+          "template": {
+            "type": "string"
+          },
+          "configFile": {
+            "type": "string"
+          },
+          "outputFile": {
+            "type": "string"
+          },
+          "nameTemplate": {
+            "type": "string"
+          },
+          "inputDir": {
+            "type": "string"
+          },
+          "outputDir": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "overwrite": {
+            "type": "boolean"
+          },
+          "crf": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "preset": {
+            "type": "string"
+          },
+          "continueOnError": {
+            "type": "boolean",
+            "default": false
+          },
+          "retry": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "timeoutSeconds": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}
