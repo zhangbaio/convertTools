@@ -1,0 +1,88 @@
+# 工作流配置
+# 成本报表固定从当前 config 目录读取 sign.png / seal.png
+
+# 基础信息
+CompanyName=武汉云起漫影科技有限公司
+SearchPageSize=20
+TemplateDocxPath=/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/config/成本报表.docx
+CostReportBaseImagePath=/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/config/cost-report-base.png
+CostReportActorPayRatio=15%
+CostReportLegalRepresentative=朱小思
+
+# AI 文本模型
+ChatModelId=doubao-seed-2-0-lite-260215
+ChatModelApiKey=4fb40d47-74f3-402a-9822-61e0aa7d4560
+ChatModelEndpoint=https://ark.cn-beijing.volces.com/api/v3
+
+# AI 文案（短标题/标签）
+AiTextEndpoint=https://ark.cn-beijing.volces.com/api/v3
+AiTextApiKey=4fb40d47-74f3-402a-9822-61e0aa7d4560
+AiTextModel=doubao-seed-2-0-lite-260215
+AiTextTimeoutSeconds=120
+AiTextMaxBatchSize=10
+# 可选：覆盖短剧信息改写提示词
+# AiTextBatchPrompt=
+# AiTextRetryPrompt=
+
+# 微信剧集上传 - 基础设置
+WeixinHeadless=false
+WeixinSlowMoMs=0
+WeixinKeepOpenSeconds=0
+WeixinLoginTimeoutSeconds=300
+WeixinSubmitEnabled=false
+WeixinPauseOnError=false
+WeixinSaveHtml=true
+WeixinSaveText=true
+
+# 微信剧集上传 - 剧目信息配置
+WeixinMonetizationType=IAA广告变现
+WeixinDramaType=漫剧
+WeixinDramaQualification=其他微短剧
+WeixinSubmitterIdentity=剧目制作方
+WeixinTrialEpisodes=3
+WeixinFillRecommendation=true
+
+# AI 图片模型
+ImageModelId=doubao-seedream-5-0-lite-260128
+ImageModelApiKey=4fb40d47-74f3-402a-9822-61e0aa7d4560
+ImageModelEndpoint=https://ark.cn-beijing.volces.com/api/v3
+
+# 海报图片编辑接口
+# 未配置 ImageEditModelId / ImageEditApiKey / ImageEditEndpoint 时，默认回退到上面的 ImageModel* 配置
+# Volcengine Ark 默认走 /images/generations
+ImageEditPath=/images/generations
+# 可选：覆盖海报相关 AI 提示词，支持变量：
+# {title} {project_title} {original_title} {tagline} {synopsis}
+# PosterLayoutDetectPrompt=
+# PosterInpaintPrompt=
+# PosterInpaintSafeRetryPrompt=
+# PosterGenerationPrompt=
+# PosterGenerationSafeRetryPrompt=
+# PosterNameSystemPrompt=
+# PosterNameUserPrompt=
+
+# 视频转码
+# VideoRes 表示短边分辨率
+VideoRes=1080
+VideoBitrateBps=5000000
+VideoBitrateMode=Cbr
+VideoAudioBitrateBps=96000
+VideoFps=30
+VideoConcurrentCount=1
+VideoUseHardwareEncoder=true
+VideoNameTemplate={name}-第{index}集
+
+# 素材转换
+MaterialConvertEnabled=false
+MaterialTrimHeadSeconds=4
+MaterialTrimTailSeconds=2
+MaterialSpeedPercent=10
+MaterialDropEveryNFrames=20
+MaterialDropCount=1
+MaterialCropWidthPercent=2
+MaterialCropHeightPercent=2
+
+# 工程图
+# 工程图模板现在默认必用，目录下需提供完整的 工程图_1.png ~ 工程图_N.png
+ProjectImageCount=5
+ProjectImageTemplateDir=/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/shortdrama/templates/project-image

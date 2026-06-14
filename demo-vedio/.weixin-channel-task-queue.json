@@ -1,0 +1,33 @@
+{
+  "items": [
+    {
+      "path": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/东宫小福星",
+      "name": "东宫小福星",
+      "enabled": false,
+      "original_title": "东宫小福星",
+      "new_title": "东宫小福星",
+      "episode_count": "0",
+      "video_size_text": "-",
+      "step_states": {},
+      "overall_status": "待执行",
+      "last_error": ""
+    }
+  ],
+  "enabled_steps": [
+    "download",
+    "rewrite_info",
+    "auto_fill_info",
+    "generate_poster",
+    "generate_materials",
+    "material_transcode",
+    "material_auto_repair",
+    "material_validate",
+    "upload_series",
+    "publish_materials"
+  ],
+  "on_project_error": "skip",
+  "max_parallel_projects": 2,
+  "serial_slot_mode": "shared",
+  "auto_archive_after_upload": false,
+  "single_project_manual_takeover": false
+}

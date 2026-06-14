@@ -1,0 +1,10 @@
+{
+  "items": [
+    {
+      "path": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/demo-vedio/东宫小福星",
+      "enabled": true,
+      "name": "东宫小福星"
+    }
+  ],
+  "on_project_error": "skip"
+}

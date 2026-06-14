@@ -1,0 +1,126 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Styles.Resources>
+        <SolidColorBrush x:Key="DesktopBackgroundBrush">#0B1220</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopPanelBrush">#111A2E</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopPanelAltBrush">#18233B</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSurfaceBrush">#22314D</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSurfaceHoverBrush">#2A3B5D</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopBorderBrush">#31415F</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopTextPrimaryBrush">#F3F7FF</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopTextSecondaryBrush">#B8C4D9</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopTextMutedBrush">#8D9AB3</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopAccentBrush">#2F7CF6</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopAccentHoverBrush">#4B92FF</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopAccentPressedBrush">#1F66D6</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSuccessBrush">#22C55E</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopWarningBrush">#F59E0B</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopDangerBrush">#EF4444</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopPreviewBrush">#0E1422</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSelectionBrush">#16325F</SolidColorBrush>
+    </Styles.Resources>
+
+    <Style Selector="Window">
+        <Setter Property="Background" Value="{DynamicResource DesktopBackgroundBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+    </Style>
+
+    <Style Selector="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+    </Style>
+
+    <Style Selector="SelectableTextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+    </Style>
+
+    <Style Selector="Button">
+        <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DesktopSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="16,10" />
+    </Style>
+
+    <Style Selector="Button:pointerover">
+        <Setter Property="Background" Value="{DynamicResource DesktopSurfaceHoverBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopAccentBrush}" />
+    </Style>
+
+    <Style Selector="Button:pressed">
+        <Setter Property="Background" Value="{DynamicResource DesktopAccentPressedBrush}" />
+    </Style>
+
+    <Style Selector="Button:disabled">
+        <Setter Property="Foreground" Value="{DynamicResource DesktopTextMutedBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DesktopPanelAltBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorderBrush}" />
+        <Setter Property="Opacity" Value="0.7" />
+    </Style>
+
+    <Style Selector="TextBox">
+        <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DesktopSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CaretBrush" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+        <Setter Property="SelectionBrush" Value="{DynamicResource DesktopAccentBrush}" />
+    </Style>
+
+    <Style Selector="TextBox:pointerover">
+        <Setter Property="Background" Value="{DynamicResource DesktopSurfaceHoverBrush}" />
+    </Style>
+
+    <Style Selector="TextBox:focus">
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopAccentBrush}" />
+    </Style>
+
+    <Style Selector="ComboBox">
+        <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DesktopSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <Style Selector="ComboBox:pointerover">
+        <Setter Property="Background" Value="{DynamicResource DesktopSurfaceHoverBrush}" />
+    </Style>
+
+    <Style Selector="ComboBox:focus">
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopAccentBrush}" />
+    </Style>
+
+    <Style Selector="ListBox">
+        <Setter Property="Background" Value="{DynamicResource DesktopPanelAltBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <Style Selector="ListBoxItem">
+        <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource DesktopSelectionBrush}" />
+    </Style>
+
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource DesktopSelectionBrush}" />
+    </Style>
+
+    <Style Selector="TabControl">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <Style Selector="TabItem">
+        <Setter Property="Foreground" Value="{DynamicResource DesktopTextSecondaryBrush}" />
+    </Style>
+
+    <Style Selector="TabItem:selected">
+        <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+    </Style>
+
+    <Style Selector="ScrollViewer">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+</Styles>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ShortDrama.Core\ShortDrama.Core.csproj" />
+    <ProjectReference Include="..\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
