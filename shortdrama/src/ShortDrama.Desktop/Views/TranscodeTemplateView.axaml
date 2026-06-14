@@ -1,0 +1,177 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ShortDrama.Desktop.Views.TranscodeTemplateView">
+    <ScrollViewer>
+        <StackPanel Margin="16" Spacing="16">
+            <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="18" Padding="16">
+                <StackPanel Spacing="10">
+                    <TextBlock Text="转码模板"
+                               FontSize="20"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="迁移素材转码参数与分辨率码率档位。当前先接通全局转码策略和按短边自动套档。"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
+                        <CheckBox x:Name="MaterialConvertEnabledCheckBox"
+                                  Content="启用素材转码"
+                                  VerticalAlignment="Center" />
+                        <TextBlock x:Name="ConfigPathTextBlock"
+                                   Grid.Column="1"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                        <Button Grid.Column="2"
+                                x:Name="ReloadButton"
+                                Content="重新加载" />
+                        <Button Grid.Column="3"
+                                x:Name="ResetProfilesButton"
+                                Content="恢复默认档位" />
+                        <Button Grid.Column="4"
+                                x:Name="SaveButton"
+                                Content="保存配置" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="18" Padding="16">
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+                    <TextBlock Text="视频编码器" VerticalAlignment="Center" />
+                    <ComboBox x:Name="VideoEncoderComboBox"
+                              Grid.Column="1"
+                              HorizontalAlignment="Stretch" />
+
+                    <TextBlock Grid.Row="1" Text="编码 preset" VerticalAlignment="Center" />
+                    <ComboBox x:Name="VideoPresetComboBox"
+                              Grid.Row="1"
+                              Grid.Column="1"
+                              HorizontalAlignment="Stretch" />
+
+                    <TextBlock Grid.Row="2" Text="NVENC CQ" VerticalAlignment="Center" />
+                    <TextBox x:Name="NvencCqTextBox"
+                             Grid.Row="2"
+                             Grid.Column="1" />
+
+                    <TextBlock Grid.Row="3" Text="NVENC 并发" VerticalAlignment="Center" />
+                    <TextBox x:Name="NvencMaxParallelTextBox"
+                             Grid.Row="3"
+                             Grid.Column="1" />
+
+                    <CheckBox x:Name="VerboseTranscodeLogCheckBox"
+                              Grid.Row="4"
+                              Content="输出详细转码日志" />
+                    <CheckBox x:Name="SkipBitrateDownscaleCheckBox"
+                              Grid.Row="4"
+                              Grid.Column="1"
+                              Content="高码率视频不主动降码率" />
+
+                    <TextBlock Grid.Row="5" Text="工程说明" VerticalAlignment="Top" />
+                    <TextBlock Grid.Row="5"
+                               Grid.Column="1"
+                               Text="目标/最大/最低码率为全局策略，分辨率档位决定不同短边视频默认套用的目标视频码率与音频码率。"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                </Grid>
+            </Border>
+
+            <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="18" Padding="16">
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="20" RowDefinitions="Auto,Auto,Auto,Auto">
+                    <TextBlock Text="目标码率" VerticalAlignment="Center" />
+                    <TextBox x:Name="UploadTargetBitrateTextBox"
+                             Grid.Column="1" />
+
+                    <TextBlock Grid.Row="1" Text="最大码率" VerticalAlignment="Center" />
+                    <TextBox x:Name="UploadMaxBitrateTextBox"
+                             Grid.Row="1"
+                             Grid.Column="1" />
+
+                    <TextBlock Grid.Row="2" Text="最低码率" VerticalAlignment="Center" />
+                    <TextBox x:Name="UploadMinBitrateTextBox"
+                             Grid.Row="2"
+                             Grid.Column="1" />
+
+                    <TextBlock Grid.Row="3" Text="音频码率 (kbps)" VerticalAlignment="Center" />
+                    <StackPanel Grid.Row="3"
+                                Grid.Column="1"
+                                Orientation="Horizontal"
+                                Spacing="10">
+                        <TextBox x:Name="UploadAudioBitrateTextBox"
+                                 Width="160" />
+                        <CheckBox x:Name="UploadFallbackEnabledCheckBox"
+                                  Content="码率不足时启用兜底重试"
+                                  VerticalAlignment="Center" />
+                        <TextBox x:Name="UploadFallbackBitrateTextBox"
+                                 Width="120" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="18" Padding="16">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="分辨率码率档位"
+                               FontSize="18"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="按源视频短边命中档位。最大短边填 0 表示不设上限。"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+
+                    <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
+                        <Border Background="{DynamicResource DesktopPanelAltBrush}" CornerRadius="14" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="720p及以下" FontWeight="SemiBold" />
+                                <CheckBox x:Name="Profile720EnabledCheckBox" Content="启用" />
+                                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                    <TextBlock Text="最小短边" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile720MinTextBox" Grid.Column="1" />
+                                    <TextBlock Grid.Row="1" Text="最大短边" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile720MaxTextBox" Grid.Row="1" Grid.Column="1" />
+                                    <TextBlock Grid.Row="2" Text="视频码率" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile720BitrateTextBox" Grid.Row="2" Grid.Column="1" />
+                                    <TextBlock Grid.Row="3" Text="音频码率" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile720AudioTextBox" Grid.Row="3" Grid.Column="1" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="1" Background="{DynamicResource DesktopPanelAltBrush}" CornerRadius="14" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="1080p" FontWeight="SemiBold" />
+                                <CheckBox x:Name="Profile1080EnabledCheckBox" Content="启用" />
+                                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                    <TextBlock Text="最小短边" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile1080MinTextBox" Grid.Column="1" />
+                                    <TextBlock Grid.Row="1" Text="最大短边" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile1080MaxTextBox" Grid.Row="1" Grid.Column="1" />
+                                    <TextBlock Grid.Row="2" Text="视频码率" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile1080BitrateTextBox" Grid.Row="2" Grid.Column="1" />
+                                    <TextBlock Grid.Row="3" Text="音频码率" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile1080AudioTextBox" Grid.Row="3" Grid.Column="1" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="2" Background="{DynamicResource DesktopPanelAltBrush}" CornerRadius="14" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="2k+" FontWeight="SemiBold" />
+                                <CheckBox x:Name="Profile2kEnabledCheckBox" Content="启用" />
+                                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                    <TextBlock Text="最小短边" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile2kMinTextBox" Grid.Column="1" />
+                                    <TextBlock Grid.Row="1" Text="最大短边" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile2kMaxTextBox" Grid.Row="1" Grid.Column="1" />
+                                    <TextBlock Grid.Row="2" Text="视频码率" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile2kBitrateTextBox" Grid.Row="2" Grid.Column="1" />
+                                    <TextBlock Grid.Row="3" Text="音频码率" VerticalAlignment="Center" />
+                                    <TextBox x:Name="Profile2kAudioTextBox" Grid.Row="3" Grid.Column="1" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <TextBlock x:Name="StatusTextBlock"
+                       Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

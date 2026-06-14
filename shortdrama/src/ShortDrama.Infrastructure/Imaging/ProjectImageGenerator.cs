@@ -354,8 +354,9 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             return card;
         }
 
-        var titleFont = fontFamily.CreateFont(Math.Max(12, height / 10f), FontStyle.Bold);
-        var footerFont = fontFamily.CreateFont(Math.Max(11, height / 12f), FontStyle.Regular);
+        var resolvedFontFamily = fontFamily.Value;
+        var titleFont = resolvedFontFamily.CreateFont(Math.Max(12, height / 10f), FontStyle.Bold);
+        var footerFont = resolvedFontFamily.CreateFont(Math.Max(11, height / 12f), FontStyle.Regular);
 
         card.Mutate(ctx =>
         {

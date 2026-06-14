@@ -1,6 +1,7 @@
 ﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:ShortDrama.Desktop.ViewModels"
+        xmlns:localviews="using:ShortDrama.Desktop.Views"
         xmlns:taskqueue="using:ShortDrama.Desktop.Views.TaskQueue"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -172,6 +173,10 @@
 
             <TabItem Header="任务队列">
                 <taskqueue:TaskQueueView />
+            </TabItem>
+
+            <TabItem Header="转码模板">
+                <localviews:TranscodeTemplateView />
             </TabItem>
 
             <TabItem Header="宸插綊妗ｉ」鐩?">

@@ -1,5 +1,6 @@
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Desktop.Models;
 using ShortDrama.Infrastructure.Automation;
 using System.Globalization;
 using System.Net.Http.Headers;

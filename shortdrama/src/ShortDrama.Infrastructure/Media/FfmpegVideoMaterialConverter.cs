@@ -227,7 +227,8 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
                 : null)
             ?? plan.VideoBitrateBps;
 
-        if (measuredVideoBitrate < MinVideoBitrateBps)
+        var minimumAcceptedBitrate = Math.Max(MinVideoBitrateBps, plan.MinAcceptedVideoBitrateBps);
+        if (measuredVideoBitrate < minimumAcceptedBitrate)
         {
             throw new InvalidOperationException($"素材转换后视频码率低于上传阈值（4194304 bps）: {outputPath}");
         }
@@ -238,7 +239,7 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         var args = new List<string>
         {
             "-hide_banner",
-            "-loglevel", "error",
+            "-loglevel", plan.VerboseLogEnabled ? "info" : "error",
             "-y",
             "-i", inputPath
         };
@@ -283,15 +284,16 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         args.AddRange(["-c:v", plan.VideoCodec]);
         if (plan.VideoCodec.Equals("libx264", StringComparison.Ordinal))
         {
-            args.AddRange(["-preset", "fast"]);
+            args.AddRange(["-preset", plan.VideoPreset]);
             if (plan.UseCbr)
             {
                 args.AddRange(["-x264-params", "nal-hrd=cbr:force-cfr=1"]);
             }
-            else
-            {
-                args.AddRange(["-crf", "23"]);
-            }
+        }
+        else if (plan.VideoCodec.Equals("h264_nvenc", StringComparison.Ordinal))
+        {
+            args.AddRange(["-preset", plan.VideoPreset, "-cq", plan.NvencCq.ToString(CultureInfo.InvariantCulture)]);
+            args.AddRange(["-rc", plan.UseCbr ? "cbr" : "vbr"]);
         }
 
         args.AddRange(["-b:v", plan.VideoBitrateBps.ToString(CultureInfo.InvariantCulture)]);
@@ -300,6 +302,14 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             var bitrate = plan.VideoBitrateBps.ToString(CultureInfo.InvariantCulture);
             var bufferSize = (plan.VideoBitrateBps * 2L).ToString(CultureInfo.InvariantCulture);
             args.AddRange(["-maxrate", bitrate, "-minrate", bitrate, "-bufsize", bufferSize]);
+        }
+        else
+        {
+            var maxBitrate = Math.Max(plan.VideoBitrateBps, plan.MaxVideoBitrateBps);
+            args.AddRange([
+                "-maxrate", maxBitrate.ToString(CultureInfo.InvariantCulture),
+                "-bufsize", (maxBitrate * 2L).ToString(CultureInfo.InvariantCulture)
+            ]);
         }
 
         args.AddRange(["-r", plan.BaseFps.ToString("0.###", CultureInfo.InvariantCulture)]);
@@ -346,9 +356,24 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
 
     private static MaterialConvertPlan BuildPlan(MaterialConvertSettings settings, MediaProbeInfo inputProbe)
     {
-        var codec = ResolveVideoCodec(settings.VideoUseHardwareEncoder);
-        var videoBitrate = Math.Max(MinVideoBitrateBps, settings.VideoBitrateBps ?? MinVideoBitrateBps);
-        var audioBitrate = settings.VideoAudioBitrateBps ?? DefaultAudioBitrateBps;
+        var sourceShortEdge = Math.Min(inputProbe.Width, inputProbe.Height);
+        var profiles = UploadTranscodeBitrateProfiles.Parse(settings.UploadBitrateProfilesJson);
+        var selectedProfile = UploadTranscodeBitrateProfiles.Select(profiles, Math.Max(1, sourceShortEdge));
+        var videoBitrate = selectedProfile is not null
+            ? ToBitrateBps(selectedProfile.BitrateMbps)
+            : Math.Max(MinVideoBitrateBps, settings.UploadTargetVideoBitrateBps ?? settings.VideoBitrateBps ?? MinVideoBitrateBps);
+        var maxVideoBitrate = Math.Max(videoBitrate, settings.UploadMaxVideoBitrateBps ?? videoBitrate);
+        var minAcceptedBitrate = Math.Max(MinVideoBitrateBps, settings.UploadMinVideoBitrateBps ?? MinVideoBitrateBps);
+        if (settings.SkipBitrateDownscaleForHighBitrate &&
+            inputProbe.VideoBitrateBps is long inputVideoBitrate &&
+            inputVideoBitrate > videoBitrate)
+        {
+            videoBitrate = Math.Min(inputVideoBitrate, maxVideoBitrate);
+        }
+
+        var audioBitrate = selectedProfile is not null
+            ? Math.Max(DefaultAudioBitrateBps, selectedProfile.AudioKbps * 1000)
+            : settings.UploadAudioBitrateBps ?? settings.VideoAudioBitrateBps ?? DefaultAudioBitrateBps;
         var baseFps = settings.VideoFps ?? 30;
         var keepRatio = settings.DropEveryNFrames > 0 && settings.DropCount > 0 && settings.DropCount < settings.DropEveryNFrames
             ? (settings.DropEveryNFrames - settings.DropCount) / (double)settings.DropEveryNFrames
@@ -359,11 +384,14 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         var outputDuration = inputProbe.DurationSeconds > totalTrim
             ? inputProbe.DurationSeconds - totalTrim
             : inputProbe.DurationSeconds;
+        var videoPreset = string.IsNullOrWhiteSpace(settings.VideoPreset) ? selectedProfile.Preset : settings.VideoPreset!;
 
         return new MaterialConvertPlan(
-            codec,
+            ResolveVideoCodec(settings.VideoEncoder, settings.VideoUseHardwareEncoder),
             string.Equals(settings.VideoBitrateMode, "Cbr", StringComparison.OrdinalIgnoreCase),
             videoBitrate,
+            maxVideoBitrate,
+            minAcceptedBitrate,
             audioBitrate,
             baseFps,
             speedFactor,
@@ -374,7 +402,10 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             settings.CropHeightPercent,
             inputProbe.HasAudio,
             settings.DropEveryNFrames,
-            settings.DropCount);
+            settings.DropCount,
+            videoPreset,
+            settings.NvencCq ?? 21,
+            settings.VerboseTranscodeLogEnabled);
     }
 
     private async Task<MediaProbeInfo> ProbeMediaAsync(string path, CancellationToken cancellationToken)
@@ -450,7 +481,17 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             VideoAudioBitrateBps: ParseNullableInt(map, "VideoAudioBitrateBps"),
             VideoFps: ParseNullableInt(map, "VideoFps"),
             VideoConcurrentCount: ParseNullableInt(map, "VideoConcurrentCount"),
-            VideoUseHardwareEncoder: ParseNullableBool(map, "VideoUseHardwareEncoder") ?? true);
+            VideoUseHardwareEncoder: ParseNullableBool(map, "VideoUseHardwareEncoder") ?? true,
+            VideoEncoder: GetNullable(map, "VideoEncoder"),
+            VideoPreset: GetNullable(map, "VideoPreset"),
+            NvencCq: ParseNullableInt(map, "NvencCq"),
+            VerboseTranscodeLogEnabled: ParseNullableBool(map, "VerboseTranscodeLogEnabled") ?? false,
+            SkipBitrateDownscaleForHighBitrate: ParseNullableBool(map, "SkipBitrateDownscaleForHighBitrate") ?? false,
+            UploadTargetVideoBitrateBps: ParseNullableScaledLong(map, "UploadTargetVideoBitrateMbps"),
+            UploadMaxVideoBitrateBps: ParseNullableScaledLong(map, "UploadMaxVideoBitrateMbps"),
+            UploadMinVideoBitrateBps: ParseNullableScaledLong(map, "UploadMinVideoBitrateMbps"),
+            UploadAudioBitrateBps: ParseNullableScaledInt(map, "UploadAudioBitrateKbps", 1000),
+            UploadBitrateProfilesJson: GetNullable(map, "UploadBitrateProfilesJson"));
     }
 
     private static string? GetNullable(IReadOnlyDictionary<string, string> map, string key)
@@ -472,6 +513,14 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         return value is null ? null : long.Parse(value, CultureInfo.InvariantCulture);
     }
 
+    private static long? ParseNullableScaledLong(IReadOnlyDictionary<string, string> map, string key)
+    {
+        var value = GetNullable(map, key);
+        return value is not null && double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            ? (long?)Math.Round(parsed * 1_000_000d, MidpointRounding.AwayFromZero)
+            : null;
+    }
+
     private static double? ParseNullableDouble(IReadOnlyDictionary<string, string> map, string key)
     {
         var value = GetNullable(map, key);
@@ -482,6 +531,14 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
     {
         var value = GetNullable(map, key);
         return value is null ? null : bool.Parse(value);
+    }
+
+    private static int? ParseNullableScaledInt(IReadOnlyDictionary<string, string> map, string key, int multiplier)
+    {
+        var value = GetNullable(map, key);
+        return value is not null && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed * multiplier
+            : null;
     }
 
     private static long? ParseNullableLong(JsonElement? element, string propertyName)
@@ -555,8 +612,24 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         throw new InvalidOperationException($"未找到 {name}。请安装 ffmpeg，或确保 {name} 在 PATH 中。");
     }
 
-    private static string ResolveVideoCodec(bool useHardwareEncoder)
+    private static string ResolveVideoCodec(string? configuredEncoder, bool useHardwareEncoder)
     {
+        var normalized = (configuredEncoder ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalized == "libx264")
+        {
+            return "libx264";
+        }
+
+        if (normalized == "h264_nvenc")
+        {
+            return OperatingSystem.IsWindows() ? "h264_nvenc" : "libx264";
+        }
+
+        if (normalized == "h264_videotoolbox")
+        {
+            return OperatingSystem.IsMacOS() ? "h264_videotoolbox" : "libx264";
+        }
+
         if (!useHardwareEncoder)
         {
             return "libx264";
@@ -580,6 +653,11 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             : elapsed.ToString(@"mm\:ss", CultureInfo.InvariantCulture);
     }
 
+    private static long ToBitrateBps(double bitrateMbps)
+    {
+        return (long)Math.Round(bitrateMbps * 1_000_000d, MidpointRounding.AwayFromZero);
+    }
+
     private sealed record MaterialConvertSettings(
         bool Enabled,
         double TrimHeadSeconds,
@@ -594,7 +672,17 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         int? VideoAudioBitrateBps,
         int? VideoFps,
         int? VideoConcurrentCount,
-        bool VideoUseHardwareEncoder)
+        bool VideoUseHardwareEncoder,
+        string? VideoEncoder,
+        string? VideoPreset,
+        int? NvencCq,
+        bool VerboseTranscodeLogEnabled,
+        bool SkipBitrateDownscaleForHighBitrate,
+        long? UploadTargetVideoBitrateBps,
+        long? UploadMaxVideoBitrateBps,
+        long? UploadMinVideoBitrateBps,
+        int? UploadAudioBitrateBps,
+        string? UploadBitrateProfilesJson)
     {
         public static MaterialConvertSettings Default { get; } = new(
             Enabled: false,
@@ -610,13 +698,25 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             VideoAudioBitrateBps: null,
             VideoFps: 30,
             VideoConcurrentCount: 1,
-            VideoUseHardwareEncoder: true);
+            VideoUseHardwareEncoder: true,
+            VideoEncoder: null,
+            VideoPreset: null,
+            NvencCq: 21,
+            VerboseTranscodeLogEnabled: false,
+            SkipBitrateDownscaleForHighBitrate: false,
+            UploadTargetVideoBitrateBps: null,
+            UploadMaxVideoBitrateBps: null,
+            UploadMinVideoBitrateBps: null,
+            UploadAudioBitrateBps: null,
+            UploadBitrateProfilesJson: null);
     }
 
     private sealed record MaterialConvertPlan(
         string VideoCodec,
         bool UseCbr,
         long VideoBitrateBps,
+        long MaxVideoBitrateBps,
+        long MinAcceptedVideoBitrateBps,
         int AudioBitrateBps,
         double BaseFps,
         double SpeedFactor,
@@ -627,7 +727,10 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         double CropHeightPercent,
         bool HasAudio,
         int DropEveryNFrames,
-        int DropCount);
+        int DropCount,
+        string VideoPreset,
+        int NvencCq,
+        bool VerboseLogEnabled);
 
     private sealed record MediaProbeInfo(
         double DurationSeconds,

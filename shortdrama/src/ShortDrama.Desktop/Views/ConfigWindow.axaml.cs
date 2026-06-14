@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -85,16 +85,15 @@ public partial class ConfigWindow : Window
         {
             return;
         }
-
         _tabsInitialized = true;
-        SettingsTabControl.ItemsSource =
-        [
+        SettingsTabControl.ItemsSource = new object[]
+        {
             new TabItem { Header = "基础设置", Content = new BasicSettingsTab { DataContext = viewModel } },
             new TabItem { Header = "登录设置", Content = new LoginSettingsTab { DataContext = viewModel } },
             new TabItem { Header = "剧目信息配置", Content = new SeriesInfoSettingsTab { DataContext = viewModel } },
             new TabItem { Header = "成本报表", Content = new CostReportSettingsTab { DataContext = viewModel } },
             new TabItem { Header = "AI 文本", Content = new AiTextSettingsTab { DataContext = viewModel } },
             new TabItem { Header = "AI 图片", Content = new AiImageSettingsTab { DataContext = viewModel } },
-        ];
+        };
     }
 }
