@@ -1,0 +1,187 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ShortDrama.Desktop.ViewModels"
+             xmlns:taskqueue="using:ShortDrama.Desktop.Views.TaskQueue"
+             x:Class="ShortDrama.Desktop.Views.MaterialUploadView">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="14">
+        <Border Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="18">
+            <StackPanel Spacing="12">
+                <WrapPanel Orientation="Horizontal">
+                    <Button x:Name="RunMaterialUploadQueueButton"
+                            MinWidth="170"
+                            Margin="0,0,10,10"
+                            Content="{Binding MaterialUploadQueueButtonText}" />
+                    <Button x:Name="CheckAllVisibleButton"
+                            MinWidth="100"
+                            Margin="0,0,10,10"
+                            Content="全选" />
+                    <Button x:Name="UncheckAllVisibleButton"
+                            MinWidth="100"
+                            Margin="0,0,10,10"
+                            Content="取消全选" />
+                    <Button MinWidth="100"
+                            Margin="0,0,10,10"
+                            Command="{Binding StopCurrentRunCommand}"
+                            Content="停止" />
+                    <Button x:Name="OpenPublishConfigButton"
+                            MinWidth="120"
+                            Margin="0,0,10,10"
+                            Content="发表配置" />
+                    <Button MinWidth="120"
+                            Margin="0,0,10,10"
+                            Content="剪辑配置"
+                            IsEnabled="False"
+                            ToolTip.Tip="待迁移" />
+                    <Button MinWidth="100"
+                            Margin="0,0,10,10"
+                            Content="ASR 配置"
+                            IsEnabled="False"
+                            ToolTip.Tip="待迁移" />
+                    <Button MinWidth="140"
+                            Margin="0,0,10,10"
+                            Content="删除视频号素材"
+                            IsEnabled="False"
+                            ToolTip.Tip="待迁移" />
+                    <Button x:Name="ShowMaterialLogsButton"
+                            MinWidth="120"
+                            Margin="0,0,10,10"
+                            Content="查看素材日志" />
+                    <Button MinWidth="170"
+                            Margin="0,0,10,10"
+                            Content="手动创建素材项目"
+                            IsEnabled="False"
+                            ToolTip.Tip="待迁移" />
+                </WrapPanel>
+
+                <WrapPanel Orientation="Horizontal">
+                    <CheckBox IsEnabled="False"
+                              Margin="0,0,16,0"
+                              Content="生成素材高光"
+                              ToolTip.Tip="待迁移" />
+                    <CheckBox Margin="0,0,16,0"
+                              Content="素材上传"
+                              IsChecked="{Binding QueueStepMaterialUploadEnabled}" />
+                    <CheckBox Margin="0,0,16,0"
+                              Content="允许重复发布素材"
+                              IsChecked="{Binding MaterialUploadAllowDuplicatePublish}" />
+                </WrapPanel>
+
+                <TextBlock Text="聚焦源视频、发表配置和素材上传流程。"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1"
+                Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="18">
+            <Grid ColumnDefinitions="96,*,Auto,Auto" ColumnSpacing="12">
+                <TextBlock VerticalAlignment="Center"
+                           Text="工作目录"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                <TextBox Grid.Column="1"
+                         Text="{Binding RootDir}"
+                         Watermark="请选择或输入项目根目录" />
+                <Button Grid.Column="2"
+                        MinWidth="130"
+                        Click="PickRootDir_Click"
+                        Content="选择工作目录" />
+                <Button Grid.Column="3"
+                        MinWidth="120"
+                        Command="{Binding ScanCommand}"
+                        Content="扫描项目" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="2"
+                Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="18">
+            <StackPanel Spacing="10">
+                <TextBox Text="{Binding MaterialUploadFilterText}"
+                         Watermark="搜索原剧名 / 新剧名 / 发表配置 / 已上传素材 / 路径" />
+                <TextBlock Text="{Binding MaterialUploadSummary}"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="3"
+                Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="16">
+            <Grid RowDefinitions="Auto,*" RowSpacing="12">
+                <Border Background="{DynamicResource DesktopPanelAltBrush}"
+                        CornerRadius="14"
+                        Padding="12">
+                    <Grid ColumnDefinitions="160,220,220,100,120,120"
+                          ColumnSpacing="12">
+                        <TextBlock Text="执行" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="原剧名" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="2" Text="新剧名" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="素材数" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="4" Text="已上传素材" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="5" Text="状态" FontWeight="SemiBold" />
+                    </Grid>
+                </Border>
+
+                <ScrollViewer Grid.Row="1"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto">
+                    <ListBox x:Name="MaterialUploadProjectsListBox"
+                             ItemsSource="{Binding MaterialUploadProjects}"
+                             SelectedItem="{Binding SelectedProject}"
+                             MinWidth="980"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ProjectListItemViewModel">
+                                <Border Margin="0,0,0,8"
+                                        Padding="12"
+                                        CornerRadius="14"
+                                        Background="{DynamicResource DesktopPanelAltBrush}">
+                                    <Grid ColumnDefinitions="160,220,220,100,120,120"
+                                          ColumnSpacing="12">
+                                        <StackPanel Orientation="Horizontal"
+                                                    Spacing="8">
+                                            <CheckBox IsChecked="{Binding IsChecked}"
+                                                      VerticalAlignment="Center" />
+                                            <Button Content="上传"
+                                                    Click="RunSingleMaterialUpload_Click" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding OriginalTitle}"
+                                                   FontWeight="SemiBold"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding NewTitle}"
+                                                   FontWeight="SemiBold"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Grid.Column="3"
+                                                   Text="{Binding MaterialPublishConfiguredCount}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="4"
+                                                   Text="{Binding MaterialPublishUploadedSummary}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="5"
+                                                   Text="{Binding MaterialUploadNodeStatus}"
+                                                   Foreground="{Binding MaterialUploadNodeForegroundBrush}"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="4"
+                Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="16">
+            <taskqueue:TaskQueueMaterialUploadDetailView />
+        </Border>
+    </Grid>
+</UserControl>

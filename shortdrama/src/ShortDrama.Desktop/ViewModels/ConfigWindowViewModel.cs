@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Win32;
 using ShortDrama.Desktop.Models;
 using ShortDrama.Desktop.Services;
 using ShortDrama.Infrastructure.Imaging;
@@ -11,6 +12,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
 {
     private readonly DesktopConfigService _configService;
     private readonly DesktopShellService _shellService;
+    private readonly HongguoNewApiService _hongguoNewApiService;
     private readonly XingeRemoteControlService _xingeRemoteControlService;
     private ProjectConfigSnapshot _loadedProjectConfig;
     private GlobalConfigSnapshot _loadedGlobalConfig;
@@ -20,13 +22,13 @@ public partial class ConfigWindowViewModel : ViewModelBase
         string rootDir,
         DesktopConfigService configService,
         DesktopShellService shellService,
+        HongguoNewApiService hongguoNewApiService,
         XingeRemoteControlService xingeRemoteControlService)
     {
         _configService = configService;
         _shellService = shellService;
+        _hongguoNewApiService = hongguoNewApiService;
         _xingeRemoteControlService = xingeRemoteControlService;
-
-        ValidateConfigCommand = new RelayCommand(Validate);
         ReloadConfigCommand = new RelayCommand(LoadConfig);
         OpenConfigFileCommand = new RelayCommand(OpenConfigFile);
         OpenGlobalSettingsFileCommand = new RelayCommand(OpenGlobalSettingsFile);
@@ -37,8 +39,6 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
         SetRootDir(rootDir);
     }
-
-    public ObservableCollection<ConfigValidationItem> ConfigIssues { get; } = [];
     public ObservableCollection<WorkflowStepOption> ProjectImageTemplateOptions { get; } = [];
 
     public IReadOnlyList<string> WeixinMonetizationTypeOptions { get; } =
@@ -82,8 +82,6 @@ public partial class ConfigWindowViewModel : ViewModelBase
         "user_id",
         "email"
     ];
-
-    public IRelayCommand ValidateConfigCommand { get; }
     public IRelayCommand ReloadConfigCommand { get; }
     public IRelayCommand OpenConfigFileCommand { get; }
     public IRelayCommand OpenGlobalSettingsFileCommand { get; }
@@ -101,9 +99,6 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private string globalSettingsFilePath = string.Empty;
-
-    [ObservableProperty]
-    private string configValidationSummary = "未校验";
 
     [ObservableProperty]
     private string companyName = string.Empty;
@@ -230,6 +225,9 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private string hgnewClientVersion = string.Empty;
+
+    [ObservableProperty]
+    private string hgnewProbeStatus = string.Empty;
 
     [ObservableProperty]
     private string hongguoLocalBaseUrl = string.Empty;
@@ -363,6 +361,45 @@ public partial class ConfigWindowViewModel : ViewModelBase
         RefreshProjectImageTemplateOptions();
     }
 
+    public void ReadHgnewDeviceUdid()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            HgnewProbeStatus = "当前平台不支持从注册表读取 DeviceUDID。";
+            return;
+        }
+
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\HongGuoClient", false);
+            var value = key?.GetValue("DeviceUDID")?.ToString()?.Trim();
+            HgnewProbeStatus = string.IsNullOrWhiteSpace(value)
+                ? "未在注册表中找到 DeviceUDID。"
+                : "已从注册表读取 DeviceUDID。";
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                HgnewUdid = value.ToUpperInvariant();
+            }
+        }
+        catch (Exception ex)
+        {
+            HgnewProbeStatus = $"读取 DeviceUDID 失败：{ex.Message}";
+        }
+    }
+
+    public async Task ProbeHgnewLoginAsync()
+    {
+        try
+        {
+            await _hongguoNewApiService.ProbeLoginAsync(BuildWorkingGlobalConfig(), CancellationToken.None);
+            HgnewProbeStatus = $"测试登录成功：{DateTime.Now:HH:mm:ss}";
+        }
+        catch (Exception ex)
+        {
+            HgnewProbeStatus = $"测试登录失败：{ex.Message}";
+        }
+    }
+
     public void LoadConfig()
     {
         WasSaved = false;
@@ -453,16 +490,10 @@ public partial class ConfigWindowViewModel : ViewModelBase
         ProjectImageCount = string.IsNullOrWhiteSpace(_loadedProjectConfig.ProjectImageCount) ? "4" : _loadedProjectConfig.ProjectImageCount;
         ProjectImageTemplateRoot = ResolveInitialTemplateRoot();
         RefreshProjectImageTemplateOptions(_loadedProjectConfig.ProjectImageTemplateId);
-        Validate();
     }
 
     public bool Save()
     {
-        Validate();
-        if (ConfigIssues.Any(item => string.Equals(item.Severity, "错误", StringComparison.Ordinal)))
-        {
-            return false;
-        }
 
         var project = _loadedProjectConfig with
         {
@@ -559,210 +590,9 @@ public partial class ConfigWindowViewModel : ViewModelBase
         ConfigFilePath = project.ConfigFilePath;
         GlobalSettingsFilePath = global.SettingsFilePath;
         WasSaved = true;
-        Validate();
         return true;
     }
 
-    private void Validate()
-    {
-        ConfigIssues.Clear();
-
-        if (string.IsNullOrWhiteSpace(RootDir))
-        {
-            AddIssue("错误", "未选择工作目录。");
-        }
-
-        if (!Directory.Exists(RootDir))
-        {
-            AddIssue("错误", $"工作目录不存在：{RootDir}");
-        }
-
-        if (!int.TryParse(SearchPageSize, out var pageSize) || pageSize <= 0)
-        {
-            AddIssue("错误", "SearchPageSize 必须是大于 0 的整数。");
-        }
-
-        if (!int.TryParse(WeixinSlowMoMs, out var slowMoMs) || slowMoMs < 0)
-        {
-            AddIssue("错误", "WeixinSlowMoMs 必须是不小于 0 的整数。");
-        }
-
-        if (!int.TryParse(WeixinKeepOpenSeconds, out var keepOpenSeconds) || keepOpenSeconds < 0)
-        {
-            AddIssue("错误", "WeixinKeepOpenSeconds 必须是不小于 0 的整数。");
-        }
-
-        if (!int.TryParse(WeixinLoginTimeoutSeconds, out var loginTimeoutSeconds) || loginTimeoutSeconds <= 0)
-        {
-            AddIssue("错误", "WeixinLoginTimeoutSeconds 必须是大于 0 的整数。");
-        }
-
-        if (!int.TryParse(WeixinTrialEpisodes, out var trialEpisodes) || trialEpisodes <= 0)
-        {
-            AddIssue("错误", "WeixinTrialEpisodes 必须是大于 0 的整数。");
-        }
-
-        if (!int.TryParse(AiTextTimeoutSeconds, out var aiTimeoutSeconds) || aiTimeoutSeconds <= 0)
-        {
-            AddIssue("错误", "AiTextTimeoutSeconds 必须是大于 0 的整数。");
-        }
-
-        if (!int.TryParse(AiTextMaxBatchSize, out var aiBatchSize) || aiBatchSize <= 0)
-        {
-            AddIssue("错误", "AiTextMaxBatchSize 必须是大于 0 的整数。");
-        }
-
-        if (!int.TryParse(ProjectImageCount, out var projectImageCount) || projectImageCount <= 0)
-        {
-            AddIssue("错误", "ProjectImageCount 必须是大于 0 的整数。");
-        }
-
-        if (string.IsNullOrWhiteSpace(ProjectImageTemplateRoot))
-        {
-            AddIssue("错误", "未配置工程图模板根目录。");
-        }
-        else if (!Directory.Exists(ProjectImageTemplateRoot))
-        {
-            AddIssue("错误", $"工程图模板根目录不存在：{ProjectImageTemplateRoot}");
-        }
-
-        if (string.IsNullOrWhiteSpace(ProjectImageTemplateDir))
-        {
-            AddIssue("错误", "未选择工程图截图模板。");
-        }
-        else
-        {
-            ValidateTemplateDirectory(ProjectImageTemplateDir, projectImageCount);
-        }
-
-        if (string.IsNullOrWhiteSpace(DramaServiceOrderSearch))
-        {
-            AddIssue("警告", "DramaServiceOrderSearch 为空，将使用默认顺序 hgnew,hglocal,pikachu。");
-        }
-
-        if (XingeEnabled && string.IsNullOrWhiteSpace(XingeServerUrl))
-        {
-            AddIssue("错误", "已启用 Xinge，但未配置 Xinge 服务地址。");
-        }
-
-        if (!string.IsNullOrWhiteSpace(XingePollIntervalSeconds) &&
-            (!int.TryParse(XingePollIntervalSeconds, out var xingePollIntervalSeconds) || xingePollIntervalSeconds <= 0))
-        {
-            AddIssue("错误", "XingePollIntervalSeconds 必须是大于 0 的整数。");
-        }
-
-        if (XingeEnabled &&
-            string.IsNullOrWhiteSpace(XingeClientId) &&
-            string.IsNullOrWhiteSpace(XingeClientToken) &&
-            (string.IsNullOrWhiteSpace(XingeUsername) || string.IsNullOrWhiteSpace(XingePassword)))
-        {
-            AddIssue("警告", "Xinge 未配置客户端凭证，且用户名/密码不完整，执行同步时会失败。");
-        }
-
-        if (string.IsNullOrWhiteSpace(HgnewAccount) || string.IsNullOrWhiteSpace(HgnewPassword) || string.IsNullOrWhiteSpace(HgnewUdid))
-        {
-            AddIssue("警告", "Hgnew 凭证未填写完整，使用 hgnew 时搜索/下载会失败。");
-        }
-
-        if (string.IsNullOrWhiteSpace(HongguoLocalBaseUrl))
-        {
-            AddIssue("警告", "Hglocal Base URL 为空，使用 hglocal 时搜索/下载会失败。");
-        }
-
-        if (string.IsNullOrWhiteSpace(PikachuServerUrl))
-        {
-            AddIssue("警告", "Pikachu Server URL 为空，使用 pikachu 时搜索/下载会失败。");
-        }
-
-        if (string.IsNullOrWhiteSpace(AiTextEndpoint))
-        {
-            AddIssue("警告", "AiTextEndpoint 为空，将回退到文本模型地址。");
-        }
-
-        if (string.IsNullOrWhiteSpace(ImageModelId))
-        {
-            AddIssue("错误", "ImageModelId 为空，海报生成无法执行。");
-        }
-
-        if (FeishuNotificationEnabled)
-        {
-            if (string.IsNullOrWhiteSpace(FeishuAppId))
-            {
-                AddIssue("错误", "启用飞书通知时必须填写 FeishuAppId。");
-            }
-
-            if (string.IsNullOrWhiteSpace(FeishuAppSecret))
-            {
-                AddIssue("错误", "启用飞书通知时必须填写 FeishuAppSecret。");
-            }
-
-            if (string.IsNullOrWhiteSpace(FeishuReceiveId))
-            {
-                AddIssue("错误", "启用飞书通知时必须填写 FeishuReceiveId。");
-            }
-
-            if (string.IsNullOrWhiteSpace(FeishuReceiveIdType))
-            {
-                AddIssue("错误", "启用飞书通知时必须填写 FeishuReceiveIdType。");
-            }
-
-            if (string.IsNullOrWhiteSpace(FeishuNotifyStepKeysText))
-            {
-                AddIssue("警告", "FeishuNotifyStepKeysText 为空时，不会发送任何步骤通知。");
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(TemplateDocxPath) && !File.Exists(TemplateDocxPath))
-        {
-            AddIssue("警告", $"成本报表模板不存在：{TemplateDocxPath}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(CostReportBaseImagePath) && !File.Exists(CostReportBaseImagePath))
-        {
-            AddIssue("警告", $"成本报表底图不存在：{CostReportBaseImagePath}");
-        }
-
-        FinalizeValidationSummary();
-    }
-
-    private void ValidateTemplateDirectory(string templateDirectory, int expectedCount)
-    {
-        try
-        {
-            var manifest = ProjectImageTemplateManifest.Load(templateDirectory);
-            if (manifest.Templates.Count == 0)
-            {
-                AddIssue("错误", $"工程图模板不包含任何页面：{templateDirectory}");
-                return;
-            }
-
-            if (manifest.Count < expectedCount)
-            {
-                AddIssue("错误", $"工程图模板页面数量不足：期望 {expectedCount}，模板仅提供 {manifest.Count} 页。");
-            }
-
-            foreach (var page in manifest.Templates.Take(expectedCount))
-            {
-                var pagePath = Path.Combine(templateDirectory, page.File);
-                if (!File.Exists(pagePath))
-                {
-                    AddIssue("错误", $"工程图模板缺少页面图片：{pagePath}");
-                }
-
-                foreach (var requiredRegion in new[] { "player", "material_panel", "timeline_strip" })
-                {
-                    if (!page.Regions.ContainsKey(requiredRegion))
-                    {
-                        AddIssue("错误", $"工程图模板页面缺少关键区域 {requiredRegion}：{page.File}");
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            AddIssue("错误", $"工程图模板无效：{ex.Message}");
-        }
-    }
 
     private void RefreshProjectImageTemplateOptions(string? preferredTemplateId = null)
     {
@@ -821,6 +651,17 @@ public partial class ConfigWindowViewModel : ViewModelBase
         _shellService.TryRevealPath(GlobalSettingsFilePath, out _);
     }
 
+    private GlobalConfigSnapshot BuildWorkingGlobalConfig()
+    {
+        return _loadedGlobalConfig with
+        {
+            HgnewAccount = HgnewAccount.Trim(),
+            HgnewPassword = HgnewPassword,
+            HgnewUdid = HgnewUdid.Trim().ToUpperInvariant(),
+            HgnewClientVersion = HgnewClientVersion.Trim()
+        };
+    }
+
     public async Task<bool> RefreshXingeCredentialsAsync()
     {
         try
@@ -849,31 +690,15 @@ public partial class ConfigWindowViewModel : ViewModelBase
             XingeOperationStatus = $"已获取客户端凭证并通过连接测试，角色：{(string.IsNullOrWhiteSpace(result.LoginResult.UserRole) ? "unknown" : result.LoginResult.UserRole)}";
             _configService.SaveGlobal(_loadedGlobalConfig);
             GlobalSettingsFilePath = _loadedGlobalConfig.SettingsFilePath;
-            Validate();
             return true;
         }
         catch (Exception ex)
         {
             XingeOperationStatus = ex.Message;
-            Validate();
             return false;
         }
     }
 
-    private void AddIssue(string severity, string message)
-    {
-        ConfigIssues.Add(new ConfigValidationItem(severity, message));
-    }
-
-    private void FinalizeValidationSummary()
-    {
-        var errorCount = ConfigIssues.Count(item => string.Equals(item.Severity, "错误", StringComparison.Ordinal));
-        var warningCount = ConfigIssues.Count(item => string.Equals(item.Severity, "警告", StringComparison.Ordinal));
-
-        ConfigValidationSummary = errorCount == 0 && warningCount == 0
-            ? "配置校验通过"
-            : $"配置校验：错误 {errorCount} 项，警告 {warningCount} 项";
-    }
 
     partial void OnSelectedProjectImageTemplateOptionChanged(WorkflowStepOption? value)
     {

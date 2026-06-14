@@ -244,41 +244,14 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             "-i", inputPath
         };
 
-        if (plan.TrimHeadSeconds > 0)
+        args.AddRange(["-filter_complex", BuildFilterComplex(plan), "-map", "[vout]"]);
+        if (plan.HasAudio)
         {
-            args.AddRange(["-ss", plan.TrimHeadSeconds.ToString("0.###", CultureInfo.InvariantCulture)]);
+            args.AddRange(["-map", "[aout]"]);
         }
-
-        if (plan.OutputDurationSeconds is > 0d)
+        else
         {
-            args.AddRange(["-t", plan.OutputDurationSeconds.Value.ToString("0.###", CultureInfo.InvariantCulture)]);
-        }
-
-        args.AddRange(["-map", "0:v:0", "-map", "0:a?"]);
-
-        var videoFilters = new List<string>();
-        if (Math.Abs(plan.SpeedFactor - 1d) > 0.0001d)
-        {
-            videoFilters.Add($"setpts={(1d / plan.SpeedFactor).ToString("0.######", CultureInfo.InvariantCulture)}*PTS");
-        }
-
-        if (plan.DropEveryNFrames > 0 && plan.DropCount > 0 && plan.DropCount < plan.DropEveryNFrames)
-        {
-            videoFilters.Add(BuildFrameDropFilter(plan.DropEveryNFrames, plan.DropCount));
-            videoFilters.Add($"setpts=N/({plan.BaseFps.ToString("0.###", CultureInfo.InvariantCulture)}*TB)");
-        }
-
-        if (plan.CropWidthPercent > 0 || plan.CropHeightPercent > 0)
-        {
-            var widthRatio = Math.Max(0.1d, 1d - plan.CropWidthPercent / 100d);
-            var heightRatio = Math.Max(0.1d, 1d - plan.CropHeightPercent / 100d);
-            videoFilters.Add(
-                $"crop='floor(iw*{widthRatio.ToString("0.######", CultureInfo.InvariantCulture)}/2)*2':'floor(ih*{heightRatio.ToString("0.######", CultureInfo.InvariantCulture)}/2)*2':'(iw-ow)/2':'(ih-oh)/2'");
-        }
-
-        if (videoFilters.Count > 0)
-        {
-            args.AddRange(["-vf", string.Join(",", videoFilters)]);
+            args.Add("-an");
         }
 
         args.AddRange(["-c:v", plan.VideoCodec]);
@@ -314,15 +287,138 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
 
         args.AddRange(["-r", plan.BaseFps.ToString("0.###", CultureInfo.InvariantCulture)]);
         args.AddRange(["-pix_fmt", "yuv420p"]);
-        args.AddRange(["-c:a", "aac", "-b:a", plan.AudioBitrateBps.ToString(CultureInfo.InvariantCulture)]);
-
-        if (plan.HasAudio && Math.Abs(plan.AudioSpeedFactor - 1d) > 0.0001d)
+        if (plan.HasAudio)
         {
-            args.AddRange(["-af", BuildAudioTempoFilter(plan.AudioSpeedFactor)]);
+            args.AddRange(["-c:a", "aac", "-b:a", plan.AudioBitrateBps.ToString(CultureInfo.InvariantCulture)]);
         }
 
         args.AddRange(["-movflags", "+faststart", outputPath]);
         return args;
+    }
+
+    private static string BuildFilterComplex(MaterialConvertPlan plan)
+    {
+        var chains = new List<string>();
+
+        if (plan.DynamicSpeedEnabled)
+        {
+            var segments = BuildDynamicSegments(plan);
+            var videoLabels = new List<string>();
+            var audioLabels = new List<string>();
+            for (var index = 0; index < segments.Count; index++)
+            {
+                var segment = segments[index];
+                var videoLabel = $"vseg{index}";
+                videoLabels.Add(videoLabel);
+                chains.Add($"[0:v]{BuildVideoSegmentFilter(segment.StartSeconds, segment.EndSeconds, segment.VideoSpeedFactor)}[{videoLabel}]");
+
+                if (!plan.HasAudio)
+                {
+                    continue;
+                }
+
+                var audioLabel = $"aseg{index}";
+                audioLabels.Add(audioLabel);
+                chains.Add($"[0:a]{BuildAudioSegmentFilter(segment.StartSeconds, segment.EndSeconds, segment.AudioSpeedFactor)}[{audioLabel}]");
+            }
+
+            if (plan.HasAudio)
+            {
+                chains.Add(string.Concat(videoLabels.Select(label => $"[{label}]")) +
+                           string.Concat(audioLabels.Select(label => $"[{label}]")) +
+                           $"concat=n={videoLabels.Count}:v=1:a=1[vbase][abase]");
+            }
+            else
+            {
+                chains.Add(string.Concat(videoLabels.Select(label => $"[{label}]")) +
+                           $"concat=n={videoLabels.Count}:v=1:a=0[vbase]");
+            }
+        }
+        else
+        {
+            chains.Add($"[0:v]{BuildStaticVideoFilter(plan)}[vbase]");
+            if (plan.HasAudio)
+            {
+                chains.Add($"[0:a]{BuildStaticAudioFilter(plan)}[abase]");
+            }
+        }
+
+        chains.Add($"[vbase]{BuildCommonVideoFilter(plan)}[vout]");
+        if (plan.HasAudio)
+        {
+            chains.Add("[abase]anull[aout]");
+        }
+
+        return string.Join(";", chains);
+    }
+
+    private static string BuildStaticVideoFilter(MaterialConvertPlan plan)
+    {
+        var filters = new List<string>
+        {
+            $"trim=start={FormatFilterNumber(plan.TrimHeadSeconds)}:end={FormatFilterNumber(plan.TrimmedEndSeconds)}",
+            Math.Abs(plan.StaticSpeedFactor - 1d) > 0.0001d
+                ? $"setpts=(PTS-STARTPTS)/{FormatFilterNumber(plan.StaticSpeedFactor)}"
+                : "setpts=PTS-STARTPTS"
+        };
+        return string.Join(",", filters);
+    }
+
+    private static string BuildStaticAudioFilter(MaterialConvertPlan plan)
+    {
+        var filters = new List<string>
+        {
+            $"atrim=start={FormatFilterNumber(plan.TrimHeadSeconds)}:end={FormatFilterNumber(plan.TrimmedEndSeconds)}",
+            "asetpts=PTS-STARTPTS"
+        };
+        if (Math.Abs(plan.StaticAudioSpeedFactor - 1d) > 0.0001d)
+        {
+            filters.Add(BuildAudioTempoFilter(plan.StaticAudioSpeedFactor));
+        }
+
+        return string.Join(",", filters);
+    }
+
+    private static string BuildVideoSegmentFilter(double startSeconds, double endSeconds, double speedFactor)
+    {
+        return $"trim=start={FormatFilterNumber(startSeconds)}:end={FormatFilterNumber(endSeconds)}," +
+               $"setpts=(PTS-STARTPTS)/{FormatFilterNumber(speedFactor)}";
+    }
+
+    private static string BuildAudioSegmentFilter(double startSeconds, double endSeconds, double speedFactor)
+    {
+        return $"atrim=start={FormatFilterNumber(startSeconds)}:end={FormatFilterNumber(endSeconds)}," +
+               $"asetpts=PTS-STARTPTS,{BuildAudioTempoFilter(speedFactor)}";
+    }
+
+    private static string BuildCommonVideoFilter(MaterialConvertPlan plan)
+    {
+        var filters = new List<string>();
+
+        if (plan.FrameSamplingEnabled)
+        {
+            filters.Add(BuildFrameSamplingFilter(plan.FrameSamplingMode, plan.FrameSamplingInterval));
+            filters.Add($"setpts=N/({FormatFilterNumber(plan.BaseFps)}*TB)");
+        }
+
+        if (plan.CropWidthPercent > 0 || plan.CropHeightPercent > 0)
+        {
+            var widthRatio = Math.Max(0.1d, 1d - plan.CropWidthPercent / 100d);
+            var heightRatio = Math.Max(0.1d, 1d - plan.CropHeightPercent / 100d);
+            filters.Add(
+                $"crop='floor(iw*{FormatFilterNumber(widthRatio)}/2)*2':'floor(ih*{FormatFilterNumber(heightRatio)}/2)*2':'(iw-ow)/2':'(ih-oh)/2'");
+        }
+
+        filters.Add($"scale={plan.ForegroundScaledWidth}:{plan.ForegroundScaledHeight}:force_original_aspect_ratio=increase");
+        filters.Add($"crop={plan.ForegroundWidth}:{plan.ForegroundHeight}");
+        filters.Add($"pad={plan.OutputWidth}:{plan.OutputHeight}:(ow-iw)/2:(oh-ih)/2:color=black");
+
+        if (plan.WatermarkEnabled && !string.IsNullOrWhiteSpace(plan.WatermarkText))
+        {
+            filters.Add(BuildWatermarkFilter(plan));
+        }
+
+        return string.Join(",", filters);
     }
 
     private static string BuildAudioTempoFilter(double speedFactor)
@@ -344,6 +440,17 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
 
         filters.Add($"atempo={remaining.ToString("0.######", CultureInfo.InvariantCulture)}");
         return string.Join(",", filters);
+    }
+
+    private static string BuildFrameSamplingFilter(string mode, int interval)
+    {
+        interval = Math.Max(2, interval);
+        if (string.Equals(mode, "random", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"select='not(eq(mod(n\\,{interval})\\,mod(floor(n/{interval})*7+3\\,{interval})))'";
+        }
+
+        return BuildFrameDropFilter(interval, 1);
     }
 
     private static string BuildFrameDropFilter(int everyNFrames, int dropCount)
@@ -375,15 +482,38 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             ? Math.Max(DefaultAudioBitrateBps, selectedProfile.AudioKbps * 1000)
             : settings.UploadAudioBitrateBps ?? settings.VideoAudioBitrateBps ?? DefaultAudioBitrateBps;
         var baseFps = settings.VideoFps ?? 30;
-        var keepRatio = settings.DropEveryNFrames > 0 && settings.DropCount > 0 && settings.DropCount < settings.DropEveryNFrames
-            ? (settings.DropEveryNFrames - settings.DropCount) / (double)settings.DropEveryNFrames
+        var frameSamplingEnabled = settings.FrameSamplingEnabled &&
+                                   settings.FrameSamplingInterval >= 2;
+        var keepRatio = frameSamplingEnabled
+            ? (settings.FrameSamplingInterval - 1d) / settings.FrameSamplingInterval
             : 1d;
-        var speedFactor = Math.Max(0.5d, Math.Min(1.5d, 1d + settings.SpeedPercent / 100d));
-        var audioSpeedFactor = speedFactor / keepRatio;
-        var totalTrim = settings.TrimHeadSeconds + settings.TrimTailSeconds;
-        var outputDuration = inputProbe.DurationSeconds > totalTrim
-            ? inputProbe.DurationSeconds - totalTrim
-            : inputProbe.DurationSeconds;
+        var trimHeadSeconds = Math.Clamp(settings.TrimHeadSeconds, 0d, Math.Max(0d, inputProbe.DurationSeconds));
+        var trimTailSeconds = Math.Clamp(settings.TrimTailSeconds, 0d, Math.Max(0d, inputProbe.DurationSeconds - trimHeadSeconds));
+        var trimmedEndSeconds = Math.Max(trimHeadSeconds + 0.05d, inputProbe.DurationSeconds - trimTailSeconds);
+        var usableDurationSeconds = Math.Max(0.05d, trimmedEndSeconds - trimHeadSeconds);
+        var staticSpeedFactor = Math.Max(0.5d, Math.Min(1.5d, 1d + settings.SpeedPercent / 100d));
+        var staticAudioSpeedFactor = staticSpeedFactor / keepRatio;
+        var dynamicSpeedEnabled = settings.DynamicSpeedEnabled && usableDurationSeconds > 0.1d;
+        var headDurationSeconds = dynamicSpeedEnabled
+            ? Math.Min(Math.Max(0d, settings.DynamicSpeedHeadSeconds), usableDurationSeconds)
+            : 0d;
+        var tailDurationSeconds = dynamicSpeedEnabled
+            ? Math.Min(Math.Max(0d, settings.DynamicSpeedTailSeconds), Math.Max(0d, usableDurationSeconds - headDurationSeconds))
+            : 0d;
+        var middleDurationSeconds = dynamicSpeedEnabled
+            ? Math.Max(0d, usableDurationSeconds - headDurationSeconds - tailDurationSeconds)
+            : usableDurationSeconds;
+        var headSpeedFactor = Math.Max(0.5d, Math.Min(1.5d, 1d + settings.DynamicSpeedHeadPercent / 100d));
+        var middleSpeedFactor = Math.Max(0.5d, Math.Min(1.5d, 1d + settings.DynamicSpeedMiddlePercent / 100d));
+        var tailSpeedFactor = Math.Max(0.5d, Math.Min(1.5d, 1d + settings.DynamicSpeedTailPercent / 100d));
+        var outputWidth = EnsureEven(Math.Max(540, settings.OutputWidth));
+        var outputHeight = EnsureEven(Math.Max(960, settings.OutputHeight));
+        var foregroundWidth = EnsureEven((int)Math.Round(outputWidth * Math.Clamp(settings.PipWidthPercent, 10d, 100d) / 100d, MidpointRounding.AwayFromZero));
+        var foregroundHeight = EnsureEven((int)Math.Round(outputHeight * Math.Clamp(settings.PipHeightPercent, 10d, 100d) / 100d, MidpointRounding.AwayFromZero));
+        foregroundWidth = Math.Clamp(foregroundWidth, 2, outputWidth);
+        foregroundHeight = Math.Clamp(foregroundHeight, 2, outputHeight);
+        var foregroundScaledWidth = EnsureEven((int)Math.Round(foregroundWidth * (1d + Math.Clamp(settings.ForegroundZoomPercent, 0d, 20d) / 100d), MidpointRounding.AwayFromZero));
+        var foregroundScaledHeight = EnsureEven((int)Math.Round(foregroundHeight * (1d + Math.Clamp(settings.ForegroundZoomPercent, 0d, 20d) / 100d), MidpointRounding.AwayFromZero));
         var videoPreset = string.IsNullOrWhiteSpace(settings.VideoPreset) ? selectedProfile.Preset : settings.VideoPreset!;
 
         return new MaterialConvertPlan(
@@ -394,15 +524,38 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             minAcceptedBitrate,
             audioBitrate,
             baseFps,
-            speedFactor,
-            audioSpeedFactor,
-            settings.TrimHeadSeconds,
-            outputDuration > 0 ? outputDuration : null,
+            trimHeadSeconds,
+            trimTailSeconds,
+            trimmedEndSeconds,
+            usableDurationSeconds,
+            staticSpeedFactor,
+            staticAudioSpeedFactor,
+            dynamicSpeedEnabled,
+            headDurationSeconds,
+            middleDurationSeconds,
+            tailDurationSeconds,
+            headSpeedFactor,
+            middleSpeedFactor,
+            tailSpeedFactor,
             settings.CropWidthPercent,
             settings.CropHeightPercent,
+            frameSamplingEnabled,
+            string.IsNullOrWhiteSpace(settings.FrameSamplingMode) ? "fixed_interval" : settings.FrameSamplingMode!,
+            Math.Max(2, settings.FrameSamplingInterval),
+            outputWidth,
+            outputHeight,
+            foregroundWidth,
+            foregroundHeight,
+            foregroundScaledWidth,
+            foregroundScaledHeight,
+            Math.Clamp(settings.ForegroundZoomPercent, 0d, 20d),
+            settings.WatermarkEnabled,
+            settings.WatermarkText,
+            Math.Max(16, settings.WatermarkFontSize),
+            string.IsNullOrWhiteSpace(settings.WatermarkPosition) ? "top_right" : settings.WatermarkPosition!,
+            Math.Max(0, settings.WatermarkMarginX),
+            Math.Max(0, settings.WatermarkMarginY),
             inputProbe.HasAudio,
-            settings.DropEveryNFrames,
-            settings.DropCount,
             videoPreset,
             settings.NvencCq ?? 21,
             settings.VerboseTranscodeLogEnabled);
@@ -468,12 +621,36 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
 
         var map = KeyValueConfigReader.Read(configFile);
         return new MaterialConvertSettings(
-            Enabled: ParseNullableBool(map, "MaterialConvertEnabled") ?? false,
-            TrimHeadSeconds: ParseNullableDouble(map, "MaterialTrimHeadSeconds") ?? 4d,
-            TrimTailSeconds: ParseNullableDouble(map, "MaterialTrimTailSeconds") ?? 2d,
-            SpeedPercent: ParseNullableDouble(map, "MaterialSpeedPercent") ?? 10d,
-            CropWidthPercent: ParseNullableDouble(map, "MaterialCropWidthPercent") ?? 2d,
-            CropHeightPercent: ParseNullableDouble(map, "MaterialCropHeightPercent") ?? 2d,
+            Enabled: ParseNullableBool(map, "MaterialConvertEnabled") ?? true,
+            TrimHeadSeconds: ParseNullableDouble(map, "MaterialTrimHeadSeconds") ?? 0.5d,
+            TrimTailSeconds: ParseNullableDouble(map, "MaterialTrimTailSeconds") ?? 0.5d,
+            SpeedPercent: ParseNullableDouble(map, "MaterialSpeedPercent") ?? 0d,
+            DynamicSpeedEnabled: ParseNullableBool(map, "MaterialDynamicSpeedEnabled") ?? false,
+            DynamicSpeedPresetName: GetNullable(map, "MaterialDynamicSpeedPresetName"),
+            DynamicSpeedHeadSeconds: ParseNullableDouble(map, "MaterialDynamicSpeedHeadSeconds") ?? 2.5d,
+            DynamicSpeedHeadPercent: ParseNullableDouble(map, "MaterialDynamicSpeedHeadPercent") ?? 8d,
+            DynamicSpeedMiddlePercent: ParseNullableDouble(map, "MaterialDynamicSpeedMiddlePercent") ?? 6d,
+            DynamicSpeedTailSeconds: ParseNullableDouble(map, "MaterialDynamicSpeedTailSeconds") ?? 2.5d,
+            DynamicSpeedTailPercent: ParseNullableDouble(map, "MaterialDynamicSpeedTailPercent") ?? 8d,
+            FrameSamplingEnabled: ParseNullableBool(map, "MaterialFrameSamplingEnabled")
+                ?? ((ParseNullableInt(map, "MaterialDropCount") ?? 1) > 0),
+            FrameSamplingMode: GetNullable(map, "MaterialFrameSamplingMode"),
+            FrameSamplingInterval: ParseNullableInt(map, "MaterialFrameSamplingInterval")
+                ?? ParseNullableInt(map, "MaterialDropEveryNFrames")
+                ?? 20,
+            CropWidthPercent: ParseNullableDouble(map, "MaterialCropWidthPercent") ?? 0d,
+            CropHeightPercent: ParseNullableDouble(map, "MaterialCropHeightPercent") ?? 0d,
+            ForegroundZoomPercent: ParseNullableDouble(map, "MaterialForegroundZoomPercent") ?? 0d,
+            WatermarkEnabled: ParseNullableBool(map, "MaterialWatermarkEnabled") ?? false,
+            WatermarkText: GetNullable(map, "MaterialWatermarkText"),
+            WatermarkFontSize: ParseNullableInt(map, "MaterialWatermarkFontSize") ?? 35,
+            WatermarkPosition: GetNullable(map, "MaterialWatermarkPosition"),
+            WatermarkMarginX: ParseNullableInt(map, "MaterialWatermarkMarginX") ?? 30,
+            WatermarkMarginY: ParseNullableInt(map, "MaterialWatermarkMarginY") ?? 30,
+            OutputWidth: ParseNullableInt(map, "MaterialOutputWidth") ?? 1080,
+            OutputHeight: ParseNullableInt(map, "MaterialOutputHeight") ?? 1920,
+            PipWidthPercent: ParseNullableDouble(map, "MaterialPipWidthPercent") ?? 100d,
+            PipHeightPercent: ParseNullableDouble(map, "MaterialPipHeightPercent") ?? 100d,
             DropEveryNFrames: ParseNullableInt(map, "MaterialDropEveryNFrames") ?? 20,
             DropCount: ParseNullableInt(map, "MaterialDropCount") ?? 1,
             VideoBitrateBps: ParseNullableLong(map, "VideoBitrateBps"),
@@ -539,6 +716,86 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         return value is not null && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed * multiplier
             : null;
+    }
+
+    private static List<MaterialSpeedSegment> BuildDynamicSegments(MaterialConvertPlan plan)
+    {
+        var segments = new List<MaterialSpeedSegment>();
+        var currentStart = plan.TrimHeadSeconds;
+
+        if (plan.HeadDurationSeconds > 0.0001d)
+        {
+            segments.Add(new MaterialSpeedSegment(
+                currentStart,
+                currentStart + plan.HeadDurationSeconds,
+                plan.HeadSpeedFactor,
+                plan.HeadSpeedFactor / plan.FrameKeepRatio));
+            currentStart += plan.HeadDurationSeconds;
+        }
+
+        if (plan.MiddleDurationSeconds > 0.0001d)
+        {
+            segments.Add(new MaterialSpeedSegment(
+                currentStart,
+                currentStart + plan.MiddleDurationSeconds,
+                plan.MiddleSpeedFactor,
+                plan.MiddleSpeedFactor / plan.FrameKeepRatio));
+            currentStart += plan.MiddleDurationSeconds;
+        }
+
+        if (plan.TailDurationSeconds > 0.0001d)
+        {
+            segments.Add(new MaterialSpeedSegment(
+                currentStart,
+                Math.Min(plan.TrimmedEndSeconds, currentStart + plan.TailDurationSeconds),
+                plan.TailSpeedFactor,
+                plan.TailSpeedFactor / plan.FrameKeepRatio));
+        }
+
+        if (segments.Count == 0)
+        {
+            segments.Add(new MaterialSpeedSegment(
+                plan.TrimHeadSeconds,
+                plan.TrimmedEndSeconds,
+                plan.StaticSpeedFactor,
+                plan.StaticAudioSpeedFactor));
+        }
+
+        return segments;
+    }
+
+    private static string BuildWatermarkFilter(MaterialConvertPlan plan)
+    {
+        var text = EscapeDrawTextText(plan.WatermarkText ?? string.Empty);
+        var marginX = Math.Max(0, plan.WatermarkMarginX);
+        var marginY = Math.Max(0, plan.WatermarkMarginY);
+        var xExpression = string.Equals(plan.WatermarkPosition, "top_left", StringComparison.OrdinalIgnoreCase)
+            ? marginX.ToString(CultureInfo.InvariantCulture)
+            : $"w-tw-{marginX.ToString(CultureInfo.InvariantCulture)}";
+
+        return $"drawtext=text='{text}':fontcolor=white@0.92:fontsize={plan.WatermarkFontSize.ToString(CultureInfo.InvariantCulture)}:" +
+               $"x={xExpression}:y={marginY.ToString(CultureInfo.InvariantCulture)}:" +
+               "box=1:boxcolor=black@0.18:boxborderw=10";
+    }
+
+    private static string EscapeDrawTextText(string text)
+    {
+        return text
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace(":", "\\:", StringComparison.Ordinal)
+            .Replace("'", "\\'", StringComparison.Ordinal)
+            .Replace(",", "\\,", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal);
+    }
+
+    private static string FormatFilterNumber(double value)
+    {
+        return value.ToString("0.######", CultureInfo.InvariantCulture);
+    }
+
+    private static int EnsureEven(int value)
+    {
+        return value % 2 == 0 ? value : value + 1;
     }
 
     private static long? ParseNullableLong(JsonElement? element, string propertyName)
@@ -663,8 +920,29 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         double TrimHeadSeconds,
         double TrimTailSeconds,
         double SpeedPercent,
+        bool DynamicSpeedEnabled,
+        string? DynamicSpeedPresetName,
+        double DynamicSpeedHeadSeconds,
+        double DynamicSpeedHeadPercent,
+        double DynamicSpeedMiddlePercent,
+        double DynamicSpeedTailSeconds,
+        double DynamicSpeedTailPercent,
+        bool FrameSamplingEnabled,
+        string? FrameSamplingMode,
+        int FrameSamplingInterval,
         double CropWidthPercent,
         double CropHeightPercent,
+        double ForegroundZoomPercent,
+        bool WatermarkEnabled,
+        string? WatermarkText,
+        int WatermarkFontSize,
+        string? WatermarkPosition,
+        int WatermarkMarginX,
+        int WatermarkMarginY,
+        int OutputWidth,
+        int OutputHeight,
+        double PipWidthPercent,
+        double PipHeightPercent,
         int DropEveryNFrames,
         int DropCount,
         long? VideoBitrateBps,
@@ -685,12 +963,33 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         string? UploadBitrateProfilesJson)
     {
         public static MaterialConvertSettings Default { get; } = new(
-            Enabled: false,
-            TrimHeadSeconds: 4d,
-            TrimTailSeconds: 2d,
-            SpeedPercent: 10d,
-            CropWidthPercent: 2d,
-            CropHeightPercent: 2d,
+            Enabled: true,
+            TrimHeadSeconds: 0.5d,
+            TrimTailSeconds: 0.5d,
+            SpeedPercent: 0d,
+            DynamicSpeedEnabled: false,
+            DynamicSpeedPresetName: "light_rhythm",
+            DynamicSpeedHeadSeconds: 2.5d,
+            DynamicSpeedHeadPercent: 8d,
+            DynamicSpeedMiddlePercent: 6d,
+            DynamicSpeedTailSeconds: 2.5d,
+            DynamicSpeedTailPercent: 8d,
+            FrameSamplingEnabled: true,
+            FrameSamplingMode: "fixed_interval",
+            FrameSamplingInterval: 20,
+            CropWidthPercent: 0d,
+            CropHeightPercent: 0d,
+            ForegroundZoomPercent: 0d,
+            WatermarkEnabled: false,
+            WatermarkText: string.Empty,
+            WatermarkFontSize: 35,
+            WatermarkPosition: "top_right",
+            WatermarkMarginX: 30,
+            WatermarkMarginY: 30,
+            OutputWidth: 1080,
+            OutputHeight: 1920,
+            PipWidthPercent: 100d,
+            PipHeightPercent: 100d,
             DropEveryNFrames: 20,
             DropCount: 1,
             VideoBitrateBps: null,
@@ -719,18 +1018,52 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         long MinAcceptedVideoBitrateBps,
         int AudioBitrateBps,
         double BaseFps,
-        double SpeedFactor,
-        double AudioSpeedFactor,
         double TrimHeadSeconds,
-        double? OutputDurationSeconds,
+        double TrimTailSeconds,
+        double TrimmedEndSeconds,
+        double UsableDurationSeconds,
+        double StaticSpeedFactor,
+        double StaticAudioSpeedFactor,
+        bool DynamicSpeedEnabled,
+        double HeadDurationSeconds,
+        double MiddleDurationSeconds,
+        double TailDurationSeconds,
+        double HeadSpeedFactor,
+        double MiddleSpeedFactor,
+        double TailSpeedFactor,
         double CropWidthPercent,
         double CropHeightPercent,
+        bool FrameSamplingEnabled,
+        string FrameSamplingMode,
+        int FrameSamplingInterval,
+        int OutputWidth,
+        int OutputHeight,
+        int ForegroundWidth,
+        int ForegroundHeight,
+        int ForegroundScaledWidth,
+        int ForegroundScaledHeight,
+        double ForegroundZoomPercent,
+        bool WatermarkEnabled,
+        string? WatermarkText,
+        int WatermarkFontSize,
+        string WatermarkPosition,
+        int WatermarkMarginX,
+        int WatermarkMarginY,
         bool HasAudio,
-        int DropEveryNFrames,
-        int DropCount,
         string VideoPreset,
         int NvencCq,
-        bool VerboseLogEnabled);
+        bool VerboseLogEnabled)
+    {
+        public double FrameKeepRatio => FrameSamplingEnabled
+            ? (FrameSamplingInterval - 1d) / FrameSamplingInterval
+            : 1d;
+    }
+
+    private sealed record MaterialSpeedSegment(
+        double StartSeconds,
+        double EndSeconds,
+        double VideoSpeedFactor,
+        double AudioSpeedFactor);
 
     private sealed record MediaProbeInfo(
         double DurationSeconds,

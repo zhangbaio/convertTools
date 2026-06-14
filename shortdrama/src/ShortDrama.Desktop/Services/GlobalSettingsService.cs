@@ -14,6 +14,8 @@ public sealed class GlobalSettingsService
     {
         var settingsFilePath = GetSettingsFilePath();
         var dto = LoadSettings(settingsFilePath);
+        var legacy = LoadLegacySettings();
+        dto = MergeLegacySettings(dto, legacy, preferLegacyDefaults: !File.Exists(settingsFilePath));
         return ToSnapshot(settingsFilePath, dto);
     }
 
@@ -117,6 +119,162 @@ public sealed class GlobalSettingsService
         {
             return new GlobalDesktopSettings();
         }
+    }
+
+    private static Dictionary<string, string> LoadLegacySettings()
+    {
+        var legacyPath = GetLegacySettingsFilePath();
+        if (!File.Exists(legacyPath))
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(legacyPath));
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                var value = property.Value.ValueKind switch
+                {
+                    JsonValueKind.String => property.Value.GetString() ?? string.Empty,
+                    JsonValueKind.Number => property.Value.GetRawText(),
+                    JsonValueKind.True => "true",
+                    JsonValueKind.False => "false",
+                    _ => string.Empty
+                };
+
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    result[property.Name] = value.Trim();
+                }
+            }
+
+            return result;
+        }
+        catch
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static string GetLegacySettingsFilePath()
+    {
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".weixin_channel_tool",
+            "settings.json");
+    }
+
+    private static GlobalDesktopSettings MergeLegacySettings(
+        GlobalDesktopSettings current,
+        IReadOnlyDictionary<string, string> legacy,
+        bool preferLegacyDefaults)
+    {
+        if (legacy.Count == 0)
+        {
+            return current;
+        }
+
+        string PickString(string currentValue, string legacyKey, string defaultValue = "")
+        {
+            if (!legacy.TryGetValue(legacyKey, out var legacyValue) || string.IsNullOrWhiteSpace(legacyValue))
+            {
+                return currentValue;
+            }
+
+            if (string.IsNullOrWhiteSpace(currentValue))
+            {
+                return legacyValue;
+            }
+
+            return preferLegacyDefaults && string.Equals(currentValue, defaultValue, StringComparison.Ordinal)
+                ? legacyValue
+                : currentValue;
+        }
+
+        string NormalizeOrder(string raw, params string[] allowed)
+        {
+            var items = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(item => item.Trim().ToLowerInvariant())
+                .Where(item => allowed.Contains(item, StringComparer.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            return items.Count == 0 ? string.Join(',', allowed) : string.Join(',', items);
+        }
+
+        var mergedDramaSourceChain = PickString(current.DramaSourceChain, "drama_source_chain", "hgnew");
+        if (mergedDramaSourceChain is not ("hgnew" or "hglocal" or "pikachu"))
+        {
+            mergedDramaSourceChain = "hgnew";
+        }
+
+        return new GlobalDesktopSettings
+        {
+            DramaSourceChain = mergedDramaSourceChain,
+            DramaServiceOrderSearch = NormalizeOrder(PickString(current.DramaServiceOrderSearch, "drama_service_order_search", "hgnew,hglocal,pikachu"), "hgnew", "hglocal", "pikachu"),
+            DramaServiceOrderDownload = NormalizeOrder(PickString(current.DramaServiceOrderDownload, "drama_service_order_download", "hgnew,hglocal,pikachu"), "hgnew", "hglocal", "pikachu"),
+            DramaServiceOrderNewRelease = NormalizeOrder(PickString(current.DramaServiceOrderNewRelease, "drama_service_order_new_release", "hgnew,hglocal"), "hgnew", "hglocal"),
+            DramaServiceOrderRanking = NormalizeOrder(PickString(current.DramaServiceOrderRanking, "drama_service_order_ranking", "hglocal,pikachu"), "hglocal", "pikachu"),
+            XingeEnabled = current.XingeEnabled,
+            XingeServerUrl = current.XingeServerUrl,
+            XingeUsername = current.XingeUsername,
+            XingePassword = current.XingePassword,
+            XingeClientId = current.XingeClientId,
+            XingeClientToken = current.XingeClientToken,
+            XingeUserRole = current.XingeUserRole,
+            XingeClientName = current.XingeClientName,
+            XingeWsEnabled = current.XingeWsEnabled,
+            XingePollIntervalSeconds = current.XingePollIntervalSeconds,
+            XingeUploadLoginQr = current.XingeUploadLoginQr,
+            HgnewAccount = PickString(current.HgnewAccount, "hgnew_account"),
+            HgnewPassword = PickString(current.HgnewPassword, "hgnew_password"),
+            HgnewUdid = PickString(current.HgnewUdid, "hgnew_udid"),
+            HgnewClientVersion = PickString(current.HgnewClientVersion, "hgnew_client_version", "1.3.4"),
+            HongguoLocalBaseUrl = PickString(current.HongguoLocalBaseUrl, "hongguo_local_base_url"),
+            HongguoLocalApiKey = PickString(current.HongguoLocalApiKey, "hongguo_local_api_key"),
+            PikachuServerUrl = PickString(current.PikachuServerUrl, "pikachu_server_url", "http://8.138.192.128/start-prod-api"),
+            PikachuFanqieCookie = PickString(current.PikachuFanqieCookie, "pikachu_fanqie_cookie"),
+            PikachuDramaType = PickString(current.PikachuDramaType, "pikachu_drama_type", "short"),
+            AiTextEndpoint = current.AiTextEndpoint,
+            AiTextApiKey = current.AiTextApiKey,
+            AiTextModel = current.AiTextModel,
+            AiTextTimeoutSeconds = current.AiTextTimeoutSeconds,
+            AiTextMaxBatchSize = current.AiTextMaxBatchSize,
+            AiTextSystemPrompt = current.AiTextSystemPrompt,
+            AiTextBatchPrompt = current.AiTextBatchPrompt,
+            AiTextRetryPrompt = current.AiTextRetryPrompt,
+            ImageModelId = current.ImageModelId,
+            ImageModelApiKey = current.ImageModelApiKey,
+            ImageModelEndpoint = current.ImageModelEndpoint,
+            ImageEditModelId = current.ImageEditModelId,
+            ImageEditApiKey = current.ImageEditApiKey,
+            ImageEditEndpoint = current.ImageEditEndpoint,
+            ImageEditPath = current.ImageEditPath,
+            PosterLayoutDetectPrompt = current.PosterLayoutDetectPrompt,
+            PosterInpaintPrompt = current.PosterInpaintPrompt,
+            PosterInpaintSafeRetryPrompt = current.PosterInpaintSafeRetryPrompt,
+            PosterGenerationPrompt = current.PosterGenerationPrompt,
+            PosterGenerationSafeRetryPrompt = current.PosterGenerationSafeRetryPrompt,
+            PosterNameSystemPrompt = current.PosterNameSystemPrompt,
+            PosterNameUserPrompt = current.PosterNameUserPrompt,
+            FeishuNotificationEnabled = current.FeishuNotificationEnabled,
+            FeishuAppId = current.FeishuAppId,
+            FeishuAppSecret = current.FeishuAppSecret,
+            FeishuReceiveId = current.FeishuReceiveId,
+            FeishuReceiveIdType = current.FeishuReceiveIdType,
+            FeishuNotifyOnStepStart = current.FeishuNotifyOnStepStart,
+            FeishuNotifyOnStepSuccess = current.FeishuNotifyOnStepSuccess,
+            FeishuNotifyOnStepFailure = current.FeishuNotifyOnStepFailure,
+            FeishuNotifyOnQueueSummary = current.FeishuNotifyOnQueueSummary,
+            FeishuNotifyOnLoginQr = current.FeishuNotifyOnLoginQr,
+            FeishuNotifyStepKeysText = current.FeishuNotifyStepKeysText
+        };
     }
 
     private static GlobalConfigSnapshot ToSnapshot(string settingsFilePath, GlobalDesktopSettings dto)

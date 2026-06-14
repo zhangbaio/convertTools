@@ -42,14 +42,18 @@ public sealed class LoginSettingsTab : UserControl
         panel.Children.Add(Row("下载服务顺序", BindText(nameof(ConfigWindowViewModel.DramaServiceOrderDownload))));
         panel.Children.Add(Row("上新服务顺序", BindText(nameof(ConfigWindowViewModel.DramaServiceOrderNewRelease))));
         panel.Children.Add(Row("排名服务顺序", BindText(nameof(ConfigWindowViewModel.DramaServiceOrderRanking))));
+
         panel.Children.Add(SectionTitle("hgnew"));
         panel.Children.Add(Row("账号", BindText(nameof(ConfigWindowViewModel.HgnewAccount))));
         panel.Children.Add(Row("密码", BindPassword(nameof(ConfigWindowViewModel.HgnewPassword))));
         panel.Children.Add(Row("UDID", BuildHgnewUdidRow()));
         panel.Children.Add(Row("客户端版本", BindText(nameof(ConfigWindowViewModel.HgnewClientVersion))));
+        panel.Children.Add(Row("测试结果", ReadOnlyText(nameof(ConfigWindowViewModel.HgnewProbeStatus))));
+
         panel.Children.Add(SectionTitle("hglocal"));
         panel.Children.Add(Row("本地链路地址", BindText(nameof(ConfigWindowViewModel.HongguoLocalBaseUrl))));
         panel.Children.Add(Row("本地链路密钥", BindText(nameof(ConfigWindowViewModel.HongguoLocalApiKey))));
+
         panel.Children.Add(SectionTitle("pikachu"));
         panel.Children.Add(Row("内容类型", BuildPikachuTypeCombo()));
         panel.Children.Add(Row("代理服务地址", BindText(nameof(ConfigWindowViewModel.PikachuServerUrl))));
@@ -104,21 +108,40 @@ public sealed class LoginSettingsTab : UserControl
     {
         var grid = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"),
             ColumnSpacing = 8
         };
         var textBox = BindText(nameof(ConfigWindowViewModel.HgnewUdid));
         grid.Children.Add(textBox);
         Grid.SetColumn(textBox, 0);
 
-        var button = new Button
+        var readButton = new Button
+        {
+            Content = "读取 DeviceUDID",
+            MinWidth = 120
+        };
+        readButton.Click += ReadHgnewUdid_Click;
+        grid.Children.Add(readButton);
+        Grid.SetColumn(readButton, 1);
+
+        var generateButton = new Button
         {
             Content = "生成 UUID",
             MinWidth = 96
         };
-        button.Click += GenerateHgnewUdid_Click;
-        grid.Children.Add(button);
-        Grid.SetColumn(button, 1);
+        generateButton.Click += GenerateHgnewUdid_Click;
+        grid.Children.Add(generateButton);
+        Grid.SetColumn(generateButton, 2);
+
+        var probeButton = new Button
+        {
+            Content = "测试登录",
+            MinWidth = 96
+        };
+        probeButton.Click += ProbeHgnewLogin_Click;
+        grid.Children.Add(probeButton);
+        Grid.SetColumn(probeButton, 3);
+
         return grid;
     }
 
@@ -138,6 +161,22 @@ public sealed class LoginSettingsTab : UserControl
         if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
         {
             viewModel.HgnewUdid = Guid.NewGuid().ToString().ToUpperInvariant();
+        }
+    }
+
+    private static void ReadHgnewUdid_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
+        {
+            viewModel.ReadHgnewDeviceUdid();
+        }
+    }
+
+    private static async void ProbeHgnewLogin_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
+        {
+            await viewModel.ProbeHgnewLoginAsync();
         }
     }
 
@@ -171,6 +210,13 @@ public sealed class LoginSettingsTab : UserControl
         textBox.AcceptsReturn = true;
         textBox.TextWrapping = TextWrapping.Wrap;
         textBox.MinHeight = minHeight;
+        return textBox;
+    }
+
+    private static TextBox ReadOnlyText(string propertyName)
+    {
+        var textBox = BindText(propertyName);
+        textBox.IsReadOnly = true;
         return textBox;
     }
 

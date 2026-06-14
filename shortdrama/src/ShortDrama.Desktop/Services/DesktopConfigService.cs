@@ -362,7 +362,7 @@ public sealed class DesktopConfigService
             UploadBitrateFallbackVideoBitrateMbps: Get(map, "UploadBitrateFallbackVideoBitrateMbps"),
             UploadBitrateProfilesJson: Get(map, "UploadBitrateProfilesJson"),
             VideoNameTemplate: Get(map, "VideoNameTemplate"),
-            MaterialConvertEnabled: bool.TryParse(Get(map, "MaterialConvertEnabled"), out var materialConvertEnabled) && materialConvertEnabled,
+            MaterialConvertEnabled: !bool.TryParse(Get(map, "MaterialConvertEnabled"), out var materialConvertEnabled) || materialConvertEnabled,
             MaterialTrimHeadSeconds: Get(map, "MaterialTrimHeadSeconds"),
             MaterialTrimTailSeconds: Get(map, "MaterialTrimTailSeconds"),
             MaterialSpeedPercent: Get(map, "MaterialSpeedPercent"),

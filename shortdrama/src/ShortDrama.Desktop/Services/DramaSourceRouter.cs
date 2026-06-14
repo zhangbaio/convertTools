@@ -26,17 +26,20 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private readonly HttpClient _httpClient;
     private readonly GlobalSettingsService _globalSettingsService;
+    private readonly HongguoNewApiService _hgnewApiService;
     private readonly HongguoDramaSearchService _hgnewSearchService;
     private readonly HongguoDramaDownloader _hgnewDownloader;
 
     public DramaSourceRouter(
         HttpClient httpClient,
         GlobalSettingsService globalSettingsService,
+        HongguoNewApiService hgnewApiService,
         HongguoDramaSearchService hgnewSearchService,
         HongguoDramaDownloader hgnewDownloader)
     {
         _httpClient = httpClient;
         _globalSettingsService = globalSettingsService;
+        _hgnewApiService = hgnewApiService;
         _hgnewSearchService = hgnewSearchService;
         _hgnewDownloader = hgnewDownloader;
     }
@@ -55,7 +58,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             {
                 var result = source switch
                 {
-                    "hgnew" => await _hgnewSearchService.SearchAsync(keyword, page, cancellationToken),
+                    "hgnew" => await SearchHgnewAsync(keyword, page, settings, cancellationToken),
                     "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
                     "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken),
                     _ => []
@@ -91,7 +94,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             {
                 var result = source switch
                 {
-                    "hgnew" => await _hgnewSearchService.GetTodayAsync(cancellationToken),
+                    "hgnew" => await _hgnewApiService.GetTodayNewAsync(settings, "djnew", cancellationToken),
                     "hglocal" => await GetLocalTodayAsync(settings, cancellationToken),
                     _ => []
                 };
@@ -123,9 +126,20 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             return await GetLatestByGenreAsync(settings, "comic_series", days, cancellationToken);
         }
 
-        return await FilterByRecentDaysAsync(
-            () => _hgnewSearchService.GetTodayAsync(cancellationToken),
-            days);
+        try
+        {
+            return await _hgnewApiService.GetDailyByDatesAsync(
+                settings,
+                "mjnew",
+                BuildRecentDateWindow(days),
+                cancellationToken);
+        }
+        catch
+        {
+            return await FilterByRecentDaysAsync(
+                () => _hgnewSearchService.GetTodayAsync(cancellationToken),
+                days);
+        }
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(int days, CancellationToken cancellationToken)
@@ -136,9 +150,20 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             return await GetLatestByGenreAsync(settings, "ai_series", days, cancellationToken);
         }
 
-        return await FilterByRecentDaysAsync(
-            () => _hgnewSearchService.GetTodayAsync(cancellationToken),
-            days);
+        try
+        {
+            return await _hgnewApiService.GetDailyByDatesAsync(
+                settings,
+                "aiju",
+                BuildRecentDateWindow(days),
+                cancellationToken);
+        }
+        catch
+        {
+            return await FilterByRecentDaysAsync(
+                () => _hgnewSearchService.GetTodayAsync(cancellationToken),
+                days);
+        }
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)
@@ -149,9 +174,37 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             return await GetLatestByGenreAsync(settings, "short_play", days, cancellationToken);
         }
 
-        return await FilterByRecentDaysAsync(
-            () => _hgnewSearchService.GetTodayAsync(cancellationToken),
-            days);
+        try
+        {
+            return await _hgnewApiService.GetHistoryByDatesAsync(
+                settings,
+                "djnew",
+                BuildRecentDateWindow(days),
+                cancellationToken);
+        }
+        catch
+        {
+            return await FilterByRecentDaysAsync(
+                () => _hgnewSearchService.GetTodayAsync(cancellationToken),
+                days);
+        }
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> SearchHgnewAsync(
+        string keyword,
+        int page,
+        GlobalConfigSnapshot settings,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _hgnewApiService.SearchAsync(settings, keyword, page, cancellationToken);
+        }
+        catch
+        {
+            // Fall back to the legacy proxy-based search when the authenticated path is unavailable.
+            return await _hgnewSearchService.SearchAsync(keyword, page, cancellationToken);
+        }
     }
 
     public async Task<DramaDownloadResult> DownloadAsync(
@@ -184,7 +237,20 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 posterPrefix: PikachuBookPrefix);
         }
 
-        return await _hgnewDownloader.DownloadAsync(request, progress, cancellationToken);
+        try
+        {
+            return await DownloadWithProviderAsync(
+                request,
+                progress,
+                cancellationToken,
+                resolveEpisodes: ct => GetHgnewEpisodesAsync(bookId, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetHgnewVideoUrlAsync(videoId, quality, settings, ct),
+                posterPrefix: string.Empty);
+        }
+        catch
+        {
+            return await _hgnewDownloader.DownloadAsync(request, progress, cancellationToken);
+        }
     }
 
     private async Task<DramaDownloadResult> DownloadWithProviderAsync(
@@ -527,6 +593,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return FilterByRecentDays(items, days);
     }
 
+    private static IReadOnlyList<DateOnly> BuildRecentDateWindow(int days)
+    {
+        var window = Math.Clamp(days, 1, 30);
+        return Enumerable.Range(0, window)
+            .Select(offset => DateOnly.FromDateTime(DateTime.Today.AddDays(-offset)))
+            .ToArray();
+    }
+
     private static IReadOnlyList<DramaSearchItem> FilterByRecentDays(
         IReadOnlyList<DramaSearchItem> items,
         int days)
@@ -703,6 +777,24 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         return episodes;
+    }
+
+    private async Task<IReadOnlyList<SourceEpisode>> GetHgnewEpisodesAsync(string bookId, GlobalConfigSnapshot settings, CancellationToken cancellationToken)
+    {
+        var items = await _hgnewApiService.GetEpisodesAsync(settings, bookId, cancellationToken);
+        return items
+            .Select(item => new SourceEpisode(
+                item.EpisodeNumber,
+                item.Title,
+                item.VideoId,
+                item.PosterUrl))
+            .ToArray();
+    }
+
+    private async Task<SourceVideoDetail> GetHgnewVideoUrlAsync(string videoId, string quality, GlobalConfigSnapshot settings, CancellationToken cancellationToken)
+    {
+        var detail = await _hgnewApiService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
+        return new SourceVideoDetail(detail.Url);
     }
 
     private async Task<SourceVideoDetail> GetPikachuVideoUrlAsync(string prefixedVideoId, string quality, GlobalConfigSnapshot settings, CancellationToken cancellationToken)

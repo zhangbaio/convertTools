@@ -2,6 +2,7 @@ using Microsoft.Playwright;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation.Weixin.Pages;
+using ShortDrama.Infrastructure.Notifications;
 
 namespace ShortDrama.Infrastructure.Automation.Weixin;
 

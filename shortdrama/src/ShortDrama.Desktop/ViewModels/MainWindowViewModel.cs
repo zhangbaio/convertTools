@@ -44,13 +44,13 @@ public partial class MainWindowViewModel : ViewModelBase
     ];
     private static readonly (string Key, string Label)[] ProjectMaterialPipelineSteps =
     [
-        ("transcode", "瑙嗛杞爜"),
-        ("rewrite", "浠垮啓鍓у悕绠€浠?),
-        ("poster-rename", "鐢熸垚娴锋姤鍥剧墖"),
-        ("project-image", "鐢熸垚宸ョ▼鍥?),
-        ("cost-report", "鐢熸垚鎴愭湰鎶ヨ〃"),
-        ("batch-file-rename", "閲嶅懡鍚嶈棰戞枃浠?),
-        ("material-convert", "杞崲绱犳潗瑙嗛")
+        ("transcode", "视频转码"),
+        ("rewrite", "仿写剧名简介"),
+        ("poster-rename", "生成海报图片"),
+        ("project-image", "生成工程图"),
+        ("cost-report", "生成成本报表"),
+        ("batch-file-rename", "重命名视频文件"),
+        ("material-convert", "转换素材视频")
     ];
 
     private readonly IProjectScanner _projectScanner;
@@ -63,6 +63,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IDramaDownloader _dramaDownloader;
     private readonly DesktopConfigService _configService;
     private readonly DesktopStateService _stateService;
+    private readonly DesktopDependencyInspector _dependencyInspector;
     private readonly DesktopShellService _shellService;
     private readonly XingeRemoteControlService _xingeRemoteControlService;
     private readonly IWorkflowInteractionService _interactionService;
@@ -70,7 +71,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IFeishuNotificationService _feishuNotificationService;
     private readonly List<ActivityLogEntry> _allActivityLogs = [];
     private static readonly string[] DownloadVideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
-    private static readonly Regex DownloadEpisodeNameRegex = new(@"绗琝s*0*(\d+)\s*闆?, RegexOptions.Compiled);
+    private static readonly Regex DownloadEpisodeNameRegex = new(@"第\s*0*(\d+)\s*集", RegexOptions.Compiled);
     private static readonly Regex DownloadTrailingNumberRegex = new(@"(\d+)(?!.*\d)", RegexOptions.Compiled);
     private CancellationTokenSource? _currentOperationCts;
     private WorkflowInteractionRequest? _currentInteractionRequest;
@@ -93,6 +94,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IDramaDownloader dramaDownloader,
         DesktopConfigService configService,
         DesktopStateService stateService,
+        DesktopDependencyInspector dependencyInspector,
         DesktopShellService shellService,
         XingeRemoteControlService xingeRemoteControlService,
         IWorkflowInteractionService interactionService,
@@ -109,6 +111,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _dramaDownloader = dramaDownloader;
         _configService = configService;
         _stateService = stateService;
+        _dependencyInspector = dependencyInspector;
         _shellService = shellService;
         _xingeRemoteControlService = xingeRemoteControlService;
         _interactionService = interactionService;
@@ -132,7 +135,9 @@ public partial class MainWindowViewModel : ViewModelBase
         ReloadConfigCommand = new RelayCommand(LoadConfig, CanOperateWithRootDir);
         SaveConfigCommand = new RelayCommand(SaveConfig, CanOperateWithRootDir);
         ValidateConfigCommand = new RelayCommand(ValidateConfig, CanOperateWithRootDir);
+        RefreshDependenciesCommand = new RelayCommand(RefreshDependencies);
         RefreshArchivedProjectsCommand = new RelayCommand(LoadArchivedProjects, CanOperateWithRootDir);
+        TestDependenciesCommand = new AsyncRelayCommand(TestDependenciesAsync, CanOperateWithRootDir);
         OpenSourceDirCommand = new RelayCommand(OpenSourceDir, CanOpenSourceDir);
         OpenWorkflowDirCommand = new RelayCommand(OpenWorkflowDir, CanOpenWorkflowDir);
         OpenArchivedProjectDirCommand = new RelayCommand(OpenArchivedProjectDir, CanOpenArchivedProjectDir);
@@ -173,7 +178,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         RootDir = ResolveInitialRootDir();
         LoadArchivedProjects();
-        StatusMessage = "杈撳叆椤圭洰鏍圭洰褰曞悗鐐瑰嚮鈥滄壂鎻忛」鐩€濄€?;
+        StatusMessage = "输入项目根目录后点击“扫描项目”。";
         SelectedStepOption = StepOptions.FirstOrDefault();
         SelectedExecutionModeOption = ExecutionModeOptions.FirstOrDefault();
         SelectedDownloadEpisodeRangeOption = DownloadEpisodeRangeOptions.FirstOrDefault();
@@ -181,6 +186,7 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedStepLogFilter = StepLogFilters.First();
         _interactionService.RequestChanged += OnInteractionRequestChanged;
         LoadConfig();
+        RefreshDependencies();
         QueueStartupScanIfNeeded();
     }
 
@@ -188,63 +194,64 @@ public partial class MainWindowViewModel : ViewModelBase
     public ObservableCollection<ArchivedProjectItem> ArchivedProjects { get; } = [];
     public ObservableCollection<SearchResultRowViewModel> SearchResults { get; } = [];
     public ObservableCollection<ActivityLogEntry> ActivityLog { get; } = [];
+    public ObservableCollection<DependencyStatusItem> Dependencies { get; } = [];
     public ObservableCollection<ConfigValidationItem> ConfigIssues { get; } = [];
     public ObservableCollection<MaterialValidationIssueItem> MaterialValidationIssues { get; } = [];
     public ObservableCollection<ProjectMaterialStepItem> ProjectMaterialSteps { get; } = [];
     public ObservableCollection<ActivityLogEntry> ProjectMaterialStepLogs { get; } = [];
-    public ObservableCollection<LogFilterOption> ProjectLogFilters { get; } = [new(AllProjectsFilterKey, "鍏ㄩ儴椤圭洰")];
+    public ObservableCollection<LogFilterOption> ProjectLogFilters { get; } = [new(AllProjectsFilterKey, "全部项目")];
     public ObservableCollection<LogFilterOption> StepLogFilters { get; } =
     [
-        new(AllStepsFilterKey, "鍏ㄩ儴姝ラ"),
-        new(SystemStepFilterKey, "绯荤粺浜嬩欢")
+        new(AllStepsFilterKey, "全部步骤"),
+        new(SystemStepFilterKey, "系统事件")
     ];
     public ObservableCollection<WorkflowStepOption> StepOptions { get; } =
     [
-        new("download", "涓嬭浇鍓ч泦"),
-        new("transcode", "瑙嗛杞爜"),
-        new("rewrite", "浠垮啓鍓у悕绠€浠?),
-        new("poster-rename", "鐢熸垚娴锋姤鍥剧墖"),
-        new("project-image", "鐢熸垚宸ョ▼鍥?),
-        new("cost-report", "鐢熸垚鎴愭湰鎶ヨ〃"),
-        new("batch-file-rename", "閲嶅懡鍚嶈棰戞枃浠?),
-        new("material-convert", "杞崲绱犳潗瑙嗛"),
-        new("weixin-upload", "寰俊涓婁紶鍓ч泦"),
-        new("weixin-material-upload", "寰俊涓婁紶绱犳潗")
+        new("download", "下载剧集"),
+        new("transcode", "视频转码"),
+        new("rewrite", "仿写剧名简介"),
+        new("poster-rename", "生成海报图片"),
+        new("project-image", "生成工程图"),
+        new("cost-report", "生成成本报表"),
+        new("batch-file-rename", "重命名视频文件"),
+        new("material-convert", "转换素材视频"),
+        new("weixin-upload", "微信上传剧集"),
+        new("weixin-material-upload", "微信上传素材")
     ];
     public ObservableCollection<WorkflowStepOption> ExecutionModeOptions { get; } =
     [
-        new(ExecutionModeSerial, "涓茶"),
-        new(ExecutionModeConcurrent2, "骞跺彂 2")
+        new(ExecutionModeSerial, "串行"),
+        new(ExecutionModeConcurrent2, "并发 2")
     ];
     public ObservableCollection<WorkflowStepOption> DownloadEpisodeRangeOptions { get; } =
     [
-        new(EpisodeRangeAll, "鍏ㄩ儴"),
-        new(EpisodeRangeFirst3, "鍓?闆?),
-        new(EpisodeRangeCustom, "鑷畾涔?)
+        new(EpisodeRangeAll, "全部"),
+        new(EpisodeRangeFirst3, "前3集"),
+        new(EpisodeRangeCustom, "自定义")
     ];
     public ObservableCollection<string> WeixinMonetizationTypeOptions { get; } =
     [
-        "IAA骞垮憡鍙樼幇",
-        "IAA骞垮憡",
-        "IAP浠樿垂瑙傜湅",
-        "娣峰悎鍙樼幇"
+        "IAA广告变现",
+        "IAA广告",
+        "IAP付费观看",
+        "混合变现"
     ];
     public ObservableCollection<string> WeixinDramaTypeOptions { get; } =
     [
-        "婕墽",
-        "鐪熶汉",
-        "鑷姩妫€娴?
+        "漫剧",
+        "真人",
+        "自动检测"
     ];
     public ObservableCollection<string> WeixinDramaQualificationOptions { get; } =
     [
-        "鍏朵粬寰煭鍓?,
-        "閲嶇偣鏅€氬井鐭墽"
+        "其他微短剧",
+        "重点普通微短剧"
     ];
     public ObservableCollection<string> WeixinSubmitterIdentityOptions { get; } =
     [
-        "鍓х洰鍒朵綔鏂?,
-        "鐗堟潈鏂?,
-        "骞冲彴鏂?
+        "剧目制作方",
+        "版权方",
+        "平台方"
     ];
 
     public IAsyncRelayCommand ScanCommand { get; }
@@ -264,7 +271,9 @@ public partial class MainWindowViewModel : ViewModelBase
     public IRelayCommand ReloadConfigCommand { get; }
     public IRelayCommand SaveConfigCommand { get; }
     public IRelayCommand ValidateConfigCommand { get; }
+    public IRelayCommand RefreshDependenciesCommand { get; }
     public IRelayCommand RefreshArchivedProjectsCommand { get; }
+    public IAsyncRelayCommand TestDependenciesCommand { get; }
     public IRelayCommand OpenSourceDirCommand { get; }
     public IRelayCommand OpenWorkflowDirCommand { get; }
     public IRelayCommand OpenArchivedProjectDirCommand { get; }
@@ -350,16 +359,16 @@ public partial class MainWindowViewModel : ViewModelBase
     private string statusMessage = string.Empty;
 
     [ObservableProperty]
-    private string searchSummary = "杈撳叆鍓у悕鍚庢悳绱紝鎴栨煡鐪嬩笂鏂扮粨鏋溿€?;
+    private string searchSummary = "输入剧名后搜索，或查看上新结果。";
 
     [ObservableProperty]
-    private string activityTitle = "杩愯鏃ュ織";
+    private string activityTitle = "运行日志";
 
     [ObservableProperty]
     private string configFilePath = string.Empty;
 
     [ObservableProperty]
-    private string configValidationSummary = "鏈牎楠?;
+    private string configValidationSummary = "未校验";
 
     [ObservableProperty]
     private WorkflowStepOption? selectedStepOption;
@@ -402,7 +411,7 @@ public partial class MainWindowViewModel : ViewModelBase
         get
         {
             var checkedCount = Projects.Count(item => item.IsChecked);
-            return checkedCount <= 0 ? "鏈嬀閫変换鍔? : $"宸插嬀閫?{checkedCount} 涓换鍔?;
+            return checkedCount <= 0 ? "未勾选任务" : $"已勾选 {checkedCount} 个任务";
         }
     }
 
@@ -414,10 +423,10 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool IsTaskQueueMaterialUploadDetailVisible => HasTaskQueueDetail && string.Equals(TaskQueueDetailMode, TaskQueueDetailMaterialUpload, StringComparison.Ordinal);
     public string TaskQueueDetailTitle => TaskQueueDetailMode switch
     {
-        TaskQueueDetailDownload => $"涓嬭浇鍓ч泦 路 {SelectedProjectTitle}",
-        TaskQueueDetailProjectMaterial => $"鐢熸垚椤圭洰绱犳潗 路 {SelectedProjectTitle}",
-        TaskQueueDetailEpisodeUpload => $"鍓ч泦涓婁紶 路 {SelectedProjectTitle}",
-        TaskQueueDetailMaterialUpload => $"绱犳潗涓婁紶 路 {SelectedProjectTitle}",
+        TaskQueueDetailDownload => $"下载剧集 · {SelectedProjectTitle}",
+        TaskQueueDetailProjectMaterial => $"生成项目素材 · {SelectedProjectTitle}",
+        TaskQueueDetailEpisodeUpload => $"剧集上传 · {SelectedProjectTitle}",
+        TaskQueueDetailMaterialUpload => $"素材上传 · {SelectedProjectTitle}",
         _ => SelectedProjectTitle
     };
 
@@ -482,16 +491,16 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool weixinSaveText = true;
 
     [ObservableProperty]
-    private string weixinMonetizationType = "IAA骞垮憡鍙樼幇";
+    private string weixinMonetizationType = "IAA广告变现";
 
     [ObservableProperty]
-    private string weixinDramaType = "婕墽";
+    private string weixinDramaType = "漫剧";
 
     [ObservableProperty]
-    private string weixinDramaQualification = "鍏朵粬寰煭鍓?;
+    private string weixinDramaQualification = "其他微短剧";
 
     [ObservableProperty]
-    private string weixinSubmitterIdentity = "鍓х洰鍒朵綔鏂?;
+    private string weixinSubmitterIdentity = "剧目制作方";
 
     [ObservableProperty]
     private string weixinTrialEpisodes = "3";
@@ -602,7 +611,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool hasInteractionRequest;
 
     [ObservableProperty]
-    private string interactionTitle = "浜哄伐浠嬪叆";
+    private string interactionTitle = "人工介入";
 
     [ObservableProperty]
     private string interactionMessage = string.Empty;
@@ -614,12 +623,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _costPreviewPath = string.Empty;
     private string _projectImagePreviewPath = string.Empty;
 
-    public string SelectedProjectTitle => SelectedProject?.DisplayName ?? "鏈€夋嫨椤圭洰";
-    public string SearchPageText => $"绗?{CurrentSearchPage} 椤?;
-    public string CheckedSearchResultsSummary => $"宸查€?{SearchResults.Count(item => item.IsChecked)} 椤?;
+    public string SelectedProjectTitle => SelectedProject?.DisplayName ?? "未选择项目";
+    public string SearchPageText => $"第 {CurrentSearchPage} 页";
+    public string CheckedSearchResultsSummary => $"已选 {SearchResults.Count(item => item.IsChecked)} 项";
     public bool IsCustomDownloadEpisodeRange =>
         string.Equals(SelectedDownloadEpisodeRangeOption?.Key, EpisodeRangeCustom, StringComparison.Ordinal);
-    public string WorkspaceSummary => string.IsNullOrWhiteSpace(RootDir) ? "鏈缃伐浣滅洰褰? : RootDir;
+    public string WorkspaceSummary => string.IsNullOrWhiteSpace(RootDir) ? "未设置工作目录" : RootDir;
     public Bitmap? PosterPreviewBitmap
     {
         get => _posterPreviewBitmap;
@@ -707,6 +716,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         ClearMaterialValidationIssues();
         OnPropertyChanged(nameof(SelectedProjectTitle));
+        OnPropertyChanged(nameof(MaterialUploadSummary));
         OnPropertyChanged(nameof(HasTaskQueueDetail));
         OnPropertyChanged(nameof(IsTaskQueueOverviewVisible));
         OnPropertyChanged(nameof(IsTaskQueueDownloadDetailVisible));
@@ -928,6 +938,7 @@ public partial class MainWindowViewModel : ViewModelBase
         OpenCostReportCommand.NotifyCanExecuteChanged();
         OpenProjectImageCommand.NotifyCanExecuteChanged();
         OpenWeixinBrowserCommand.NotifyCanExecuteChanged();
+        TestDependenciesCommand.NotifyCanExecuteChanged();
         RunSelectedStepCommand.NotifyCanExecuteChanged();
         RunSelectedTranscodeCommand.NotifyCanExecuteChanged();
         RunSelectedProjectMaterialCommand.NotifyCanExecuteChanged();
@@ -959,6 +970,7 @@ public partial class MainWindowViewModel : ViewModelBase
             RootDir = path;
             PersistState();
             LoadArchivedProjects();
+            RefreshDependencies();
         }
     }
 
@@ -1020,12 +1032,12 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         if (!Directory.Exists(RootDir))
         {
-            StatusMessage = $"鏍圭洰褰曚笉瀛樺湪: {RootDir}";
-            AppendLog($"鎵弿澶辫触锛岀洰褰曚笉瀛樺湪: {RootDir}");
+            StatusMessage = $"根目录不存在: {RootDir}";
+            AppendLog($"扫描失败，目录不存在: {RootDir}");
             return;
         }
 
-        await RunBusyAsync("姝ｅ湪鎵弿椤圭洰...", async cancellationToken =>
+        await RunBusyAsync("正在扫描项目...", async cancellationToken =>
         {
             var result = await _projectScanner.ScanAsync(RootDir, null, cancellationToken);
             BackupRootDir = result.BackupRootDir ?? string.Empty;
@@ -1040,9 +1052,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
             SelectedProject = null;
             TaskQueueDetailMode = TaskQueueDetailDownload;
-            StatusMessage = $"鎵弿瀹屾垚锛屽叡 {result.TotalProjects} 涓」鐩紝寰呭鐞?{result.PendingProjects} 涓€?;
+            StatusMessage = $"扫描完成，共 {result.TotalProjects} 个项目，待处理 {result.PendingProjects} 个。";
             AppendLog(StatusMessage);
             LoadConfig();
+            RefreshDependencies();
         });
     }
 
@@ -1073,8 +1086,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private async Task RunRootWorkflowAsync()
     {
         ClearAllLogs();
-        ActivityTitle = $"鎵瑰鐞嗘棩蹇?路 {Path.GetFileName(RootDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}";
-        await RunBusyAsync("姝ｅ湪鎵ц鏁翠釜鏍圭洰褰曞伐浣滄祦...", async cancellationToken =>
+        ActivityTitle = $"批处理日志 · {Path.GetFileName(RootDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}";
+        await RunBusyAsync("正在执行整个根目录工作流...", async cancellationToken =>
         {
             var progress = CreateBufferedProgress();
             var result = await _workService.RunAsync(
@@ -1084,7 +1097,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 progress,
                 cancellationToken);
 
-            AppendLog($"鎵瑰鐞嗗畬鎴愶細鎴愬姛 {result.SucceededProjects} 涓紝澶辫触 {result.FailedProjects} 涓紝璺宠繃 {result.SkippedProjects} 涓€?);
+            AppendLog($"批处理完成：成功 {result.SucceededProjects} 个，失败 {result.FailedProjects} 个，跳过 {result.SkippedProjects} 个。");
             await ScanAsync();
         });
     }
@@ -1101,7 +1114,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task RunSelectedTranscodeAsync()
     {
-        await ExecuteSelectedProjectStepAsync("transcode", "瑙嗛杞爜");
+        await ExecuteSelectedProjectStepAsync("transcode", "视频转码");
     }
 
     private async Task RunSelectedProjectMaterialAsync()
@@ -1111,7 +1124,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        await ExecuteProjectMaterialPipelineAsync(SelectedProject, "椤圭洰绱犳潗鏃ュ織");
+        await ExecuteProjectMaterialPipelineAsync(SelectedProject, "项目素材日志");
     }
 
     private async Task RunSelectedWeixinUploadAsync()
@@ -1123,32 +1136,32 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (IsTaskQueueEpisodeUploadDetailVisible)
         {
-            await ExecuteEpisodeUploadStepAsync(SelectedProject, null, "寰俊涓婁紶鍓ч泦");
+            await ExecuteEpisodeUploadStepAsync(SelectedProject, null, "微信上传剧集");
             return;
         }
 
-        await ExecuteSelectedProjectStepAsync("weixin-upload", "寰俊涓婁紶鍓ч泦");
+        await ExecuteSelectedProjectStepAsync("weixin-upload", "微信上传剧集");
     }
 
     private async Task RunSelectedWeixinMaterialUploadAsync()
     {
-        await ExecuteSelectedProjectStepAsync("weixin-material-upload", "寰俊涓婁紶绱犳潗");
+        await ExecuteSelectedProjectStepAsync("weixin-material-upload", "微信上传素材");
     }
 
     private Task RunCheckedProjectsAsync() =>
-        ExecuteCheckedProjectsAsync(stepKey: null, stepLabel: "鍏ㄦ祦绋?);
+        ExecuteCheckedProjectsAsync(stepKey: null, stepLabel: "全流程");
 
     private Task RunCheckedTranscodeAsync() =>
-        ExecuteCheckedProjectsAsync("transcode", "瑙嗛杞爜");
+        ExecuteCheckedProjectsAsync("transcode", "视频转码");
 
     private Task RunCheckedProjectMaterialAsync() =>
-        ExecuteCheckedProjectsAsync("__project-material__", "涓€閿敓鎴愰」鐩礌鏉?);
+        ExecuteCheckedProjectsAsync("__project-material__", "一键生成项目素材");
 
     private Task RunCheckedWeixinUploadAsync() =>
-        ExecuteCheckedProjectsAsync("weixin-upload", "寰俊涓婁紶鍓ч泦");
+        ExecuteCheckedProjectsAsync("weixin-upload", "微信上传剧集");
 
     private Task RunCheckedWeixinMaterialUploadAsync() =>
-        ExecuteCheckedProjectsAsync("weixin-material-upload", "寰俊涓婁紶绱犳潗");
+        ExecuteCheckedProjectsAsync("weixin-material-upload", "微信上传素材");
 
     private async Task RunCheckedQueueAsync()
     {
@@ -1158,8 +1171,8 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        ActivityTitle = "浠诲姟闃熷垪鏃ュ織";
-        await RunBusyAsync($"姝ｅ湪鎵ц鍕鹃€夐槦鍒楋紝鍏?{selectedProjects.Length} 涓」鐩?..", async cancellationToken =>
+        ActivityTitle = "任务队列日志";
+        await RunBusyAsync($"正在执行勾选队列，共 {selectedProjects.Length} 个项目...", async cancellationToken =>
         {
             foreach (var project in selectedProjects)
             {
@@ -1173,9 +1186,9 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             await RefreshProjectListAsync();
-            StatusMessage = $"鍕鹃€夐槦鍒楁墽琛屽畬鎴愶紝鍏卞鐞?{selectedProjects.Length} 涓」鐩€?;
+            StatusMessage = $"勾选队列执行完成，共处理 {selectedProjects.Length} 个项目。";
             AppendLog(StatusMessage);
-            await TryNotifyFeishuQueueSummaryAsync(selectedProjects, "鍕鹃€夐槦鍒?, cancellationToken);
+            await TryNotifyFeishuQueueSummaryAsync(selectedProjects, "勾选队列", cancellationToken);
         });
     }
 
@@ -1186,12 +1199,12 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        ActivityTitle = $"浠诲姟璇︽儏鏃ュ織 路 {SelectedProject.DisplayName}";
-        await RunBusyAsync($"姝ｅ湪鎵ц褰撳墠浠诲姟锛歿SelectedProject.DisplayName}", async cancellationToken =>
+        ActivityTitle = $"任务详情日志 · {SelectedProject.DisplayName}";
+        await RunBusyAsync($"正在执行当前任务：{SelectedProject.DisplayName}", async cancellationToken =>
         {
             await ExecuteQueueSelectionForProjectAsync(SelectedProject, 1, 1, cancellationToken);
             await RefreshAfterExecutionAsync(SelectedProject.ProjectKey);
-            await TryNotifyFeishuQueueSummaryAsync([SelectedProject], "褰撳墠浠诲姟", cancellationToken);
+            await TryNotifyFeishuQueueSummaryAsync([SelectedProject], "当前任务", cancellationToken);
         });
     }
 
@@ -1207,7 +1220,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        await ExecuteArchiveAsync([SelectedProject.ProjectKey], $"姝ｅ湪褰掓。椤圭洰锛歿SelectedProject.DisplayName}");
+        await ExecuteArchiveAsync([SelectedProject.ProjectKey], $"正在归档项目：{SelectedProject.DisplayName}");
     }
 
     public async Task ArchiveSelectedProjectWithOptionsAsync(IReadOnlyCollection<int>? preserveWorkflowEpisodes)
@@ -1224,7 +1237,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         await ExecuteArchiveAsync(
             [SelectedProject.ProjectKey],
-            $"姝ｅ湪褰掓。椤圭洰锛歿SelectedProject.DisplayName}",
+            $"正在归档项目：{SelectedProject.DisplayName}",
             preserveWorkflowEpisodes);
     }
 
@@ -1239,7 +1252,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        await ExecuteArchiveAsync(checkedKeys, $"姝ｅ湪褰掓。鍕鹃€夐」鐩紝鍏?{checkedKeys.Length} 涓?..");
+        await ExecuteArchiveAsync(checkedKeys, $"正在归档勾选项目，共 {checkedKeys.Length} 个...");
     }
 
     public async Task ArchiveCheckedProjectsWithOptionsAsync(IReadOnlyCollection<int>? preserveWorkflowEpisodes)
@@ -1255,7 +1268,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         await ExecuteArchiveAsync(
             checkedKeys,
-            $"姝ｅ湪褰掓。鍕鹃€夐」鐩紝鍏?{checkedKeys.Length} 涓?..",
+            $"正在归档勾选项目，共 {checkedKeys.Length} 个...",
             preserveWorkflowEpisodes);
     }
 
@@ -1274,7 +1287,7 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             StatusMessage = ex.Message;
-            AppendLog($"褰掓。澶辫触: {ex.Message}", string.Empty, string.Empty, "archive", "褰掓。椤圭洰", isFailure: true);
+            AppendLog($"归档失败: {ex.Message}", string.Empty, string.Empty, "archive", "归档项目", isFailure: true);
         }
         finally
         {
@@ -1284,8 +1297,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private static bool CanArchiveProject(ProjectListItemViewModel project)
     {
-        return !string.Equals(project.SchedulingStatus, "杩愯涓?, StringComparison.Ordinal) &&
-               !string.Equals(project.SchedulingStatus, "鎺掗槦涓?, StringComparison.Ordinal);
+        return !string.Equals(project.SchedulingStatus, "运行中", StringComparison.Ordinal) &&
+               !string.Equals(project.SchedulingStatus, "排队中", StringComparison.Ordinal);
     }
 
     private async Task ExecuteSelectedProjectStepAsync(string stepKey, string stepLabel)
@@ -1300,8 +1313,8 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedStepOption = StepOptions.FirstOrDefault(item =>
             string.Equals(item.Key, stepKey, StringComparison.Ordinal)) ?? SelectedStepOption;
         SyncStepLogFilterToSelection();
-        ActivityTitle = $"姝ラ鏃ュ織 路 {SelectedProject.DisplayName} 路 {stepLabel}";
-        await RunBusyAsync($"姝ｅ湪鎵ц姝ラ锛歿stepLabel}", async cancellationToken =>
+        ActivityTitle = $"步骤日志 · {SelectedProject.DisplayName} · {stepLabel}";
+        await RunBusyAsync($"正在执行步骤：{stepLabel}", async cancellationToken =>
         {
             await TryNotifyFeishuStepAsync(SelectedProject, stepKey, stepLabel, "before", null, null, cancellationToken);
             var progress = CreateBufferedProgress();
@@ -1313,7 +1326,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 progress,
                 cancellationToken);
 
-            AppendLog($"姝ラ瀹屾垚: {stepLabel}锛岀粨鏋?{(result.Ok ? "鎴愬姛" : "澶辫触")}");
+            AppendLog($"步骤完成: {stepLabel}，结果={(result.Ok ? "成功" : "失败")}");
             await TryNotifyFeishuStepAsync(SelectedProject, stepKey, stepLabel, "after", result.Ok, result.Message, cancellationToken);
             await RefreshAfterExecutionAsync(result.ProjectKey);
         });
@@ -1327,10 +1340,10 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         var project = SelectedProject;
-        ActivityTitle = $"椤圭洰绱犳潗鏍￠獙 路 {project.DisplayName}";
+        ActivityTitle = $"项目素材校验 · {project.DisplayName}";
         ClearMaterialValidationIssues();
 
-        await RunSearchBusyAsync($"姝ｅ湪鏍￠獙椤圭洰绱犳潗锛歿project.DisplayName}", async cancellationToken =>
+        await RunSearchBusyAsync($"正在校验项目素材：{project.DisplayName}", async cancellationToken =>
         {
             await RefreshMaterialValidationIssuesAsync(project, cancellationToken, appendLogs: true);
         });
@@ -1344,7 +1357,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         var project = SelectedProject;
-        await RunBusyAsync($"姝ｅ湪淇绱犳潗闂锛歿issue.Message}", async cancellationToken =>
+        await RunBusyAsync($"正在修复素材问题：{issue.Message}", async cancellationToken =>
         {
             ShowMaterialValidationInProgress(issue.Message);
 
@@ -1398,23 +1411,23 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         if (SelectedProject is null)
         {
-            StatusMessage = "鏈€夋嫨椤圭洰锛屾棤娉曟墽琛屼竴閿慨澶嶃€?;
+            StatusMessage = "未选择项目，无法执行一键修复。";
             return;
         }
 
         var project = SelectedProject;
 
-        await RunBusyAsync($"姝ｅ湪涓€閿慨澶嶇礌鏉愰棶棰橈細{project.DisplayName}", async cancellationToken =>
+        await RunBusyAsync($"正在一键修复素材问题：{project.DisplayName}", async cancellationToken =>
         {
             var fixableIssues = await RefreshMaterialValidationIssuesAsync(project, cancellationToken, appendLogs: false);
             if (fixableIssues.Length == 0)
             {
-                StatusMessage = $"褰撳墠娌℃湁鍙嚜鍔ㄤ慨澶嶇殑绱犳潗闂锛歿project.DisplayName}";
+                StatusMessage = $"当前没有可自动修复的素材问题：{project.DisplayName}";
                 AppendLog(StatusMessage);
                 return;
             }
 
-            ShowMaterialValidationInProgress($"鍏?{fixableIssues.Length} 椤瑰緟淇");
+            ShowMaterialValidationInProgress($"共 {fixableIssues.Length} 项待修复");
             var codes = fixableIssues.Select(item => item.Code).Distinct(StringComparer.Ordinal).ToHashSet(StringComparer.Ordinal);
 
             if (codes.Contains("info-missing") || codes.Contains("info-invalid"))
@@ -1475,8 +1488,8 @@ public partial class MainWindowViewModel : ViewModelBase
         ClearMaterialValidationIssues();
         MaterialValidationIssues.Add(new MaterialValidationIssueItem(
             "repair-running",
-            "澶勭悊涓?,
-            $"姝ｅ湪淇锛歿message}锛屽畬鎴愬悗灏嗚嚜鍔ㄩ噸鏂版牎楠屻€?,
+            "处理中",
+            $"正在修复：{message}，完成后将自动重新校验。",
             null,
             false));
     }
@@ -1526,8 +1539,8 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             MaterialValidationIssues.Add(new MaterialValidationIssueItem(
                 "validation-ok",
-                "閫氳繃",
-                "绱犳潗鏍￠獙閫氳繃銆?,
+                "通过",
+                "素材校验通过。",
                 null,
                 false));
         }
@@ -1548,18 +1561,18 @@ public partial class MainWindowViewModel : ViewModelBase
                     project.ProjectKey,
                     project.DisplayName,
                     "project-material-validate",
-                    "绱犳潗鏍￠獙",
-                    isFailure: string.Equals(issue.Severity, "閿欒", StringComparison.Ordinal));
+                    "素材校验",
+                    isFailure: string.Equals(issue.Severity, "错误", StringComparison.Ordinal));
             }
 
             if (result.Issues.Count == 0)
             {
                 AppendLog(
-                    "绱犳潗鏍￠獙閫氳繃銆?,
+                    "素材校验通过。",
                     project.ProjectKey,
                     project.DisplayName,
                     "project-material-validate",
-                    "绱犳潗鏍￠獙");
+                    "素材校验");
             }
         }
 
@@ -1596,7 +1609,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         SelectedProject = project;
-        return ExecuteProjectMaterialPipelineAsync(project, "椤圭洰绱犳潗鏃ュ織");
+        return ExecuteProjectMaterialPipelineAsync(project, "项目素材日志");
     }
 
     private async Task ArchiveProjectsCoreAsync(
@@ -1616,7 +1629,7 @@ public partial class MainWindowViewModel : ViewModelBase
             var scannedProject = result.Projects.FirstOrDefault(item => string.Equals(item.ProjectKey, projectKey, StringComparison.Ordinal));
             if (scannedProject is null)
             {
-                AppendLog($"褰掓。璺宠繃锛氭湭鎵惧埌椤圭洰 {projectKey}", projectKey, projectKey, "archive", "褰掓。椤圭洰", isFailure: true);
+                AppendLog($"归档跳过：未找到项目 {projectKey}", projectKey, projectKey, "archive", "归档项目", isFailure: true);
                 continue;
             }
 
@@ -1628,11 +1641,11 @@ public partial class MainWindowViewModel : ViewModelBase
             archivedCount++;
             ClearLogsForProject(projectKey);
             AppendLog(
-                $"褰掓。瀹屾垚锛歿scannedProject.DisplayName}锛寋archiveResult.Message}",
+                $"归档完成：{scannedProject.DisplayName}，{archiveResult.Message}",
                 projectKey,
                 scannedProject.DisplayName,
                 "archive",
-                "褰掓。椤圭洰");
+                "归档项目");
         }
 
         if (archivedAnySelected)
@@ -1642,8 +1655,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
         await RefreshProjectListAsync();
         StatusMessage = archivedCount > 0
-            ? $"褰掓。瀹屾垚锛屽叡澶勭悊 {archivedCount} 涓」鐩€?
-            : "鏈綊妗ｄ换浣曢」鐩€?;
+            ? $"归档完成，共处理 {archivedCount} 个项目。"
+            : "未归档任何项目。";
         AppendLog(StatusMessage);
     }
 
@@ -1666,7 +1679,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 ?? SelectedStepOption;
             SelectedStepLogFilter = StepLogFilters.FirstOrDefault(item => string.Equals(item.Key, "download", StringComparison.Ordinal))
                 ?? SelectedStepLogFilter;
-            ActivityTitle = $"涓嬭浇鍓ч泦鏃ュ織 路 {project.DisplayName}";
+            ActivityTitle = $"下载剧集日志 · {project.DisplayName}";
         }
         else if (string.Equals(detailMode, TaskQueueDetailProjectMaterial, StringComparison.Ordinal))
         {
@@ -1675,19 +1688,19 @@ public partial class MainWindowViewModel : ViewModelBase
                 ?? SelectedStepOption;
             SelectedStepLogFilter = StepLogFilters.FirstOrDefault(item => string.Equals(item.Key, AllStepsFilterKey, StringComparison.Ordinal))
                 ?? SelectedStepLogFilter;
-            ActivityTitle = $"椤圭洰绱犳潗鏃ュ織 路 {project.DisplayName}";
+            ActivityTitle = $"项目素材日志 · {project.DisplayName}";
         }
         else if (string.Equals(detailMode, TaskQueueDetailEpisodeUpload, StringComparison.Ordinal))
         {
             SelectedStepLogFilter = StepLogFilters.FirstOrDefault(item => string.Equals(item.Key, "weixin-upload", StringComparison.Ordinal))
                 ?? SelectedStepLogFilter;
-            ActivityTitle = $"鍓ч泦涓婁紶鏃ュ織 路 {project.DisplayName}";
+            ActivityTitle = $"剧集上传日志 · {project.DisplayName}";
         }
         else if (string.Equals(detailMode, TaskQueueDetailMaterialUpload, StringComparison.Ordinal))
         {
             SelectedStepLogFilter = StepLogFilters.FirstOrDefault(item => string.Equals(item.Key, "weixin-material-upload", StringComparison.Ordinal))
                 ?? SelectedStepLogFilter;
-            ActivityTitle = $"绱犳潗涓婁紶鏃ュ織 路 {project.DisplayName}";
+            ActivityTitle = $"素材上传日志 · {project.DisplayName}";
         }
     }
 
@@ -1709,18 +1722,18 @@ public partial class MainWindowViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(metadata.BookId))
         {
             AppendLog(
-                $"涓嬭浇鍓ч泦 閲嶈瘯澶辫触锛氱己灏?book_id锛屾棤娉曚笅杞界{episode.EpisodeNumber}闆嗐€?,
+                $"下载剧集 重试失败：缺少 book_id，无法下载第{episode.EpisodeNumber}集。",
                 project.ProjectKey,
                 project.DisplayName,
                 "download",
-                "涓嬭浇鍓ч泦",
+                "下载剧集",
                 isFailure: true);
             return;
         }
 
-        await RunBusyAsync($"姝ｅ湪閲嶈瘯涓嬭浇锛歿project.DisplayName} 路 绗瑊episode.EpisodeNumber}闆?, async cancellationToken =>
+        await RunBusyAsync($"正在重试下载：{project.DisplayName} · 第{episode.EpisodeNumber}集", async cancellationToken =>
         {
-            HandleProgress(new WorkRunEvent(project.ProjectKey, project.DisplayName, "step-started", "download", $"閲嶈瘯绗瑊episode.EpisodeNumber}闆?, true));
+            HandleProgress(new WorkRunEvent(project.ProjectKey, project.DisplayName, "step-started", "download", $"重试第{episode.EpisodeNumber}集", true));
 
             var result = await _dramaDownloader.DownloadAsync(
                 new DramaDownloadRequest(
@@ -1759,17 +1772,17 @@ public partial class MainWindowViewModel : ViewModelBase
         if (IsBusy)
         {
             AppendLog(
-                "璇峰厛鍋滄褰撳墠涓婁紶锛屽啀鎵ц閫愯閲嶈瘯銆?,
+                "请先停止当前上传，再执行逐行重试。",
                 SelectedProject.ProjectKey,
                 SelectedProject.DisplayName,
                 "weixin-upload",
-                "寰俊涓婁紶鍓ч泦",
+                "微信上传剧集",
                 isFailure: true);
             return;
         }
 
         SelectedProject.ClearEpisodeUploadSkipped(episode.EpisodeNumber);
-        await ExecuteEpisodeUploadStepAsync(SelectedProject, [episode.EpisodeNumber], $"閲嶈瘯绗瑊episode.EpisodeNumber}闆?);
+        await ExecuteEpisodeUploadStepAsync(SelectedProject, [episode.EpisodeNumber], $"重试第{episode.EpisodeNumber}集");
     }
 
     public void SkipEpisodeUpload(EpisodeUploadItemViewModel? episode)
@@ -1782,22 +1795,22 @@ public partial class MainWindowViewModel : ViewModelBase
         if (IsBusy)
         {
             AppendLog(
-                "璇峰厛鍋滄褰撳墠涓婁紶锛屽啀鎵ц閫愯璺宠繃銆?,
+                "请先停止当前上传，再执行逐行跳过。",
                 SelectedProject.ProjectKey,
                 SelectedProject.DisplayName,
                 "weixin-upload",
-                "寰俊涓婁紶鍓ч泦",
+                "微信上传剧集",
                 isFailure: true);
             return;
         }
 
         SelectedProject.MarkEpisodeUploadSkipped(episode.EpisodeNumber);
         AppendLog(
-            $"鍓ч泦涓婁紶 宸插皢绗瑊episode.EpisodeNumber}闆嗘爣璁颁负璺宠繃锛屼笅涓€娆″紑濮?缁х画涓婁紶鏃跺皢涓嶅寘鍚闆嗐€?,
+            $"剧集上传 已将第{episode.EpisodeNumber}集标记为跳过，下一次开始/继续上传时将不包含该集。",
             SelectedProject.ProjectKey,
             SelectedProject.DisplayName,
             "weixin-upload",
-            "寰俊涓婁紶鍓ч泦");
+            "微信上传剧集");
     }
 
     public void MarkEpisodeUploadCompleted(EpisodeUploadItemViewModel? episode)
@@ -1809,11 +1822,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
         SelectedProject.MarkEpisodeUploadCompleted(episode.EpisodeNumber);
         AppendLog(
-            $"鍓ч泦涓婁紶 宸插皢绗瑊episode.EpisodeNumber}闆嗘墜鍔ㄦ爣璁颁负瀹屾垚銆?,
+            $"剧集上传 已将第{episode.EpisodeNumber}集手动标记为完成。",
             SelectedProject.ProjectKey,
             SelectedProject.DisplayName,
             "weixin-upload",
-            "寰俊涓婁紶鍓ч泦");
+            "微信上传剧集");
     }
 
     public void MarkMaterialUploadCompleted()
@@ -1823,13 +1836,13 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        SelectedProject.MaterialUploadStepStatus = "宸插畬鎴?;
+        SelectedProject.MaterialUploadStepStatus = "已完成";
         AppendLog(
-            "绱犳潗涓婁紶 宸叉墜鍔ㄦ爣璁颁负瀹屾垚銆?,
+            "素材上传 已手动标记为完成。",
             SelectedProject.ProjectKey,
             SelectedProject.DisplayName,
             "weixin-material-upload",
-            "寰俊涓婁紶绱犳潗");
+            "微信上传素材");
     }
 
     public async Task UpdateSelectedProjectTitleAsync(string newTitle)
@@ -1842,11 +1855,11 @@ public partial class MainWindowViewModel : ViewModelBase
         if (IsBusy)
         {
             AppendLog(
-                "褰撳墠鏈変换鍔¤繍琛岋紝璇峰厛鍋滄鍚庡啀淇敼鏂板墽鍚嶃€?,
+                "当前有任务运行，请先停止后再修改新剧名。",
                 SelectedProject.ProjectKey,
                 SelectedProject.DisplayName,
                 "rewrite",
-                "淇敼鏂板墽鍚?,
+                "修改新剧名",
                 isFailure: true);
             return;
         }
@@ -1858,7 +1871,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        await RunSearchBusyAsync($"姝ｅ湪淇敼鏂板墽鍚嶏細{project.DisplayName} -> {trimmedTitle}", async cancellationToken =>
+        await RunSearchBusyAsync($"正在修改新剧名：{project.DisplayName} -> {trimmedTitle}", async cancellationToken =>
         {
             var result = await _workService.UpdateProjectTitleAsync(
                 project.SourceProjectDir,
@@ -1867,42 +1880,42 @@ public partial class MainWindowViewModel : ViewModelBase
                 cancellationToken);
 
             AppendLog(
-                $"宸叉洿鏂版柊鍓у悕锛歿result.OriginalTitle} -> {result.NewTitle}",
+                $"已更新新剧名：{result.OriginalTitle} -> {result.NewTitle}",
                 result.ProjectKey,
                 result.NewTitle,
                 "rewrite",
-                "淇敼鏂板墽鍚?);
+                "修改新剧名");
 
             AppendLog(
-                $"宸插悓姝ラ噸鍛藉悕瑙嗛鏂囦欢 {result.RenamedVideoCount} 涓€?,
+                $"已同步重命名视频文件 {result.RenamedVideoCount} 个。",
                 result.ProjectKey,
                 result.NewTitle,
                 "batch-file-rename",
-                "閲嶅懡鍚嶈棰戞枃浠?);
+                "重命名视频文件");
 
             AppendLog(
-                $"宸插悓姝ュ埛鏂板井淇′笂浼犻厤缃?{result.UpdatedWeixinConfigCount} 涓€?,
+                $"已同步刷新微信上传配置 {result.UpdatedWeixinConfigCount} 个。",
                 result.ProjectKey,
                 result.NewTitle,
                 "weixin-upload",
-                "寰俊涓婁紶鍓ч泦");
+                "微信上传剧集");
 
             if (result.RegeneratedSteps.Count > 0)
             {
                 AppendLog(
-                    $"宸茶嚜鍔ㄩ噸鏂扮敓鎴愭楠わ細{string.Join("銆?, result.RegeneratedSteps)}",
+                    $"已自动重新生成步骤：{string.Join("、", result.RegeneratedSteps)}",
                     result.ProjectKey,
                     result.NewTitle,
                     "project-material",
-                    "鐢熸垚椤圭洰绱犳潗");
+                    "生成项目素材");
             }
 
             AppendLog(
-                $"宸插け鏁堟楠わ細{string.Join("銆?, result.InvalidatedSteps)}",
+                $"已失效步骤：{string.Join("、", result.InvalidatedSteps)}",
                 result.ProjectKey,
                 result.NewTitle,
                 "rewrite",
-                "淇敼鏂板墽鍚?);
+                "修改新剧名");
 
             await RefreshAfterExecutionAsync(result.ProjectKey);
             if (SelectedProject is not null)
@@ -1923,11 +1936,11 @@ public partial class MainWindowViewModel : ViewModelBase
         DeleteDownloadedEpisodeFiles(project.SourceProjectDir, episode.EpisodeNumber);
 
         AppendLog(
-            $"涓嬭浇鍓ч泦 宸茬Щ闄ょ{episode.EpisodeNumber}闆嗙殑婧愯棰戞枃浠躲€?,
+            $"下载剧集 已移除第{episode.EpisodeNumber}集的源视频文件。",
             project.ProjectKey,
             project.DisplayName,
             "download",
-            "涓嬭浇鍓ч泦");
+            "下载剧集");
 
         await RefreshAfterExecutionAsync(project.ProjectKey);
     }
@@ -1935,15 +1948,15 @@ public partial class MainWindowViewModel : ViewModelBase
     private async Task ExecuteEpisodeUploadStepAsync(ProjectListItemViewModel project, IReadOnlyCollection<int>? onlyEpisodes, string stepLabel)
     {
         ClearLogsForProject(project.ProjectKey);
-        ActivityTitle = $"鍓ч泦涓婁紶鏃ュ織 路 {project.DisplayName}";
+        ActivityTitle = $"剧集上传日志 · {project.DisplayName}";
         AppendLog(
-            $"寮€濮嬫墽琛? {stepLabel}",
+            $"开始执行: {stepLabel}",
             project.ProjectKey,
             project.DisplayName,
             "weixin-upload",
-            "寰俊涓婁紶鍓ч泦");
+            "微信上传剧集");
 
-        await RunBusyAsync($"姝ｅ湪鎵ц姝ラ锛歿stepLabel}", async cancellationToken =>
+        await RunBusyAsync($"正在执行步骤：{stepLabel}", async cancellationToken =>
         {
             await TryNotifyFeishuStepAsync(project, "weixin-upload", stepLabel, "before", null, null, cancellationToken);
             string? overrideConfigPath = null;
@@ -1956,22 +1969,22 @@ public partial class MainWindowViewModel : ViewModelBase
                         null,
                         cancellationToken);
                     AppendLog(
-                        $"宸茬‘璁ゅ井淇″墽闆嗕笂浼犻厤缃細{ensuredConfigPath}",
+                        $"已确认微信剧集上传配置：{ensuredConfigPath}",
                         project.ProjectKey,
                         project.DisplayName,
                         "weixin-upload",
-                        "寰俊涓婁紶鍓ч泦");
+                        "微信上传剧集");
 
                     overrideConfigPath = CreateEpisodeUploadOverrideConfig(project, onlyEpisodes);
                 }
                 catch (Exception ex)
                 {
                     AppendLog(
-                        $"鍚姩澶辫触: {ex.Message}",
+                        $"启动失败: {ex.Message}",
                         project.ProjectKey,
                         project.DisplayName,
                         "weixin-upload",
-                        "寰俊涓婁紶鍓ч泦",
+                        "微信上传剧集",
                         isFailure: true);
                     throw;
                 }
@@ -1992,21 +2005,21 @@ public partial class MainWindowViewModel : ViewModelBase
                 catch (Exception ex)
                 {
                     AppendLog(
-                        $"鎵ц寮傚父: {ex.Message}",
+                        $"执行异常: {ex.Message}",
                         project.ProjectKey,
                         project.DisplayName,
                         "weixin-upload",
-                        "寰俊涓婁紶鍓ч泦",
+                        "微信上传剧集",
                         isFailure: true);
                     throw;
                 }
 
                 AppendLog(
-                    $"姝ラ瀹屾垚: {stepLabel}锛岀粨鏋?{(result.Ok ? "鎴愬姛" : "澶辫触")}",
+                    $"步骤完成: {stepLabel}，结果={(result.Ok ? "成功" : "失败")}",
                     project.ProjectKey,
                     project.DisplayName,
                     "weixin-upload",
-                    "寰俊涓婁紶鍓ч泦",
+                    "微信上传剧集",
                     !result.Ok);
                 await TryNotifyFeishuStepAsync(project, "weixin-upload", stepLabel, "after", result.Ok, result.Message, cancellationToken);
 
@@ -2031,11 +2044,11 @@ public partial class MainWindowViewModel : ViewModelBase
         var configPath = ResolveWeixinUploadConfigPath(project);
         if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
         {
-            throw new FileNotFoundException("鏈壘鍒板井淇″墽闆嗕笂浼犻厤缃枃浠躲€?, configPath);
+            throw new FileNotFoundException("未找到微信剧集上传配置文件。", configPath);
         }
 
         var root = JsonNode.Parse(File.ReadAllText(configPath)) as JsonObject
-            ?? throw new InvalidOperationException("寰俊鍓ч泦涓婁紶閰嶇疆鏂囦欢鏍煎紡鏃犳晥銆?);
+            ?? throw new InvalidOperationException("微信剧集上传配置文件格式无效。");
         var secondPage = root["second_page"] as JsonObject ?? new JsonObject();
         root["second_page"] = secondPage;
         var upload = secondPage["upload"] as JsonObject ?? new JsonObject();
@@ -2050,7 +2063,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 .ToHashSet();
         if (selectedEpisodes.Count == 0)
         {
-            throw new InvalidOperationException("褰撳墠娌℃湁鍙墽琛屼笂浼犵殑鍓ч泦銆?);
+            throw new InvalidOperationException("当前没有可执行上传的剧集。");
         }
 
         var uploadItems = ResolveEpisodeUploadQueueItems(uploadQueue, upload)
@@ -2058,7 +2071,7 @@ public partial class MainWindowViewModel : ViewModelBase
             .ToArray();
         if (uploadItems.Length == 0)
         {
-            throw new InvalidOperationException("鏈湪涓婁紶閰嶇疆涓壘鍒板彲鎵ц鐨勫墽闆嗚棰戙€?);
+            throw new InvalidOperationException("未在上传配置中找到可执行的剧集视频。");
         }
 
         upload["paths"] = new JsonArray(uploadItems.Select(item => (JsonNode)item.Path).ToArray());
@@ -2153,13 +2166,13 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         ActivityTitle = stepKey is null
-            ? $"鎵归噺椤圭洰鏃ュ織 路 {stepLabel}"
-            : $"鎵归噺姝ラ鏃ュ織 路 {stepLabel}";
+            ? $"批量项目日志 · {stepLabel}"
+            : $"批量步骤日志 · {stepLabel}";
 
         await RunBusyAsync(
             stepKey is null
-                ? $"姝ｅ湪鎵归噺鎵ц{stepLabel}锛屽叡 {selectedProjects.Length} 涓」鐩?.."
-                : $"姝ｅ湪鎵归噺鎵ц{stepLabel}锛屽叡 {selectedProjects.Length} 涓」鐩?..",
+                ? $"正在批量执行{stepLabel}，共 {selectedProjects.Length} 个项目..."
+                : $"正在批量执行{stepLabel}，共 {selectedProjects.Length} 个项目...",
             async cancellationToken =>
             {
                 foreach (var project in selectedProjects)
@@ -2179,10 +2192,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
                 await RefreshProjectListAsync();
                 StatusMessage = stepKey is null
-                    ? $"鎵归噺鍏ㄦ祦绋嬫墽琛屽畬鎴愶紝鍏卞鐞?{selectedProjects.Length} 涓」鐩€?
-                    : $"鎵归噺{stepLabel}瀹屾垚锛屽叡澶勭悊 {selectedProjects.Length} 涓」鐩€?;
+                    ? $"批量全流程执行完成，共处理 {selectedProjects.Length} 个项目。"
+                    : $"批量{stepLabel}完成，共处理 {selectedProjects.Length} 个项目。";
                 AppendLog(StatusMessage);
-                await TryNotifyFeishuQueueSummaryAsync(selectedProjects, stepKey is null ? "鎵归噺鍏ㄦ祦绋? : $"鎵归噺{stepLabel}", cancellationToken);
+                await TryNotifyFeishuQueueSummaryAsync(selectedProjects, stepKey is null ? "批量全流程" : $"批量{stepLabel}", cancellationToken);
             });
     }
 
@@ -2192,7 +2205,7 @@ public partial class MainWindowViewModel : ViewModelBase
         int total,
         CancellationToken cancellationToken)
     {
-        project.MarkRunning("浠诲姟闃熷垪");
+        project.MarkRunning("任务队列");
         ClearLogsForProject(project.ProjectKey);
 
         var selectedSteps = GetTaskQueueSelectedSteps();
@@ -2226,7 +2239,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 cancellationToken);
 
             AppendLog(
-                $"{prefix}鑺傜偣瀹屾垚: {project.DisplayName} 路 {stepLabel}锛岀粨鏋?{(result.Ok ? "鎴愬姛" : "澶辫触")}",
+                $"{prefix}节点完成: {project.DisplayName} · {stepLabel}，结果={(result.Ok ? "成功" : "失败")}",
                 project.ProjectKey,
                 project.DisplayName,
                 stepKey,
@@ -2304,7 +2317,7 @@ public partial class MainWindowViewModel : ViewModelBase
         int total,
         CancellationToken cancellationToken)
     {
-        project.MarkRunning(stepKey is null ? "鍏ㄦ祦绋? : stepLabel);
+        project.MarkRunning(stepKey is null ? "全流程" : stepLabel);
         ClearLogsForProject(project.ProjectKey);
 
         try
@@ -2345,7 +2358,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "after", stepResult.Ok, stepResult.Message, cancellationToken);
-            AppendLog($"[{index}/{total}] 姝ラ瀹屾垚: {project.DisplayName} 路 {stepLabel}锛岀粨鏋?{(stepResult.Ok ? "鎴愬姛" : "澶辫触")}");
+            AppendLog($"[{index}/{total}] 步骤完成: {project.DisplayName} · {stepLabel}，结果={(stepResult.Ok ? "成功" : "失败")}");
         }
         catch (OperationCanceledException)
         {
@@ -2363,10 +2376,10 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         ClearMaterialValidationIssues();
         ClearLogsForProject(project.ProjectKey);
-        ActivityTitle = $"{titlePrefix} 路 {project.DisplayName}";
-        await RunBusyAsync($"姝ｅ湪鐢熸垚椤圭洰绱犳潗锛歿project.DisplayName}", async cancellationToken =>
+        ActivityTitle = $"{titlePrefix} · {project.DisplayName}";
+        await RunBusyAsync($"正在生成项目素材：{project.DisplayName}", async cancellationToken =>
         {
-            project.MarkRunning("涓€閿敓鎴愰」鐩礌鏉?);
+            project.MarkRunning("一键生成项目素材");
             var ok = await RunProjectMaterialPipelineCoreAsync(project, cancellationToken);
             if (ok) project.MarkCompleted();
             else project.MarkFailed();
@@ -2391,7 +2404,7 @@ public partial class MainWindowViewModel : ViewModelBase
             project.MarkRunning(stepLabel);
             await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "before", null, null, cancellationToken);
             AppendLog(
-                $"{prefix}椤圭洰绱犳潗娴佺▼ {index + 1}/{ProjectMaterialPipelineSteps.Length}: {stepLabel}",
+                $"{prefix}项目素材流程 {index + 1}/{ProjectMaterialPipelineSteps.Length}: {stepLabel}",
                 project.ProjectKey,
                 project.DisplayName,
                 stepKey,
@@ -2407,7 +2420,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 cancellationToken);
 
             AppendLog(
-                $"{prefix}姝ラ瀹屾垚: {project.DisplayName} 路 {stepLabel}锛岀粨鏋?{(result.Ok ? "鎴愬姛" : "澶辫触")}",
+                $"{prefix}步骤完成: {project.DisplayName} · {stepLabel}，结果={(result.Ok ? "成功" : "失败")}",
                 project.ProjectKey,
                 project.DisplayName,
                 stepKey,
@@ -2422,11 +2435,11 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         AppendLog(
-            $"{prefix}椤圭洰绱犳潗鐢熸垚瀹屾垚: {project.DisplayName}",
+            $"{prefix}项目素材生成完成: {project.DisplayName}",
             project.ProjectKey,
             project.DisplayName,
             string.Empty,
-            "涓€閿敓鎴愰」鐩礌鏉?);
+            "一键生成项目素材");
         return true;
     }
 
@@ -2435,7 +2448,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var keyword = SearchKeyword.Trim();
         if (string.IsNullOrWhiteSpace(keyword))
         {
-            SearchSummary = "璇疯緭鍏ュ墽鍚嶅叧閿瘝銆?;
+            SearchSummary = "请输入剧名关键词。";
             return;
         }
 
@@ -2498,11 +2511,11 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var busyMessage = _searchMode switch
         {
-            SearchModeToday => "姝ｅ湪鑾峰彇浠婃棩涓婃柊...",
-            SearchModeMangaToday => $"姝ｅ湪鑾峰彇婕墽涓婃柊锛屾煡璇㈣繎 {ParseSearchQueryDays()} 澶?..",
-            SearchModeAiToday => $"姝ｅ湪鑾峰彇 AI 鐭墽涓婃柊锛屾煡璇㈣繎 {ParseSearchQueryDays()} 澶?..",
-            SearchModeHistory => $"姝ｅ湪鑾峰彇鍘嗗彶涓婃柊锛屾煡璇㈣繎 {ParseSearchQueryDays()} 澶?..",
-            _ => $"姝ｅ湪鎼滅储鐭墽锛歿_lastSearchKeyword}"
+            SearchModeToday => "正在获取今日上新...",
+            SearchModeMangaToday => $"正在获取漫剧上新，查询近 {ParseSearchQueryDays()} 天...",
+            SearchModeAiToday => $"正在获取 AI 短剧上新，查询近 {ParseSearchQueryDays()} 天...",
+            SearchModeHistory => $"正在获取历史上新，查询近 {ParseSearchQueryDays()} 天...",
+            _ => $"正在搜索短剧：{_lastSearchKeyword}"
         };
 
         await RunSearchBusyAsync(busyMessage, async cancellationToken =>
@@ -2543,7 +2556,7 @@ public partial class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             StatusMessage = ex.Message;
-            AppendLog($"鎼滅储澶辫触: {ex.Message}", string.Empty, string.Empty, "search", "鐭墽鎼滅储", isFailure: true);
+            AppendLog($"搜索失败: {ex.Message}", string.Empty, string.Empty, "search", "短剧搜索", isFailure: true);
         }
         finally
         {
@@ -2557,18 +2570,18 @@ public partial class MainWindowViewModel : ViewModelBase
         if (string.Equals(_searchMode, SearchModeKeyword, StringComparison.Ordinal))
         {
             return totalCount == 0
-                ? $"绗?{CurrentSearchPage} 椤垫湭鎵惧埌鈥渰_lastSearchKeyword}鈥濈殑鍖归厤缁撴灉銆?
+                ? $"第 {CurrentSearchPage} 页未找到“{_lastSearchKeyword}”的匹配结果。"
                 : filteredCount == 0
-                    ? $"鈥渰_lastSearchKeyword}鈥濈 {CurrentSearchPage} 椤靛師濮?{totalCount} 鏉★紝绛涢€夊悗 0 鏉°€?
-                    : $"鈥渰_lastSearchKeyword}鈥濈 {CurrentSearchPage} 椤靛師濮?{totalCount} 鏉★紝绛涢€夊悗 {filteredCount} 鏉★紝褰撳墠灞曠ず {visibleCount} 鏉★紝鍒嗛〉澶у皬 {pageSize}銆?;
+                    ? $"“{_lastSearchKeyword}”第 {CurrentSearchPage} 页原始 {totalCount} 条，筛选后 0 条。"
+                    : $"“{_lastSearchKeyword}”第 {CurrentSearchPage} 页原始 {totalCount} 条，筛选后 {filteredCount} 条，当前展示 {visibleCount} 条，分页大小 {pageSize}。";
         }
 
         var modeLabel = ResolveSearchModeLabel();
         return totalCount == 0
-            ? $"{modeLabel}鏆傛棤缁撴灉銆?
+            ? $"{modeLabel}暂无结果。"
             : filteredCount == 0
-                ? $"{modeLabel}鍘熷 {totalCount} 鏉★紝绛涢€夊悗 0 鏉°€?
-                : $"{modeLabel}鍘熷 {totalCount} 鏉★紝绛涢€夊悗 {filteredCount} 鏉★紝褰撳墠灞曠ず {visibleCount} 鏉★紝鍒嗛〉澶у皬 {pageSize}銆?;
+                ? $"{modeLabel}原始 {totalCount} 条，筛选后 0 条。"
+                : $"{modeLabel}原始 {totalCount} 条，筛选后 {filteredCount} 条，当前展示 {visibleCount} 条，分页大小 {pageSize}。";
     }
 
     private void ApplySearchFilters()
@@ -2667,11 +2680,11 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         return _searchMode switch
         {
-            SearchModeToday => "浠婃棩涓婃柊",
-            SearchModeMangaToday => $"婕墽涓婃柊锛堣繎 {ParseSearchQueryDays()} 澶╋級",
-            SearchModeAiToday => $"AI 鐭墽涓婃柊锛堣繎 {ParseSearchQueryDays()} 澶╋級",
-            SearchModeHistory => $"鍘嗗彶涓婃柊锛堣繎 {ParseSearchQueryDays()} 澶╋級",
-            _ => "鐭墽鎼滅储"
+            SearchModeToday => "今日上新",
+            SearchModeMangaToday => $"漫剧上新（近 {ParseSearchQueryDays()} 天）",
+            SearchModeAiToday => $"AI 短剧上新（近 {ParseSearchQueryDays()} 天）",
+            SearchModeHistory => $"历史上新（近 {ParseSearchQueryDays()} 天）",
+            _ => "短剧搜索"
         };
     }
 
@@ -2689,13 +2702,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (!TryBuildDownloadEpisodeSelection(out var episodes))
         {
-            StatusMessage = "涓嬭浇闆嗘暟鑼冨洿鏃犳晥锛岃杈撳叆濡?1-5 鎴?1,3,5銆?;
-            AppendLog(StatusMessage, string.Empty, string.Empty, "search", "鐭墽鎼滅储", isFailure: true);
+            StatusMessage = "下载集数范围无效，请输入如 1-5 或 1,3,5。";
+            AppendLog(StatusMessage, string.Empty, string.Empty, "search", "短剧搜索", isFailure: true);
             return;
         }
 
-        var selectionLabel = string.Equals(episodes, "all", StringComparison.OrdinalIgnoreCase) ? "鍏ㄩ儴" : episodes;
-        await RunSearchBusyAsync($"姝ｅ湪涓嬭浇鍕鹃€夐」鐩紝鍏?{selectedRows.Length} 涓」鐩紝鑼冨洿锛歿selectionLabel}...", async cancellationToken =>
+        var selectionLabel = string.Equals(episodes, "all", StringComparison.OrdinalIgnoreCase) ? "全部" : episodes;
+        await RunSearchBusyAsync($"正在下载勾选项目，共 {selectedRows.Length} 个项目，范围：{selectionLabel}...", async cancellationToken =>
         {
             var processed = 0;
 
@@ -2713,11 +2726,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
                 processed++;
                 AppendLog(
-                    $"[{processed}/{selectedRows.Length}] 宸插啓鍏ヤ笅杞借寖鍥村苟鍑嗗涓嬭浇锛歿bootstrap.DisplayName}锛坽selectionLabel}锛?,
+                    $"[{processed}/{selectedRows.Length}] 已写入下载范围并准备下载：{bootstrap.DisplayName}（{selectionLabel}）",
                     bootstrap.ProjectKey,
                     bootstrap.DisplayName,
                     "download",
-                    "涓嬭浇鍓ч泦");
+                    "下载剧集");
 
                 var result = await _workService.RunProjectStepAsync(
                     bootstrap.SourceProjectDir,
@@ -2728,16 +2741,16 @@ public partial class MainWindowViewModel : ViewModelBase
                     cancellationToken);
 
                 AppendLog(
-                    $"[{processed}/{selectedRows.Length}] 涓嬭浇瀹屾垚锛歿result.DisplayName}锛岀粨鏋?{(result.Ok ? "鎴愬姛" : "澶辫触")}",
+                    $"[{processed}/{selectedRows.Length}] 下载完成：{result.DisplayName}，结果={(result.Ok ? "成功" : "失败")}",
                     result.ProjectKey,
                     result.DisplayName,
                     "download",
-                    "涓嬭浇鍓ч泦",
+                    "下载剧集",
                     !result.Ok);
             }
 
             await RefreshProjectListAsync();
-            StatusMessage = $"鍕鹃€夐」鐩笅杞藉畬鎴愶紝鍏卞鐞?{selectedRows.Length} 涓紝鑼冨洿锛歿selectionLabel}銆?;
+            StatusMessage = $"勾选项目下载完成，共处理 {selectedRows.Length} 个，范围：{selectionLabel}。";
             AppendLog(StatusMessage);
         });
     }
@@ -2750,12 +2763,12 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var actionText = runWorkflow ? "瀵煎叆骞舵墽琛屽嬀閫夐」鐩叏娴佺▼" : "瀵煎叆鍕鹃€夐」鐩埌宸ヤ綔鐩綍";
+        var actionText = runWorkflow ? "导入并执行勾选项目全流程" : "导入勾选项目到工作目录";
         Func<string, Func<CancellationToken, Task>, Task> runner = runWorkflow
             ? RunBusyAsync
             : RunSearchBusyAsync;
 
-        await runner($"姝ｅ湪{actionText}锛屽叡 {selectedRows.Length} 涓」鐩?..", async cancellationToken =>
+        await runner($"正在{actionText}，共 {selectedRows.Length} 个项目...", async cancellationToken =>
         {
             var processed = 0;
 
@@ -2772,8 +2785,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
                 processed++;
                 AppendLog(bootstrap.Created
-                    ? $"[{processed}/{selectedRows.Length}] 宸插鍏ラ」鐩細{bootstrap.DisplayName}"
-                    : $"[{processed}/{selectedRows.Length}] 椤圭洰宸插瓨鍦紝澶嶇敤宸ヤ綔鐩綍锛歿bootstrap.DisplayName}");
+                    ? $"[{processed}/{selectedRows.Length}] 已导入项目：{bootstrap.DisplayName}"
+                    : $"[{processed}/{selectedRows.Length}] 项目已存在，复用工作目录：{bootstrap.DisplayName}");
 
                 if (!runWorkflow)
                 {
@@ -2781,7 +2794,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 }
 
                 ClearLogsForProject(bootstrap.ProjectKey);
-                ActivityTitle = $"椤圭洰鏃ュ織 路 {bootstrap.DisplayName}";
+                ActivityTitle = $"项目日志 · {bootstrap.DisplayName}";
                 var progress = CreateBufferedProgress();
                 var result = await _workService.RunProjectAsync(
                     bootstrap.SourceProjectDir,
@@ -2790,13 +2803,13 @@ public partial class MainWindowViewModel : ViewModelBase
                     progress,
                     cancellationToken);
 
-                AppendLog($"椤圭洰瀹屾垚: {result.DisplayName}锛岀粨鏋?{(result.Ok ? "鎴愬姛" : "澶辫触")}");
+                AppendLog($"项目完成: {result.DisplayName}，结果={(result.Ok ? "成功" : "失败")}");
             }
 
             await RefreshProjectListAsync();
             StatusMessage = runWorkflow
-                ? $"鍕鹃€夐」鐩凡鎵ц瀹屾垚锛屽叡澶勭悊 {selectedRows.Length} 涓€?
-                : $"鍕鹃€夐」鐩凡瀵煎叆瀹屾垚锛屽叡澶勭悊 {selectedRows.Length} 涓€?;
+                ? $"勾选项目已执行完成，共处理 {selectedRows.Length} 个。"
+                : $"勾选项目已导入完成，共处理 {selectedRows.Length} 个。";
             AppendLog(StatusMessage);
         });
     }
@@ -2862,15 +2875,15 @@ public partial class MainWindowViewModel : ViewModelBase
     private async Task ExecuteProjectAsync(string projectKey, string displayName, string sourceProjectDir)
     {
         ClearLogsForProject(projectKey);
-        ActivityTitle = $"椤圭洰鏃ュ織 路 {displayName}";
-        await RunBusyAsync($"姝ｅ湪鎵ц椤圭洰锛歿displayName}", async cancellationToken =>
+        ActivityTitle = $"项目日志 · {displayName}";
+        await RunBusyAsync($"正在执行项目：{displayName}", async cancellationToken =>
         {
             var project = Projects.FirstOrDefault(item => string.Equals(item.ProjectKey, projectKey, StringComparison.Ordinal));
             var result = project is null
                 ? await RunProjectNormallyAsync(sourceProjectDir, cancellationToken)
                 : await RunProjectWithSmartResumeAsync(project, cancellationToken);
 
-            AppendLog($"椤圭洰瀹屾垚: {result.DisplayName}锛岀粨鏋?{(result.Ok ? "鎴愬姛" : "澶辫触")}", projectKey, displayName, string.Empty, string.Empty, !result.Ok);
+            AppendLog($"项目完成: {result.DisplayName}，结果={(result.Ok ? "成功" : "失败")}", projectKey, displayName, string.Empty, string.Empty, !result.Ok);
             await RefreshAfterExecutionAsync(result.ProjectKey);
         });
     }
@@ -2886,13 +2899,13 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             var projectResult = await RunProjectNormallyAsync(project.SourceProjectDir, cancellationToken);
             var prefix = batchIndex.HasValue && batchTotal.HasValue ? $"[{batchIndex}/{batchTotal}] " : string.Empty;
-            AppendLog($"{prefix}椤圭洰瀹屾垚: {projectResult.DisplayName}锛岀粨鏋?{(projectResult.Ok ? "鎴愬姛" : "澶辫触")}");
+            AppendLog($"{prefix}项目完成: {projectResult.DisplayName}，结果={(projectResult.Ok ? "成功" : "失败")}");
             return projectResult;
         }
 
         var stepLabel = ResolveStepLabel(smartStep);
         var prefixMessage = batchIndex.HasValue && batchTotal.HasValue ? $"[{batchIndex}/{batchTotal}] " : string.Empty;
-        AppendLog($"{prefixMessage}妫€娴嬪埌椤圭洰缂哄皯涓嬭浇鍏冩暟鎹紝鑷姩浠庘€渰stepLabel}鈥濈户缁€?, project.ProjectKey, project.DisplayName, smartStep, stepLabel);
+        AppendLog($"{prefixMessage}检测到项目缺少下载元数据，自动从“{stepLabel}”继续。", project.ProjectKey, project.DisplayName, smartStep, stepLabel);
 
         var progress = CreateBufferedProgress();
         var stepResult = await _workService.RunProjectStepAsync(
@@ -2903,7 +2916,7 @@ public partial class MainWindowViewModel : ViewModelBase
             progress,
             cancellationToken);
 
-        AppendLog($"{prefixMessage}姝ラ瀹屾垚: {project.DisplayName} 路 {stepLabel}锛岀粨鏋?{(stepResult.Ok ? "鎴愬姛" : "澶辫触")}");
+        AppendLog($"{prefixMessage}步骤完成: {project.DisplayName} · {stepLabel}，结果={(stepResult.Ok ? "成功" : "失败")}");
         return stepResult;
     }
 
@@ -3039,14 +3052,14 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (OperationCanceledException)
         {
-            StatusMessage = "宸插仠姝㈠綋鍓嶈繍琛岋紝杩涘害宸蹭繚瀛橈紝鍙户缁繍琛屻€?;
+            StatusMessage = "已停止当前运行，进度已保存，可继续运行。";
             AppendLog(StatusMessage);
             await RefreshProjectListAsync();
         }
         catch (Exception ex)
         {
             StatusMessage = ex.Message;
-            AppendLog($"閿欒: {ex.Message}", string.Empty, string.Empty, string.Empty, string.Empty, isFailure: true);
+            AppendLog($"错误: {ex.Message}", string.Empty, string.Empty, string.Empty, string.Empty, isFailure: true);
         }
         finally
         {
@@ -3065,7 +3078,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         _currentOperationCts.Cancel();
-        StatusMessage = "姝ｅ湪鍋滄褰撳墠杩愯骞朵繚瀛樿繘搴?..";
+        StatusMessage = "正在停止当前运行并保存进度...";
         AppendLog(StatusMessage);
         RefreshCommandStates();
     }
@@ -3079,13 +3092,13 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var actionLabel = decision switch
         {
-            "resume" => "缁х画鎵ц",
-            "skip_video" => "璺宠繃褰撳墠绱犳潗",
-            "skip_project" => "璺宠繃褰撳墠椤圭洰",
-            "stop" => "鍋滄浠诲姟",
+            "resume" => "继续执行",
+            "skip_video" => "跳过当前素材",
+            "skip_project" => "跳过当前项目",
+            "stop" => "停止任务",
             _ => decision
         };
-        StatusMessage = $"宸叉彁浜や汉宸ヤ粙鍏ュ喅绛栵細{actionLabel}";
+        StatusMessage = $"已提交人工介入决策：{actionLabel}";
         AppendLog(StatusMessage);
     }
 
@@ -3167,21 +3180,21 @@ public partial class MainWindowViewModel : ViewModelBase
     private static string? ResolveDefaultProjectMaterialStepKey(IEnumerable<(int Index, string Key, string Label, string Status, string Summary)> steps)
     {
         var materialSteps = steps.ToArray();
-        var running = materialSteps.FirstOrDefault(item => string.Equals(item.Status, "杩涜涓?, StringComparison.Ordinal));
+        var running = materialSteps.FirstOrDefault(item => string.Equals(item.Status, "进行中", StringComparison.Ordinal));
         if (!string.IsNullOrWhiteSpace(running.Key))
         {
             return running.Key;
         }
 
         var blocked = materialSteps.FirstOrDefault(item =>
-            string.Equals(item.Status, "澶辫触", StringComparison.Ordinal) ||
-            string.Equals(item.Status, "寰呯户缁?, StringComparison.Ordinal));
+            string.Equals(item.Status, "失败", StringComparison.Ordinal) ||
+            string.Equals(item.Status, "待继续", StringComparison.Ordinal));
         if (!string.IsNullOrWhiteSpace(blocked.Key))
         {
             return blocked.Key;
         }
 
-        var pending = materialSteps.FirstOrDefault(item => !string.Equals(item.Status, "宸插畬鎴?, StringComparison.Ordinal));
+        var pending = materialSteps.FirstOrDefault(item => !string.Equals(item.Status, "已完成", StringComparison.Ordinal));
         if (!string.IsNullOrWhiteSpace(pending.Key))
         {
             return pending.Key;
@@ -3194,10 +3207,10 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         return status switch
         {
-            "宸插畬鎴? => (isSelected ? new SolidColorBrush(Color.Parse("#112F1D")) : Brushes.Transparent, Brushes.LimeGreen, Brushes.LimeGreen, Brushes.LightGreen),
-            "杩涜涓? => (isSelected ? new SolidColorBrush(Color.Parse("#102A44")) : new SolidColorBrush(Color.Parse("#0A1A2A")), Brushes.DodgerBlue, Brushes.DodgerBlue, Brushes.LightBlue),
-            "澶辫触" => (isSelected ? new SolidColorBrush(Color.Parse("#3A1616")) : Brushes.Transparent, Brushes.IndianRed, Brushes.IndianRed, Brushes.LightCoral),
-            "寰呯户缁? => (isSelected ? new SolidColorBrush(Color.Parse("#3A2A12")) : Brushes.Transparent, Brushes.Orange, Brushes.Orange, Brushes.Wheat),
+            "已完成" => (isSelected ? new SolidColorBrush(Color.Parse("#112F1D")) : Brushes.Transparent, Brushes.LimeGreen, Brushes.LimeGreen, Brushes.LightGreen),
+            "进行中" => (isSelected ? new SolidColorBrush(Color.Parse("#102A44")) : new SolidColorBrush(Color.Parse("#0A1A2A")), Brushes.DodgerBlue, Brushes.DodgerBlue, Brushes.LightBlue),
+            "失败" => (isSelected ? new SolidColorBrush(Color.Parse("#3A1616")) : Brushes.Transparent, Brushes.IndianRed, Brushes.IndianRed, Brushes.LightCoral),
+            "待继续" => (isSelected ? new SolidColorBrush(Color.Parse("#3A2A12")) : Brushes.Transparent, Brushes.Orange, Brushes.Orange, Brushes.Wheat),
             _ => (isSelected ? new SolidColorBrush(Color.Parse("#1A2432")) : Brushes.Transparent, Brushes.Gray, Brushes.Gainsboro, Brushes.DarkGray)
         };
     }
@@ -3252,6 +3265,8 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(CheckedProjectsSummary));
         OnPropertyChanged(nameof(TaskQueueSummary));
+        OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
+        OnPropertyChanged(nameof(MaterialUploadSummary));
         RefreshCommandStates();
     }
 
@@ -3262,14 +3277,14 @@ public partial class MainWindowViewModel : ViewModelBase
             _currentInteractionRequest = request;
             HasInteractionRequest = request is not null;
             InteractionTitle = request is null
-                ? "浜哄伐浠嬪叆"
-                : $"浜哄伐浠嬪叆 路 {ResolveInteractionScopeLabel(request.Scope)}";
+                ? "人工介入"
+                : $"人工介入 · {ResolveInteractionScopeLabel(request.Scope)}";
             InteractionMessage = request?.Message ?? string.Empty;
             if (request is not null)
             {
-                StatusMessage = $"绛夊緟浜哄伐澶勭悊锛歿request.DisplayName}";
+                StatusMessage = $"等待人工处理：{request.DisplayName}";
                 AppendLog(
-                    $"绛夊緟浜哄伐澶勭悊: {request.Message}",
+                    $"等待人工处理: {request.Message}",
                     request.ProjectKey,
                     request.DisplayName,
                     request.StepType,
@@ -3306,7 +3321,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         SelectedProject = Projects.FirstOrDefault(item => string.Equals(item.ProjectKey, projectKey, StringComparison.Ordinal))
             ?? Projects.FirstOrDefault();
-        StatusMessage = $"鍒锋柊瀹屾垚锛屽叡 {result.TotalProjects} 涓」鐩€?;
+        StatusMessage = $"刷新完成，共 {result.TotalProjects} 个项目。";
         RefreshSelectedProjectPreview();
     }
 
@@ -3420,6 +3435,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         OnPropertyChanged(nameof(CheckedProjectsSummary));
         ApplyTaskQueueFilter();
+        ApplyMaterialUploadFilter();
         RefreshRunLogViewState();
         RefreshCommandStates();
     }
@@ -3442,7 +3458,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var config = _configService.Load(RootDir);
         ApplyConfig(config);
-        StatusMessage = $"宸插姞杞介厤缃細{config.ConfigFilePath}";
+        StatusMessage = $"已加载配置：{config.ConfigFilePath}";
         ValidateConfig();
     }
 
@@ -3457,9 +3473,37 @@ public partial class MainWindowViewModel : ViewModelBase
         _configService.Save(snapshot);
         SyncWeixinProjectConfigs(snapshot);
         ConfigFilePath = snapshot.ConfigFilePath;
-        StatusMessage = $"閰嶇疆宸蹭繚瀛橈細{snapshot.ConfigFilePath}";
+        StatusMessage = $"配置已保存：{snapshot.ConfigFilePath}";
         AppendLog(StatusMessage);
         ValidateConfig();
+    }
+
+    private void RefreshDependencies()
+    {
+        Dependencies.Clear();
+        foreach (var item in _dependencyInspector.Inspect())
+        {
+            Dependencies.Add(item);
+        }
+
+        AppendLog($"依赖检测完成：共 {Dependencies.Count} 项。");
+    }
+
+    private async Task TestDependenciesAsync()
+    {
+        await RunBusyAsync("正在测试外部依赖...", async cancellationToken =>
+        {
+            var items = await _dependencyInspector.TestAsync(cancellationToken);
+            Dependencies.Clear();
+            foreach (var item in items)
+            {
+                Dependencies.Add(item);
+            }
+
+            var passed = items.Count(item => string.Equals(item.TestStatus, "通过", StringComparison.Ordinal));
+            var failed = items.Count(item => string.Equals(item.TestStatus, "失败", StringComparison.Ordinal));
+            AppendLog($"依赖测试完成：通过 {passed} 项，失败 {failed} 项。");
+        });
     }
 
     private void ApplyConfig(DesktopConfigSnapshot config)
@@ -3490,10 +3534,10 @@ public partial class MainWindowViewModel : ViewModelBase
         WeixinPauseOnError = config.WeixinPauseOnError;
         WeixinSaveHtml = config.WeixinSaveHtml;
         WeixinSaveText = config.WeixinSaveText;
-        WeixinMonetizationType = string.IsNullOrWhiteSpace(config.WeixinMonetizationType) ? "IAA骞垮憡鍙樼幇" : config.WeixinMonetizationType;
-        WeixinDramaType = string.IsNullOrWhiteSpace(config.WeixinDramaType) ? "婕墽" : config.WeixinDramaType;
-        WeixinDramaQualification = string.IsNullOrWhiteSpace(config.WeixinDramaQualification) ? "鍏朵粬寰煭鍓? : config.WeixinDramaQualification;
-        WeixinSubmitterIdentity = string.IsNullOrWhiteSpace(config.WeixinSubmitterIdentity) ? "鍓х洰鍒朵綔鏂? : config.WeixinSubmitterIdentity;
+        WeixinMonetizationType = string.IsNullOrWhiteSpace(config.WeixinMonetizationType) ? "IAA广告变现" : config.WeixinMonetizationType;
+        WeixinDramaType = string.IsNullOrWhiteSpace(config.WeixinDramaType) ? "漫剧" : config.WeixinDramaType;
+        WeixinDramaQualification = string.IsNullOrWhiteSpace(config.WeixinDramaQualification) ? "其他微短剧" : config.WeixinDramaQualification;
+        WeixinSubmitterIdentity = string.IsNullOrWhiteSpace(config.WeixinSubmitterIdentity) ? "剧目制作方" : config.WeixinSubmitterIdentity;
         WeixinTrialEpisodes = string.IsNullOrWhiteSpace(config.WeixinTrialEpisodes) ? "3" : config.WeixinTrialEpisodes;
         WeixinFillRecommendation = config.WeixinFillRecommendation;
         WeixinSubmissionReportDir = config.WeixinSubmissionReportDir;
@@ -3537,14 +3581,14 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (string.IsNullOrWhiteSpace(RootDir))
         {
-            AddConfigIssue("閿欒", "椤圭洰鏍圭洰褰曚负绌恒€?);
+            AddConfigIssue("错误", "项目根目录为空。");
             FinalizeConfigValidation();
             return;
         }
 
         if (!Directory.Exists(RootDir))
         {
-            AddConfigIssue("閿欒", $"椤圭洰鏍圭洰褰曚笉瀛樺湪: {RootDir}");
+            AddConfigIssue("错误", $"项目根目录不存在: {RootDir}");
             FinalizeConfigValidation();
             return;
         }
@@ -3554,22 +3598,22 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (!Directory.Exists(configDir))
         {
-            AddConfigIssue("閿欒", $"缂哄皯 config 鐩綍: {configDir}");
+            AddConfigIssue("错误", $"缺少 config 目录: {configDir}");
         }
 
         if (!File.Exists(configPath))
         {
-            AddConfigIssue("閿欒", $"缂哄皯閰嶇疆鏂囦欢: {configPath}");
+            AddConfigIssue("错误", $"缺少配置文件: {configPath}");
         }
 
         var templatePath = ResolveConfigPath(TemplateDocxPath);
         if (string.IsNullOrWhiteSpace(templatePath))
         {
-            AddConfigIssue("鎻愮ず", "鏈厤缃垚鏈姤琛ㄦā鏉匡紝灏嗗彧鐢熸垚 PNG锛屼笉淇濈暀鍘熷 docx銆?);
+            AddConfigIssue("提示", "未配置成本报表模板，将只生成 PNG，不保留原始 docx。");
         }
         else if (!File.Exists(templatePath))
         {
-            AddConfigIssue("璀﹀憡", $"鎴愭湰鎶ヨ〃妯℃澘涓嶅瓨鍦? {templatePath}锛汸NG 浠嶅彲鐢熸垚锛屼絾涓嶄細杈撳嚭鍘熷 docx銆?);
+            AddConfigIssue("警告", $"成本报表模板不存在: {templatePath}；PNG 仍可生成，但不会输出原始 docx。");
         }
 
         if (!string.IsNullOrWhiteSpace(_costReportBaseImagePath))
@@ -3577,18 +3621,18 @@ public partial class MainWindowViewModel : ViewModelBase
             var baseImagePath = ResolveConfigPath(_costReportBaseImagePath);
             if (!File.Exists(baseImagePath))
             {
-                AddConfigIssue("璀﹀憡", $"鎴愭湰鎶ヨ〃搴曞浘涓嶅瓨鍦? {baseImagePath}锛涘皢鍥為€€鍒板唴缃簳鍥俱€?);
+                AddConfigIssue("警告", $"成本报表底图不存在: {baseImagePath}；将回退到内置底图。");
             }
         }
 
         var projectImageTemplatePath = ResolveConfigPath(ProjectImageTemplateDir);
         if (string.IsNullOrWhiteSpace(projectImageTemplatePath))
         {
-            AddConfigIssue("閿欒", "鏈厤缃伐绋嬪浘妯℃澘鐩綍锛屽伐绋嬪浘姝ラ鏃犳硶鎵ц銆?);
+            AddConfigIssue("错误", "未配置工程图模板目录，工程图步骤无法执行。");
         }
         else if (!Directory.Exists(projectImageTemplatePath))
         {
-            AddConfigIssue("閿欒", $"宸ョ▼鍥炬ā鏉跨洰褰曚笉瀛樺湪: {projectImageTemplatePath}");
+            AddConfigIssue("错误", $"工程图模板目录不存在: {projectImageTemplatePath}");
         }
         else
         {
@@ -3599,225 +3643,225 @@ public partial class MainWindowViewModel : ViewModelBase
         var sealPath = Path.Combine(configDir, "seal.png");
         if (!File.Exists(signPath))
         {
-            AddConfigIssue("閿欒", $"缂哄皯绛惧瓧鍥剧墖: {signPath}");
+            AddConfigIssue("错误", $"缺少签字图片: {signPath}");
         }
 
         if (!File.Exists(sealPath))
         {
-            AddConfigIssue("閿欒", $"缂哄皯鐩栫珷鍥剧墖: {sealPath}");
+            AddConfigIssue("错误", $"缺少盖章图片: {sealPath}");
         }
 
         if (string.IsNullOrWhiteSpace(CompanyName))
         {
-            AddConfigIssue("璀﹀憡", "CompanyName 涓虹┖锛岄儴鍒嗙敓鎴愬唴瀹逛細缂哄皯鍏徃鍚嶇О銆?);
+            AddConfigIssue("警告", "CompanyName 为空，部分生成内容会缺少公司名称。");
         }
 
         if (!int.TryParse(SearchPageSize, out var searchPageSize) || searchPageSize <= 0)
         {
-            AddConfigIssue("閿欒", "SearchPageSize 蹇呴』鏄ぇ浜?0 鐨勬暣鏁般€?);
+            AddConfigIssue("错误", "SearchPageSize 必须是大于 0 的整数。");
         }
 
         if (string.IsNullOrWhiteSpace(ChatModelId))
         {
-            AddConfigIssue("閿欒", "鏈厤缃?ChatModelId锛屼豢鍐欏墽鍚嶇畝浠嬫棤娉曟墽琛屻€?);
+            AddConfigIssue("错误", "未配置 ChatModelId，仿写剧名简介无法执行。");
         }
 
         if (string.IsNullOrWhiteSpace(ChatModelApiKey))
         {
-            AddConfigIssue("閿欒", "鏈厤缃?ChatModelApiKey銆?);
+            AddConfigIssue("错误", "未配置 ChatModelApiKey。");
         }
 
         if (string.IsNullOrWhiteSpace(ChatModelEndpoint))
         {
-            AddConfigIssue("璀﹀憡", "鏈厤缃?ChatModelEndpoint锛屽彲鑳芥棤娉曡闂枃鏈ā鍨嬨€?);
+            AddConfigIssue("警告", "未配置 ChatModelEndpoint，可能无法访问文本模型。");
         }
 
         if (string.IsNullOrWhiteSpace(AiTextEndpoint))
         {
-            AddConfigIssue("璀﹀憡", "鏈厤缃?AiTextEndpoint锛屽皢鍥為€€鍒版枃鏈ā鍨嬪湴鍧€銆?);
+            AddConfigIssue("警告", "未配置 AiTextEndpoint，将回退到文本模型地址。");
         }
 
         if (string.IsNullOrWhiteSpace(AiTextApiKey))
         {
-            AddConfigIssue("璀﹀憡", "鏈厤缃?AiTextApiKey锛屽皢鍥為€€鍒版枃鏈ā鍨嬪瘑閽ャ€?);
+            AddConfigIssue("警告", "未配置 AiTextApiKey，将回退到文本模型密钥。");
         }
 
         if (string.IsNullOrWhiteSpace(AiTextModel))
         {
-            AddConfigIssue("璀﹀憡", "鏈厤缃?AiTextModel锛屽皢鍥為€€鍒版枃鏈ā鍨?ID銆?);
+            AddConfigIssue("警告", "未配置 AiTextModel，将回退到文本模型 ID。");
         }
 
         if (!int.TryParse(AiTextTimeoutSeconds, out var aiTextTimeout) || aiTextTimeout <= 0)
         {
-            AddConfigIssue("閿欒", "AiTextTimeoutSeconds 蹇呴』鏄ぇ浜?0 鐨勬暣鏁般€?);
+            AddConfigIssue("错误", "AiTextTimeoutSeconds 必须是大于 0 的整数。");
         }
 
         if (!int.TryParse(AiTextMaxBatchSize, out var aiTextBatchSize) || aiTextBatchSize <= 0)
         {
-            AddConfigIssue("閿欒", "AiTextMaxBatchSize 蹇呴』鏄ぇ浜?0 鐨勬暣鏁般€?);
+            AddConfigIssue("错误", "AiTextMaxBatchSize 必须是大于 0 的整数。");
         }
 
         if (string.IsNullOrWhiteSpace(AiTextBatchPrompt))
         {
-            AddConfigIssue("璀﹀憡", "AiTextBatchPrompt 涓虹┖锛屽皢浣跨敤鍐呯疆榛樿鎻愮ず璇嶃€?);
+            AddConfigIssue("警告", "AiTextBatchPrompt 为空，将使用内置默认提示词。");
         }
 
         if (string.IsNullOrWhiteSpace(AiTextRetryPrompt))
         {
-            AddConfigIssue("璀﹀憡", "AiTextRetryPrompt 涓虹┖锛屽皢浣跨敤鍐呯疆榛樿绾犲亸鎻愮ず璇嶃€?);
+            AddConfigIssue("警告", "AiTextRetryPrompt 为空，将使用内置默认纠偏提示词。");
         }
 
         if (!int.TryParse(WeixinSlowMoMs, out var weixinSlowMoValue) || weixinSlowMoValue < 0)
         {
-            AddConfigIssue("閿欒", "WeixinSlowMoMs 蹇呴』鏄ぇ浜庣瓑浜?0 鐨勬暣鏁般€?);
+            AddConfigIssue("错误", "WeixinSlowMoMs 必须是大于等于 0 的整数。");
         }
 
         if (!int.TryParse(WeixinKeepOpenSeconds, out var weixinKeepOpenValue) || weixinKeepOpenValue < 0)
         {
-            AddConfigIssue("閿欒", "WeixinKeepOpenSeconds 蹇呴』鏄ぇ浜庣瓑浜?0 鐨勬暣鏁般€?);
+            AddConfigIssue("错误", "WeixinKeepOpenSeconds 必须是大于等于 0 的整数。");
         }
 
         if (!int.TryParse(WeixinLoginTimeoutSeconds, out var weixinLoginTimeoutValue) || weixinLoginTimeoutValue <= 0)
         {
-            AddConfigIssue("閿欒", "WeixinLoginTimeoutSeconds 蹇呴』鏄ぇ浜?0 鐨勬暣鏁般€?);
+            AddConfigIssue("错误", "WeixinLoginTimeoutSeconds 必须是大于 0 的整数。");
         }
 
         if (string.IsNullOrWhiteSpace(WeixinMonetizationType))
         {
-            AddConfigIssue("璀﹀憡", "WeixinMonetizationType 涓虹┖锛屽皢鍥為€€鍒伴粯璁ゅ€?IAA骞垮憡鍙樼幇銆?);
+            AddConfigIssue("警告", "WeixinMonetizationType 为空，将回退到默认值 IAA广告变现。");
         }
 
         if (string.IsNullOrWhiteSpace(WeixinDramaType))
         {
-            AddConfigIssue("璀﹀憡", "WeixinDramaType 涓虹┖锛屽皢鍥為€€鍒伴粯璁ゅ€?婕墽銆?);
+            AddConfigIssue("警告", "WeixinDramaType 为空，将回退到默认值 漫剧。");
         }
 
         if (string.IsNullOrWhiteSpace(WeixinDramaQualification))
         {
-            AddConfigIssue("璀﹀憡", "WeixinDramaQualification 涓虹┖锛屽皢鍥為€€鍒伴粯璁ゅ€?鍏朵粬寰煭鍓с€?);
+            AddConfigIssue("警告", "WeixinDramaQualification 为空，将回退到默认值 其他微短剧。");
         }
 
         if (string.IsNullOrWhiteSpace(WeixinSubmitterIdentity))
         {
-            AddConfigIssue("璀﹀憡", "WeixinSubmitterIdentity 涓虹┖锛屽皢鍥為€€鍒伴粯璁ゅ€?鍓х洰鍒朵綔鏂广€?);
+            AddConfigIssue("警告", "WeixinSubmitterIdentity 为空，将回退到默认值 剧目制作方。");
         }
 
         if (!int.TryParse(WeixinTrialEpisodes, out var weixinTrialEpisodesValue) || weixinTrialEpisodesValue <= 0)
         {
-            AddConfigIssue("閿欒", "WeixinTrialEpisodes 蹇呴』鏄ぇ浜?0 鐨勬暣鏁般€?);
+            AddConfigIssue("错误", "WeixinTrialEpisodes 必须是大于 0 的整数。");
         }
 
         var submissionReportDir = ResolveConfigPath(WeixinSubmissionReportDir);
         if (!string.IsNullOrWhiteSpace(submissionReportDir) && !Directory.Exists(submissionReportDir))
         {
-            AddConfigIssue("閿欒", $"WeixinSubmissionReportDir 涓嶅瓨鍦? {submissionReportDir}");
+            AddConfigIssue("错误", $"WeixinSubmissionReportDir 不存在: {submissionReportDir}");
         }
 
         if (string.IsNullOrWhiteSpace(ImageModelId))
         {
-            AddConfigIssue("閿欒", "鏈厤缃?ImageModelId锛屾捣鎶ョ敓鎴愭棤娉曟墽琛屻€?);
+            AddConfigIssue("错误", "未配置 ImageModelId，海报生成无法执行。");
         }
 
         if (string.IsNullOrWhiteSpace(ImageModelApiKey))
         {
-            AddConfigIssue("閿欒", "鏈厤缃?ImageModelApiKey銆?);
+            AddConfigIssue("错误", "未配置 ImageModelApiKey。");
         }
 
         if (string.IsNullOrWhiteSpace(ImageModelEndpoint))
         {
-            AddConfigIssue("璀﹀憡", "鏈厤缃?ImageModelEndpoint锛屽浘鐗囨ā鍨嬭姹傚彲鑳藉け璐ャ€?);
+            AddConfigIssue("警告", "未配置 ImageModelEndpoint，图片模型请求可能失败。");
         }
 
         if (string.IsNullOrWhiteSpace(PosterLayoutDetectPrompt))
         {
-            AddConfigIssue("璀﹀憡", "PosterLayoutDetectPrompt 涓虹┖锛屽皢浣跨敤鍐呯疆娴锋姤甯冨眬妫€娴嬫彁绀鸿瘝銆?);
+            AddConfigIssue("警告", "PosterLayoutDetectPrompt 为空，将使用内置海报布局检测提示词。");
         }
 
         if (string.IsNullOrWhiteSpace(PosterNameUserPrompt))
         {
-            AddConfigIssue("璀﹀憡", "PosterNameUserPrompt 涓虹┖锛屽皢浣跨敤鍐呯疆娴锋姤鍚嶆彁绀鸿瘝銆?);
+            AddConfigIssue("警告", "PosterNameUserPrompt 为空，将使用内置海报名提示词。");
         }
 
         if (!int.TryParse(ProjectImageCount, out var projectImageCount) || projectImageCount <= 0)
         {
-            AddConfigIssue("閿欒", "ProjectImageCount 蹇呴』鏄ぇ浜?0 鐨勬暣鏁般€?);
+            AddConfigIssue("错误", "ProjectImageCount 必须是大于 0 的整数。");
         }
 
         if (!int.TryParse(VideoBitrateBps, out var videoBitrate) || videoBitrate <= 0)
         {
-            AddConfigIssue("閿欒", "VideoBitrateBps 蹇呴』鏄湁鏁堟暣鏁般€?);
+            AddConfigIssue("错误", "VideoBitrateBps 必须是有效整数。");
         }
         else if (videoBitrate < MinimumUploadVideoBitrate)
         {
-            AddConfigIssue("璀﹀憡", $"VideoBitrateBps 褰撳墠浣庝簬瑙嗛鍙峰缓璁槇鍊?{MinimumUploadVideoBitrate}銆?);
+            AddConfigIssue("警告", $"VideoBitrateBps 当前低于视频号建议阈值 {MinimumUploadVideoBitrate}。");
         }
 
         if (!int.TryParse(VideoAudioBitrateBps, out var audioBitrate) || audioBitrate <= 0)
         {
-            AddConfigIssue("璀﹀憡", "VideoAudioBitrateBps 涓虹┖鎴栨棤鏁堬紝灏嗕娇鐢ㄩ粯璁ら煶棰戠爜鐜囥€?);
+            AddConfigIssue("警告", "VideoAudioBitrateBps 为空或无效，将使用默认音频码率。");
         }
 
         if (!int.TryParse(VideoFps, out var fps) || fps <= 0)
         {
-            AddConfigIssue("璀﹀憡", "VideoFps 涓虹┖鎴栨棤鏁堬紝灏嗕娇鐢ㄩ粯璁ゅ抚鐜囥€?);
+            AddConfigIssue("警告", "VideoFps 为空或无效，将使用默认帧率。");
         }
 
         if (!int.TryParse(VideoConcurrentCount, out var concurrentCount) || concurrentCount <= 0)
         {
-            AddConfigIssue("閿欒", "VideoConcurrentCount 蹇呴』鏄ぇ浜?0 鐨勬暣鏁般€?);
+            AddConfigIssue("错误", "VideoConcurrentCount 必须是大于 0 的整数。");
         }
         else if (concurrentCount > 4)
         {
-            AddConfigIssue("璀﹀憡", "VideoConcurrentCount 褰撳墠澶т簬 4锛屽彲鑳藉鑷存満鍣ㄨ礋杞借繃楂樸€?);
+            AddConfigIssue("警告", "VideoConcurrentCount 当前大于 4，可能导致机器负载过高。");
         }
 
         if (string.IsNullOrWhiteSpace(VideoRes))
         {
-            AddConfigIssue("璀﹀憡", "VideoRes 涓虹┖锛屽皢浣跨敤榛樿鍒嗚鲸鐜囥€?);
+            AddConfigIssue("警告", "VideoRes 为空，将使用默认分辨率。");
         }
 
         if (string.IsNullOrWhiteSpace(VideoBitrateMode))
         {
-            AddConfigIssue("璀﹀憡", "VideoBitrateMode 涓虹┖锛屽皢浣跨敤榛樿鐮佺巼妯″紡銆?);
+            AddConfigIssue("警告", "VideoBitrateMode 为空，将使用默认码率模式。");
         }
 
         if (!double.TryParse(MaterialTrimHeadSeconds, out var materialTrimHead) || materialTrimHead < 0)
         {
-            AddConfigIssue("閿欒", "MaterialTrimHeadSeconds 蹇呴』鏄ぇ浜庣瓑浜?0 鐨勬暟瀛椼€?);
+            AddConfigIssue("错误", "MaterialTrimHeadSeconds 必须是大于等于 0 的数字。");
         }
 
         if (!double.TryParse(MaterialTrimTailSeconds, out var materialTrimTail) || materialTrimTail < 0)
         {
-            AddConfigIssue("閿欒", "MaterialTrimTailSeconds 蹇呴』鏄ぇ浜庣瓑浜?0 鐨勬暟瀛椼€?);
+            AddConfigIssue("错误", "MaterialTrimTailSeconds 必须是大于等于 0 的数字。");
         }
 
         if (!double.TryParse(MaterialSpeedPercent, out var materialSpeed) || materialSpeed < -50 || materialSpeed > 50)
         {
-            AddConfigIssue("閿欒", "MaterialSpeedPercent 蹇呴』鍦?-50 鍒?50 涔嬮棿銆?);
+            AddConfigIssue("错误", "MaterialSpeedPercent 必须在 -50 到 50 之间。");
         }
 
         if (!int.TryParse(MaterialDropEveryNFrames, out var materialDropEvery) || materialDropEvery <= 1)
         {
-            AddConfigIssue("閿欒", "MaterialDropEveryNFrames 蹇呴』鏄ぇ浜?1 鐨勬暣鏁般€?);
+            AddConfigIssue("错误", "MaterialDropEveryNFrames 必须是大于 1 的整数。");
         }
 
         if (!int.TryParse(MaterialDropCount, out var materialDropCount) || materialDropCount <= 0)
         {
-            AddConfigIssue("閿欒", "MaterialDropCount 蹇呴』鏄ぇ浜?0 鐨勬暣鏁般€?);
+            AddConfigIssue("错误", "MaterialDropCount 必须是大于 0 的整数。");
         }
         else if (int.TryParse(MaterialDropEveryNFrames, out materialDropEvery) && materialDropCount >= materialDropEvery)
         {
-            AddConfigIssue("閿欒", "MaterialDropCount 蹇呴』灏忎簬 MaterialDropEveryNFrames銆?);
+            AddConfigIssue("错误", "MaterialDropCount 必须小于 MaterialDropEveryNFrames。");
         }
 
         if (!double.TryParse(MaterialCropWidthPercent, out var materialCropWidth) || materialCropWidth < 0 || materialCropWidth >= 100)
         {
-            AddConfigIssue("閿欒", "MaterialCropWidthPercent 蹇呴』鍦?0 鍒?100 涔嬮棿銆?);
+            AddConfigIssue("错误", "MaterialCropWidthPercent 必须在 0 到 100 之间。");
         }
 
         if (!double.TryParse(MaterialCropHeightPercent, out var materialCropHeight) || materialCropHeight < 0 || materialCropHeight >= 100)
         {
-            AddConfigIssue("閿欒", "MaterialCropHeightPercent 蹇呴』鍦?0 鍒?100 涔嬮棿銆?);
+            AddConfigIssue("错误", "MaterialCropHeightPercent 必须在 0 到 100 之间。");
         }
 
         FinalizeConfigValidation();
@@ -3915,7 +3959,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (updatedCount > 0)
         {
-            AppendLog($"宸插悓姝ユ洿鏂?{updatedCount} 涓井淇′笂浼犻厤缃枃浠躲€?);
+            AppendLog($"已同步更新 {updatedCount} 个微信上传配置文件。");
         }
     }
 
@@ -3994,7 +4038,7 @@ public partial class MainWindowViewModel : ViewModelBase
             var fieldLabel = action["field_label"]?.GetValue<string>()?.Trim();
 
             if (string.Equals(type, "fill", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(label, "鎺ㄨ崘璇?, StringComparison.Ordinal) &&
+                string.Equals(label, "推荐语", StringComparison.Ordinal) &&
                 !snapshot.WeixinFillRecommendation)
             {
                 actions.RemoveAt(i);
@@ -4003,25 +4047,25 @@ public partial class MainWindowViewModel : ViewModelBase
 
             if (string.Equals(type, "choose", StringComparison.OrdinalIgnoreCase))
             {
-                if (string.Equals(fieldLabel, "鍙樼幇绫诲瀷", StringComparison.Ordinal))
+                if (string.Equals(fieldLabel, "变现类型", StringComparison.Ordinal))
                 {
                     action["option_text"] = snapshot.WeixinMonetizationType;
                 }
-                else if (string.Equals(fieldLabel, "鍓х洰绫诲瀷", StringComparison.Ordinal))
+                else if (string.Equals(fieldLabel, "剧目类型", StringComparison.Ordinal))
                 {
                     action["option_text"] = snapshot.WeixinDramaType;
                 }
-                else if (string.Equals(fieldLabel, "鍓х洰璧勮川", StringComparison.Ordinal))
+                else if (string.Equals(fieldLabel, "剧目资质", StringComparison.Ordinal))
                 {
                     action["option_text"] = snapshot.WeixinDramaQualification;
                 }
-                else if (string.Equals(fieldLabel, "鎻愬韬唤", StringComparison.Ordinal))
+                else if (string.Equals(fieldLabel, "提审身份", StringComparison.Ordinal))
                 {
                     action["option_text"] = snapshot.WeixinSubmitterIdentity;
                 }
             }
             else if (string.Equals(type, "fill", StringComparison.OrdinalIgnoreCase) &&
-                     string.Equals(label, "璇曠湅闆嗘暟", StringComparison.Ordinal))
+                     string.Equals(label, "试看集数", StringComparison.Ordinal))
             {
                 action["value"] = ParseIntOrDefault(snapshot.WeixinTrialEpisodes, 3).ToString();
             }
@@ -4047,8 +4091,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void RefreshSelectedProjectPreview()
     {
-        ReplacePosterPreview(FindPreviewPath("娴锋姤鍥剧墖.jpg"));
-        ReplaceCostPreview(FindPreviewPath("鎴愭湰鎶ヨ〃.png"));
+        ReplacePosterPreview(FindPreviewPath("海报图片.jpg"));
+        ReplaceCostPreview(FindPreviewPath("成本报表.png"));
         ReplaceProjectImagePreview(FindProjectImagePreviewPath());
         RefreshCommandStates();
     }
@@ -4073,7 +4117,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return null;
         }
 
-        return Directory.EnumerateFiles(baseDir, "宸ョ▼鍥綺*.png", SearchOption.TopDirectoryOnly)
+        return Directory.EnumerateFiles(baseDir, "工程图_*.png", SearchOption.TopDirectoryOnly)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
     }
@@ -4153,12 +4197,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void FinalizeConfigValidation()
     {
-        var errorCount = ConfigIssues.Count(item => string.Equals(item.Severity, "閿欒", StringComparison.Ordinal));
-        var warningCount = ConfigIssues.Count(item => string.Equals(item.Severity, "璀﹀憡", StringComparison.Ordinal));
+        var errorCount = ConfigIssues.Count(item => string.Equals(item.Severity, "错误", StringComparison.Ordinal));
+        var warningCount = ConfigIssues.Count(item => string.Equals(item.Severity, "警告", StringComparison.Ordinal));
 
         ConfigValidationSummary = errorCount == 0 && warningCount == 0
-            ? "閰嶇疆鏍￠獙閫氳繃"
-            : $"閰嶇疆鏍￠獙锛氶敊璇?{errorCount} 椤癸紝璀﹀憡 {warningCount} 椤?;
+            ? "配置校验通过"
+            : $"配置校验：错误 {errorCount} 项，警告 {warningCount} 项";
     }
 
     private void ValidateProjectImageTemplates(string templateDir)
@@ -4170,10 +4214,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
         for (var index = 1; index <= count; index++)
         {
-            var templatePath = Path.Combine(templateDir, $"宸ョ▼鍥綺{index}.png");
+            var templatePath = Path.Combine(templateDir, $"工程图_{index}.png");
             if (!File.Exists(templatePath))
             {
-                AddConfigIssue("閿欒", $"缂哄皯宸ョ▼鍥炬ā鏉? {templatePath}");
+                AddConfigIssue("错误", $"缺少工程图模板: {templatePath}");
             }
         }
     }
@@ -4254,14 +4298,14 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         var target = item;
-        await RunSearchBusyAsync($"姝ｅ湪鍒犻櫎褰掓。椤圭洰锛歿target.DisplayName}", async cancellationToken =>
+        await RunSearchBusyAsync($"正在删除归档项目：{target.DisplayName}", async cancellationToken =>
         {
             var result = await _archivedProjectDeleteService.DeleteAsync(
                 RootDir,
                 target.ArchiveProjectDir,
                 cancellationToken);
 
-            AppendLog(result.Message, target.ProjectKey, target.DisplayName, "archive-delete", "鍒犻櫎褰掓。椤圭洰");
+            AppendLog(result.Message, target.ProjectKey, target.DisplayName, "archive-delete", "删除归档项目");
             LoadArchivedProjects();
             StatusMessage = result.Message;
         });
@@ -4275,7 +4319,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        await RunSearchBusyAsync($"姝ｅ湪鍒犻櫎鍕鹃€夊綊妗ｉ」鐩紝鍏?{targets.Length} 涓?..", async cancellationToken =>
+        await RunSearchBusyAsync($"正在删除勾选归档项目，共 {targets.Length} 个...", async cancellationToken =>
         {
             var deleted = 0;
             foreach (var target in targets)
@@ -4285,11 +4329,11 @@ public partial class MainWindowViewModel : ViewModelBase
                     target.ArchiveProjectDir,
                     cancellationToken);
                 deleted++;
-                AppendLog(result.Message, target.ProjectKey, target.DisplayName, "archive-delete", "鍒犻櫎褰掓。椤圭洰");
+                AppendLog(result.Message, target.ProjectKey, target.DisplayName, "archive-delete", "删除归档项目");
             }
 
             LoadArchivedProjects();
-            StatusMessage = $"宸插垹闄ゅ綊妗ｉ」鐩?{deleted} 涓€?;
+            StatusMessage = $"已删除归档项目 {deleted} 个。";
             AppendLog(StatusMessage);
         });
     }
@@ -4379,7 +4423,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var selectedKey = SelectedProjectLogFilter?.Key ?? AllProjectsFilterKey;
         ProjectLogFilters.Clear();
-        ProjectLogFilters.Add(new LogFilterOption(AllProjectsFilterKey, "鍏ㄩ儴椤圭洰"));
+        ProjectLogFilters.Add(new LogFilterOption(AllProjectsFilterKey, "全部项目"));
 
         foreach (var project in Projects)
         {
@@ -4429,9 +4473,9 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         return scope switch
         {
-            "publish_video" => "褰撳墠绱犳潗",
-            "project" => "褰撳墠椤圭洰",
-            _ => "褰撳墠鑺傜偣"
+            "publish_video" => "当前素材",
+            "project" => "当前项目",
+            _ => "当前节点"
         };
     }
 

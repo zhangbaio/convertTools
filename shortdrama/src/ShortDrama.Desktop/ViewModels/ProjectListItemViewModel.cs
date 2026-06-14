@@ -39,6 +39,9 @@ public partial class ProjectListItemViewModel : ViewModelBase
     private string _materialUploadProgressText = "未开始";
     private string _materialUploadStrategySummary = "未配置";
     private string _materialUploadSelectionSummary = "未配置";
+    private string _materialPublishConfigPath = string.Empty;
+    private int _materialPublishConfiguredCount;
+    private int _materialPublishUploadedCount;
 
     public ProjectListItemViewModel(ScannedProject project)
     {
@@ -202,6 +205,11 @@ public partial class ProjectListItemViewModel : ViewModelBase
     public IReadOnlyCollection<int> SkippedEpisodeUploadEpisodes => _skippedEpisodeUploadEpisodes;
     public string MaterialUploadStrategySummary => _materialUploadStrategySummary;
     public string MaterialUploadSelectionSummary => _materialUploadSelectionSummary;
+    public string MaterialPublishConfigPath => _materialPublishConfigPath;
+    public int MaterialPublishConfiguredCount => _materialPublishConfiguredCount;
+    public int MaterialPublishUploadedCount => _materialPublishUploadedCount;
+    public string MaterialPublishUploadedSummary =>
+        _materialPublishConfiguredCount <= 0 ? "0/0" : $"{_materialPublishUploadedCount}/{_materialPublishConfiguredCount}";
 
     public string GetProjectMaterialStepStatus(string stepKey)
     {
@@ -1379,8 +1387,12 @@ public partial class ProjectListItemViewModel : ViewModelBase
     private void RefreshMaterialPublishVideos()
     {
         MaterialPublishVideos.Clear();
+        _materialPublishConfigPath = string.Empty;
+        _materialPublishConfiguredCount = 0;
+        _materialPublishUploadedCount = 0;
         if (string.IsNullOrWhiteSpace(WorkflowProjectDir) || !Directory.Exists(WorkflowProjectDir))
         {
+            NotifyMaterialPublishSummaryChanged();
             return;
         }
 
@@ -1389,14 +1401,17 @@ public partial class ProjectListItemViewModel : ViewModelBase
             .FirstOrDefault(File.Exists);
         if (string.IsNullOrWhiteSpace(configPath))
         {
+            NotifyMaterialPublishSummaryChanged();
             return;
         }
 
+        _materialPublishConfigPath = configPath;
         try
         {
             using var document = JsonDocument.Parse(File.ReadAllText(configPath));
             if (!document.RootElement.TryGetProperty("video_publish", out var publish) || publish.ValueKind != JsonValueKind.Object)
             {
+                NotifyMaterialPublishSummaryChanged();
                 return;
             }
 
@@ -1430,6 +1445,7 @@ public partial class ProjectListItemViewModel : ViewModelBase
                 .ToArray();
             if (files.Length == 0)
             {
+                NotifyMaterialPublishSummaryChanged();
                 return;
             }
 
@@ -1439,6 +1455,10 @@ public partial class ProjectListItemViewModel : ViewModelBase
 
             var statePath = Path.IsPathRooted(stateFile) ? stateFile : Path.Combine(WorkflowProjectDir, stateFile);
             var stateEntries = ReadMaterialPublishStateEntries(statePath);
+            _materialPublishConfiguredCount = selectedIndexes.Count(index => index > 0 && index <= files.Length);
+            _materialPublishUploadedCount = selectedIndexes.Count(index =>
+                stateEntries.TryGetValue(index.ToString(), out var uploadStatus) &&
+                IsMaterialPublishCompletedStatus(uploadStatus));
 
             foreach (var episodeIndex in selectedIndexes)
             {
@@ -1465,6 +1485,8 @@ public partial class ProjectListItemViewModel : ViewModelBase
         catch
         {
         }
+
+        NotifyMaterialPublishSummaryChanged();
     }
 
     private static Dictionary<string, string> ReadMaterialPublishStateEntries(string statePath)
@@ -1531,11 +1553,26 @@ public partial class ProjectListItemViewModel : ViewModelBase
         return status.ToLowerInvariant() switch
         {
             "success" => "已成功",
+            "manual_done" => "已成功",
             "failed" => "失败",
             "running" => "进行中",
             "interrupted" => "已中断",
             _ => "待发"
         };
+    }
+
+    private static bool IsMaterialPublishCompletedStatus(string status)
+    {
+        return string.Equals(status, "success", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(status, "manual_done", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void NotifyMaterialPublishSummaryChanged()
+    {
+        OnPropertyChanged(nameof(MaterialPublishConfigPath));
+        OnPropertyChanged(nameof(MaterialPublishConfiguredCount));
+        OnPropertyChanged(nameof(MaterialPublishUploadedCount));
+        OnPropertyChanged(nameof(MaterialPublishUploadedSummary));
     }
 
     private void RefreshDownloadEpisodes(LocalDownloadInspection downloadInspection)

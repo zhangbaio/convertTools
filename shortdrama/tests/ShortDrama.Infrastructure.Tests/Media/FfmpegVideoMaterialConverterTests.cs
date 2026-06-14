@@ -89,6 +89,82 @@ VideoUseHardwareEncoder=false
         args.Should().Contain(arg => arg.Contains("atempo=1.157895", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task ConvertAsync_Should_Apply_DynamicSpeed_PortraitLayout_And_Watermark()
+    {
+        var inputDir = Directory.CreateTempSubdirectory();
+        var outputDir = Directory.CreateTempSubdirectory();
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = Path.Combine(projectDir.FullName, "config.txt");
+
+        await File.WriteAllTextAsync(configPath, """
+MaterialConvertEnabled=true
+MaterialTrimHeadSeconds=0.5
+MaterialTrimTailSeconds=0.5
+MaterialSpeedPercent=0
+MaterialDynamicSpeedEnabled=true
+MaterialDynamicSpeedPresetName=light_rhythm
+MaterialDynamicSpeedHeadSeconds=2.5
+MaterialDynamicSpeedHeadPercent=8
+MaterialDynamicSpeedMiddlePercent=6
+MaterialDynamicSpeedTailSeconds=2.5
+MaterialDynamicSpeedTailPercent=8
+MaterialFrameSamplingEnabled=true
+MaterialFrameSamplingMode=fixed_interval
+MaterialFrameSamplingInterval=20
+MaterialCropWidthPercent=0
+MaterialCropHeightPercent=0
+MaterialForegroundZoomPercent=7
+MaterialWatermarkEnabled=true
+MaterialWatermarkText=TEST
+MaterialWatermarkFontSize=35
+MaterialWatermarkPosition=top_right
+MaterialWatermarkMarginX=30
+MaterialWatermarkMarginY=30
+MaterialOutputWidth=1080
+MaterialOutputHeight=1920
+MaterialPipWidthPercent=80
+MaterialPipHeightPercent=70
+VideoBitrateBps=5000000
+VideoBitrateMode=Cbr
+VideoAudioBitrateBps=96000
+VideoFps=30
+VideoUseHardwareEncoder=false
+""");
+
+        var inputPath = Path.Combine(inputDir.FullName, "episode01.mp4");
+        var outputPath = Path.Combine(outputDir.FullName, "episode01.mp4");
+        await File.WriteAllBytesAsync(inputPath, [1, 2, 3]);
+
+        var runner = new ScriptedProcessRunner(new Dictionary<string, ProbeScenario>(StringComparer.Ordinal)
+        {
+            [inputPath] = new ProbeScenario(DurationSeconds: 90d, Width: 1920, Height: 1080, VideoBitrateBps: 5_500_000, AudioBitrateBps: 128_000),
+            [outputPath] = new ProbeScenario(DurationSeconds: 80d, Width: 1080, Height: 1920, VideoBitrateBps: 5_000_000, AudioBitrateBps: 96_000)
+        });
+
+        var converter = new FfmpegVideoMaterialConverter(
+            runner,
+            NullLogger<FfmpegVideoMaterialConverter>.Instance);
+
+        var result = await converter.ConvertAsync(
+            new VideoMaterialConvertRequest(projectDir.FullName, inputDir.FullName, outputDir.FullName, configPath, Overwrite: true),
+            progress: null,
+            CancellationToken.None);
+
+        result.ConvertedFiles.Should().Be(1);
+        runner.FfmpegInvocations.Should().ContainSingle();
+        var args = runner.FfmpegInvocations[0];
+        var filterComplex = args.SkipWhile(arg => !string.Equals(arg, "-filter_complex", StringComparison.Ordinal))
+            .Skip(1)
+            .First();
+
+        filterComplex.Should().Contain("concat=n=3:v=1:a=1[vbase][abase]");
+        filterComplex.Should().Contain("crop=864:1344");
+        filterComplex.Should().Contain("pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black");
+        filterComplex.Should().Contain("drawtext=text='TEST'");
+        filterComplex.Should().Contain("setpts=N/(30*TB)");
+    }
+
     private sealed class RecordingProcessRunner : IExternalProcessRunner
     {
         public List<(string FileName, IReadOnlyList<string> Arguments, string? WorkingDirectory)> Invocations { get; } = [];

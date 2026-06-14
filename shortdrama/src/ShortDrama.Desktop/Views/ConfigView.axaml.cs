@@ -84,8 +84,9 @@ public partial class ConfigView : UserControl
 
         var configService = app.Services.GetRequiredService<Services.DesktopConfigService>();
         var shellService = app.Services.GetRequiredService<Services.DesktopShellService>();
+        var hgnewApiService = app.Services.GetRequiredService<Services.HongguoNewApiService>();
         var xingeRemoteControlService = app.Services.GetRequiredService<Services.XingeRemoteControlService>();
-        var configVm = new ConfigWindowViewModel(mainWindowViewModel.RootDir, configService, shellService, xingeRemoteControlService);
+        var configVm = new ConfigWindowViewModel(mainWindowViewModel.RootDir, configService, shellService, hgnewApiService, xingeRemoteControlService);
         RootGrid.DataContext = configVm;
         InitializeTabs(configVm);
     }
