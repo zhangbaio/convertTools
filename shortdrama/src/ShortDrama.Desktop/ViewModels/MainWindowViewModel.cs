@@ -133,6 +133,9 @@ public partial class MainWindowViewModel : ViewModelBase
         GoNextSearchPageCommand = new AsyncRelayCommand(GoNextSearchPageAsync, CanGoNextSearchPage);
         ImportCheckedDramaCommand = new AsyncRelayCommand(ImportCheckedDramaAsync, CanImportCheckedDrama);
         ImportAndRunCheckedDramaCommand = new AsyncRelayCommand(ImportAndRunCheckedDramaAsync, CanImportAndRunCheckedDrama);
+        AddCheckedToVideoChannelQueueCommand = new AsyncRelayCommand(AddCheckedToVideoChannelQueueAsync, CanImportCheckedDrama);
+        AddCheckedToMiniprogramQueueCommand = new AsyncRelayCommand(AddCheckedToMiniprogramQueueAsync, CanImportCheckedDrama);
+        AddCheckedToKuaishouQueueCommand = new AsyncRelayCommand(AddCheckedToKuaishouQueueAsync, CanImportCheckedDrama);
         DownloadCheckedDramaCommand = new AsyncRelayCommand(DownloadCheckedDramaAsync, CanDownloadCheckedDrama);
         ApplySearchFiltersCommand = new RelayCommand(ApplySearchFilters, CanApplySearchFilters);
         ReloadConfigCommand = new RelayCommand(LoadConfig, CanOperateWithRootDir);
@@ -270,6 +273,9 @@ public partial class MainWindowViewModel : ViewModelBase
     public IAsyncRelayCommand DownloadCheckedDramaCommand { get; }
     public IAsyncRelayCommand ImportCheckedDramaCommand { get; }
     public IAsyncRelayCommand ImportAndRunCheckedDramaCommand { get; }
+    public IAsyncRelayCommand AddCheckedToVideoChannelQueueCommand { get; }
+    public IAsyncRelayCommand AddCheckedToMiniprogramQueueCommand { get; }
+    public IAsyncRelayCommand AddCheckedToKuaishouQueueCommand { get; }
     public IRelayCommand ApplySearchFiltersCommand { get; }
     public IRelayCommand ReloadConfigCommand { get; }
     public IRelayCommand SaveConfigCommand { get; }
@@ -925,6 +931,9 @@ public partial class MainWindowViewModel : ViewModelBase
         GoNextSearchPageCommand.NotifyCanExecuteChanged();
         ImportCheckedDramaCommand.NotifyCanExecuteChanged();
         ImportAndRunCheckedDramaCommand.NotifyCanExecuteChanged();
+        AddCheckedToVideoChannelQueueCommand.NotifyCanExecuteChanged();
+        AddCheckedToMiniprogramQueueCommand.NotifyCanExecuteChanged();
+        AddCheckedToKuaishouQueueCommand.NotifyCanExecuteChanged();
         DownloadCheckedDramaCommand.NotifyCanExecuteChanged();
         ApplySearchFiltersCommand.NotifyCanExecuteChanged();
         ReloadConfigCommand.NotifyCanExecuteChanged();
@@ -2699,6 +2708,24 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private Task ImportAndRunCheckedDramaAsync() => ImportCheckedDramaCoreAsync(runWorkflow: true);
 
+    private Task AddCheckedToVideoChannelQueueAsync() =>
+        AddCheckedDramaToPlatformQueueAsync(
+            queueKey: "video_channel",
+            queueLabel: "视频号队列",
+            executionHint: "已导入并勾选到任务队列，可直接到“任务队列”页执行视频号流程。");
+
+    private Task AddCheckedToMiniprogramQueueAsync() =>
+        AddCheckedDramaToPlatformQueueAsync(
+            queueKey: "miniprogram",
+            queueLabel: "小程序队列",
+            executionHint: "当前桌面版先同步项目和勾选状态到共享任务队列，小程序独立执行链路后续补齐。");
+
+    private Task AddCheckedToKuaishouQueueAsync() =>
+        AddCheckedDramaToPlatformQueueAsync(
+            queueKey: "kuaishou",
+            queueLabel: "快手队列",
+            executionHint: "当前桌面版先同步项目和勾选状态到共享任务队列，快手独立执行链路后续补齐。");
+
     private async Task DownloadCheckedDramaAsync()
     {
         var selectedRows = SearchResults.Where(item => item.IsChecked).ToArray();
@@ -2819,6 +2846,84 @@ public partial class MainWindowViewModel : ViewModelBase
                 : $"勾选项目已导入完成，共处理 {selectedRows.Length} 个。";
             AppendLog(StatusMessage);
         });
+    }
+
+    private async Task AddCheckedDramaToPlatformQueueAsync(
+        string queueKey,
+        string queueLabel,
+        string executionHint)
+    {
+        var selectedRows = SearchResults.Where(item => item.IsChecked).ToArray();
+        if (selectedRows.Length == 0)
+        {
+            return;
+        }
+
+        await RunSearchBusyAsync($"正在加入{queueLabel}，共 {selectedRows.Length} 个剧目...", async cancellationToken =>
+        {
+            var processed = 0;
+            var bootstrappedProjectKeys = new List<string>(selectedRows.Length);
+
+            foreach (var row in selectedRows)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var bootstrap = await _projectBootstrapper.BootstrapAsync(
+                    new DramaProjectBootstrapRequest(
+                        RootDir: RootDir,
+                        Drama: row.Drama,
+                        CompanyName: CompanyName),
+                    cancellationToken);
+
+                processed++;
+                bootstrappedProjectKeys.Add(bootstrap.ProjectKey);
+                AppendLog(
+                    bootstrap.Created
+                        ? $"[{processed}/{selectedRows.Length}] 已加入项目到{queueLabel}：{bootstrap.DisplayName}"
+                        : $"[{processed}/{selectedRows.Length}] 项目已存在，已同步到{queueLabel}：{bootstrap.DisplayName}",
+                    bootstrap.ProjectKey,
+                    bootstrap.DisplayName,
+                    "search",
+                    "短剧搜索");
+            }
+
+            await RefreshProjectListAsync();
+            MarkProjectsCheckedByKeys(bootstrappedProjectKeys);
+            ApplyQueueDefaultsForPlatform(queueKey);
+
+            StatusMessage = $"已加入 {bootstrappedProjectKeys.Count} 个剧目到{queueLabel}。{executionHint}";
+            AppendLog(StatusMessage, string.Empty, string.Empty, "search", "短剧搜索");
+        });
+    }
+
+    private void MarkProjectsCheckedByKeys(IEnumerable<string> projectKeys)
+    {
+        var keySet = new HashSet<string>(projectKeys.Where(key => !string.IsNullOrWhiteSpace(key)), StringComparer.Ordinal);
+        if (keySet.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var project in Projects)
+        {
+            if (keySet.Contains(project.ProjectKey))
+            {
+                project.IsChecked = true;
+            }
+        }
+    }
+
+    private void ApplyQueueDefaultsForPlatform(string queueKey)
+    {
+        if (!string.Equals(queueKey, "video_channel", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (!QueueStepEpisodeUploadEnabled && !QueueStepMaterialUploadEnabled)
+        {
+            QueueStepEpisodeUploadEnabled = true;
+        }
     }
 
     private bool TryBuildDownloadEpisodeSelection(out string selection)

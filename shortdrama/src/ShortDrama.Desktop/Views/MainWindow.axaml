@@ -24,18 +24,18 @@
             <Setter Property="FontSize" Value="16" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{DynamicResource DesktopTextSecondaryBrush}" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Background" Value="{DynamicResource DesktopSidebarBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DesktopDividerBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="16" />
         </Style>
         <Style Selector="TabControl.sidebar TabItem:pointerover">
-            <Setter Property="Background" Value="{DynamicResource DesktopPanelAltBrush}" />
+            <Setter Property="Background" Value="{DynamicResource DesktopSidebarHoverBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource DesktopDividerBrush}" />
         </Style>
         <Style Selector="TabControl.sidebar TabItem:selected">
-            <Setter Property="Background" Value="{DynamicResource DesktopAccentSoftBrush}" />
+            <Setter Property="Background" Value="{DynamicResource DesktopSidebarSelectedBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource DesktopAccentBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource DesktopAccentBrush}" />
         </Style>
@@ -71,6 +71,7 @@
                                     </TextBox.KeyBindings>
                                 </TextBox>
                                 <Button Grid.Column="1"
+                                        Classes="primary"
                                         MinWidth="100"
                                         Command="{Binding SearchDramaCommand}"
                                         Content="搜索" />
@@ -147,7 +148,7 @@
                                         Content="应用筛选" />
                             </Grid>
 
-                            <Grid ColumnDefinitions="Auto,180,*,Auto" ColumnSpacing="10">
+                            <Grid ColumnDefinitions="Auto,180,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
                                 <TextBlock VerticalAlignment="Center"
                                            Text="集数范围" />
                                 <ComboBox Grid.Column="1"
@@ -162,16 +163,19 @@
                                         MinWidth="120"
                                         Command="{Binding DownloadCheckedDramaCommand}"
                                         Content="下载选中" />
-                            </Grid>
-
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                <Border Background="{DynamicResource DesktopPanelAltBrush}"
-                                        CornerRadius="14"
-                                        Padding="12">
-                                    <TextBlock Text="{Binding SearchSummary}"
-                                               TextWrapping="Wrap" />
-                                </Border>
-                                <Border Grid.Column="1"
+                                <Button Grid.Column="4"
+                                        MinWidth="150"
+                                        Command="{Binding AddCheckedToVideoChannelQueueCommand}"
+                                        Content="加入视频号队列" />
+                                <Button Grid.Column="5"
+                                        MinWidth="150"
+                                        Command="{Binding AddCheckedToMiniprogramQueueCommand}"
+                                        Content="加入小程序队列" />
+                                <Button Grid.Column="6"
+                                        MinWidth="150"
+                                        Command="{Binding AddCheckedToKuaishouQueueCommand}"
+                                        Content="加入快手队列" />
+                                <Border Grid.Column="7"
                                         Background="{DynamicResource DesktopPanelAltBrush}"
                                         CornerRadius="14"
                                         Padding="14,12">
@@ -179,16 +183,14 @@
                                 </Border>
                             </Grid>
 
-                            <WrapPanel Orientation="Horizontal">
-                                <Button MinWidth="150"
-                                        Margin="0,0,10,0"
-                                        Command="{Binding ImportCheckedDramaCommand}"
-                                        Content="勾选导入工作目录" />
-                                <Button MinWidth="190"
-                                        Margin="0,0,10,0"
-                                        Command="{Binding ImportAndRunCheckedDramaCommand}"
-                                        Content="勾选项目一键执行全流程" />
-                            </WrapPanel>
+                            <Grid ColumnDefinitions="*" ColumnSpacing="12">
+                                <Border Background="{DynamicResource DesktopPanelAltBrush}"
+                                        CornerRadius="14"
+                                        Padding="12">
+                                    <TextBlock Text="{Binding SearchSummary}"
+                                               TextWrapping="Wrap" />
+                                </Border>
+                            </Grid>
                         </StackPanel>
                     </Border>
 

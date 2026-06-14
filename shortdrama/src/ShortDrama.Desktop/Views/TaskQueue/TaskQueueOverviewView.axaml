@@ -15,6 +15,7 @@
                              Text="{Binding RootDir}"
                              Watermark="请选择或输入项目根目录" />
                     <Button Grid.Column="2"
+                            Classes="primary"
                             MinWidth="130"
                             Click="PickRootDir_Click"
                             Content="选择工作目录" />

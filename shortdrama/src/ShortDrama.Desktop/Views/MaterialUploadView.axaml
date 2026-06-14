@@ -10,6 +10,7 @@
             <StackPanel Spacing="12">
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="RunMaterialUploadQueueButton"
+                            Classes="primary"
                             MinWidth="170"
                             Margin="0,0,10,10"
                             Content="{Binding MaterialUploadQueueButtonText}" />

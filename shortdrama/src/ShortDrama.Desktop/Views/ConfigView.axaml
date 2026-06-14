@@ -43,7 +43,8 @@
                     Orientation="Horizontal"
                     Spacing="10"
                     HorizontalAlignment="Right">
-            <Button Content="保存配置"
+            <Button Classes="primary"
+                    Content="保存配置"
                     Click="Save_Click" />
         </StackPanel>
     </Grid>

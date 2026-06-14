@@ -14,6 +14,7 @@
                                Foreground="{Binding SelectedProject.MaterialUploadNodeForegroundBrush}" />
                 </StackPanel>
                 <Button Grid.Column="1"
+                        Classes="primary"
                         MinWidth="140"
                         Command="{Binding RunSelectedWeixinMaterialUploadCommand}"
                         Content="开始上传素材" />
