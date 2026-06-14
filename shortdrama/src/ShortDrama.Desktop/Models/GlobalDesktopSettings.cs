@@ -60,4 +60,20 @@ public sealed class GlobalDesktopSettings
     public bool FeishuNotifyOnQueueSummary { get; set; } = true;
     public bool FeishuNotifyOnLoginQr { get; set; } = true;
     public string FeishuNotifyStepKeysText { get; set; } = string.Empty;
+    public string LastMaterialClipWorkspace { get; set; } = string.Empty;
+    public string MaterialClipAsrProvider { get; set; } = "volcengine_stt";
+    public string MaterialClipAsrLanguage { get; set; } = "zh-CN";
+    public string MaterialClipVolcengineAppId { get; set; } = string.Empty;
+    public string MaterialClipVolcengineAccessToken { get; set; } = string.Empty;
+    public string MaterialClipDoubaoAppId { get; set; } = string.Empty;
+    public string MaterialClipDoubaoAccessToken { get; set; } = string.Empty;
+    public string MaterialClipMode { get; set; } = "multi_video_merge";
+    public string MaterialClipTargetDurationMode { get; set; } = "adaptive_range";
+    public int MaterialClipTargetDurationSec { get; set; } = 30;
+    public double MaterialClipTargetDurationRatioPercent { get; set; } = 8.0d;
+    public int MaterialClipMinOutputDurationSec { get; set; }
+    public int MaterialClipMaxOutputDurationSec { get; set; } = 45;
+    public int MaterialClipPerEpisodeTopN { get; set; } = 2;
+    public bool MaterialClipEnableLlm { get; set; }
+    public int MaterialClipSplitClipLimit { get; set; } = 4;
 }

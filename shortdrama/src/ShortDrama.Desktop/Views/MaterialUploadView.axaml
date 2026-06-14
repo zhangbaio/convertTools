@@ -29,37 +29,33 @@
                             MinWidth="120"
                             Margin="0,0,10,10"
                             Content="发表配置" />
-                    <Button MinWidth="120"
-                            Margin="0,0,10,10"
-                            Content="剪辑配置"
-                            IsEnabled="False"
-                            ToolTip.Tip="待迁移" />
-                    <Button MinWidth="100"
-                            Margin="0,0,10,10"
-                            Content="ASR 配置"
-                            IsEnabled="False"
-                            ToolTip.Tip="待迁移" />
-                    <Button MinWidth="140"
-                            Margin="0,0,10,10"
-                            Content="删除视频号素材"
-                            IsEnabled="False"
-                            ToolTip.Tip="待迁移" />
-                    <Button x:Name="ShowMaterialLogsButton"
+                    <Button x:Name="OpenClipConfigButton"
                             MinWidth="120"
                             Margin="0,0,10,10"
-                            Content="查看素材日志" />
-                    <Button MinWidth="170"
+                            Content="剪辑配置" />
+                    <Button x:Name="OpenAsrConfigButton"
+                            MinWidth="100"
                             Margin="0,0,10,10"
-                            Content="手动创建素材项目"
-                            IsEnabled="False"
-                            ToolTip.Tip="待迁移" />
+                            Content="ASR 配置" />
+                    <Button x:Name="DeleteChannelMaterialsButton"
+                            MinWidth="150"
+                            Margin="0,0,10,10"
+                            Content="删除视频号素材" />
+                    <Button x:Name="ShowMaterialLogsButton"
+                            MinWidth="130"
+                            Margin="0,0,10,10"
+                            Content="查看素材日志" />
+                    <Button x:Name="CreateManualMaterialProjectButton"
+                            MinWidth="170"
+                            Margin="0,0,10,10"
+                            Content="手动创建素材项目" />
                 </WrapPanel>
 
                 <WrapPanel Orientation="Horizontal">
-                    <CheckBox IsEnabled="False"
+                    <CheckBox x:Name="GenerateHighlightsCheckBox"
                               Margin="0,0,16,0"
                               Content="生成素材高光"
-                              ToolTip.Tip="待迁移" />
+                              IsChecked="{Binding MaterialUploadGenerateHighlights}" />
                     <CheckBox Margin="0,0,16,0"
                               Content="素材上传"
                               IsChecked="{Binding QueueStepMaterialUploadEnabled}" />
@@ -68,8 +64,9 @@
                               IsChecked="{Binding MaterialUploadAllowDuplicatePublish}" />
                 </WrapPanel>
 
-                <TextBlock Text="聚焦源视频、发表配置和素材上传流程。"
-                           Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                <TextBlock Text="聚焦源视频、发表配置和素材上传流程。勾选“生成素材高光”后，会在上传前自动预处理 material_clips 素材。"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                           TextWrapping="Wrap" />
             </StackPanel>
         </Border>
 
@@ -83,7 +80,7 @@
                            Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
                 <TextBox Grid.Column="1"
                          Text="{Binding RootDir}"
-                         Watermark="请选择或输入项目根目录" />
+                         Watermark="请输入或选择项目根目录" />
                 <Button Grid.Column="2"
                         MinWidth="130"
                         Click="PickRootDir_Click"
@@ -147,7 +144,7 @@
                                                     Spacing="8">
                                             <CheckBox IsChecked="{Binding IsChecked}"
                                                       VerticalAlignment="Center" />
-                                            <Button Content="上传"
+                                            <Button Content="执行"
                                                     Click="RunSingleMaterialUpload_Click" />
                                         </StackPanel>
                                         <TextBlock Grid.Column="1"

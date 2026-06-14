@@ -65,6 +65,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly DesktopStateService _stateService;
     private readonly DesktopDependencyInspector _dependencyInspector;
     private readonly DesktopShellService _shellService;
+    private readonly MaterialHighlightGenerationService _materialHighlightGenerationService;
     private readonly XingeRemoteControlService _xingeRemoteControlService;
     private readonly IWorkflowInteractionService _interactionService;
     private readonly IWeixinBrowserSessionLauncher _weixinBrowserSessionLauncher;
@@ -96,6 +97,7 @@ public partial class MainWindowViewModel : ViewModelBase
         DesktopStateService stateService,
         DesktopDependencyInspector dependencyInspector,
         DesktopShellService shellService,
+        MaterialHighlightGenerationService materialHighlightGenerationService,
         XingeRemoteControlService xingeRemoteControlService,
         IWorkflowInteractionService interactionService,
         IWeixinBrowserSessionLauncher weixinBrowserSessionLauncher,
@@ -113,6 +115,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _stateService = stateService;
         _dependencyInspector = dependencyInspector;
         _shellService = shellService;
+        _materialHighlightGenerationService = materialHighlightGenerationService;
         _xingeRemoteControlService = xingeRemoteControlService;
         _interactionService = interactionService;
         _weixinBrowserSessionLauncher = weixinBrowserSessionLauncher;
@@ -2315,10 +2318,14 @@ public partial class MainWindowViewModel : ViewModelBase
         string stepLabel,
         int index,
         int total,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool clearLogs = true)
     {
         project.MarkRunning(stepKey is null ? "全流程" : stepLabel);
-        ClearLogsForProject(project.ProjectKey);
+        if (clearLogs)
+        {
+            ClearLogsForProject(project.ProjectKey);
+        }
 
         try
         {
@@ -4396,6 +4403,17 @@ public partial class MainWindowViewModel : ViewModelBase
 
         HandleRunLogActivityAppended(projectKey);
         ApplyActivityLogFilter();
+    }
+
+    public void AppendExternalLog(
+        string message,
+        string projectKey = "",
+        string projectLabel = "",
+        string stepKey = "",
+        string stepLabel = "",
+        bool isFailure = false)
+    {
+        AppendLog(message, projectKey, projectLabel, stepKey, stepLabel, isFailure);
     }
 
     private void ApplyActivityLogFilter()

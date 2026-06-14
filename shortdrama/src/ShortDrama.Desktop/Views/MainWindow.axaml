@@ -25,16 +25,19 @@
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{DynamicResource DesktopTextSecondaryBrush}" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="16" />
         </Style>
         <Style Selector="TabControl.sidebar TabItem:pointerover">
             <Setter Property="Background" Value="{DynamicResource DesktopPanelAltBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DesktopDividerBrush}" />
         </Style>
         <Style Selector="TabControl.sidebar TabItem:selected">
-            <Setter Property="Background" Value="{DynamicResource DesktopPanelAltBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+            <Setter Property="Background" Value="{DynamicResource DesktopAccentSoftBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource DesktopAccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DesktopAccentBrush}" />
         </Style>
     </Window.Styles>
 

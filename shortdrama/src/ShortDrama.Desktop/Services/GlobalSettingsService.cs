@@ -1,4 +1,5 @@
 using ShortDrama.Desktop.Models;
+using System.Globalization;
 using System.Text.Json;
 
 namespace ShortDrama.Desktop.Services;
@@ -88,6 +89,22 @@ public sealed class GlobalSettingsService
             FeishuNotifyOnQueueSummary = snapshot.FeishuNotifyOnQueueSummary,
             FeishuNotifyOnLoginQr = snapshot.FeishuNotifyOnLoginQr,
             FeishuNotifyStepKeysText = snapshot.FeishuNotifyStepKeysText,
+            LastMaterialClipWorkspace = snapshot.LastMaterialClipWorkspace,
+            MaterialClipAsrProvider = snapshot.MaterialClipAsrProvider,
+            MaterialClipAsrLanguage = snapshot.MaterialClipAsrLanguage,
+            MaterialClipVolcengineAppId = snapshot.MaterialClipVolcengineAppId,
+            MaterialClipVolcengineAccessToken = snapshot.MaterialClipVolcengineAccessToken,
+            MaterialClipDoubaoAppId = snapshot.MaterialClipDoubaoAppId,
+            MaterialClipDoubaoAccessToken = snapshot.MaterialClipDoubaoAccessToken,
+            MaterialClipMode = snapshot.MaterialClipMode,
+            MaterialClipTargetDurationMode = snapshot.MaterialClipTargetDurationMode,
+            MaterialClipTargetDurationSec = int.TryParse(snapshot.MaterialClipTargetDurationSec, out var materialClipTargetDurationSec) ? materialClipTargetDurationSec : 30,
+            MaterialClipTargetDurationRatioPercent = double.TryParse(snapshot.MaterialClipTargetDurationRatioPercent, out var materialClipTargetDurationRatioPercent) ? materialClipTargetDurationRatioPercent : 8.0d,
+            MaterialClipMinOutputDurationSec = int.TryParse(snapshot.MaterialClipMinOutputDurationSec, out var materialClipMinOutputDurationSec) ? materialClipMinOutputDurationSec : 0,
+            MaterialClipMaxOutputDurationSec = int.TryParse(snapshot.MaterialClipMaxOutputDurationSec, out var materialClipMaxOutputDurationSec) ? materialClipMaxOutputDurationSec : 45,
+            MaterialClipPerEpisodeTopN = int.TryParse(snapshot.MaterialClipPerEpisodeTopN, out var materialClipPerEpisodeTopN) ? materialClipPerEpisodeTopN : 2,
+            MaterialClipEnableLlm = snapshot.MaterialClipEnableLlm,
+            MaterialClipSplitClipLimit = int.TryParse(snapshot.MaterialClipSplitClipLimit, out var materialClipSplitClipLimit) ? materialClipSplitClipLimit : 4,
         };
 
         File.WriteAllText(settingsFilePath, JsonSerializer.Serialize(payload, JsonOptions));
@@ -273,7 +290,23 @@ public sealed class GlobalSettingsService
             FeishuNotifyOnStepFailure = current.FeishuNotifyOnStepFailure,
             FeishuNotifyOnQueueSummary = current.FeishuNotifyOnQueueSummary,
             FeishuNotifyOnLoginQr = current.FeishuNotifyOnLoginQr,
-            FeishuNotifyStepKeysText = current.FeishuNotifyStepKeysText
+            FeishuNotifyStepKeysText = current.FeishuNotifyStepKeysText,
+            LastMaterialClipWorkspace = current.LastMaterialClipWorkspace,
+            MaterialClipAsrProvider = current.MaterialClipAsrProvider,
+            MaterialClipAsrLanguage = current.MaterialClipAsrLanguage,
+            MaterialClipVolcengineAppId = current.MaterialClipVolcengineAppId,
+            MaterialClipVolcengineAccessToken = current.MaterialClipVolcengineAccessToken,
+            MaterialClipDoubaoAppId = current.MaterialClipDoubaoAppId,
+            MaterialClipDoubaoAccessToken = current.MaterialClipDoubaoAccessToken,
+            MaterialClipMode = current.MaterialClipMode,
+            MaterialClipTargetDurationMode = current.MaterialClipTargetDurationMode,
+            MaterialClipTargetDurationSec = current.MaterialClipTargetDurationSec,
+            MaterialClipTargetDurationRatioPercent = current.MaterialClipTargetDurationRatioPercent,
+            MaterialClipMinOutputDurationSec = current.MaterialClipMinOutputDurationSec,
+            MaterialClipMaxOutputDurationSec = current.MaterialClipMaxOutputDurationSec,
+            MaterialClipPerEpisodeTopN = current.MaterialClipPerEpisodeTopN,
+            MaterialClipEnableLlm = current.MaterialClipEnableLlm,
+            MaterialClipSplitClipLimit = current.MaterialClipSplitClipLimit
         };
     }
 
@@ -338,6 +371,22 @@ public sealed class GlobalSettingsService
             FeishuNotifyOnStepFailure: dto.FeishuNotifyOnStepFailure,
             FeishuNotifyOnQueueSummary: dto.FeishuNotifyOnQueueSummary,
             FeishuNotifyOnLoginQr: dto.FeishuNotifyOnLoginQr,
-            FeishuNotifyStepKeysText: dto.FeishuNotifyStepKeysText);
+            FeishuNotifyStepKeysText: dto.FeishuNotifyStepKeysText,
+            LastMaterialClipWorkspace: dto.LastMaterialClipWorkspace,
+            MaterialClipAsrProvider: dto.MaterialClipAsrProvider,
+            MaterialClipAsrLanguage: dto.MaterialClipAsrLanguage,
+            MaterialClipVolcengineAppId: dto.MaterialClipVolcengineAppId,
+            MaterialClipVolcengineAccessToken: dto.MaterialClipVolcengineAccessToken,
+            MaterialClipDoubaoAppId: dto.MaterialClipDoubaoAppId,
+            MaterialClipDoubaoAccessToken: dto.MaterialClipDoubaoAccessToken,
+            MaterialClipMode: dto.MaterialClipMode,
+            MaterialClipTargetDurationMode: dto.MaterialClipTargetDurationMode,
+            MaterialClipTargetDurationSec: dto.MaterialClipTargetDurationSec.ToString(),
+            MaterialClipTargetDurationRatioPercent: dto.MaterialClipTargetDurationRatioPercent.ToString("0.###", CultureInfo.InvariantCulture),
+            MaterialClipMinOutputDurationSec: dto.MaterialClipMinOutputDurationSec.ToString(),
+            MaterialClipMaxOutputDurationSec: dto.MaterialClipMaxOutputDurationSec.ToString(),
+            MaterialClipPerEpisodeTopN: dto.MaterialClipPerEpisodeTopN.ToString(),
+            MaterialClipEnableLlm: dto.MaterialClipEnableLlm,
+            MaterialClipSplitClipLimit: dto.MaterialClipSplitClipLimit.ToString());
     }
 }

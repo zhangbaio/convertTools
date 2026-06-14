@@ -61,9 +61,13 @@ public partial class App : Application
         services.AddSingleton<DesktopStateService>();
         services.AddSingleton<DesktopDependencyInspector>();
         services.AddSingleton<DesktopShellService>();
+        services.AddSingleton<ManualMaterialProjectService>();
+        services.AddSingleton<MaterialHighlightGenerationService>();
+        services.AddSingleton<WeixinMaterialChannelVideoDeleteService>();
         services.AddSingleton<IWeixinLoginNotificationService, DesktopWeixinLoginNotificationService>();
         services.AddSingleton<XingeRemoteControlService>();
         services.AddSingleton<HongguoNewApiService>();
+        services.AddSingleton<HongguoLocalApiService>();
         services.AddSingleton<HongguoDramaSearchService>();
         services.AddSingleton<HongguoDramaDownloader>();
         services.AddSingleton<DramaSourceRouter>();

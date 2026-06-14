@@ -1,0 +1,87 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ShortDrama.Desktop.Views.ManualMaterialProjectWindow"
+        Width="680"
+        Height="340"
+        CanResize="False"
+        Title="手动创建素材项目">
+    <Grid Margin="20"
+          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+          ColumnDefinitions="120,*,Auto"
+          RowSpacing="12"
+          ColumnSpacing="12">
+        <TextBlock Grid.ColumnSpan="3"
+                   Text="适用于原项目已删除的场景：选择手动下载的视频目录，填写剧名，即可创建新项目并继续生成素材、上传。"
+                   TextWrapping="Wrap" />
+
+        <TextBlock Grid.Row="1"
+                   VerticalAlignment="Center"
+                   Text="视频目录" />
+        <TextBox x:Name="VideoDirectoryTextBox"
+                 Grid.Row="1"
+                 Grid.Column="1"
+                 IsReadOnly="True"
+                 Watermark="选择包含已下载视频的目录" />
+        <Button x:Name="BrowseButton"
+                Grid.Row="1"
+                Grid.Column="2"
+                Content="浏览..." />
+
+        <TextBlock Grid.Row="2"
+                   VerticalAlignment="Center"
+                   Text="可用视频" />
+        <TextBlock x:Name="VideoCountTextBlock"
+                   Grid.Row="2"
+                   Grid.Column="1"
+                   Grid.ColumnSpan="2"
+                   VerticalAlignment="Center"
+                   Text="未选择" />
+
+        <TextBlock Grid.Row="3"
+                   VerticalAlignment="Center"
+                   Text="新剧名" />
+        <TextBox x:Name="NewTitleTextBox"
+                 Grid.Row="3"
+                 Grid.Column="1"
+                 Grid.ColumnSpan="2"
+                 Watermark="上传时使用的新剧名（必填）" />
+
+        <TextBlock Grid.Row="4"
+                   VerticalAlignment="Center"
+                   Text="原剧名" />
+        <TextBox x:Name="OriginalTitleTextBox"
+                 Grid.Row="4"
+                 Grid.Column="1"
+                 Grid.ColumnSpan="2"
+                 Watermark="可选，默认与新剧名相同" />
+
+        <TextBlock Grid.Row="5"
+                   VerticalAlignment="Center"
+                   Text="集数" />
+        <StackPanel Grid.Row="5"
+                    Grid.Column="1"
+                    Grid.ColumnSpan="2"
+                    Orientation="Horizontal"
+                    Spacing="12">
+            <NumericUpDown x:Name="EpisodeCountUpDown"
+                           Width="160"
+                           Minimum="0"
+                           Maximum="9999"
+                           Value="0" />
+            <TextBlock VerticalAlignment="Center"
+                       Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                       Text="0 表示按视频数量自动计算" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="6"
+                    Grid.ColumnSpan="3"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Spacing="12">
+            <Button x:Name="CancelButton"
+                    Content="取消" />
+            <Button x:Name="CreateButton"
+                    Content="创建项目" />
+        </StackPanel>
+    </Grid>
+</Window>

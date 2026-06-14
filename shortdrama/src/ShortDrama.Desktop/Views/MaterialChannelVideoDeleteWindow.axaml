@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ShortDrama.Desktop.Views.MaterialChannelVideoDeleteWindow"
+        Width="620"
+        Height="260"
+        CanResize="False"
+        Title="删除视频号素材">
+    <Grid Margin="20"
+          RowDefinitions="Auto,Auto,Auto"
+          ColumnDefinitions="120,*"
+          RowSpacing="14"
+          ColumnSpacing="12">
+        <TextBlock Grid.ColumnSpan="2"
+                   Text="将复用当前项目的微信视频号登录态，打开视频管理页，按关键词搜索后从第一条结果开始删除指定数量。此操作不可恢复。"
+                   TextWrapping="Wrap" />
+
+        <TextBlock Grid.Row="1"
+                   VerticalAlignment="Center"
+                   Text="搜索关键词" />
+        <TextBox x:Name="KeywordTextBox"
+                 Grid.Row="1"
+                 Grid.Column="1"
+                 Watermark="必填：剧名或搜索关键词" />
+
+        <TextBlock Grid.Row="2"
+                   VerticalAlignment="Center"
+                   Text="删除数量" />
+        <StackPanel Grid.Row="2"
+                    Grid.Column="1"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Stretch"
+                    Spacing="12">
+            <NumericUpDown x:Name="DeleteCountUpDown"
+                           Width="160"
+                           Minimum="1"
+                           Maximum="100"
+                           Value="1" />
+            <Button x:Name="CancelButton"
+                    Content="取消" />
+            <Button x:Name="DeleteButton"
+                    Content="开始删除" />
+        </StackPanel>
+    </Grid>
+</Window>
