@@ -41,6 +41,11 @@ public sealed class DesktopConfigService
         return _globalSettingsService.Load();
     }
 
+    public void SaveGlobal(GlobalConfigSnapshot global)
+    {
+        _globalSettingsService.Save(global);
+    }
+
     public DesktopConfigSnapshot BuildMergedSnapshot(ProjectConfigSnapshot project, GlobalConfigSnapshot global)
     {
         var configDir = Path.GetDirectoryName(project.ConfigFilePath) ?? string.Empty;

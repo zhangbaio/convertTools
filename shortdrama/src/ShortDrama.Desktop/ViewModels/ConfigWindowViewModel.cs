@@ -11,6 +11,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
 {
     private readonly DesktopConfigService _configService;
     private readonly DesktopShellService _shellService;
+    private readonly XingeRemoteControlService _xingeRemoteControlService;
     private ProjectConfigSnapshot _loadedProjectConfig;
     private GlobalConfigSnapshot _loadedGlobalConfig;
     private Dictionary<string, ProjectImageTemplateDescriptor> _templateDescriptors = new(StringComparer.OrdinalIgnoreCase);
@@ -18,15 +19,18 @@ public partial class ConfigWindowViewModel : ViewModelBase
     public ConfigWindowViewModel(
         string rootDir,
         DesktopConfigService configService,
-        DesktopShellService shellService)
+        DesktopShellService shellService,
+        XingeRemoteControlService xingeRemoteControlService)
     {
         _configService = configService;
         _shellService = shellService;
+        _xingeRemoteControlService = xingeRemoteControlService;
 
         ValidateConfigCommand = new RelayCommand(Validate);
         ReloadConfigCommand = new RelayCommand(LoadConfig);
         OpenConfigFileCommand = new RelayCommand(OpenConfigFile);
         OpenGlobalSettingsFileCommand = new RelayCommand(OpenGlobalSettingsFile);
+        RefreshXingeCredentialsCommand = new AsyncRelayCommand(RefreshXingeCredentialsAsync);
 
         _loadedProjectConfig = configService.LoadProject(rootDir);
         _loadedGlobalConfig = configService.LoadGlobal();
@@ -71,10 +75,19 @@ public partial class ConfigWindowViewModel : ViewModelBase
         "manga"
     ];
 
+    public IReadOnlyList<string> FeishuReceiveIdTypeOptions { get; } =
+    [
+        "chat_id",
+        "open_id",
+        "user_id",
+        "email"
+    ];
+
     public IRelayCommand ValidateConfigCommand { get; }
     public IRelayCommand ReloadConfigCommand { get; }
     public IRelayCommand OpenConfigFileCommand { get; }
     public IRelayCommand OpenGlobalSettingsFileCommand { get; }
+    public IAsyncRelayCommand RefreshXingeCredentialsCommand { get; }
 
     public string ProjectImageGenerationModeDisplay => "图片框选模板 (image_template)";
 
@@ -171,6 +184,42 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string dramaServiceOrderRanking = string.Empty;
 
     [ObservableProperty]
+    private bool xingeEnabled;
+
+    [ObservableProperty]
+    private string xingeServerUrl = string.Empty;
+
+    [ObservableProperty]
+    private string xingeUsername = string.Empty;
+
+    [ObservableProperty]
+    private string xingePassword = string.Empty;
+
+    [ObservableProperty]
+    private string xingeClientId = string.Empty;
+
+    [ObservableProperty]
+    private string xingeClientToken = string.Empty;
+
+    [ObservableProperty]
+    private string xingeUserRole = string.Empty;
+
+    [ObservableProperty]
+    private string xingeClientName = string.Empty;
+
+    [ObservableProperty]
+    private bool xingeWsEnabled = true;
+
+    [ObservableProperty]
+    private string xingePollIntervalSeconds = "3";
+
+    [ObservableProperty]
+    private bool xingeUploadLoginQr = true;
+
+    [ObservableProperty]
+    private string xingeOperationStatus = string.Empty;
+
+    [ObservableProperty]
     private string hgnewAccount = string.Empty;
 
     [ObservableProperty]
@@ -252,6 +301,36 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string posterNameUserPrompt = string.Empty;
 
     [ObservableProperty]
+    private bool feishuNotificationEnabled;
+
+    [ObservableProperty]
+    private string feishuAppId = string.Empty;
+
+    [ObservableProperty]
+    private string feishuAppSecret = string.Empty;
+
+    [ObservableProperty]
+    private string feishuReceiveId = string.Empty;
+
+    [ObservableProperty]
+    private string feishuReceiveIdType = "chat_id";
+
+    [ObservableProperty]
+    private bool feishuNotifyOnStepStart;
+
+    [ObservableProperty]
+    private bool feishuNotifyOnStepSuccess = true;
+
+    [ObservableProperty]
+    private bool feishuNotifyOnStepFailure = true;
+
+    [ObservableProperty]
+    private bool feishuNotifyOnQueueSummary = true;
+
+    [ObservableProperty]
+    private string feishuNotifyStepKeysText = string.Empty;
+
+    [ObservableProperty]
     private string projectImageTemplateRoot = string.Empty;
 
     [ObservableProperty]
@@ -316,6 +395,18 @@ public partial class ConfigWindowViewModel : ViewModelBase
         DramaServiceOrderDownload = _loadedGlobalConfig.DramaServiceOrderDownload;
         DramaServiceOrderNewRelease = _loadedGlobalConfig.DramaServiceOrderNewRelease;
         DramaServiceOrderRanking = _loadedGlobalConfig.DramaServiceOrderRanking;
+        XingeEnabled = _loadedGlobalConfig.XingeEnabled;
+        XingeServerUrl = _loadedGlobalConfig.XingeServerUrl;
+        XingeUsername = _loadedGlobalConfig.XingeUsername;
+        XingePassword = _loadedGlobalConfig.XingePassword;
+        XingeClientId = _loadedGlobalConfig.XingeClientId;
+        XingeClientToken = _loadedGlobalConfig.XingeClientToken;
+        XingeUserRole = _loadedGlobalConfig.XingeUserRole;
+        XingeClientName = _loadedGlobalConfig.XingeClientName;
+        XingeWsEnabled = _loadedGlobalConfig.XingeWsEnabled;
+        XingePollIntervalSeconds = string.IsNullOrWhiteSpace(_loadedGlobalConfig.XingePollIntervalSeconds) ? "3" : _loadedGlobalConfig.XingePollIntervalSeconds;
+        XingeUploadLoginQr = _loadedGlobalConfig.XingeUploadLoginQr;
+        XingeOperationStatus = string.Empty;
         HgnewAccount = _loadedGlobalConfig.HgnewAccount;
         HgnewPassword = _loadedGlobalConfig.HgnewPassword;
         HgnewUdid = _loadedGlobalConfig.HgnewUdid;
@@ -343,6 +434,18 @@ public partial class ConfigWindowViewModel : ViewModelBase
         PosterGenerationSafeRetryPrompt = merged.PosterGenerationSafeRetryPrompt;
         PosterNameSystemPrompt = merged.PosterNameSystemPrompt;
         PosterNameUserPrompt = merged.PosterNameUserPrompt;
+        FeishuNotificationEnabled = _loadedGlobalConfig.FeishuNotificationEnabled;
+        FeishuAppId = _loadedGlobalConfig.FeishuAppId;
+        FeishuAppSecret = _loadedGlobalConfig.FeishuAppSecret;
+        FeishuReceiveId = _loadedGlobalConfig.FeishuReceiveId;
+        FeishuReceiveIdType = string.IsNullOrWhiteSpace(_loadedGlobalConfig.FeishuReceiveIdType) ? "chat_id" : _loadedGlobalConfig.FeishuReceiveIdType;
+        FeishuNotifyOnStepStart = _loadedGlobalConfig.FeishuNotifyOnStepStart;
+        FeishuNotifyOnStepSuccess = _loadedGlobalConfig.FeishuNotifyOnStepSuccess;
+        FeishuNotifyOnStepFailure = _loadedGlobalConfig.FeishuNotifyOnStepFailure;
+        FeishuNotifyOnQueueSummary = _loadedGlobalConfig.FeishuNotifyOnQueueSummary;
+        FeishuNotifyStepKeysText = string.IsNullOrWhiteSpace(_loadedGlobalConfig.FeishuNotifyStepKeysText)
+            ? "download\ntranscode\nrewrite\nposter-rename\nproject-image\ncost-report\nbatch-file-rename\nmaterial-convert\nweixin-upload\nweixin-material-upload"
+            : _loadedGlobalConfig.FeishuNotifyStepKeysText;
         ProjectImageCount = string.IsNullOrWhiteSpace(_loadedProjectConfig.ProjectImageCount) ? "4" : _loadedProjectConfig.ProjectImageCount;
         ProjectImageTemplateRoot = ResolveInitialTemplateRoot();
         RefreshProjectImageTemplateOptions(_loadedProjectConfig.ProjectImageTemplateId);
@@ -395,6 +498,17 @@ public partial class ConfigWindowViewModel : ViewModelBase
             DramaServiceOrderDownload = DramaServiceOrderDownload.Trim(),
             DramaServiceOrderNewRelease = DramaServiceOrderNewRelease.Trim(),
             DramaServiceOrderRanking = DramaServiceOrderRanking.Trim(),
+            XingeEnabled = XingeEnabled,
+            XingeServerUrl = XingeServerUrl.Trim(),
+            XingeUsername = XingeUsername.Trim(),
+            XingePassword = XingePassword,
+            XingeClientId = XingeClientId.Trim(),
+            XingeClientToken = XingeClientToken.Trim(),
+            XingeUserRole = XingeUserRole.Trim(),
+            XingeClientName = XingeClientName.Trim(),
+            XingeWsEnabled = XingeWsEnabled,
+            XingePollIntervalSeconds = XingePollIntervalSeconds.Trim(),
+            XingeUploadLoginQr = XingeUploadLoginQr,
             HgnewAccount = HgnewAccount.Trim(),
             HgnewPassword = HgnewPassword,
             HgnewUdid = HgnewUdid.Trim().ToUpperInvariant(),
@@ -421,7 +535,17 @@ public partial class ConfigWindowViewModel : ViewModelBase
             PosterGenerationPrompt = PosterGenerationPrompt.Trim(),
             PosterGenerationSafeRetryPrompt = PosterGenerationSafeRetryPrompt.Trim(),
             PosterNameSystemPrompt = PosterNameSystemPrompt.Trim(),
-            PosterNameUserPrompt = PosterNameUserPrompt.Trim()
+            PosterNameUserPrompt = PosterNameUserPrompt.Trim(),
+            FeishuNotificationEnabled = FeishuNotificationEnabled,
+            FeishuAppId = FeishuAppId.Trim(),
+            FeishuAppSecret = FeishuAppSecret.Trim(),
+            FeishuReceiveId = FeishuReceiveId.Trim(),
+            FeishuReceiveIdType = FeishuReceiveIdType.Trim(),
+            FeishuNotifyOnStepStart = FeishuNotifyOnStepStart,
+            FeishuNotifyOnStepSuccess = FeishuNotifyOnStepSuccess,
+            FeishuNotifyOnStepFailure = FeishuNotifyOnStepFailure,
+            FeishuNotifyOnQueueSummary = FeishuNotifyOnQueueSummary,
+            FeishuNotifyStepKeysText = FeishuNotifyStepKeysText.Trim()
         };
 
         _configService.Save(project, global);
@@ -511,6 +635,25 @@ public partial class ConfigWindowViewModel : ViewModelBase
             AddIssue("警告", "DramaServiceOrderSearch 为空，将使用默认顺序 hgnew,hglocal,pikachu。");
         }
 
+        if (XingeEnabled && string.IsNullOrWhiteSpace(XingeServerUrl))
+        {
+            AddIssue("错误", "已启用 Xinge，但未配置 Xinge 服务地址。");
+        }
+
+        if (!string.IsNullOrWhiteSpace(XingePollIntervalSeconds) &&
+            (!int.TryParse(XingePollIntervalSeconds, out var xingePollIntervalSeconds) || xingePollIntervalSeconds <= 0))
+        {
+            AddIssue("错误", "XingePollIntervalSeconds 必须是大于 0 的整数。");
+        }
+
+        if (XingeEnabled &&
+            string.IsNullOrWhiteSpace(XingeClientId) &&
+            string.IsNullOrWhiteSpace(XingeClientToken) &&
+            (string.IsNullOrWhiteSpace(XingeUsername) || string.IsNullOrWhiteSpace(XingePassword)))
+        {
+            AddIssue("警告", "Xinge 未配置客户端凭证，且用户名/密码不完整，执行同步时会失败。");
+        }
+
         if (string.IsNullOrWhiteSpace(HgnewAccount) || string.IsNullOrWhiteSpace(HgnewPassword) || string.IsNullOrWhiteSpace(HgnewUdid))
         {
             AddIssue("警告", "Hgnew 凭证未填写完整，使用 hgnew 时搜索/下载会失败。");
@@ -534,6 +677,34 @@ public partial class ConfigWindowViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(ImageModelId))
         {
             AddIssue("错误", "ImageModelId 为空，海报生成无法执行。");
+        }
+
+        if (FeishuNotificationEnabled)
+        {
+            if (string.IsNullOrWhiteSpace(FeishuAppId))
+            {
+                AddIssue("错误", "启用飞书通知时必须填写 FeishuAppId。");
+            }
+
+            if (string.IsNullOrWhiteSpace(FeishuAppSecret))
+            {
+                AddIssue("错误", "启用飞书通知时必须填写 FeishuAppSecret。");
+            }
+
+            if (string.IsNullOrWhiteSpace(FeishuReceiveId))
+            {
+                AddIssue("错误", "启用飞书通知时必须填写 FeishuReceiveId。");
+            }
+
+            if (string.IsNullOrWhiteSpace(FeishuReceiveIdType))
+            {
+                AddIssue("错误", "启用飞书通知时必须填写 FeishuReceiveIdType。");
+            }
+
+            if (string.IsNullOrWhiteSpace(FeishuNotifyStepKeysText))
+            {
+                AddIssue("警告", "FeishuNotifyStepKeysText 为空时，不会发送任何步骤通知。");
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(TemplateDocxPath) && !File.Exists(TemplateDocxPath))
@@ -643,6 +814,45 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private void OpenGlobalSettingsFile()
     {
         _shellService.TryRevealPath(GlobalSettingsFilePath, out _);
+    }
+
+    public async Task<bool> RefreshXingeCredentialsAsync()
+    {
+        try
+        {
+            var global = _loadedGlobalConfig with
+            {
+                XingeEnabled = XingeEnabled,
+                XingeServerUrl = XingeServerUrl.Trim(),
+                XingeUsername = XingeUsername.Trim(),
+                XingePassword = XingePassword,
+                XingeClientId = XingeClientId.Trim(),
+                XingeClientToken = XingeClientToken.Trim(),
+                XingeUserRole = XingeUserRole.Trim(),
+                XingeClientName = XingeClientName.Trim(),
+                XingeWsEnabled = XingeWsEnabled,
+                XingePollIntervalSeconds = XingePollIntervalSeconds.Trim(),
+                XingeUploadLoginQr = XingeUploadLoginQr
+            };
+
+            var result = await _xingeRemoteControlService.FetchClientCredentialsAsync(global, CancellationToken.None);
+            _loadedGlobalConfig = result.UpdatedGlobalConfig;
+            XingeServerUrl = result.UpdatedGlobalConfig.XingeServerUrl;
+            XingeClientId = result.LoginResult.ClientId;
+            XingeClientToken = result.LoginResult.ClientToken;
+            XingeUserRole = result.LoginResult.UserRole;
+            XingeOperationStatus = $"已获取客户端凭证并通过连接测试，角色：{(string.IsNullOrWhiteSpace(result.LoginResult.UserRole) ? "unknown" : result.LoginResult.UserRole)}";
+            _configService.SaveGlobal(_loadedGlobalConfig);
+            GlobalSettingsFilePath = _loadedGlobalConfig.SettingsFilePath;
+            Validate();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            XingeOperationStatus = ex.Message;
+            Validate();
+            return false;
+        }
     }
 
     private void AddIssue(string severity, string message)

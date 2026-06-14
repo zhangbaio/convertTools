@@ -7,6 +7,17 @@ public sealed class GlobalDesktopSettings
     public string DramaServiceOrderDownload { get; set; } = "hgnew,hglocal,pikachu";
     public string DramaServiceOrderNewRelease { get; set; } = "hgnew,hglocal";
     public string DramaServiceOrderRanking { get; set; } = "hglocal,pikachu";
+    public bool XingeEnabled { get; set; }
+    public string XingeServerUrl { get; set; } = string.Empty;
+    public string XingeUsername { get; set; } = string.Empty;
+    public string XingePassword { get; set; } = string.Empty;
+    public string XingeClientId { get; set; } = string.Empty;
+    public string XingeClientToken { get; set; } = string.Empty;
+    public string XingeUserRole { get; set; } = string.Empty;
+    public string XingeClientName { get; set; } = string.Empty;
+    public bool XingeWsEnabled { get; set; } = true;
+    public int XingePollIntervalSeconds { get; set; } = 3;
+    public bool XingeUploadLoginQr { get; set; } = true;
     public string HgnewAccount { get; set; } = string.Empty;
     public string HgnewPassword { get; set; } = string.Empty;
     public string HgnewUdid { get; set; } = string.Empty;
@@ -38,4 +49,14 @@ public sealed class GlobalDesktopSettings
     public string PosterGenerationSafeRetryPrompt { get; set; } = string.Empty;
     public string PosterNameSystemPrompt { get; set; } = string.Empty;
     public string PosterNameUserPrompt { get; set; } = string.Empty;
+    public bool FeishuNotificationEnabled { get; set; }
+    public string FeishuAppId { get; set; } = string.Empty;
+    public string FeishuAppSecret { get; set; } = string.Empty;
+    public string FeishuReceiveId { get; set; } = string.Empty;
+    public string FeishuReceiveIdType { get; set; } = "chat_id";
+    public bool FeishuNotifyOnStepStart { get; set; }
+    public bool FeishuNotifyOnStepSuccess { get; set; } = true;
+    public bool FeishuNotifyOnStepFailure { get; set; } = true;
+    public bool FeishuNotifyOnQueueSummary { get; set; } = true;
+    public string FeishuNotifyStepKeysText { get; set; } = string.Empty;
 }
