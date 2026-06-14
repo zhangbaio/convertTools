@@ -24,6 +24,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private const string SystemStepFilterKey = "__system";
     private const string SearchModeKeyword = "search";
     private const string SearchModeToday = "today";
+    private const string SearchModeMangaToday = "manga_today";
+    private const string SearchModeAiToday = "ai_today";
+    private const string SearchModeHistory = "history";
     private const string EpisodeRangeAll = "all";
     private const string EpisodeRangeFirst3 = "first-3";
     private const string EpisodeRangeCustom = "custom";
@@ -76,6 +79,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _costReportBaseImagePath = string.Empty;
     private string _costReportActorPayRatio = string.Empty;
     private string _costReportLegalRepresentative = string.Empty;
+    private readonly List<DramaSearchItem> _loadedSearchItems = [];
 
     public MainWindowViewModel(
         IProjectScanner projectScanner,
@@ -113,11 +117,15 @@ public partial class MainWindowViewModel : ViewModelBase
         RunRootWorkflowCommand = new AsyncRelayCommand(RunRootWorkflowAsync, CanRunRootWorkflow);
         SearchDramaCommand = new AsyncRelayCommand(SearchDramaAsync, CanSearchDrama);
         LoadTodayDramaCommand = new AsyncRelayCommand(LoadTodayDramaAsync, CanLoadTodayDrama);
+        LoadMangaTodayDramaCommand = new AsyncRelayCommand(LoadMangaTodayDramaAsync, CanLoadTodayDrama);
+        LoadAiTodayDramaCommand = new AsyncRelayCommand(LoadAiTodayDramaAsync, CanLoadTodayDrama);
+        LoadHistoryDramaCommand = new AsyncRelayCommand(LoadHistoryDramaAsync, CanLoadTodayDrama);
         GoPreviousSearchPageCommand = new AsyncRelayCommand(GoPreviousSearchPageAsync, CanGoPreviousSearchPage);
         GoNextSearchPageCommand = new AsyncRelayCommand(GoNextSearchPageAsync, CanGoNextSearchPage);
         ImportCheckedDramaCommand = new AsyncRelayCommand(ImportCheckedDramaAsync, CanImportCheckedDrama);
         ImportAndRunCheckedDramaCommand = new AsyncRelayCommand(ImportAndRunCheckedDramaAsync, CanImportAndRunCheckedDrama);
         DownloadCheckedDramaCommand = new AsyncRelayCommand(DownloadCheckedDramaAsync, CanDownloadCheckedDrama);
+        ApplySearchFiltersCommand = new RelayCommand(ApplySearchFilters, CanApplySearchFilters);
         ReloadConfigCommand = new RelayCommand(LoadConfig, CanOperateWithRootDir);
         SaveConfigCommand = new RelayCommand(SaveConfig, CanOperateWithRootDir);
         ValidateConfigCommand = new RelayCommand(ValidateConfig, CanOperateWithRootDir);
@@ -244,11 +252,15 @@ public partial class MainWindowViewModel : ViewModelBase
     public IAsyncRelayCommand RunRootWorkflowCommand { get; }
     public IAsyncRelayCommand SearchDramaCommand { get; }
     public IAsyncRelayCommand LoadTodayDramaCommand { get; }
+    public IAsyncRelayCommand LoadMangaTodayDramaCommand { get; }
+    public IAsyncRelayCommand LoadAiTodayDramaCommand { get; }
+    public IAsyncRelayCommand LoadHistoryDramaCommand { get; }
     public IAsyncRelayCommand GoPreviousSearchPageCommand { get; }
     public IAsyncRelayCommand GoNextSearchPageCommand { get; }
     public IAsyncRelayCommand DownloadCheckedDramaCommand { get; }
     public IAsyncRelayCommand ImportCheckedDramaCommand { get; }
     public IAsyncRelayCommand ImportAndRunCheckedDramaCommand { get; }
+    public IRelayCommand ApplySearchFiltersCommand { get; }
     public IRelayCommand ReloadConfigCommand { get; }
     public IRelayCommand SaveConfigCommand { get; }
     public IRelayCommand ValidateConfigCommand { get; }
@@ -297,6 +309,18 @@ public partial class MainWindowViewModel : ViewModelBase
     private string searchKeyword = string.Empty;
 
     [ObservableProperty]
+    private bool exactSearchEnabled;
+
+    [ObservableProperty]
+    private string searchMinEpisodeCount = "0";
+
+    [ObservableProperty]
+    private string searchMaxEpisodeCount = "0";
+
+    [ObservableProperty]
+    private string searchQueryDays = "1";
+
+    [ObservableProperty]
     private int currentSearchPage = 1;
 
     [ObservableProperty]
@@ -327,7 +351,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private string statusMessage = string.Empty;
 
     [ObservableProperty]
-    private string searchSummary = "输入剧名后搜索。";
+    private string searchSummary = "输入剧名后搜索，或查看上新结果。";
 
     [ObservableProperty]
     private string activityTitle = "运行日志";
@@ -592,9 +616,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _projectImagePreviewPath = string.Empty;
 
     public string SelectedProjectTitle => SelectedProject?.DisplayName ?? "未选择项目";
-    public string SearchPageText => string.Equals(_searchMode, SearchModeToday, StringComparison.Ordinal)
-        ? "今日上新"
-        : $"第 {CurrentSearchPage} 页";
+    public string SearchPageText => $"第 {CurrentSearchPage} 页";
+    public string CheckedSearchResultsSummary => $"已选 {SearchResults.Count(item => item.IsChecked)} 项";
     public bool IsCustomDownloadEpisodeRange =>
         string.Equals(SelectedDownloadEpisodeRangeOption?.Key, EpisodeRangeCustom, StringComparison.Ordinal);
     public string WorkspaceSummary => string.IsNullOrWhiteSpace(RootDir) ? "未设置工作目录" : RootDir;
@@ -642,6 +665,10 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     partial void OnSearchKeywordChanged(string value) => RefreshCommandStates();
+    partial void OnExactSearchEnabledChanged(bool value) => RefreshCommandStates();
+    partial void OnSearchMinEpisodeCountChanged(string value) => RefreshCommandStates();
+    partial void OnSearchMaxEpisodeCountChanged(string value) => RefreshCommandStates();
+    partial void OnSearchQueryDaysChanged(string value) => RefreshCommandStates();
     partial void OnSelectedDownloadEpisodeRangeOptionChanged(WorkflowStepOption? value)
     {
         OnPropertyChanged(nameof(IsCustomDownloadEpisodeRange));
@@ -667,7 +694,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedExecutionModeOptionChanged(WorkflowStepOption? value) => RefreshCommandStates();
 
-    partial void OnSelectedProjectLogFilterChanged(LogFilterOption? value) => ApplyActivityLogFilter();
+    partial void OnSelectedProjectLogFilterChanged(LogFilterOption? value)
+    {
+        SyncRunLogSelectionToCurrentFilter();
+        ApplyActivityLogFilter();
+    }
 
     partial void OnSelectedStepLogFilterChanged(LogFilterOption? value) => ApplyActivityLogFilter();
 
@@ -745,15 +776,19 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private bool CanGoPreviousSearchPage() =>
         !IsSearchBusy &&
-        !string.Equals(_searchMode, SearchModeToday, StringComparison.Ordinal) &&
+        string.Equals(_searchMode, SearchModeKeyword, StringComparison.Ordinal) &&
         CurrentSearchPage > 1 &&
         !string.IsNullOrWhiteSpace(_lastSearchKeyword);
 
     private bool CanGoNextSearchPage() =>
         !IsSearchBusy &&
-        !string.Equals(_searchMode, SearchModeToday, StringComparison.Ordinal) &&
+        string.Equals(_searchMode, SearchModeKeyword, StringComparison.Ordinal) &&
         SearchResults.Count > 0 &&
         !string.IsNullOrWhiteSpace(_lastSearchKeyword);
+
+    private bool CanApplySearchFilters() =>
+        !IsSearchBusy &&
+        _loadedSearchItems.Count > 0;
 
     private bool CanImportCheckedDrama() =>
         !IsSearchBusy &&
@@ -865,11 +900,15 @@ public partial class MainWindowViewModel : ViewModelBase
         RunRootWorkflowCommand.NotifyCanExecuteChanged();
         SearchDramaCommand.NotifyCanExecuteChanged();
         LoadTodayDramaCommand.NotifyCanExecuteChanged();
+        LoadMangaTodayDramaCommand.NotifyCanExecuteChanged();
+        LoadAiTodayDramaCommand.NotifyCanExecuteChanged();
+        LoadHistoryDramaCommand.NotifyCanExecuteChanged();
         GoPreviousSearchPageCommand.NotifyCanExecuteChanged();
         GoNextSearchPageCommand.NotifyCanExecuteChanged();
         ImportCheckedDramaCommand.NotifyCanExecuteChanged();
         ImportAndRunCheckedDramaCommand.NotifyCanExecuteChanged();
         DownloadCheckedDramaCommand.NotifyCanExecuteChanged();
+        ApplySearchFiltersCommand.NotifyCanExecuteChanged();
         ReloadConfigCommand.NotifyCanExecuteChanged();
         SaveConfigCommand.NotifyCanExecuteChanged();
         ValidateConfigCommand.NotifyCanExecuteChanged();
@@ -2398,6 +2437,30 @@ public partial class MainWindowViewModel : ViewModelBase
         await LoadSearchResultsAsync();
     }
 
+    private async Task LoadMangaTodayDramaAsync()
+    {
+        _searchMode = SearchModeMangaToday;
+        _lastSearchKeyword = string.Empty;
+        CurrentSearchPage = 1;
+        await LoadSearchResultsAsync();
+    }
+
+    private async Task LoadAiTodayDramaAsync()
+    {
+        _searchMode = SearchModeAiToday;
+        _lastSearchKeyword = string.Empty;
+        CurrentSearchPage = 1;
+        await LoadSearchResultsAsync();
+    }
+
+    private async Task LoadHistoryDramaAsync()
+    {
+        _searchMode = SearchModeHistory;
+        _lastSearchKeyword = string.Empty;
+        CurrentSearchPage = 1;
+        await LoadSearchResultsAsync();
+    }
+
     private async Task GoPreviousSearchPageAsync()
     {
         if (CurrentSearchPage <= 1)
@@ -2417,33 +2480,36 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task LoadSearchResultsAsync()
     {
-        var busyMessage = string.Equals(_searchMode, SearchModeToday, StringComparison.Ordinal)
-            ? "正在获取今日上新..."
-            : $"正在搜索短剧：{_lastSearchKeyword}";
+        var busyMessage = _searchMode switch
+        {
+            SearchModeToday => "正在获取今日上新...",
+            SearchModeMangaToday => $"正在获取漫剧上新，查询近 {ParseSearchQueryDays()} 天...",
+            SearchModeAiToday => $"正在获取 AI 短剧上新，查询近 {ParseSearchQueryDays()} 天...",
+            SearchModeHistory => $"正在获取历史上新，查询近 {ParseSearchQueryDays()} 天...",
+            _ => $"正在搜索短剧：{_lastSearchKeyword}"
+        };
 
         await RunSearchBusyAsync(busyMessage, async cancellationToken =>
         {
-            var results = string.Equals(_searchMode, SearchModeToday, StringComparison.Ordinal)
-                ? await _dramaSearchService.GetTodayAsync(cancellationToken)
-                : await _dramaSearchService.SearchAsync(_lastSearchKeyword, CurrentSearchPage, cancellationToken);
-
-            var pageSize = ParseSearchPageSize();
-            var visibleResults = results.Take(pageSize).ToArray();
-
-            UnsubscribeFromSearchResultRows();
-            SearchResults.Clear();
-            foreach (var item in visibleResults)
+            var queryDays = ParseSearchQueryDays();
+            IReadOnlyList<DramaSearchItem> results = _searchMode switch
             {
-                var row = new SearchResultRowViewModel(item);
-                row.CheckedChanged += OnSearchResultRowCheckedChanged;
-                SearchResults.Add(row);
-            }
+                SearchModeToday => await _dramaSearchService.GetTodayAsync(cancellationToken),
+                SearchModeMangaToday => await LoadRouterSearchResultsAsync(
+                    router => router.GetMangaTodayAsync(queryDays, cancellationToken),
+                    fallback: () => _dramaSearchService.GetTodayAsync(cancellationToken)),
+                SearchModeAiToday => await LoadRouterSearchResultsAsync(
+                    router => router.GetAiTodayAsync(queryDays, cancellationToken),
+                    fallback: () => _dramaSearchService.GetTodayAsync(cancellationToken)),
+                SearchModeHistory => await LoadRouterSearchResultsAsync(
+                    router => router.GetHistoryAsync(queryDays, cancellationToken),
+                    fallback: () => _dramaSearchService.GetTodayAsync(cancellationToken)),
+                _ => await _dramaSearchService.SearchAsync(_lastSearchKeyword, CurrentSearchPage, cancellationToken)
+            };
 
-            SelectedSearchResult = SearchResults.FirstOrDefault();
-            SearchSummary = BuildSearchSummary(results.Count, visibleResults.Length, pageSize);
-            StatusMessage = SearchSummary;
-            OnPropertyChanged(nameof(SearchPageText));
-            AppendLog(SearchSummary);
+            _loadedSearchItems.Clear();
+            _loadedSearchItems.AddRange(results);
+            ApplyLoadedSearchResults(appendLog: true);
         });
     }
 
@@ -2470,18 +2536,127 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private string BuildSearchSummary(int totalCount, int visibleCount, int pageSize)
+    private string BuildSearchSummary(int totalCount, int filteredCount, int visibleCount, int pageSize)
     {
-        if (string.Equals(_searchMode, SearchModeToday, StringComparison.Ordinal))
+        if (string.Equals(_searchMode, SearchModeKeyword, StringComparison.Ordinal))
         {
             return totalCount == 0
-                ? "今日上新暂无结果。"
-                : $"今日上新共 {totalCount} 条，当前展示 {visibleCount} 条，分页大小 {pageSize}。";
+                ? $"第 {CurrentSearchPage} 页未找到“{_lastSearchKeyword}”的匹配结果。"
+                : filteredCount == 0
+                    ? $"“{_lastSearchKeyword}”第 {CurrentSearchPage} 页原始 {totalCount} 条，筛选后 0 条。"
+                    : $"“{_lastSearchKeyword}”第 {CurrentSearchPage} 页原始 {totalCount} 条，筛选后 {filteredCount} 条，当前展示 {visibleCount} 条，分页大小 {pageSize}。";
         }
 
+        var modeLabel = ResolveSearchModeLabel();
         return totalCount == 0
-            ? $"第 {CurrentSearchPage} 页未找到“{_lastSearchKeyword}”的匹配结果。"
-            : $"“{_lastSearchKeyword}”第 {CurrentSearchPage} 页共 {totalCount} 条结果，当前展示 {visibleCount} 条，分页大小 {pageSize}。";
+            ? $"{modeLabel}暂无结果。"
+            : filteredCount == 0
+                ? $"{modeLabel}原始 {totalCount} 条，筛选后 0 条。"
+                : $"{modeLabel}原始 {totalCount} 条，筛选后 {filteredCount} 条，当前展示 {visibleCount} 条，分页大小 {pageSize}。";
+    }
+
+    private void ApplySearchFilters()
+    {
+        if (_loadedSearchItems.Count == 0)
+        {
+            return;
+        }
+
+        ApplyLoadedSearchResults(appendLog: true);
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> LoadRouterSearchResultsAsync(
+        Func<DramaSourceRouter, Task<IReadOnlyList<DramaSearchItem>>> loadWithRouter,
+        Func<Task<IReadOnlyList<DramaSearchItem>>> fallback)
+    {
+        if (_dramaSearchService is DramaSourceRouter router)
+        {
+            return await loadWithRouter(router);
+        }
+
+        return await fallback();
+    }
+
+    private void ApplyLoadedSearchResults(bool appendLog)
+    {
+        var filteredResults = FilterLoadedSearchResults().ToArray();
+        var pageSize = ParseSearchPageSize();
+        var visibleResults = filteredResults.Take(pageSize).ToArray();
+
+        UnsubscribeFromSearchResultRows();
+        SearchResults.Clear();
+        foreach (var item in visibleResults)
+        {
+            var row = new SearchResultRowViewModel(item);
+            row.CheckedChanged += OnSearchResultRowCheckedChanged;
+            SearchResults.Add(row);
+        }
+
+        SelectedSearchResult = SearchResults.FirstOrDefault();
+        SearchSummary = BuildSearchSummary(_loadedSearchItems.Count, filteredResults.Length, visibleResults.Length, pageSize);
+        StatusMessage = SearchSummary;
+        OnPropertyChanged(nameof(SearchPageText));
+        OnPropertyChanged(nameof(CheckedSearchResultsSummary));
+        if (appendLog)
+        {
+            AppendLog(SearchSummary);
+        }
+    }
+
+    private IEnumerable<DramaSearchItem> FilterLoadedSearchResults()
+    {
+        var filtered = _loadedSearchItems.AsEnumerable();
+
+        var keyword = SearchKeyword.Trim();
+        if (ExactSearchEnabled && !string.IsNullOrWhiteSpace(keyword))
+        {
+            filtered = filtered.Where(item => string.Equals(item.Title.Trim(), keyword, StringComparison.Ordinal));
+        }
+
+        var minEpisodes = ParseOptionalNonNegativeInt(SearchMinEpisodeCount);
+        var maxEpisodes = ParseOptionalNonNegativeInt(SearchMaxEpisodeCount);
+        if (minEpisodes.HasValue && maxEpisodes.HasValue && maxEpisodes.Value < minEpisodes.Value)
+        {
+            (minEpisodes, maxEpisodes) = (maxEpisodes, minEpisodes);
+        }
+
+        if (minEpisodes is > 0)
+        {
+            filtered = filtered.Where(item => item.EpisodeTotal >= minEpisodes.Value);
+        }
+
+        if (maxEpisodes is > 0)
+        {
+            filtered = filtered.Where(item => item.EpisodeTotal <= maxEpisodes.Value);
+        }
+
+        return filtered;
+    }
+
+    private static int? ParseOptionalNonNegativeInt(string? value)
+    {
+        return int.TryParse(value, out var parsed) && parsed >= 0
+            ? parsed
+            : null;
+    }
+
+    private int ParseSearchQueryDays()
+    {
+        return int.TryParse(SearchQueryDays, out var days)
+            ? Math.Clamp(days, 1, 30)
+            : 1;
+    }
+
+    private string ResolveSearchModeLabel()
+    {
+        return _searchMode switch
+        {
+            SearchModeToday => "今日上新",
+            SearchModeMangaToday => $"漫剧上新（近 {ParseSearchQueryDays()} 天）",
+            SearchModeAiToday => $"AI 短剧上新（近 {ParseSearchQueryDays()} 天）",
+            SearchModeHistory => $"历史上新（近 {ParseSearchQueryDays()} 天）",
+            _ => "短剧搜索"
+        };
     }
 
     private Task ImportCheckedDramaAsync() => ImportCheckedDramaCoreAsync(runWorkflow: false);
@@ -3051,7 +3226,11 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private void OnSearchResultRowCheckedChanged(object? sender, EventArgs e) => RefreshCommandStates();
+    private void OnSearchResultRowCheckedChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(CheckedSearchResultsSummary));
+        RefreshCommandStates();
+    }
 
     private void OnProjectRowCheckedChanged(object? sender, EventArgs e)
     {
@@ -3219,11 +3398,13 @@ public partial class MainWindowViewModel : ViewModelBase
                 IsChecked = checkedKeys?.Contains(project.ProjectKey) == true
             };
             item.CheckedChanged += OnProjectRowCheckedChanged;
+            item.PropertyChanged += OnProjectRowStatusChanged;
             Projects.Add(item);
         }
 
         OnPropertyChanged(nameof(CheckedProjectsSummary));
         ApplyTaskQueueFilter();
+        RefreshRunLogViewState();
         RefreshCommandStates();
     }
 
@@ -3232,6 +3413,7 @@ public partial class MainWindowViewModel : ViewModelBase
         foreach (var project in Projects)
         {
             project.CheckedChanged -= OnProjectRowCheckedChanged;
+            project.PropertyChanged -= OnProjectRowStatusChanged;
         }
     }
 
@@ -4180,6 +4362,7 @@ public partial class MainWindowViewModel : ViewModelBase
             _allActivityLogs.RemoveAt(_allActivityLogs.Count - 1);
         }
 
+        HandleRunLogActivityAppended(projectKey);
         ApplyActivityLogFilter();
     }
 
@@ -4200,6 +4383,8 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             ActivityLog.Add(item);
         }
+
+        RefreshRunLogViewState();
     }
 
     private void RefreshProjectLogFilters()

@@ -95,6 +95,14 @@ public sealed class HongguoDramaSearchService : IDramaSearchService
             GetString(item, "intro"),
             GetString(item, "description"),
             GetString(item, "desc"));
+        var author = ReadFirstNonEmpty(
+            GetString(item, "author"),
+            GetString(item, "producer"),
+            GetString(item, "company"));
+        var publishTime = ReadFirstNonEmpty(
+            GetString(item, "publish_time"),
+            GetString(item, "create_time"),
+            GetString(item, "created_at"));
 
         return new DramaSearchItem(
             BookId: bookId,
@@ -102,7 +110,13 @@ public sealed class HongguoDramaSearchService : IDramaSearchService
             Category: category,
             EpisodeTotal: ResolveEpisodeTotal(item, category),
             Intro: intro,
-            PosterUrl: ExtractPosterUrl(item));
+            PosterUrl: ExtractPosterUrl(item),
+            Author: author,
+            PublishTime: publishTime,
+            FavoriteCount: GetInt(item, "favorite_count")
+                ?? GetInt(item, "collect_count")
+                ?? GetInt(item, "favorite")
+                ?? 0);
     }
 
     private static int ResolveEpisodeTotal(System.Text.Json.JsonElement item, string category)

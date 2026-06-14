@@ -6,4 +6,7 @@ public sealed record DramaSearchItem(
     string Category,
     int EpisodeTotal,
     string Intro,
-    string PosterUrl);
+    string PosterUrl,
+    string Author = "",
+    string PublishTime = "",
+    int FavoriteCount = 0);

@@ -115,6 +115,45 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return [];
     }
 
+    public async Task<IReadOnlyList<DramaSearchItem>> GetMangaTodayAsync(int days, CancellationToken cancellationToken)
+    {
+        var settings = _globalSettingsService.Load();
+        if (string.Equals((settings.DramaSourceChain ?? string.Empty).Trim(), "hglocal", StringComparison.OrdinalIgnoreCase))
+        {
+            return await GetLatestByGenreAsync(settings, "comic_series", days, cancellationToken);
+        }
+
+        return await FilterByRecentDaysAsync(
+            () => _hgnewSearchService.GetTodayAsync(cancellationToken),
+            days);
+    }
+
+    public async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(int days, CancellationToken cancellationToken)
+    {
+        var settings = _globalSettingsService.Load();
+        if (string.Equals((settings.DramaSourceChain ?? string.Empty).Trim(), "hglocal", StringComparison.OrdinalIgnoreCase))
+        {
+            return await GetLatestByGenreAsync(settings, "ai_series", days, cancellationToken);
+        }
+
+        return await FilterByRecentDaysAsync(
+            () => _hgnewSearchService.GetTodayAsync(cancellationToken),
+            days);
+    }
+
+    public async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)
+    {
+        var settings = _globalSettingsService.Load();
+        if (string.Equals((settings.DramaSourceChain ?? string.Empty).Trim(), "hglocal", StringComparison.OrdinalIgnoreCase))
+        {
+            return await GetLatestByGenreAsync(settings, "short_play", days, cancellationToken);
+        }
+
+        return await FilterByRecentDaysAsync(
+            () => _hgnewSearchService.GetTodayAsync(cancellationToken),
+            days);
+    }
+
     public async Task<DramaDownloadResult> DownloadAsync(
         DramaDownloadRequest request,
         IProgress<string>? progress,
@@ -315,7 +354,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 Category: GetString(item, "category") ?? GetString(item, "type") ?? string.Empty,
                 EpisodeTotal: GetInt(item, "episode_cnt") ?? GetInt(item, "episode_total") ?? GetInt(item, "total") ?? 0,
                 Intro: GetString(item, "intro") ?? GetString(item, "description") ?? GetString(item, "desc") ?? string.Empty,
-                PosterUrl: GetString(item, "cover") ?? GetString(item, "poster") ?? GetString(item, "poster_url") ?? string.Empty))
+                PosterUrl: GetString(item, "cover") ?? GetString(item, "poster") ?? GetString(item, "poster_url") ?? string.Empty,
+                Author: GetString(item, "author") ?? GetString(item, "producer") ?? GetString(item, "copyright") ?? string.Empty,
+                PublishTime: GetString(item, "publish_time") ?? GetString(item, "first_seen") ?? GetString(item, "created_at") ?? string.Empty,
+                FavoriteCount: GetInt(item, "favorite_count") ?? GetInt(item, "collect_count") ?? 0))
             .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
             .ToArray();
     }
@@ -349,17 +391,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         var today = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        return items.EnumerateArray()
-            .Where(item => item.ValueKind == JsonValueKind.Object && IsTodayItem(item, today))
-            .Select(item => new DramaSearchItem(
-                BookId: EnsurePrefixed(GetString(item, "series_id") ?? GetString(item, "book_id") ?? GetString(item, "id"), HongguoLocalBookPrefix),
-                Title: GetString(item, "title") ?? GetString(item, "name") ?? string.Empty,
-                Category: GetString(item, "category") ?? GetString(item, "type") ?? string.Empty,
-                EpisodeTotal: GetInt(item, "episode_cnt") ?? GetInt(item, "episode_total") ?? GetInt(item, "total") ?? 0,
-                Intro: GetString(item, "intro") ?? GetString(item, "description") ?? string.Empty,
-                PosterUrl: GetString(item, "cover") ?? GetString(item, "poster") ?? string.Empty))
-            .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
-            .ToArray();
+        return MapLocalItems(items.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.Object && IsTodayItem(item, today)));
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> SearchPikachuAsync(
@@ -440,11 +473,110 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     Category: GetString(info, "category") ?? string.Empty,
                     EpisodeTotal: GetInt(info, "serial_count") ?? 0,
                     Intro: GetString(info, "abstract") ?? string.Empty,
-                    PosterUrl: GetString(info, "thumb_url") ?? string.Empty));
+                    PosterUrl: GetString(info, "thumb_url") ?? string.Empty,
+                    Author: GetString(info, "author") ?? string.Empty,
+                    PublishTime: GetString(info, "create_time") ?? string.Empty,
+                    FavoriteCount: GetInt(info, "favorite_count") ?? GetInt(info, "collect_count") ?? 0));
             }
         }
 
         return results;
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> GetLatestByGenreAsync(
+        GlobalConfigSnapshot settings,
+        string genre,
+        int days,
+        CancellationToken cancellationToken)
+    {
+        var baseUrl = NormalizeLocalBaseUrl(settings.HongguoLocalBaseUrl);
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            throw new InvalidOperationException("当前数据源未配置 hglocal，本功能暂不可用。");
+        }
+
+        var queryDays = Math.Clamp(days, 1, 30);
+        var onlyTodayQuery = queryDays <= 1 ? "&only_today=true" : string.Empty;
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"{baseUrl}/latest?genre={Uri.EscapeDataString(genre)}{onlyTodayQuery}&limit=1000");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.TryAddWithoutValidation("User-Agent", "ShortDramaDesktop/1.0");
+        if (!string.IsNullOrWhiteSpace(settings.HongguoLocalApiKey))
+        {
+            request.Headers.TryAddWithoutValidation("x-api-key", settings.HongguoLocalApiKey);
+        }
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        if (!document.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var mapped = MapLocalItems(items.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.Object));
+        return FilterByRecentDays(mapped, queryDays);
+    }
+
+    private static async Task<IReadOnlyList<DramaSearchItem>> FilterByRecentDaysAsync(
+        Func<Task<IReadOnlyList<DramaSearchItem>>> loader,
+        int days)
+    {
+        var items = await loader();
+        return FilterByRecentDays(items, days);
+    }
+
+    private static IReadOnlyList<DramaSearchItem> FilterByRecentDays(
+        IReadOnlyList<DramaSearchItem> items,
+        int days)
+    {
+        var queryDays = Math.Clamp(days, 1, 30);
+        if (queryDays <= 1 || items.Count == 0)
+        {
+            return items;
+        }
+
+        var threshold = DateTime.Today.AddDays(-(queryDays - 1));
+        var filtered = items
+            .Where(item => !TryParsePublishDate(item.PublishTime, out var publishedAt) || publishedAt.Date >= threshold)
+            .ToArray();
+
+        return filtered.Length > 0 ? filtered : items;
+    }
+
+    private static bool TryParsePublishDate(string? value, out DateTime date)
+    {
+        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out date))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(value) &&
+            DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out date))
+        {
+            return true;
+        }
+
+        date = default;
+        return false;
+    }
+
+    private static IReadOnlyList<DramaSearchItem> MapLocalItems(IEnumerable<JsonElement> items)
+    {
+        return items
+            .Select(item => new DramaSearchItem(
+                BookId: EnsurePrefixed(GetString(item, "series_id") ?? GetString(item, "book_id") ?? GetString(item, "id"), HongguoLocalBookPrefix),
+                Title: GetString(item, "title") ?? GetString(item, "name") ?? string.Empty,
+                Category: GetString(item, "category") ?? GetString(item, "type") ?? string.Empty,
+                EpisodeTotal: GetInt(item, "episode_cnt") ?? GetInt(item, "episode_total") ?? GetInt(item, "total") ?? 0,
+                Intro: GetString(item, "intro") ?? GetString(item, "description") ?? GetString(item, "desc") ?? string.Empty,
+                PosterUrl: GetString(item, "cover") ?? GetString(item, "poster") ?? GetString(item, "poster_url") ?? string.Empty,
+                Author: GetString(item, "author") ?? GetString(item, "producer") ?? GetString(item, "copyright") ?? string.Empty,
+                PublishTime: GetString(item, "publish_time") ?? GetString(item, "first_seen") ?? GetString(item, "created_at") ?? string.Empty,
+                FavoriteCount: GetInt(item, "favorite_count") ?? GetInt(item, "collect_count") ?? 0))
+            .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
+            .ToArray();
     }
 
     private async Task<IReadOnlyList<SourceEpisode>> GetLocalEpisodesAsync(string prefixedBookId, GlobalConfigSnapshot settings, CancellationToken cancellationToken)

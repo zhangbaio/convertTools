@@ -36,21 +36,6 @@ public partial class TaskQueueOverviewView : UserControl
         }
     }
 
-    private async void OpenConfigWindow_Click(object? sender, RoutedEventArgs e)
-    {
-        if (OwnerWindow is null || ViewModel is null)
-        {
-            return;
-        }
-
-        var window = new ConfigWindow
-        {
-            DataContext = ViewModel
-        };
-
-        await window.ShowDialog(OwnerWindow);
-    }
-
     private void CheckAllProjects_Click(object? sender, RoutedEventArgs e)
     {
         ViewModel?.SetAllProjectsChecked(true);

@@ -46,8 +46,20 @@
                     <Border Background="{DynamicResource DesktopPanelBrush}"
                             CornerRadius="18"
                             Padding="16">
-                        <Grid RowDefinitions="Auto,Auto" RowSpacing="12">
-                            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+                        <StackPanel Spacing="14">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                <TextBlock VerticalAlignment="Center"
+                                           Text="下载目录" />
+                                <TextBox Grid.Column="1"
+                                         Text="{Binding RootDir}"
+                                         IsReadOnly="True" />
+                                <Button Grid.Column="2"
+                                        MinWidth="130"
+                                        Click="PickRootDir_Click"
+                                        Content="选择下载目录" />
+                            </Grid>
+
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding SearchKeyword}"
                                          Watermark="输入短剧名称，例如: 婆婆、闪婚、逆袭...">
@@ -60,11 +72,43 @@
                                         MinWidth="100"
                                         Command="{Binding SearchDramaCommand}"
                                         Content="搜索" />
-                                <Button Grid.Column="2"
-                                        MinWidth="110"
+                                <CheckBox Grid.Column="2"
+                                          VerticalAlignment="Center"
+                                          IsChecked="{Binding ExactSearchEnabled}"
+                                          Content="精确搜索" />
+                            </Grid>
+
+                            <WrapPanel Orientation="Horizontal">
+                                <Button MinWidth="110"
+                                        Margin="0,0,10,10"
                                         Command="{Binding LoadTodayDramaCommand}"
                                         Content="今日上新" />
-                                <Border Grid.Column="3"
+                                <Button MinWidth="110"
+                                        Margin="0,0,10,10"
+                                        Command="{Binding LoadMangaTodayDramaCommand}"
+                                        Content="漫剧上新" />
+                                <Button MinWidth="120"
+                                        Margin="0,0,10,10"
+                                        Command="{Binding LoadAiTodayDramaCommand}"
+                                        Content="AI短剧上新" />
+                                <Button MinWidth="110"
+                                        Margin="0,0,10,10"
+                                        Command="{Binding LoadHistoryDramaCommand}"
+                                        Content="历史上新" />
+                                <Border Margin="0,0,10,10"
+                                        Padding="12,10"
+                                        Background="{DynamicResource DesktopPanelAltBrush}"
+                                        CornerRadius="12">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock VerticalAlignment="Center"
+                                                   Text="查询天数" />
+                                        <TextBox Width="60"
+                                                 Text="{Binding SearchQueryDays}" />
+                                        <TextBlock VerticalAlignment="Center"
+                                                   Text="天" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Margin="0,0,10,10"
                                         MinWidth="120"
                                         Padding="14,10"
                                         Background="{DynamicResource DesktopPanelAltBrush}"
@@ -73,35 +117,67 @@
                                                VerticalAlignment="Center"
                                                Text="{Binding SearchPageText}" />
                                 </Border>
-                                <Button Grid.Column="4"
-                                        MinWidth="90"
+                                <Button MinWidth="90"
+                                        Margin="0,0,10,10"
                                         Command="{Binding GoPreviousSearchPageCommand}"
                                         Content="上一页" />
-                                <Button Grid.Column="5"
-                                        MinWidth="90"
+                                <Button MinWidth="90"
+                                        Margin="0,0,10,10"
                                         Command="{Binding GoNextSearchPageCommand}"
                                         Content="下一页" />
+                            </WrapPanel>
+
+                            <Grid ColumnDefinitions="Auto,100,Auto,100,Auto" ColumnSpacing="10">
+                                <TextBlock VerticalAlignment="Center"
+                                           Text="最小集数" />
+                                <TextBox Grid.Column="1"
+                                         Text="{Binding SearchMinEpisodeCount}"
+                                         Watermark="不限" />
+                                <TextBlock Grid.Column="2"
+                                           VerticalAlignment="Center"
+                                           Text="最大集数" />
+                                <TextBox Grid.Column="3"
+                                         Text="{Binding SearchMaxEpisodeCount}"
+                                         Watermark="不限" />
+                                <Button Grid.Column="4"
+                                        MinWidth="120"
+                                        Command="{Binding ApplySearchFiltersCommand}"
+                                        Content="应用筛选" />
                             </Grid>
 
-                            <StackPanel Grid.Row="1" Spacing="12">
-                                <Grid ColumnDefinitions="Auto,180,*,Auto" ColumnSpacing="10">
-                                    <TextBlock VerticalAlignment="Center"
-                                               Text="集数范围" />
-                                    <ComboBox Grid.Column="1"
-                                              ItemsSource="{Binding DownloadEpisodeRangeOptions}"
-                                              SelectedItem="{Binding SelectedDownloadEpisodeRangeOption}"
-                                              DisplayMemberBinding="{Binding Label}" />
-                                    <TextBox Grid.Column="2"
-                                             Text="{Binding CustomDownloadEpisodeRange}"
-                                             Watermark="如：1-5 或 1,3,5"
-                                             IsEnabled="{Binding IsCustomDownloadEpisodeRange}" />
-                                    <Button Grid.Column="3"
-                                            MinWidth="120"
-                                            Command="{Binding DownloadCheckedDramaCommand}"
-                                            Content="下载选中" />
-                                </Grid>
+                            <Grid ColumnDefinitions="Auto,180,*,Auto" ColumnSpacing="10">
+                                <TextBlock VerticalAlignment="Center"
+                                           Text="集数范围" />
+                                <ComboBox Grid.Column="1"
+                                          ItemsSource="{Binding DownloadEpisodeRangeOptions}"
+                                          SelectedItem="{Binding SelectedDownloadEpisodeRangeOption}"
+                                          DisplayMemberBinding="{Binding Label}" />
+                                <TextBox Grid.Column="2"
+                                         Text="{Binding CustomDownloadEpisodeRange}"
+                                         Watermark="如：1-5 或 1,3,5"
+                                         IsEnabled="{Binding IsCustomDownloadEpisodeRange}" />
+                                <Button Grid.Column="3"
+                                        MinWidth="120"
+                                        Command="{Binding DownloadCheckedDramaCommand}"
+                                        Content="下载选中" />
+                            </Grid>
 
-                                <WrapPanel Orientation="Horizontal">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                <Border Background="{DynamicResource DesktopPanelAltBrush}"
+                                        CornerRadius="14"
+                                        Padding="12">
+                                    <TextBlock Text="{Binding SearchSummary}"
+                                               TextWrapping="Wrap" />
+                                </Border>
+                                <Border Grid.Column="1"
+                                        Background="{DynamicResource DesktopPanelAltBrush}"
+                                        CornerRadius="14"
+                                        Padding="14,12">
+                                    <TextBlock Text="{Binding CheckedSearchResultsSummary}" />
+                                </Border>
+                            </Grid>
+
+                            <WrapPanel Orientation="Horizontal">
                                 <Button MinWidth="150"
                                         Margin="0,0,10,0"
                                         Command="{Binding ImportCheckedDramaCommand}"
@@ -110,9 +186,8 @@
                                         Margin="0,0,10,0"
                                         Command="{Binding ImportAndRunCheckedDramaCommand}"
                                         Content="勾选项目一键执行全流程" />
-                                </WrapPanel>
-                            </StackPanel>
-                        </Grid>
+                            </WrapPanel>
+                        </StackPanel>
                     </Border>
 
                     <Border Grid.Row="1"
@@ -121,12 +196,15 @@
                             Padding="16">
                         <StackPanel Spacing="12">
                             <Border Background="{DynamicResource DesktopPanelAltBrush}" CornerRadius="14" Padding="12">
-                                <Grid ColumnDefinitions="56,300,90,180,*" ColumnSpacing="12">
+                                <Grid ColumnDefinitions="64,2.2*,1.2*,90,110,120,150,2.8*" ColumnSpacing="12">
                                     <TextBlock Text="勾选" FontWeight="SemiBold" />
                                     <TextBlock Grid.Column="1" Text="剧名" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="2" Text="集数" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="3" Text="类型" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="4" Text="简介" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Text="作者" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="3" Text="集数" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="4" Text="收藏量" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="5" Text="类型" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="6" Text="上线时间" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="7" Text="简介" FontWeight="SemiBold" />
                                 </Grid>
                             </Border>
 
@@ -139,7 +217,7 @@
                                                 Padding="12"
                                                 CornerRadius="14"
                                                 Background="{DynamicResource DesktopPanelAltBrush}">
-                                            <Grid ColumnDefinitions="56,300,90,180,*" ColumnSpacing="12">
+                                            <Grid ColumnDefinitions="64,2.2*,1.2*,90,110,120,150,2.8*" ColumnSpacing="12">
                                                 <CheckBox IsChecked="{Binding IsChecked}"
                                                           HorizontalAlignment="Center"
                                                           VerticalAlignment="Center" />
@@ -149,13 +227,24 @@
                                                            FontWeight="SemiBold"
                                                            TextWrapping="Wrap" />
                                                 <TextBlock Grid.Column="2"
+                                                           Text="{Binding Author}"
+                                                           VerticalAlignment="Center"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Grid.Column="3"
                                                            Text="{Binding EpisodeTotal}"
                                                            VerticalAlignment="Center" />
-                                                <TextBlock Grid.Column="3"
+                                                <TextBlock Grid.Column="4"
+                                                           Text="{Binding FavoriteCountText}"
+                                                           VerticalAlignment="Center" />
+                                                <TextBlock Grid.Column="5"
                                                            Text="{Binding Category}"
                                                            VerticalAlignment="Center"
                                                            TextWrapping="Wrap" />
-                                                <TextBlock Grid.Column="4"
+                                                <TextBlock Grid.Column="6"
+                                                           Text="{Binding PublishTime}"
+                                                           VerticalAlignment="Center"
+                                                           TextWrapping="Wrap" />
+                                                <TextBlock Grid.Column="7"
                                                            Text="{Binding Intro}"
                                                            VerticalAlignment="Center"
                                                            TextWrapping="Wrap"
@@ -171,8 +260,16 @@
                 </Grid>
             </TabItem>
 
+            <TabItem Header="配置">
+                <localviews:ConfigView />
+            </TabItem>
+
             <TabItem Header="任务队列">
                 <taskqueue:TaskQueueView />
+            </TabItem>
+
+            <TabItem Header="运行日志">
+                <taskqueue:TaskQueueRunLogView />
             </TabItem>
 
             <TabItem Header="转码模板">

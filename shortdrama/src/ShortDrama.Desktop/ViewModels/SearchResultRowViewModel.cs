@@ -18,6 +18,10 @@ public partial class SearchResultRowViewModel : ViewModelBase
     public int EpisodeTotal => Drama.EpisodeTotal;
     public string Intro => Drama.Intro;
     public string PosterUrl => Drama.PosterUrl;
+    public string Author => Drama.Author;
+    public string PublishTime => Drama.PublishTime;
+    public int FavoriteCount => Drama.FavoriteCount;
+    public string FavoriteCountText => FavoriteCount <= 0 ? "-" : FavoriteCount.ToString();
 
     [ObservableProperty]
     private bool isChecked;

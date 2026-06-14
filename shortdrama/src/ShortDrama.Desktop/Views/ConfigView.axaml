@@ -1,0 +1,87 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ShortDrama.Desktop.Views.ConfigView">
+
+    <Grid x:Name="RootGrid"
+          RowDefinitions="Auto,Auto,*,Auto"
+          Margin="20"
+          RowSpacing="16">
+        <Border Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="18">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="10">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding ConfigFilePath, FallbackValue=未定位到 config.txt}"
+                               Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                    <Button Grid.Column="1"
+                            Content="选择工作目录"
+                            Click="PickRootDir_Click" />
+                    <Button Grid.Column="2"
+                            Content="定位项目配置"
+                            Command="{Binding OpenConfigFileCommand}" />
+                    <Button Grid.Column="3"
+                            Content="定位全局配置"
+                            Command="{Binding OpenGlobalSettingsFileCommand}" />
+                </Grid>
+
+                <TextBlock Grid.Row="1"
+                           Text="{Binding GlobalSettingsFilePath, FallbackValue=未定位到 global-settings.json}"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                           TextWrapping="Wrap" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1"
+                Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="16"
+                Padding="16">
+            <Grid RowDefinitions="Auto,*" RowSpacing="10">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding ConfigValidationSummary}"
+                               FontSize="18"
+                               FontWeight="SemiBold" />
+                    <Button Grid.Column="1"
+                            Content="立即校验"
+                            Command="{Binding ValidateConfigCommand}" />
+                    <Button Grid.Column="2"
+                            Content="重新加载"
+                            Command="{Binding ReloadConfigCommand}" />
+                </Grid>
+
+                <ListBox Grid.Row="1"
+                         MaxHeight="220"
+                         ItemsSource="{Binding ConfigIssues}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Margin="0,0,0,8"
+                                    Padding="12"
+                                    CornerRadius="12"
+                                    Background="{DynamicResource DesktopPanelAltBrush}">
+                                <Grid ColumnDefinitions="70,*" ColumnSpacing="10">
+                                    <TextBlock Text="{Binding Severity}" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding Message}"
+                                               TextWrapping="Wrap" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <TabControl x:Name="SettingsTabControl"
+                    Grid.Row="2" />
+
+        <StackPanel Grid.Row="3"
+                    Orientation="Horizontal"
+                    Spacing="10"
+                    HorizontalAlignment="Right">
+            <Button Content="保存配置"
+                    Click="Save_Click" />
+        </StackPanel>
+    </Grid>
+</UserControl>

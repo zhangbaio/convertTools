@@ -1,0 +1,139 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ShortDrama.Desktop.ViewModels"
+             x:Class="ShortDrama.Desktop.Views.TaskQueue.TaskQueueRunLogView">
+    <Grid RowDefinitions="Auto,*" RowSpacing="14">
+        <Border Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="18">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="12">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="运行日志"
+                                   FontSize="22"
+                                   FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding RootDir, StringFormat=工作目录: {0}}"
+                                   Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+
+                    <CheckBox Grid.Column="1"
+                              Content="跟随最近活跃项目"
+                              IsChecked="{Binding FollowLatestActiveLogProject}"
+                              VerticalAlignment="Center" />
+                    <CheckBox Grid.Column="2"
+                              Content="仅看问题"
+                              IsChecked="{Binding OnlyShowFailedLogs}"
+                              VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="3"
+                                Orientation="Horizontal"
+                                Spacing="10">
+                        <Button MinWidth="100"
+                                Command="{Binding StopCurrentRunCommand}"
+                                Content="停止" />
+                        <Button MinWidth="120"
+                                Click="CopyRunLog_Click"
+                                Content="复制日志" />
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Grid.Row="1"
+                           Text="{Binding RunLogSummary}"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1"
+              ColumnDefinitions="300,*"
+              ColumnSpacing="14">
+            <Border Background="{DynamicResource DesktopPanelBrush}"
+                    CornerRadius="18"
+                    Padding="12">
+                <Grid RowDefinitions="Auto,*" RowSpacing="12">
+                    <Button Content="全部项目"
+                            Click="ShowAllProjectsLog_Click" />
+
+                    <ListBox Grid.Row="1"
+                             ItemsSource="{Binding Projects}"
+                             SelectedItem="{Binding SelectedRunLogProject}"
+                             BorderThickness="0"
+                             Background="Transparent">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ProjectListItemViewModel">
+                                <Border Margin="0,0,0,8"
+                                        Padding="12"
+                                        CornerRadius="12"
+                                        Background="{DynamicResource DesktopPanelAltBrush}">
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Text="{Binding DisplayName}"
+                                                   FontWeight="SemiBold"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding SchedulingStatus}"
+                                                   Foreground="{Binding SchedulingStatusBrush}" />
+                                        <TextBlock Text="{Binding CurrentStepLabel}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding CurrentStepProgressText}"
+                                                   Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="1"
+                    Background="{DynamicResource DesktopPanelBrush}"
+                    CornerRadius="18"
+                    Padding="16">
+                <Grid RowDefinitions="Auto,*" RowSpacing="12">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{Binding ActivityTitle}"
+                                       FontSize="20"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding RunLogCurrentScopeLabel, StringFormat=当前范围: {0}}"
+                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="10">
+                            <ComboBox Width="180"
+                                      ItemsSource="{Binding StepLogFilters}"
+                                      SelectedItem="{Binding SelectedStepLogFilter}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Label}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </StackPanel>
+                    </Grid>
+
+                    <Border Grid.Row="1"
+                            Background="{DynamicResource DesktopPanelAltBrush}"
+                            CornerRadius="14"
+                            Padding="10">
+                        <ListBox ItemsSource="{Binding ActivityLog}"
+                                 BorderThickness="0"
+                                 Background="Transparent">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,8"
+                                            Padding="10"
+                                            CornerRadius="12"
+                                            Background="{DynamicResource DesktopPanelBrush}">
+                                        <TextBlock Text="{Binding DisplayText}"
+                                                   TextWrapping="Wrap" />
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

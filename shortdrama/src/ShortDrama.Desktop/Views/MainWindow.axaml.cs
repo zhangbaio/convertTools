@@ -34,11 +34,11 @@ public partial class MainWindow : Window
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "閫夋嫨鎴愭湰鎶ヨ〃妯℃澘",
+            Title = "选择成本报表模板",
             AllowMultiple = false,
             FileTypeFilter =
             [
-                new FilePickerFileType("Word 妯℃澘")
+                new FilePickerFileType("Word 模板")
                 {
                     Patterns = ["*.docx"]
                 }

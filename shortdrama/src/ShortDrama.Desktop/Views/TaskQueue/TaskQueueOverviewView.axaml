@@ -23,10 +23,6 @@
                 <WrapPanel Grid.Row="1"
                            Orientation="Horizontal"
                            ItemWidth="132">
-                    <Button MinWidth="120"
-                            Margin="0,0,10,0"
-                            Click="OpenConfigWindow_Click"
-                            Content="配置" />
                     <Button MinWidth="132"
                             Margin="0,0,10,0"
                             Command="{Binding OpenWeixinBrowserCommand}"
