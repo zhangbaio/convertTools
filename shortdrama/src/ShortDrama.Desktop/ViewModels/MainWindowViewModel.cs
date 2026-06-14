@@ -63,6 +63,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly DesktopDependencyInspector _dependencyInspector;
     private readonly DesktopShellService _shellService;
     private readonly IWorkflowInteractionService _interactionService;
+    private readonly IWeixinBrowserSessionLauncher _weixinBrowserSessionLauncher;
     private readonly List<ActivityLogEntry> _allActivityLogs = [];
     private static readonly string[] DownloadVideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private static readonly Regex DownloadEpisodeNameRegex = new(@"第\s*0*(\d+)\s*集", RegexOptions.Compiled);
@@ -89,7 +90,8 @@ public partial class MainWindowViewModel : ViewModelBase
         DesktopStateService stateService,
         DesktopDependencyInspector dependencyInspector,
         DesktopShellService shellService,
-        IWorkflowInteractionService interactionService)
+        IWorkflowInteractionService interactionService,
+        IWeixinBrowserSessionLauncher weixinBrowserSessionLauncher)
     {
         _projectScanner = projectScanner;
         _projectArchiveService = projectArchiveService;
@@ -104,6 +106,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _dependencyInspector = dependencyInspector;
         _shellService = shellService;
         _interactionService = interactionService;
+        _weixinBrowserSessionLauncher = weixinBrowserSessionLauncher;
 
         ScanCommand = new AsyncRelayCommand(ScanAsync, CanScan);
         RunSelectedProjectCommand = new AsyncRelayCommand(RunSelectedProjectAsync, CanRunSelectedProject);
@@ -130,6 +133,7 @@ public partial class MainWindowViewModel : ViewModelBase
         OpenPosterCommand = new RelayCommand(OpenPoster, CanOpenPoster);
         OpenCostReportCommand = new RelayCommand(OpenCostReport, CanOpenCostReport);
         OpenProjectImageCommand = new RelayCommand(OpenProjectImage, CanOpenProjectImage);
+        OpenWeixinBrowserCommand = new AsyncRelayCommand(OpenWeixinBrowserAsync, CanOpenWeixinBrowser);
         RunSelectedStepCommand = new AsyncRelayCommand(RunSelectedStepAsync, CanRunSelectedStep);
         RunSelectedTranscodeCommand = new AsyncRelayCommand(RunSelectedTranscodeAsync, CanRunSelectedProject);
         RunSelectedProjectMaterialCommand = new AsyncRelayCommand(RunSelectedProjectMaterialAsync, CanRunSelectedProject);
@@ -260,6 +264,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public IRelayCommand OpenPosterCommand { get; }
     public IRelayCommand OpenCostReportCommand { get; }
     public IRelayCommand OpenProjectImageCommand { get; }
+    public IAsyncRelayCommand OpenWeixinBrowserCommand { get; }
     public IAsyncRelayCommand RunSelectedStepCommand { get; }
     public IAsyncRelayCommand RunSelectedTranscodeCommand { get; }
     public IAsyncRelayCommand RunSelectedProjectMaterialCommand { get; }
@@ -870,6 +875,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void RefreshCommandStates()
     {
+        OnPropertyChanged(nameof(TaskQueueSummary));
         ScanCommand.NotifyCanExecuteChanged();
         RunSelectedProjectCommand.NotifyCanExecuteChanged();
         RunRootWorkflowCommand.NotifyCanExecuteChanged();
@@ -893,6 +899,7 @@ public partial class MainWindowViewModel : ViewModelBase
         OpenPosterCommand.NotifyCanExecuteChanged();
         OpenCostReportCommand.NotifyCanExecuteChanged();
         OpenProjectImageCommand.NotifyCanExecuteChanged();
+        OpenWeixinBrowserCommand.NotifyCanExecuteChanged();
         TestDependenciesCommand.NotifyCanExecuteChanged();
         RunSelectedStepCommand.NotifyCanExecuteChanged();
         RunSelectedTranscodeCommand.NotifyCanExecuteChanged();
@@ -2094,12 +2101,14 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public void SetAllProjectsChecked(bool isChecked)
     {
-        foreach (var project in Projects)
+        var targets = string.IsNullOrWhiteSpace(TaskQueueFilterText) ? Projects : FilteredProjects;
+        foreach (var project in targets)
         {
             project.IsChecked = isChecked;
         }
 
         OnPropertyChanged(nameof(CheckedProjectsSummary));
+        OnPropertyChanged(nameof(TaskQueueSummary));
         RefreshCommandStates();
     }
 
@@ -3096,6 +3105,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private void OnProjectRowCheckedChanged(object? sender, EventArgs e)
     {
         OnPropertyChanged(nameof(CheckedProjectsSummary));
+        OnPropertyChanged(nameof(TaskQueueSummary));
         RefreshCommandStates();
     }
 
@@ -3262,6 +3272,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         OnPropertyChanged(nameof(CheckedProjectsSummary));
+        ApplyTaskQueueFilter();
         RefreshCommandStates();
     }
 

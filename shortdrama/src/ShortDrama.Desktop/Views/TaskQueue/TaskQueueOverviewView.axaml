@@ -1,0 +1,229 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ShortDrama.Desktop.ViewModels"
+             x:Class="ShortDrama.Desktop.Views.TaskQueue.TaskQueueOverviewView">
+    <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="14">
+        <Border Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="18">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="14">
+                <Grid ColumnDefinitions="96,*,Auto" ColumnSpacing="12">
+                    <TextBlock VerticalAlignment="Center"
+                               Text="工作目录"
+                               Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                    <TextBox Grid.Column="1"
+                             Text="{Binding RootDir}"
+                             Watermark="请选择或输入工作目录" />
+                    <Button Grid.Column="2"
+                            MinWidth="130"
+                            Click="PickRootDir_Click"
+                            Content="选择工作目录" />
+                </Grid>
+
+                <WrapPanel Grid.Row="1"
+                           Orientation="Horizontal"
+                           ItemWidth="132">
+                    <Button MinWidth="120"
+                            Margin="0,0,10,0"
+                            Click="OpenConfigWindow_Click"
+                            Content="配置" />
+                    <Button MinWidth="132"
+                            Margin="0,0,10,0"
+                            Command="{Binding OpenWeixinBrowserCommand}"
+                            Content="打开浏览器" />
+                    <Button MinWidth="120"
+                            Margin="0,0,10,0"
+                            Command="{Binding ScanCommand}"
+                            Content="扫描项目" />
+                    <Button MinWidth="132"
+                            Margin="0,0,10,0"
+                            Command="{Binding RunSelectedProjectCommand}"
+                            Content="执行选中项目" />
+                    <Button MinWidth="132"
+                            Margin="0,0,10,0"
+                            Command="{Binding RunRootWorkflowCommand}"
+                            Content="执行整个目录" />
+                    <Button MinWidth="132"
+                            Margin="0,0,10,0"
+                            Command="{Binding RunSelectedProjectMaterialCommand}"
+                            Content="生成项目素材" />
+                    <Button MinWidth="132"
+                            Margin="0,0,10,0"
+                            Command="{Binding RunSelectedWeixinUploadCommand}"
+                            Content="剧集上传" />
+                    <Button MinWidth="132"
+                            Margin="0,0,10,0"
+                            Command="{Binding RunSelectedWeixinMaterialUploadCommand}"
+                            Content="素材上传" />
+                    <Button MinWidth="132"
+                            Margin="0,0,10,0"
+                            Command="{Binding StopCurrentRunCommand}"
+                            Content="停止当前步骤" />
+                </WrapPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1"
+                Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="18">
+            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="12">
+                <Button MinWidth="120"
+                        Click="CheckAllProjects_Click"
+                        Content="全选筛选结果" />
+                <Button Grid.Column="1"
+                        MinWidth="120"
+                        Click="UncheckAllProjects_Click"
+                        Content="取消勾选" />
+                <Button Grid.Column="2"
+                        MinWidth="132"
+                        Command="{Binding RunCheckedQueueCommand}"
+                        Content="执行勾选队列" />
+                <Button Grid.Column="3"
+                        MinWidth="132"
+                        Command="{Binding RunCurrentTaskCommand}"
+                        Content="执行当前任务" />
+
+                <WrapPanel Grid.Column="4"
+                           Orientation="Horizontal"
+                           HorizontalAlignment="Right">
+                    <Button MinWidth="132"
+                            Margin="0,0,12,0"
+                            Click="ArchiveCheckedProjects_Click"
+                            Content="归档勾选项目" />
+                    <CheckBox Margin="0,0,16,0"
+                              Content="下载剧集"
+                              IsChecked="{Binding QueueStepDownloadEnabled}" />
+                    <CheckBox Margin="0,0,16,0"
+                              Content="生成项目素材"
+                              IsChecked="{Binding QueueStepProjectMaterialEnabled}" />
+                    <CheckBox Margin="0,0,16,0"
+                              Content="剧集上传"
+                              IsChecked="{Binding QueueStepEpisodeUploadEnabled}" />
+                    <CheckBox Content="素材上传"
+                              IsChecked="{Binding QueueStepMaterialUploadEnabled}" />
+                </WrapPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="2"
+                Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="18">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="12">
+                <TextBlock Text="{Binding TaskQueueSummary}"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                <TextBox Grid.Row="1"
+                         Text="{Binding TaskQueueFilterText}"
+                         Watermark="搜索原剧名 / 新剧名 / 状态 / 路径 / 简介" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3"
+                Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="16">
+            <Grid RowDefinitions="Auto,*" RowSpacing="12">
+                <Border Background="{DynamicResource DesktopPanelAltBrush}"
+                        CornerRadius="14"
+                        Padding="12">
+                    <Grid ColumnDefinitions="56,220,220,140,150,140,140,120" ColumnSpacing="12">
+                        <TextBlock Text="勾选" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="原剧名" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="2" Text="新剧名" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="项目信息" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="4" Text="下载剧集" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="5" Text="生成素材" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="6" Text="剧集上传" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="7" Text="素材上传" FontWeight="SemiBold" />
+                    </Grid>
+                </Border>
+
+                <ScrollViewer Grid.Row="1"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto">
+                    <ListBox ItemsSource="{Binding FilteredProjects}"
+                             SelectedItem="{Binding SelectedProject}"
+                             MinWidth="1180"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ProjectListItemViewModel">
+                                <Border Margin="0,0,0,8"
+                                        Padding="12"
+                                        CornerRadius="14"
+                                        Background="{DynamicResource DesktopPanelAltBrush}">
+                                    <Grid ColumnDefinitions="56,220,220,140,150,140,140,120" ColumnSpacing="12">
+                                        <CheckBox IsChecked="{Binding IsChecked}"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+
+                                        <Button Grid.Column="1"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                Padding="0"
+                                                HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Left"
+                                                Click="OpenTaskQueueSourceFolder_Click">
+                                            <TextBlock Text="{Binding OriginalTitle}"
+                                                       FontWeight="SemiBold"
+                                                       TextWrapping="Wrap" />
+                                        </Button>
+
+                                        <StackPanel Grid.Column="2" Spacing="4">
+                                            <Button Background="Transparent"
+                                                    BorderThickness="0"
+                                                    Padding="0"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Left"
+                                                    Click="OpenTaskQueueWorkflowFolder_Click">
+                                                <TextBlock Text="{Binding NewTitle}"
+                                                           FontWeight="SemiBold"
+                                                           TextWrapping="Wrap" />
+                                            </Button>
+                                            <TextBlock Text="{Binding SchedulingStatus}"
+                                                       Foreground="{Binding SchedulingStatusBrush}" />
+                                        </StackPanel>
+
+                                        <TextBlock Grid.Column="3"
+                                                   Text="{Binding DramaInfoSummary}"
+                                                   Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                                   TextWrapping="Wrap"
+                                                   VerticalAlignment="Center" />
+
+                                        <Button Grid.Column="4"
+                                                Background="{Binding DownloadNodeBackgroundBrush}"
+                                                Foreground="{Binding DownloadNodeForegroundBrush}"
+                                                Click="OpenTaskQueueDownloadDetail_Click"
+                                                Content="{Binding DownloadNodeStatus}" />
+
+                                        <Button Grid.Column="5"
+                                                Background="{Binding ProjectMaterialNodeBackgroundBrush}"
+                                                Foreground="{Binding ProjectMaterialNodeForegroundBrush}"
+                                                Click="OpenTaskQueueProjectMaterialDetail_Click"
+                                                Content="{Binding ProjectMaterialNodeStatus}" />
+
+                                        <Button Grid.Column="6"
+                                                Background="{Binding EpisodeUploadNodeBackgroundBrush}"
+                                                Foreground="{Binding EpisodeUploadNodeForegroundBrush}"
+                                                Click="OpenTaskQueueEpisodeUploadDetail_Click"
+                                                Content="{Binding EpisodeUploadNodeStatus}" />
+
+                                        <StackPanel Grid.Column="7" Spacing="8">
+                                            <Button Background="{Binding MaterialUploadNodeBackgroundBrush}"
+                                                    Foreground="{Binding MaterialUploadNodeForegroundBrush}"
+                                                    Click="OpenTaskQueueMaterialUploadDetail_Click"
+                                                    Content="{Binding MaterialUploadNodeStatus}" />
+                                            <Button Content="打开文件夹"
+                                                    Click="OpenTaskQueueProjectFolder_Click" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

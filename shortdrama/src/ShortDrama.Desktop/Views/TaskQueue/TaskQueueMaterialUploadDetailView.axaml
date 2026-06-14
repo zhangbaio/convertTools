@@ -1,0 +1,111 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ShortDrama.Desktop.Views.TaskQueue.TaskQueueMaterialUploadDetailView">
+    <Border Background="{DynamicResource DesktopPanelBrush}"
+            CornerRadius="16"
+            Padding="16">
+        <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="12">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="{Binding SelectedProject.DisplayName}"
+                               FontSize="18"
+                               FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding SelectedProject.MaterialUploadNodeStatus}"
+                               Foreground="{Binding SelectedProject.MaterialUploadNodeForegroundBrush}" />
+                </StackPanel>
+                <Button Grid.Column="1"
+                        MinWidth="140"
+                        Command="{Binding RunSelectedWeixinMaterialUploadCommand}"
+                        Content="开始上传素材" />
+                <Button Grid.Column="2"
+                        MinWidth="120"
+                        Command="{Binding OpenWeixinBrowserCommand}"
+                        Content="打开浏览器" />
+                <Button Grid.Column="3"
+                        MinWidth="140"
+                        Click="MarkMaterialUploadCompleted_Click"
+                        Content="标记完成" />
+            </Grid>
+
+            <Border Grid.Row="1"
+                    Background="{DynamicResource DesktopPanelAltBrush}"
+                    CornerRadius="14"
+                    Padding="14">
+                <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                    <TextBlock Text="当前状态" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding SelectedProject.MaterialUploadNodeStatus}"
+                               Foreground="{Binding SelectedProject.MaterialUploadNodeForegroundBrush}" />
+                    <TextBlock Grid.Row="1" Text="当前进度" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="1" Grid.Column="1"
+                               Text="{Binding SelectedProject.MaterialUploadStepStatus}" />
+                    <TextBlock Grid.Row="2" Text="当前策略" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="2" Grid.Column="1"
+                               Text="{Binding SelectedProject.MaterialUploadStrategySummary}" />
+                    <TextBlock Grid.Row="3" Text="待发范围" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="3" Grid.Column="1"
+                               Text="{Binding SelectedProject.MaterialUploadSelectionSummary}" />
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="2"
+                    Background="{DynamicResource DesktopPanelAltBrush}"
+                    CornerRadius="14"
+                    Padding="14">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="本次待发视频"
+                               FontSize="18"
+                               FontWeight="SemiBold" />
+                    <ListBox ItemsSource="{Binding SelectedProject.MaterialPublishVideos}"
+                             MaxHeight="180"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,0,8"
+                                        Padding="10"
+                                        CornerRadius="12"
+                                        Background="{DynamicResource DesktopPanelBrush}">
+                                    <Grid ColumnDefinitions="100,*,100" ColumnSpacing="12">
+                                        <TextBlock Text="{Binding EpisodeLabel}"
+                                                   FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding VideoName}"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding StatusText}"
+                                                   HorizontalAlignment="Right" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </StackPanel>
+            </Border>
+
+            <Border Grid.Row="3"
+                    Background="{DynamicResource DesktopPanelAltBrush}"
+                    CornerRadius="14"
+                    Padding="14">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="素材上传日志" FontSize="18" FontWeight="SemiBold" />
+                    <ListBox ItemsSource="{Binding ActivityLog}"
+                             MaxHeight="360"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,0,8"
+                                        Padding="10"
+                                        CornerRadius="12"
+                                        Background="{DynamicResource DesktopPanelBrush}">
+                                    <TextBlock Text="{Binding DisplayText}" TextWrapping="Wrap" />
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

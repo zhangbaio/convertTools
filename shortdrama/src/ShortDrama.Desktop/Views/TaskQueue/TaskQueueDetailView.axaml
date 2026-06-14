@@ -1,0 +1,31 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:taskqueue="using:ShortDrama.Desktop.Views.TaskQueue"
+             x:Class="ShortDrama.Desktop.Views.TaskQueue.TaskQueueDetailView">
+    <Border Background="{DynamicResource DesktopPanelAltBrush}"
+            CornerRadius="16"
+            Padding="16"
+            VerticalAlignment="Stretch">
+        <Grid RowDefinitions="Auto,*" RowSpacing="12">
+            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="12">
+                <Button Content="返回任务列表"
+                        Click="CloseTaskQueueDetail_Click" />
+                <Button Grid.Column="1"
+                        Click="ArchiveSelectedProject_Click"
+                        Content="归档当前项目" />
+                <TextBlock Grid.Column="2"
+                           VerticalAlignment="Center"
+                           Text="{Binding TaskQueueDetailTitle}"
+                           FontSize="22"
+                           FontWeight="SemiBold" />
+            </Grid>
+
+            <Grid Grid.Row="1">
+                <taskqueue:TaskQueueDownloadDetailView IsVisible="{Binding IsTaskQueueDownloadDetailVisible}" />
+                <taskqueue:TaskQueueProjectMaterialDetailView IsVisible="{Binding IsTaskQueueProjectMaterialDetailVisible}" />
+                <taskqueue:TaskQueueEpisodeUploadDetailView IsVisible="{Binding IsTaskQueueEpisodeUploadDetailVisible}" />
+                <taskqueue:TaskQueueMaterialUploadDetailView IsVisible="{Binding IsTaskQueueMaterialUploadDetailVisible}" />
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

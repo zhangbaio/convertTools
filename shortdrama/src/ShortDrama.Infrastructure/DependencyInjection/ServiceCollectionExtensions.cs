@@ -53,6 +53,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<WeixinBrowserRuntimeService>();
         services.AddSingleton<IWeixinBrowserRuntimeService>(provider => provider.GetRequiredService<WeixinBrowserRuntimeService>());
         services.AddSingleton<IWeixinAuthStateService, WeixinAuthStateService>();
+        services.AddSingleton<IWeixinBrowserSessionLauncher, WeixinBrowserSessionLauncher>();
         services.AddSingleton<IExternalWeixinCliLocator, ExternalWeixinCliLocator>();
         services.AddSingleton<WeixinHomePage>();
         services.AddSingleton<WeixinSeriesSubmissionPage>();

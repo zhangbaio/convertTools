@@ -1,0 +1,179 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ShortDrama.Desktop.ViewModels"
+             x:Class="ShortDrama.Desktop.Views.TaskQueue.TaskQueueEpisodeUploadDetailView">
+    <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+        <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+            <StackPanel Spacing="4">
+                <TextBlock Text="{Binding SelectedProject.DisplayName}" FontSize="18" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding SelectedProject.DramaInfoSummary}"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+            </StackPanel>
+            <Button Grid.Column="1"
+                    MinWidth="120"
+                    Command="{Binding RunSelectedWeixinUploadCommand}"
+                    Content="开始上传" />
+            <Button Grid.Column="2"
+                    MinWidth="120"
+                    Command="{Binding RunSelectedWeixinUploadCommand}"
+                    Content="继续上传" />
+            <Button Grid.Column="3"
+                    MinWidth="120"
+                    Command="{Binding OpenWeixinBrowserCommand}"
+                    Content="打开浏览器" />
+            <Button Grid.Column="4"
+                    MinWidth="120"
+                    Command="{Binding StopCurrentRunCommand}"
+                    Content="停止" />
+            <Button Grid.Column="5"
+                    MinWidth="120"
+                    Command="{Binding TakeoverInteractionCommand}"
+                    Content="人工接管" />
+            <Button Grid.Column="6"
+                    MinWidth="160"
+                    Click="MarkSelectedEpisodeUploadCompleted_Click"
+                    Content="手动标记当前集完成" />
+        </Grid>
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,*,*,*,*,*" ColumnSpacing="12">
+            <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="12" Padding="14">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="待上传" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding SelectedProject.EpisodeUploadPendingCount}" FontSize="24" FontWeight="Bold" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="1" Background="{DynamicResource DesktopPanelBrush}" CornerRadius="12" Padding="14">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="上传中" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding SelectedProject.EpisodeUploadRunningCount}" FontSize="24" FontWeight="Bold" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="2" Background="{DynamicResource DesktopPanelBrush}" CornerRadius="12" Padding="14">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="已完成" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding SelectedProject.EpisodeUploadCompletedCount}" FontSize="24" FontWeight="Bold" Foreground="LimeGreen" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="3" Background="{DynamicResource DesktopPanelBrush}" CornerRadius="12" Padding="14">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="失败" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding SelectedProject.EpisodeUploadFailedCount}" FontSize="24" FontWeight="Bold" Foreground="IndianRed" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="4" Background="{DynamicResource DesktopPanelBrush}" CornerRadius="12" Padding="14">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="当前阶段" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding SelectedProject.EpisodeUploadStageText}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="5" Background="{DynamicResource DesktopPanelBrush}" CornerRadius="12" Padding="14">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="提审状态" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding SelectedProject.EpisodeUploadSubmitStatusText}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="2" RowDefinitions="Auto,*" RowSpacing="12">
+            <Border Background="{DynamicResource DesktopPanelBrush}"
+                    CornerRadius="14"
+                    Padding="12">
+                <Grid ColumnDefinitions="220,180,160,140,180,160,280" ColumnSpacing="12">
+                    <TextBlock Text="剧名" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="1" Text="集数" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="2" Text="上传状态" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="3" Text="上传进度" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="4" Text="当前动作" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="5" Text="结果" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="6" Text="操作" FontWeight="SemiBold" />
+                </Grid>
+            </Border>
+
+            <Grid Grid.Row="1" ColumnDefinitions="2.2*,1*" ColumnSpacing="12">
+                <ListBox ItemsSource="{Binding SelectedProject.EpisodeUploadEpisodes}"
+                         SelectedItem="{Binding SelectedEpisodeUploadEpisode}"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:EpisodeUploadItemViewModel">
+                            <Border Margin="0,0,0,8"
+                                    Padding="12"
+                                    CornerRadius="14"
+                                    Background="{DynamicResource DesktopPanelBrush}">
+                                <Grid ColumnDefinitions="220,180,160,140,180,160,280" ColumnSpacing="12">
+                                    <TextBlock Text="{Binding DramaTitle}"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding EpisodeLabel}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding StatusText}"
+                                               Foreground="{Binding StatusBrush}"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="3" Spacing="6" VerticalAlignment="Center">
+                                        <ProgressBar Minimum="0"
+                                                     Maximum="100"
+                                                     Height="10"
+                                                     Value="{Binding ProgressPercent}" />
+                                        <TextBlock Text="{Binding ProgressText}"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="4"
+                                               Text="{Binding ActionText}"
+                                               VerticalAlignment="Center"
+                                               TextWrapping="Wrap" />
+                                    <TextBlock Grid.Column="5"
+                                               Text="{Binding ResultText}"
+                                               VerticalAlignment="Center"
+                                               TextWrapping="Wrap" />
+                                    <Grid Grid.Column="6" ColumnDefinitions="*,*,*" ColumnSpacing="10">
+                                        <Button Content="重试"
+                                                IsEnabled="{Binding CanRetry}"
+                                                Click="RetryEpisodeUpload_Click" />
+                                        <Button Grid.Column="1"
+                                                Content="跳过"
+                                                IsEnabled="{Binding CanSkip}"
+                                                Click="SkipEpisodeUpload_Click" />
+                                        <Button Grid.Column="2"
+                                                Content="标记完成"
+                                                IsEnabled="{Binding CanMarkCompleted}"
+                                                Click="MarkEpisodeUploadCompleted_Click" />
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Border Grid.Column="1"
+                        Background="{DynamicResource DesktopPanelBrush}"
+                        CornerRadius="16"
+                        Padding="16">
+                    <Grid RowDefinitions="Auto,*" RowSpacing="12">
+                        <TextBlock Text="剧集上传日志" FontSize="18" FontWeight="SemiBold" />
+                        <ListBox Grid.Row="1"
+                                 MaxHeight="420"
+                                 ItemsSource="{Binding ActivityLog}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,8"
+                                            Padding="10"
+                                            CornerRadius="12"
+                                            Background="{DynamicResource DesktopPanelAltBrush}">
+                                        <TextBlock Text="{Binding DisplayText}" TextWrapping="Wrap" />
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -1,0 +1,97 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ShortDrama.Desktop.ViewModels"
+             x:Class="ShortDrama.Desktop.Views.TaskQueue.TaskQueueDownloadDetailView">
+    <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+        <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="12">
+            <Button MinWidth="120"
+                    Click="RunSelectedDownloadDetail_Click"
+                    Content="开始下载" />
+            <Button Grid.Column="1"
+                    MinWidth="120"
+                    Command="{Binding StopCurrentRunCommand}"
+                    Content="停止" />
+            <Button Grid.Column="2"
+                    MinWidth="140"
+                    Click="RunSelectedDownloadDetail_Click"
+                    Content="重新下载" />
+
+            <StackPanel Grid.Column="3"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="18">
+                <TextBlock Text="{Binding SelectedProject.DownloadPendingCount, StringFormat=待下载 {0}}" />
+                <TextBlock Text="{Binding SelectedProject.DownloadRunningCount, StringFormat=下载中 {0}}" />
+                <TextBlock Text="{Binding SelectedProject.DownloadCompletedCount, StringFormat=已完成 {0}}" />
+                <TextBlock Text="{Binding SelectedProject.DownloadConcurrency, StringFormat=并发数 {0}}" />
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="1"
+                Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="14"
+                Padding="12">
+            <Grid ColumnDefinitions="220,180,180,140,140,220" ColumnSpacing="12">
+                <TextBlock Text="剧名" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="1" Text="集数" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="2" Text="状态" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="3" Text="进度" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="4" Text="速度" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="5" Text="操作" FontWeight="SemiBold" />
+            </Grid>
+        </Border>
+
+        <ListBox Grid.Row="2"
+                 ItemsSource="{Binding SelectedProject.DownloadEpisodes}"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:DownloadEpisodeItemViewModel">
+                    <Border Margin="0,0,0,8"
+                            Padding="12"
+                            CornerRadius="14"
+                            Background="{DynamicResource DesktopPanelBrush}">
+                        <Grid ColumnDefinitions="220,180,180,140,140,220" ColumnSpacing="12">
+                            <TextBlock Text="{Binding DramaTitle}"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding EpisodeLabel}"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2"
+                                       Text="{Binding StatusText}"
+                                       Foreground="{Binding StatusBrush}"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="3"
+                                        Spacing="6"
+                                        VerticalAlignment="Center">
+                                <ProgressBar Minimum="0"
+                                             Maximum="100"
+                                             Height="10"
+                                             Value="{Binding ProgressPercent}" />
+                                <TextBlock Text="{Binding ProgressText}"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="4"
+                                       Text="{Binding SpeedText}"
+                                       VerticalAlignment="Center" />
+                            <Grid Grid.Column="5" ColumnDefinitions="*,*" ColumnSpacing="10">
+                                <Button Content="重试"
+                                        IsEnabled="{Binding CanRetry}"
+                                        Click="RetryDownloadEpisode_Click" />
+                                <Button Grid.Column="1"
+                                        Content="移除"
+                                        Click="RemoveDownloadEpisode_Click" />
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </Grid>
+</UserControl>
