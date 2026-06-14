@@ -374,54 +374,6 @@
                 </Border>
             </TabItem>
 
-            <TabItem Header="环境">
-                <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="18" Padding="18">
-                    <Grid RowDefinitions="Auto,*" RowSpacing="14">
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <TextBlock VerticalAlignment="Center"
-                                       FontSize="20"
-                                       FontWeight="SemiBold"
-                                       Text="外部依赖检测" />
-                            <Button Content="刷新依赖状态" Command="{Binding RefreshDependenciesCommand}" />
-                            <Button Content="执行依赖测试" Command="{Binding TestDependenciesCommand}" />
-                        </StackPanel>
-
-                        <ListBox Grid.Row="1" ItemsSource="{Binding Dependencies}">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Margin="0,0,0,10" Padding="16" CornerRadius="16" Background="{DynamicResource DesktopPanelAltBrush}">
-                                        <StackPanel Spacing="10">
-                                            <Grid ColumnDefinitions="160,90,*,170,260" ColumnSpacing="12">
-                                                <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="SemiBold" />
-                                                <TextBlock Grid.Column="1" Text="{Binding Source}" />
-                                                <TextBlock Grid.Column="2"
-                                                           Text="{Binding Path}"
-                                                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
-                                                           TextWrapping="Wrap" />
-                                                <TextBlock Grid.Column="3"
-                                                           Text="{Binding TestStatus}"
-                                                           Foreground="{DynamicResource DesktopSuccessBrush}"
-                                                           TextWrapping="Wrap" />
-                                                <TextBlock Grid.Column="4"
-                                                           Text="{Binding TestMessage}"
-                                                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
-                                                           TextWrapping="Wrap" />
-                                            </Grid>
-                                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                                                <TextBlock Text="提示" Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
-                                                <TextBlock Grid.Column="1"
-                                                           Text="{Binding Hint}"
-                                                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
-                                                           TextWrapping="Wrap" />
-                                            </Grid>
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
-                    </Grid>
-                </Border>
-            </TabItem>
         </TabControl>
     </Grid>
 </Window>

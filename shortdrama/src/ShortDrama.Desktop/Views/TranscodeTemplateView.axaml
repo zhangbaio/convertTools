@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:shapes="using:Avalonia.Controls.Shapes"
              x:Class="ShortDrama.Desktop.Views.TranscodeTemplateView">
     <ScrollViewer>
         <StackPanel Margin="16" Spacing="16">
@@ -8,7 +9,7 @@
                     <TextBlock Text="转码模板"
                                FontSize="20"
                                FontWeight="SemiBold" />
-                    <TextBlock Text="迁移素材转码参数与分辨率码率档位。当前先接通全局转码策略和按短边自动套档。"
+                    <TextBlock Text="迁移素材转码参数与分辨率码率档位。以下配置主要作用于竖屏模板；横屏视频默认仍走普通转码，但会应用中心放大，不套用背景虚化。"
                                TextWrapping="Wrap"
                                Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
@@ -168,6 +169,198 @@
                     </Grid>
                 </StackPanel>
             </Border>
+
+            <Grid ColumnDefinitions="2.2*,1*" ColumnSpacing="16">
+                <StackPanel Spacing="16">
+                    <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="18" Padding="16">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="时序处理"
+                                       FontSize="18"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="裁切、静态变速和动态变速预设放在一起。"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                            <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
+                                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                    <TextBlock Text="裁头" VerticalAlignment="Center" />
+                                    <TextBox x:Name="TrimHeadTextBox" Grid.Column="1" />
+                                    <TextBlock Grid.Row="1" Text="裁尾" VerticalAlignment="Center" />
+                                    <TextBox x:Name="TrimTailTextBox" Grid.Row="1" Grid.Column="1" />
+                                    <TextBlock Grid.Row="2" Text="静态变速" VerticalAlignment="Center" />
+                                    <TextBox x:Name="SpeedPercentTextBox" Grid.Row="2" Grid.Column="1" />
+                                    <CheckBox x:Name="DynamicSpeedEnabledCheckBox"
+                                              Grid.Row="3"
+                                              Grid.ColumnSpan="2"
+                                              Content="启用动态变速" />
+                                    <TextBlock Grid.Row="4" Text="动态预设" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="DynamicSpeedPresetComboBox"
+                                              Grid.Row="4"
+                                              Grid.Column="1" />
+                                </Grid>
+
+                                <Grid Grid.Column="1"
+                                      ColumnDefinitions="Auto,*"
+                                      RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                                      ColumnSpacing="10"
+                                      RowSpacing="8">
+                                    <TextBlock Text="开头时长" VerticalAlignment="Center" />
+                                    <TextBox x:Name="DynamicSpeedHeadSecondsTextBox" Grid.Column="1" />
+                                    <TextBlock Grid.Row="1" Text="开头变速" VerticalAlignment="Center" />
+                                    <TextBox x:Name="DynamicSpeedHeadPercentTextBox" Grid.Row="1" Grid.Column="1" />
+                                    <TextBlock Grid.Row="2" Text="中间变速" VerticalAlignment="Center" />
+                                    <TextBox x:Name="DynamicSpeedMiddlePercentTextBox" Grid.Row="2" Grid.Column="1" />
+                                    <TextBlock Grid.Row="3" Text="结尾时长" VerticalAlignment="Center" />
+                                    <TextBox x:Name="DynamicSpeedTailSecondsTextBox" Grid.Row="3" Grid.Column="1" />
+                                    <TextBlock Grid.Row="4" Text="结尾变速" VerticalAlignment="Center" />
+                                    <TextBox x:Name="DynamicSpeedTailPercentTextBox" Grid.Row="4" Grid.Column="1" />
+                                </Grid>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="18" Padding="16">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="抽帧处理"
+                                       FontSize="18"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="抽帧会在动态变速之后执行。"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                <CheckBox x:Name="FrameSamplingEnabledCheckBox"
+                                          Grid.ColumnSpan="2"
+                                          Content="启用抽帧" />
+                                <TextBlock Grid.Row="1" Text="抽帧模式" VerticalAlignment="Center" />
+                                <ComboBox x:Name="FrameSamplingModeComboBox"
+                                          Grid.Row="1"
+                                          Grid.Column="1" />
+                                <TextBlock Grid.Row="2" Text="抽帧间隔" VerticalAlignment="Center" />
+                                <TextBox x:Name="FrameSamplingIntervalTextBox"
+                                         Grid.Row="2"
+                                         Grid.Column="1" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="18" Padding="16">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="水印文字"
+                                       FontSize="18"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="水印文字、字号、位置和边距统一管理。"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                <CheckBox x:Name="WatermarkEnabledCheckBox"
+                                          Grid.ColumnSpan="2"
+                                          Content="启用水印文字" />
+                                <TextBlock Grid.Row="1" Text="水印文字" VerticalAlignment="Center" />
+                                <TextBox x:Name="WatermarkTextTextBox"
+                                         Grid.Row="1"
+                                         Grid.Column="1" />
+                                <TextBlock Grid.Row="2" Text="水印字号" VerticalAlignment="Center" />
+                                <TextBox x:Name="WatermarkFontSizeTextBox"
+                                         Grid.Row="2"
+                                         Grid.Column="1" />
+                                <TextBlock Grid.Row="3" Text="水印位置" VerticalAlignment="Center" />
+                                <ComboBox x:Name="WatermarkPositionComboBox"
+                                          Grid.Row="3"
+                                          Grid.Column="1" />
+                                <TextBlock x:Name="WatermarkMarginXLabel"
+                                           Grid.Row="4"
+                                           Text="距右边"
+                                           VerticalAlignment="Center" />
+                                <TextBox x:Name="WatermarkMarginXTextBox"
+                                         Grid.Row="4"
+                                         Grid.Column="1" />
+                                <TextBlock Grid.Row="5" Text="距上边" VerticalAlignment="Center" />
+                                <TextBox x:Name="WatermarkMarginYTextBox"
+                                         Grid.Row="5"
+                                         Grid.Column="1" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Spacing="16">
+                    <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="18" Padding="16">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="画面构图"
+                                       FontSize="18"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="与画面尺寸、裁边和前景大小相关的参数集中在这里。"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                                <TextBlock Text="输出宽度" VerticalAlignment="Center" />
+                                <TextBox x:Name="OutputWidthTextBox" Grid.Column="1" />
+                                <TextBlock Grid.Row="1" Text="输出高度" VerticalAlignment="Center" />
+                                <TextBox x:Name="OutputHeightTextBox" Grid.Row="1" Grid.Column="1" />
+                                <TextBlock Grid.Row="2" Text="上下裁边" VerticalAlignment="Center" />
+                                <TextBox x:Name="CropHeightPercentTextBox" Grid.Row="2" Grid.Column="1" />
+                                <TextBlock Grid.Row="3" Text="左右裁边" VerticalAlignment="Center" />
+                                <TextBox x:Name="CropWidthPercentTextBox" Grid.Row="3" Grid.Column="1" />
+                                <TextBlock Grid.Row="4" Text="前景放大" VerticalAlignment="Center" />
+                                <TextBox x:Name="ForegroundZoomPercentTextBox" Grid.Row="4" Grid.Column="1" />
+                                <TextBlock Grid.Row="5" Text="前景宽度" VerticalAlignment="Center" />
+                                <TextBox x:Name="PipWidthPercentTextBox" Grid.Row="5" Grid.Column="1" />
+                                <TextBlock Grid.Row="6" Text="前景高度" VerticalAlignment="Center" />
+                                <TextBox x:Name="PipHeightPercentTextBox" Grid.Row="6" Grid.Column="1" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="{DynamicResource DesktopPanelBrush}" CornerRadius="18" Padding="16">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="模板预览"
+                                       FontSize="18"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Text="预览会随着裁边、放大、水印和前景尺寸变化即时刷新。"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                            <Viewbox Stretch="Uniform"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Top">
+                                <Canvas x:Name="PreviewCanvas"
+                                        Width="1080"
+                                        Height="1920"
+                                        Background="#F5F7FB">
+                                    <Border x:Name="PreviewFrameBorder"
+                                            Width="1080"
+                                            Height="1920"
+                                            Background="#D7E2EF"
+                                            BorderBrush="#91A4B8"
+                                            BorderThickness="2" />
+                                    <Border x:Name="PreviewForegroundBorder"
+                                            Width="1080"
+                                            Height="1920"
+                                            Background="#FFFFFF"
+                                            BorderBrush="#334155"
+                                            BorderThickness="4" />
+                                    <shapes:Rectangle x:Name="PreviewCropRectangle"
+                                                      Stroke="#EF4444"
+                                                      StrokeThickness="4"
+                                                      StrokeDashArray="14,10"
+                                                      Fill="#00FFFFFF" />
+                                    <shapes:Rectangle x:Name="PreviewZoomRectangle"
+                                                      Stroke="#F97316"
+                                                      StrokeThickness="4"
+                                                      StrokeDashArray="14,10"
+                                                      Fill="#00FFFFFF" />
+                                    <TextBlock x:Name="PreviewWatermarkTextBlock"
+                                               Foreground="#F8FAFC"
+                                               FontWeight="Bold"
+                                               IsVisible="False" />
+                                    <TextBlock x:Name="PreviewDescriptionTextBlock"
+                                               Foreground="#475569"
+                                               FontSize="40"
+                                               Text="Portrait preview" />
+                                </Canvas>
+                            </Viewbox>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
 
             <TextBlock x:Name="StatusTextBlock"
                        Foreground="{DynamicResource DesktopTextSecondaryBrush}"
