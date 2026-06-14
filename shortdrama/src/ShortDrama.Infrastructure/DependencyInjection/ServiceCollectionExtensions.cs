@@ -72,6 +72,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWorkflowDefinitionLoader, JsonWorkflowDefinitionLoader>();
         services.AddSingleton<IWorkflowRunner, WorkflowRunner>();
         services.AddSingleton<IFeishuNotificationService, FeishuNotificationService>();
+        services.AddSingleton<IWeixinLoginNotificationService, NoopWeixinLoginNotificationService>();
 
         return services;
     }

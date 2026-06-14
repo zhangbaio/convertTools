@@ -117,6 +117,44 @@ public sealed class WeixinHomePage
         return screenshotPath;
     }
 
+    public async Task<string> SaveLoginQrScreenshotAsync(
+        IPage page,
+        string outputDirectory,
+        string fileName,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Directory.CreateDirectory(outputDirectory);
+        var screenshotPath = Path.Combine(outputDirectory, fileName);
+        var qrLocator = page
+            .Locator(".qrcode-img, .login-qrcode, [class*='qrCode'], [class*='qrcode'], img[alt*='二维码']")
+            .First;
+
+        try
+        {
+            if (await qrLocator.IsVisibleAsync())
+            {
+                await qrLocator.ScreenshotAsync(new LocatorScreenshotOptions
+                {
+                    Path = screenshotPath
+                });
+                return screenshotPath;
+            }
+        }
+        catch
+        {
+            // Fall back to a normal page screenshot when QR locator is unavailable.
+        }
+
+        await page.ScreenshotAsync(new PageScreenshotOptions
+        {
+            Path = screenshotPath,
+            FullPage = false
+        });
+        return screenshotPath;
+    }
+
     public async Task SaveDebugArtifactsAsync(
         IPage page,
         WeixinAutomationConfig config,

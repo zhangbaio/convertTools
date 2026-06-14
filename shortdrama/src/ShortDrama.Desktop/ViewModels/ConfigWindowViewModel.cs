@@ -328,6 +328,9 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private bool feishuNotifyOnQueueSummary = true;
 
     [ObservableProperty]
+    private bool feishuNotifyOnLoginQr = true;
+
+    [ObservableProperty]
     private string feishuNotifyStepKeysText = string.Empty;
 
     [ObservableProperty]
@@ -443,6 +446,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
         FeishuNotifyOnStepSuccess = _loadedGlobalConfig.FeishuNotifyOnStepSuccess;
         FeishuNotifyOnStepFailure = _loadedGlobalConfig.FeishuNotifyOnStepFailure;
         FeishuNotifyOnQueueSummary = _loadedGlobalConfig.FeishuNotifyOnQueueSummary;
+        FeishuNotifyOnLoginQr = _loadedGlobalConfig.FeishuNotifyOnLoginQr;
         FeishuNotifyStepKeysText = string.IsNullOrWhiteSpace(_loadedGlobalConfig.FeishuNotifyStepKeysText)
             ? "download\ntranscode\nrewrite\nposter-rename\nproject-image\ncost-report\nbatch-file-rename\nmaterial-convert\nweixin-upload\nweixin-material-upload"
             : _loadedGlobalConfig.FeishuNotifyStepKeysText;
@@ -545,6 +549,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
             FeishuNotifyOnStepSuccess = FeishuNotifyOnStepSuccess,
             FeishuNotifyOnStepFailure = FeishuNotifyOnStepFailure,
             FeishuNotifyOnQueueSummary = FeishuNotifyOnQueueSummary,
+            FeishuNotifyOnLoginQr = FeishuNotifyOnLoginQr,
             FeishuNotifyStepKeysText = FeishuNotifyStepKeysText.Trim()
         };
 

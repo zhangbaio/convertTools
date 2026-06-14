@@ -35,6 +35,7 @@ public sealed class FeishuSettingsTab : UserControl
         panel.Children.Add(BindCheck("步骤成功时通知", nameof(ConfigWindowViewModel.FeishuNotifyOnStepSuccess)));
         panel.Children.Add(BindCheck("步骤失败时通知", nameof(ConfigWindowViewModel.FeishuNotifyOnStepFailure)));
         panel.Children.Add(BindCheck("队列完成时汇总通知", nameof(ConfigWindowViewModel.FeishuNotifyOnQueueSummary)));
+        panel.Children.Add(BindCheck("登录二维码提醒", nameof(ConfigWindowViewModel.FeishuNotifyOnLoginQr)));
         panel.Children.Add(Row("通知步骤", MultiLineText(nameof(ConfigWindowViewModel.FeishuNotifyStepKeysText), 180)));
 
         return panel;

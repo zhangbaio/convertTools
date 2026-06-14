@@ -58,4 +58,5 @@ public sealed record GlobalConfigSnapshot(
     bool FeishuNotifyOnStepSuccess,
     bool FeishuNotifyOnStepFailure,
     bool FeishuNotifyOnQueueSummary,
+    bool FeishuNotifyOnLoginQr,
     string FeishuNotifyStepKeysText);

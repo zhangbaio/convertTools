@@ -1,6 +1,7 @@
 ﻿using Microsoft.Playwright;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.Notifications;
 using ShortDrama.Infrastructure.Automation.Weixin;
 using ShortDrama.Infrastructure.Automation.Weixin.Pages;
 
@@ -36,6 +37,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
     private readonly WeixinHomePage _homePage;
     private readonly WeixinSeriesSubmissionPage _seriesSubmissionPage;
     private readonly WeixinMaterialPublishPage _materialPublishPage;
+    private readonly IWeixinLoginNotificationService _loginNotificationService;
 
     public WeixinChannelUploader(
         IWeixinAutomationConfigLoader configLoader,
@@ -45,7 +47,8 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         WeixinBrowserRuntimeService browserRuntimeService,
         WeixinHomePage homePage,
         WeixinSeriesSubmissionPage seriesSubmissionPage,
-        WeixinMaterialPublishPage materialPublishPage)
+        WeixinMaterialPublishPage materialPublishPage,
+        IWeixinLoginNotificationService? loginNotificationService = null)
     {
         _configLoader = configLoader;
         _authStateService = authStateService;
@@ -55,6 +58,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         _homePage = homePage;
         _seriesSubmissionPage = seriesSubmissionPage;
         _materialPublishPage = materialPublishPage;
+        _loginNotificationService = loginNotificationService ?? NoopWeixinLoginNotificationService.Instance;
     }
 
     public async Task<WeixinUploadResult> UploadAsync(
@@ -118,9 +122,10 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
 
         await _homePage.OpenAsync(page, config.BaseUrl, cancellationToken);
         var isLoggedIn = await _homePage.IsLoggedInAsync(page, cancellationToken);
+        string? homeScreenshotPath = null;
         if (!isLoggedIn || config.Debug.SaveHtml || config.Debug.SaveText)
         {
-            var homeScreenshotPath = await _homePage.SaveScreenshotAsync(
+            homeScreenshotPath = await _homePage.SaveScreenshotAsync(
                 page,
                 config.OutputDirectory,
                 "weixin-home.png",
@@ -135,6 +140,17 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
 
         if (!isLoggedIn)
         {
+            var loginQrScreenshotPath = await _homePage.SaveLoginQrScreenshotAsync(
+                page,
+                config.OutputDirectory,
+                "weixin-login-qr.png",
+                cancellationToken);
+            await TryNotifyLoginQrRequiredAsync(
+                request,
+                config,
+                loginQrScreenshotPath,
+                progress,
+                cancellationToken);
             progress?.Report("寰俊涓婁紶锛氭湭妫€娴嬪埌鏈夋晥鐧诲綍鎬侊紝璇峰湪娴忚鍣ㄤ腑鎵爜鐧诲綍銆");
             var loginDecision = await WaitForLoginCompletionAsync(
                 request,
@@ -603,6 +619,33 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
 
         progress?.Report("寰俊鍓ч泦涓婁紶锛氬凡纭鐧诲綍鎴愬姛銆");
         return "resume";
+    }
+
+    private async Task TryNotifyLoginQrRequiredAsync(
+        WeixinUploadRequest request,
+        WeixinAutomationConfig config,
+        string? screenshotPath,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _loginNotificationService.NotifyLoginRequiredAsync(
+                new WeixinLoginNotificationRequest(
+                    ProjectKey: request.ProjectKey,
+                    DisplayName: request.DisplayName,
+                    ProjectDirectory: request.ProjectDir,
+                    BaseUrl: config.BaseUrl,
+                    AuthFilePath: config.AuthFilePath,
+                    ScreenshotPath: screenshotPath,
+                    Message: "检测到当前登录态不可复用，请在浏览器中扫码登录视频号后台后继续执行。"),
+                cancellationToken);
+            progress?.Report("寰俊涓婁紶锛氬凡鍙戦€佺櫥褰曚簩缁寸爜鎻愰啋銆");
+        }
+        catch (Exception ex)
+        {
+            progress?.Report($"寰俊涓婁紶锛氱櫥褰曚簩缁寸爜鎻愰啋鍙戦€佸け璐? {ex.Message}");
+        }
     }
 
     private async Task<string> WaitForSeriesOperatorAsync(

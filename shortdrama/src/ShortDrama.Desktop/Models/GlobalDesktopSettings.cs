@@ -58,5 +58,6 @@ public sealed class GlobalDesktopSettings
     public bool FeishuNotifyOnStepSuccess { get; set; } = true;
     public bool FeishuNotifyOnStepFailure { get; set; } = true;
     public bool FeishuNotifyOnQueueSummary { get; set; } = true;
+    public bool FeishuNotifyOnLoginQr { get; set; } = true;
     public string FeishuNotifyStepKeysText { get; set; } = string.Empty;
 }

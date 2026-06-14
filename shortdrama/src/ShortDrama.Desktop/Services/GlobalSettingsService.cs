@@ -84,6 +84,7 @@ public sealed class GlobalSettingsService
             FeishuNotifyOnStepSuccess = snapshot.FeishuNotifyOnStepSuccess,
             FeishuNotifyOnStepFailure = snapshot.FeishuNotifyOnStepFailure,
             FeishuNotifyOnQueueSummary = snapshot.FeishuNotifyOnQueueSummary,
+            FeishuNotifyOnLoginQr = snapshot.FeishuNotifyOnLoginQr,
             FeishuNotifyStepKeysText = snapshot.FeishuNotifyStepKeysText,
         };
 
@@ -178,6 +179,7 @@ public sealed class GlobalSettingsService
             FeishuNotifyOnStepSuccess: dto.FeishuNotifyOnStepSuccess,
             FeishuNotifyOnStepFailure: dto.FeishuNotifyOnStepFailure,
             FeishuNotifyOnQueueSummary: dto.FeishuNotifyOnQueueSummary,
+            FeishuNotifyOnLoginQr: dto.FeishuNotifyOnLoginQr,
             FeishuNotifyStepKeysText: dto.FeishuNotifyStepKeysText);
     }
 }
