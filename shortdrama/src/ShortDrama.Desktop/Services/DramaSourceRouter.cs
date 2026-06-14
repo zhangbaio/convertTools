@@ -187,10 +187,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     {
         try
         {
-            return await _hgnewApiService.GetDailyByDatesAsync(
+            return await LoadHgnewDailyModeWithFallbackAsync(
                 settings,
                 "mjnew",
-                BuildRecentDateWindow(days),
+                days,
                 cancellationToken);
         }
         catch
@@ -208,10 +208,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     {
         try
         {
-            return await _hgnewApiService.GetDailyByDatesAsync(
+            return await LoadHgnewDailyModeWithFallbackAsync(
                 settings,
                 "aiju",
-                BuildRecentDateWindow(days),
+                days,
                 cancellationToken);
         }
         catch
@@ -241,6 +241,60 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 () => _hgnewSearchService.GetTodayAsync(cancellationToken),
                 days);
         }
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> LoadHgnewDailyModeWithFallbackAsync(
+        GlobalConfigSnapshot settings,
+        string mode,
+        int days,
+        CancellationToken cancellationToken)
+    {
+        var window = BuildRecentDateWindow(days);
+        if (window.Count == 0)
+        {
+            return [];
+        }
+
+        if (window.Count == 1)
+        {
+            var todayItems = await _hgnewApiService.GetDailyByDatesAsync(
+                settings,
+                mode,
+                [window[0]],
+                cancellationToken);
+            if (todayItems.Count > 0)
+            {
+                return todayItems;
+            }
+
+            return await _hgnewApiService.GetDailyByDatesAsync(
+                settings,
+                mode,
+                [window[0].AddDays(-1)],
+                cancellationToken);
+        }
+
+        var merged = new List<DramaSearchItem>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var date in window)
+        {
+            var dayItems = await _hgnewApiService.GetDailyByDatesAsync(
+                settings,
+                mode,
+                [date],
+                cancellationToken);
+            foreach (var item in dayItems)
+            {
+                if (string.IsNullOrWhiteSpace(item.BookId) || !seen.Add(item.BookId))
+                {
+                    continue;
+                }
+
+                merged.Add(item);
+            }
+        }
+
+        return SortByPublishTimeDescending(merged);
     }
 
     public async Task<DramaDownloadResult> DownloadAsync(
@@ -538,6 +592,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             .ToArray();
 
         return filtered.Length > 0 ? filtered : items;
+    }
+
+    private static IReadOnlyList<DramaSearchItem> SortByPublishTimeDescending(IEnumerable<DramaSearchItem> items)
+    {
+        return items
+            .OrderByDescending(item => TryParsePublishDate(item.PublishTime, out var publishedAt) ? publishedAt : DateTime.MinValue)
+            .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static bool TryParsePublishDate(string? value, out DateTime date)
