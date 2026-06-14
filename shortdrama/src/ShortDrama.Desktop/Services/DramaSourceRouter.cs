@@ -1,4 +1,4 @@
-﻿using ShortDrama.Core.Interfaces;
+using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Desktop.Models;
 using ShortDrama.Infrastructure.Automation;
@@ -61,7 +61,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 var result = source switch
                 {
                     "hgnew" => await SearchHgnewAsync(keyword, page, settings, cancellationToken),
-                    "hglocal" => await SearchLocalViaServiceAsync(keyword, page, settings, cancellationToken),
+                    "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
                     "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken),
                     _ => []
                 };
@@ -91,7 +91,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => _hgnewApiService.GetTodayNewAsync(settings, "djnew", ct),
-            hglocalLoader: ct => _hglocalApiService.GetTodayNewAsync(settings, "short_play", ct),
+            hglocalLoader: ct => GetLocalTodayAsync(settings, ct),
             cancellationToken);
     }
 
@@ -101,7 +101,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewMangaTodayAsync(settings, days, ct),
-            hglocalLoader: ct => _hglocalApiService.GetLatestByGenreAsync(settings, "comic_series", days, ct),
+            hglocalLoader: ct => GetLatestByGenreAsync(settings, "comic_series", days, ct),
             cancellationToken);
     }
 
@@ -111,7 +111,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewAiTodayAsync(settings, days, ct),
-            hglocalLoader: ct => _hglocalApiService.GetLatestByGenreAsync(settings, "ai_series", days, ct),
+            hglocalLoader: ct => GetLatestByGenreAsync(settings, "ai_series", days, ct),
             cancellationToken);
     }
 
@@ -121,7 +121,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewHistoryAsync(settings, days, ct),
-            hglocalLoader: ct => _hglocalApiService.GetLatestByGenreAsync(settings, "short_play", days, ct),
+            hglocalLoader: ct => GetLatestByGenreAsync(settings, "short_play", days, ct),
             cancellationToken);
     }
 
@@ -140,15 +140,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             // Fall back to the legacy proxy-based search when the authenticated path is unavailable.
             return await _hgnewSearchService.SearchAsync(keyword, page, cancellationToken);
         }
-    }
-
-    private async Task<IReadOnlyList<DramaSearchItem>> SearchLocalViaServiceAsync(
-        string keyword,
-        int page,
-        GlobalConfigSnapshot settings,
-        CancellationToken cancellationToken)
-    {
-        return await _hglocalApiService.SearchAsync(settings, keyword, page, cancellationToken);
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> LoadNewReleaseAsync(
@@ -266,8 +257,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 request,
                 progress,
                 cancellationToken,
-                resolveEpisodes: ct => GetLocalEpisodesViaServiceAsync(bookId, settings, ct),
-                resolveVideo: (videoId, quality, ct) => GetLocalVideoUrlViaServiceAsync(videoId, settings, ct),
+                resolveEpisodes: ct => GetLocalEpisodesAsync(bookId, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetLocalVideoUrlAsync(videoId, settings, ct),
                 posterPrefix: HongguoLocalBookPrefix);
         }
 
@@ -701,30 +692,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private async Task<SourceVideoDetail> GetHgnewVideoUrlAsync(string videoId, string quality, GlobalConfigSnapshot settings, CancellationToken cancellationToken)
     {
         var detail = await _hgnewApiService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
-        return new SourceVideoDetail(detail.Url);
-    }
-
-    private async Task<IReadOnlyList<SourceEpisode>> GetLocalEpisodesViaServiceAsync(
-        string prefixedBookId,
-        GlobalConfigSnapshot settings,
-        CancellationToken cancellationToken)
-    {
-        var items = await _hglocalApiService.GetEpisodesAsync(settings, prefixedBookId, cancellationToken);
-        return items
-            .Select(item => new SourceEpisode(
-                item.EpisodeNumber,
-                item.Title,
-                item.VideoId,
-                item.PosterUrl))
-            .ToArray();
-    }
-
-    private async Task<SourceVideoDetail> GetLocalVideoUrlViaServiceAsync(
-        string prefixedVideoId,
-        GlobalConfigSnapshot settings,
-        CancellationToken cancellationToken)
-    {
-        var detail = await _hglocalApiService.GetVideoPlaybackAsync(settings, prefixedVideoId, cancellationToken);
         return new SourceVideoDetail(detail.Url);
     }
 
