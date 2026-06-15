@@ -69,7 +69,11 @@ public partial class MainWindowViewModel
     partial void OnQueueStepMaterialValidateEnabledChanged(bool value) => RefreshQueueStepSelectionState();
     partial void OnQueueStepUploadRemuxEnabledChanged(bool value) => RefreshQueueStepSelectionState();
     partial void OnQueueStepEpisodeUploadEnabledChanged(bool value) => RefreshQueueStepSelectionState();
-    partial void OnQueueStepMaterialUploadEnabledChanged(bool value) => RefreshQueueStepSelectionState();
+    partial void OnQueueStepMaterialUploadEnabledChanged(bool value)
+    {
+        RefreshQueueStepSelectionState();
+        PersistMaterialUploadPageState();
+    }
     partial void OnQueueSyncManagementOnUploadSuccessEnabledChanged(bool value) => RefreshQueueStepSelectionState();
     partial void OnQueueAutoArchiveAfterUploadEnabledChanged(bool value) => RefreshQueueStepSelectionState();
     partial void OnQueueForceRerunCompletedStepsEnabledChanged(bool value) => RefreshQueueStepSelectionState();

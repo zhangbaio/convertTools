@@ -8,6 +8,10 @@ public sealed class DesktopStateService
     {
         WriteIndented = true
     };
+    private static readonly MaterialUploadPageState DefaultMaterialUploadPageState = new(
+        GenerateHighlights: true,
+        MaterialUploadEnabled: false,
+        AllowDuplicatePublish: false);
 
     public string LoadLastRootDir()
     {
@@ -18,7 +22,7 @@ public sealed class DesktopStateService
     public void SaveLastRootDir(string rootDir)
     {
         var normalizedRootDir = NormalizeRootDir(rootDir);
-        var state = LoadState() ?? new DesktopState(string.Empty, null);
+        var state = LoadState() ?? new DesktopState(string.Empty, null, null);
         SaveState(state with { LastRootDir = normalizedRootDir });
     }
 
@@ -59,7 +63,7 @@ public sealed class DesktopStateService
             .OrderBy(key => key, StringComparer.Ordinal)
             .ToArray();
 
-        var currentState = LoadState() ?? new DesktopState(string.Empty, null);
+        var currentState = LoadState() ?? new DesktopState(string.Empty, null, null);
         var selections = currentState.ProjectSelections is null
             ? new Dictionary<string, ProjectSelectionState>(StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, ProjectSelectionState>(currentState.ProjectSelections, StringComparer.OrdinalIgnoreCase);
@@ -74,6 +78,42 @@ public sealed class DesktopStateService
         }
 
         SaveState(currentState with { ProjectSelections = selections });
+    }
+
+    public MaterialUploadPageState LoadMaterialUploadPageState(string rootDir)
+    {
+        var normalizedRootDir = NormalizeRootDir(rootDir);
+        if (string.IsNullOrWhiteSpace(normalizedRootDir))
+        {
+            return DefaultMaterialUploadPageState;
+        }
+
+        var state = LoadState();
+        if (state?.MaterialUploadPageStates is null ||
+            !state.MaterialUploadPageStates.TryGetValue(normalizedRootDir, out var savedState) ||
+            savedState is null)
+        {
+            return DefaultMaterialUploadPageState;
+        }
+
+        return savedState;
+    }
+
+    public void SaveMaterialUploadPageState(string rootDir, MaterialUploadPageState pageState)
+    {
+        var normalizedRootDir = NormalizeRootDir(rootDir);
+        if (string.IsNullOrWhiteSpace(normalizedRootDir))
+        {
+            return;
+        }
+
+        var currentState = LoadState() ?? new DesktopState(string.Empty, null, null);
+        var pageStates = currentState.MaterialUploadPageStates is null
+            ? new Dictionary<string, MaterialUploadPageState>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, MaterialUploadPageState>(currentState.MaterialUploadPageStates, StringComparer.OrdinalIgnoreCase);
+
+        pageStates[normalizedRootDir] = pageState;
+        SaveState(currentState with { MaterialUploadPageStates = pageStates });
     }
 
     private static DesktopState? LoadState()
@@ -132,7 +172,15 @@ public sealed class DesktopStateService
         return Path.Combine(baseDir, "state.json");
     }
 
-    private sealed record DesktopState(string LastRootDir, Dictionary<string, ProjectSelectionState>? ProjectSelections);
+    public sealed record MaterialUploadPageState(
+        bool GenerateHighlights,
+        bool MaterialUploadEnabled,
+        bool AllowDuplicatePublish);
+
+    private sealed record DesktopState(
+        string LastRootDir,
+        Dictionary<string, ProjectSelectionState>? ProjectSelections,
+        Dictionary<string, MaterialUploadPageState>? MaterialUploadPageStates);
 
     private sealed record ProjectSelectionState(string[] CheckedProjectKeys);
 }

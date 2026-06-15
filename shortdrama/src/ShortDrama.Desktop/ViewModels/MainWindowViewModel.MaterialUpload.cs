@@ -7,6 +7,8 @@ namespace ShortDrama.Desktop.ViewModels;
 
 public partial class MainWindowViewModel
 {
+    private bool _applyingMaterialUploadPageState;
+
     public ObservableCollection<ProjectListItemViewModel> MaterialUploadProjects { get; } = [];
 
     [ObservableProperty]
@@ -18,10 +20,44 @@ public partial class MainWindowViewModel
     [ObservableProperty]
     private bool materialUploadGenerateHighlights = true;
 
+    partial void OnMaterialUploadAllowDuplicatePublishChanged(bool value) => PersistMaterialUploadPageState();
+    partial void OnMaterialUploadGenerateHighlightsChanged(bool value) => PersistMaterialUploadPageState();
+
     partial void OnMaterialUploadFilterTextChanged(string value)
     {
         ApplyMaterialUploadFilter();
         RefreshCommandStates();
+    }
+
+    private void LoadMaterialUploadPageState()
+    {
+        var state = _stateService.LoadMaterialUploadPageState(RootDir);
+        _applyingMaterialUploadPageState = true;
+        try
+        {
+            MaterialUploadGenerateHighlights = state.GenerateHighlights;
+            QueueStepMaterialUploadEnabled = state.MaterialUploadEnabled;
+            MaterialUploadAllowDuplicatePublish = state.AllowDuplicatePublish;
+        }
+        finally
+        {
+            _applyingMaterialUploadPageState = false;
+        }
+    }
+
+    private void PersistMaterialUploadPageState()
+    {
+        if (_applyingMaterialUploadPageState || string.IsNullOrWhiteSpace(RootDir))
+        {
+            return;
+        }
+
+        _stateService.SaveMaterialUploadPageState(
+            RootDir,
+            new DesktopStateService.MaterialUploadPageState(
+                MaterialUploadGenerateHighlights,
+                QueueStepMaterialUploadEnabled,
+                MaterialUploadAllowDuplicatePublish));
     }
 
     public string MaterialUploadQueueButtonText =>

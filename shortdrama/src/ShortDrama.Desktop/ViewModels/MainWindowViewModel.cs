@@ -704,6 +704,7 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(WorkspaceSummary));
         RefreshCommandStates();
         LoadConfig();
+        LoadMaterialUploadPageState();
     }
 
     partial void OnSearchKeywordChanged(string value) => RefreshCommandStates();
