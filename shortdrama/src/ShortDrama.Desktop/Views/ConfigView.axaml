@@ -2,6 +2,17 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="ShortDrama.Desktop.Views.ConfigView">
 
+    <UserControl.Styles>
+        <Style Selector="TabControl.config-tabs TabItem">
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Width" Value="138" />
+            <Setter Property="MinHeight" Value="46" />
+            <Setter Property="Padding" Value="14,10" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="FontSize" Value="14" />
+        </Style>
+    </UserControl.Styles>
+
     <Grid x:Name="RootGrid"
           RowDefinitions="Auto,*,Auto"
           Margin="20"
@@ -37,6 +48,7 @@
         </Border>
 
         <TabControl x:Name="SettingsTabControl"
+                    Classes="config-tabs"
                     Grid.Row="1" />
 
         <StackPanel Grid.Row="2"

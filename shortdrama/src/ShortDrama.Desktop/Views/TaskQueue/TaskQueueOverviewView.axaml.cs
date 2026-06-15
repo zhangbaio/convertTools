@@ -53,6 +53,16 @@ public partial class TaskQueueOverviewView : UserControl
         ViewModel?.SetAllProjectsChecked(false);
     }
 
+    private void CheckAllQueueSteps_Click(object? sender, RoutedEventArgs e)
+    {
+        ViewModel?.SetAllQueueStepsEnabled(true);
+    }
+
+    private void UncheckAllQueueSteps_Click(object? sender, RoutedEventArgs e)
+    {
+        ViewModel?.SetAllQueueStepsEnabled(false);
+    }
+
     private async void ArchiveCheckedProjects_Click(object? sender, RoutedEventArgs e)
     {
         if (ViewModel is null || OwnerWindow is null)

@@ -163,4 +163,20 @@ public partial class MainWindowViewModel
                QueueStepEpisodeUploadEnabled ||
                QueueStepMaterialUploadEnabled;
     }
+
+    public void SetAllQueueStepsEnabled(bool isEnabled)
+    {
+        QueueStepDownloadEnabled = isEnabled;
+        QueueStepRewriteEnabled = isEnabled;
+        QueueStepPosterRenameEnabled = isEnabled;
+        QueueStepMaterialTranscodeEnabled = isEnabled;
+        QueueStepMaterialAutoRepairEnabled = isEnabled;
+        QueueStepAutoFillInfoEnabled = isEnabled;
+        QueueStepCostReportEnabled = isEnabled;
+        QueueStepProjectImageEnabled = isEnabled;
+        QueueStepMaterialValidateEnabled = isEnabled;
+        QueueStepUploadRemuxEnabled = isEnabled;
+        QueueStepEpisodeUploadEnabled = isEnabled;
+        QueueStepMaterialUploadEnabled = isEnabled;
+    }
 }
