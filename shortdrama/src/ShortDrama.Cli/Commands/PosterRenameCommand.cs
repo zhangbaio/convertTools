@@ -41,7 +41,7 @@ public sealed class PosterRenameCommand
 
         var configFileOption = new Option<FileInfo?>(
             "--config-file",
-            "Optional config.txt path. Required when --use-ai is enabled.");
+            "Optional config.json path. Required when --use-ai is enabled.");
 
         var nameTemplateOption = new Option<string?>(
             "--name-template",
@@ -49,7 +49,7 @@ public sealed class PosterRenameCommand
 
         var useAiOption = new Option<bool>(
             "--use-ai",
-            "Use the chat model in config.txt to generate a poster title before renaming");
+            "Use the chat model in config.json to generate a poster title before renaming");
 
         var overwriteOption = new Option<bool>(
             "--overwrite",

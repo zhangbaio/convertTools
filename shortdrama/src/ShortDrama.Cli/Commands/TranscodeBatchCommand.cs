@@ -41,7 +41,7 @@ public sealed class TranscodeBatchCommand
 
         var configFileOption = new Option<FileInfo?>(
             "--config-file",
-            "Optional config.txt path. When set, video bitrate/fps/resolution settings are loaded from it.");
+            "Optional config.json path. When set, video bitrate/fps/resolution settings are loaded from it.");
 
         var overwriteOption = new Option<bool>(
             "--overwrite",

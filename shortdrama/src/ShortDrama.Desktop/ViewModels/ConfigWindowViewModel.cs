@@ -661,24 +661,10 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
     private string ResolveInitialTemplateRoot()
     {
-        if (!string.IsNullOrWhiteSpace(_loadedProjectConfig.ProjectImageTemplateRoot))
-        {
-            return _loadedProjectConfig.ProjectImageTemplateRoot;
-        }
-
-        if (!string.IsNullOrWhiteSpace(_loadedProjectConfig.ProjectImageTemplateDir))
-        {
-            return _loadedProjectConfig.ProjectImageTemplateDir;
-        }
-
-        var candidates = new[]
-        {
-            Path.Combine(RootDir, "templates", "project-image"),
-            Path.Combine(AppContext.BaseDirectory, "templates", "project-image"),
-            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "templates", "project-image"))
-        };
-
-        return candidates.FirstOrDefault(Directory.Exists) ?? string.Empty;
+        return ProjectImageTemplateCatalog.ResolveTemplateRoot(
+            _loadedProjectConfig.ProjectImageTemplateRoot,
+            _loadedProjectConfig.ProjectImageTemplateDir,
+            RootDir);
     }
 
     private void OpenConfigFile()

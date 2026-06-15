@@ -1,8 +1,10 @@
 using Microsoft.Extensions.Logging;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.Imaging;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.Text.Json;
 
 namespace ShortDrama.Cli.Commands;
 
@@ -41,11 +43,11 @@ public sealed class ProjectImageGenerateCommand
 
         var templateImageOption = new Option<DirectoryInfo?>(
             "--template-dir",
-            "Directory containing 工程图_N.png template files. Defaults to ProjectImageTemplateDir in config.");
+            "Directory containing 工程图_N.png template files. Defaults to ProjectImageTemplateDir in config.json.");
 
         var configFileOption = new Option<FileInfo?>(
             "--config-file",
-            "Optional config.txt path. When set, ProjectImageCount is loaded from it.");
+            "Optional config.json path. When set, ProjectImageCount is loaded from it.");
 
         var countOption = new Option<int?>(
             "--count",
@@ -168,7 +170,51 @@ public sealed class ProjectImageGenerateCommand
             return null;
         }
 
-        foreach (var rawLine in File.ReadAllLines(configFile))
+        var configMap = ReadConfigMap(configFile);
+        configMap.TryGetValue("ProjectImageTemplateRoot", out var templateRoot);
+        configMap.TryGetValue("ProjectImageTemplateId", out var templateId);
+        configMap.TryGetValue("ProjectImageTemplateDir", out var templateDir);
+
+        var configDir = Path.GetDirectoryName(configFile)!;
+        var projectRoot = Directory.GetParent(configDir)?.FullName;
+        return ProjectImageTemplateCatalog.ResolveTemplateDirectory(
+            ResolveConfiguredPath(configDir, templateRoot),
+            templateId ?? string.Empty,
+            ResolveConfiguredPath(configDir, templateDir),
+            projectRoot);
+    }
+
+    private static Dictionary<string, string> ReadConfigMap(string configFile)
+    {
+        var content = File.ReadAllText(configFile);
+        var trimmed = content.TrimStart();
+        if (trimmed.StartsWith('{'))
+        {
+            using var document = JsonDocument.Parse(content);
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return map;
+            }
+
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                map[property.Name] = property.Value.ValueKind switch
+                {
+                    JsonValueKind.String => property.Value.GetString() ?? string.Empty,
+                    JsonValueKind.Number => property.Value.GetRawText(),
+                    JsonValueKind.True => "true",
+                    JsonValueKind.False => "false",
+                    JsonValueKind.Object or JsonValueKind.Array => property.Value.GetRawText(),
+                    _ => string.Empty
+                };
+            }
+
+            return map;
+        }
+
+        var legacyMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawLine in content.Split(["\r\n", "\n"], StringSplitOptions.None))
         {
             var line = rawLine.Trim();
             if (line.Length == 0 || line.StartsWith('#'))
@@ -182,18 +228,22 @@ public sealed class ProjectImageGenerateCommand
                 continue;
             }
 
-            var key = line[..separatorIndex].Trim();
-            var value = line[(separatorIndex + 1)..].Trim();
-
-            if (key.Equals("ProjectImageTemplateDir", StringComparison.OrdinalIgnoreCase))
-            {
-                return Path.IsPathRooted(value)
-                    ? value
-                    : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(configFile)!, value));
-            }
+            legacyMap[line[..separatorIndex].Trim()] = line[(separatorIndex + 1)..].Trim();
         }
 
-        return null;
+        return legacyMap;
+    }
+
+    private static string ResolveConfiguredPath(string configDirectory, string? configuredPath)
+    {
+        if (string.IsNullOrWhiteSpace(configuredPath))
+        {
+            return string.Empty;
+        }
+
+        return Path.IsPathRooted(configuredPath)
+            ? configuredPath
+            : Path.GetFullPath(Path.Combine(configDirectory, configuredPath));
     }
 
     private static string EscapeJson(string value)

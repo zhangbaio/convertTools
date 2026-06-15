@@ -37,7 +37,7 @@ public sealed class BatchFileRenameCommand
 
         var configFileOption = new Option<FileInfo?>(
             "--config-file",
-            "Optional config.txt path. When set, VideoNameTemplate is read from it.");
+            "Optional config.json path. When set, VideoNameTemplate is read from it.");
 
         var nameTemplateOption = new Option<string?>(
             "--name-template",

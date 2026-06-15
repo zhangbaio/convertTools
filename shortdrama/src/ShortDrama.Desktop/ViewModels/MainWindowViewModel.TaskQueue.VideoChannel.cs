@@ -52,63 +52,85 @@ public partial class MainWindowViewModel
         var workflowDir = project.WorkflowProjectDir;
         if (string.IsNullOrWhiteSpace(workflowDir))
         {
-            AppendLog("一键修复跳过：未找到 workflow 目录。", project.ProjectKey, project.DisplayName, "material-auto-repair", "一键修复", isFailure: true);
+            AppendLog("一键修复失败：未找到 workflow 目录。", project.ProjectKey, project.DisplayName, "material-auto-repair", "一键修复", isFailure: true);
             return false;
         }
 
         var validation = await _materialValidationService.ValidateAsync(workflowDir, cancellationToken);
-        var fixableCodes = validation.Issues.Where(issue => issue.CanAutoFix).Select(issue => issue.Code).Distinct(StringComparer.Ordinal).ToArray();
+        var fixableCodes = validation.Issues
+            .Where(issue => issue.CanAutoFix)
+            .Select(issue => issue.Code)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
         if (fixableCodes.Length == 0)
         {
-            AppendLog("一键修复跳过：未发现可自动修复的素材问题。", project.ProjectKey, project.DisplayName, "material-auto-repair", "一键修复");
+            AppendLog("一键修复已跳过：未发现可自动修复的素材问题。", project.ProjectKey, project.DisplayName, "material-auto-repair", "一键修复");
             return true;
         }
 
         AppendLog($"开始一键修复：共 {fixableCodes.Length} 类问题。", project.ProjectKey, project.DisplayName, "material-auto-repair", "一键修复");
 
-        if (fixableCodes.Contains("info-missing") || fixableCodes.Contains("info-invalid"))
+        if ((fixableCodes.Contains("info-missing") || fixableCodes.Contains("info-invalid")) &&
+            !await TryRunAutoRepairProjectStepAsync(project, "rewrite", true, cancellationToken))
         {
-            await _workService.RunProjectStepAsync(project.SourceProjectDir, null, "rewrite", true, CreateBufferedProgress(), cancellationToken);
+            return false;
         }
 
-        if (fixableCodes.Contains("video-bitrate-low") || fixableCodes.Contains("videos-dir-missing") || fixableCodes.Contains("video-bitrate-unreadable"))
+        if ((fixableCodes.Contains("video-bitrate-low") || fixableCodes.Contains("videos-dir-missing") || fixableCodes.Contains("video-bitrate-unreadable")) &&
+            !await TryRunAutoRepairProjectStepAsync(project, "transcode", QueueForceRerunCompletedStepsEnabled, cancellationToken))
         {
-            await _workService.RunProjectStepAsync(project.SourceProjectDir, null, "transcode", QueueForceRerunCompletedStepsEnabled, CreateBufferedProgress(), cancellationToken);
+            return false;
         }
 
-        if (fixableCodes.Contains("poster-missing"))
+        if (fixableCodes.Contains("poster-missing") &&
+            !await TryRunAutoRepairProjectStepAsync(project, "poster-rename", true, cancellationToken))
         {
-            await _workService.RunProjectStepAsync(project.SourceProjectDir, null, "poster-rename", true, CreateBufferedProgress(), cancellationToken);
+            return false;
         }
 
-        if (fixableCodes.Contains("project-images-missing"))
+        if (fixableCodes.Contains("project-images-missing") &&
+            !await TryRunAutoRepairProjectStepAsync(project, "project-image", true, cancellationToken))
         {
-            await _workService.RunProjectStepAsync(project.SourceProjectDir, null, "project-image", true, CreateBufferedProgress(), cancellationToken);
+            return false;
         }
 
-        if (fixableCodes.Contains("material-video-title-mismatch"))
+        if (fixableCodes.Contains("material-video-title-mismatch") &&
+            !await TryRunAutoRepairProjectStepAsync(project, "material-convert", true, cancellationToken))
         {
-            await _workService.RunProjectStepAsync(project.SourceProjectDir, null, "material-convert", true, CreateBufferedProgress(), cancellationToken);
+            return false;
         }
 
-        if (fixableCodes.Contains("cost-missing"))
+        if (fixableCodes.Contains("cost-missing") &&
+            !await TryRunAutoRepairProjectStepAsync(project, "cost-report", true, cancellationToken))
         {
-            await _workService.RunProjectStepAsync(project.SourceProjectDir, null, "cost-report", true, CreateBufferedProgress(), cancellationToken);
+            return false;
         }
 
-        if (fixableCodes.Contains("video-title-mismatch"))
+        if (fixableCodes.Contains("video-title-mismatch") &&
+            !await TryRunAutoRepairProjectStepAsync(project, "batch-file-rename", true, cancellationToken))
         {
-            await _workService.RunProjectStepAsync(project.SourceProjectDir, null, "batch-file-rename", true, CreateBufferedProgress(), cancellationToken);
+            return false;
         }
 
-        if (fixableCodes.Contains("weixin-upload-config-missing"))
+        if (fixableCodes.Contains("weixin-upload-config-missing") &&
+            !await TryRunAutoRepairActionAsync(
+                project,
+                "weixin-upload-config",
+                "刷新上传配置",
+                async () => await _workService.EnsureWeixinUploadConfigAsync(project.SourceProjectDir, null, cancellationToken)))
         {
-            await _workService.EnsureWeixinUploadConfigAsync(project.SourceProjectDir, null, cancellationToken);
+            return false;
         }
 
-        if (fixableCodes.Contains("weixin-title-mismatch"))
+        if (fixableCodes.Contains("weixin-title-mismatch") &&
+            !await TryRunAutoRepairActionAsync(
+                project,
+                "weixin-upload-config",
+                "同步上传配置",
+                async () => await _workService.RefreshWeixinConfigsAsync(project.SourceProjectDir, null, cancellationToken)))
         {
-            await _workService.RefreshWeixinConfigsAsync(project.SourceProjectDir, null, cancellationToken);
+            return false;
         }
 
         var after = await _materialValidationService.ValidateAsync(workflowDir, cancellationToken);
@@ -123,6 +145,73 @@ public partial class MainWindowViewModel
         return ok;
     }
 
+    private async Task<bool> TryRunAutoRepairProjectStepAsync(
+        ProjectListItemViewModel project,
+        string stepKey,
+        bool force,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _workService.RunProjectStepAsync(
+                project.SourceProjectDir,
+                null,
+                stepKey,
+                force,
+                CreateBufferedProgress(),
+                cancellationToken);
+
+            if (result.Ok)
+            {
+                return true;
+            }
+
+            AppendLog(
+                $"一键修复中止：{ResolveStepLabel(stepKey)}执行失败。",
+                project.ProjectKey,
+                project.DisplayName,
+                "material-auto-repair",
+                "一键修复",
+                isFailure: true);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            AppendLog(
+                $"一键修复中止：{ResolveStepLabel(stepKey)}执行失败，{ex.Message}",
+                project.ProjectKey,
+                project.DisplayName,
+                "material-auto-repair",
+                "一键修复",
+                isFailure: true);
+            return false;
+        }
+    }
+
+    private async Task<bool> TryRunAutoRepairActionAsync(
+        ProjectListItemViewModel project,
+        string stepKey,
+        string stepLabel,
+        Func<Task> action)
+    {
+        try
+        {
+            await action();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppendLog(
+                $"一键修复中止：{stepLabel}执行失败，{ex.Message}",
+                project.ProjectKey,
+                project.DisplayName,
+                stepKey,
+                "一键修复",
+                isFailure: true);
+            return false;
+        }
+    }
+
     private async Task<bool> ExecuteAutoFillInfoQueueStepAsync(
         ProjectListItemViewModel project,
         CancellationToken cancellationToken)
@@ -131,7 +220,7 @@ public partial class MainWindowViewModel
         AppendLog(
             result.Changed
                 ? $"补齐字段完成：{string.Join(" / ", result.UpdatedFields)}"
-                : "补齐字段跳过：结构化字段已完整。",
+                : "补齐字段已跳过：结构化字段已完整。",
             project.ProjectKey,
             project.DisplayName,
             "auto-fill-info",

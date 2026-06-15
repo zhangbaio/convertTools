@@ -1,4 +1,5 @@
 ﻿using ShortDrama.Desktop.Models;
+using ShortDrama.Infrastructure.Imaging;
 using System.Text;
 
 namespace ShortDrama.Desktop.Services;
@@ -203,113 +204,6 @@ public sealed class DesktopConfigService
         var merged = BuildMergedSnapshot(config, effectiveGlobal, Path.GetDirectoryName(config.ConfigFilePath) ?? string.Empty, null);
         var payload = BuildProjectConfigPayload(config, effectiveGlobal, merged);
         File.WriteAllText(config.ConfigFilePath, SerializeProjectConfigJson(payload), Encoding.UTF8);
-        return;
-
-        var lines = new List<string>
-        {
-            "# 基础设置",
-            "# 成本报表固定从当前 config 目录读取 sign.png / seal.png",
-            string.Empty,
-            "# 基础信息",
-            $"CompanyName={config.CompanyName}",
-            $"SearchPageSize={config.SearchPageSize}",
-            $"TemplateDocxPath={config.TemplateDocxPath}",
-            $"CostReportBaseImagePath={config.CostReportBaseImagePath}",
-            $"CostReportActorPayRatio={config.CostReportActorPayRatio}",
-            $"CostReportLegalRepresentative={config.CostReportLegalRepresentative}",
-            string.Empty,
-            "# 文本模型（兼容驱动已有流程）",
-            $"ChatModelId={config.ChatModelId}",
-            $"ChatModelApiKey={config.ChatModelApiKey}",
-            $"ChatModelEndpoint={config.ChatModelEndpoint}",
-            string.Empty,
-            "# 微信剧集上传 - 基础设置",
-            $"WeixinHeadless={config.WeixinHeadless.ToString().ToLowerInvariant()}",
-            $"WeixinSlowMoMs={config.WeixinSlowMoMs}",
-            $"WeixinKeepOpenSeconds={config.WeixinKeepOpenSeconds}",
-            $"WeixinLoginTimeoutSeconds={config.WeixinLoginTimeoutSeconds}",
-            $"WeixinSubmitEnabled={config.WeixinSubmitEnabled.ToString().ToLowerInvariant()}",
-            $"WeixinPauseOnError={config.WeixinPauseOnError.ToString().ToLowerInvariant()}",
-            $"WeixinSaveHtml={config.WeixinSaveHtml.ToString().ToLowerInvariant()}",
-            $"WeixinSaveText={config.WeixinSaveText.ToString().ToLowerInvariant()}",
-            string.Empty,
-            "# 微信剧集上传 - 剧目信息配置",
-            $"WeixinMonetizationType={config.WeixinMonetizationType}",
-            $"WeixinDramaType={config.WeixinDramaType}",
-            $"WeixinDramaQualification={config.WeixinDramaQualification}",
-            $"WeixinSubmitterIdentity={config.WeixinSubmitterIdentity}",
-            $"WeixinTrialEpisodes={config.WeixinTrialEpisodes}",
-            $"WeixinFillRecommendation={config.WeixinFillRecommendation.ToString().ToLowerInvariant()}"
-        };
-
-        AppendOptional(lines, "WeixinSubmissionReportDir", config.WeixinSubmissionReportDir);
-
-        lines.AddRange(
-        [
-            string.Empty,
-            "# 视频转码",
-            $"VideoRes={config.VideoRes}",
-            $"VideoBitrateBps={config.VideoBitrateBps}",
-            $"VideoBitrateMode={config.VideoBitrateMode}",
-            $"VideoAudioBitrateBps={config.VideoAudioBitrateBps}",
-            $"VideoFps={config.VideoFps}",
-            $"VideoConcurrentCount={config.VideoConcurrentCount}",
-            $"VideoUseHardwareEncoder={config.VideoUseHardwareEncoder.ToString().ToLowerInvariant()}",
-            $"VideoEncoder={config.VideoEncoder}",
-            $"VideoPreset={config.VideoPreset}",
-            $"NvencCq={config.NvencCq}",
-            $"NvencMaxParallel={config.NvencMaxParallel}",
-            $"VerboseTranscodeLogEnabled={config.VerboseTranscodeLogEnabled.ToString().ToLowerInvariant()}",
-            $"SkipBitrateDownscaleForHighBitrate={config.SkipBitrateDownscaleForHighBitrate.ToString().ToLowerInvariant()}",
-            $"UploadTargetVideoBitrateMbps={config.UploadTargetVideoBitrateMbps}",
-            $"UploadMaxVideoBitrateMbps={config.UploadMaxVideoBitrateMbps}",
-            $"UploadMinVideoBitrateMbps={config.UploadMinVideoBitrateMbps}",
-            $"UploadAudioBitrateKbps={config.UploadAudioBitrateKbps}",
-            $"UploadBitrateFallbackEnabled={config.UploadBitrateFallbackEnabled.ToString().ToLowerInvariant()}",
-            $"UploadBitrateFallbackVideoBitrateMbps={config.UploadBitrateFallbackVideoBitrateMbps}",
-            $"UploadBitrateProfilesJson={config.UploadBitrateProfilesJson}",
-            $"VideoNameTemplate={config.VideoNameTemplate}",
-            string.Empty,
-            "# 素材转换",
-            $"MaterialConvertEnabled={config.MaterialConvertEnabled.ToString().ToLowerInvariant()}",
-            $"MaterialTrimHeadSeconds={config.MaterialTrimHeadSeconds}",
-            $"MaterialTrimTailSeconds={config.MaterialTrimTailSeconds}",
-            $"MaterialSpeedPercent={config.MaterialSpeedPercent}",
-            $"MaterialDynamicSpeedEnabled={config.MaterialDynamicSpeedEnabled.ToString().ToLowerInvariant()}",
-            $"MaterialDynamicSpeedPresetName={config.MaterialDynamicSpeedPresetName}",
-            $"MaterialDynamicSpeedHeadSeconds={config.MaterialDynamicSpeedHeadSeconds}",
-            $"MaterialDynamicSpeedHeadPercent={config.MaterialDynamicSpeedHeadPercent}",
-            $"MaterialDynamicSpeedMiddlePercent={config.MaterialDynamicSpeedMiddlePercent}",
-            $"MaterialDynamicSpeedTailSeconds={config.MaterialDynamicSpeedTailSeconds}",
-            $"MaterialDynamicSpeedTailPercent={config.MaterialDynamicSpeedTailPercent}",
-            $"MaterialFrameSamplingEnabled={config.MaterialFrameSamplingEnabled.ToString().ToLowerInvariant()}",
-            $"MaterialFrameSamplingMode={config.MaterialFrameSamplingMode}",
-            $"MaterialFrameSamplingInterval={config.MaterialFrameSamplingInterval}",
-            $"MaterialDropEveryNFrames={config.MaterialDropEveryNFrames}",
-            $"MaterialDropCount={config.MaterialDropCount}",
-            $"MaterialCropWidthPercent={config.MaterialCropWidthPercent}",
-            $"MaterialCropHeightPercent={config.MaterialCropHeightPercent}",
-            $"MaterialForegroundZoomPercent={config.MaterialForegroundZoomPercent}",
-            $"MaterialWatermarkEnabled={config.MaterialWatermarkEnabled.ToString().ToLowerInvariant()}",
-            $"MaterialWatermarkText={config.MaterialWatermarkText}",
-            $"MaterialWatermarkFontSize={config.MaterialWatermarkFontSize}",
-            $"MaterialWatermarkPosition={config.MaterialWatermarkPosition}",
-            $"MaterialWatermarkMarginX={config.MaterialWatermarkMarginX}",
-            $"MaterialWatermarkMarginY={config.MaterialWatermarkMarginY}",
-            $"MaterialOutputWidth={config.MaterialOutputWidth}",
-            $"MaterialOutputHeight={config.MaterialOutputHeight}",
-            $"MaterialPipWidthPercent={config.MaterialPipWidthPercent}",
-            $"MaterialPipHeightPercent={config.MaterialPipHeightPercent}",
-            string.Empty,
-            "# 工程图",
-            $"ProjectImageGenerationMode={(string.IsNullOrWhiteSpace(config.ProjectImageGenerationMode) ? "image_template" : config.ProjectImageGenerationMode)}",
-            $"ProjectImageTemplateRoot={config.ProjectImageTemplateRoot}",
-            $"ProjectImageTemplateId={config.ProjectImageTemplateId}",
-            $"ProjectImageTemplateDir={config.ProjectImageTemplateDir}",
-            $"ProjectImageCount={config.ProjectImageCount}"
-        ]);
-
-        File.WriteAllText(config.ConfigFilePath, string.Join(Environment.NewLine, lines) + Environment.NewLine, Encoding.UTF8);
     }
 
     public static string GetConfigFilePath(string rootDir)
@@ -663,25 +557,12 @@ public sealed class DesktopConfigService
 
     private static string ResolveProjectImageTemplateDir(ProjectConfigSnapshot project, string configDir)
     {
-        if (!string.IsNullOrWhiteSpace(project.ProjectImageTemplateDir))
-        {
-            return project.ProjectImageTemplateDir;
-        }
-
-        if (string.IsNullOrWhiteSpace(project.ProjectImageTemplateRoot))
-        {
-            return string.Empty;
-        }
-
-        if (string.IsNullOrWhiteSpace(project.ProjectImageTemplateId))
-        {
-            return project.ProjectImageTemplateRoot;
-        }
-
-        var candidate = Path.Combine(project.ProjectImageTemplateRoot, project.ProjectImageTemplateId);
-        return Directory.Exists(candidate) || File.Exists(Path.Combine(candidate, "template.json"))
-            ? candidate
-            : project.ProjectImageTemplateRoot;
+        var projectRoot = Directory.GetParent(configDir)?.FullName;
+        return ProjectImageTemplateCatalog.ResolveTemplateDirectory(
+            project.ProjectImageTemplateRoot,
+            project.ProjectImageTemplateId,
+            project.ProjectImageTemplateDir,
+            projectRoot);
     }
 
     private static Dictionary<string, string> ReadConfigMap(string path)

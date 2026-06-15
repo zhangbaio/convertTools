@@ -33,7 +33,7 @@ public sealed class ProjectInfoRewriteCommand
 
         var configFileOption = new Option<FileInfo>(
             "--config-file",
-            "config.txt path with ChatModel settings")
+            "config.json path with ChatModel settings")
         {
             IsRequired = true
         };

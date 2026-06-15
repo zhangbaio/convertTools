@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.Config;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
@@ -131,33 +132,16 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             return null;
         }
 
-        foreach (var rawLine in File.ReadAllLines(configFile))
+        var config = KeyValueConfigReader.Read(configFile);
+        if (!config.TryGetValue("ProjectImageCount", out var configuredCount) ||
+            string.IsNullOrWhiteSpace(configuredCount))
         {
-            var line = rawLine.Trim();
-            if (line.Length == 0 || line.StartsWith('#'))
-            {
-                continue;
-            }
-
-            var separatorIndex = line.IndexOf('=');
-            if (separatorIndex <= 0 || separatorIndex >= line.Length - 1)
-            {
-                continue;
-            }
-
-            var key = line[..separatorIndex].Trim();
-            var value = line[(separatorIndex + 1)..].Trim();
-            if (!key.Equals("ProjectImageCount", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
-                ? parsed
-                : null;
+            return null;
         }
 
-        return null;
+        return int.TryParse(configuredCount, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
     }
 
     private async Task<double> GetDurationSecondsAsync(

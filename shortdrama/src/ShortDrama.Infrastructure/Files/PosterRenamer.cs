@@ -640,7 +640,7 @@ JSON 结构：
 
         throw new InvalidOperationException(
             $"{operation}失败: {(int)response.StatusCode} {response.ReasonPhrase}; url: {requestUrl}; body: {responseText}. " +
-            "请检查 config.txt 中的 ImageEditEndpoint / ImageEditPath / ImageEditModelId 配置。");
+            "请检查 config.json 中的 ImageEditEndpoint / ImageEditPath / ImageEditModelId 配置。");
     }
 
     private static bool IsSensitiveContentBlocked(string responseText)

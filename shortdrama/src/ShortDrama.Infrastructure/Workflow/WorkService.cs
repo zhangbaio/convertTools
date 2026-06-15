@@ -3,6 +3,7 @@ using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation;
 using ShortDrama.Infrastructure.Automation.Weixin;
 using ShortDrama.Infrastructure.Config;
+using ShortDrama.Infrastructure.Imaging;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -1968,16 +1969,35 @@ public sealed class WorkService : IWorkService
 
     private static string? ResolveProjectImageTemplateDir(string configDir, IReadOnlyDictionary<string, string>? configMap)
     {
-        if (configMap is null ||
-            !configMap.TryGetValue("ProjectImageTemplateDir", out var configured) ||
-            string.IsNullOrWhiteSpace(configured))
+        if (configMap is null)
         {
             return null;
         }
 
-        return Path.IsPathRooted(configured)
-            ? configured
-            : Path.GetFullPath(Path.Combine(configDir, configured));
+        configMap.TryGetValue("ProjectImageTemplateDir", out var configuredDir);
+        configMap.TryGetValue("ProjectImageTemplateRoot", out var configuredRoot);
+        configMap.TryGetValue("ProjectImageTemplateId", out var templateId);
+
+        static string ResolveConfiguredPath(string configDirectory, string? configuredPath)
+        {
+            if (string.IsNullOrWhiteSpace(configuredPath))
+            {
+                return string.Empty;
+            }
+
+            return Path.IsPathRooted(configuredPath)
+                ? configuredPath
+                : Path.GetFullPath(Path.Combine(configDirectory, configuredPath));
+        }
+
+        var projectRoot = Directory.GetParent(configDir)?.FullName;
+        var resolved = ProjectImageTemplateCatalog.ResolveTemplateDirectory(
+            ResolveConfiguredPath(configDir, configuredRoot),
+            templateId ?? string.Empty,
+            ResolveConfiguredPath(configDir, configuredDir),
+            projectRoot);
+
+        return string.IsNullOrWhiteSpace(resolved) ? null : resolved;
     }
 
     private static WorkflowDefinition BuildDefinition(ProjectWorkspaceContext context, string stepType, bool force, string? configOverridePath = null)

@@ -12,7 +12,7 @@
             <Grid RowDefinitions="Auto,Auto" RowSpacing="10">
                 <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="10">
                     <TextBlock VerticalAlignment="Center"
-                               Text="{Binding ConfigFilePath, FallbackValue=未定位到 config.txt}"
+                               Text="{Binding ConfigFilePath, FallbackValue=未定位到 config.json}"
                                Foreground="{DynamicResource DesktopTextSecondaryBrush}"
                                TextWrapping="Wrap" />
                     <Button Grid.Column="1"
