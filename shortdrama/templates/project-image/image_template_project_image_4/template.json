@@ -1,0 +1,233 @@
+{
+  "id": "image-template-project-image-4",
+  "name": "图片模板工程图4",
+  "mode": "image_template",
+  "asset_version": 2026060103,
+  "count": 4,
+  "description": "Coordinates are maintained by scripts/project_image_template_region_tool.py. This template intentionally omits material_panel and subtitle_track_texts.",
+  "templates": [
+    {
+      "file": "工程图_16.png",
+      "regions": {
+        "top_title": {
+          "x": 852,
+          "y": 12,
+          "width": 260,
+          "height": 17
+        },
+        "autosave_status": {
+          "x": 173,
+          "y": 8,
+          "width": 147,
+          "height": 22,
+          "note": "format=%H:%M:%S;suffix=自动保存本地;font_size=12;color=#A4A9AE;text_x_offset=19"
+        },
+        "right_subtitle": {
+          "x": 1428,
+          "y": 165,
+          "width": 469,
+          "height": 44
+        },
+        "player": {
+          "x": 975,
+          "y": 79,
+          "width": 248,
+          "height": 440
+        },
+        "player_landscape": {
+          "x": 826,
+          "y": 79,
+          "width": 560,
+          "height": 440
+        },
+        "video_track_images": [
+          {
+            "x": 38,
+            "y": 759,
+            "width": 1867,
+            "height": 72,
+            "note": "thumbnail_height=40;single_episode_track=1;hide_track_text=0;track_episode_index=3;playhead_x=614;playhead_brightness=178;playhead_alpha=220;segment_boundary=1;segment_boundary_width=2;segment_boundary_alpha=190;audio_segment_boundary_height=52;audio_segment_boundary_top_offset=4"
+          }
+        ],
+        "video_track_texts": [
+          {
+            "x": 1447,
+            "y": 761,
+            "width": 420,
+            "height": 17
+          }
+        ],
+        "audio_track_texts": [
+          {
+            "x": 1447,
+            "y": 839,
+            "width": 360,
+            "height": 20
+          }
+        ]
+      }
+    },
+    {
+      "file": "工程图_13.png",
+      "regions": {
+        "top_title": {
+          "x": 852,
+          "y": 12,
+          "width": 260,
+          "height": 17
+        },
+        "right_subtitle": {
+          "x": 1428,
+          "y": 165,
+          "width": 469,
+          "height": 44
+        },
+        "player": {
+          "x": 975,
+          "y": 79,
+          "width": 248,
+          "height": 440
+        },
+        "player_landscape": {
+          "x": 826,
+          "y": 79,
+          "width": 560,
+          "height": 440
+        },
+        "video_track_images": [
+          {
+            "x": 38,
+            "y": 759,
+            "width": 1867,
+            "height": 72,
+            "note": "thumbnail_height=40;playhead_x=592;playhead_brightness=178;playhead_alpha=220;segment_boundary=1;segment_boundary_width=2;segment_boundary_alpha=190;audio_segment_boundary_height=52;audio_segment_boundary_top_offset=4"
+          }
+        ],
+        "video_track_texts": [
+          {
+            "x": 1046,
+            "y": 761,
+            "width": 420,
+            "height": 17
+          }
+        ],
+        "audio_track_texts": [
+          {
+            "x": 1046,
+            "y": 839,
+            "width": 360,
+            "height": 20
+          }
+        ]
+      }
+    },
+    {
+      "file": "工程图_14.png",
+      "regions": {
+        "top_title": {
+          "x": 852,
+          "y": 12,
+          "width": 260,
+          "height": 17
+        },
+        "right_subtitle": {
+          "x": 1428,
+          "y": 165,
+          "width": 469,
+          "height": 44
+        },
+        "player": {
+          "x": 975,
+          "y": 79,
+          "width": 248,
+          "height": 440
+        },
+        "player_landscape": {
+          "x": 826,
+          "y": 79,
+          "width": 560,
+          "height": 440
+        },
+        "video_track_images": [
+          {
+            "x": 38,
+            "y": 759,
+            "width": 1867,
+            "height": 72,
+            "note": "thumbnail_height=40;playhead_x=511;playhead_brightness=178;playhead_alpha=220;segment_boundary=1;segment_boundary_width=2;segment_boundary_alpha=190;audio_segment_boundary_height=52;audio_segment_boundary_top_offset=4"
+          }
+        ],
+        "video_track_texts": [
+          {
+            "x": 990,
+            "y": 761,
+            "width": 420,
+            "height": 17
+          }
+        ],
+        "audio_track_texts": [
+          {
+            "x": 990,
+            "y": 839,
+            "width": 360,
+            "height": 20
+          }
+        ]
+      }
+    },
+    {
+      "file": "工程图_15.png",
+      "regions": {
+        "top_title": {
+          "x": 852,
+          "y": 12,
+          "width": 260,
+          "height": 17
+        },
+        "right_subtitle": {
+          "x": 1428,
+          "y": 165,
+          "width": 469,
+          "height": 44
+        },
+        "player": {
+          "x": 975,
+          "y": 79,
+          "width": 248,
+          "height": 440
+        },
+        "player_landscape": {
+          "x": 826,
+          "y": 79,
+          "width": 560,
+          "height": 440
+        },
+        "video_track_images": [
+          {
+            "x": 38,
+            "y": 759,
+            "width": 1867,
+            "height": 72,
+            "note": "thumbnail_height=40;playhead_x=849;playhead_brightness=178;playhead_alpha=220;segment_boundary=1;segment_boundary_width=2;segment_boundary_alpha=190;audio_segment_boundary_height=52;audio_segment_boundary_top_offset=4"
+          }
+        ],
+        "video_track_texts": [
+          {
+            "x": 151,
+            "y": 761,
+            "width": 420,
+            "height": 17
+          }
+        ],
+        "audio_track_texts": [
+          {
+            "x": 151,
+            "y": 839,
+            "width": 360,
+            "height": 20
+          }
+        ]
+      }
+    }
+  ]
+}

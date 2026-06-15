@@ -38,6 +38,42 @@ public sealed class ProjectImageTemplateCatalogTests
         resolved.Should().Be(Path.GetDirectoryName(templateDir));
     }
 
+    [Fact]
+    public void Manifest_should_support_region_arrays_with_note_metadata()
+    {
+        using var tempDir = new TempDir();
+        var root = Path.Combine(tempDir.Path, "templates", "project-image", "image-template-project-image-3");
+        Directory.CreateDirectory(root);
+
+        var payload = """
+        {
+          "id": "image-template-project-image-3",
+          "name": "template-3",
+          "count": 1,
+          "templates": [
+            {
+              "file": "工程图_9.png",
+              "regions": {
+                "player": { "x": 10, "y": 20, "width": 30, "height": 40 },
+                "video_track_images": [
+                  { "x": 50, "y": 60, "width": 70, "height": 80, "note": "playhead_x=123;thumbnail_height=40" }
+                ]
+              }
+            }
+          ]
+        }
+        """;
+
+        File.WriteAllText(Path.Combine(root, "template.json"), payload, System.Text.Encoding.UTF8);
+
+        var manifest = ProjectImageTemplateManifest.Load(root);
+        var page = manifest.Templates.Should().ContainSingle().Subject;
+
+        page.GetRegion("player").Should().NotBeNull();
+        page.GetRegions("video_track_images").Should().ContainSingle();
+        page.GetRegions("video_track_images")[0].Note.Should().Contain("playhead_x=123");
+    }
+
     private static string CreateTemplatePackage(string projectRoot, string templateId)
     {
         var root = Path.Combine(projectRoot, "templates", "project-image");

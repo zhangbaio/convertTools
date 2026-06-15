@@ -11,13 +11,32 @@ public sealed record ProjectImageTemplateRegion(
 
 public sealed record ProjectImageTemplatePage(
     string File,
-    IReadOnlyDictionary<string, ProjectImageTemplateRegion> Regions);
+    IReadOnlyDictionary<string, IReadOnlyList<ProjectImageTemplateRegion>> Regions)
+{
+    public ProjectImageTemplateRegion? GetRegion(string key)
+    {
+        return GetRegions(key).FirstOrDefault();
+    }
+
+    public IReadOnlyList<ProjectImageTemplateRegion> GetRegions(string key)
+    {
+        return Regions.TryGetValue(key, out var regions)
+            ? regions
+            : Array.Empty<ProjectImageTemplateRegion>();
+    }
+
+    public bool HasRegion(string key)
+    {
+        return GetRegions(key).Count > 0;
+    }
+}
 
 public sealed record ProjectImageTemplateManifest(
     string Id,
     string Name,
     int Count,
-    IReadOnlyList<ProjectImageTemplatePage> Templates)
+    IReadOnlyList<ProjectImageTemplatePage> Templates,
+    bool RenderTimelineOverlay = false)
 {
     public static ProjectImageTemplateManifest Load(string templateDirectory)
     {
@@ -32,6 +51,7 @@ public sealed record ProjectImageTemplateManifest(
         var id = GetString(root, "id") ?? Path.GetFileName(templateDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         var name = GetString(root, "name") ?? id;
         var count = GetInt(root, "count") ?? 0;
+        var renderTimelineOverlay = GetBool(root, "render_timeline_overlay");
 
         if (!root.TryGetProperty("templates", out var templatesElement) || templatesElement.ValueKind != JsonValueKind.Array)
         {
@@ -52,27 +72,71 @@ public sealed record ProjectImageTemplateManifest(
                 throw new InvalidOperationException($"工程图模板缺少区域定义: {manifestPath}::{file}");
             }
 
-            var regions = new Dictionary<string, ProjectImageTemplateRegion>(StringComparer.OrdinalIgnoreCase);
+            var regions = new Dictionary<string, IReadOnlyList<ProjectImageTemplateRegion>>(StringComparer.OrdinalIgnoreCase);
             foreach (var property in regionsElement.EnumerateObject())
             {
-                if (property.Value.ValueKind != JsonValueKind.Object)
+                var parsed = ParseRegions(property.Value);
+                if (parsed.Count == 0)
                 {
                     continue;
                 }
 
-                regions[property.Name] = new ProjectImageTemplateRegion(
-                    X: GetInt(property.Value, "x") ?? 0,
-                    Y: GetInt(property.Value, "y") ?? 0,
-                    Width: GetInt(property.Value, "width") ?? 0,
-                    Height: GetInt(property.Value, "height") ?? 0,
-                    Note: GetString(property.Value, "note") ?? string.Empty);
+                regions[property.Name] = parsed;
             }
 
             pages.Add(new ProjectImageTemplatePage(file, regions));
         }
 
         var resolvedCount = count > 0 ? count : pages.Count;
-        return new ProjectImageTemplateManifest(id, name, resolvedCount, pages);
+        return new ProjectImageTemplateManifest(id, name, resolvedCount, pages, renderTimelineOverlay);
+    }
+
+    private static IReadOnlyList<ProjectImageTemplateRegion> ParseRegions(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var region = ParseRegion(element);
+            return region is null ? Array.Empty<ProjectImageTemplateRegion>() : new[] { region };
+        }
+
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            return Array.Empty<ProjectImageTemplateRegion>();
+        }
+
+        var regions = new List<ProjectImageTemplateRegion>();
+        foreach (var item in element.EnumerateArray())
+        {
+            var region = ParseRegion(item);
+            if (region is not null)
+            {
+                regions.Add(region);
+            }
+        }
+
+        return regions;
+    }
+
+    private static ProjectImageTemplateRegion? ParseRegion(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var width = GetInt(element, "width") ?? 0;
+        var height = GetInt(element, "height") ?? 0;
+        if (width <= 0 || height <= 0)
+        {
+            return null;
+        }
+
+        return new ProjectImageTemplateRegion(
+            X: GetInt(element, "x") ?? 0,
+            Y: GetInt(element, "y") ?? 0,
+            Width: width,
+            Height: height,
+            Note: GetString(element, "note") ?? string.Empty);
     }
 
     private static string? GetString(JsonElement element, string propertyName)
@@ -100,5 +164,21 @@ public sealed record ProjectImageTemplateManifest(
         return property.ValueKind == JsonValueKind.String && int.TryParse(property.GetString(), out number)
             ? number
             : null;
+    }
+
+    private static bool GetBool(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return false;
+        }
+
+        return property.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String => bool.TryParse(property.GetString(), out var parsed) && parsed,
+            _ => false
+        };
     }
 }
