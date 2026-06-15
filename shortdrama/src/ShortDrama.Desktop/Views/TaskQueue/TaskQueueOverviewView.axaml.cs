@@ -1,4 +1,5 @@
-﻿using Avalonia.Controls;
+using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using ShortDrama.Desktop.ViewModels;
@@ -7,9 +8,15 @@ namespace ShortDrama.Desktop.Views.TaskQueue;
 
 public partial class TaskQueueOverviewView : UserControl
 {
+    private readonly ScrollViewer? _headerScrollViewer;
+    private readonly ScrollViewer? _projectsScrollViewer;
+    private bool _syncingHorizontalScroll;
+
     public TaskQueueOverviewView()
     {
         InitializeComponent();
+        _headerScrollViewer = this.FindControl<ScrollViewer>("HeaderScrollViewer");
+        _projectsScrollViewer = this.FindControl<ScrollViewer>("ProjectsScrollViewer");
     }
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
@@ -25,7 +32,7 @@ public partial class TaskQueueOverviewView : UserControl
 
         var folders = await OwnerWindow.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "选择项目根目录",
+            Title = "\u9009\u62e9\u9879\u76ee\u6839\u76ee\u5f55",
             AllowMultiple = false
         });
 
@@ -61,7 +68,7 @@ public partial class TaskQueueOverviewView : UserControl
 
         var preserveEpisodes = await ResolveArchivePreserveEpisodesAsync(selectedProjects);
         if (preserveEpisodes is null &&
-            selectedProjects.Any(item => !string.Equals(item.MaterialUploadStepStatus, "已完成", StringComparison.Ordinal)))
+            selectedProjects.Any(item => !string.Equals(item.MaterialUploadStepStatus, "\u5df2\u5b8c\u6210", StringComparison.Ordinal)))
         {
             return;
         }
@@ -76,7 +83,7 @@ public partial class TaskQueueOverviewView : UserControl
             return null;
         }
 
-        var needsPrompt = projects.Any(item => !string.Equals(item.MaterialUploadStepStatus, "已完成", StringComparison.Ordinal));
+        var needsPrompt = projects.Any(item => !string.Equals(item.MaterialUploadStepStatus, "\u5df2\u5b8c\u6210", StringComparison.Ordinal));
         if (!needsPrompt)
         {
             return Array.Empty<int>();
@@ -125,5 +132,31 @@ public partial class TaskQueueOverviewView : UserControl
     private void OpenTaskQueueWorkflowFolder_Click(object? sender, RoutedEventArgs e)
     {
         ViewModel?.OpenProjectWorkflowFolder((sender as Control)?.DataContext as ProjectListItemViewModel);
+    }
+
+    private void ProjectsScrollViewer_ScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (_syncingHorizontalScroll ||
+            _headerScrollViewer is null ||
+            _projectsScrollViewer is null)
+        {
+            return;
+        }
+
+        if (Math.Abs(e.OffsetDelta.X) <= double.Epsilon &&
+            Math.Abs(_headerScrollViewer.Offset.X - _projectsScrollViewer.Offset.X) <= 0.1d)
+        {
+            return;
+        }
+
+        _syncingHorizontalScroll = true;
+        try
+        {
+            _headerScrollViewer.Offset = new Vector(_projectsScrollViewer.Offset.X, 0);
+        }
+        finally
+        {
+            _syncingHorizontalScroll = false;
+        }
     }
 }

@@ -152,8 +152,15 @@
             <Grid RowDefinitions="Auto,*" RowSpacing="12">
                 <Border Background="{DynamicResource DesktopPanelAltBrush}"
                         CornerRadius="14"
-                        Padding="12">
-                    <Grid ColumnDefinitions="56,220,220,110,72,112,132,170,132,132,92,92,108,108,108,108,132,132,90"
+                        Padding="0"
+                        ClipToBounds="True">
+                    <ScrollViewer x:Name="HeaderScrollViewer"
+                                  HorizontalScrollBarVisibility="Hidden"
+                                  VerticalScrollBarVisibility="Disabled"
+                                  IsHitTestVisible="False">
+                    <Grid MinWidth="2542"
+                          Margin="12"
+                          ColumnDefinitions="56,220,220,110,72,112,132,170,132,132,92,92,108,108,108,108,132,132,90"
                           ColumnSpacing="12">
                         <TextBlock Text="勾选" FontWeight="SemiBold" />
                         <TextBlock Grid.Column="1" Text="原剧名" FontWeight="SemiBold" />
@@ -175,14 +182,17 @@
                         <TextBlock Grid.Column="17" Text="素材上传" FontWeight="SemiBold" />
                         <TextBlock Grid.Column="18" Text="文件夹" FontWeight="SemiBold" />
                     </Grid>
+                    </ScrollViewer>
                 </Border>
 
-                <ScrollViewer Grid.Row="1"
+                <ScrollViewer x:Name="ProjectsScrollViewer"
+                              Grid.Row="1"
                               HorizontalScrollBarVisibility="Auto"
-                              VerticalScrollBarVisibility="Auto">
+                              VerticalScrollBarVisibility="Auto"
+                              ScrollChanged="ProjectsScrollViewer_ScrollChanged">
                     <ListBox ItemsSource="{Binding FilteredProjects}"
                              SelectedItem="{Binding SelectedProject}"
-                             MinWidth="2500"
+                             MinWidth="2542"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
