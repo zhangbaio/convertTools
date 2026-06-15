@@ -270,13 +270,25 @@ internal static class CostReportImageRenderer
 
     private static IReadOnlyDictionary<string, string> LoadConfigMap(string configDir)
     {
-        var configPath = Path.Combine(configDir, "config.txt");
-        if (!File.Exists(configPath))
+        var configPath = ResolveConfigPath(configDir);
+        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
         {
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
 
         return KeyValueConfigReader.Read(configPath);
+    }
+
+    private static string? ResolveConfigPath(string configDir)
+    {
+        var jsonPath = Path.Combine(configDir, "config.json");
+        if (File.Exists(jsonPath))
+        {
+            return jsonPath;
+        }
+
+        var legacyPath = Path.Combine(configDir, "config.txt");
+        return File.Exists(legacyPath) ? legacyPath : null;
     }
 
     private static string? GetConfigValue(IReadOnlyDictionary<string, string> map, params string[] keys)

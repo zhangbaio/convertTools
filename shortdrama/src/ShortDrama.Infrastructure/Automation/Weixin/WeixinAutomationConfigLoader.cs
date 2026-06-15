@@ -442,10 +442,16 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
             var current = Path.GetFullPath(root);
             while (!string.IsNullOrWhiteSpace(current))
             {
-                var candidate = Path.Combine(current, "config", "config.txt");
-                if (visited.Add(candidate))
+                foreach (var candidate in new[]
+                         {
+                             Path.Combine(current, "config", "config.json"),
+                             Path.Combine(current, "config", "config.txt")
+                         })
                 {
-                    yield return candidate;
+                    if (visited.Add(candidate))
+                    {
+                        yield return candidate;
+                    }
                 }
 
                 var parent = Path.GetDirectoryName(current);

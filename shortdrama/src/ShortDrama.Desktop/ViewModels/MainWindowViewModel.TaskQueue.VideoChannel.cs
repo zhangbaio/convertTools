@@ -210,4 +210,27 @@ public partial class MainWindowViewModel
             await ArchiveProjectsCoreAsync([project.ProjectKey], Array.Empty<int>(), cancellationToken);
         }
     }
+
+    private async Task MaybeAutoFillProjectInfoBeforeRewriteAsync(
+        ProjectListItemViewModel project,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _workService.AutoFillProjectInfoAsync(project.SourceProjectDir, null, cancellationToken);
+            if (result.Changed)
+            {
+                AppendLog(
+                    $"改写前自动补齐字段：{string.Join(" / ", result.UpdatedFields)}",
+                    project.ProjectKey,
+                    project.DisplayName,
+                    "auto-fill-info",
+                    "补齐字段");
+            }
+        }
+        catch
+        {
+            // Keep rewrite flow resilient; the rewrite step itself will surface any remaining problem.
+        }
+    }
 }

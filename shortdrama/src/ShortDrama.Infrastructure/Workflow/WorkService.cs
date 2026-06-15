@@ -893,7 +893,7 @@ public sealed class WorkService : IWorkService
         var materialVideosDir = Path.Combine(workflowDir, "material-videos");
 
         var configDir = Path.Combine(rootDir, "config");
-        var configFile = Path.Combine(configDir, "config.txt");
+        var configFile = ResolveConfigFilePath(configDir) ?? Path.Combine(configDir, "config.json");
         var companyName = File.Exists(configFile)
             ? KeyValueConfigReader.Read(configFile).TryGetValue("CompanyName", out var company) ? company : "未填写公司"
             : "未填写公司";
@@ -1076,6 +1076,18 @@ public sealed class WorkService : IWorkService
         }
 
         throw new InvalidOperationException("未找到 ffmpeg。");
+    }
+
+    private static string? ResolveConfigFilePath(string configDir)
+    {
+        var jsonPath = Path.Combine(configDir, "config.json");
+        if (File.Exists(jsonPath))
+        {
+            return jsonPath;
+        }
+
+        var legacyPath = Path.Combine(configDir, "config.txt");
+        return File.Exists(legacyPath) ? legacyPath : null;
     }
 
     private static Dictionary<string, string> ParseProjectInfoValues(IEnumerable<string> lines)

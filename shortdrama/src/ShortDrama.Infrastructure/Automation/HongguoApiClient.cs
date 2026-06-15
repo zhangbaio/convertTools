@@ -270,7 +270,12 @@ internal static class HongguoAccessOptionsResolver
     {
         foreach (var root in EnumerateSearchRoots(anchorDirectory))
         {
-            var path = Path.Combine(root, "config", "config.txt");
+            var path = Path.Combine(root, "config", "config.json");
+            if (!File.Exists(path))
+            {
+                path = Path.Combine(root, "config", "config.txt");
+            }
+
             if (File.Exists(path))
             {
                 return KeyValueConfigReader.Read(path);

@@ -16,12 +16,19 @@ public sealed class DesktopConfigService
     {
         var configFilePath = GetConfigFilePath(rootDir);
         var configDir = GetConfigDirectoryPath(rootDir);
-        var map = File.Exists(configFilePath)
-            ? ReadConfigMap(configFilePath)
+        var resolvedPath = ResolveExistingConfigPath(rootDir);
+        var map = resolvedPath is not null
+            ? ReadConfigMap(resolvedPath)
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         var project = BuildProjectSnapshot(configFilePath, configDir, map);
         var global = _globalSettingsService.Load();
+        if (!string.IsNullOrWhiteSpace(resolvedPath) &&
+            resolvedPath.EndsWith("config.txt", StringComparison.OrdinalIgnoreCase) &&
+            !File.Exists(configFilePath))
+        {
+            SaveProject(project, global);
+        }
         return BuildMergedSnapshot(project, global, configDir, map);
     }
 
@@ -29,11 +36,19 @@ public sealed class DesktopConfigService
     {
         var configFilePath = GetConfigFilePath(rootDir);
         var configDir = GetConfigDirectoryPath(rootDir);
-        var map = File.Exists(configFilePath)
-            ? ReadConfigMap(configFilePath)
+        var resolvedPath = ResolveExistingConfigPath(rootDir);
+        var map = resolvedPath is not null
+            ? ReadConfigMap(resolvedPath)
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var project = BuildProjectSnapshot(configFilePath, configDir, map);
+        if (!string.IsNullOrWhiteSpace(resolvedPath) &&
+            resolvedPath.EndsWith("config.txt", StringComparison.OrdinalIgnoreCase) &&
+            !File.Exists(configFilePath))
+        {
+            SaveProject(project, _globalSettingsService.Load());
+        }
 
-        return BuildProjectSnapshot(configFilePath, configDir, map);
+        return project;
     }
 
     public GlobalConfigSnapshot LoadGlobal()
@@ -54,7 +69,7 @@ public sealed class DesktopConfigService
 
     public void Save(ProjectConfigSnapshot project, GlobalConfigSnapshot global)
     {
-        SaveProject(project);
+        SaveProject(project, global);
         _globalSettingsService.Save(global);
     }
 
@@ -180,9 +195,15 @@ public sealed class DesktopConfigService
         Save(project, global);
     }
 
-    public void SaveProject(ProjectConfigSnapshot config)
+    public void SaveProject(ProjectConfigSnapshot config, GlobalConfigSnapshot? global = null)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(config.ConfigFilePath)!);
+
+        var effectiveGlobal = global ?? _globalSettingsService.Load();
+        var merged = BuildMergedSnapshot(config, effectiveGlobal, Path.GetDirectoryName(config.ConfigFilePath) ?? string.Empty, null);
+        var payload = BuildProjectConfigPayload(config, effectiveGlobal, merged);
+        File.WriteAllText(config.ConfigFilePath, SerializeProjectConfigJson(payload), Encoding.UTF8);
+        return;
 
         var lines = new List<string>
         {
@@ -293,12 +314,153 @@ public sealed class DesktopConfigService
 
     public static string GetConfigFilePath(string rootDir)
     {
-        return Path.Combine(GetConfigDirectoryPath(rootDir), "config.txt");
+        return Path.Combine(GetConfigDirectoryPath(rootDir), "config.json");
     }
 
     public static string GetConfigDirectoryPath(string rootDir)
     {
         return Path.Combine(rootDir, "config");
+    }
+
+    private static string? ResolveExistingConfigPath(string rootDir)
+    {
+        var configDir = GetConfigDirectoryPath(rootDir);
+        var jsonPath = Path.Combine(configDir, "config.json");
+        if (File.Exists(jsonPath))
+        {
+            return jsonPath;
+        }
+
+        var legacyPath = Path.Combine(configDir, "config.txt");
+        return File.Exists(legacyPath) ? legacyPath : null;
+    }
+
+    private static string SerializeProjectConfigJson(IDictionary<string, object?> payload)
+    {
+        return System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+    }
+
+    private static Dictionary<string, object?> BuildProjectConfigPayload(
+        ProjectConfigSnapshot project,
+        GlobalConfigSnapshot global,
+        DesktopConfigSnapshot merged)
+    {
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["CompanyName"] = project.CompanyName,
+            ["SearchPageSize"] = project.SearchPageSize,
+            ["TemplateDocxPath"] = project.TemplateDocxPath,
+            ["CostReportBaseImagePath"] = project.CostReportBaseImagePath,
+            ["CostReportActorPayRatio"] = project.CostReportActorPayRatio,
+            ["CostReportLegalRepresentative"] = project.CostReportLegalRepresentative,
+            ["ChatModelId"] = project.ChatModelId,
+            ["ChatModelApiKey"] = project.ChatModelApiKey,
+            ["ChatModelEndpoint"] = project.ChatModelEndpoint,
+            ["AiTextEndpoint"] = merged.AiTextEndpoint,
+            ["AiTextApiKey"] = merged.AiTextApiKey,
+            ["AiTextModel"] = merged.AiTextModel,
+            ["AiTextTimeoutSeconds"] = merged.AiTextTimeoutSeconds,
+            ["AiTextMaxBatchSize"] = merged.AiTextMaxBatchSize,
+            ["AiTextSystemPrompt"] = merged.AiTextSystemPrompt,
+            ["AiTextBatchPrompt"] = merged.AiTextBatchPrompt,
+            ["AiTextRetryPrompt"] = merged.AiTextRetryPrompt,
+            ["AiTitleSystemPrompt"] = merged.AiTitleSystemPrompt,
+            ["AiTitleBatchPrompt"] = merged.AiTitleBatchPrompt,
+            ["AiTagSystemPrompt"] = merged.AiTagSystemPrompt,
+            ["AiTagBatchPrompt"] = merged.AiTagBatchPrompt,
+            ["AiFullInfoSystemPrompt"] = merged.AiFullInfoSystemPrompt,
+            ["AiFullInfoBatchPrompt"] = merged.AiFullInfoBatchPrompt,
+            ["AiFullInfoRetryPrompt"] = merged.AiFullInfoRetryPrompt,
+            ["WeixinHeadless"] = project.WeixinHeadless,
+            ["WeixinSlowMoMs"] = project.WeixinSlowMoMs,
+            ["WeixinKeepOpenSeconds"] = project.WeixinKeepOpenSeconds,
+            ["WeixinLoginTimeoutSeconds"] = project.WeixinLoginTimeoutSeconds,
+            ["WeixinSubmitEnabled"] = project.WeixinSubmitEnabled,
+            ["WeixinPauseOnError"] = project.WeixinPauseOnError,
+            ["WeixinSaveHtml"] = project.WeixinSaveHtml,
+            ["WeixinSaveText"] = project.WeixinSaveText,
+            ["WeixinMonetizationType"] = project.WeixinMonetizationType,
+            ["WeixinDramaType"] = project.WeixinDramaType,
+            ["WeixinDramaQualification"] = project.WeixinDramaQualification,
+            ["WeixinSubmitterIdentity"] = project.WeixinSubmitterIdentity,
+            ["WeixinTrialEpisodes"] = project.WeixinTrialEpisodes,
+            ["WeixinFillRecommendation"] = project.WeixinFillRecommendation,
+            ["WeixinSubmissionReportDir"] = project.WeixinSubmissionReportDir,
+            ["ImageModelId"] = merged.ImageModelId,
+            ["ImageModelApiKey"] = merged.ImageModelApiKey,
+            ["ImageModelEndpoint"] = merged.ImageModelEndpoint,
+            ["ImageEditModelId"] = merged.ImageEditModelId,
+            ["ImageEditApiKey"] = merged.ImageEditApiKey,
+            ["ImageEditEndpoint"] = merged.ImageEditEndpoint,
+            ["ImageEditPath"] = merged.ImageEditPath,
+            ["FrameCoverPrompt"] = merged.FrameCoverPrompt,
+            ["PosterLayoutDetectPrompt"] = merged.PosterLayoutDetectPrompt,
+            ["PosterInpaintPrompt"] = merged.PosterInpaintPrompt,
+            ["PosterInpaintSafeRetryPrompt"] = merged.PosterInpaintSafeRetryPrompt,
+            ["PosterGenerationPrompt"] = merged.PosterGenerationPrompt,
+            ["PosterGenerationSafeRetryPrompt"] = merged.PosterGenerationSafeRetryPrompt,
+            ["PosterNameSystemPrompt"] = merged.PosterNameSystemPrompt,
+            ["PosterNameUserPrompt"] = merged.PosterNameUserPrompt,
+            ["VideoRes"] = project.VideoRes,
+            ["VideoBitrateBps"] = project.VideoBitrateBps,
+            ["VideoBitrateMode"] = project.VideoBitrateMode,
+            ["VideoAudioBitrateBps"] = project.VideoAudioBitrateBps,
+            ["VideoFps"] = project.VideoFps,
+            ["VideoConcurrentCount"] = project.VideoConcurrentCount,
+            ["VideoUseHardwareEncoder"] = project.VideoUseHardwareEncoder,
+            ["VideoEncoder"] = project.VideoEncoder,
+            ["VideoPreset"] = project.VideoPreset,
+            ["NvencCq"] = project.NvencCq,
+            ["NvencMaxParallel"] = project.NvencMaxParallel,
+            ["VerboseTranscodeLogEnabled"] = project.VerboseTranscodeLogEnabled,
+            ["SkipBitrateDownscaleForHighBitrate"] = project.SkipBitrateDownscaleForHighBitrate,
+            ["UploadTargetVideoBitrateMbps"] = project.UploadTargetVideoBitrateMbps,
+            ["UploadMaxVideoBitrateMbps"] = project.UploadMaxVideoBitrateMbps,
+            ["UploadMinVideoBitrateMbps"] = project.UploadMinVideoBitrateMbps,
+            ["UploadAudioBitrateKbps"] = project.UploadAudioBitrateKbps,
+            ["UploadBitrateFallbackEnabled"] = project.UploadBitrateFallbackEnabled,
+            ["UploadBitrateFallbackVideoBitrateMbps"] = project.UploadBitrateFallbackVideoBitrateMbps,
+            ["UploadBitrateProfilesJson"] = project.UploadBitrateProfilesJson,
+            ["VideoNameTemplate"] = project.VideoNameTemplate,
+            ["MaterialConvertEnabled"] = project.MaterialConvertEnabled,
+            ["MaterialTrimHeadSeconds"] = project.MaterialTrimHeadSeconds,
+            ["MaterialTrimTailSeconds"] = project.MaterialTrimTailSeconds,
+            ["MaterialSpeedPercent"] = project.MaterialSpeedPercent,
+            ["MaterialDynamicSpeedEnabled"] = project.MaterialDynamicSpeedEnabled,
+            ["MaterialDynamicSpeedPresetName"] = project.MaterialDynamicSpeedPresetName,
+            ["MaterialDynamicSpeedHeadSeconds"] = project.MaterialDynamicSpeedHeadSeconds,
+            ["MaterialDynamicSpeedHeadPercent"] = project.MaterialDynamicSpeedHeadPercent,
+            ["MaterialDynamicSpeedMiddlePercent"] = project.MaterialDynamicSpeedMiddlePercent,
+            ["MaterialDynamicSpeedTailSeconds"] = project.MaterialDynamicSpeedTailSeconds,
+            ["MaterialDynamicSpeedTailPercent"] = project.MaterialDynamicSpeedTailPercent,
+            ["MaterialFrameSamplingEnabled"] = project.MaterialFrameSamplingEnabled,
+            ["MaterialFrameSamplingMode"] = project.MaterialFrameSamplingMode,
+            ["MaterialFrameSamplingInterval"] = project.MaterialFrameSamplingInterval,
+            ["MaterialDropEveryNFrames"] = project.MaterialDropEveryNFrames,
+            ["MaterialDropCount"] = project.MaterialDropCount,
+            ["MaterialCropWidthPercent"] = project.MaterialCropWidthPercent,
+            ["MaterialCropHeightPercent"] = project.MaterialCropHeightPercent,
+            ["MaterialForegroundZoomPercent"] = project.MaterialForegroundZoomPercent,
+            ["MaterialWatermarkEnabled"] = project.MaterialWatermarkEnabled,
+            ["MaterialWatermarkText"] = project.MaterialWatermarkText,
+            ["MaterialWatermarkFontSize"] = project.MaterialWatermarkFontSize,
+            ["MaterialWatermarkPosition"] = project.MaterialWatermarkPosition,
+            ["MaterialWatermarkMarginX"] = project.MaterialWatermarkMarginX,
+            ["MaterialWatermarkMarginY"] = project.MaterialWatermarkMarginY,
+            ["MaterialOutputWidth"] = project.MaterialOutputWidth,
+            ["MaterialOutputHeight"] = project.MaterialOutputHeight,
+            ["MaterialPipWidthPercent"] = project.MaterialPipWidthPercent,
+            ["MaterialPipHeightPercent"] = project.MaterialPipHeightPercent,
+            ["ProjectImageGenerationMode"] = string.IsNullOrWhiteSpace(project.ProjectImageGenerationMode) ? "image_template" : project.ProjectImageGenerationMode,
+            ["ProjectImageTemplateRoot"] = project.ProjectImageTemplateRoot,
+            ["ProjectImageTemplateId"] = project.ProjectImageTemplateId,
+            ["ProjectImageTemplateDir"] = project.ProjectImageTemplateDir,
+            ["ProjectImageCount"] = project.ProjectImageCount,
+            ["GlobalSettingsFilePath"] = global.SettingsFilePath
+        };
     }
 
     public static string ResolveConfiguredPath(string rootDirOrConfigDir, string configuredPath)
@@ -524,9 +686,34 @@ public sealed class DesktopConfigService
 
     private static Dictionary<string, string> ReadConfigMap(string path)
     {
+        var content = File.ReadAllText(path);
+        var trimmed = content.TrimStart();
+        if (trimmed.StartsWith('{'))
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(content);
+            var jsonMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var property in document.RootElement.EnumerateObject())
+                {
+                    jsonMap[property.Name] = property.Value.ValueKind switch
+                    {
+                        System.Text.Json.JsonValueKind.String => property.Value.GetString() ?? string.Empty,
+                        System.Text.Json.JsonValueKind.Number => property.Value.GetRawText(),
+                        System.Text.Json.JsonValueKind.True => "true",
+                        System.Text.Json.JsonValueKind.False => "false",
+                        System.Text.Json.JsonValueKind.Object or System.Text.Json.JsonValueKind.Array => property.Value.GetRawText(),
+                        _ => string.Empty
+                    };
+                }
+            }
+
+            return jsonMap;
+        }
+
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var rawLine in File.ReadAllLines(path))
+        foreach (var rawLine in content.Split(["\r\n", "\n"], StringSplitOptions.None))
         {
             var line = rawLine.Trim();
             if (line.Length == 0 || line.StartsWith('#'))

@@ -1353,6 +1353,12 @@ public partial class MainWindowViewModel : ViewModelBase
                 return;
             }
 
+            if (string.Equals(stepKey, "rewrite", StringComparison.Ordinal) ||
+                string.Equals(stepKey, "rewrite_info", StringComparison.Ordinal))
+            {
+                await MaybeAutoFillProjectInfoBeforeRewriteAsync(SelectedProject, cancellationToken);
+            }
+
             await TryNotifyFeishuStepAsync(SelectedProject, stepKey, stepLabel, "before", null, null, cancellationToken);
             var progress = CreateBufferedProgress();
             var result = await _workService.RunProjectStepAsync(
@@ -2287,6 +2293,11 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "before", null, null, cancellationToken);
+            if (string.Equals(stepKey, "rewrite", StringComparison.Ordinal) ||
+                string.Equals(stepKey, "rewrite_info", StringComparison.Ordinal))
+            {
+                await MaybeAutoFillProjectInfoBeforeRewriteAsync(project, cancellationToken);
+            }
             var progress = CreateBufferedProgress();
             var result = await _workService.RunProjectStepAsync(
                 project.SourceProjectDir,
@@ -2421,6 +2432,11 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "before", null, null, cancellationToken);
+            if (string.Equals(stepKey, "rewrite", StringComparison.Ordinal) ||
+                string.Equals(stepKey, "rewrite_info", StringComparison.Ordinal))
+            {
+                await MaybeAutoFillProjectInfoBeforeRewriteAsync(project, cancellationToken);
+            }
             var progressForStep = CreateBufferedProgress();
             var stepResult = await _workService.RunProjectStepAsync(
                 project.SourceProjectDir,

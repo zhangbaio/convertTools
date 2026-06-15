@@ -60,8 +60,8 @@ public sealed class CostReportBuilder : ICostReportBuilder
         string resolvedConfigDir,
         CancellationToken cancellationToken)
     {
-        var configPath = Path.Combine(resolvedConfigDir, "config.txt");
-        if (!File.Exists(configPath))
+        var configPath = ResolveConfigPath(resolvedConfigDir);
+        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
         {
             return project;
         }
@@ -80,8 +80,8 @@ public sealed class CostReportBuilder : ICostReportBuilder
 
     private static bool ShouldGenerateOriginalDocx(string resolvedConfigDir)
     {
-        var configPath = Path.Combine(resolvedConfigDir, "config.txt");
-        if (!File.Exists(configPath))
+        var configPath = ResolveConfigPath(resolvedConfigDir);
+        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
         {
             return false;
         }
@@ -108,5 +108,17 @@ public sealed class CostReportBuilder : ICostReportBuilder
         }
 
         return false;
+    }
+
+    private static string? ResolveConfigPath(string configDir)
+    {
+        var jsonPath = Path.Combine(configDir, "config.json");
+        if (File.Exists(jsonPath))
+        {
+            return jsonPath;
+        }
+
+        var legacyPath = Path.Combine(configDir, "config.txt");
+        return File.Exists(legacyPath) ? legacyPath : null;
     }
 }
