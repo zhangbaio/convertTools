@@ -3,10 +3,8 @@
              xmlns:vm="using:ShortDrama.Desktop.ViewModels"
              xmlns:models="using:ShortDrama.Desktop.Models"
              x:Class="ShortDrama.Desktop.Views.TaskQueue.TaskQueueRunLogView">
-    <Grid RowDefinitions="Auto,Auto,*" RowSpacing="14">
-        <Border Background="{DynamicResource DesktopPanelBrush}"
-                CornerRadius="18"
-                Padding="12,10">
+    <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+        <Border Classes="page-panel">
             <TabStrip ItemsSource="{Binding RunLogTabOptions}"
                       SelectedItem="{Binding SelectedRunLogTabOption}">
                 <TabStrip.ItemTemplate>
@@ -17,12 +15,9 @@
             </TabStrip>
         </Border>
 
-        <Border Grid.Row="1"
-                Background="{DynamicResource DesktopPanelBrush}"
-                CornerRadius="18"
-                Padding="18">
-            <Grid RowDefinitions="Auto,Auto" RowSpacing="12">
-                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
+        <Border Grid.Row="1" Classes="page-panel">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="10">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
                     <StackPanel Spacing="6">
                         <TextBlock Text="{Binding RunLogHeaderTitle}"
                                    FontSize="22"
@@ -33,25 +28,27 @@
                     </StackPanel>
 
                     <CheckBox Grid.Column="1"
-                              Content="跟随最近活跃项目"
+                              Content="&#x8DDF;&#x968F;&#x6700;&#x8FD1;&#x6D3B;&#x8DC3;&#x9879;&#x76EE;"
                               IsVisible="{Binding IsRunLogFollowControlsVisible}"
                               IsChecked="{Binding FollowLatestActiveLogProject}"
                               VerticalAlignment="Center" />
                     <CheckBox Grid.Column="2"
-                              Content="仅看问题"
+                              Content="&#x4EC5;&#x770B;&#x95EE;&#x9898;"
                               IsVisible="{Binding IsRunLogFollowControlsVisible}"
                               IsChecked="{Binding OnlyShowFailedLogs}"
                               VerticalAlignment="Center" />
                     <StackPanel Grid.Column="3"
                                 Orientation="Horizontal"
                                 Spacing="10">
-                        <Button MinWidth="100"
+                        <Button Classes="compact"
+                                MinWidth="92"
                                 IsVisible="{Binding IsRunLogStopButtonVisible}"
                                 Command="{Binding StopCurrentRunCommand}"
-                                Content="停止" />
-                        <Button MinWidth="120"
+                                Content="&#x505C;&#x6B62;" />
+                        <Button Classes="compact"
+                                MinWidth="108"
                                 Click="CopyRunLog_Click"
-                                Content="复制日志" />
+                                Content="&#x590D;&#x5236;&#x65E5;&#x5FD7;" />
                     </StackPanel>
                 </Grid>
 
@@ -65,59 +62,56 @@
                    LastChildFill="True">
             <Border DockPanel.Dock="Left"
                     Width="300"
-                    Margin="0,0,14,0"
+                    Margin="0,0,12,0"
                     IsVisible="{Binding IsRunLogProjectPaneVisible}"
-                    Background="{DynamicResource DesktopPanelBrush}"
-                    CornerRadius="18"
-                    Padding="12">
-                <Grid RowDefinitions="Auto,*" RowSpacing="12">
-                    <Button Content="全部已勾选项目"
+                    Classes="page-panel">
+                <Grid RowDefinitions="Auto,*" RowSpacing="10">
+                    <Button Classes="compact"
+                            Content="&#x67E5;&#x770B;&#x5168;&#x90E8;&#x52FE;&#x9009;&#x9879;&#x76EE;"
                             Click="ShowAllProjectsLog_Click" />
 
-                    <ListBox Grid.Row="1"
-                             ItemsSource="{Binding RunLogProjects}"
-                             SelectedItem="{Binding SelectedRunLogProject}"
-                             BorderThickness="0"
-                             Background="Transparent">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ProjectListItemViewModel">
-                                <Border Margin="0,0,0,8"
-                                        Padding="12"
-                                        CornerRadius="12"
-                                        Background="{DynamicResource DesktopPanelAltBrush}">
-                                    <StackPanel Spacing="6">
-                                        <TextBlock Text="{Binding DisplayName}"
-                                                   FontWeight="SemiBold"
-                                                   TextWrapping="Wrap" />
-                                        <TextBlock Text="{Binding SchedulingStatus}"
-                                                   Foreground="{Binding SchedulingStatusBrush}" />
-                                        <TextBlock Text="{Binding CurrentStepLabel}"
-                                                   TextWrapping="Wrap" />
-                                        <TextBlock Text="{Binding CurrentStepProgressText}"
-                                                   Foreground="{DynamicResource DesktopTextSecondaryBrush}"
-                                                   TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                    <Border Grid.Row="1" Classes="table-shell">
+                        <ListBox Classes="table-list"
+                                 ItemsSource="{Binding RunLogProjects}"
+                                 SelectedItem="{Binding SelectedRunLogProject}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ProjectListItemViewModel">
+                                    <Border Classes="table-row">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{Binding DisplayName}"
+                                                       FontWeight="SemiBold"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding SchedulingStatus}"
+                                                       Foreground="{Binding SchedulingStatusBrush}" />
+                                            <TextBlock Text="{Binding CurrentStepLabel}"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding CurrentStepProgressText}"
+                                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                                       TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
                 </Grid>
             </Border>
 
-            <Border Background="{DynamicResource DesktopPanelBrush}"
-                    CornerRadius="18"
-                    Padding="16">
-                <Grid RowDefinitions="Auto,*" RowSpacing="12">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <Border Classes="page-panel">
+                <Grid RowDefinitions="Auto,*" RowSpacing="10">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                         <StackPanel Spacing="4">
                             <TextBlock Text="{Binding ActivityTitle}"
                                        FontSize="20"
                                        FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding RunLogCurrentScopeLabel, StringFormat=当前范围: {0}}"
+                            <TextBlock Text="{Binding RunLogCurrentScopeLabel, StringFormat=&#x5F53;&#x524D;&#x8303;&#x56F4;: {0}}"
                                        Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
                         </StackPanel>
 
                         <ComboBox Grid.Column="1"
+                                  Classes="compact"
                                   Width="180"
                                   IsVisible="{Binding IsRunLogStepFilterVisible}"
                                   ItemsSource="{Binding StepLogFilters}"
@@ -130,10 +124,7 @@
                         </ComboBox>
                     </Grid>
 
-                    <Border Grid.Row="1"
-                            Background="{DynamicResource DesktopPanelAltBrush}"
-                            CornerRadius="14"
-                            Padding="10">
+                    <Border Grid.Row="1" Classes="toolbar-panel">
                         <TextBox Text="{Binding VisibleActivityLogText}"
                                  IsReadOnly="True"
                                  AcceptsReturn="True"

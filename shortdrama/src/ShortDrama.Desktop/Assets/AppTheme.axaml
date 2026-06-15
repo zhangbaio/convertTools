@@ -2,31 +2,35 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Styles.Resources>
         <LinearGradientBrush x:Key="DesktopBackgroundGradientBrush" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#E6EBEE" Offset="0" />
-            <GradientStop Color="#EFF2ED" Offset="1" />
+            <GradientStop Color="#F0EBE2" Offset="0" />
+            <GradientStop Color="#EAE2D4" Offset="1" />
         </LinearGradientBrush>
-        <SolidColorBrush x:Key="DesktopBackgroundBrush">#EAEFF3</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopPanelBrush">#F8F6F1</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopPanelAltBrush">#F1F4F6</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopSurfaceBrush">#E7ECEF</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopSurfaceHoverBrush">#DDE4E9</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopBorderBrush">#C8D0D7</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopDividerBrush">#D7DDE2</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopTextPrimaryBrush">#1F2733</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopTextSecondaryBrush">#627080</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopTextMutedBrush">#8C96A5</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopAccentBrush">#516B8E</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopAccentHoverBrush">#617EA3</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopAccentPressedBrush">#405878</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopAccentSoftBrush">#E1E8F0</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopSidebarBrush">#E3E8EC</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopSidebarHoverBrush">#EDF1F4</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopSidebarSelectedBrush">#D8E0E8</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopSuccessBrush">#4B886B</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopWarningBrush">#A97D3C</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopDangerBrush">#B86565</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopPreviewBrush">#E2E6EA</SolidColorBrush>
-        <SolidColorBrush x:Key="DesktopSelectionBrush">#D7E0EA</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopBackgroundBrush">#EEE7DB</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopPanelBrush">#FBF7F0</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopPanelAltBrush">#F2EADF</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSurfaceBrush">#FFFDF9</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSurfaceHoverBrush">#F7F0E5</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopToolbarBrush">#F7F0E6</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopTableHeaderBrush">#F1E7D7</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopTableRowHoverBrush">#F8F0E4</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopBorderBrush">#D8C8B4</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopDividerBrush">#E6D9C7</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopTextPrimaryBrush">#382D20</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopTextSecondaryBrush">#7A6956</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopTextMutedBrush">#A08D78</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopAccentBrush">#2E7BE7</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopAccentHoverBrush">#1F69CE</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopAccentPressedBrush">#1755AA</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopAccentSoftBrush">#EAF2FF</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSidebarBrush">#F0E8DB</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSidebarHoverBrush">#F7F1E7</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSidebarSelectedBrush">#2D261F</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSidebarSelectedTextBrush">#FFF7ED</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSuccessBrush">#2E8A5A</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopWarningBrush">#B07A24</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopDangerBrush">#C0544F</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopPreviewBrush">#ECE2D5</SolidColorBrush>
+        <SolidColorBrush x:Key="DesktopSelectionBrush">#DFECFF</SolidColorBrush>
     </Styles.Resources>
 
     <Style Selector="Window">
@@ -37,7 +41,57 @@
     <Style Selector="Border">
         <Setter Property="BorderBrush" Value="{DynamicResource DesktopDividerBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="BoxShadow" Value="0 6 18 0 #10141B22" />
+        <Setter Property="BoxShadow" Value="0 6 18 0 #2C190806" />
+    </Style>
+
+    <Style Selector="Border.page-panel">
+        <Setter Property="Background" Value="{DynamicResource DesktopPanelBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorderBrush}" />
+        <Setter Property="CornerRadius" Value="16" />
+        <Setter Property="Padding" Value="14" />
+        <Setter Property="BoxShadow" Value="0 12 24 0 #2C190808" />
+    </Style>
+
+    <Style Selector="Border.toolbar-panel">
+        <Setter Property="Background" Value="{DynamicResource DesktopToolbarBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopDividerBrush}" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="12" />
+        <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+
+    <Style Selector="Border.status-pill">
+        <Setter Property="Background" Value="{DynamicResource DesktopSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorderBrush}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="12,8" />
+        <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+
+    <Style Selector="Border.table-shell">
+        <Setter Property="Background" Value="{DynamicResource DesktopPanelBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorderBrush}" />
+        <Setter Property="CornerRadius" Value="14" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="BoxShadow" Value="0 8 20 0 #2C190806" />
+    </Style>
+
+    <Style Selector="Border.table-header">
+        <Setter Property="Background" Value="{DynamicResource DesktopTableHeaderBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopDividerBrush}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="Padding" Value="12,11" />
+        <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
+    </Style>
+
+    <Style Selector="Border.table-row">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopDividerBrush}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="BoxShadow" Value="0 0 0 0 #00000000" />
     </Style>
 
     <Style Selector="TextBlock">
@@ -53,12 +107,12 @@
         <Setter Property="Background" Value="{DynamicResource DesktopSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="16,10" />
-        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="15,9" />
+        <Setter Property="CornerRadius" Value="10" />
     </Style>
 
     <Style Selector="Button:pointerover">
-        <Setter Property="Background" Value="{DynamicResource DesktopPanelBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DesktopSurfaceHoverBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource DesktopAccentBrush}" />
     </Style>
 
@@ -88,8 +142,8 @@
 
     <Style Selector="Button.primary:disabled">
         <Setter Property="Foreground" Value="#FFFFFF" />
-        <Setter Property="Background" Value="#B8C3CF" />
-        <Setter Property="BorderBrush" Value="#B8C3CF" />
+        <Setter Property="Background" Value="#ADC1D5" />
+        <Setter Property="BorderBrush" Value="#ADC1D5" />
         <Setter Property="Opacity" Value="1" />
     </Style>
 
@@ -100,6 +154,34 @@
         <Setter Property="Opacity" Value="0.7" />
     </Style>
 
+    <Style Selector="Button.compact">
+        <Setter Property="Padding" Value="13,7" />
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="CornerRadius" Value="10" />
+    </Style>
+
+    <Style Selector="Button.inline-action">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource DesktopAccentBrush}" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+    </Style>
+
+    <Style Selector="Button.inline-action:pointerover">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource DesktopAccentHoverBrush}" />
+    </Style>
+
+    <Style Selector="Button.inline-action:pressed">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource DesktopAccentPressedBrush}" />
+    </Style>
+
     <Style Selector="TextBox">
         <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
         <Setter Property="Background" Value="{DynamicResource DesktopSurfaceBrush}" />
@@ -107,7 +189,7 @@
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CaretBrush" Value="{DynamicResource DesktopTextPrimaryBrush}" />
         <Setter Property="SelectionBrush" Value="{DynamicResource DesktopAccentBrush}" />
-        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="CornerRadius" Value="8" />
     </Style>
 
     <Style Selector="TextBox:pointerover">
@@ -124,7 +206,15 @@
         <Setter Property="Background" Value="{DynamicResource DesktopSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="CornerRadius" Value="8" />
+    </Style>
+
+    <Style Selector="TextBox.compact">
+        <Setter Property="MinHeight" Value="38" />
+    </Style>
+
+    <Style Selector="ComboBox.compact">
+        <Setter Property="MinHeight" Value="38" />
     </Style>
 
     <Style Selector="ComboBox:pointerover">
@@ -160,16 +250,59 @@
         <Setter Property="BorderThickness" Value="1" />
     </Style>
 
+    <Style Selector="ListBox.table-list">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="0" />
+    </Style>
+
+    <Style Selector="ListBox.table-list ListBoxItem">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0" />
+    </Style>
+
+    <Style Selector="ListBox.table-list ListBoxItem /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+
+    <Style Selector="ListBox.table-list ListBoxItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource DesktopTableRowHoverBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <Style Selector="ListBox.table-list ListBoxItem:selected /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource DesktopSelectionBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
     <Style Selector="TabControl">
         <Setter Property="Background" Value="Transparent" />
     </Style>
 
     <Style Selector="TabItem">
         <Setter Property="Foreground" Value="{DynamicResource DesktopTextSecondaryBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DesktopPanelAltBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="14" />
+    </Style>
+
+    <Style Selector="TabItem:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource DesktopTextPrimaryBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DesktopPanelBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopAccentSoftBrush}" />
     </Style>
 
     <Style Selector="TabItem:selected">
         <Setter Property="Foreground" Value="{DynamicResource DesktopAccentBrush}" />
+        <Setter Property="Background" Value="{DynamicResource DesktopAccentSoftBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource DesktopAccentBrush}" />
     </Style>
 
     <Style Selector="ScrollViewer">

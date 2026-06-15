@@ -18,16 +18,16 @@
             <Setter Property="Padding" Value="0" />
         </Style>
         <Style Selector="TabControl.sidebar TabItem">
-            <Setter Property="Margin" Value="0,0,0,10" />
-            <Setter Property="Padding" Value="18,14" />
-            <Setter Property="MinWidth" Value="220" />
-            <Setter Property="FontSize" Value="16" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="Padding" Value="14,12" />
+            <Setter Property="MinWidth" Value="188" />
+            <Setter Property="FontSize" Value="15" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{DynamicResource DesktopTextSecondaryBrush}" />
             <Setter Property="Background" Value="{DynamicResource DesktopSidebarBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource DesktopDividerBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="16" />
+            <Setter Property="CornerRadius" Value="14" />
         </Style>
         <Style Selector="TabControl.sidebar TabItem:pointerover">
             <Setter Property="Background" Value="{DynamicResource DesktopSidebarHoverBrush}" />
@@ -36,36 +36,37 @@
         </Style>
         <Style Selector="TabControl.sidebar TabItem:selected">
             <Setter Property="Background" Value="{DynamicResource DesktopSidebarSelectedBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource DesktopAccentBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource DesktopAccentBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource DesktopSidebarSelectedTextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DesktopSidebarSelectedBrush}" />
         </Style>
     </Window.Styles>
 
-    <Grid Margin="20">
+    <Grid Margin="16">
         <TabControl x:Name="SidebarTabs"
                     Classes="sidebar"
                     TabStripPlacement="Left"
                     SelectedIndex="{Binding SelectedSidebarTabIndex}">
             <TabItem Header="短剧搜索">
-                <Grid RowDefinitions="Auto,*" RowSpacing="16">
-                    <Border Background="{DynamicResource DesktopPanelBrush}"
-                            CornerRadius="18"
-                            Padding="16">
-                        <StackPanel Spacing="14">
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                <Grid RowDefinitions="Auto,*" RowSpacing="12">
+                    <Border Classes="page-panel">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                                 <TextBlock VerticalAlignment="Center"
                                            Text="下载目录" />
                                 <TextBox Grid.Column="1"
+                                         Classes="compact"
                                          Text="{Binding RootDir}"
                                          IsReadOnly="True" />
                                 <Button Grid.Column="2"
-                                        MinWidth="130"
+                                        Classes="compact"
+                                        MinWidth="126"
                                         Click="PickRootDir_Click"
                                         Content="选择下载目录" />
                             </Grid>
 
-                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                            <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
                                 <TextBox Grid.Column="0"
+                                         Classes="compact"
                                          Text="{Binding SearchKeyword}"
                                          Watermark="输入短剧名称，例如: 婆婆、闪婚、逆袭...">
                                     <TextBox.KeyBindings>
@@ -74,8 +75,8 @@
                                     </TextBox.KeyBindings>
                                 </TextBox>
                                 <Button Grid.Column="1"
-                                        Classes="primary"
-                                        MinWidth="100"
+                                        Classes="primary compact"
+                                        MinWidth="92"
                                         Command="{Binding SearchDramaCommand}"
                                         Content="搜索" />
                                 <CheckBox Grid.Column="2"
@@ -84,125 +85,136 @@
                                           Content="精确搜索" />
                             </Grid>
 
-                            <WrapPanel Orientation="Horizontal">
-                                <Button MinWidth="110"
-                                        Margin="0,0,10,10"
-                                        Command="{Binding LoadTodayDramaCommand}"
-                                        Content="今日上新" />
-                                <Button MinWidth="110"
-                                        Margin="0,0,10,10"
-                                        Command="{Binding LoadMangaTodayDramaCommand}"
-                                        Content="漫剧上新" />
-                                <Button MinWidth="120"
-                                        Margin="0,0,10,10"
-                                        Command="{Binding LoadAiTodayDramaCommand}"
-                                        Content="AI短剧上新" />
-                                <Button MinWidth="110"
-                                        Margin="0,0,10,10"
-                                        Command="{Binding LoadHistoryDramaCommand}"
-                                        Content="历史上新" />
-                                <Border Margin="0,0,10,10"
-                                        Padding="12,10"
-                                        Background="{DynamicResource DesktopPanelAltBrush}"
-                                        CornerRadius="12">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock VerticalAlignment="Center"
-                                                   Text="查询天数" />
-                                        <TextBox Width="60"
-                                                 Text="{Binding SearchQueryDays}" />
-                                        <TextBlock VerticalAlignment="Center"
-                                                   Text="天" />
-                                    </StackPanel>
-                                </Border>
-                                <Border Margin="0,0,10,10"
-                                        MinWidth="120"
-                                        Padding="14,10"
-                                        Background="{DynamicResource DesktopPanelAltBrush}"
-                                        CornerRadius="12">
-                                    <TextBlock HorizontalAlignment="Center"
-                                               VerticalAlignment="Center"
-                                               Text="{Binding SearchPageText}" />
-                                </Border>
-                                <Button MinWidth="90"
-                                        Margin="0,0,10,10"
-                                        Command="{Binding GoPreviousSearchPageCommand}"
-                                        Content="上一页" />
-                                <Button MinWidth="90"
-                                        Margin="0,0,10,10"
-                                        Command="{Binding GoNextSearchPageCommand}"
-                                        Content="下一页" />
-                            </WrapPanel>
+                            <Border Grid.Row="2" Classes="toolbar-panel">
+                                <Grid RowDefinitions="Auto,Auto" RowSpacing="10">
+                                    <WrapPanel Orientation="Horizontal">
+                                        <Button Classes="compact"
+                                                MinWidth="104"
+                                                Margin="0,0,8,8"
+                                                Command="{Binding LoadTodayDramaCommand}"
+                                                Content="今日上新" />
+                                        <Button Classes="compact"
+                                                MinWidth="104"
+                                                Margin="0,0,8,8"
+                                                Command="{Binding LoadMangaTodayDramaCommand}"
+                                                Content="漫剧上新" />
+                                        <Button Classes="compact"
+                                                MinWidth="112"
+                                                Margin="0,0,8,8"
+                                                Command="{Binding LoadAiTodayDramaCommand}"
+                                                Content="AI短剧上新" />
+                                        <Button Classes="compact"
+                                                MinWidth="104"
+                                                Margin="0,0,8,8"
+                                                Command="{Binding LoadHistoryDramaCommand}"
+                                                Content="历史上新" />
+                                        <Border Classes="status-pill"
+                                                Margin="0,0,8,8">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock VerticalAlignment="Center"
+                                                           Text="查询天数" />
+                                                <TextBox Classes="compact"
+                                                         Width="56"
+                                                         Text="{Binding SearchQueryDays}" />
+                                                <TextBlock VerticalAlignment="Center"
+                                                           Text="天" />
+                                            </StackPanel>
+                                        </Border>
+                                        <Border Classes="status-pill"
+                                                MinWidth="118"
+                                                Margin="0,0,8,8">
+                                            <TextBlock HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"
+                                                       Text="{Binding SearchPageText}" />
+                                        </Border>
+                                        <Button Classes="compact"
+                                                MinWidth="88"
+                                                Margin="0,0,8,8"
+                                                Command="{Binding GoPreviousSearchPageCommand}"
+                                                Content="上一页" />
+                                        <Button Classes="compact"
+                                                MinWidth="88"
+                                                Margin="0,0,8,8"
+                                                Command="{Binding GoNextSearchPageCommand}"
+                                                Content="下一页" />
+                                    </WrapPanel>
 
-                            <Grid ColumnDefinitions="Auto,100,Auto,100,Auto" ColumnSpacing="10">
-                                <TextBlock VerticalAlignment="Center"
-                                           Text="最小集数" />
-                                <TextBox Grid.Column="1"
-                                         Text="{Binding SearchMinEpisodeCount}"
-                                         Watermark="不限" />
-                                <TextBlock Grid.Column="2"
-                                           VerticalAlignment="Center"
-                                           Text="最大集数" />
-                                <TextBox Grid.Column="3"
-                                         Text="{Binding SearchMaxEpisodeCount}"
-                                         Watermark="不限" />
-                                <Button Grid.Column="4"
-                                        MinWidth="120"
-                                        Command="{Binding ApplySearchFiltersCommand}"
-                                        Content="应用筛选" />
-                            </Grid>
+                                    <WrapPanel Grid.Row="1" Orientation="Horizontal">
+                                        <TextBlock Margin="0,0,8,8"
+                                                   VerticalAlignment="Center"
+                                                   Text="最小集数" />
+                                        <TextBox Classes="compact"
+                                                 Width="84"
+                                                 Margin="0,0,12,8"
+                                                 Text="{Binding SearchMinEpisodeCount}"
+                                                 Watermark="不限" />
+                                        <TextBlock Margin="0,0,8,8"
+                                                   VerticalAlignment="Center"
+                                                   Text="最大集数" />
+                                        <TextBox Classes="compact"
+                                                 Width="84"
+                                                 Margin="0,0,12,8"
+                                                 Text="{Binding SearchMaxEpisodeCount}"
+                                                 Watermark="不限" />
+                                        <Button Classes="compact"
+                                                MinWidth="98"
+                                                Margin="0,0,16,8"
+                                                Command="{Binding ApplySearchFiltersCommand}"
+                                                Content="应用筛选" />
+                                        <TextBlock Margin="0,0,8,8"
+                                                   VerticalAlignment="Center"
+                                                   Text="集数范围" />
+                                        <ComboBox Classes="compact"
+                                                  Width="152"
+                                                  Margin="0,0,8,8"
+                                                  ItemsSource="{Binding DownloadEpisodeRangeOptions}"
+                                                  SelectedItem="{Binding SelectedDownloadEpisodeRangeOption}"
+                                                  DisplayMemberBinding="{Binding Label}" />
+                                        <TextBox Classes="compact"
+                                                 Width="210"
+                                                 Margin="0,0,8,8"
+                                                 Text="{Binding CustomDownloadEpisodeRange}"
+                                                 Watermark="如：1-5 或 1,3,5"
+                                                 IsEnabled="{Binding IsCustomDownloadEpisodeRange}" />
+                                        <Button Classes="primary compact"
+                                                MinWidth="106"
+                                                Margin="0,0,8,8"
+                                                Command="{Binding DownloadCheckedDramaCommand}"
+                                                Content="下载选中" />
+                                        <Button Classes="compact"
+                                                MinWidth="126"
+                                                Margin="0,0,8,8"
+                                                Command="{Binding AddCheckedToVideoChannelQueueCommand}"
+                                                Content="加入视频号队列" />
+                                        <Button Classes="compact"
+                                                MinWidth="126"
+                                                Margin="0,0,8,8"
+                                                Command="{Binding AddCheckedToMiniprogramQueueCommand}"
+                                                Content="加入小程序队列" />
+                                        <Button Classes="compact"
+                                                MinWidth="118"
+                                                Margin="0,0,8,8"
+                                                Command="{Binding AddCheckedToKuaishouQueueCommand}"
+                                                Content="加入快手队列" />
+                                        <Border Classes="status-pill"
+                                                Margin="0,0,0,8">
+                                            <TextBlock Text="{Binding CheckedSearchResultsSummary}" />
+                                        </Border>
+                                    </WrapPanel>
+                                </Grid>
+                            </Border>
 
-                            <Grid ColumnDefinitions="Auto,180,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
-                                <TextBlock VerticalAlignment="Center"
-                                           Text="集数范围" />
-                                <ComboBox Grid.Column="1"
-                                          ItemsSource="{Binding DownloadEpisodeRangeOptions}"
-                                          SelectedItem="{Binding SelectedDownloadEpisodeRangeOption}"
-                                          DisplayMemberBinding="{Binding Label}" />
-                                <TextBox Grid.Column="2"
-                                         Text="{Binding CustomDownloadEpisodeRange}"
-                                         Watermark="如：1-5 或 1,3,5"
-                                         IsEnabled="{Binding IsCustomDownloadEpisodeRange}" />
-                                <Button Grid.Column="3"
-                                        MinWidth="120"
-                                        Command="{Binding DownloadCheckedDramaCommand}"
-                                        Content="下载选中" />
-                                <Button Grid.Column="4"
-                                        MinWidth="150"
-                                        Command="{Binding AddCheckedToVideoChannelQueueCommand}"
-                                        Content="加入视频号队列" />
-                                <Button Grid.Column="5"
-                                        MinWidth="150"
-                                        Command="{Binding AddCheckedToMiniprogramQueueCommand}"
-                                        Content="加入小程序队列" />
-                                <Button Grid.Column="6"
-                                        MinWidth="150"
-                                        Command="{Binding AddCheckedToKuaishouQueueCommand}"
-                                        Content="加入快手队列" />
-                                <Border Grid.Column="7"
-                                        Background="{DynamicResource DesktopPanelAltBrush}"
-                                        CornerRadius="14"
-                                        Padding="14,12">
-                                    <TextBlock Text="{Binding CheckedSearchResultsSummary}" />
-                                </Border>
-                            </Grid>
-
-                            <Grid ColumnDefinitions="*" ColumnSpacing="12">
-                                <Border Background="{DynamicResource DesktopPanelAltBrush}"
-                                        CornerRadius="14"
-                                        Padding="12">
-                                    <TextBlock Text="{Binding SearchSummary}"
-                                               TextWrapping="Wrap" />
-                                </Border>
-                            </Grid>
-                        </StackPanel>
+                            <Border Grid.Row="3" Classes="status-pill">
+                                <TextBlock Text="{Binding SearchSummary}"
+                                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                           TextWrapping="Wrap" />
+                            </Border>
+                        </Grid>
                     </Border>
 
-                    <Border Grid.Row="1"
-                            Background="{DynamicResource DesktopPanelBrush}"
-                            CornerRadius="18"
-                            Padding="16">
-                        <Grid RowDefinitions="Auto,*" RowSpacing="12">
-                            <Border Background="{DynamicResource DesktopPanelAltBrush}" CornerRadius="14" Padding="12">
+                    <Border Grid.Row="1" Classes="table-shell">
+                        <Grid RowDefinitions="Auto,*">
+                            <Border Classes="table-header">
                                 <Grid ColumnDefinitions="64,2.2*,1.2*,90,110,120,150,2.8*" ColumnSpacing="12">
                                     <TextBlock Text="勾选" FontWeight="SemiBold" />
                                     <TextBlock Grid.Column="1" Text="剧名" FontWeight="SemiBold" />
@@ -216,26 +228,25 @@
                             </Border>
 
                             <ListBox Grid.Row="1"
+                                     Classes="table-list"
                                      ItemsSource="{Binding SearchResults}"
                                      SelectedItem="{Binding SelectedSearchResult}"
-                                     MinHeight="420"
+                                      MinHeight="420"
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Margin="0,0,0,8"
-                                                Padding="12"
-                                                CornerRadius="14"
-                                                Background="{DynamicResource DesktopPanelAltBrush}">
+                                        <Border Classes="table-row">
                                             <Grid ColumnDefinitions="64,2.2*,1.2*,90,110,120,150,2.8*" ColumnSpacing="12">
                                                 <CheckBox IsChecked="{Binding IsChecked}"
                                                           HorizontalAlignment="Center"
                                                           VerticalAlignment="Center" />
                                                 <TextBlock Grid.Column="1"
                                                            Text="{Binding Title}"
-                                                           FontSize="16"
                                                            FontWeight="SemiBold"
-                                                           TextWrapping="Wrap" />
+                                                           VerticalAlignment="Center"
+                                                           TextWrapping="Wrap"
+                                                           MaxLines="2" />
                                                 <TextBlock Grid.Column="2"
                                                            Text="{Binding Author}"
                                                            VerticalAlignment="Center"
@@ -266,7 +277,6 @@
                             </ListBox>
                         </Grid>
                     </Border>
-
                 </Grid>
             </TabItem>
 
@@ -291,26 +301,21 @@
             </TabItem>
 
             <TabItem Header="已归档项目">
-                <Border Background="{DynamicResource DesktopPanelBrush}"
-                        CornerRadius="18"
-                        Padding="16">
-                    <Grid RowDefinitions="Auto,*" RowSpacing="16">
-                        <Border Background="{DynamicResource DesktopPanelAltBrush}"
-                                CornerRadius="16"
-                                Padding="16">
+                <Grid RowDefinitions="Auto,*" RowSpacing="12">
+                    <Border Classes="page-panel">
+                        <Border Classes="toolbar-panel">
                             <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="12">
-                                <Button MinWidth="120"
+                                <Button Classes="compact"
+                                        MinWidth="112"
                                         Command="{Binding RefreshArchivedProjectsCommand}"
                                         Content="刷新归档列表" />
                                 <Button Grid.Column="1"
-                                        MinWidth="160"
+                                        Classes="compact"
+                                        MinWidth="148"
                                         Click="DeleteCheckedArchivedProjects_Click"
                                         Content="删除勾选归档项目" />
-                                <Border Grid.Column="2"
-                                        MinWidth="150"
-                                        Padding="14,10"
-                                        Background="{DynamicResource DesktopPanelBrush}"
-                                        CornerRadius="12">
+                                <Border Grid.Column="2" Classes="status-pill"
+                                        MinWidth="126">
                                     <TextBlock HorizontalAlignment="Center"
                                                VerticalAlignment="Center"
                                                Text="{Binding ArchivedProjects.Count, StringFormat=已归档 {0}}" />
@@ -323,35 +328,28 @@
                                            TextWrapping="Wrap" />
                             </Grid>
                         </Border>
+                    </Border>
 
-                        <Grid Grid.Row="1"
-                              RowDefinitions="Auto,*"
-                              RowSpacing="12">
-                            <Border Background="{DynamicResource DesktopPanelBrush}"
-                                    CornerRadius="14"
-                                    Padding="12">
-                                <Grid ColumnDefinitions="56,240,170,120,120,120,120,100" ColumnSpacing="12">
+                    <Border Grid.Row="1" Classes="table-shell">
+                        <Grid RowDefinitions="Auto,*">
+                            <Border Classes="table-header">
+                                <Grid ColumnDefinitions="56,2.3*,170,90,1.8*" ColumnSpacing="12">
                                     <TextBlock Text="勾选" FontWeight="SemiBold" />
                                     <TextBlock Grid.Column="1" Text="项目名" FontWeight="SemiBold" />
                                     <TextBlock Grid.Column="2" Text="归档时间" FontWeight="SemiBold" />
                                     <TextBlock Grid.Column="3" Text="已删视频" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="4" Text="归档目录" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="5" Text="原项目目录" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="6" Text="生成目录" FontWeight="SemiBold" />
-                                    <TextBlock Grid.Column="7" Text="删除" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="4" Text="操作" FontWeight="SemiBold" />
                                 </Grid>
                             </Border>
 
                             <ListBox Grid.Row="1"
+                                     Classes="table-list"
                                      ItemsSource="{Binding ArchivedProjects}"
                                      SelectedItem="{Binding SelectedArchivedProject}">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Margin="0,0,0,8"
-                                                Padding="12"
-                                                CornerRadius="14"
-                                                Background="{DynamicResource DesktopPanelAltBrush}">
-                                            <Grid ColumnDefinitions="56,240,170,120,120,120,120,100" ColumnSpacing="12">
+                                        <Border Classes="table-row">
+                                            <Grid ColumnDefinitions="56,2.3*,170,90,1.8*" ColumnSpacing="12">
                                                 <CheckBox IsChecked="{Binding IsChecked}"
                                                           HorizontalAlignment="Center"
                                                           VerticalAlignment="Center" />
@@ -367,26 +365,32 @@
                                                 <TextBlock Grid.Column="3"
                                                            Text="{Binding DeletedVideoFileCount}"
                                                            VerticalAlignment="Center" />
-                                                <Button Grid.Column="4"
-                                                        Content="打开"
-                                                        Click="OpenArchivedProjectRow_Click" />
-                                                <Button Grid.Column="5"
-                                                        Content="打开"
-                                                        Click="OpenArchivedSourceRow_Click" />
-                                                <Button Grid.Column="6"
-                                                        Content="打开"
-                                                        Click="OpenArchivedWorkflowRow_Click" />
-                                                <Button Grid.Column="7"
-                                                        Content="删除"
-                                                        Click="DeleteArchivedProjectRow_Click" />
+                                                <StackPanel Grid.Column="4"
+                                                            Orientation="Horizontal"
+                                                            Spacing="18"
+                                                            VerticalAlignment="Center">
+                                                    <Button Classes="inline-action"
+                                                            Content="归档目录"
+                                                            Click="OpenArchivedProjectRow_Click" />
+                                                    <Button Classes="inline-action"
+                                                            Content="原目录"
+                                                            Click="OpenArchivedSourceRow_Click" />
+                                                    <Button Classes="inline-action"
+                                                            Content="生成目录"
+                                                            Click="OpenArchivedWorkflowRow_Click" />
+                                                    <Button Classes="inline-action"
+                                                            Foreground="{DynamicResource DesktopDangerBrush}"
+                                                            Content="删除"
+                                                            Click="DeleteArchivedProjectRow_Click" />
+                                                </StackPanel>
                                             </Grid>
                                         </Border>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
                         </Grid>
-                    </Grid>
-                </Border>
+                    </Border>
+                </Grid>
             </TabItem>
 
         </TabControl>

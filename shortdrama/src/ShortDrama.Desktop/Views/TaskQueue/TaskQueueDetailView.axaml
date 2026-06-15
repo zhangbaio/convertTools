@@ -2,23 +2,25 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:taskqueue="using:ShortDrama.Desktop.Views.TaskQueue"
              x:Class="ShortDrama.Desktop.Views.TaskQueue.TaskQueueDetailView">
-    <Border Background="{DynamicResource DesktopPanelAltBrush}"
-            CornerRadius="16"
-            Padding="16"
+    <Border Classes="page-panel"
             VerticalAlignment="Stretch">
         <Grid RowDefinitions="Auto,*" RowSpacing="12">
-            <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="12">
-                <Button Content="返回任务列表"
-                        Click="CloseTaskQueueDetail_Click" />
-                <Button Grid.Column="1"
-                        Click="ArchiveSelectedProject_Click"
-                        Content="归档当前项目" />
-                <TextBlock Grid.Column="2"
-                           VerticalAlignment="Center"
-                           Text="{Binding TaskQueueDetailTitle}"
-                           FontSize="22"
-                           FontWeight="SemiBold" />
-            </Grid>
+            <Border Classes="toolbar-panel">
+                <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
+                    <Button Classes="compact"
+                            Content="&#x8FD4;&#x56DE;&#x4EFB;&#x52A1;&#x961F;&#x5217;"
+                            Click="CloseTaskQueueDetail_Click" />
+                    <Button Grid.Column="1"
+                            Classes="compact"
+                            Click="ArchiveSelectedProject_Click"
+                            Content="&#x5F52;&#x6863;&#x5F53;&#x524D;&#x9879;&#x76EE;" />
+                    <TextBlock Grid.Column="2"
+                               VerticalAlignment="Center"
+                               Text="{Binding TaskQueueDetailTitle}"
+                               FontSize="22"
+                               FontWeight="SemiBold" />
+                </Grid>
+            </Border>
 
             <Grid Grid.Row="1">
                 <taskqueue:TaskQueueDownloadDetailView IsVisible="{Binding IsTaskQueueDownloadDetailVisible}" />

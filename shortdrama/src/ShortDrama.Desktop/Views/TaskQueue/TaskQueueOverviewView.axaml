@@ -2,169 +2,174 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:ShortDrama.Desktop.ViewModels"
              x:Class="ShortDrama.Desktop.Views.TaskQueue.TaskQueueOverviewView">
-    <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="14">
-        <Border Background="{DynamicResource DesktopPanelBrush}"
-                CornerRadius="18"
-                Padding="18">
-            <Grid RowDefinitions="Auto,Auto" RowSpacing="14">
-                <Grid ColumnDefinitions="96,*,Auto" ColumnSpacing="12">
+    <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="12">
+        <Border Classes="page-panel">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="12">
+                <Grid ColumnDefinitions="96,*,Auto" ColumnSpacing="10">
                     <TextBlock VerticalAlignment="Center"
-                               Text="工作目录"
+                               Text="&#x5DE5;&#x4F5C;&#x76EE;&#x5F55;"
                                Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
                     <TextBox Grid.Column="1"
+                             Classes="compact"
                              Text="{Binding RootDir}"
-                             Watermark="请选择或输入项目根目录" />
+                             Watermark="&#x8BF7;&#x9009;&#x62E9;&#x6216;&#x8F93;&#x5165;&#x9879;&#x76EE;&#x6839;&#x76EE;&#x5F55;" />
                     <Button Grid.Column="2"
-                            Classes="primary"
-                            MinWidth="130"
+                            Classes="primary compact"
+                            MinWidth="126"
                             Click="PickRootDir_Click"
-                            Content="选择工作目录" />
+                            Content="&#x9009;&#x62E9;&#x5DE5;&#x4F5C;&#x76EE;&#x5F55;" />
                 </Grid>
 
-                <WrapPanel Grid.Row="1"
-                           Orientation="Horizontal"
-                           ItemWidth="132">
-                    <Button MinWidth="132"
-                            Margin="0,0,10,0"
+                <WrapPanel Grid.Row="1" Orientation="Horizontal">
+                    <Button Classes="compact"
+                            MinWidth="126"
+                            Margin="0,0,8,8"
                             Command="{Binding OpenWeixinBrowserCommand}"
-                            Content="打开浏览器" />
-                    <Button MinWidth="120"
-                            Margin="0,0,10,0"
+                            Content="&#x6253;&#x5F00;&#x6D4F;&#x89C8;&#x5668;" />
+                    <Button Classes="compact"
+                            MinWidth="108"
+                            Margin="0,0,8,8"
                             Command="{Binding ScanCommand}"
-                            Content="扫描项目" />
-                    <Button MinWidth="132"
-                            Margin="0,0,10,0"
+                            Content="&#x626B;&#x63CF;&#x9879;&#x76EE;" />
+                    <Button Classes="compact"
+                            MinWidth="136"
+                            Margin="0,0,8,8"
                             Command="{Binding RunSelectedProjectCommand}"
-                            Content="执行选中项目" />
-                    <Button MinWidth="132"
-                            Margin="0,0,10,0"
+                            Content="&#x6267;&#x884C;&#x9009;&#x4E2D;&#x9879;&#x76EE;" />
+                    <Button Classes="compact"
+                            MinWidth="136"
+                            Margin="0,0,8,8"
                             Command="{Binding RunRootWorkflowCommand}"
-                            Content="执行整个目录" />
-                    <Button MinWidth="132"
-                            Margin="0,0,10,0"
+                            Content="&#x6267;&#x884C;&#x6574;&#x4E2A;&#x76EE;&#x5F55;" />
+                    <Button Classes="compact"
+                            MinWidth="136"
+                            Margin="0,0,8,8"
                             Command="{Binding RunSelectedProjectMaterialCommand}"
-                            Content="生成项目素材" />
-                    <Button MinWidth="132"
-                            Margin="0,0,10,0"
+                            Content="&#x751F;&#x6210;&#x9879;&#x76EE;&#x7D20;&#x6750;" />
+                    <Button Classes="compact"
+                            MinWidth="126"
+                            Margin="0,0,8,8"
                             Command="{Binding RunSelectedWeixinUploadCommand}"
-                            Content="剧集上传" />
-                    <Button MinWidth="132"
-                            Margin="0,0,10,0"
+                            Content="&#x5267;&#x96C6;&#x4E0A;&#x4F20;" />
+                    <Button Classes="compact"
+                            MinWidth="126"
+                            Margin="0,0,8,8"
                             Command="{Binding RunSelectedWeixinMaterialUploadCommand}"
-                            Content="素材上传" />
-                    <Button MinWidth="132"
-                            Margin="0,0,10,0"
+                            Content="&#x7D20;&#x6750;&#x4E0A;&#x4F20;" />
+                    <Button Classes="compact"
+                            MinWidth="126"
+                            Margin="0,0,0,8"
                             Command="{Binding StopCurrentRunCommand}"
-                            Content="停止当前步骤" />
+                            Content="&#x505C;&#x6B62;&#x5F53;&#x524D;&#x6B65;&#x9AA4;" />
                 </WrapPanel>
             </Grid>
         </Border>
 
-        <Border Grid.Row="1"
-                Background="{DynamicResource DesktopPanelBrush}"
-                CornerRadius="18"
-                Padding="18">
-            <Grid RowDefinitions="Auto,Auto" RowSpacing="14">
-                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="12">
-                    <Button MinWidth="120"
+        <Border Grid.Row="1" Classes="page-panel">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="12">
+                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="10">
+                    <Button Classes="compact"
+                            MinWidth="98"
                             Click="CheckAllProjects_Click"
-                            Content="全选筛选结果" />
+                            Content="&#x5168;&#x9009;&#x7ED3;&#x679C;" />
                     <Button Grid.Column="1"
-                            MinWidth="120"
+                            Classes="compact"
+                            MinWidth="98"
                             Click="UncheckAllProjects_Click"
-                            Content="取消勾选" />
+                            Content="&#x53D6;&#x6D88;&#x52FE;&#x9009;" />
                     <Button Grid.Column="2"
-                            MinWidth="132"
+                            Classes="compact"
+                            MinWidth="126"
                             Command="{Binding RunCheckedQueueCommand}"
-                            Content="执行勾选队列" />
+                            Content="&#x6267;&#x884C;&#x52FE;&#x9009;&#x961F;&#x5217;" />
                     <Button Grid.Column="3"
-                            MinWidth="132"
+                            Classes="compact"
+                            MinWidth="118"
                             Command="{Binding RunCurrentTaskCommand}"
-                            Content="执行当前任务" />
+                            Content="&#x6267;&#x884C;&#x5F53;&#x524D;&#x4EFB;&#x52A1;" />
 
                     <WrapPanel Grid.Column="4"
                                Orientation="Horizontal"
                                HorizontalAlignment="Right">
-                        <Button MinWidth="132"
-                                Margin="0,0,12,0"
+                        <Button Classes="compact"
+                                MinWidth="126"
+                                Margin="0,0,8,0"
                                 Command="{Binding SyncCheckedProjectsToXingeCommand}"
-                                Content="同步到 Xinge" />
-                        <Button MinWidth="132"
-                                Margin="0,0,12,0"
+                                Content="&#x540C;&#x6B65;&#x5230; Xinge" />
+                        <Button Classes="compact"
+                                MinWidth="126"
+                                Margin="0,0,0,0"
                                 Click="ArchiveCheckedProjects_Click"
-                                Content="归档勾选项目" />
+                                Content="&#x5F52;&#x6863;&#x52FE;&#x9009;&#x9879;&#x76EE;" />
                     </WrapPanel>
                 </Grid>
 
-                <Border Grid.Row="1"
-                        Background="{DynamicResource DesktopPanelAltBrush}"
-                        CornerRadius="14"
-                        Padding="14">
-                    <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="12">
-                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                <Border Grid.Row="1" Classes="toolbar-panel">
+                    <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
                             <TextBlock VerticalAlignment="Center"
-                                       Text="启用步骤"
+                                       Text="&#x542F;&#x7528;&#x6B65;&#x9AA4;"
                                        FontSize="18"
                                        FontWeight="SemiBold" />
                             <Button Grid.Column="1"
-                                    MinWidth="110"
+                                    Classes="compact"
+                                    MinWidth="96"
                                     Click="CheckAllQueueSteps_Click"
-                                    Content="全选步骤" />
+                                    Content="&#x5168;&#x9009;&#x6B65;&#x9AA4;" />
                             <Button Grid.Column="2"
-                                    MinWidth="110"
+                                    Classes="compact"
+                                    MinWidth="96"
                                     Click="UncheckAllQueueSteps_Click"
-                                    Content="取消全选" />
+                                    Content="&#x53D6;&#x6D88;&#x5168;&#x9009;" />
                         </Grid>
 
-                        <WrapPanel Grid.Row="1"
-                                   Orientation="Horizontal">
-                            <CheckBox Margin="0,0,16,0"
-                                      Content="下载剧集"
+                        <WrapPanel Grid.Row="1" Orientation="Horizontal">
+                            <CheckBox Margin="0,0,16,8"
+                                      Content="&#x4E0B;&#x8F7D;&#x5267;&#x96C6;"
                                       IsChecked="{Binding QueueStepDownloadEnabled}" />
-                            <CheckBox Margin="0,0,16,0"
-                                      Content="改写信息"
+                            <CheckBox Margin="0,0,16,8"
+                                      Content="&#x6539;&#x5199;&#x4FE1;&#x606F;"
                                       IsChecked="{Binding QueueStepRewriteEnabled}" />
-                            <CheckBox Margin="0,0,16,0"
-                                      Content="生成海报"
+                            <CheckBox Margin="0,0,16,8"
+                                      Content="&#x751F;&#x6210;&#x6D77;&#x62A5;"
                                       IsChecked="{Binding QueueStepPosterRenameEnabled}" />
-                            <CheckBox Margin="0,0,16,0"
-                                      Content="素材转码"
+                            <CheckBox Margin="0,0,16,8"
+                                      Content="&#x7D20;&#x6750;&#x8F6C;&#x7801;"
                                       IsChecked="{Binding QueueStepMaterialTranscodeEnabled}" />
-                            <CheckBox Margin="0,0,16,0"
-                                      Content="一键修复"
+                            <CheckBox Margin="0,0,16,8"
+                                      Content="&#x4E00;&#x952E;&#x4FEE;&#x590D;"
                                       IsChecked="{Binding QueueStepMaterialAutoRepairEnabled}" />
-                            <CheckBox Margin="0,0,16,0"
-                                      Content="补齐字段"
+                            <CheckBox Margin="0,0,16,8"
+                                      Content="&#x8865;&#x9F50;&#x5B57;&#x6BB5;"
                                       IsChecked="{Binding QueueStepAutoFillInfoEnabled}" />
-                            <CheckBox Margin="0,0,16,0"
-                                      Content="生成成本报表"
+                            <CheckBox Margin="0,0,16,8"
+                                      Content="&#x751F;&#x6210;&#x6210;&#x672C;&#x62A5;&#x8868;"
                                       IsChecked="{Binding QueueStepCostReportEnabled}" />
-                            <CheckBox Margin="0,0,16,0"
-                                      Content="生成工程图"
+                            <CheckBox Margin="0,0,16,8"
+                                      Content="&#x751F;&#x6210;&#x5DE5;&#x7A0B;&#x56FE;"
                                       IsChecked="{Binding QueueStepProjectImageEnabled}" />
-                            <CheckBox Margin="0,0,16,0"
-                                      Content="素材校验"
+                            <CheckBox Margin="0,0,16,8"
+                                      Content="&#x7D20;&#x6750;&#x6821;&#x9A8C;"
                                       IsChecked="{Binding QueueStepMaterialValidateEnabled}" />
                         </WrapPanel>
 
-                        <WrapPanel Grid.Row="2"
-                                   Orientation="Horizontal">
+                        <WrapPanel Grid.Row="2" Orientation="Horizontal">
                             <CheckBox Margin="0,0,16,0"
-                                      Content="无损重封装"
+                                      Content="&#x65E0;&#x635F;&#x91CD;&#x5C01;&#x88C5;"
                                       IsChecked="{Binding QueueStepUploadRemuxEnabled}" />
                             <CheckBox Margin="0,0,16,0"
-                                      Content="上传剧集"
+                                      Content="&#x4E0A;&#x4F20;&#x5267;&#x96C6;"
                                       IsChecked="{Binding QueueStepEpisodeUploadEnabled}" />
                             <CheckBox Margin="0,0,16,0"
-                                      Content="同步管理系统"
+                                      Content="&#x540C;&#x6B65;&#x7BA1;&#x7406;&#x7CFB;&#x7EDF;"
                                       IsChecked="{Binding QueueSyncManagementOnUploadSuccessEnabled}" />
                             <CheckBox Margin="0,0,16,0"
-                                      Content="上传完成后自动归档"
+                                      Content="&#x4E0A;&#x4F20;&#x5B8C;&#x6210;&#x540E;&#x81EA;&#x52A8;&#x5F52;&#x6863;"
                                       IsChecked="{Binding QueueAutoArchiveAfterUploadEnabled}" />
                             <CheckBox Margin="0,0,16,0"
-                                      Content="强制重跑已完成步骤"
+                                      Content="&#x5F3A;&#x5236;&#x91CD;&#x8DD1;&#x5DF2;&#x5B8C;&#x6210;&#x6B65;&#x9AA4;"
                                       IsChecked="{Binding QueueForceRerunCompletedStepsEnabled}" />
-                            <CheckBox Content="有待上传项目时优先上传"
+                            <CheckBox Content="&#x6709;&#x5F85;&#x4E0A;&#x4F20;&#x9879;&#x76EE;&#x65F6;&#x4F18;&#x5148;&#x4E0A;&#x4F20;"
                                       IsChecked="{Binding QueuePreferUploadWhenReadyEnabled}" />
                         </WrapPanel>
                     </Grid>
@@ -172,54 +177,46 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="2"
-                Background="{DynamicResource DesktopPanelBrush}"
-                CornerRadius="18"
-                Padding="18">
-            <Grid RowDefinitions="Auto,Auto" RowSpacing="12">
-                <TextBlock Text="{Binding TaskQueueSummary}"
-                           Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
-                <TextBox Grid.Row="1"
+        <Border Grid.Row="2" Classes="page-panel">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="10">
+                <TextBox Classes="compact"
                          Text="{Binding TaskQueueFilterText}"
-                         Watermark="搜索原剧名 / 新剧名 / 状态 / 路径 / 简介 / 来源" />
+                         Watermark="&#x641C;&#x7D22;&#x539F;&#x5267;&#x540D; / &#x65B0;&#x5267;&#x540D; / &#x72B6;&#x6001; / &#x8DEF;&#x5F84; / &#x7B80;&#x4ECB; / &#x6765;&#x6E90;" />
+                <TextBlock Grid.Row="1"
+                           Text="{Binding TaskQueueSummary}"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
             </Grid>
         </Border>
 
-        <Border Grid.Row="3"
-                Background="{DynamicResource DesktopPanelBrush}"
-                CornerRadius="18"
-                Padding="16">
-            <Grid RowDefinitions="Auto,*" RowSpacing="12">
-                <Border Background="{DynamicResource DesktopPanelAltBrush}"
-                        CornerRadius="14"
-                        Padding="0"
+        <Border Grid.Row="3" Classes="table-shell">
+            <Grid RowDefinitions="Auto,*">
+                <Border Classes="table-header"
                         ClipToBounds="True">
                     <ScrollViewer x:Name="HeaderScrollViewer"
                                   HorizontalScrollBarVisibility="Hidden"
                                   VerticalScrollBarVisibility="Disabled"
                                   IsHitTestVisible="False">
                         <Grid MinWidth="2360"
-                              Margin="12"
-                              ColumnDefinitions="56,220,220,110,72,112,132,132,132,92,92,108,108,108,108,132,132,90"
+                              ColumnDefinitions="56,220,220,110,72,112,132,132,132,92,92,108,108,108,108,132,132,96"
                               ColumnSpacing="12">
-                            <TextBlock Text="勾选" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="1" Text="原剧名" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="2" Text="新剧名" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="3" Text="来源" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="4" Text="集数" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="5" Text="视频大小" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="6" Text="加入时间" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="7" Text="下载剧集" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="8" Text="生成素材" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="9" Text="改写信息" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="10" Text="海报" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="11" Text="成本报表" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="12" Text="工程图" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="13" Text="视频转码" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="14" Text="素材转码" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="15" Text="剧集上传" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="16" Text="素材上传" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="17" Text="文件夹" FontWeight="SemiBold" />
+                            <TextBlock Text="&#x52FE;&#x9009;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1" Text="&#x539F;&#x5267;&#x540D;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="&#x65B0;&#x5267;&#x540D;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="3" Text="&#x6765;&#x6E90;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="4" Text="&#x96C6;&#x6570;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="5" Text="&#x89C6;&#x9891;&#x5927;&#x5C0F;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="6" Text="&#x52A0;&#x5165;&#x65F6;&#x95F4;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="7" Text="&#x4E0B;&#x8F7D;&#x5267;&#x96C6;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="8" Text="&#x751F;&#x6210;&#x7D20;&#x6750;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="9" Text="&#x6539;&#x5199;&#x4FE1;&#x606F;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="10" Text="&#x751F;&#x6210;&#x6D77;&#x62A5;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="11" Text="&#x6210;&#x672C;&#x62A5;&#x8868;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="12" Text="&#x751F;&#x6210;&#x5DE5;&#x7A0B;&#x56FE;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="13" Text="&#x89C6;&#x9891;&#x8F6C;&#x7801;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="14" Text="&#x7D20;&#x6750;&#x8F6C;&#x7801;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="15" Text="&#x4E0A;&#x4F20;&#x5267;&#x96C6;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="16" Text="&#x7D20;&#x6750;&#x4E0A;&#x4F20;" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="17" Text="&#x64CD;&#x4F5C;" FontWeight="SemiBold" />
                         </Grid>
                     </ScrollViewer>
                 </Border>
@@ -229,45 +226,41 @@
                               HorizontalScrollBarVisibility="Auto"
                               VerticalScrollBarVisibility="Auto"
                               ScrollChanged="ProjectsScrollViewer_ScrollChanged">
-                    <ListBox ItemsSource="{Binding FilteredProjects}"
+                    <ListBox Classes="table-list"
+                             ItemsSource="{Binding FilteredProjects}"
                              SelectedItem="{Binding SelectedProject}"
                              MinWidth="2360"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.VerticalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:ProjectListItemViewModel">
-                                <Border Margin="0,0,0,8"
-                                        Padding="12"
-                                        CornerRadius="14"
-                                        Background="{DynamicResource DesktopPanelAltBrush}">
-                                    <Grid ColumnDefinitions="56,220,220,110,72,112,132,132,132,92,92,108,108,108,108,132,132,90"
+                                <Border Classes="table-row">
+                                    <Grid ColumnDefinitions="56,220,220,110,72,112,132,132,132,92,92,108,108,108,108,132,132,96"
                                           ColumnSpacing="12">
                                         <CheckBox IsChecked="{Binding IsChecked}"
                                                   HorizontalAlignment="Center"
                                                   VerticalAlignment="Center" />
 
                                         <Button Grid.Column="1"
-                                                Background="Transparent"
-                                                BorderThickness="0"
-                                                Padding="0"
+                                                Classes="inline-action"
                                                 HorizontalAlignment="Stretch"
                                                 HorizontalContentAlignment="Left"
                                                 Click="OpenTaskQueueSourceFolder_Click">
                                             <TextBlock Text="{Binding OriginalTitle}"
                                                        FontWeight="SemiBold"
-                                                       TextWrapping="Wrap" />
+                                                       TextWrapping="Wrap"
+                                                       MaxLines="2" />
                                         </Button>
 
                                         <StackPanel Grid.Column="2" Spacing="4">
-                                            <Button Background="Transparent"
-                                                    BorderThickness="0"
-                                                    Padding="0"
+                                            <Button Classes="inline-action"
                                                     HorizontalAlignment="Stretch"
                                                     HorizontalContentAlignment="Left"
                                                     Click="OpenTaskQueueWorkflowFolder_Click">
                                                 <TextBlock Text="{Binding NewTitle}"
                                                            FontWeight="SemiBold"
-                                                           TextWrapping="Wrap" />
+                                                           TextWrapping="Wrap"
+                                                           MaxLines="2" />
                                             </Button>
                                             <TextBlock Text="{Binding SchedulingStatus}"
                                                        Foreground="{Binding SchedulingStatusBrush}" />
@@ -287,13 +280,16 @@
                                         <TextBlock Grid.Column="6"
                                                    Text="{Binding CreatedAtSummary}"
                                                    VerticalAlignment="Center" />
+
                                         <Button Grid.Column="7"
+                                                Classes="compact"
                                                 Background="{Binding DownloadNodeBackgroundBrush}"
                                                 Foreground="{Binding DownloadNodeForegroundBrush}"
                                                 Click="OpenTaskQueueDownloadDetail_Click"
                                                 Content="{Binding DownloadNodeStatus}" />
 
                                         <Button Grid.Column="8"
+                                                Classes="compact"
                                                 Background="{Binding ProjectMaterialNodeBackgroundBrush}"
                                                 Foreground="{Binding ProjectMaterialNodeForegroundBrush}"
                                                 Click="OpenTaskQueueProjectMaterialDetail_Click"
@@ -325,20 +321,23 @@
                                                    VerticalAlignment="Center" />
 
                                         <Button Grid.Column="15"
+                                                Classes="compact"
                                                 Background="{Binding EpisodeUploadNodeBackgroundBrush}"
                                                 Foreground="{Binding EpisodeUploadNodeForegroundBrush}"
                                                 Click="OpenTaskQueueEpisodeUploadDetail_Click"
                                                 Content="{Binding EpisodeUploadNodeStatus}" />
 
                                         <Button Grid.Column="16"
+                                                Classes="compact"
                                                 Background="{Binding MaterialUploadNodeBackgroundBrush}"
                                                 Foreground="{Binding MaterialUploadNodeForegroundBrush}"
                                                 Click="OpenTaskQueueMaterialUploadDetail_Click"
                                                 Content="{Binding MaterialUploadNodeStatus}" />
 
                                         <Button Grid.Column="17"
-                                                Content="打开"
-                                                Click="OpenTaskQueueProjectFolder_Click" />
+                                                Classes="inline-action"
+                                                Click="OpenTaskQueueProjectFolder_Click"
+                                                Content="&#x6253;&#x5F00;&#x76EE;&#x5F55;" />
                                     </Grid>
                                 </Border>
                             </DataTemplate>
