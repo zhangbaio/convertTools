@@ -42,4 +42,15 @@ public interface IWorkService
         string sourceProjectDir,
         string? backupRootDir,
         CancellationToken cancellationToken);
+
+    Task<ProjectInfoAutoFillResult> AutoFillProjectInfoAsync(
+        string sourceProjectDir,
+        string? backupRootDir,
+        CancellationToken cancellationToken);
+
+    Task<UploadRemuxResult> RemuxUploadVideosAsync(
+        string sourceProjectDir,
+        string? backupRootDir,
+        IProgress<WorkRunEvent>? progress,
+        CancellationToken cancellationToken);
 }

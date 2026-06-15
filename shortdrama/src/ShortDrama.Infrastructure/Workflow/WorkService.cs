@@ -3,6 +3,7 @@ using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation;
 using ShortDrama.Infrastructure.Automation.Weixin;
 using ShortDrama.Infrastructure.Config;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -12,6 +13,8 @@ public sealed class WorkService : IWorkService
 {
     private const decimal CostPerMinuteYuan = 1500m;
     private const int MaxProofMaterialImageCount = 4;
+    private const double UploadRemuxDurationToleranceSeconds = 0.5d;
+    private static readonly string[] SupportedUploadRemuxExtensions = [".mp4", ".mov", ".m4v"];
     private static readonly string[] DefaultStepTypes =
     [
         "download",
@@ -419,6 +422,170 @@ public sealed class WorkService : IWorkService
         }
 
         return configPath;
+    }
+
+    public async Task<ProjectInfoAutoFillResult> AutoFillProjectInfoAsync(
+        string sourceProjectDir,
+        string? backupRootDir,
+        CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(sourceProjectDir))
+        {
+            throw new DirectoryNotFoundException($"项目目录不存在: {sourceProjectDir}");
+        }
+
+        var rootDir = Directory.GetParent(sourceProjectDir)?.FullName
+            ?? throw new InvalidOperationException($"无法确定项目根目录: {sourceProjectDir}");
+
+        var scan = await _projectScanner.ScanAsync(rootDir, backupRootDir, cancellationToken);
+        var project = scan.Projects.FirstOrDefault(item =>
+            string.Equals(item.SourceProjectDir, sourceProjectDir, StringComparison.Ordinal));
+        if (project is null)
+        {
+            throw new InvalidOperationException($"未在根目录下找到项目: {sourceProjectDir}");
+        }
+
+        var context = await PrepareWorkspaceAsync(rootDir, scan.BackupRootDir, project, cancellationToken);
+        await EnsureProjectInfoAsync(project, context, cancellationToken);
+
+        var infoPath = Path.Combine(context.WorkflowProjectDir, "短剧信息.txt");
+        var lines = File.Exists(infoPath) ? File.ReadAllLines(infoPath).ToList() : [];
+        var values = ParseProjectInfoValues(lines);
+
+        var videoFiles = Directory.EnumerateFiles(context.SourceProjectDir, "*.*", SearchOption.TopDirectoryOnly)
+            .Where(IsVideoFile)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var totalSeconds = 0d;
+        foreach (var file in videoFiles)
+        {
+            totalSeconds += await TryProbeDurationAsync(file, cancellationToken);
+        }
+
+        var totalMinutes = Math.Max(1, (int)Math.Ceiling(totalSeconds / 60d));
+        var episodeCount = Math.Max(1, videoFiles.Length);
+        var costAmountWan = CalculateCostAmountWan(totalMinutes);
+        var updatedFields = new List<string>();
+
+        UpsertIfMissing(lines, values, "时长", $"{totalMinutes} 分钟", updatedFields);
+        UpsertIfMissing(lines, values, "集数", episodeCount.ToString(CultureInfo.InvariantCulture), updatedFields);
+        UpsertIfMissing(lines, values, "成本", $"{costAmountWan:0} 万元", updatedFields);
+        UpsertIfMissing(lines, values, "制作公司", context.CompanyName, updatedFields);
+
+        if (updatedFields.Count > 0)
+        {
+            await File.WriteAllLinesAsync(infoPath, lines, cancellationToken);
+        }
+
+        return new ProjectInfoAutoFillResult(infoPath, updatedFields);
+    }
+
+    public async Task<UploadRemuxResult> RemuxUploadVideosAsync(
+        string sourceProjectDir,
+        string? backupRootDir,
+        IProgress<WorkRunEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(sourceProjectDir))
+        {
+            throw new DirectoryNotFoundException($"项目目录不存在: {sourceProjectDir}");
+        }
+
+        var rootDir = Directory.GetParent(sourceProjectDir)?.FullName
+            ?? throw new InvalidOperationException($"无法确定项目根目录: {sourceProjectDir}");
+
+        var scan = await _projectScanner.ScanAsync(rootDir, backupRootDir, cancellationToken);
+        var project = scan.Projects.FirstOrDefault(item =>
+            string.Equals(item.SourceProjectDir, sourceProjectDir, StringComparison.Ordinal));
+        if (project is null)
+        {
+            throw new InvalidOperationException($"未在根目录下找到项目: {sourceProjectDir}");
+        }
+
+        var context = await PrepareWorkspaceAsync(rootDir, scan.BackupRootDir, project, cancellationToken);
+        var videosDir = context.VideosOutputDir;
+        if (!Directory.Exists(videosDir))
+        {
+            return new UploadRemuxResult(true, 0, 0, 0, []);
+        }
+
+        var files = Directory.EnumerateFiles(videosDir, "*.*", SearchOption.TopDirectoryOnly)
+            .Where(path => IsUploadRemuxFile(path))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (files.Length == 0)
+        {
+            return new UploadRemuxResult(true, 0, 0, 0, []);
+        }
+
+        var failures = new List<string>();
+        var remuxed = 0;
+        var skipped = 0;
+        progress?.Report(new WorkRunEvent(project.ProjectKey, project.DisplayName, "step-progress", "upload-remux", $"开始无损重封装：{files.Length} 个文件"));
+
+        foreach (var (path, index) in files.Select((path, idx) => (path, idx + 1)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var suffix = Path.GetExtension(path);
+            if (!SupportedUploadRemuxExtensions.Contains(suffix, StringComparer.OrdinalIgnoreCase))
+            {
+                skipped++;
+                progress?.Report(new WorkRunEvent(project.ProjectKey, project.DisplayName, "step-progress", "upload-remux", $"跳过无损重封装 {index}/{files.Length}: {Path.GetFileName(path)}，当前仅支持 MP4/MOV/M4V"));
+                continue;
+            }
+
+            var tempPath = Path.Combine(Path.GetDirectoryName(path)!, $"{Path.GetFileNameWithoutExtension(path)}.__upload_remux__.tmp{suffix}");
+            DeleteFileIfExists(tempPath);
+            progress?.Report(new WorkRunEvent(project.ProjectKey, project.DisplayName, "step-progress", "upload-remux", $"无损重封装 {index}/{files.Length}: {Path.GetFileName(path)}"));
+
+            try
+            {
+                var sourceProbe = await ProbeRemuxMediaAsync(path, cancellationToken);
+                var result = await _processRunner.RunAsync(
+                    ResolveFfmpegBinary(),
+                    [
+                        "-y",
+                        "-hide_banner",
+                        "-loglevel", "error",
+                        "-i", path,
+                        "-map", "0:v:0",
+                        "-map", "0:a?",
+                        "-map", "-0:d",
+                        "-map", "-0:t",
+                        "-c", "copy",
+                        "-movflags", "+faststart",
+                        tempPath
+                    ],
+                    Path.GetDirectoryName(path),
+                    cancellationToken);
+
+                if (result.ExitCode != 0)
+                {
+                    throw new InvalidOperationException(result.StandardError.Trim());
+                }
+
+                var outputProbe = await ProbeRemuxMediaAsync(tempPath, cancellationToken);
+                ValidateRemuxOutput(path, sourceProbe, tempPath, outputProbe);
+                ReplaceFile(tempPath, path);
+                remuxed++;
+                progress?.Report(new WorkRunEvent(project.ProjectKey, project.DisplayName, "step-progress", "upload-remux", $"无损重封装完成 {index}/{files.Length}: 已覆盖原视频 {Path.GetFileName(path)}"));
+            }
+            catch (Exception ex)
+            {
+                DeleteFileIfExists(tempPath);
+                failures.Add($"{Path.GetFileName(path)}: {ex.Message}");
+                progress?.Report(new WorkRunEvent(project.ProjectKey, project.DisplayName, "step-failed", "upload-remux", $"无损重封装失败 {index}/{files.Length}: {Path.GetFileName(path)} -> {ex.Message}", false));
+                break;
+            }
+        }
+
+        if (failures.Count == 0)
+        {
+            progress?.Report(new WorkRunEvent(project.ProjectKey, project.DisplayName, "step-progress", "upload-remux", $"无损重封装完成：成功 {remuxed}，跳过 {skipped}"));
+            return new UploadRemuxResult(true, files.Length, remuxed, skipped, []);
+        }
+
+        return new UploadRemuxResult(false, files.Length, remuxed, skipped, failures);
     }
 
     private async Task<ProjectWorkResult> RunProjectAsync(
@@ -889,6 +1056,213 @@ public sealed class WorkService : IWorkService
         }
 
         throw new InvalidOperationException("未找到 ffprobe。");
+    }
+
+    private static string ResolveFfmpegBinary()
+    {
+        var pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(pathEnv))
+        {
+            throw new InvalidOperationException("未找到 ffmpeg。");
+        }
+
+        foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var fullPath = Path.Combine(dir, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
+            if (File.Exists(fullPath))
+            {
+                return fullPath;
+            }
+        }
+
+        throw new InvalidOperationException("未找到 ffmpeg。");
+    }
+
+    private static Dictionary<string, string> ParseProjectInfoValues(IEnumerable<string> lines)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var separatorIndex = line.IndexOf('：');
+            if (separatorIndex < 0)
+            {
+                separatorIndex = line.IndexOf(':');
+            }
+
+            if (separatorIndex <= 0)
+            {
+                continue;
+            }
+
+            var key = line[..separatorIndex].Trim();
+            var value = line[(separatorIndex + 1)..].Trim();
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                map[key] = value;
+            }
+        }
+
+        return map;
+    }
+
+    private static void UpsertIfMissing(
+        IList<string> lines,
+        IDictionary<string, string> values,
+        string key,
+        string value,
+        ICollection<string> updatedFields)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        if (values.TryGetValue(key, out var existing) && !string.IsNullOrWhiteSpace(existing))
+        {
+            return;
+        }
+
+        var replacement = $"{key}: {value}";
+        for (var index = 0; index < lines.Count; index++)
+        {
+            if (lines[index].StartsWith(key + "：", StringComparison.Ordinal) ||
+                lines[index].StartsWith(key + ":", StringComparison.Ordinal))
+            {
+                lines[index] = replacement;
+                values[key] = value;
+                updatedFields.Add(key);
+                return;
+            }
+        }
+
+        lines.Add(replacement);
+        values[key] = value;
+        updatedFields.Add(key);
+    }
+
+    private static bool IsUploadRemuxFile(string path)
+    {
+        return SupportedUploadRemuxExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async Task<RemuxMediaInfo> ProbeRemuxMediaAsync(string path, CancellationToken cancellationToken)
+    {
+        var result = await _processRunner.RunAsync(
+            ResolveFfprobeBinary(),
+            ["-v", "error", "-print_format", "json", "-show_streams", "-show_format", path],
+            Path.GetDirectoryName(path),
+            cancellationToken);
+
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"ffprobe 检测失败: {result.StandardError.Trim()}");
+        }
+
+        using var document = JsonDocument.Parse(result.StandardOutput);
+        var root = document.RootElement;
+        var format = root.TryGetProperty("format", out var formatElement) ? formatElement : default;
+        var streams = root.TryGetProperty("streams", out var streamsElement) ? streamsElement : default;
+
+        JsonElement? videoStream = null;
+        JsonElement? audioStream = null;
+        if (streams.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var stream in streams.EnumerateArray())
+            {
+                if (!videoStream.HasValue &&
+                    stream.TryGetProperty("codec_type", out var codecType) &&
+                    string.Equals(codecType.GetString(), "video", StringComparison.Ordinal))
+                {
+                    videoStream = stream;
+                    continue;
+                }
+
+                if (!audioStream.HasValue &&
+                    stream.TryGetProperty("codec_type", out codecType) &&
+                    string.Equals(codecType.GetString(), "audio", StringComparison.Ordinal))
+                {
+                    audioStream = stream;
+                }
+            }
+        }
+
+        return new RemuxMediaInfo(
+            ParseNullableDouble(format, "duration") ?? 0d,
+            ParseNullableInt(videoStream, "width") ?? 0,
+            ParseNullableInt(videoStream, "height") ?? 0,
+            audioStream.HasValue && audioStream.Value.TryGetProperty("codec_name", out var audioCodec)
+                ? audioCodec.GetString() ?? string.Empty
+                : string.Empty);
+    }
+
+    private static void ValidateRemuxOutput(string sourcePath, RemuxMediaInfo sourceProbe, string outputPath, RemuxMediaInfo outputProbe)
+    {
+        if (!File.Exists(outputPath) || new FileInfo(outputPath).Length <= 0)
+        {
+            throw new InvalidOperationException("输出文件为空");
+        }
+
+        if (sourceProbe.DurationSeconds > 0 &&
+            Math.Abs(sourceProbe.DurationSeconds - outputProbe.DurationSeconds) > UploadRemuxDurationToleranceSeconds)
+        {
+            throw new InvalidOperationException(
+                $"重封装后时长异常：源 {Math.Round(sourceProbe.DurationSeconds, 3)} 秒，输出 {Math.Round(outputProbe.DurationSeconds, 3)} 秒");
+        }
+
+        if (sourceProbe.Width != outputProbe.Width || sourceProbe.Height != outputProbe.Height)
+        {
+            throw new InvalidOperationException(
+                $"重封装后分辨率异常：源 {sourceProbe.Width}x{sourceProbe.Height}，输出 {outputProbe.Width}x{outputProbe.Height}");
+        }
+
+        if (!string.Equals(sourceProbe.AudioCodecName, outputProbe.AudioCodecName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"重封装后音频编码异常：源 {sourceProbe.AudioCodecName}，输出 {outputProbe.AudioCodecName}");
+        }
+    }
+
+    private static void ReplaceFile(string source, string target)
+    {
+        DeleteFileIfExists(target);
+        File.Move(source, target);
+    }
+
+    private static void DeleteFileIfExists(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static int? ParseNullableInt(JsonElement? element, string propertyName)
+    {
+        if (element is null ||
+            !element.Value.TryGetProperty(propertyName, out var value) ||
+            value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return value.ValueKind == JsonValueKind.Number ? value.GetInt32() : int.Parse(value.GetString()!, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static double? ParseNullableDouble(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) ||
+            value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return value.ValueKind == JsonValueKind.Number ? value.GetDouble() : double.Parse(value.GetString()!, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static bool IsVideoFile(string path)
@@ -2135,4 +2509,10 @@ public sealed class WorkService : IWorkService
         public string? Error { get; set; }
         public Dictionary<string, string> Outputs { get; set; }
     }
+
+    private sealed record RemuxMediaInfo(
+        double DurationSeconds,
+        int Width,
+        int Height,
+        string AudioCodecName);
 }

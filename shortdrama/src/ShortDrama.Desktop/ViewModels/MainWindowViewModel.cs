@@ -216,14 +216,18 @@ public partial class MainWindowViewModel : ViewModelBase
     public ObservableCollection<WorkflowStepOption> StepOptions { get; } =
     [
         new("download", "下载剧集"),
-        new("transcode", "视频转码"),
-        new("rewrite", "仿写剧名简介"),
+        new("transcode", "素材转码"),
+        new("__material-auto-repair__", "一键修复"),
+        new("rewrite", "改写信息"),
+        new("__auto-fill-info__", "补齐字段"),
         new("poster-rename", "生成海报图片"),
         new("project-image", "生成工程图"),
         new("cost-report", "生成成本报表"),
+        new("__material-validate__", "素材校验"),
+        new("__upload-remux__", "无损重封装"),
         new("batch-file-rename", "重命名视频文件"),
         new("material-convert", "转换素材视频"),
-        new("weixin-upload", "微信上传剧集"),
+        new("weixin-upload", "上传剧集"),
         new("weixin-material-upload", "微信上传素材")
     ];
     public ObservableCollection<WorkflowStepOption> ExecutionModeOptions { get; } =
@@ -1341,6 +1345,14 @@ public partial class MainWindowViewModel : ViewModelBase
         ActivityTitle = $"步骤日志 · {SelectedProject.DisplayName} · {stepLabel}";
         await RunBusyAsync($"正在执行步骤：{stepLabel}", async cancellationToken =>
         {
+            var specialStepResult = await ExecuteQueueSpecialStepAsync(SelectedProject, stepKey, stepLabel, cancellationToken);
+            if (specialStepResult.HasValue)
+            {
+                AppendLog($"步骤完成: {stepLabel}，结果={(specialStepResult.Value ? "成功" : "失败")}");
+                await RefreshAfterExecutionAsync(SelectedProject.ProjectKey);
+                return;
+            }
+
             await TryNotifyFeishuStepAsync(SelectedProject, stepKey, stepLabel, "before", null, null, cancellationToken);
             var progress = CreateBufferedProgress();
             var result = await _workService.RunProjectStepAsync(
@@ -2193,7 +2205,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task ExecuteCheckedProjectsAsync(string? stepKey, string stepLabel)
     {
-        var selectedProjects = Projects.Where(item => item.IsChecked).ToArray();
+        var selectedProjects = OrderProjectsForQueueExecution(Projects.Where(item => item.IsChecked).ToArray());
         if (selectedProjects.Length == 0)
         {
             return;
@@ -2250,6 +2262,18 @@ public partial class MainWindowViewModel : ViewModelBase
             cancellationToken.ThrowIfCancellationRequested();
             project.MarkRunning(stepLabel);
 
+            var specialStepResult = await ExecuteQueueSpecialStepAsync(project, stepKey, stepLabel, cancellationToken);
+            if (specialStepResult.HasValue)
+            {
+                if (!specialStepResult.Value)
+                {
+                    project.MarkFailed();
+                    return;
+                }
+
+                continue;
+            }
+
             if (string.Equals(stepKey, "__project-material__", StringComparison.Ordinal))
             {
                 var pipelineOk = await RunProjectMaterialPipelineCoreAsync(project, cancellationToken, index, total);
@@ -2268,7 +2292,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 project.SourceProjectDir,
                 null,
                 stepKey,
-                force: false,
+                force: QueueForceRerunCompletedStepsEnabled,
                 progress,
                 cancellationToken);
 
@@ -2285,6 +2309,11 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 project.MarkFailed();
                 return;
+            }
+
+            if (string.Equals(stepKey, "weixin-upload", StringComparison.Ordinal))
+            {
+                await HandlePostEpisodeUploadQueueActionsAsync(project, cancellationToken);
             }
         }
 
@@ -2376,13 +2405,28 @@ public partial class MainWindowViewModel : ViewModelBase
                 return;
             }
 
+            var specialStepResult = await ExecuteQueueSpecialStepAsync(project, stepKey, stepLabel, cancellationToken);
+            if (specialStepResult.HasValue)
+            {
+                if (!specialStepResult.Value)
+                {
+                    project.MarkFailed();
+                    AppendLog($"[{index}/{total}] 步骤完成: {project.DisplayName} · {stepLabel}，结果=失败");
+                    return;
+                }
+
+                project.MarkCompleted();
+                AppendLog($"[{index}/{total}] 步骤完成: {project.DisplayName} · {stepLabel}，结果=成功");
+                return;
+            }
+
             await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "before", null, null, cancellationToken);
             var progressForStep = CreateBufferedProgress();
             var stepResult = await _workService.RunProjectStepAsync(
                 project.SourceProjectDir,
                 null,
                 stepKey,
-                force: true,
+                force: QueueForceRerunCompletedStepsEnabled,
                 progressForStep,
                 cancellationToken);
 
@@ -2397,6 +2441,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
             await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "after", stepResult.Ok, stepResult.Message, cancellationToken);
             AppendLog($"[{index}/{total}] 步骤完成: {project.DisplayName} · {stepLabel}，结果={(stepResult.Ok ? "成功" : "失败")}");
+
+            if (stepResult.Ok && string.Equals(stepKey, "weixin-upload", StringComparison.Ordinal))
+            {
+                await HandlePostEpisodeUploadQueueActionsAsync(project, cancellationToken);
+            }
         }
         catch (OperationCanceledException)
         {

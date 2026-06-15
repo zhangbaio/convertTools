@@ -4,11 +4,14 @@ namespace ShortDrama.Desktop.ViewModels;
 
 public partial class MainWindowViewModel
 {
-    [ObservableProperty]
-    private bool queueStepDownloadEnabled = true;
+    private const string QueueStepMaterialTranscodeKey = "transcode";
+    private const string QueueStepMaterialAutoRepairKey = "__material-auto-repair__";
+    private const string QueueStepAutoFillInfoKey = "__auto-fill-info__";
+    private const string QueueStepMaterialValidateKey = "__material-validate__";
+    private const string QueueStepUploadRemuxKey = "__upload-remux__";
 
     [ObservableProperty]
-    private bool queueStepTranscodeEnabled = true;
+    private bool queueStepDownloadEnabled = true;
 
     [ObservableProperty]
     private bool queueStepRewriteEnabled = true;
@@ -17,16 +20,25 @@ public partial class MainWindowViewModel
     private bool queueStepPosterRenameEnabled = true;
 
     [ObservableProperty]
-    private bool queueStepProjectImageEnabled = true;
+    private bool queueStepMaterialTranscodeEnabled = true;
+
+    [ObservableProperty]
+    private bool queueStepMaterialAutoRepairEnabled = true;
+
+    [ObservableProperty]
+    private bool queueStepAutoFillInfoEnabled = true;
 
     [ObservableProperty]
     private bool queueStepCostReportEnabled = true;
 
     [ObservableProperty]
-    private bool queueStepBatchFileRenameEnabled = true;
+    private bool queueStepProjectImageEnabled = true;
 
     [ObservableProperty]
-    private bool queueStepMaterialConvertEnabled = true;
+    private bool queueStepMaterialValidateEnabled = true;
+
+    [ObservableProperty]
+    private bool queueStepUploadRemuxEnabled;
 
     [ObservableProperty]
     private bool queueStepEpisodeUploadEnabled;
@@ -34,16 +46,34 @@ public partial class MainWindowViewModel
     [ObservableProperty]
     private bool queueStepMaterialUploadEnabled;
 
+    [ObservableProperty]
+    private bool queueSyncManagementOnUploadSuccessEnabled;
+
+    [ObservableProperty]
+    private bool queueAutoArchiveAfterUploadEnabled;
+
+    [ObservableProperty]
+    private bool queueForceRerunCompletedStepsEnabled;
+
+    [ObservableProperty]
+    private bool queuePreferUploadWhenReadyEnabled = true;
+
     partial void OnQueueStepDownloadEnabledChanged(bool value) => RefreshQueueStepSelectionState();
-    partial void OnQueueStepTranscodeEnabledChanged(bool value) => RefreshQueueStepSelectionState();
     partial void OnQueueStepRewriteEnabledChanged(bool value) => RefreshQueueStepSelectionState();
     partial void OnQueueStepPosterRenameEnabledChanged(bool value) => RefreshQueueStepSelectionState();
-    partial void OnQueueStepProjectImageEnabledChanged(bool value) => RefreshQueueStepSelectionState();
+    partial void OnQueueStepMaterialTranscodeEnabledChanged(bool value) => RefreshQueueStepSelectionState();
+    partial void OnQueueStepMaterialAutoRepairEnabledChanged(bool value) => RefreshQueueStepSelectionState();
+    partial void OnQueueStepAutoFillInfoEnabledChanged(bool value) => RefreshQueueStepSelectionState();
     partial void OnQueueStepCostReportEnabledChanged(bool value) => RefreshQueueStepSelectionState();
-    partial void OnQueueStepBatchFileRenameEnabledChanged(bool value) => RefreshQueueStepSelectionState();
-    partial void OnQueueStepMaterialConvertEnabledChanged(bool value) => RefreshQueueStepSelectionState();
+    partial void OnQueueStepProjectImageEnabledChanged(bool value) => RefreshQueueStepSelectionState();
+    partial void OnQueueStepMaterialValidateEnabledChanged(bool value) => RefreshQueueStepSelectionState();
+    partial void OnQueueStepUploadRemuxEnabledChanged(bool value) => RefreshQueueStepSelectionState();
     partial void OnQueueStepEpisodeUploadEnabledChanged(bool value) => RefreshQueueStepSelectionState();
     partial void OnQueueStepMaterialUploadEnabledChanged(bool value) => RefreshQueueStepSelectionState();
+    partial void OnQueueSyncManagementOnUploadSuccessEnabledChanged(bool value) => RefreshQueueStepSelectionState();
+    partial void OnQueueAutoArchiveAfterUploadEnabledChanged(bool value) => RefreshQueueStepSelectionState();
+    partial void OnQueueForceRerunCompletedStepsEnabledChanged(bool value) => RefreshQueueStepSelectionState();
+    partial void OnQueuePreferUploadWhenReadyEnabledChanged(bool value) => RefreshQueueStepSelectionState();
 
     private void RefreshQueueStepSelectionState()
     {
@@ -60,11 +90,6 @@ public partial class MainWindowViewModel
             steps.Add(("download", "下载剧集"));
         }
 
-        if (QueueStepTranscodeEnabled)
-        {
-            steps.Add(("transcode", "视频转码"));
-        }
-
         if (QueueStepRewriteEnabled)
         {
             steps.Add(("rewrite", "改写信息"));
@@ -75,9 +100,19 @@ public partial class MainWindowViewModel
             steps.Add(("poster-rename", "生成海报"));
         }
 
-        if (QueueStepProjectImageEnabled)
+        if (QueueStepMaterialTranscodeEnabled)
         {
-            steps.Add(("project-image", "生成工程图"));
+            steps.Add((QueueStepMaterialTranscodeKey, "素材转码"));
+        }
+
+        if (QueueStepMaterialAutoRepairEnabled)
+        {
+            steps.Add((QueueStepMaterialAutoRepairKey, "一键修复"));
+        }
+
+        if (QueueStepAutoFillInfoEnabled)
+        {
+            steps.Add((QueueStepAutoFillInfoKey, "补齐字段"));
         }
 
         if (QueueStepCostReportEnabled)
@@ -85,19 +120,24 @@ public partial class MainWindowViewModel
             steps.Add(("cost-report", "生成成本报表"));
         }
 
-        if (QueueStepBatchFileRenameEnabled)
+        if (QueueStepProjectImageEnabled)
         {
-            steps.Add(("batch-file-rename", "重命名视频"));
+            steps.Add(("project-image", "生成工程图"));
         }
 
-        if (QueueStepMaterialConvertEnabled)
+        if (QueueStepMaterialValidateEnabled)
         {
-            steps.Add(("material-convert", "素材转码"));
+            steps.Add((QueueStepMaterialValidateKey, "素材校验"));
+        }
+
+        if (QueueStepUploadRemuxEnabled)
+        {
+            steps.Add((QueueStepUploadRemuxKey, "无损重封装"));
         }
 
         if (QueueStepEpisodeUploadEnabled)
         {
-            steps.Add(("weixin-upload", "剧集上传"));
+            steps.Add(("weixin-upload", "上传剧集"));
         }
 
         if (QueueStepMaterialUploadEnabled)
@@ -111,13 +151,15 @@ public partial class MainWindowViewModel
     private bool HasAnyTaskQueueStepSelected()
     {
         return QueueStepDownloadEnabled ||
-               QueueStepTranscodeEnabled ||
                QueueStepRewriteEnabled ||
                QueueStepPosterRenameEnabled ||
-               QueueStepProjectImageEnabled ||
+               QueueStepMaterialTranscodeEnabled ||
+               QueueStepMaterialAutoRepairEnabled ||
+               QueueStepAutoFillInfoEnabled ||
                QueueStepCostReportEnabled ||
-               QueueStepBatchFileRenameEnabled ||
-               QueueStepMaterialConvertEnabled ||
+               QueueStepProjectImageEnabled ||
+               QueueStepMaterialValidateEnabled ||
+               QueueStepUploadRemuxEnabled ||
                QueueStepEpisodeUploadEnabled ||
                QueueStepMaterialUploadEnabled;
     }

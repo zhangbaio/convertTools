@@ -1,4 +1,4 @@
-using ShortDrama.Core.Interfaces;
+﻿using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation;
 
@@ -193,8 +193,8 @@ public sealed class WorkflowRunner : IWorkflowRunner
                         .Where(path =>
                         {
                             var fileName = Path.GetFileNameWithoutExtension(path);
-                            return !fileName.StartsWith("工程图_", StringComparison.Ordinal) &&
-                                   !fileName.StartsWith("成本报表", StringComparison.Ordinal) &&
+                            return !fileName.StartsWith("宸ョ▼鍥綺", StringComparison.Ordinal) &&
+                                   !fileName.StartsWith("鎴愭湰鎶ヨ〃", StringComparison.Ordinal) &&
                                    !string.Equals(fileName, "seal", StringComparison.OrdinalIgnoreCase) &&
                                    !string.Equals(fileName, "sign", StringComparison.OrdinalIgnoreCase) &&
                                    !fileName.StartsWith("seal.prepared", StringComparison.Ordinal);
@@ -229,14 +229,14 @@ public sealed class WorkflowRunner : IWorkflowRunner
             {
                 if (string.IsNullOrWhiteSpace(step.ConfigFile))
                 {
-                    throw new InvalidOperationException("rewrite step 缺少 configFile。");
+                    throw new InvalidOperationException("rewrite step is missing configFile.");
                 }
 
                 var result = await _projectInfoRewriter.RewriteAsync(
                     new ProjectInfoRewriteRequest(
                         definition.ProjectDir,
                         step.ConfigFile,
-                        step.OutputFile ?? Path.Combine(definition.ProjectDir, "短剧信息_改写.txt"),
+                        step.OutputFile ?? Path.Combine(definition.ProjectDir, "鐭墽淇℃伅_鏀瑰啓.txt"),
                         step.Overwrite ?? false),
                     cancellationToken);
 
@@ -314,10 +314,14 @@ public sealed class WorkflowRunner : IWorkflowRunner
                     {
                         var message = evt.Kind switch
                         {
-                            "file-started" => $"正在转码 {evt.Index}/{evt.Total}: {Path.GetFileName(evt.InputPath)}",
-                            "file-skipped" => $"跳过转码 {evt.Index}/{evt.Total}: {Path.GetFileName(evt.InputPath)}",
-                            "file-completed" => $"转码完成 {evt.Index}/{evt.Total}: {Path.GetFileName(evt.OutputPath)}，耗时 {evt.Elapsed}",
-                            "file-failed" => $"转码失败 {evt.Index}/{evt.Total}: {Path.GetFileName(evt.InputPath)}，原因: {evt.Message}",
+                            "file-started" => $"正在转码 {evt.Index}/{evt.Total}: {Path.GetFileName(evt.InputPath)}" +
+                                              (string.IsNullOrWhiteSpace(evt.Detail) ? string.Empty : $"，{evt.Detail}"),
+                            "file-skipped" => $"跳过转码 {evt.Index}/{evt.Total}: {Path.GetFileName(evt.InputPath)}" +
+                                              (string.IsNullOrWhiteSpace(evt.Detail) ? string.Empty : $"，{evt.Detail}"),
+                            "file-completed" => $"转码完成 {evt.Index}/{evt.Total}: {Path.GetFileName(evt.OutputPath)}，耗时 {evt.Elapsed}" +
+                                                (string.IsNullOrWhiteSpace(evt.Detail) ? string.Empty : $"，{evt.Detail}"),
+                            "file-failed" => $"转码失败 {evt.Index}/{evt.Total}: {Path.GetFileName(evt.InputPath)}，原因: {evt.Message}" +
+                                             (string.IsNullOrWhiteSpace(evt.Detail) ? string.Empty : $"，{evt.Detail}"),
                             _ => null
                         };
 
@@ -342,8 +346,8 @@ public sealed class WorkflowRunner : IWorkflowRunner
                     Message: result.FailedFiles == 0
                         ? null
                         : allPendingDownloads
-                            ? $"有 {result.FailedFiles} 个视频仍在下载或未下载完成，可继续运行。首个文件: {Path.GetFileName(result.Failures[0].InputPath)}"
-                            : $"有 {result.FailedFiles} 个视频转码失败，首个失败文件: {Path.GetFileName(result.Failures[0].InputPath)}，原因: {result.Failures[0].Message}",
+                            ? $"鏈?{result.FailedFiles} 涓棰戜粛鍦ㄤ笅杞芥垨鏈笅杞藉畬鎴愶紝鍙户缁繍琛屻€傞涓枃浠? {Path.GetFileName(result.Failures[0].InputPath)}"
+                            : $"鏈?{result.FailedFiles} 涓棰戣浆鐮佸け璐ワ紝棣栦釜澶辫触鏂囦欢: {Path.GetFileName(result.Failures[0].InputPath)}锛屽師鍥? {result.Failures[0].Message}",
                     Outputs: new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["inputDir"] = inputDir,
@@ -396,7 +400,7 @@ public sealed class WorkflowRunner : IWorkflowRunner
                     ErrorCode: result.FailedFiles == 0 ? null : "STEP_FAILED",
                     Message: result.FailedFiles == 0
                         ? null
-                        : $"有 {result.FailedFiles} 个素材视频转换失败，首个失败文件: {Path.GetFileName(result.Failures[0].InputPath)}，原因: {result.Failures[0].Message}",
+                        : $"鏈?{result.FailedFiles} 涓礌鏉愯棰戣浆鎹㈠け璐ワ紝棣栦釜澶辫触鏂囦欢: {Path.GetFileName(result.Failures[0].InputPath)}锛屽師鍥? {result.Failures[0].Message}",
                     Outputs: new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["inputDir"] = inputDir,
@@ -479,6 +483,7 @@ public sealed class WorkflowRunner : IWorkflowRunner
     private static bool IsPendingTranscodeFailure(string? message)
     {
         return !string.IsNullOrWhiteSpace(message) &&
-               message.Contains("仍在下载或未下载完成", StringComparison.Ordinal);
+               message.Contains("浠嶅湪涓嬭浇鎴栨湭涓嬭浇瀹屾垚", StringComparison.Ordinal);
     }
 }
+

@@ -97,7 +97,8 @@ public sealed class FfmpegVideoTranscoder : IVideoTranscoder
                     inputPath,
                     outputPath,
                     Kind: "file-skipped",
-                    Elapsed: FormatElapsed(TimeSpan.Zero)));
+                    Elapsed: FormatElapsed(TimeSpan.Zero),
+                    Detail: $"已存在转码结果，跳过 {Path.GetFileName(inputPath)}"));
                 continue;
             }
 
@@ -172,16 +173,16 @@ public sealed class FfmpegVideoTranscoder : IVideoTranscoder
             {
                 EnsureInputReady(workItem.InputPath);
 
+                var fileStopwatch = Stopwatch.StartNew();
+                var inputProbe = await ProbeMediaAsync(workItem.InputPath, cancellationToken);
+                var plan = BuildEncodingPlan(settings, inputProbe);
                 progress?.Report(new VideoTranscodeProgress(
                     workItem.Index,
                     totalFiles,
                     workItem.InputPath,
                     workItem.OutputPath,
-                    Kind: "file-started"));
-
-                var fileStopwatch = Stopwatch.StartNew();
-                var inputProbe = await ProbeMediaAsync(workItem.InputPath, cancellationToken);
-                var plan = BuildEncodingPlan(settings, inputProbe);
+                    Kind: "file-started",
+                    Detail: BuildDetailedStartLog(workItem.InputPath, plan, inputProbe)));
                 await TranscodeWithRetryAsync(workItem.InputPath, workItem.OutputPath, request, inputProbe, plan, cancellationToken);
                 fileStopwatch.Stop();
 
@@ -198,7 +199,8 @@ public sealed class FfmpegVideoTranscoder : IVideoTranscoder
                     workItem.InputPath,
                     workItem.OutputPath,
                     Kind: "file-completed",
-                    Elapsed: FormatElapsed(fileStopwatch.Elapsed)));
+                    Elapsed: FormatElapsed(fileStopwatch.Elapsed),
+                    Detail: BuildDetailedCompletedLog(workItem.OutputPath, plan, fileStopwatch.Elapsed)));
                 return VideoFileOutcome.Completed(workItem.Index, workItem.OutputPath);
             }
             catch (OperationCanceledException)
@@ -223,7 +225,8 @@ public sealed class FfmpegVideoTranscoder : IVideoTranscoder
                     workItem.InputPath,
                     workItem.OutputPath,
                     Kind: "file-failed",
-                    Message: message));
+                    Message: message,
+                    Detail: BuildDetailedFailureLog(workItem.InputPath, message)));
                 return VideoFileOutcome.Failed(workItem.Index, workItem.OutputPath, failure);
             }
         }
@@ -258,6 +261,94 @@ public sealed class FfmpegVideoTranscoder : IVideoTranscoder
         return elapsed.TotalHours >= 1
             ? elapsed.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture)
             : elapsed.ToString(@"mm\:ss", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatDurationSeconds(double durationSeconds)
+    {
+        if (durationSeconds <= 0)
+        {
+            return "-";
+        }
+
+        var duration = TimeSpan.FromSeconds(durationSeconds);
+        if (duration.TotalHours >= 1)
+        {
+            return duration.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture);
+        }
+
+        return duration.ToString(@"m\:ss\.f", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        const double kb = 1024d;
+        const double mb = kb * 1024d;
+        const double gb = mb * 1024d;
+
+        return bytes switch
+        {
+            >= (long)gb => $"{bytes / gb:0.#} GB",
+            >= (long)mb => $"{bytes / mb:0.#} MB",
+            >= (long)kb => $"{bytes / kb:0.#} KB",
+            _ => $"{bytes} B"
+        };
+    }
+
+    private static string FormatMbps(long bitrateBps)
+    {
+        return $"{bitrateBps / 1_000_000d:0.00} Mbps";
+    }
+
+    private static string ResolveResolutionProfileLabel(MediaProbeInfo inputProbe)
+    {
+        var shortEdge = Math.Max(1, Math.Min(inputProbe.Width, inputProbe.Height));
+        return shortEdge switch
+        {
+            <= 959 => "720p及以下",
+            <= 1439 => "1080p",
+            _ => "2k+"
+        };
+    }
+
+    private static string ResolveBitrateModeLabel(VideoEncodingPlan plan)
+    {
+        return plan.UseCbr ? "标准压码" : "普通转码";
+    }
+
+    private static string ResolveCodecLabel(string codec)
+    {
+        return codec switch
+        {
+            "h264_nvenc" => "NVENC",
+            "h264_videotoolbox" => "VideoToolbox",
+            "libx264" => "CPU x264",
+            _ => codec
+        };
+    }
+
+    private static string BuildDetailedStartLog(
+        string inputPath,
+        VideoEncodingPlan plan,
+        MediaProbeInfo inputProbe)
+    {
+        var inputFile = new FileInfo(inputPath);
+        return
+            $"原文件 {FormatFileSize(inputFile.Length)}，时长 {FormatDurationSeconds(inputProbe.DurationSeconds)}" +
+            $" | 策略 {ResolveResolutionProfileLabel(inputProbe)} / {ResolveBitrateModeLabel(plan)} / {ResolveCodecLabel(plan.VideoCodec)} / 目标 {FormatMbps(plan.VideoBitrateBps)}";
+    }
+
+    private static string BuildDetailedCompletedLog(
+        string outputPath,
+        VideoEncodingPlan plan,
+        TimeSpan elapsed)
+    {
+        var outputFile = new FileInfo(outputPath);
+        return $"输出 {FormatFileSize(outputFile.Length)}，耗时 {FormatElapsed(elapsed)}";
+    }
+
+    private static string BuildDetailedFailureLog(string inputPath, string message)
+    {
+        return $"文件 {Path.GetFileName(inputPath)}，原因: {message}";
     }
 
     private static void EnsureInputReady(string inputPath)

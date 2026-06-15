@@ -7,4 +7,5 @@ public sealed record VideoTranscodeProgress(
     string OutputPath,
     string Kind,
     string? Elapsed = null,
-    string? Message = null);
+    string? Message = null,
+    string? Detail = null);
