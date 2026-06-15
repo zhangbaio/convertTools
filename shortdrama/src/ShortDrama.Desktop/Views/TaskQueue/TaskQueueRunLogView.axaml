@@ -1,34 +1,52 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:ShortDrama.Desktop.ViewModels"
+             xmlns:models="using:ShortDrama.Desktop.Models"
              x:Class="ShortDrama.Desktop.Views.TaskQueue.TaskQueueRunLogView">
-    <Grid RowDefinitions="Auto,*" RowSpacing="14">
+    <Grid RowDefinitions="Auto,Auto,*" RowSpacing="14">
         <Border Background="{DynamicResource DesktopPanelBrush}"
+                CornerRadius="18"
+                Padding="12,10">
+            <TabStrip ItemsSource="{Binding RunLogTabOptions}"
+                      SelectedItem="{Binding SelectedRunLogTabOption}">
+                <TabStrip.ItemTemplate>
+                    <DataTemplate x:DataType="models:WorkflowStepOption">
+                        <TextBlock Text="{Binding Label}" />
+                    </DataTemplate>
+                </TabStrip.ItemTemplate>
+            </TabStrip>
+        </Border>
+
+        <Border Grid.Row="1"
+                Background="{DynamicResource DesktopPanelBrush}"
                 CornerRadius="18"
                 Padding="18">
             <Grid RowDefinitions="Auto,Auto" RowSpacing="12">
                 <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
                     <StackPanel Spacing="6">
-                        <TextBlock Text="运行日志"
+                        <TextBlock Text="{Binding RunLogHeaderTitle}"
                                    FontSize="22"
                                    FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding RootDir, StringFormat=工作目录: {0}}"
+                        <TextBlock Text="{Binding RunLogHeaderContextText}"
                                    Foreground="{DynamicResource DesktopTextSecondaryBrush}"
                                    TextWrapping="Wrap" />
                     </StackPanel>
 
                     <CheckBox Grid.Column="1"
                               Content="跟随最近活跃项目"
+                              IsVisible="{Binding IsRunLogFollowControlsVisible}"
                               IsChecked="{Binding FollowLatestActiveLogProject}"
                               VerticalAlignment="Center" />
                     <CheckBox Grid.Column="2"
                               Content="仅看问题"
+                              IsVisible="{Binding IsRunLogFollowControlsVisible}"
                               IsChecked="{Binding OnlyShowFailedLogs}"
                               VerticalAlignment="Center" />
                     <StackPanel Grid.Column="3"
                                 Orientation="Horizontal"
                                 Spacing="10">
                         <Button MinWidth="100"
+                                IsVisible="{Binding IsRunLogStopButtonVisible}"
                                 Command="{Binding StopCurrentRunCommand}"
                                 Content="停止" />
                         <Button MinWidth="120"
@@ -38,15 +56,18 @@
                 </Grid>
 
                 <TextBlock Grid.Row="1"
-                           Text="{Binding RunLogSummary}"
+                           Text="{Binding RunLogHeaderSummaryText}"
                            Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1"
-              ColumnDefinitions="300,*"
-              ColumnSpacing="14">
-            <Border Background="{DynamicResource DesktopPanelBrush}"
+        <DockPanel Grid.Row="2"
+                   LastChildFill="True">
+            <Border DockPanel.Dock="Left"
+                    Width="300"
+                    Margin="0,0,14,0"
+                    IsVisible="{Binding IsRunLogProjectPaneVisible}"
+                    Background="{DynamicResource DesktopPanelBrush}"
                     CornerRadius="18"
                     Padding="12">
                 <Grid RowDefinitions="Auto,*" RowSpacing="12">
@@ -83,8 +104,7 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Column="1"
-                    Background="{DynamicResource DesktopPanelBrush}"
+            <Border Background="{DynamicResource DesktopPanelBrush}"
                     CornerRadius="18"
                     Padding="16">
                 <Grid RowDefinitions="Auto,*" RowSpacing="12">
@@ -99,6 +119,7 @@
 
                         <ComboBox Grid.Column="1"
                                   Width="180"
+                                  IsVisible="{Binding IsRunLogStepFilterVisible}"
                                   ItemsSource="{Binding StepLogFilters}"
                                   SelectedItem="{Binding SelectedStepLogFilter}">
                             <ComboBox.ItemTemplate>
@@ -128,6 +149,13 @@
                     </Border>
                 </Grid>
             </Border>
-        </Grid>
+        </DockPanel>
+
+        <TextBlock Grid.Row="2"
+                   Margin="0,0,18,12"
+                   HorizontalAlignment="Right"
+                   VerticalAlignment="Bottom"
+                   Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                   Text="{Binding RunLogFooterHintText}" />
     </Grid>
 </UserControl>

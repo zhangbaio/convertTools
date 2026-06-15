@@ -81,31 +81,7 @@ public partial class MaterialUploadView : UserControl
 
     private void ShowMaterialLogsButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (ViewModel?.SelectedProject is null || OwnerWindow is null)
-        {
-            return;
-        }
-
-        ViewModel.ShowMaterialUploadLogs(ViewModel.SelectedProject);
-        SelectSidebarTab("运行日志");
-    }
-
-    private void SelectSidebarTab(string headerText)
-    {
-        if (OwnerWindow?.FindControl<TabControl>("SidebarTabs") is not TabControl tabs ||
-            tabs.Items is not IEnumerable<object> items)
-        {
-            return;
-        }
-
-        foreach (var item in items.OfType<TabItem>())
-        {
-            if (string.Equals(item.Header?.ToString(), headerText, StringComparison.Ordinal))
-            {
-                tabs.SelectedItem = item;
-                return;
-            }
-        }
+        ViewModel?.ShowMaterialUploadLogs(ViewModel.SelectedProject);
     }
 
     private async void CreateManualMaterialProjectButton_Click(object? sender, RoutedEventArgs e)

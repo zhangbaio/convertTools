@@ -216,14 +216,7 @@ public partial class MainWindowViewModel
 
     public void ShowMaterialUploadLogs(ProjectListItemViewModel? project)
     {
-        if (project is not null)
-        {
-            ActivateMaterialUploadProject(project);
-        }
-        else if (SelectedProject is not null)
-        {
-            ActivateMaterialUploadProject(SelectedProject);
-        }
+        ShowMaterialRunLogTab(project ?? SelectedProject);
     }
 
     private async Task GenerateMaterialHighlightsForProjectsAsync(

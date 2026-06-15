@@ -1,9 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:ShortDrama.Desktop.ViewModels"
-             xmlns:taskqueue="using:ShortDrama.Desktop.Views.TaskQueue"
              x:Class="ShortDrama.Desktop.Views.MaterialUploadView">
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="14">
+    <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="14">
         <Border Background="{DynamicResource DesktopPanelBrush}"
                 CornerRadius="18"
                 Padding="18">
@@ -175,11 +174,5 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="4"
-                Background="{DynamicResource DesktopPanelBrush}"
-                CornerRadius="18"
-                Padding="16">
-            <taskqueue:TaskQueueMaterialUploadDetailView />
-        </Border>
     </Grid>
 </UserControl>

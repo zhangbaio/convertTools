@@ -32,6 +32,11 @@ public partial class MainWindowViewModel : ViewModelBase
     private const string EpisodeRangeCustom = "custom";
     private const string ExecutionModeSerial = "serial";
     private const string ExecutionModeConcurrent2 = "concurrent-2";
+    internal const int SidebarTabRunLogIndex = 4;
+    internal const string RunLogTabVideoChannel = "video_channel";
+    internal const string RunLogTabMiniprogram = "miniprogram";
+    internal const string RunLogTabKuaishou = "kuaishou";
+    internal const string RunLogTabMaterialLog = "material_log";
     private const string TaskQueueDetailDownload = "download";
     private const string TaskQueueDetailProjectMaterial = "project-material";
     private const string TaskQueueDetailEpisodeUpload = "episode-upload";
@@ -189,6 +194,7 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusMessage = "输入项目根目录后点击“扫描项目”。";
         SelectedStepOption = StepOptions.FirstOrDefault();
         SelectedExecutionModeOption = ExecutionModeOptions.FirstOrDefault();
+        SelectedRunLogTabOption = RunLogTabOptions.FirstOrDefault();
         SelectedDownloadEpisodeRangeOption = DownloadEpisodeRangeOptions.FirstOrDefault();
         SelectedProjectLogFilter = ProjectLogFilters.First();
         SelectedStepLogFilter = StepLogFilters.First();
@@ -234,6 +240,13 @@ public partial class MainWindowViewModel : ViewModelBase
     [
         new(ExecutionModeSerial, "串行"),
         new(ExecutionModeConcurrent2, "并发 2")
+    ];
+    public ObservableCollection<WorkflowStepOption> RunLogTabOptions { get; } =
+    [
+        new(RunLogTabVideoChannel, "视频号队列"),
+        new(RunLogTabMiniprogram, "小程序队列"),
+        new(RunLogTabKuaishou, "快手上传队列"),
+        new(RunLogTabMaterialLog, "素材日志")
     ];
     public ObservableCollection<WorkflowStepOption> DownloadEpisodeRangeOptions { get; } =
     [
@@ -390,6 +403,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private WorkflowStepOption? selectedExecutionModeOption;
+
+    [ObservableProperty]
+    private WorkflowStepOption? selectedRunLogTabOption;
+
+    [ObservableProperty]
+    private int selectedSidebarTabIndex;
 
     [ObservableProperty]
     private bool isTaskQueueDetailOpen;
@@ -716,6 +735,18 @@ public partial class MainWindowViewModel : ViewModelBase
     partial void OnSelectedStepOptionChanged(WorkflowStepOption? value) => RefreshCommandStates();
 
     partial void OnSelectedExecutionModeOptionChanged(WorkflowStepOption? value) => RefreshCommandStates();
+
+    partial void OnSelectedRunLogTabOptionChanged(WorkflowStepOption? value)
+    {
+        if (IsMaterialRunLogTab)
+        {
+            SelectedStepLogFilter = StepLogFilters.FirstOrDefault(item => string.Equals(item.Key, AllStepsFilterKey, StringComparison.Ordinal))
+                ?? SelectedStepLogFilter;
+        }
+
+        ApplyActivityLogFilter();
+        RefreshRunLogViewState();
+    }
 
     partial void OnSelectedProjectLogFilterChanged(LogFilterOption? value)
     {
@@ -4670,6 +4701,7 @@ public partial class MainWindowViewModel : ViewModelBase
             .ToHashSet(StringComparer.Ordinal);
 
         var filtered = _allActivityLogs
+            .Where(MatchesRunLogTab)
             .Where(item => MatchesProjectFilter(item, projectKey, checkedProjectKeys))
             .Where(item => MatchesStepFilter(item, stepKey))
             .Where(item => !OnlyShowFailedLogs || item.IsFailure)

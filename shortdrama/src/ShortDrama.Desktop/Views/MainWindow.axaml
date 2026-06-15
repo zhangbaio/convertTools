@@ -42,7 +42,10 @@
     </Window.Styles>
 
     <Grid Margin="20">
-        <TabControl x:Name="SidebarTabs" Classes="sidebar" TabStripPlacement="Left">
+        <TabControl x:Name="SidebarTabs"
+                    Classes="sidebar"
+                    TabStripPlacement="Left"
+                    SelectedIndex="{Binding SelectedSidebarTabIndex}">
             <TabItem Header="短剧搜索">
                 <Grid RowDefinitions="Auto,*" RowSpacing="16">
                     <Border Background="{DynamicResource DesktopPanelBrush}"
