@@ -64,6 +64,13 @@ public sealed class GlobalSettingsService
             AiTextSystemPrompt = snapshot.AiTextSystemPrompt,
             AiTextBatchPrompt = snapshot.AiTextBatchPrompt,
             AiTextRetryPrompt = snapshot.AiTextRetryPrompt,
+            AiTitleSystemPrompt = snapshot.AiTitleSystemPrompt,
+            AiTitleBatchPrompt = snapshot.AiTitleBatchPrompt,
+            AiTagSystemPrompt = snapshot.AiTagSystemPrompt,
+            AiTagBatchPrompt = snapshot.AiTagBatchPrompt,
+            AiFullInfoSystemPrompt = snapshot.AiFullInfoSystemPrompt,
+            AiFullInfoBatchPrompt = snapshot.AiFullInfoBatchPrompt,
+            AiFullInfoRetryPrompt = snapshot.AiFullInfoRetryPrompt,
             ImageModelId = snapshot.ImageModelId,
             ImageModelApiKey = snapshot.ImageModelApiKey,
             ImageModelEndpoint = snapshot.ImageModelEndpoint,
@@ -71,6 +78,7 @@ public sealed class GlobalSettingsService
             ImageEditApiKey = snapshot.ImageEditApiKey,
             ImageEditEndpoint = snapshot.ImageEditEndpoint,
             ImageEditPath = snapshot.ImageEditPath,
+            FrameCoverPrompt = snapshot.FrameCoverPrompt,
             PosterLayoutDetectPrompt = snapshot.PosterLayoutDetectPrompt,
             PosterInpaintPrompt = snapshot.PosterInpaintPrompt,
             PosterInpaintSafeRetryPrompt = snapshot.PosterInpaintSafeRetryPrompt,
@@ -215,6 +223,20 @@ public sealed class GlobalSettingsService
                 : currentValue;
         }
 
+        string PickStringMany(string currentValue, string defaultValue = "", params string[] legacyKeys)
+        {
+            foreach (var legacyKey in legacyKeys)
+            {
+                var next = PickString(currentValue, legacyKey, defaultValue);
+                if (!string.Equals(next, currentValue, StringComparison.Ordinal) || !string.IsNullOrWhiteSpace(next))
+                {
+                    return next;
+                }
+            }
+
+            return currentValue;
+        }
+
         string NormalizeOrder(string raw, params string[] allowed)
         {
             var items = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -258,28 +280,36 @@ public sealed class GlobalSettingsService
             PikachuServerUrl = PickString(current.PikachuServerUrl, "pikachu_server_url", "http://8.138.192.128/start-prod-api"),
             PikachuFanqieCookie = PickString(current.PikachuFanqieCookie, "pikachu_fanqie_cookie"),
             PikachuDramaType = PickString(current.PikachuDramaType, "pikachu_drama_type", "short"),
-            AiTextEndpoint = current.AiTextEndpoint,
-            AiTextApiKey = current.AiTextApiKey,
-            AiTextModel = current.AiTextModel,
-            AiTextTimeoutSeconds = current.AiTextTimeoutSeconds,
-            AiTextMaxBatchSize = current.AiTextMaxBatchSize,
-            AiTextSystemPrompt = current.AiTextSystemPrompt,
-            AiTextBatchPrompt = current.AiTextBatchPrompt,
-            AiTextRetryPrompt = current.AiTextRetryPrompt,
-            ImageModelId = current.ImageModelId,
-            ImageModelApiKey = current.ImageModelApiKey,
-            ImageModelEndpoint = current.ImageModelEndpoint,
-            ImageEditModelId = current.ImageEditModelId,
-            ImageEditApiKey = current.ImageEditApiKey,
-            ImageEditEndpoint = current.ImageEditEndpoint,
-            ImageEditPath = current.ImageEditPath,
-            PosterLayoutDetectPrompt = current.PosterLayoutDetectPrompt,
-            PosterInpaintPrompt = current.PosterInpaintPrompt,
-            PosterInpaintSafeRetryPrompt = current.PosterInpaintSafeRetryPrompt,
-            PosterGenerationPrompt = current.PosterGenerationPrompt,
-            PosterGenerationSafeRetryPrompt = current.PosterGenerationSafeRetryPrompt,
-            PosterNameSystemPrompt = current.PosterNameSystemPrompt,
-            PosterNameUserPrompt = current.PosterNameUserPrompt,
+            AiTextEndpoint = PickString(current.AiTextEndpoint, "ai_text_endpoint"),
+            AiTextApiKey = PickString(current.AiTextApiKey, "ai_text_api_key"),
+            AiTextModel = PickString(current.AiTextModel, "ai_text_model"),
+            AiTextTimeoutSeconds = PickString(current.AiTextTimeoutSeconds, "ai_text_timeout_seconds"),
+            AiTextMaxBatchSize = PickString(current.AiTextMaxBatchSize, "ai_text_max_batch_size"),
+            AiTextSystemPrompt = PickStringMany(current.AiTextSystemPrompt, current.AiTextSystemPrompt, "ai_text_system_prompt", "ai_full_info_system_prompt"),
+            AiTextBatchPrompt = PickStringMany(current.AiTextBatchPrompt, current.AiTextBatchPrompt, "ai_text_batch_prompt", "ai_full_info_batch_prompt"),
+            AiTextRetryPrompt = PickStringMany(current.AiTextRetryPrompt, current.AiTextRetryPrompt, "ai_text_retry_prompt", "ai_full_info_retry_prompt"),
+            AiTitleSystemPrompt = PickString(current.AiTitleSystemPrompt, "ai_title_system_prompt"),
+            AiTitleBatchPrompt = PickString(current.AiTitleBatchPrompt, "ai_title_batch_prompt"),
+            AiTagSystemPrompt = PickString(current.AiTagSystemPrompt, "ai_tag_system_prompt"),
+            AiTagBatchPrompt = PickString(current.AiTagBatchPrompt, "ai_tag_batch_prompt"),
+            AiFullInfoSystemPrompt = PickString(current.AiFullInfoSystemPrompt, "ai_full_info_system_prompt"),
+            AiFullInfoBatchPrompt = PickString(current.AiFullInfoBatchPrompt, "ai_full_info_batch_prompt"),
+            AiFullInfoRetryPrompt = PickString(current.AiFullInfoRetryPrompt, "ai_full_info_retry_prompt"),
+            ImageModelId = PickString(current.ImageModelId, "image_model_id"),
+            ImageModelApiKey = PickString(current.ImageModelApiKey, "image_model_api_key"),
+            ImageModelEndpoint = PickString(current.ImageModelEndpoint, "image_model_endpoint"),
+            ImageEditModelId = PickString(current.ImageEditModelId, "image_edit_model_id"),
+            ImageEditApiKey = PickString(current.ImageEditApiKey, "image_edit_api_key"),
+            ImageEditEndpoint = PickString(current.ImageEditEndpoint, "image_edit_endpoint"),
+            ImageEditPath = PickString(current.ImageEditPath, "image_edit_path"),
+            FrameCoverPrompt = PickString(current.FrameCoverPrompt, "frame_cover_prompt"),
+            PosterLayoutDetectPrompt = PickString(current.PosterLayoutDetectPrompt, "poster_layout_detect_prompt"),
+            PosterInpaintPrompt = PickString(current.PosterInpaintPrompt, "poster_inpaint_prompt"),
+            PosterInpaintSafeRetryPrompt = PickString(current.PosterInpaintSafeRetryPrompt, "poster_inpaint_safe_retry_prompt"),
+            PosterGenerationPrompt = PickString(current.PosterGenerationPrompt, "poster_generation_prompt"),
+            PosterGenerationSafeRetryPrompt = PickString(current.PosterGenerationSafeRetryPrompt, "poster_generation_safe_retry_prompt"),
+            PosterNameSystemPrompt = PickString(current.PosterNameSystemPrompt, "poster_name_system_prompt"),
+            PosterNameUserPrompt = PickString(current.PosterNameUserPrompt, "poster_name_user_prompt"),
             FeishuNotificationEnabled = current.FeishuNotificationEnabled,
             FeishuAppId = current.FeishuAppId,
             FeishuAppSecret = current.FeishuAppSecret,
@@ -347,6 +377,13 @@ public sealed class GlobalSettingsService
             AiTextSystemPrompt: dto.AiTextSystemPrompt,
             AiTextBatchPrompt: dto.AiTextBatchPrompt,
             AiTextRetryPrompt: dto.AiTextRetryPrompt,
+            AiTitleSystemPrompt: dto.AiTitleSystemPrompt,
+            AiTitleBatchPrompt: dto.AiTitleBatchPrompt,
+            AiTagSystemPrompt: dto.AiTagSystemPrompt,
+            AiTagBatchPrompt: dto.AiTagBatchPrompt,
+            AiFullInfoSystemPrompt: dto.AiFullInfoSystemPrompt,
+            AiFullInfoBatchPrompt: dto.AiFullInfoBatchPrompt,
+            AiFullInfoRetryPrompt: dto.AiFullInfoRetryPrompt,
             ImageModelId: dto.ImageModelId,
             ImageModelApiKey: dto.ImageModelApiKey,
             ImageModelEndpoint: dto.ImageModelEndpoint,
@@ -354,6 +391,7 @@ public sealed class GlobalSettingsService
             ImageEditApiKey: dto.ImageEditApiKey,
             ImageEditEndpoint: dto.ImageEditEndpoint,
             ImageEditPath: dto.ImageEditPath,
+            FrameCoverPrompt: dto.FrameCoverPrompt,
             PosterLayoutDetectPrompt: dto.PosterLayoutDetectPrompt,
             PosterInpaintPrompt: dto.PosterInpaintPrompt,
             PosterInpaintSafeRetryPrompt: dto.PosterInpaintSafeRetryPrompt,

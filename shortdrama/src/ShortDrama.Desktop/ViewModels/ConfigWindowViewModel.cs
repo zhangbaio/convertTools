@@ -269,6 +269,27 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string aiTextRetryPrompt = string.Empty;
 
     [ObservableProperty]
+    private string aiTitleSystemPrompt = string.Empty;
+
+    [ObservableProperty]
+    private string aiTitleBatchPrompt = string.Empty;
+
+    [ObservableProperty]
+    private string aiTagSystemPrompt = string.Empty;
+
+    [ObservableProperty]
+    private string aiTagBatchPrompt = string.Empty;
+
+    [ObservableProperty]
+    private string aiFullInfoSystemPrompt = string.Empty;
+
+    [ObservableProperty]
+    private string aiFullInfoBatchPrompt = string.Empty;
+
+    [ObservableProperty]
+    private string aiFullInfoRetryPrompt = string.Empty;
+
+    [ObservableProperty]
     private string imageModelId = string.Empty;
 
     [ObservableProperty]
@@ -276,6 +297,9 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private string imageModelEndpoint = string.Empty;
+
+    [ObservableProperty]
+    private string frameCoverPrompt = string.Empty;
 
     [ObservableProperty]
     private string posterLayoutDetectPrompt = string.Empty;
@@ -464,9 +488,17 @@ public partial class ConfigWindowViewModel : ViewModelBase
         AiTextSystemPrompt = merged.AiTextSystemPrompt;
         AiTextBatchPrompt = merged.AiTextBatchPrompt;
         AiTextRetryPrompt = merged.AiTextRetryPrompt;
+        AiTitleSystemPrompt = string.IsNullOrWhiteSpace(merged.AiTitleSystemPrompt) ? merged.AiTextSystemPrompt : merged.AiTitleSystemPrompt;
+        AiTitleBatchPrompt = string.IsNullOrWhiteSpace(merged.AiTitleBatchPrompt) ? merged.AiTextBatchPrompt : merged.AiTitleBatchPrompt;
+        AiTagSystemPrompt = merged.AiTagSystemPrompt;
+        AiTagBatchPrompt = merged.AiTagBatchPrompt;
+        AiFullInfoSystemPrompt = string.IsNullOrWhiteSpace(merged.AiFullInfoSystemPrompt) ? merged.AiTextSystemPrompt : merged.AiFullInfoSystemPrompt;
+        AiFullInfoBatchPrompt = string.IsNullOrWhiteSpace(merged.AiFullInfoBatchPrompt) ? merged.AiTextBatchPrompt : merged.AiFullInfoBatchPrompt;
+        AiFullInfoRetryPrompt = string.IsNullOrWhiteSpace(merged.AiFullInfoRetryPrompt) ? merged.AiTextRetryPrompt : merged.AiFullInfoRetryPrompt;
         ImageModelId = merged.ImageModelId;
         ImageModelApiKey = merged.ImageModelApiKey;
         ImageModelEndpoint = merged.ImageModelEndpoint;
+        FrameCoverPrompt = merged.FrameCoverPrompt;
         PosterLayoutDetectPrompt = merged.PosterLayoutDetectPrompt;
         PosterInpaintPrompt = merged.PosterInpaintPrompt;
         PosterInpaintSafeRetryPrompt = merged.PosterInpaintSafeRetryPrompt;
@@ -558,12 +590,20 @@ public partial class ConfigWindowViewModel : ViewModelBase
             AiTextModel = AiTextModel.Trim(),
             AiTextTimeoutSeconds = AiTextTimeoutSeconds.Trim(),
             AiTextMaxBatchSize = AiTextMaxBatchSize.Trim(),
-            AiTextSystemPrompt = AiTextSystemPrompt.Trim(),
-            AiTextBatchPrompt = AiTextBatchPrompt.Trim(),
-            AiTextRetryPrompt = AiTextRetryPrompt.Trim(),
+            AiTextSystemPrompt = (string.IsNullOrWhiteSpace(AiFullInfoSystemPrompt) ? AiTextSystemPrompt : AiFullInfoSystemPrompt).Trim(),
+            AiTextBatchPrompt = (string.IsNullOrWhiteSpace(AiFullInfoBatchPrompt) ? AiTextBatchPrompt : AiFullInfoBatchPrompt).Trim(),
+            AiTextRetryPrompt = (string.IsNullOrWhiteSpace(AiFullInfoRetryPrompt) ? AiTextRetryPrompt : AiFullInfoRetryPrompt).Trim(),
+            AiTitleSystemPrompt = AiTitleSystemPrompt.Trim(),
+            AiTitleBatchPrompt = AiTitleBatchPrompt.Trim(),
+            AiTagSystemPrompt = AiTagSystemPrompt.Trim(),
+            AiTagBatchPrompt = AiTagBatchPrompt.Trim(),
+            AiFullInfoSystemPrompt = AiFullInfoSystemPrompt.Trim(),
+            AiFullInfoBatchPrompt = AiFullInfoBatchPrompt.Trim(),
+            AiFullInfoRetryPrompt = AiFullInfoRetryPrompt.Trim(),
             ImageModelId = ImageModelId.Trim(),
             ImageModelApiKey = ImageModelApiKey.Trim(),
             ImageModelEndpoint = ImageModelEndpoint.Trim(),
+            FrameCoverPrompt = FrameCoverPrompt.Trim(),
             PosterLayoutDetectPrompt = PosterLayoutDetectPrompt.Trim(),
             PosterInpaintPrompt = PosterInpaintPrompt.Trim(),
             PosterInpaintSafeRetryPrompt = PosterInpaintSafeRetryPrompt.Trim(),

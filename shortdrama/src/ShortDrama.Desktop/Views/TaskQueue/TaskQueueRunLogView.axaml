@@ -50,11 +50,11 @@
                     CornerRadius="18"
                     Padding="12">
                 <Grid RowDefinitions="Auto,*" RowSpacing="12">
-                    <Button Content="全部项目"
+                    <Button Content="全部已勾选项目"
                             Click="ShowAllProjectsLog_Click" />
 
                     <ListBox Grid.Row="1"
-                             ItemsSource="{Binding Projects}"
+                             ItemsSource="{Binding RunLogProjects}"
                              SelectedItem="{Binding SelectedRunLogProject}"
                              BorderThickness="0"
                              Background="Transparent">
@@ -97,40 +97,34 @@
                                        Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
                         </StackPanel>
 
-                        <StackPanel Grid.Column="1"
-                                    Orientation="Horizontal"
-                                    Spacing="10">
-                            <ComboBox Width="180"
-                                      ItemsSource="{Binding StepLogFilters}"
-                                      SelectedItem="{Binding SelectedStepLogFilter}">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Label}" />
-                                    </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                            </ComboBox>
-                        </StackPanel>
+                        <ComboBox Grid.Column="1"
+                                  Width="180"
+                                  ItemsSource="{Binding StepLogFilters}"
+                                  SelectedItem="{Binding SelectedStepLogFilter}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Label}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
                     </Grid>
 
                     <Border Grid.Row="1"
                             Background="{DynamicResource DesktopPanelAltBrush}"
                             CornerRadius="14"
                             Padding="10">
-                        <ListBox ItemsSource="{Binding ActivityLog}"
+                        <TextBox Text="{Binding VisibleActivityLogText}"
+                                 IsReadOnly="True"
+                                 AcceptsReturn="True"
+                                 TextWrapping="NoWrap"
+                                 FontFamily="Consolas, Cascadia Mono, monospace"
+                                 Background="Transparent"
                                  BorderThickness="0"
-                                 Background="Transparent">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Margin="0,0,0,8"
-                                            Padding="10"
-                                            CornerRadius="12"
-                                            Background="{DynamicResource DesktopPanelBrush}">
-                                        <TextBlock Text="{Binding DisplayText}"
-                                                   TextWrapping="Wrap" />
-                                    </Border>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                                 CaretBrush="Transparent"
+                                 VerticalContentAlignment="Top"
+                                 MinHeight="420"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto" />
                     </Border>
                 </Grid>
             </Border>

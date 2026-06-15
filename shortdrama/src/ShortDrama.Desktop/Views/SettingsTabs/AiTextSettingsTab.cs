@@ -25,15 +25,19 @@ public sealed class AiTextSettingsTab : UserControl
             Margin = new Thickness(16)
         };
 
-        panel.Children.Add(Hint("AI 文本配置迁移到全局设置，供项目改写流程统一复用。"));
+        panel.Children.Add(Hint("AI 文本配置迁移到全局设置。当前项目改写流程默认使用“完整信息”这一组 Prompt，旧的通用 AiText* 字段会自动同步到这里。"));
         panel.Children.Add(Row("接口地址", BindText(nameof(ConfigWindowViewModel.AiTextEndpoint))));
         panel.Children.Add(Row("API Key", BindText(nameof(ConfigWindowViewModel.AiTextApiKey), isPassword: true)));
         panel.Children.Add(Row("模型名称", BindText(nameof(ConfigWindowViewModel.AiTextModel))));
         panel.Children.Add(Row("请求超时", BindText(nameof(ConfigWindowViewModel.AiTextTimeoutSeconds))));
         panel.Children.Add(Row("单批项目数", BindText(nameof(ConfigWindowViewModel.AiTextMaxBatchSize))));
-        panel.Children.Add(Row("System Prompt", MultiLineText(nameof(ConfigWindowViewModel.AiTextSystemPrompt), 120)));
-        panel.Children.Add(Row("Batch Prompt", MultiLineText(nameof(ConfigWindowViewModel.AiTextBatchPrompt), 220)));
-        panel.Children.Add(Row("Retry Prompt", MultiLineText(nameof(ConfigWindowViewModel.AiTextRetryPrompt), 140)));
+        panel.Children.Add(Row("短标题 System Prompt", MultiLineText(nameof(ConfigWindowViewModel.AiTitleSystemPrompt), 100)));
+        panel.Children.Add(Row("短标题 Batch Prompt", MultiLineText(nameof(ConfigWindowViewModel.AiTitleBatchPrompt), 130)));
+        panel.Children.Add(Row("标签 System Prompt", MultiLineText(nameof(ConfigWindowViewModel.AiTagSystemPrompt), 100)));
+        panel.Children.Add(Row("标签 Batch Prompt", MultiLineText(nameof(ConfigWindowViewModel.AiTagBatchPrompt), 130)));
+        panel.Children.Add(Row("完整信息 System Prompt", MultiLineText(nameof(ConfigWindowViewModel.AiFullInfoSystemPrompt), 100)));
+        panel.Children.Add(Row("完整信息 Batch Prompt", MultiLineText(nameof(ConfigWindowViewModel.AiFullInfoBatchPrompt), 180)));
+        panel.Children.Add(Row("完整信息 Retry Prompt", MultiLineText(nameof(ConfigWindowViewModel.AiFullInfoRetryPrompt), 140)));
 
         return panel;
     }

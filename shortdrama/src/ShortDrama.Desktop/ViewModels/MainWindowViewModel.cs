@@ -79,6 +79,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _searchMode = SearchModeKeyword;
     private string _lastSearchKeyword = string.Empty;
     private bool _startupScanTriggered;
+    private bool _suspendProjectCheckPersistence;
+    private string _projectListRootDir = string.Empty;
     private string _costReportBaseImagePath = string.Empty;
     private string _costReportActorPayRatio = string.Empty;
     private string _costReportLegalRepresentative = string.Empty;
@@ -713,6 +715,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedProjectLogFilterChanged(LogFilterOption? value)
     {
+        if (_syncingProjectLogFilterSelection)
+        {
+            return;
+        }
+
         SyncRunLogSelectionToCurrentFilter();
         ApplyActivityLogFilter();
     }
@@ -1014,6 +1021,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public void PersistState()
     {
         _stateService.SaveLastRootDir(RootDir);
+        PersistCheckedProjectState();
     }
 
     public void SetTemplateDocxPath(string path)
@@ -1057,7 +1065,12 @@ public partial class MainWindowViewModel : ViewModelBase
             PendingProjects = result.PendingProjects;
             PersistState();
 
-            ReplaceProjects(result.Projects);
+            var checkedKeys = Projects.Count > 0
+                ? GetCheckedProjectKeys()
+                : _stateService.LoadCheckedProjectKeys(RootDir);
+
+            ReplaceProjects(result.Projects, checkedKeys);
+            PersistCheckedProjectState(allowEmptyProjectList: true);
             LoadArchivedProjects();
 
             RefreshProjectLogFilters();
@@ -2159,11 +2172,20 @@ public partial class MainWindowViewModel : ViewModelBase
     public void SetAllProjectsChecked(bool isChecked)
     {
         var targets = string.IsNullOrWhiteSpace(TaskQueueFilterText) ? Projects : FilteredProjects;
-        foreach (var project in targets)
+        _suspendProjectCheckPersistence = true;
+        try
         {
-            project.IsChecked = isChecked;
+            foreach (var project in targets)
+            {
+                project.IsChecked = isChecked;
+            }
+        }
+        finally
+        {
+            _suspendProjectCheckPersistence = false;
         }
 
+        PersistCheckedProjectState();
         OnPropertyChanged(nameof(CheckedProjectsSummary));
         OnPropertyChanged(nameof(TaskQueueSummary));
         RefreshCommandStates();
@@ -3375,6 +3397,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void OnProjectRowCheckedChanged(object? sender, EventArgs e)
     {
+        if (!_suspendProjectCheckPersistence)
+        {
+            PersistCheckedProjectState();
+        }
+
         OnPropertyChanged(nameof(CheckedProjectsSummary));
         OnPropertyChanged(nameof(TaskQueueSummary));
         OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
@@ -3427,6 +3454,7 @@ public partial class MainWindowViewModel : ViewModelBase
         BackupRootDir = result.BackupRootDir ?? string.Empty;
 
         ReplaceProjects(result.Projects, checkedKeys);
+        PersistCheckedProjectState(allowEmptyProjectList: true);
         LoadArchivedProjects();
 
         RefreshProjectLogFilters();
@@ -3447,6 +3475,7 @@ public partial class MainWindowViewModel : ViewModelBase
         BackupRootDir = result.BackupRootDir ?? string.Empty;
 
         ReplaceProjects(result.Projects, checkedKeys);
+        PersistCheckedProjectState(allowEmptyProjectList: true);
         LoadArchivedProjects();
 
         RefreshProjectLogFilters();
@@ -3527,10 +3556,28 @@ public partial class MainWindowViewModel : ViewModelBase
             .ToHashSet(StringComparer.Ordinal);
     }
 
+    private void PersistCheckedProjectState(bool allowEmptyProjectList = false)
+    {
+        var normalizedRootDir = NormalizeRootDir(RootDir);
+        if (string.IsNullOrWhiteSpace(normalizedRootDir) ||
+            !string.Equals(normalizedRootDir, _projectListRootDir, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (!allowEmptyProjectList && Projects.Count == 0)
+        {
+            return;
+        }
+
+        _stateService.SaveCheckedProjectKeys(normalizedRootDir, GetCheckedProjectKeys());
+    }
+
     private void ReplaceProjects(IEnumerable<ScannedProject> scannedProjects, IReadOnlySet<string>? checkedKeys = null)
     {
         UnsubscribeFromProjectRows();
         Projects.Clear();
+        _projectListRootDir = NormalizeRootDir(RootDir);
 
         foreach (var project in scannedProjects
                      .OrderByDescending(item => item.CreatedAt ?? DateTimeOffset.MinValue)
@@ -3550,6 +3597,26 @@ public partial class MainWindowViewModel : ViewModelBase
         ApplyMaterialUploadFilter();
         RefreshRunLogViewState();
         RefreshCommandStates();
+    }
+
+    private static string NormalizeRootDir(string? rootDir)
+    {
+        var trimmed = rootDir?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            trimmed = Path.GetFullPath(trimmed);
+        }
+        catch
+        {
+            // Keep the raw path when normalization cannot resolve it yet.
+        }
+
+        return trimmed.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private void UnsubscribeFromProjectRows()
@@ -4000,6 +4067,13 @@ public partial class MainWindowViewModel : ViewModelBase
             AiTextSystemPrompt: AiTextSystemPrompt,
             AiTextBatchPrompt: AiTextBatchPrompt,
             AiTextRetryPrompt: AiTextRetryPrompt,
+            AiTitleSystemPrompt: AiTextSystemPrompt,
+            AiTitleBatchPrompt: AiTextBatchPrompt,
+            AiTagSystemPrompt: string.Empty,
+            AiTagBatchPrompt: string.Empty,
+            AiFullInfoSystemPrompt: AiTextSystemPrompt,
+            AiFullInfoBatchPrompt: AiTextBatchPrompt,
+            AiFullInfoRetryPrompt: AiTextRetryPrompt,
             WeixinHeadless: WeixinHeadless,
             WeixinSlowMoMs: WeixinSlowMoMs,
             WeixinKeepOpenSeconds: WeixinKeepOpenSeconds,
@@ -4022,6 +4096,7 @@ public partial class MainWindowViewModel : ViewModelBase
             ImageEditApiKey: ImageEditApiKey,
             ImageEditEndpoint: ImageEditEndpoint,
             ImageEditPath: ImageEditPath,
+            FrameCoverPrompt: string.Empty,
             PosterLayoutDetectPrompt: PosterLayoutDetectPrompt,
             PosterInpaintPrompt: PosterInpaintPrompt,
             PosterInpaintSafeRetryPrompt: PosterInpaintSafeRetryPrompt,
@@ -4525,9 +4600,12 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var projectKey = SelectedProjectLogFilter?.Key ?? AllProjectsFilterKey;
         var stepKey = SelectedStepLogFilter?.Key ?? AllStepsFilterKey;
+        var checkedProjectKeys = RunLogProjects
+            .Select(item => item.ProjectKey)
+            .ToHashSet(StringComparer.Ordinal);
 
         var filtered = _allActivityLogs
-            .Where(item => MatchesProjectFilter(item, projectKey))
+            .Where(item => MatchesProjectFilter(item, projectKey, checkedProjectKeys))
             .Where(item => MatchesStepFilter(item, stepKey))
             .Where(item => !OnlyShowFailedLogs || item.IsFailure)
             .Take(200)
@@ -4602,10 +4680,14 @@ public partial class MainWindowViewModel : ViewModelBase
         };
     }
 
-    private static bool MatchesProjectFilter(ActivityLogEntry item, string filterKey)
+    private static bool MatchesProjectFilter(ActivityLogEntry item, string filterKey, IReadOnlySet<string> checkedProjectKeys)
     {
-        return string.Equals(filterKey, AllProjectsFilterKey, StringComparison.Ordinal) ||
-            string.Equals(item.ProjectKey, filterKey, StringComparison.Ordinal);
+        if (string.Equals(filterKey, AllProjectsFilterKey, StringComparison.Ordinal))
+        {
+            return string.IsNullOrWhiteSpace(item.ProjectKey) || checkedProjectKeys.Contains(item.ProjectKey);
+        }
+
+        return string.Equals(item.ProjectKey, filterKey, StringComparison.Ordinal);
     }
 
     private static bool MatchesStepFilter(ActivityLogEntry item, string filterKey)

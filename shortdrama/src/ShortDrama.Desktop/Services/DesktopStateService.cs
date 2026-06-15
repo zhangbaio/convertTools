@@ -17,11 +17,63 @@ public sealed class DesktopStateService
 
     public void SaveLastRootDir(string rootDir)
     {
-        var statePath = GetStateFilePath();
-        Directory.CreateDirectory(Path.GetDirectoryName(statePath)!);
+        var normalizedRootDir = NormalizeRootDir(rootDir);
+        var state = LoadState() ?? new DesktopState(string.Empty, null);
+        SaveState(state with { LastRootDir = normalizedRootDir });
+    }
 
-        var state = new DesktopState(rootDir?.Trim() ?? string.Empty);
-        File.WriteAllText(statePath, JsonSerializer.Serialize(state, JsonOptions));
+    public HashSet<string> LoadCheckedProjectKeys(string rootDir)
+    {
+        var normalizedRootDir = NormalizeRootDir(rootDir);
+        if (string.IsNullOrWhiteSpace(normalizedRootDir))
+        {
+            return [];
+        }
+
+        var state = LoadState();
+        if (state?.ProjectSelections is null ||
+            !state.ProjectSelections.TryGetValue(normalizedRootDir, out var selection) ||
+            selection.CheckedProjectKeys is null)
+        {
+            return [];
+        }
+
+        return selection.CheckedProjectKeys
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Select(key => key.Trim())
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    public void SaveCheckedProjectKeys(string rootDir, IEnumerable<string> checkedProjectKeys)
+    {
+        var normalizedRootDir = NormalizeRootDir(rootDir);
+        if (string.IsNullOrWhiteSpace(normalizedRootDir))
+        {
+            return;
+        }
+
+        var normalizedKeys = checkedProjectKeys
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Select(key => key.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToArray();
+
+        var currentState = LoadState() ?? new DesktopState(string.Empty, null);
+        var selections = currentState.ProjectSelections is null
+            ? new Dictionary<string, ProjectSelectionState>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, ProjectSelectionState>(currentState.ProjectSelections, StringComparer.OrdinalIgnoreCase);
+
+        if (normalizedKeys.Length == 0)
+        {
+            selections.Remove(normalizedRootDir);
+        }
+        else
+        {
+            selections[normalizedRootDir] = new ProjectSelectionState(normalizedKeys);
+        }
+
+        SaveState(currentState with { ProjectSelections = selections });
     }
 
     private static DesktopState? LoadState()
@@ -43,6 +95,33 @@ public sealed class DesktopStateService
         }
     }
 
+    private static void SaveState(DesktopState state)
+    {
+        var statePath = GetStateFilePath();
+        Directory.CreateDirectory(Path.GetDirectoryName(statePath)!);
+        File.WriteAllText(statePath, JsonSerializer.Serialize(state, JsonOptions));
+    }
+
+    private static string NormalizeRootDir(string? rootDir)
+    {
+        var trimmed = rootDir?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            trimmed = Path.GetFullPath(trimmed);
+        }
+        catch
+        {
+            // Keep the original path when normalization cannot resolve it yet.
+        }
+
+        return trimmed.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
     private static string GetStateFilePath()
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -53,5 +132,7 @@ public sealed class DesktopStateService
         return Path.Combine(baseDir, "state.json");
     }
 
-    private sealed record DesktopState(string LastRootDir);
+    private sealed record DesktopState(string LastRootDir, Dictionary<string, ProjectSelectionState>? ProjectSelections);
+
+    private sealed record ProjectSelectionState(string[] CheckedProjectKeys);
 }

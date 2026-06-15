@@ -35,6 +35,13 @@ public sealed class GlobalDesktopSettings
     public string AiTextSystemPrompt { get; set; } = string.Empty;
     public string AiTextBatchPrompt { get; set; } = string.Empty;
     public string AiTextRetryPrompt { get; set; } = string.Empty;
+    public string AiTitleSystemPrompt { get; set; } = string.Empty;
+    public string AiTitleBatchPrompt { get; set; } = string.Empty;
+    public string AiTagSystemPrompt { get; set; } = string.Empty;
+    public string AiTagBatchPrompt { get; set; } = string.Empty;
+    public string AiFullInfoSystemPrompt { get; set; } = string.Empty;
+    public string AiFullInfoBatchPrompt { get; set; } = string.Empty;
+    public string AiFullInfoRetryPrompt { get; set; } = string.Empty;
     public string ImageModelId { get; set; } = string.Empty;
     public string ImageModelApiKey { get; set; } = string.Empty;
     public string ImageModelEndpoint { get; set; } = string.Empty;
@@ -42,6 +49,7 @@ public sealed class GlobalDesktopSettings
     public string ImageEditApiKey { get; set; } = string.Empty;
     public string ImageEditEndpoint { get; set; } = string.Empty;
     public string ImageEditPath { get; set; } = string.Empty;
+    public string FrameCoverPrompt { get; set; } = string.Empty;
     public string PosterLayoutDetectPrompt { get; set; } = string.Empty;
     public string PosterInpaintPrompt { get; set; } = string.Empty;
     public string PosterInpaintSafeRetryPrompt { get; set; } = string.Empty;
