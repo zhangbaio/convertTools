@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChannelsPublisher.PrepCheck
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChannelsPublisher.SchedulerCheck", "tests\ChannelsPublisher.SchedulerCheck\ChannelsPublisher.SchedulerCheck.csproj", "{BC1AFE91-BFF7-4ED1-9781-25C22150A738}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConvertTools.App", "src\ConvertTools.App\ConvertTools.App.csproj", "{0E737A66-F6B5-47A6-81B0-C7B4E28D8A96}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -52,6 +54,10 @@ Global
 		{BC1AFE91-BFF7-4ED1-9781-25C22150A738}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BC1AFE91-BFF7-4ED1-9781-25C22150A738}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BC1AFE91-BFF7-4ED1-9781-25C22150A738}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0E737A66-F6B5-47A6-81B0-C7B4E28D8A96}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0E737A66-F6B5-47A6-81B0-C7B4E28D8A96}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0E737A66-F6B5-47A6-81B0-C7B4E28D8A96}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0E737A66-F6B5-47A6-81B0-C7B4E28D8A96}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{91E97B4D-64F4-4AF6-8EE3-D28A4BB80E6B} = {4CC5B8F7-17A2-4B6F-B47D-20453F8BE055}
@@ -60,5 +66,6 @@ Global
 		{F915D8EE-03EA-4A10-97D9-45D22B2AB7BB} = {4CC5B8F7-17A2-4B6F-B47D-20453F8BE055}
 		{A81B8EE7-5026-4477-B5F5-6805B3A1CECD} = {3F836951-CAC7-424D-BFD7-7F2FABA6F2B6}
 		{BC1AFE91-BFF7-4ED1-9781-25C22150A738} = {3F836951-CAC7-424D-BFD7-7F2FABA6F2B6}
+		{0E737A66-F6B5-47A6-81B0-C7B4E28D8A96} = {4CC5B8F7-17A2-4B6F-B47D-20453F8BE055}
 	EndGlobalSection
 EndGlobal

@@ -1,0 +1,51 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ConvertTools.App.ViewModels"
+        x:Class="ConvertTools.App.Views.ShellWindow"
+        x:DataType="vm:ShellViewModel"
+        Width="1280" Height="820"
+        Title="ConvertTools">
+
+    <Design.DataContext>
+        <vm:ShellViewModel />
+    </Design.DataContext>
+
+    <DockPanel>
+        <!-- 顶部 TAB 菜单 -->
+        <Border DockPanel.Dock="Top" Height="52" Background="White" BorderBrush="#EEE" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left" Text="ConvertTools" FontSize="18" FontWeight="Bold"
+                           Foreground="#E67E22" VerticalAlignment="Center" Margin="18,0,28,0" />
+                <ListBox x:Name="TabBar" ItemsSource="{Binding Tabs}" Background="Transparent"
+                         BorderThickness="0" VerticalAlignment="Center">
+                    <ListBox.Styles>
+                        <Style Selector="ListBoxItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="2,0" />
+                        </Style>
+                        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                            <Setter Property="Background" Value="Transparent" />
+                        </Style>
+                        <Style Selector="ListBoxItem:selected TextBlock">
+                            <Setter Property="Foreground" Value="#E67E22" />
+                            <Setter Property="FontWeight" Value="Bold" />
+                        </Style>
+                    </ListBox.Styles>
+                    <ListBox.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ListBox.ItemsPanel>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:NavTab">
+                            <TextBlock Text="{Binding Title}" Margin="16,8" FontSize="15" Foreground="#444" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- 内容区：各 Tab 视图保活（IsVisible 切换，切走不销毁，WebView2 会话长存） -->
+        <Panel x:Name="ContentArea" Background="#F7F8FA" />
+    </DockPanel>
+</Window>

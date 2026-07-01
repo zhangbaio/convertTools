@@ -1,9 +1,10 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
-using ChannelsPublisher.Desktop.Views;
+using ConvertTools.App.ViewModels;
+using ConvertTools.App.Views;
 
-namespace ChannelsPublisher.Desktop;
+namespace ConvertTools.App;
 
 public partial class App : Application
 {
@@ -12,10 +13,7 @@ public partial class App : Application
     public override void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            // MaterialPublishView 自带 VM；独立运行时窗口只承载它。
-            desktop.MainWindow = new MainWindow();
-        }
+            desktop.MainWindow = new ShellWindow { DataContext = new ShellViewModel() };
 
         base.OnFrameworkInitializationCompleted();
     }
