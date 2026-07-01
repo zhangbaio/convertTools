@@ -46,6 +46,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IMaterialValidationService, MaterialValidationService>();
         services.AddSingleton<IWorkService, WorkService>();
         services.AddSingleton<PythonToolResolver>();
+        services.AddSingleton<PythonClipEngineRunner>();
         services.AddSingleton<IWorkflowInteractionService, WorkflowInteractionService>();
         services.AddSingleton<IDramaSearchService, HongguoDramaSearchService>();
         services.AddSingleton<IDramaProjectBootstrapper, DramaProjectBootstrapper>();
