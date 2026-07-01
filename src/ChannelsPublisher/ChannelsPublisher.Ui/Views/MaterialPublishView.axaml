@@ -37,6 +37,11 @@
                     <NumericUpDown Value="{Binding MaxParallel}" Minimum="1" Maximum="8" Increment="1" Width="110" />
                     <Button Content="开始发布" Click="OnStartPublishClick" Background="#E67E22" Foreground="White" />
                     <Button Content="清空已完成" Click="OnClearDoneClick" />
+                    <Border Width="1" Background="#DDD" Margin="4,2" />
+                    <Button Content="🛠 发表配置" Click="OnPublishConfigClick"
+                            ToolTip.Tip="发表流程的全局默认（来源/集数/描述/封面/原创…）" />
+                    <Button Content="🎬 全局剪辑配置" Click="OnClipConfigClick"
+                            ToolTip.Tip="一键创作的全局剪辑配置（模式/画质/编码/原创度）" />
                 </StackPanel>
 
                 <Grid DockPanel.Dock="Top" ColumnDefinitions="140,*,150,80,*" Margin="10,2,10,4">

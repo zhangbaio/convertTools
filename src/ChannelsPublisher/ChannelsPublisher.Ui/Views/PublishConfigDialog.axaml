@@ -1,0 +1,105 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ChannelsPublisher.Desktop.Views.PublishConfigDialog"
+        Width="620" Height="720"
+        WindowStartupLocation="CenterOwner"
+        Title="发表配置">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,12,0,0">
+            <Button Content="取消" Click="OnCancel" />
+            <Button Content="保存" Click="OnSave" Background="#E67E22" Foreground="White" />
+        </StackPanel>
+        <ScrollViewer>
+            <StackPanel Spacing="10">
+                <CheckBox x:Name="EnabledBox" Content="启用当前发表流程" />
+
+                <TextBlock Text="来源与集数" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="视频来源" VerticalAlignment="Center" />
+                    <ComboBox Grid.Row="0" Grid.Column="1" x:Name="SourceModeCombo" HorizontalAlignment="Stretch">
+                        <ComboBoxItem Tag="directory">目录</ComboBoxItem>
+                        <ComboBoxItem Tag="new_drama_mount">新剧挂载</ComboBoxItem>
+                        <ComboBoxItem Tag="downloaded_system_highlight">系统高光下载</ComboBoxItem>
+                        <ComboBoxItem Tag="material_video_download">下载素材视频</ComboBoxItem>
+                        <ComboBoxItem Tag="material_clips">剪辑成片</ComboBoxItem>
+                        <ComboBoxItem Tag="project_materials">项目素材</ComboBoxItem>
+                        <ComboBoxItem Tag="source_videos">源视频</ComboBoxItem>
+                        <ComboBoxItem Tag="custom_files">自选视频</ComboBoxItem>
+                        <ComboBoxItem Tag="directory_publish">目录批量发表</ComboBoxItem>
+                    </ComboBox>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="集数方式" VerticalAlignment="Center" />
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                        <ComboBox x:Name="EpisodeModeCombo" Width="120">
+                            <ComboBoxItem Tag="all">全部</ComboBoxItem>
+                            <ComboBoxItem Tag="count">前 N 集</ComboBoxItem>
+                            <ComboBoxItem Tag="indexes">指定集</ComboBoxItem>
+                        </ComboBox>
+                        <TextBlock Text="起始" VerticalAlignment="Center" />
+                        <NumericUpDown x:Name="StartEpisodeBox" Minimum="1" Maximum="9999" Width="90" />
+                        <TextBlock Text="数量" VerticalAlignment="Center" />
+                        <NumericUpDown x:Name="PublishCountBox" Minimum="0" Maximum="9999" Width="90" />
+                    </StackPanel>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="集数索引" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="2" Grid.Column="1" x:Name="EpisodeIndexesBox" Watermark="如 1,3,5 或 1-5（集数方式=指定集时用）" />
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="新剧挂载" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="3" Grid.Column="1" x:Name="NewDramaMountTitleBox" Watermark="新剧挂载标题（新剧名）" />
+                </Grid>
+
+                <TextBlock Text="发表行为" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto" RowSpacing="6">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="运行策略" VerticalAlignment="Center" />
+                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                        <ComboBox x:Name="RunStrategyCombo" Width="140">
+                            <ComboBoxItem Tag="all">全部</ComboBoxItem>
+                            <ComboBoxItem Tag="resume">断点续传</ComboBoxItem>
+                            <ComboBoxItem Tag="retry_failed">仅重试失败</ComboBoxItem>
+                        </ComboBox>
+                        <TextBlock Text="结束动作" VerticalAlignment="Center" />
+                        <ComboBox x:Name="FinalActionCombo" Width="150">
+                            <ComboBoxItem Tag="none">只填不发（安全）</ComboBoxItem>
+                            <ComboBoxItem Tag="draft">保存草稿</ComboBoxItem>
+                            <ComboBoxItem Tag="publish">直接发表</ComboBoxItem>
+                        </ComboBox>
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                        <CheckBox x:Name="PauseOnErrorBox" Content="异常时暂停" />
+                        <CheckBox x:Name="FastModeBox" Content="快速模式" />
+                        <CheckBox x:Name="MergePublishBox" Content="合并发布" />
+                        <NumericUpDown x:Name="MergeGroupSizeBox" Minimum="0" Maximum="99" Width="80" />
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="描述" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <CheckBox x:Name="FillDescriptionBox" Content="填写描述" />
+                    <CheckBox x:Name="AiDescriptionBox" Content="AI 重写描述" />
+                    <CheckBox x:Name="AiUseDialogueBox" Content="AI 用台词参考" />
+                    <CheckBox x:Name="PrependHashBox" Content="首字符补 #" />
+                </StackPanel>
+                <TextBox x:Name="DescriptionTemplateBox" Watermark="基础文案模板（无 AI 时直接用）" AcceptsReturn="True" Height="60" TextWrapping="Wrap" />
+
+                <TextBlock Text="发表页选项" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <Grid ColumnDefinitions="90,*,90,*" RowDefinitions="Auto,Auto" RowSpacing="6" ColumnSpacing="8">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="位置" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="0" Grid.Column="1" x:Name="LocationBox" Watermark="如 上海市" />
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="活动" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="0" Grid.Column="3" x:Name="ActivityBox" Watermark="不参与则留空" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="链接" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="1" Grid.Column="1" x:Name="LinkBox" Watermark="如 视频号剧集" />
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="剧集名" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="1" Grid.Column="3" x:Name="DramaNameBox" Watermark="挂载的视频号剧集名" />
+                </Grid>
+
+                <TextBlock Text="封面 / 短标题 / 原创" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <CheckBox x:Name="ReplaceCoverBox" Content="替换本地封面" />
+                    <CheckBox x:Name="FillShortTitleBox" Content="填短标题" />
+                    <TextBlock Text="上限" VerticalAlignment="Center" />
+                    <NumericUpDown x:Name="ShortTitleMaxBox" Minimum="1" Maximum="20" Width="80" />
+                    <CheckBox x:Name="DeclareOriginalBox" Content="声明原创" />
+                </StackPanel>
+                <TextBox x:Name="CoverImagePathBox" Watermark="封面图路径（替换封面时用）" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using ChannelsPublisher.Core.Config;
 using ChannelsPublisher.Core.Models;
 using ChannelsPublisher.Core.Publishing;
 using ChannelsPublisher.Core.Services;
@@ -22,6 +23,8 @@ public partial class MaterialPublishView : UserControl
     private PublishScheduler? _scheduler;
     private MainViewModel? _vm;
     private bool _ready;
+    // 发表配置：作为发布的全局默认，供任务队列/发布测试套用；配置对话框保存后重载。
+    private PublishConfig _publishConfig = PublishConfig.Load();
 
     public MaterialPublishView()
     {
@@ -37,7 +40,42 @@ public partial class MaterialPublishView : UserControl
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         _ready = true;
+        ApplyConfigToVm();
         ShowAccount(_vm?.SelectedAccount);
+    }
+
+    // 把发表配置的运行默认（结束动作）灌进 VM，让队列/发布用配置里的选择起步。
+    private void ApplyConfigToVm()
+    {
+        var vm = _vm;
+        if (vm is null) return;
+        var fa = _publishConfig.FinalAction switch
+        {
+            "publish" => FinalAction.Publish,
+            "draft" => FinalAction.Draft,
+            _ => FinalAction.None,
+        };
+        var choice = vm.FinalActionChoices.FirstOrDefault(c => c.Value == fa);
+        if (choice != null) vm.SelectedFinalAction = choice;
+    }
+
+    // 用发表配置填充一条素材的默认表单项（描述/剧集/封面/原创）。
+    private void ApplyConfigDefaults(PublishItem item)
+    {
+        var c = _publishConfig;
+        if (c.FillDescription && string.IsNullOrEmpty(item.Description) && !string.IsNullOrWhiteSpace(c.DescriptionTemplate))
+        {
+            var text = c.DescriptionTemplate.Trim();
+            item.Description = c.PrependHash && !text.StartsWith("#") ? "#" + text : text;
+        }
+        if (string.IsNullOrEmpty(item.DramaName))
+        {
+            var drama = !string.IsNullOrWhiteSpace(c.NewDramaMountTitle) ? c.NewDramaMountTitle : c.DramaName;
+            if (!string.IsNullOrWhiteSpace(drama)) item.DramaName = drama.Trim();
+        }
+        if (c.ReplaceCover && item.CoverPath is null && !string.IsNullOrWhiteSpace(c.CoverImagePath))
+            item.CoverPath = c.CoverImagePath.Trim();
+        if (c.DeclareOriginal) item.DeclareOriginal = true;
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -130,6 +168,7 @@ public partial class MaterialPublishView : UserControl
         if (file is null) return;
 
         var item = new PublishItem { VideoPath = file.Path.LocalPath, Description = "【多账号发布测试】" };
+        ApplyConfigDefaults(item); // 描述已填则保留测试标记，仅补剧集/封面/原创等配置默认
         _scheduler ??= new PublishScheduler(_automation);
         var job = new AccountPublishJob(account.Model, host.CdpEndpoint!, new[] { item });
 
@@ -141,6 +180,29 @@ public partial class MaterialPublishView : UserControl
                 CancellationToken.None);
         }
         catch (Exception ex) { vm.StatusMessage = $"发布失败：{ex.Message}"; }
+    }
+
+    // ────────────── 全局配置对话框 ──────────────
+
+    private async void OnPublishConfigClick(object? sender, RoutedEventArgs e)
+    {
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is null) return;
+        var ok = await new PublishConfigDialog().ShowDialog<bool>(owner);
+        if (ok)
+        {
+            _publishConfig = PublishConfig.Load(); // 重载并套用新默认
+            ApplyConfigToVm();
+            if (_vm != null) _vm.StatusMessage = "发表配置已保存（新素材将套用新默认）";
+        }
+    }
+
+    private async void OnClipConfigClick(object? sender, RoutedEventArgs e)
+    {
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is null) return;
+        var ok = await new ClipConfigDialog().ShowDialog<bool>(owner);
+        if (ok && _vm != null) _vm.StatusMessage = "全局剪辑配置已保存";
     }
 
     // ────────────── 发布任务队列 ──────────────
@@ -161,7 +223,9 @@ public partial class MaterialPublishView : UserControl
         int n = 0;
         foreach (var f in files)
         {
-            vm.Tasks.Add(new PublishTaskItemViewModel(new PublishItem { VideoPath = f.Path.LocalPath }, account));
+            var item = new PublishItem { VideoPath = f.Path.LocalPath };
+            ApplyConfigDefaults(item);
+            vm.Tasks.Add(new PublishTaskItemViewModel(item, account));
             n++;
         }
         if (n > 0) vm.StatusMessage = $"已添加 {n} 条素材到「{account.Name}」";
