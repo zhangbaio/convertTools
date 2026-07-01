@@ -5,6 +5,7 @@ using Avalonia.Platform.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using ShortDrama.Desktop.Services;
 using ShortDrama.Desktop.ViewModels;
+using ShortDrama.Infrastructure.Automation;
 
 namespace ShortDrama.Desktop.Views;
 
@@ -22,6 +23,7 @@ public partial class MaterialUploadView : UserControl
         CreateManualMaterialProjectButton.Click += CreateManualMaterialProjectButton_Click;
         DeleteChannelMaterialsButton.Click += DeleteChannelMaterialsButton_Click;
         OpenClipConfigButton.Click += OpenClipConfigButton_Click;
+        GenerateClipsFullEngineButton.Click += GenerateClipsFullEngineButton_Click;
         MaterialUploadProjectsListBox.SelectionChanged += MaterialUploadProjectsListBox_SelectionChanged;
     }
 
@@ -190,5 +192,99 @@ public partial class MaterialUploadView : UserControl
         var window = new MaterialClipConfigWindow(settingsService);
         await window.ShowDialog<bool>(OwnerWindow);
         ViewModel?.AppendExternalLog("已打开剪辑配置窗口。", stepKey: "material-upload", stepLabel: "素材上传");
+    }
+
+    // 用完整 Python 剪辑引擎（桥接）对选定项目目录生成剪辑成片到 素材剪辑输出/。
+    private static readonly string[] ClipVideoExt = { ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm" };
+
+    private async void GenerateClipsFullEngineButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (OwnerWindow is null || Application.Current is not App app)
+        {
+            return;
+        }
+
+        var folders = await OwnerWindow.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "选择要生成剪辑的项目目录",
+            AllowMultiple = false,
+        });
+        var projectDir = folders.FirstOrDefault()?.Path.LocalPath;
+        if (string.IsNullOrWhiteSpace(projectDir))
+        {
+            return;
+        }
+
+        // 源视频：<project>/videos 优先，否则项目目录顶层。
+        var videos = EnumerateVideos(Path.Combine(projectDir, "videos"));
+        if (videos.Count == 0) videos = EnumerateVideos(projectDir);
+        if (videos.Count == 0)
+        {
+            ViewModel?.AppendExternalLog($"未在 {projectDir} 找到可剪辑的源视频。",
+                stepKey: "material-upload", stepLabel: "素材上传", isFailure: true);
+            return;
+        }
+
+        // 模式与覆盖取自全局剪辑配置 ClipConfig（同发表配置对话框那份）。
+        var clip = ChannelsPublisher.Core.Config.ClipConfig.Load();
+        var modes = clip.Modes.Where(m => m.Enabled).Select(m => m.Key).ToList();
+        if (modes.Count == 0) modes.Add("highlight");
+
+        var runner = app.Services.GetRequiredService<PythonClipEngineRunner>();
+        var request = new ClipEngineRequest(projectDir, videos, modes, BuildClipOverrides(clip));
+
+        GenerateClipsFullEngineButton.IsEnabled = false;
+        ViewModel?.AppendExternalLog(
+            $"完整引擎剪辑：{Path.GetFileName(projectDir)}（{videos.Count} 源视频，模式 {string.Join("/", modes)}）开始…（ASR+渲染，较慢）",
+            stepKey: "material-upload", stepLabel: "素材上传");
+        if (ViewModel != null) ViewModel.StatusMessage = "完整引擎剪辑生成中…";
+        try
+        {
+            var result = await Task.Run(() => runner.GenerateAsync(request, CancellationToken.None));
+            if (result.Ok)
+            {
+                ViewModel?.AppendExternalLog(
+                    $"完整引擎剪辑完成：产出 {result.Outputs.Count} 条 → {Path.Combine(projectDir, "素材剪辑输出")}",
+                    stepKey: "material-upload", stepLabel: "素材上传");
+                if (ViewModel != null) ViewModel.StatusMessage = $"剪辑生成完成：{result.Outputs.Count} 条";
+            }
+            else
+            {
+                ViewModel?.AppendExternalLog($"完整引擎剪辑失败：{result.Error}",
+                    stepKey: "material-upload", stepLabel: "素材上传", isFailure: true);
+                if (ViewModel != null) ViewModel.StatusMessage = "剪辑生成失败";
+            }
+        }
+        catch (Exception ex)
+        {
+            ViewModel?.AppendExternalLog($"完整引擎剪辑出错：{ex.Message}",
+                stepKey: "material-upload", stepLabel: "素材上传", isFailure: true);
+        }
+        finally
+        {
+            GenerateClipsFullEngineButton.IsEnabled = true;
+        }
+    }
+
+    private static List<string> EnumerateVideos(string dir)
+    {
+        if (!Directory.Exists(dir)) return new List<string>();
+        return Directory.EnumerateFiles(dir, "*.*", SearchOption.TopDirectoryOnly)
+            .Where(p => ClipVideoExt.Contains(Path.GetExtension(p), StringComparer.OrdinalIgnoreCase))
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    // ClipConfig → Python 引擎 settings 覆盖（其余沿用用户 ~/.weixin_channel_tool/settings.json）。
+    private static Dictionary<string, object> BuildClipOverrides(ChannelsPublisher.Core.Config.ClipConfig clip)
+    {
+        var ov = new Dictionary<string, object>();
+        var q = (clip.OutputQuality ?? "").Trim().ToUpperInvariant();
+        if (q == "720P") ov["material_clip_output_quality"] = "720p";
+        else if (q == "1080P") ov["material_clip_output_quality"] = "1080p";
+        var hi = clip.Modes.FirstOrDefault(m => m.Key == "highlight");
+        if (hi != null) ov["material_clip_per_episode_top_n"] = Math.Max(1, hi.Count);
+        ov["material_clip_hardware_encode"] = clip.HardwareEncode;
+        return ov;
     }
 }

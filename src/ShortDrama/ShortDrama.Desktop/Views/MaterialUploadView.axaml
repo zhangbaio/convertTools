@@ -50,8 +50,14 @@
                         <Button x:Name="CreateManualMaterialProjectButton"
                                 Classes="compact"
                                 MinWidth="168"
-                                Margin="0,0,0,8"
+                                Margin="0,0,8,8"
                                 Content="&#x624B;&#x52A8;&#x521B;&#x5EFA;&#x7D20;&#x6750;&#x9879;&#x76EE;" />
+                        <Button x:Name="GenerateClipsFullEngineButton"
+                                Classes="compact"
+                                MinWidth="176"
+                                Margin="0,0,0,8"
+                                ToolTip.Tip="用完整 Python 剪辑引擎（ASR+选段+渲染，四模式）生成剪辑成片到 素材剪辑输出/"
+                                Content="&#x751F;&#x6210;&#x526A;&#x8F91;(&#x5B8C;&#x6574;&#x5F15;&#x64CE;)" />
                     </WrapPanel>
                 </Border>
 
