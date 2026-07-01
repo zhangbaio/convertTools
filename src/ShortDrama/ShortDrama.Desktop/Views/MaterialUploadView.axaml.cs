@@ -22,7 +22,6 @@ public partial class MaterialUploadView : UserControl
         CreateManualMaterialProjectButton.Click += CreateManualMaterialProjectButton_Click;
         DeleteChannelMaterialsButton.Click += DeleteChannelMaterialsButton_Click;
         OpenClipConfigButton.Click += OpenClipConfigButton_Click;
-        OpenAsrConfigButton.Click += OpenAsrConfigButton_Click;
         MaterialUploadProjectsListBox.SelectionChanged += MaterialUploadProjectsListBox_SelectionChanged;
     }
 
@@ -191,18 +190,5 @@ public partial class MaterialUploadView : UserControl
         var window = new MaterialClipConfigWindow(settingsService);
         await window.ShowDialog<bool>(OwnerWindow);
         ViewModel?.AppendExternalLog("已打开剪辑配置窗口。", stepKey: "material-upload", stepLabel: "素材上传");
-    }
-
-    private async void OpenAsrConfigButton_Click(object? sender, RoutedEventArgs e)
-    {
-        if (OwnerWindow is null || Application.Current is not App app)
-        {
-            return;
-        }
-
-        var settingsService = app.Services.GetRequiredService<GlobalSettingsService>();
-        var window = new MaterialClipAsrConfigWindow(settingsService);
-        await window.ShowDialog<bool>(OwnerWindow);
-        ViewModel?.AppendExternalLog("已打开 ASR 配置窗口。", stepKey: "material-upload", stepLabel: "素材上传");
     }
 }
