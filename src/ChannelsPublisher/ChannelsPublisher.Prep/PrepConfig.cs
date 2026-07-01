@@ -21,6 +21,14 @@ public sealed class PrepConfig
     public string OutputDir { get; set; } = "";     // 处理产物 + publish-tasks.json 输出目录
 
     public string FfmpegPath { get; set; } = "ffmpeg";
+    public string FfprobePath { get; set; } = "ffprobe";
+
+    // 生成剪辑视频（简版 .NET ffmpeg 切片）：开启后先把 ClipSourceDir 的源视频切成成片写入
+    // <SourceDir>/material-clip-output/，再按 material_clips 来源发布。每集条数/画质取自全局剪辑配置(ClipConfig)。
+    public bool GenerateClips { get; set; }
+    public string ClipSourceDir { get; set; } = ""; // 原始视频目录；空=用 SourceDir 顶层视频
+    public int ClipTargetSeconds { get; set; } = 45; // 每条目标时长（秒）；ClipConfig 无此项，由此指定
+    public bool ClipForce { get; set; }              // 忽略已存在成片，强制重切
 
     // AI 描述（OpenAI 兼容 chat/completions）
     public bool AiEnabled { get; set; }

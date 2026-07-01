@@ -1,3 +1,4 @@
+using ChannelsPublisher.Core.Config;
 using ChannelsPublisher.Core.Publishing;
 
 namespace ChannelsPublisher.Prep;
@@ -19,6 +20,13 @@ public sealed class PrepPipeline
             ? Path.Combine(cfg.SourceDir, "_prep_output")
             : cfg.OutputDir;
         Directory.CreateDirectory(outDir);
+
+        // 0) 生成剪辑视频（可选）：先切片到 material-clip-output/，再改按 material_clips 来源发布。
+        if (cfg.GenerateClips)
+        {
+            await GenerateClipsAsync(cfg, L, ct);
+            cfg.SourceType = "material_clips";
+        }
 
         var materials = _scanner.Scan(cfg);
         L($"来源[{cfg.SourceType}] 扫描到 {materials.Count} 个视频");
@@ -82,4 +90,42 @@ public sealed class PrepPipeline
         L($"已生成 {file.Tasks.Count} 条发布任务 → {outFile}");
         return file;
     }
+
+    // 生成剪辑视频（简版 ffmpeg 切片）。每集条数/画质取自全局剪辑配置 ClipConfig；目标时长取自 PrepConfig。
+    private async Task GenerateClipsAsync(PrepConfig cfg, Action<string> L, CancellationToken ct)
+    {
+        var clip = ClipConfig.Load();
+        var (count, force) = ResolveClipCount(clip);
+        var (w, h) = ResolveClipSize(clip, cfg);
+
+        var rawDir = string.IsNullOrWhiteSpace(cfg.ClipSourceDir) ? cfg.SourceDir : cfg.ClipSourceDir;
+        var rawVideos = ClipGenerator.ScanVideos(rawDir);
+        var clipOut = Path.Combine(cfg.SourceDir, "material-clip-output");
+        L($"生成剪辑视频：源 {rawVideos.Count} 个 @ {rawDir} → {clipOut}（每个 {count} 条·约 {cfg.ClipTargetSeconds}s·{w}x{h}）");
+        if (rawVideos.Count == 0) { L("  ⚠ 未找到可切片的源视频，跳过生成"); return; }
+
+        var gen = new ClipGenerator();
+        var clips = await gen.GenerateAsync(
+            rawVideos, clipOut, count, cfg.ClipTargetSeconds, w, h, force || cfg.ClipForce,
+            cfg.FfmpegPath, cfg.FfprobePath, L, ct);
+        L($"  ✓ 生成 {clips.Count} 条剪辑成片");
+    }
+
+    // 条数：优先高光模式；否则第一个启用模式；都没有则 3。force 取对应模式的覆盖重生。
+    private static (int Count, bool Force) ResolveClipCount(ClipConfig clip)
+    {
+        var mode = clip.Modes.FirstOrDefault(m => m.Key == "highlight" && m.Enabled)
+                   ?? clip.Modes.FirstOrDefault(m => m.Enabled)
+                   ?? clip.Modes.FirstOrDefault(m => m.Key == "highlight");
+        return mode is null ? (3, false) : (Math.Max(1, mode.Count), mode.Force);
+    }
+
+    // 画质：ClipConfig.OutputQuality 720P→720x1280、1080P→1080x1920；否则回退 PrepConfig.Width/Height。
+    private static (int W, int H) ResolveClipSize(ClipConfig clip, PrepConfig cfg)
+        => (clip.OutputQuality ?? "").Trim().ToUpperInvariant() switch
+        {
+            "720P" => (720, 1280),
+            "1080P" => (1080, 1920),
+            _ => (cfg.Width, cfg.Height),
+        };
 }
