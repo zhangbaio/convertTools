@@ -16,6 +16,8 @@
   <ItemGroup>
     <ProjectReference Include="..\ShortDrama.Core\ShortDrama.Core.csproj" />
     <ProjectReference Include="..\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
+    <!-- 素材发布视图（多账号内嵌浏览器并发发布） -->
+    <ProjectReference Include="..\..\..\channels-publisher\src\ChannelsPublisher.Desktop\ChannelsPublisher.Desktop.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -23,7 +25,7 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.12" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.12" />
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.1" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.1" />
