@@ -75,6 +75,13 @@ public sealed class GlobalDesktopSettings
     public string MaterialClipVolcengineAccessToken { get; set; } = string.Empty;
     public string MaterialClipDoubaoAppId { get; set; } = string.Empty;
     public string MaterialClipDoubaoAccessToken { get; set; } = string.Empty;
+    // ASR 引擎：volcengine(在线) / local(本地 SenseVoice 离线) / hybrid(本地优先+火山复核)
+    public string MaterialClipAsrEngine { get; set; } = "volcengine";
+    public string MaterialClipAsrLocalModel { get; set; } = "sensevoice"; // sensevoice / paraformer
+    public string MaterialClipAsrLocalModelDir { get; set; } = string.Empty; // 空=自动在 models/ 下按模型名查找
+    public string MaterialClipAsrLocalVadPath { get; set; } = string.Empty; // 空=自动查找 silero_vad.onnx
+    public bool MaterialClipAsrLocalUseItn { get; set; } // SenseVoice 数字逆归一化；默认关
+    public double MaterialClipAsrHybridMinCharsPerSec { get; set; } = 1.0d; // 混合判据：每秒语音识别字数低于此值改用火山
     public string MaterialClipMode { get; set; } = "multi_video_merge";
     public string MaterialClipTargetDurationMode { get; set; } = "adaptive_range";
     public int MaterialClipTargetDurationSec { get; set; } = 30;

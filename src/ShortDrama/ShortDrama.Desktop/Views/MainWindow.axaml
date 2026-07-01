@@ -306,6 +306,10 @@
                 <localviews:TranscodeTemplateView />
             </TabItem>
 
+            <TabItem Header="系统服务">
+                <localviews:SystemServiceView />
+            </TabItem>
+
             <TabItem Header="已归档项目">
                 <Grid RowDefinitions="Auto,*" RowSpacing="12">
                     <Border Classes="page-panel">

@@ -104,6 +104,14 @@ public sealed class GlobalSettingsService
             MaterialClipVolcengineAccessToken = snapshot.MaterialClipVolcengineAccessToken,
             MaterialClipDoubaoAppId = snapshot.MaterialClipDoubaoAppId,
             MaterialClipDoubaoAccessToken = snapshot.MaterialClipDoubaoAccessToken,
+            MaterialClipAsrEngine = snapshot.MaterialClipAsrEngine,
+            MaterialClipAsrLocalModel = snapshot.MaterialClipAsrLocalModel,
+            MaterialClipAsrLocalModelDir = snapshot.MaterialClipAsrLocalModelDir,
+            MaterialClipAsrLocalVadPath = snapshot.MaterialClipAsrLocalVadPath,
+            MaterialClipAsrLocalUseItn = snapshot.MaterialClipAsrLocalUseItn,
+            MaterialClipAsrHybridMinCharsPerSec = double.TryParse(snapshot.MaterialClipAsrHybridMinCharsPerSec, NumberStyles.Float, CultureInfo.InvariantCulture, out var materialClipAsrHybridMinCharsPerSec) && materialClipAsrHybridMinCharsPerSec >= 0
+                ? materialClipAsrHybridMinCharsPerSec
+                : 1.0d,
             MaterialClipMode = snapshot.MaterialClipMode,
             MaterialClipTargetDurationMode = snapshot.MaterialClipTargetDurationMode,
             MaterialClipTargetDurationSec = int.TryParse(snapshot.MaterialClipTargetDurationSec, out var materialClipTargetDurationSec) ? materialClipTargetDurationSec : 30,
@@ -328,6 +336,12 @@ public sealed class GlobalSettingsService
             MaterialClipVolcengineAccessToken = current.MaterialClipVolcengineAccessToken,
             MaterialClipDoubaoAppId = current.MaterialClipDoubaoAppId,
             MaterialClipDoubaoAccessToken = current.MaterialClipDoubaoAccessToken,
+            MaterialClipAsrEngine = current.MaterialClipAsrEngine,
+            MaterialClipAsrLocalModel = current.MaterialClipAsrLocalModel,
+            MaterialClipAsrLocalModelDir = current.MaterialClipAsrLocalModelDir,
+            MaterialClipAsrLocalVadPath = current.MaterialClipAsrLocalVadPath,
+            MaterialClipAsrLocalUseItn = current.MaterialClipAsrLocalUseItn,
+            MaterialClipAsrHybridMinCharsPerSec = current.MaterialClipAsrHybridMinCharsPerSec,
             MaterialClipMode = current.MaterialClipMode,
             MaterialClipTargetDurationMode = current.MaterialClipTargetDurationMode,
             MaterialClipTargetDurationSec = current.MaterialClipTargetDurationSec,
@@ -425,6 +439,12 @@ public sealed class GlobalSettingsService
             MaterialClipMaxOutputDurationSec: dto.MaterialClipMaxOutputDurationSec.ToString(),
             MaterialClipPerEpisodeTopN: dto.MaterialClipPerEpisodeTopN.ToString(),
             MaterialClipEnableLlm: dto.MaterialClipEnableLlm,
-            MaterialClipSplitClipLimit: dto.MaterialClipSplitClipLimit.ToString());
+            MaterialClipSplitClipLimit: dto.MaterialClipSplitClipLimit.ToString(),
+            MaterialClipAsrEngine: dto.MaterialClipAsrEngine,
+            MaterialClipAsrLocalModel: dto.MaterialClipAsrLocalModel,
+            MaterialClipAsrLocalModelDir: dto.MaterialClipAsrLocalModelDir,
+            MaterialClipAsrLocalVadPath: dto.MaterialClipAsrLocalVadPath,
+            MaterialClipAsrLocalUseItn: dto.MaterialClipAsrLocalUseItn,
+            MaterialClipAsrHybridMinCharsPerSec: dto.MaterialClipAsrHybridMinCharsPerSec.ToString("0.###", CultureInfo.InvariantCulture));
     }
 }

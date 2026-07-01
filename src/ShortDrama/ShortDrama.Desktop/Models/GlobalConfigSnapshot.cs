@@ -83,4 +83,10 @@ public sealed record GlobalConfigSnapshot(
     string MaterialClipMaxOutputDurationSec,
     string MaterialClipPerEpisodeTopN,
     bool MaterialClipEnableLlm,
-    string MaterialClipSplitClipLimit);
+    string MaterialClipSplitClipLimit,
+    string MaterialClipAsrEngine,
+    string MaterialClipAsrLocalModel,
+    string MaterialClipAsrLocalModelDir,
+    string MaterialClipAsrLocalVadPath,
+    bool MaterialClipAsrLocalUseItn,
+    string MaterialClipAsrHybridMinCharsPerSec);
