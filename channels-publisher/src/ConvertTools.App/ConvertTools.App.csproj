@@ -16,8 +16,8 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
   </ItemGroup>
   <ItemGroup>
-    <!-- 复用素材发布视图（MaterialPublishView）+ WebView2/自动化 -->
-    <ProjectReference Include="..\ChannelsPublisher.Desktop\ChannelsPublisher.Desktop.csproj" />
+    <!-- 素材发布视图（MaterialPublishView）—— 库项目 -->
+    <ProjectReference Include="..\ChannelsPublisher.Ui\ChannelsPublisher.Ui.csproj" />
     <!-- 复用 prep 的 FfmpegRunner（转码） -->
     <ProjectReference Include="..\ChannelsPublisher.Prep\ChannelsPublisher.Prep.csproj" />
   </ItemGroup>

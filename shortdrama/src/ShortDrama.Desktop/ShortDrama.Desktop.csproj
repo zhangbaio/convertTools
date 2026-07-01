@@ -16,8 +16,8 @@
   <ItemGroup>
     <ProjectReference Include="..\ShortDrama.Core\ShortDrama.Core.csproj" />
     <ProjectReference Include="..\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
-    <!-- 素材发布视图（多账号内嵌浏览器并发发布） -->
-    <ProjectReference Include="..\..\..\channels-publisher\src\ChannelsPublisher.Desktop\ChannelsPublisher.Desktop.csproj" />
+    <!-- 素材发布视图（多账号内嵌浏览器并发发布）—— 库项目，避免跨 exe 引用资源冲突 -->
+    <ProjectReference Include="..\..\..\channels-publisher\src\ChannelsPublisher.Ui\ChannelsPublisher.Ui.csproj" />
   </ItemGroup>
 
   <ItemGroup>

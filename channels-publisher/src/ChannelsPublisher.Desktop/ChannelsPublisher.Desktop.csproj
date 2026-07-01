@@ -6,7 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <!-- P0 骨架用反射绑定，免去每个 View 写 x:DataType；后续可切编译绑定 -->
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
   <ItemGroup>
@@ -14,12 +13,9 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.12" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.12" />
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4022.49" />
-    <!-- 经 CDP 驱动内嵌 WebView2 跑发布流程（ConnectOverCDP）；本机已缓存 -->
-    <PackageReference Include="Microsoft.Playwright" Version="1.52.0" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\ChannelsPublisher.Core\ChannelsPublisher.Core.csproj" />
+    <!-- 素材发布视图/控件/VM/自动化已抽到 ChannelsPublisher.Ui 库 -->
+    <ProjectReference Include="..\ChannelsPublisher.Ui\ChannelsPublisher.Ui.csproj" />
   </ItemGroup>
 </Project>
