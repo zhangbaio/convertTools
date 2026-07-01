@@ -35,8 +35,12 @@
                     </ComboBox>
                     <TextBlock Text="并发账号" VerticalAlignment="Center" />
                     <NumericUpDown Value="{Binding MaxParallel}" Minimum="1" Maximum="8" Increment="1" Width="110" />
-                    <Button Content="开始发布" Click="OnStartPublishClick" Background="#E67E22" Foreground="White" />
+                    <Button x:Name="StartPublishButton" Content="开始发布" Click="OnStartPublishClick" Background="#E67E22" Foreground="White" />
+                    <Button x:Name="StopPublishButton" Content="停止" Click="OnStopPublishClick" IsEnabled="False"
+                            ToolTip.Tip="停止发布：当前素材发完即停，已完成的保留，可再次「开始」续传" />
                     <Button Content="清空已完成" Click="OnClearDoneClick" />
+                    <Button Content="清除续传记录" Click="OnClearResumeClick"
+                            ToolTip.Tip="清空断点续传的已发布记录（resume 模式下将重新发布这些素材）" />
                     <Border Width="1" Background="#DDD" Margin="4,2" />
                     <Button Content="🛠 发表配置" Click="OnPublishConfigClick"
                             ToolTip.Tip="发表流程的全局默认（来源/集数/描述/封面/原创…）" />

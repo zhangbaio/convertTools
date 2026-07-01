@@ -25,6 +25,10 @@ public partial class MaterialPublishView : UserControl
     private bool _ready;
     // 发表配置：作为发布的全局默认，供任务队列/发布测试套用；配置对话框保存后重载。
     private PublishConfig _publishConfig = PublishConfig.Load();
+    // 停止：本轮发布的取消源；运行中非空。
+    private CancellationTokenSource? _publishCts;
+    // 断点续传：已成功发布素材的持久化记录，resume 策略下跳过。
+    private readonly PublishRunStateStore _runState = PublishRunStateStore.Load();
 
     public MaterialPublishView()
     {
@@ -275,11 +279,41 @@ public partial class MaterialPublishView : UserControl
     {
         var vm = _vm;
         if (vm is null) return;
-        var pending = vm.Tasks.Where(t => t.Status is PublishTaskStatus.Pending or PublishTaskStatus.Failed).ToList();
-        if (pending.Count == 0) { vm.StatusMessage = "没有待发布任务"; return; }
+        if (_publishCts is not null) { vm.StatusMessage = "发布进行中…（可点「停止」）"; return; }
+
+        // 运行策略来自发表配置：all=全部待发；resume=断点续传（跳过已发布记录）；retry_failed=只重试失败。
+        var strategy = (_publishConfig.RunStrategy ?? "all").Trim().ToLowerInvariant();
+        var candidates = (strategy == "retry_failed"
+                ? vm.Tasks.Where(t => t.Status == PublishTaskStatus.Failed)
+                : vm.Tasks.Where(t => t.Status is PublishTaskStatus.Pending or PublishTaskStatus.Failed))
+            .ToList();
+        if (candidates.Count == 0) { vm.StatusMessage = "没有待发布任务"; return; }
+
+        // resume：命中续传记录的素材直接标记完成、不再发。
+        int resumed = 0;
+        if (strategy == "resume")
+        {
+            var remaining = new List<PublishTaskItemViewModel>();
+            foreach (var t in candidates)
+            {
+                if (_runState.IsDone(PublishRunStateStore.SignatureFor(t.Account.Id, t.Item)))
+                {
+                    t.Status = PublishTaskStatus.Done;
+                    t.Message = "已发布·续传跳过";
+                    resumed++;
+                }
+                else remaining.Add(t);
+            }
+            candidates = remaining;
+            if (candidates.Count == 0)
+            {
+                vm.StatusMessage = resumed > 0 ? $"全部 {resumed} 条已在续传记录中，无需重发" : "没有待发布任务";
+                return;
+            }
+        }
 
         var jobs = new List<AccountPublishJob>();
-        foreach (var group in pending.GroupBy(t => t.Account.Id))
+        foreach (var group in candidates.GroupBy(t => t.Account.Id))
         {
             var acctVm = group.First().Account;
             if (!_hosts.TryGetValue(acctVm.Id, out var host) || host.CdpEndpoint is null)
@@ -294,14 +328,56 @@ public partial class MaterialPublishView : UserControl
 
         _scheduler ??= new PublishScheduler(_automation);
         var finalAction = vm.SelectedFinalAction?.Value ?? FinalAction.None;
-        vm.StatusMessage = $"开始发布：{jobs.Count} 账号 / {pending.Count} 素材（{finalAction.ToLabel()}，并发 {vm.MaxParallel}）";
+        var strategyLabel = strategy switch { "resume" => "断点续传", "retry_failed" => "仅重试失败", _ => "全部" };
+        _publishCts = new CancellationTokenSource();
+        SetPublishing(true);
+        vm.StatusMessage = $"开始发布：{jobs.Count} 账号 / {candidates.Count} 素材（{strategyLabel}，{finalAction.ToLabel()}，并发 {vm.MaxParallel}）"
+                           + (resumed > 0 ? $"，续传跳过 {resumed}" : "");
         try
         {
             await _scheduler.RunAsync(jobs, finalAction, vm.MaxParallel,
-                p => Dispatcher.UIThread.Post(() => UpdateTaskProgress(p)), CancellationToken.None);
+                p => Dispatcher.UIThread.Post(() => UpdateTaskProgress(p)), _publishCts.Token);
             vm.StatusMessage = "发布结束";
         }
+        catch (OperationCanceledException)
+        {
+            // 停止：未发出去的（排队/发布中）退回待发布，便于再次「开始」续传。
+            foreach (var t in vm.Tasks.Where(t => t.Status is PublishTaskStatus.Running or PublishTaskStatus.Pending))
+            {
+                t.Status = PublishTaskStatus.Pending;
+                t.Message = "已停止（可再次开始续传）";
+            }
+            vm.StatusMessage = "已停止：完成的已保留，未完成可再次「开始」续传";
+        }
         catch (Exception ex) { vm.StatusMessage = $"发布出错：{ex.Message}"; }
+        finally
+        {
+            _publishCts?.Dispose();
+            _publishCts = null;
+            SetPublishing(false);
+        }
+    }
+
+    private void OnStopPublishClick(object? sender, RoutedEventArgs e)
+    {
+        if (_publishCts is null) return;
+        _publishCts.Cancel();
+        if (StopPublishButton is not null) StopPublishButton.IsEnabled = false;
+        if (_vm != null) _vm.StatusMessage = "正在停止…（当前素材发完即停）";
+    }
+
+    private void OnClearResumeClick(object? sender, RoutedEventArgs e)
+    {
+        var n = _runState.Count;
+        _runState.Reset();
+        if (_vm != null) _vm.StatusMessage = $"已清除续传记录（{n} 条）；resume 模式下这些素材将重新发布";
+    }
+
+    // 开始/停止按钮互斥。
+    private void SetPublishing(bool running)
+    {
+        if (StartPublishButton is not null) StartPublishButton.IsEnabled = !running;
+        if (StopPublishButton is not null) StopPublishButton.IsEnabled = running;
     }
 
     private void UpdateTaskProgress(PublishProgress p)
@@ -313,5 +389,8 @@ public partial class MaterialPublishView : UserControl
         if (task is null) return;
         task.Message = p.Message;
         task.Status = p.Done ? (p.Ok ? PublishTaskStatus.Done : PublishTaskStatus.Failed) : PublishTaskStatus.Running;
+        // 成功即写入续传记录（无论当前策略，供后续 resume 复用）。
+        if (p.Done && p.Ok)
+            _runState.MarkDone(PublishRunStateStore.SignatureFor(task.Account.Id, task.Item), task.VideoName, task.AccountName);
     }
 }
