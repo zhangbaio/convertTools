@@ -1,0 +1,31 @@
+{
+  "_说明": "素材准备(prep) CLI 配置。运行 `prep prep-config.json` → 扫描来源、原创度、封面、AI描述 → 产出 <OutputDir>/publish-tasks.json（供发布应用「导入任务」消费）。",
+  "_sourceType说明": "directory=普通目录 | new_drama_mount=新剧挂载(标题取 shortdrama-project.json) | downloaded_system_highlight=系统高光下载(读 .publish.json 旁车+.cover.jpg+.system-highlight-download.json manifest)。后两者会自动带出剧名(dramaName缺省时)与封面。",
+
+  "sourceType": "directory",
+  "sourceDir": "D:\\material\\百岁永生",
+  "account": "账号1",
+  "dramaName": "槐下老翁修仙问长生",
+  "declareOriginal": true,
+  "finalAction": "none",
+  "outputDir": "D:\\material\\百岁永生\\_prep_output",
+
+  "ffmpegPath": "ffmpeg",
+
+  "aiEnabled": true,
+  "aiEndpoint": "https://ark.cn-beijing.volces.com/api/v3",
+  "aiApiKey": "你的_ark_key",
+  "aiModel": "doubao-seed-2-0-lite-260215",
+  "descriptionTemplate": "槐下老翁修仙问长生 精彩片段 #短剧 #修仙",
+
+  "originalityEnabled": true,
+  "origZoom": true,
+  "origColor": true,
+  "origSpeed": false,
+  "origFade": false,
+  "width": 1080,
+  "height": 1920,
+
+  "coverMode": "sidecar",
+  "coverFrameSeconds": 1.0
+}

@@ -1,0 +1,5 @@
+# 运行期临时产物（spike 日志、截图、DOM 导出）——都在 bin/ 下或为 *.log
+*.log
+**/screenshots/
+**/screenshots-extra/
+**/dump/

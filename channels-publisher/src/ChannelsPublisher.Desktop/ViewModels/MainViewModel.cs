@@ -1,0 +1,97 @@
+using System.Collections.ObjectModel;
+using ChannelsPublisher.Core.Models;
+using ChannelsPublisher.Core.Publishing;
+using ChannelsPublisher.Core.Services;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+namespace ChannelsPublisher.Desktop.ViewModels;
+
+/// <summary>结束动作选项（供 UI 下拉）。</summary>
+public sealed record FinalActionChoice(string Label, FinalAction Value);
+
+/// <summary>主界面 VM：左侧账号列表 + 增删/登录命令 + 状态栏。对应参考图的多账号发布壳。</summary>
+public sealed partial class MainViewModel : ViewModelBase
+{
+    public const string ChannelsLoginUrl = "https://channels.weixin.qq.com/platform/login";
+
+    private readonly AccountStore _store;
+
+    public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
+
+    [ObservableProperty] private AccountItemViewModel? _selectedAccount;
+    [ObservableProperty] private string _statusMessage = "就绪";
+
+    // ── 发布任务队列（P3）──
+    public ObservableCollection<PublishTaskItemViewModel> Tasks { get; } = new();
+
+    public IReadOnlyList<FinalActionChoice> FinalActionChoices { get; } = new[]
+    {
+        new FinalActionChoice("只填不发（安全）", FinalAction.None),
+        new FinalActionChoice("保存草稿", FinalAction.Draft),
+        new FinalActionChoice("直接发表", FinalAction.Publish),
+    };
+
+    [ObservableProperty] private FinalActionChoice _selectedFinalAction;
+    [ObservableProperty] private int _maxParallel = 2;
+
+    public AccountItemViewModel? FindAccount(string nameOrId)
+    {
+        var key = (nameOrId ?? "").Trim();
+        return Accounts.FirstOrDefault(a => a.Id == key)
+               ?? Accounts.FirstOrDefault(a => a.Name == key);
+    }
+
+    /// <summary>请求视图把某账号的内嵌浏览器导航到 url（View 侧持有 WebView2Host）。</summary>
+    public event Action<AccountItemViewModel, string>? NavigateRequested;
+
+    public MainViewModel(AccountStore store)
+    {
+        _store = store;
+        _store.Load();
+        foreach (var account in _store.Accounts)
+            Accounts.Add(new AccountItemViewModel(account));
+        SelectedAccount = Accounts.Count > 0 ? Accounts[0] : null;
+        _selectedFinalAction = FinalActionChoices[0];
+    }
+
+    // 设计时无参构造，供 XAML 预览。
+    public MainViewModel() : this(new AccountStore())
+    {
+    }
+
+    [RelayCommand]
+    private void AddAccount()
+    {
+        var account = _store.Add($"账号{Accounts.Count + 1}");
+        var vm = new AccountItemViewModel(account);
+        Accounts.Add(vm);
+        SelectedAccount = vm;
+        StatusMessage = $"已添加「{account.Name}」，点击「登录」扫码（每账号独立会话，登录一次长期保持）";
+    }
+
+    [RelayCommand]
+    private void RemoveAccount()
+    {
+        if (SelectedAccount is null) return;
+        var vm = SelectedAccount;
+        _store.Remove(vm.Model);
+        Accounts.Remove(vm);
+        SelectedAccount = Accounts.Count > 0 ? Accounts[0] : null;
+        StatusMessage = $"已删除「{vm.Name}」";
+    }
+
+    [RelayCommand]
+    private void Login()
+    {
+        if (SelectedAccount is null)
+        {
+            StatusMessage = "请先在左侧选择一个账号";
+            return;
+        }
+
+        SelectedAccount.Status = AccountStatus.LoggingIn;
+        StatusMessage = $"[{SelectedAccount.Name}] 打开视频号登录页扫码…";
+        NavigateRequested?.Invoke(SelectedAccount, ChannelsLoginUrl);
+    }
+}

@@ -1,0 +1,113 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ChannelsPublisher.Desktop.ViewModels"
+        xmlns:conv="using:Avalonia.Data.Converters"
+        x:Class="ChannelsPublisher.Desktop.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Width="1200" Height="760"
+        Title="视频号多账号发布">
+
+    <Design.DataContext>
+        <vm:MainViewModel />
+    </Design.DataContext>
+
+    <DockPanel>
+        <!-- 底部状态栏 -->
+        <Border DockPanel.Dock="Bottom" Height="30" Background="#F3F3F3" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0">
+            <TextBlock Margin="12,0" VerticalAlignment="Center" FontSize="12" Foreground="#555"
+                       Text="{Binding StatusMessage}" />
+        </Border>
+
+        <!-- 发布任务队列（素材→账号分配 + 结束动作 + 并发 + 进度看板） -->
+        <Border DockPanel.Dock="Bottom" Height="230" Background="#FCFCFC" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8">
+                    <TextBlock Text="发布任务" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Content="添加素材" Click="OnAddMaterialsClick"
+                            ToolTip.Tip="选视频，分配给当前选中账号" />
+                    <Button Content="导入任务(JSON)" Click="OnImportTasksClick"
+                            ToolTip.Tip="导入 Python prep 产出的发布任务清单" />
+                    <TextBlock Text="结束动作" VerticalAlignment="Center" Margin="12,0,0,0" />
+                    <ComboBox ItemsSource="{Binding FinalActionChoices}" SelectedItem="{Binding SelectedFinalAction}" MinWidth="150">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:FinalActionChoice">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBlock Text="并发账号" VerticalAlignment="Center" />
+                    <NumericUpDown Value="{Binding MaxParallel}" Minimum="1" Maximum="8" Increment="1" Width="110" />
+                    <Button Content="开始发布" Click="OnStartPublishClick" Background="#E67E22" Foreground="White" />
+                    <Button Content="清空已完成" Click="OnClearDoneClick" />
+                </StackPanel>
+
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="140,*,150,80,*" Margin="10,2,10,4">
+                    <TextBlock Grid.Column="0" Text="账号" Foreground="#999" FontSize="12" />
+                    <TextBlock Grid.Column="1" Text="视频" Foreground="#999" FontSize="12" />
+                    <TextBlock Grid.Column="2" Text="剧集" Foreground="#999" FontSize="12" />
+                    <TextBlock Grid.Column="3" Text="状态" Foreground="#999" FontSize="12" />
+                    <TextBlock Grid.Column="4" Text="信息" Foreground="#999" FontSize="12" />
+                </Grid>
+
+                <ListBox ItemsSource="{Binding Tasks}" Background="Transparent">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PublishTaskItemViewModel">
+                            <Grid ColumnDefinitions="140,*,150,80,*">
+                                <TextBlock Grid.Column="0" Text="{Binding AccountName}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="1" Text="{Binding VideoName}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="2" Text="{Binding DramaName}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="3" Text="{Binding StatusText}" />
+                                <TextBlock Grid.Column="4" Text="{Binding Message}" TextTrimming="CharacterEllipsis" Foreground="#777" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <Grid ColumnDefinitions="300,*">
+            <!-- 左：账号列表（对应参考图左栏「配置的账号」） -->
+            <DockPanel Grid.Column="0" Background="#FAFAFA">
+                <Border DockPanel.Dock="Top" Padding="10,8">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Content="添加账号" Command="{Binding AddAccountCommand}" />
+                        <Button Content="登录" Command="{Binding LoginCommand}" />
+                        <Button Content="删除" Command="{Binding RemoveAccountCommand}" />
+                        <Button Content="发布测试" Click="OnPublishClick"
+                                ToolTip.Tip="选一个视频，经该账号内嵌浏览器走发布流程（只填不发，安全）" />
+                    </StackPanel>
+                </Border>
+                <Border DockPanel.Dock="Top" Padding="12,4" Background="#F0F0F0">
+                    <TextBlock Text="发布账号" FontSize="12" Foreground="#888" />
+                </Border>
+                <ListBox ItemsSource="{Binding Accounts}"
+                         SelectedItem="{Binding SelectedAccount, Mode=TwoWay}"
+                         Background="Transparent">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:AccountItemViewModel">
+                            <StackPanel Margin="4,6" Spacing="2">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{Binding StatusText}" FontSize="12" Foreground="#E67E22" />
+                                    <TextBlock Text="{Binding Id}" FontSize="11" Foreground="#BBB" />
+                                </StackPanel>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+
+            <!-- 右：内嵌浏览器区（每账号一个 WebView2Host，选中账号显示对应会话） -->
+            <Border Grid.Column="1" Margin="10" BorderBrush="#DDD" BorderThickness="1" Background="White" CornerRadius="4" ClipToBounds="True">
+                <Panel x:Name="BrowserArea">
+                    <TextBlock x:Name="EmptyHint"
+                               Text="点击左上「添加账号」，选中后在此加载该账号的视频号会话（扫码登录后长期保持在线）"
+                               IsVisible="True"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               TextWrapping="Wrap" MaxWidth="480" TextAlignment="Center"
+                               Foreground="#999" FontSize="15" />
+                </Panel>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>
