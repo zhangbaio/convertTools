@@ -23,8 +23,10 @@ public sealed class CostReportBuilderTests
 
         await WriteProjectInfoAsync(projectDir);
         await WriteAssetImagesAsync(configDir);
-        await File.WriteAllTextAsync(Path.Combine(configDir, "config.txt"), """
-CompanyName=测试公司
+        await File.WriteAllTextAsync(Path.Combine(configDir, "config.json"), """
+{
+  "CompanyName": "测试公司"
+}
 """);
 
         var builder = CreateBuilder();
@@ -52,8 +54,10 @@ CompanyName=测试公司
 
         await WriteProjectInfoAsync(projectDir);
         await WriteAssetImagesAsync(configDir);
-        await File.WriteAllTextAsync(Path.Combine(configDir, "config.txt"), """
-GenerateCostReportOriginalDocx=true
+        await File.WriteAllTextAsync(Path.Combine(configDir, "config.json"), """
+{
+  "GenerateCostReportOriginalDocx": true
+}
 """);
 
         var templateService = new FakeTemplateService();

@@ -115,11 +115,13 @@ public sealed class ProjectInfoRewriterTests
 
     private static string WriteConfig(string projectDir)
     {
-        var configPath = Path.Combine(projectDir, "config.txt");
+        var configPath = Path.Combine(projectDir, "config.json");
         File.WriteAllText(configPath, """
-AiTextEndpoint=https://example.com/api/v3
-AiTextApiKey=test-key
-AiTextModel=test-model
+{
+  "AiTextEndpoint": "https://example.com/api/v3",
+  "AiTextApiKey": "test-key",
+  "AiTextModel": "test-model"
+}
 """);
         return configPath;
     }

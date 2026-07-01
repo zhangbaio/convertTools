@@ -68,6 +68,7 @@ public partial class App : Application
         services.AddSingleton<XingeRemoteControlService>();
         services.AddSingleton<HongguoNewApiService>();
         services.AddSingleton<HongguoLocalApiService>();
+        services.AddSingleton<HongguoMemoryReaderService>();
         services.AddSingleton<HongguoDramaSearchService>();
         services.AddSingleton<HongguoDramaDownloader>();
         services.AddSingleton<DramaSourceRouter>();

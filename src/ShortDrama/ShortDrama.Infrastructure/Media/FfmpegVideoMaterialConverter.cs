@@ -4,6 +4,8 @@ using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Config;
 using System.Diagnostics;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace ShortDrama.Infrastructure.Media;
@@ -140,7 +142,7 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
                 progress?.Report(new VideoMaterialConvertProgress(index, total, inputPath, outputPath, Kind: "file-started"));
                 var stopwatch = Stopwatch.StartNew();
                 var inputProbe = await ProbeMediaAsync(inputPath, cancellationToken);
-                var plan = BuildPlan(settings, inputProbe);
+                var plan = BuildPlan(settings, inputProbe, Path.GetFileName(inputPath));
                 await ConvertOnceAsync(inputPath, outputPath, plan, cancellationToken);
                 stopwatch.Stop();
 
@@ -292,6 +294,11 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             args.AddRange(["-c:a", "aac", "-b:a", plan.AudioBitrateBps.ToString(CultureInfo.InvariantCulture)]);
         }
 
+        if (plan.DedupEnabled && plan.DedupMetadataEnabled)
+        {
+            args.AddRange(["-map_metadata", "-1"]);
+        }
+
         args.AddRange(["-movflags", "+faststart", outputPath]);
         return args;
     }
@@ -346,7 +353,7 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         chains.Add($"[vbase]{BuildCommonVideoFilter(plan)}[vout]");
         if (plan.HasAudio)
         {
-            chains.Add("[abase]anull[aout]");
+            chains.Add($"[abase]{BuildCommonAudioFilter(plan)}[aout]");
         }
 
         return string.Join(";", chains);
@@ -412,6 +419,7 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         filters.Add($"scale={plan.ForegroundScaledWidth}:{plan.ForegroundScaledHeight}:force_original_aspect_ratio=increase");
         filters.Add($"crop={plan.ForegroundWidth}:{plan.ForegroundHeight}");
         filters.Add($"pad={plan.OutputWidth}:{plan.OutputHeight}:(ow-iw)/2:(oh-ih)/2:color=black");
+        filters.AddRange(BuildDedupVideoFilters(plan));
 
         if (plan.WatermarkEnabled && !string.IsNullOrWhiteSpace(plan.WatermarkText))
         {
@@ -453,6 +461,54 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         return BuildFrameDropFilter(interval, 1);
     }
 
+    private static IReadOnlyList<string> BuildDedupVideoFilters(MaterialConvertPlan plan)
+    {
+        if (!plan.DedupEnabled)
+        {
+            return [];
+        }
+
+        var filters = new List<string>();
+        if (plan.DedupColorEnabled)
+        {
+            var brightness = SeededRange(plan.DedupSeed, 11, -0.012d, 0.012d);
+            var contrast = SeededRange(plan.DedupSeed, 17, 0.992d, 1.008d);
+            var saturation = SeededRange(plan.DedupSeed, 23, 0.992d, 1.008d);
+            filters.Add(
+                $"eq=brightness={FormatFilterNumber(brightness)}:contrast={FormatFilterNumber(contrast)}:saturation={FormatFilterNumber(saturation)}");
+        }
+
+        if (plan.DedupNoiseEnabled)
+        {
+            filters.Add($"noise=alls=1.2:allf=t+u:all_seed={plan.DedupSeed.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        if (plan.DedupRotateEnabled)
+        {
+            var angle = SeededRange(plan.DedupSeed, 31, -0.004d, 0.004d);
+            filters.Add($"rotate={FormatFilterNumber(angle)}:fillcolor=black@0");
+        }
+
+        if (plan.DedupVignetteEnabled)
+        {
+            filters.Add("vignette=PI/8:eval=init");
+        }
+
+        if (plan.DedupFadeInEnabled)
+        {
+            filters.Add("fade=t=in:st=0:d=0.25");
+        }
+
+        return filters;
+    }
+
+    private static string BuildCommonAudioFilter(MaterialConvertPlan plan)
+    {
+        return plan.DedupEnabled && plan.DedupAudioEnabled
+            ? "volume=0.998"
+            : "anull";
+    }
+
     private static string BuildFrameDropFilter(int everyNFrames, int dropCount)
     {
         var dropIndexes = Enumerable.Range(0, dropCount)
@@ -461,7 +517,7 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         return $"select='not({string.Join("+", dropIndexes)})'";
     }
 
-    private static MaterialConvertPlan BuildPlan(MaterialConvertSettings settings, MediaProbeInfo inputProbe)
+    private static MaterialConvertPlan BuildPlan(MaterialConvertSettings settings, MediaProbeInfo inputProbe, string seedText)
     {
         var sourceShortEdge = Math.Min(inputProbe.Width, inputProbe.Height);
         var profiles = UploadTranscodeBitrateProfiles.Parse(settings.UploadBitrateProfilesJson);
@@ -514,7 +570,9 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         foregroundHeight = Math.Clamp(foregroundHeight, 2, outputHeight);
         var foregroundScaledWidth = EnsureEven((int)Math.Round(foregroundWidth * (1d + Math.Clamp(settings.ForegroundZoomPercent, 0d, 20d) / 100d), MidpointRounding.AwayFromZero));
         var foregroundScaledHeight = EnsureEven((int)Math.Round(foregroundHeight * (1d + Math.Clamp(settings.ForegroundZoomPercent, 0d, 20d) / 100d), MidpointRounding.AwayFromZero));
-        var videoPreset = string.IsNullOrWhiteSpace(settings.VideoPreset) ? selectedProfile.Preset : settings.VideoPreset!;
+        var videoPreset = string.IsNullOrWhiteSpace(settings.VideoPreset)
+            ? selectedProfile?.Preset ?? "veryfast"
+            : settings.VideoPreset!;
 
         return new MaterialConvertPlan(
             ResolveVideoCodec(settings.VideoEncoder, settings.VideoUseHardwareEncoder),
@@ -558,7 +616,16 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             inputProbe.HasAudio,
             videoPreset,
             settings.NvencCq ?? 21,
-            settings.VerboseTranscodeLogEnabled);
+            settings.VerboseTranscodeLogEnabled,
+            settings.DedupEnabled,
+            settings.DedupEnabled && settings.DedupColorEnabled,
+            settings.DedupEnabled && settings.DedupNoiseEnabled,
+            settings.DedupEnabled && settings.DedupAudioEnabled,
+            settings.DedupEnabled && settings.DedupMetadataEnabled,
+            settings.DedupEnabled && settings.DedupRotateEnabled,
+            settings.DedupEnabled && settings.DedupVignetteEnabled,
+            settings.DedupEnabled && settings.DedupFadeInEnabled,
+            StableSeed(seedText));
     }
 
     private async Task<MediaProbeInfo> ProbeMediaAsync(string path, CancellationToken cancellationToken)
@@ -641,6 +708,14 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             CropWidthPercent: ParseNullableDouble(map, "MaterialCropWidthPercent") ?? 0d,
             CropHeightPercent: ParseNullableDouble(map, "MaterialCropHeightPercent") ?? 0d,
             ForegroundZoomPercent: ParseNullableDouble(map, "MaterialForegroundZoomPercent") ?? 0d,
+            DedupEnabled: ParseNullableBool(map, "MaterialDedupEnabled") ?? false,
+            DedupColorEnabled: ParseNullableBool(map, "MaterialDedupColorEnabled") ?? false,
+            DedupNoiseEnabled: ParseNullableBool(map, "MaterialDedupNoiseEnabled") ?? false,
+            DedupAudioEnabled: ParseNullableBool(map, "MaterialDedupAudioEnabled") ?? false,
+            DedupMetadataEnabled: ParseNullableBool(map, "MaterialDedupMetadataEnabled") ?? false,
+            DedupRotateEnabled: ParseNullableBool(map, "MaterialDedupRotateEnabled") ?? false,
+            DedupVignetteEnabled: ParseNullableBool(map, "MaterialDedupVignetteEnabled") ?? false,
+            DedupFadeInEnabled: ParseNullableBool(map, "MaterialDedupFadeInEnabled") ?? false,
             WatermarkEnabled: ParseNullableBool(map, "MaterialWatermarkEnabled") ?? false,
             WatermarkText: GetNullable(map, "MaterialWatermarkText"),
             WatermarkFontSize: ParseNullableInt(map, "MaterialWatermarkFontSize") ?? 35,
@@ -793,6 +868,18 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         return value.ToString("0.######", CultureInfo.InvariantCulture);
     }
 
+    private static int StableSeed(string text)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(text));
+        return BitConverter.ToInt32(bytes, 0) & int.MaxValue;
+    }
+
+    private static double SeededRange(int seed, int salt, double min, double max)
+    {
+        var mixed = unchecked((uint)((seed + salt) * 1103515245 + salt * 12345));
+        return min + mixed / (double)uint.MaxValue * (max - min);
+    }
+
     private static int EnsureEven(int value)
     {
         return value % 2 == 0 ? value : value + 1;
@@ -933,6 +1020,14 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         double CropWidthPercent,
         double CropHeightPercent,
         double ForegroundZoomPercent,
+        bool DedupEnabled,
+        bool DedupColorEnabled,
+        bool DedupNoiseEnabled,
+        bool DedupAudioEnabled,
+        bool DedupMetadataEnabled,
+        bool DedupRotateEnabled,
+        bool DedupVignetteEnabled,
+        bool DedupFadeInEnabled,
         bool WatermarkEnabled,
         string? WatermarkText,
         int WatermarkFontSize,
@@ -980,6 +1075,14 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
             CropWidthPercent: 0d,
             CropHeightPercent: 0d,
             ForegroundZoomPercent: 0d,
+            DedupEnabled: false,
+            DedupColorEnabled: false,
+            DedupNoiseEnabled: false,
+            DedupAudioEnabled: false,
+            DedupMetadataEnabled: false,
+            DedupRotateEnabled: false,
+            DedupVignetteEnabled: false,
+            DedupFadeInEnabled: false,
             WatermarkEnabled: false,
             WatermarkText: string.Empty,
             WatermarkFontSize: 35,
@@ -1052,7 +1155,16 @@ public sealed class FfmpegVideoMaterialConverter : IVideoMaterialConverter
         bool HasAudio,
         string VideoPreset,
         int NvencCq,
-        bool VerboseLogEnabled)
+        bool VerboseLogEnabled,
+        bool DedupEnabled,
+        bool DedupColorEnabled,
+        bool DedupNoiseEnabled,
+        bool DedupAudioEnabled,
+        bool DedupMetadataEnabled,
+        bool DedupRotateEnabled,
+        bool DedupVignetteEnabled,
+        bool DedupFadeInEnabled,
+        int DedupSeed)
     {
         public double FrameKeepRatio => FrameSamplingEnabled
             ? (FrameSamplingInterval - 1d) / FrameSamplingInterval

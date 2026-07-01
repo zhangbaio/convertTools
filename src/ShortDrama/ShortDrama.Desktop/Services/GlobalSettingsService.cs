@@ -51,11 +51,19 @@ public sealed class GlobalSettingsService
             HgnewPassword = snapshot.HgnewPassword,
             HgnewUdid = snapshot.HgnewUdid,
             HgnewClientVersion = snapshot.HgnewClientVersion,
+            HongguoDownloadTimeoutSeconds = int.TryParse(snapshot.HongguoDownloadTimeoutSeconds, out var hongguoDownloadTimeoutSeconds) && hongguoDownloadTimeoutSeconds > 0
+                ? hongguoDownloadTimeoutSeconds
+                : 60,
+            HongguoEpisodeDownloadAttempts = int.TryParse(snapshot.HongguoEpisodeDownloadAttempts, out var hongguoEpisodeDownloadAttempts) && hongguoEpisodeDownloadAttempts > 0
+                ? hongguoEpisodeDownloadAttempts
+                : 5,
             HongguoLocalBaseUrl = snapshot.HongguoLocalBaseUrl,
             HongguoLocalApiKey = snapshot.HongguoLocalApiKey,
             PikachuServerUrl = snapshot.PikachuServerUrl,
             PikachuFanqieCookie = snapshot.PikachuFanqieCookie,
             PikachuDramaType = snapshot.PikachuDramaType,
+            PikachuDeviceId = snapshot.PikachuDeviceId,
+            PikachuClientVersion = snapshot.PikachuClientVersion,
             AiTextEndpoint = snapshot.AiTextEndpoint,
             AiTextApiKey = snapshot.AiTextApiKey,
             AiTextModel = snapshot.AiTextModel,
@@ -255,6 +263,25 @@ public sealed class GlobalSettingsService
             return items.Count == 0 ? string.Join(',', allowed) : string.Join(',', items);
         }
 
+        int PickPositiveInt(int currentValue, string legacyKey, int defaultValue)
+        {
+            if (!legacy.TryGetValue(legacyKey, out var legacyValue) ||
+                !int.TryParse(legacyValue, out var parsed) ||
+                parsed <= 0)
+            {
+                return currentValue > 0 ? currentValue : defaultValue;
+            }
+
+            if (currentValue <= 0)
+            {
+                return parsed;
+            }
+
+            return preferLegacyDefaults && currentValue == defaultValue
+                ? parsed
+                : currentValue;
+        }
+
         var mergedDramaSourceChain = PickString(current.DramaSourceChain, "drama_source_chain", "hgnew");
         if (mergedDramaSourceChain is not ("hgnew" or "hglocal" or "pikachu"))
         {
@@ -282,12 +309,16 @@ public sealed class GlobalSettingsService
             HgnewAccount = PickString(current.HgnewAccount, "hgnew_account"),
             HgnewPassword = PickString(current.HgnewPassword, "hgnew_password"),
             HgnewUdid = PickString(current.HgnewUdid, "hgnew_udid"),
-            HgnewClientVersion = PickString(current.HgnewClientVersion, "hgnew_client_version", "1.3.4"),
+            HgnewClientVersion = PickString(current.HgnewClientVersion, "hgnew_client_version", "1.3.8"),
+            HongguoDownloadTimeoutSeconds = PickPositiveInt(current.HongguoDownloadTimeoutSeconds, "hongguo_download_timeout_seconds", 60),
+            HongguoEpisodeDownloadAttempts = PickPositiveInt(current.HongguoEpisodeDownloadAttempts, "hongguo_episode_download_attempts", 5),
             HongguoLocalBaseUrl = PickString(current.HongguoLocalBaseUrl, "hongguo_local_base_url"),
             HongguoLocalApiKey = PickString(current.HongguoLocalApiKey, "hongguo_local_api_key"),
             PikachuServerUrl = PickString(current.PikachuServerUrl, "pikachu_server_url", "http://8.138.192.128/start-prod-api"),
             PikachuFanqieCookie = PickString(current.PikachuFanqieCookie, "pikachu_fanqie_cookie"),
             PikachuDramaType = PickString(current.PikachuDramaType, "pikachu_drama_type", "short"),
+            PikachuDeviceId = PickString(current.PikachuDeviceId, "pikachu_device_id"),
+            PikachuClientVersion = PickString(current.PikachuClientVersion, "pikachu_client_version", "1.4.2"),
             AiTextEndpoint = PickString(current.AiTextEndpoint, "ai_text_endpoint"),
             AiTextApiKey = PickString(current.AiTextApiKey, "ai_text_api_key"),
             AiTextModel = PickString(current.AiTextModel, "ai_text_model"),
@@ -378,11 +409,15 @@ public sealed class GlobalSettingsService
             HgnewPassword: dto.HgnewPassword,
             HgnewUdid: dto.HgnewUdid,
             HgnewClientVersion: dto.HgnewClientVersion,
+            HongguoDownloadTimeoutSeconds: Math.Max(1, dto.HongguoDownloadTimeoutSeconds).ToString(),
+            HongguoEpisodeDownloadAttempts: Math.Max(1, dto.HongguoEpisodeDownloadAttempts).ToString(),
             HongguoLocalBaseUrl: dto.HongguoLocalBaseUrl,
             HongguoLocalApiKey: dto.HongguoLocalApiKey,
             PikachuServerUrl: dto.PikachuServerUrl,
             PikachuFanqieCookie: dto.PikachuFanqieCookie,
             PikachuDramaType: dto.PikachuDramaType,
+            PikachuDeviceId: dto.PikachuDeviceId,
+            PikachuClientVersion: dto.PikachuClientVersion,
             AiTextEndpoint: dto.AiTextEndpoint,
             AiTextApiKey: dto.AiTextApiKey,
             AiTextModel: dto.AiTextModel,

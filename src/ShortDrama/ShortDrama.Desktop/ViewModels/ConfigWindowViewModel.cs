@@ -13,6 +13,9 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private readonly DesktopConfigService _configService;
     private readonly DesktopShellService _shellService;
     private readonly HongguoNewApiService _hongguoNewApiService;
+    private readonly HongguoLocalApiService _hongguoLocalApiService;
+    private readonly DramaSourceRouter _dramaSourceRouter;
+    private readonly HongguoMemoryReaderService _hongguoMemoryReaderService;
     private readonly XingeRemoteControlService _xingeRemoteControlService;
     private ProjectConfigSnapshot _loadedProjectConfig;
     private GlobalConfigSnapshot _loadedGlobalConfig;
@@ -23,11 +26,17 @@ public partial class ConfigWindowViewModel : ViewModelBase
         DesktopConfigService configService,
         DesktopShellService shellService,
         HongguoNewApiService hongguoNewApiService,
+        HongguoLocalApiService hongguoLocalApiService,
+        DramaSourceRouter dramaSourceRouter,
+        HongguoMemoryReaderService hongguoMemoryReaderService,
         XingeRemoteControlService xingeRemoteControlService)
     {
         _configService = configService;
         _shellService = shellService;
         _hongguoNewApiService = hongguoNewApiService;
+        _hongguoLocalApiService = hongguoLocalApiService;
+        _dramaSourceRouter = dramaSourceRouter;
+        _hongguoMemoryReaderService = hongguoMemoryReaderService;
         _xingeRemoteControlService = xingeRemoteControlService;
         ReloadConfigCommand = new RelayCommand(LoadConfig);
         OpenConfigFileCommand = new RelayCommand(OpenConfigFile);
@@ -227,6 +236,12 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string hgnewClientVersion = string.Empty;
 
     [ObservableProperty]
+    private string hongguoDownloadTimeoutSeconds = "60";
+
+    [ObservableProperty]
+    private string hongguoEpisodeDownloadAttempts = "5";
+
+    [ObservableProperty]
     private string hgnewProbeStatus = string.Empty;
 
     [ObservableProperty]
@@ -236,6 +251,9 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string hongguoLocalApiKey = string.Empty;
 
     [ObservableProperty]
+    private string hongguoLocalProbeStatus = string.Empty;
+
+    [ObservableProperty]
     private string pikachuServerUrl = string.Empty;
 
     [ObservableProperty]
@@ -243,6 +261,15 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private string pikachuDramaType = "short";
+
+    [ObservableProperty]
+    private string pikachuDeviceId = string.Empty;
+
+    [ObservableProperty]
+    private string pikachuClientVersion = "1.4.2";
+
+    [ObservableProperty]
+    private string pikachuProbeStatus = string.Empty;
 
     [ObservableProperty]
     private string aiTextEndpoint = string.Empty;
@@ -424,6 +451,57 @@ public partial class ConfigWindowViewModel : ViewModelBase
         }
     }
 
+    public async Task ProbeHongguoLocalAsync()
+    {
+        try
+        {
+            var results = await _hongguoLocalApiService.SearchAsync(BuildWorkingGlobalConfig(), "测试", 1, CancellationToken.None);
+            HongguoLocalProbeStatus = $"hglocal 连接成功，返回 {results.Count} 条：{DateTime.Now:HH:mm:ss}";
+        }
+        catch (Exception ex)
+        {
+            HongguoLocalProbeStatus = $"hglocal 连接失败：{ex.Message}";
+        }
+    }
+
+    public async Task ReadPikachuRuntimeAsync()
+    {
+        try
+        {
+            var result = await _hongguoMemoryReaderService.ReadRuntimeAsync(CancellationToken.None);
+            if (!string.IsNullOrWhiteSpace(result.FanqieCookie))
+            {
+                PikachuFanqieCookie = result.FanqieCookie;
+            }
+
+            if (!string.IsNullOrWhiteSpace(result.DeviceId))
+            {
+                PikachuDeviceId = result.DeviceId;
+            }
+
+            PikachuProbeStatus = result.HasAnyValue
+                ? $"已从红果读取运行信息：{result.Reason}"
+                : $"未读取到红果运行信息：{result.Reason}";
+        }
+        catch (Exception ex)
+        {
+            PikachuProbeStatus = $"读取红果运行信息失败：{ex.Message}";
+        }
+    }
+
+    public async Task ProbePikachuAsync()
+    {
+        try
+        {
+            var count = await _dramaSourceRouter.ProbePikachuSearchAsync(BuildWorkingGlobalConfig(), CancellationToken.None);
+            PikachuProbeStatus = $"pikachu 搜索成功，返回 {count} 条：{DateTime.Now:HH:mm:ss}";
+        }
+        catch (Exception ex)
+        {
+            PikachuProbeStatus = $"pikachu 搜索失败：{ex.Message}";
+        }
+    }
+
     public void LoadConfig()
     {
         WasSaved = false;
@@ -475,11 +553,17 @@ public partial class ConfigWindowViewModel : ViewModelBase
         HgnewPassword = _loadedGlobalConfig.HgnewPassword;
         HgnewUdid = _loadedGlobalConfig.HgnewUdid;
         HgnewClientVersion = _loadedGlobalConfig.HgnewClientVersion;
+        HongguoDownloadTimeoutSeconds = string.IsNullOrWhiteSpace(_loadedGlobalConfig.HongguoDownloadTimeoutSeconds) ? "60" : _loadedGlobalConfig.HongguoDownloadTimeoutSeconds;
+        HongguoEpisodeDownloadAttempts = string.IsNullOrWhiteSpace(_loadedGlobalConfig.HongguoEpisodeDownloadAttempts) ? "5" : _loadedGlobalConfig.HongguoEpisodeDownloadAttempts;
         HongguoLocalBaseUrl = _loadedGlobalConfig.HongguoLocalBaseUrl;
         HongguoLocalApiKey = _loadedGlobalConfig.HongguoLocalApiKey;
+        HongguoLocalProbeStatus = string.Empty;
         PikachuServerUrl = _loadedGlobalConfig.PikachuServerUrl;
         PikachuFanqieCookie = _loadedGlobalConfig.PikachuFanqieCookie;
         PikachuDramaType = _loadedGlobalConfig.PikachuDramaType;
+        PikachuDeviceId = _loadedGlobalConfig.PikachuDeviceId;
+        PikachuClientVersion = string.IsNullOrWhiteSpace(_loadedGlobalConfig.PikachuClientVersion) ? "1.4.2" : _loadedGlobalConfig.PikachuClientVersion;
+        PikachuProbeStatus = string.Empty;
         AiTextEndpoint = merged.AiTextEndpoint;
         AiTextApiKey = merged.AiTextApiKey;
         AiTextModel = merged.AiTextModel;
@@ -580,11 +664,15 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HgnewPassword = HgnewPassword,
             HgnewUdid = HgnewUdid.Trim().ToUpperInvariant(),
             HgnewClientVersion = HgnewClientVersion.Trim(),
+            HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds.Trim(),
+            HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts.Trim(),
             HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
             HongguoLocalApiKey = HongguoLocalApiKey.Trim(),
             PikachuServerUrl = PikachuServerUrl.Trim(),
             PikachuFanqieCookie = PikachuFanqieCookie.Trim(),
             PikachuDramaType = PikachuDramaType.Trim(),
+            PikachuDeviceId = PikachuDeviceId.Trim(),
+            PikachuClientVersion = PikachuClientVersion.Trim(),
             AiTextEndpoint = AiTextEndpoint.Trim(),
             AiTextApiKey = AiTextApiKey.Trim(),
             AiTextModel = AiTextModel.Trim(),
@@ -684,7 +772,16 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HgnewAccount = HgnewAccount.Trim(),
             HgnewPassword = HgnewPassword,
             HgnewUdid = HgnewUdid.Trim().ToUpperInvariant(),
-            HgnewClientVersion = HgnewClientVersion.Trim()
+            HgnewClientVersion = HgnewClientVersion.Trim(),
+            HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds.Trim(),
+            HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts.Trim(),
+            HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
+            HongguoLocalApiKey = HongguoLocalApiKey.Trim(),
+            PikachuServerUrl = PikachuServerUrl.Trim(),
+            PikachuFanqieCookie = PikachuFanqieCookie.Trim(),
+            PikachuDramaType = PikachuDramaType.Trim(),
+            PikachuDeviceId = PikachuDeviceId.Trim(),
+            PikachuClientVersion = PikachuClientVersion.Trim()
         };
     }
 

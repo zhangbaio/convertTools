@@ -14,35 +14,12 @@ internal static class KeyValueConfigReader
 
         var content = File.ReadAllText(path);
         var trimmed = content.TrimStart();
-        return trimmed.StartsWith('{')
-            ? ReadJsonMap(content)
-            : ReadLegacyKeyValueMap(content);
-    }
-
-    private static IReadOnlyDictionary<string, string> ReadLegacyKeyValueMap(string content)
-    {
-        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var rawLine in content.Split(["\r\n", "\n"], StringSplitOptions.None))
+        if (!trimmed.StartsWith('{'))
         {
-            var line = rawLine.Trim();
-            if (line.Length == 0 || line.StartsWith('#'))
-            {
-                continue;
-            }
-
-            var separatorIndex = line.IndexOf('=');
-            if (separatorIndex <= 0 || separatorIndex >= line.Length - 1)
-            {
-                continue;
-            }
-
-            var key = line[..separatorIndex].Trim();
-            var value = line[(separatorIndex + 1)..].Trim();
-            map[key] = value;
+            throw new InvalidDataException($"配置文件必须是 JSON 格式: {path}");
         }
 
-        return map;
+        return ReadJsonMap(content);
     }
 
     private static IReadOnlyDictionary<string, string> ReadJsonMap(string content)
@@ -54,20 +31,124 @@ internal static class KeyValueConfigReader
         }
 
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var property in document.RootElement.EnumerateObject())
+        AddTopLevelValues(document.RootElement, map);
+        AddStructuredAliases(document.RootElement, map);
+        return map;
+    }
+
+    private static void AddTopLevelValues(JsonElement root, IDictionary<string, string> map)
+    {
+        foreach (var property in root.EnumerateObject())
         {
-            map[property.Name] = property.Value.ValueKind switch
-            {
-                JsonValueKind.String => property.Value.GetString() ?? string.Empty,
-                JsonValueKind.Number => property.Value.GetRawText(),
-                JsonValueKind.True => bool.TrueString.ToLowerInvariant(),
-                JsonValueKind.False => bool.FalseString.ToLowerInvariant(),
-                JsonValueKind.Array or JsonValueKind.Object => property.Value.GetRawText(),
-                _ => string.Empty
-            };
+            map[property.Name] = ToConfigString(property.Value);
+        }
+    }
+
+    private static void AddStructuredAliases(JsonElement root, IDictionary<string, string> map)
+    {
+        CopySectionValue(root, map, "video", "res", "VideoRes");
+        CopySectionValue(root, map, "video", "bitrateBps", "VideoBitrateBps");
+        CopySectionValue(root, map, "video", "bitrateMode", "VideoBitrateMode");
+        CopySectionValue(root, map, "video", "audioBitrateBps", "VideoAudioBitrateBps");
+        CopySectionValue(root, map, "video", "fps", "VideoFps");
+        CopySectionValue(root, map, "video", "concurrentCount", "VideoConcurrentCount");
+        CopySectionValue(root, map, "video", "useHardwareEncoder", "VideoUseHardwareEncoder");
+        CopySectionValue(root, map, "video", "nameTemplate", "VideoNameTemplate");
+
+        CopySectionValue(root, map, "materialTranscode", "enabled", "MaterialConvertEnabled");
+        CopySectionValue(root, map, "materialTranscode", "trimHeadSeconds", "MaterialTrimHeadSeconds");
+        CopySectionValue(root, map, "materialTranscode", "trimTailSeconds", "MaterialTrimTailSeconds");
+        CopySectionValue(root, map, "materialTranscode", "speedPercent", "MaterialSpeedPercent");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedEnabled", "MaterialDynamicSpeedEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedPresetName", "MaterialDynamicSpeedPresetName");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedHeadSeconds", "MaterialDynamicSpeedHeadSeconds");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedHeadPercent", "MaterialDynamicSpeedHeadPercent");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedMiddlePercent", "MaterialDynamicSpeedMiddlePercent");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedTailSeconds", "MaterialDynamicSpeedTailSeconds");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedTailPercent", "MaterialDynamicSpeedTailPercent");
+        CopySectionValue(root, map, "materialTranscode", "frameSamplingEnabled", "MaterialFrameSamplingEnabled");
+        CopySectionValue(root, map, "materialTranscode", "frameSamplingMode", "MaterialFrameSamplingMode");
+        CopySectionValue(root, map, "materialTranscode", "frameSamplingInterval", "MaterialFrameSamplingInterval");
+        CopySectionValue(root, map, "materialTranscode", "dropEveryNFrames", "MaterialDropEveryNFrames");
+        CopySectionValue(root, map, "materialTranscode", "dropCount", "MaterialDropCount");
+        CopySectionValue(root, map, "materialTranscode", "cropWidthPercent", "MaterialCropWidthPercent");
+        CopySectionValue(root, map, "materialTranscode", "cropHeightPercent", "MaterialCropHeightPercent");
+        CopySectionValue(root, map, "materialTranscode", "foregroundZoomPercent", "MaterialForegroundZoomPercent");
+        CopySectionValue(root, map, "materialTranscode", "dedupEnabled", "MaterialDedupEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupColorEnabled", "MaterialDedupColorEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupNoiseEnabled", "MaterialDedupNoiseEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupAudioEnabled", "MaterialDedupAudioEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupMetadataEnabled", "MaterialDedupMetadataEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupRotateEnabled", "MaterialDedupRotateEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupVignetteEnabled", "MaterialDedupVignetteEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupFadeInEnabled", "MaterialDedupFadeInEnabled");
+        CopySectionValue(root, map, "materialTranscode", "watermarkEnabled", "MaterialWatermarkEnabled");
+        CopySectionValue(root, map, "materialTranscode", "watermarkText", "MaterialWatermarkText");
+        CopySectionValue(root, map, "materialTranscode", "watermarkFontSize", "MaterialWatermarkFontSize");
+        CopySectionValue(root, map, "materialTranscode", "watermarkPosition", "MaterialWatermarkPosition");
+        CopySectionValue(root, map, "materialTranscode", "watermarkMarginX", "MaterialWatermarkMarginX");
+        CopySectionValue(root, map, "materialTranscode", "watermarkMarginY", "MaterialWatermarkMarginY");
+        CopySectionValue(root, map, "materialTranscode", "outputWidth", "MaterialOutputWidth");
+        CopySectionValue(root, map, "materialTranscode", "outputHeight", "MaterialOutputHeight");
+        CopySectionValue(root, map, "materialTranscode", "pipWidthPercent", "MaterialPipWidthPercent");
+        CopySectionValue(root, map, "materialTranscode", "pipHeightPercent", "MaterialPipHeightPercent");
+
+        CopySectionValue(root, map, "uploadTranscode", "videoEncoder", "VideoEncoder");
+        CopySectionValue(root, map, "uploadTranscode", "preset", "VideoPreset");
+        CopySectionValue(root, map, "uploadTranscode", "targetVideoBitrateMbps", "UploadTargetVideoBitrateMbps");
+        CopySectionValue(root, map, "uploadTranscode", "maxVideoBitrateMbps", "UploadMaxVideoBitrateMbps");
+        CopySectionValue(root, map, "uploadTranscode", "minVideoBitrateMbps", "UploadMinVideoBitrateMbps");
+        CopySectionValue(root, map, "uploadTranscode", "audioBitrateKbps", "UploadAudioBitrateKbps");
+        CopySectionValue(root, map, "uploadTranscode", "bitrateFallbackEnabled", "UploadBitrateFallbackEnabled");
+        CopySectionValue(root, map, "uploadTranscode", "bitrateFallbackVideoBitrateMbps", "UploadBitrateFallbackVideoBitrateMbps");
+        CopyProfiles(root, map);
+
+        CopySectionValue(root, map, "nvenc", "cq", "NvencCq");
+        CopySectionValue(root, map, "nvenc", "maxParallel", "NvencMaxParallel");
+    }
+
+    private static void CopySectionValue(
+        JsonElement root,
+        IDictionary<string, string> map,
+        string sectionName,
+        string propertyName,
+        string targetKey)
+    {
+        if (root.TryGetProperty(sectionName, out var section) &&
+            section.ValueKind == JsonValueKind.Object &&
+            section.TryGetProperty(propertyName, out var value))
+        {
+            map[targetKey] = ToConfigString(value);
+        }
+    }
+
+    private static void CopyProfiles(JsonElement root, IDictionary<string, string> map)
+    {
+        if (!root.TryGetProperty("uploadTranscode", out var section) ||
+            section.ValueKind != JsonValueKind.Object ||
+            !section.TryGetProperty("profiles", out var profiles) ||
+            profiles.ValueKind != JsonValueKind.Array)
+        {
+            return;
         }
 
-        return map;
+        map["UploadBitrateProfilesJson"] = JsonSerializer.Serialize(new
+        {
+            profiles = JsonSerializer.Deserialize<object[]>(profiles.GetRawText()) ?? []
+        });
+    }
+
+    private static string ToConfigString(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? string.Empty,
+            JsonValueKind.Number => value.GetRawText(),
+            JsonValueKind.True => bool.TrueString.ToLowerInvariant(),
+            JsonValueKind.False => bool.FalseString.ToLowerInvariant(),
+            JsonValueKind.Array or JsonValueKind.Object => value.GetRawText(),
+            _ => string.Empty
+        };
     }
 
     public static string SerializeJson(IDictionary<string, object?> values)

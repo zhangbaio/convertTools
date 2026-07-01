@@ -47,7 +47,7 @@ Request:
   "projectDir": "/abs/path/to/project",
   "inputDir": "/abs/path/to/input",
   "outputDir": "/abs/path/to/output",
-  "configFile": "/abs/path/to/config.txt",
+  "configFile": "/abs/path/to/config.json",
   "overwrite": false,
   "crf": 23,
   "preset": "medium"
@@ -63,7 +63,7 @@ curl -sS http://localhost:5000/transcode/batch \
     "projectDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局",
     "inputDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局/videos",
     "outputDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局/transcoded",
-    "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.txt",
+    "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.json",
     "overwrite": false,
     "crf": 23,
     "preset": "medium"
@@ -83,7 +83,7 @@ Request:
   "projectDir": "/abs/path/to/project",
   "inputDir": "/abs/path/to/input",
   "outputDir": "/abs/path/to/output",
-  "configFile": "/abs/path/to/config.txt",
+  "configFile": "/abs/path/to/config.json",
   "count": 5,
   "overwrite": false
 }
@@ -98,7 +98,7 @@ curl -sS http://localhost:5000/project-image/generate \
     "projectDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局",
     "inputDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局/videos",
     "outputDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局",
-    "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.txt",
+    "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.json",
     "count": 5,
     "overwrite": true
   }' | python3 -m json.tool
@@ -115,7 +115,7 @@ Request:
 ```json
 {
   "projectDir": "/abs/path/to/project",
-  "configFile": "/abs/path/to/config.txt",
+  "configFile": "/abs/path/to/config.json",
   "outputFile": "/abs/path/to/短剧信息_改写.txt",
   "overwrite": true
 }
@@ -128,7 +128,7 @@ curl -sS http://localhost:5000/rewrite/project-info \
   -H 'Content-Type: application/json' \
   -d '{
     "projectDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局",
-    "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.txt",
+    "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.json",
     "outputFile": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局/短剧信息_改写.txt",
     "overwrite": true
   }' | python3 -m json.tool
@@ -147,7 +147,7 @@ Request:
   "projectDir": "/abs/path/to/project",
   "inputFile": "/abs/path/to/海报图片.jpg",
   "outputFile": "/abs/path/to/新剧名-海报.jpg",
-  "configFile": "/abs/path/to/config.txt",
+  "configFile": "/abs/path/to/config.json",
   "nameTemplate": "{name}-海报",
   "useAi": true,
   "overwrite": true
@@ -161,7 +161,7 @@ curl -sS http://localhost:5000/poster-rename/run \
   -H 'Content-Type: application/json' \
   -d '{
     "projectDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局",
-    "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.txt",
+    "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.json",
     "nameTemplate": "{name}-海报",
     "useAi": true,
     "overwrite": true
@@ -180,7 +180,7 @@ Request:
 {
   "projectDir": "/abs/path/to/project",
   "inputDir": "/abs/path/to/videos",
-  "configFile": "/abs/path/to/config.txt",
+  "configFile": "/abs/path/to/config.json",
   "nameTemplate": "{name}-第{index}集",
   "overwrite": true
 }
@@ -194,7 +194,7 @@ curl -sS http://localhost:5000/batch-file-rename/run \
   -d '{
     "projectDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局",
     "inputDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局/videos",
-    "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.txt",
+    "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.json",
     "nameTemplate": "{name}-第{index}集",
     "overwrite": true
   }' | python3 -m json.tool
@@ -272,7 +272,7 @@ curl -sS http://localhost:5000/workflow/run \
       "steps": [
         {
           "type": "transcode",
-          "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.txt",
+          "configFile": "/Users/zhangbiao/Documents/编程/ai/vedio/convertTools/config.json",
           "inputDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局/videos",
           "outputDir": "/Users/zhangbiao/Documents/编程/ai/codex/ai-vedio/demo-video/workflow/末世乐园之繁殖/末世禁区求生局/transcoded"
         },

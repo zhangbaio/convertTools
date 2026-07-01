@@ -1,6 +1,8 @@
 ﻿using ShortDrama.Desktop.Models;
 using ShortDrama.Infrastructure.Imaging;
+using ShortDrama.Infrastructure.Media;
 using System.Text;
+using System.Text.Json;
 
 namespace ShortDrama.Desktop.Services;
 
@@ -24,12 +26,6 @@ public sealed class DesktopConfigService
 
         var project = BuildProjectSnapshot(configFilePath, configDir, map);
         var global = _globalSettingsService.Load();
-        if (!string.IsNullOrWhiteSpace(resolvedPath) &&
-            resolvedPath.EndsWith("config.txt", StringComparison.OrdinalIgnoreCase) &&
-            !File.Exists(configFilePath))
-        {
-            SaveProject(project, global);
-        }
         return BuildMergedSnapshot(project, global, configDir, map);
     }
 
@@ -42,13 +38,6 @@ public sealed class DesktopConfigService
             ? ReadConfigMap(resolvedPath)
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var project = BuildProjectSnapshot(configFilePath, configDir, map);
-        if (!string.IsNullOrWhiteSpace(resolvedPath) &&
-            resolvedPath.EndsWith("config.txt", StringComparison.OrdinalIgnoreCase) &&
-            !File.Exists(configFilePath))
-        {
-            SaveProject(project, _globalSettingsService.Load());
-        }
-
         return project;
     }
 
@@ -147,6 +136,14 @@ public sealed class DesktopConfigService
             MaterialCropWidthPercent: config.MaterialCropWidthPercent,
             MaterialCropHeightPercent: config.MaterialCropHeightPercent,
             MaterialForegroundZoomPercent: "0",
+            MaterialDedupEnabled: false,
+            MaterialDedupColorEnabled: false,
+            MaterialDedupNoiseEnabled: false,
+            MaterialDedupAudioEnabled: false,
+            MaterialDedupMetadataEnabled: false,
+            MaterialDedupRotateEnabled: false,
+            MaterialDedupVignetteEnabled: false,
+            MaterialDedupFadeInEnabled: false,
             MaterialWatermarkEnabled: false,
             MaterialWatermarkText: string.Empty,
             MaterialWatermarkFontSize: "35",
@@ -220,13 +217,7 @@ public sealed class DesktopConfigService
     {
         var configDir = GetConfigDirectoryPath(rootDir);
         var jsonPath = Path.Combine(configDir, "config.json");
-        if (File.Exists(jsonPath))
-        {
-            return jsonPath;
-        }
-
-        var legacyPath = Path.Combine(configDir, "config.txt");
-        return File.Exists(legacyPath) ? legacyPath : null;
+        return File.Exists(jsonPath) ? jsonPath : null;
     }
 
     private static string SerializeProjectConfigJson(IDictionary<string, object?> payload)
@@ -298,56 +289,74 @@ public sealed class DesktopConfigService
             ["PosterGenerationSafeRetryPrompt"] = merged.PosterGenerationSafeRetryPrompt,
             ["PosterNameSystemPrompt"] = merged.PosterNameSystemPrompt,
             ["PosterNameUserPrompt"] = merged.PosterNameUserPrompt,
-            ["VideoRes"] = project.VideoRes,
-            ["VideoBitrateBps"] = project.VideoBitrateBps,
-            ["VideoBitrateMode"] = project.VideoBitrateMode,
-            ["VideoAudioBitrateBps"] = project.VideoAudioBitrateBps,
-            ["VideoFps"] = project.VideoFps,
-            ["VideoConcurrentCount"] = project.VideoConcurrentCount,
-            ["VideoUseHardwareEncoder"] = project.VideoUseHardwareEncoder,
-            ["VideoEncoder"] = project.VideoEncoder,
-            ["VideoPreset"] = project.VideoPreset,
-            ["NvencCq"] = project.NvencCq,
-            ["NvencMaxParallel"] = project.NvencMaxParallel,
-            ["VerboseTranscodeLogEnabled"] = project.VerboseTranscodeLogEnabled,
-            ["SkipBitrateDownscaleForHighBitrate"] = project.SkipBitrateDownscaleForHighBitrate,
-            ["UploadTargetVideoBitrateMbps"] = project.UploadTargetVideoBitrateMbps,
-            ["UploadMaxVideoBitrateMbps"] = project.UploadMaxVideoBitrateMbps,
-            ["UploadMinVideoBitrateMbps"] = project.UploadMinVideoBitrateMbps,
-            ["UploadAudioBitrateKbps"] = project.UploadAudioBitrateKbps,
-            ["UploadBitrateFallbackEnabled"] = project.UploadBitrateFallbackEnabled,
-            ["UploadBitrateFallbackVideoBitrateMbps"] = project.UploadBitrateFallbackVideoBitrateMbps,
-            ["UploadBitrateProfilesJson"] = project.UploadBitrateProfilesJson,
-            ["VideoNameTemplate"] = project.VideoNameTemplate,
-            ["MaterialConvertEnabled"] = project.MaterialConvertEnabled,
-            ["MaterialTrimHeadSeconds"] = project.MaterialTrimHeadSeconds,
-            ["MaterialTrimTailSeconds"] = project.MaterialTrimTailSeconds,
-            ["MaterialSpeedPercent"] = project.MaterialSpeedPercent,
-            ["MaterialDynamicSpeedEnabled"] = project.MaterialDynamicSpeedEnabled,
-            ["MaterialDynamicSpeedPresetName"] = project.MaterialDynamicSpeedPresetName,
-            ["MaterialDynamicSpeedHeadSeconds"] = project.MaterialDynamicSpeedHeadSeconds,
-            ["MaterialDynamicSpeedHeadPercent"] = project.MaterialDynamicSpeedHeadPercent,
-            ["MaterialDynamicSpeedMiddlePercent"] = project.MaterialDynamicSpeedMiddlePercent,
-            ["MaterialDynamicSpeedTailSeconds"] = project.MaterialDynamicSpeedTailSeconds,
-            ["MaterialDynamicSpeedTailPercent"] = project.MaterialDynamicSpeedTailPercent,
-            ["MaterialFrameSamplingEnabled"] = project.MaterialFrameSamplingEnabled,
-            ["MaterialFrameSamplingMode"] = project.MaterialFrameSamplingMode,
-            ["MaterialFrameSamplingInterval"] = project.MaterialFrameSamplingInterval,
-            ["MaterialDropEveryNFrames"] = project.MaterialDropEveryNFrames,
-            ["MaterialDropCount"] = project.MaterialDropCount,
-            ["MaterialCropWidthPercent"] = project.MaterialCropWidthPercent,
-            ["MaterialCropHeightPercent"] = project.MaterialCropHeightPercent,
-            ["MaterialForegroundZoomPercent"] = project.MaterialForegroundZoomPercent,
-            ["MaterialWatermarkEnabled"] = project.MaterialWatermarkEnabled,
-            ["MaterialWatermarkText"] = project.MaterialWatermarkText,
-            ["MaterialWatermarkFontSize"] = project.MaterialWatermarkFontSize,
-            ["MaterialWatermarkPosition"] = project.MaterialWatermarkPosition,
-            ["MaterialWatermarkMarginX"] = project.MaterialWatermarkMarginX,
-            ["MaterialWatermarkMarginY"] = project.MaterialWatermarkMarginY,
-            ["MaterialOutputWidth"] = project.MaterialOutputWidth,
-            ["MaterialOutputHeight"] = project.MaterialOutputHeight,
-            ["MaterialPipWidthPercent"] = project.MaterialPipWidthPercent,
-            ["MaterialPipHeightPercent"] = project.MaterialPipHeightPercent,
+            ["video"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["res"] = NormalizeConfigValue(project.VideoRes),
+                ["bitrateBps"] = NormalizeConfigValue(project.VideoBitrateBps),
+                ["bitrateMode"] = project.VideoBitrateMode,
+                ["audioBitrateBps"] = NormalizeConfigValue(project.VideoAudioBitrateBps),
+                ["fps"] = NormalizeConfigValue(project.VideoFps),
+                ["concurrentCount"] = NormalizeConfigValue(project.VideoConcurrentCount),
+                ["useHardwareEncoder"] = project.VideoUseHardwareEncoder,
+                ["nameTemplate"] = project.VideoNameTemplate
+            },
+            ["uploadTranscode"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["videoEncoder"] = project.VideoEncoder,
+                ["preset"] = project.VideoPreset,
+                ["targetVideoBitrateMbps"] = NormalizeConfigValue(project.UploadTargetVideoBitrateMbps),
+                ["maxVideoBitrateMbps"] = NormalizeConfigValue(project.UploadMaxVideoBitrateMbps),
+                ["minVideoBitrateMbps"] = NormalizeConfigValue(project.UploadMinVideoBitrateMbps),
+                ["audioBitrateKbps"] = NormalizeConfigValue(project.UploadAudioBitrateKbps),
+                ["bitrateFallbackEnabled"] = project.UploadBitrateFallbackEnabled,
+                ["bitrateFallbackVideoBitrateMbps"] = NormalizeConfigValue(project.UploadBitrateFallbackVideoBitrateMbps),
+                ["profiles"] = BuildUploadProfiles(project.UploadBitrateProfilesJson)
+            },
+            ["nvenc"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["cq"] = NormalizeConfigValue(project.NvencCq),
+                ["maxParallel"] = NormalizeConfigValue(project.NvencMaxParallel)
+            },
+            ["materialTranscode"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["enabled"] = project.MaterialConvertEnabled,
+                ["trimHeadSeconds"] = NormalizeConfigValue(project.MaterialTrimHeadSeconds),
+                ["trimTailSeconds"] = NormalizeConfigValue(project.MaterialTrimTailSeconds),
+                ["speedPercent"] = NormalizeConfigValue(project.MaterialSpeedPercent),
+                ["dynamicSpeedEnabled"] = project.MaterialDynamicSpeedEnabled,
+                ["dynamicSpeedPresetName"] = project.MaterialDynamicSpeedPresetName,
+                ["dynamicSpeedHeadSeconds"] = NormalizeConfigValue(project.MaterialDynamicSpeedHeadSeconds),
+                ["dynamicSpeedHeadPercent"] = NormalizeConfigValue(project.MaterialDynamicSpeedHeadPercent),
+                ["dynamicSpeedMiddlePercent"] = NormalizeConfigValue(project.MaterialDynamicSpeedMiddlePercent),
+                ["dynamicSpeedTailSeconds"] = NormalizeConfigValue(project.MaterialDynamicSpeedTailSeconds),
+                ["dynamicSpeedTailPercent"] = NormalizeConfigValue(project.MaterialDynamicSpeedTailPercent),
+                ["frameSamplingEnabled"] = project.MaterialFrameSamplingEnabled,
+                ["frameSamplingMode"] = project.MaterialFrameSamplingMode,
+                ["frameSamplingInterval"] = NormalizeConfigValue(project.MaterialFrameSamplingInterval),
+                ["dropEveryNFrames"] = NormalizeConfigValue(project.MaterialDropEveryNFrames),
+                ["dropCount"] = NormalizeConfigValue(project.MaterialDropCount),
+                ["cropWidthPercent"] = NormalizeConfigValue(project.MaterialCropWidthPercent),
+                ["cropHeightPercent"] = NormalizeConfigValue(project.MaterialCropHeightPercent),
+                ["foregroundZoomPercent"] = NormalizeConfigValue(project.MaterialForegroundZoomPercent),
+                ["dedupEnabled"] = project.MaterialDedupEnabled,
+                ["dedupColorEnabled"] = project.MaterialDedupColorEnabled,
+                ["dedupNoiseEnabled"] = project.MaterialDedupNoiseEnabled,
+                ["dedupAudioEnabled"] = project.MaterialDedupAudioEnabled,
+                ["dedupMetadataEnabled"] = project.MaterialDedupMetadataEnabled,
+                ["dedupRotateEnabled"] = project.MaterialDedupRotateEnabled,
+                ["dedupVignetteEnabled"] = project.MaterialDedupVignetteEnabled,
+                ["dedupFadeInEnabled"] = project.MaterialDedupFadeInEnabled,
+                ["watermarkEnabled"] = project.MaterialWatermarkEnabled,
+                ["watermarkText"] = project.MaterialWatermarkText,
+                ["watermarkFontSize"] = NormalizeConfigValue(project.MaterialWatermarkFontSize),
+                ["watermarkPosition"] = project.MaterialWatermarkPosition,
+                ["watermarkMarginX"] = NormalizeConfigValue(project.MaterialWatermarkMarginX),
+                ["watermarkMarginY"] = NormalizeConfigValue(project.MaterialWatermarkMarginY),
+                ["outputWidth"] = NormalizeConfigValue(project.MaterialOutputWidth),
+                ["outputHeight"] = NormalizeConfigValue(project.MaterialOutputHeight),
+                ["pipWidthPercent"] = NormalizeConfigValue(project.MaterialPipWidthPercent),
+                ["pipHeightPercent"] = NormalizeConfigValue(project.MaterialPipHeightPercent)
+            },
             ["ProjectImageGenerationMode"] = string.IsNullOrWhiteSpace(project.ProjectImageGenerationMode) ? "image_template" : project.ProjectImageGenerationMode,
             ["ProjectImageTemplateRoot"] = project.ProjectImageTemplateRoot,
             ["ProjectImageTemplateId"] = project.ProjectImageTemplateId,
@@ -355,6 +364,50 @@ public sealed class DesktopConfigService
             ["ProjectImageCount"] = project.ProjectImageCount,
             ["GlobalSettingsFilePath"] = global.SettingsFilePath
         };
+    }
+
+    private static object? NormalizeConfigValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = value.Trim();
+        if (bool.TryParse(trimmed, out var boolValue))
+        {
+            return boolValue;
+        }
+
+        if (int.TryParse(trimmed, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var intValue))
+        {
+            return intValue;
+        }
+
+        if (double.TryParse(trimmed, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var doubleValue))
+        {
+            return doubleValue;
+        }
+
+        return trimmed;
+    }
+
+    private static IReadOnlyList<object> BuildUploadProfiles(string? profilesJson)
+    {
+        return UploadTranscodeBitrateProfiles.Parse(profilesJson)
+            .Select(item => new
+            {
+                name = item.Name,
+                min_short_edge = item.MinShortEdge,
+                max_short_edge = item.MaxShortEdge,
+                bitrate_mbps = Math.Round(item.BitrateMbps, 3),
+                audio_kbps = item.AudioKbps,
+                video_encoder = item.VideoEncoder,
+                preset = item.Preset,
+                enabled = item.Enabled
+            })
+            .Cast<object>()
+            .ToArray();
     }
 
     public static string ResolveConfiguredPath(string rootDirOrConfigDir, string configuredPath)
@@ -451,6 +504,14 @@ public sealed class DesktopConfigService
             MaterialCropWidthPercent: Get(map, "MaterialCropWidthPercent"),
             MaterialCropHeightPercent: Get(map, "MaterialCropHeightPercent"),
             MaterialForegroundZoomPercent: string.IsNullOrWhiteSpace(Get(map, "MaterialForegroundZoomPercent")) ? "0" : Get(map, "MaterialForegroundZoomPercent"),
+            MaterialDedupEnabled: bool.TryParse(Get(map, "MaterialDedupEnabled"), out var materialDedupEnabled) && materialDedupEnabled,
+            MaterialDedupColorEnabled: bool.TryParse(Get(map, "MaterialDedupColorEnabled"), out var materialDedupColorEnabled) && materialDedupColorEnabled,
+            MaterialDedupNoiseEnabled: bool.TryParse(Get(map, "MaterialDedupNoiseEnabled"), out var materialDedupNoiseEnabled) && materialDedupNoiseEnabled,
+            MaterialDedupAudioEnabled: bool.TryParse(Get(map, "MaterialDedupAudioEnabled"), out var materialDedupAudioEnabled) && materialDedupAudioEnabled,
+            MaterialDedupMetadataEnabled: bool.TryParse(Get(map, "MaterialDedupMetadataEnabled"), out var materialDedupMetadataEnabled) && materialDedupMetadataEnabled,
+            MaterialDedupRotateEnabled: bool.TryParse(Get(map, "MaterialDedupRotateEnabled"), out var materialDedupRotateEnabled) && materialDedupRotateEnabled,
+            MaterialDedupVignetteEnabled: bool.TryParse(Get(map, "MaterialDedupVignetteEnabled"), out var materialDedupVignetteEnabled) && materialDedupVignetteEnabled,
+            MaterialDedupFadeInEnabled: bool.TryParse(Get(map, "MaterialDedupFadeInEnabled"), out var materialDedupFadeInEnabled) && materialDedupFadeInEnabled,
             MaterialWatermarkEnabled: bool.TryParse(Get(map, "MaterialWatermarkEnabled"), out var materialWatermarkEnabled) && materialWatermarkEnabled,
             MaterialWatermarkText: Get(map, "MaterialWatermarkText"),
             MaterialWatermarkFontSize: string.IsNullOrWhiteSpace(Get(map, "MaterialWatermarkFontSize")) ? "35" : Get(map, "MaterialWatermarkFontSize"),
@@ -569,51 +630,135 @@ public sealed class DesktopConfigService
     {
         var content = File.ReadAllText(path);
         var trimmed = content.TrimStart();
-        if (trimmed.StartsWith('{'))
+        if (!trimmed.StartsWith('{'))
         {
-            using var document = System.Text.Json.JsonDocument.Parse(content);
-            var jsonMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            if (document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
-            {
-                foreach (var property in document.RootElement.EnumerateObject())
-                {
-                    jsonMap[property.Name] = property.Value.ValueKind switch
-                    {
-                        System.Text.Json.JsonValueKind.String => property.Value.GetString() ?? string.Empty,
-                        System.Text.Json.JsonValueKind.Number => property.Value.GetRawText(),
-                        System.Text.Json.JsonValueKind.True => "true",
-                        System.Text.Json.JsonValueKind.False => "false",
-                        System.Text.Json.JsonValueKind.Object or System.Text.Json.JsonValueKind.Array => property.Value.GetRawText(),
-                        _ => string.Empty
-                    };
-                }
-            }
-
-            return jsonMap;
+            throw new InvalidDataException($"配置文件必须是 JSON 格式: {path}");
         }
 
-        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var rawLine in content.Split(["\r\n", "\n"], StringSplitOptions.None))
+        using var document = JsonDocument.Parse(content);
+        var jsonMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (document.RootElement.ValueKind == JsonValueKind.Object)
         {
-            var line = rawLine.Trim();
-            if (line.Length == 0 || line.StartsWith('#'))
-            {
-                continue;
-            }
-
-            var separatorIndex = line.IndexOf('=');
-            if (separatorIndex <= 0 || separatorIndex >= line.Length - 1)
-            {
-                continue;
-            }
-
-            var key = line[..separatorIndex].Trim();
-            var value = line[(separatorIndex + 1)..].Trim();
-            map[key] = value;
+            AddTopLevelValues(document.RootElement, jsonMap);
+            AddStructuredAliases(document.RootElement, jsonMap);
         }
 
-        return map;
+        return jsonMap;
+    }
+
+    private static void AddTopLevelValues(JsonElement root, IDictionary<string, string> map)
+    {
+        foreach (var property in root.EnumerateObject())
+        {
+            map[property.Name] = ToConfigString(property.Value);
+        }
+    }
+
+    private static void AddStructuredAliases(JsonElement root, IDictionary<string, string> map)
+    {
+        CopySectionValue(root, map, "video", "res", "VideoRes");
+        CopySectionValue(root, map, "video", "bitrateBps", "VideoBitrateBps");
+        CopySectionValue(root, map, "video", "bitrateMode", "VideoBitrateMode");
+        CopySectionValue(root, map, "video", "audioBitrateBps", "VideoAudioBitrateBps");
+        CopySectionValue(root, map, "video", "fps", "VideoFps");
+        CopySectionValue(root, map, "video", "concurrentCount", "VideoConcurrentCount");
+        CopySectionValue(root, map, "video", "useHardwareEncoder", "VideoUseHardwareEncoder");
+        CopySectionValue(root, map, "video", "nameTemplate", "VideoNameTemplate");
+
+        CopySectionValue(root, map, "materialTranscode", "enabled", "MaterialConvertEnabled");
+        CopySectionValue(root, map, "materialTranscode", "trimHeadSeconds", "MaterialTrimHeadSeconds");
+        CopySectionValue(root, map, "materialTranscode", "trimTailSeconds", "MaterialTrimTailSeconds");
+        CopySectionValue(root, map, "materialTranscode", "speedPercent", "MaterialSpeedPercent");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedEnabled", "MaterialDynamicSpeedEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedPresetName", "MaterialDynamicSpeedPresetName");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedHeadSeconds", "MaterialDynamicSpeedHeadSeconds");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedHeadPercent", "MaterialDynamicSpeedHeadPercent");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedMiddlePercent", "MaterialDynamicSpeedMiddlePercent");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedTailSeconds", "MaterialDynamicSpeedTailSeconds");
+        CopySectionValue(root, map, "materialTranscode", "dynamicSpeedTailPercent", "MaterialDynamicSpeedTailPercent");
+        CopySectionValue(root, map, "materialTranscode", "frameSamplingEnabled", "MaterialFrameSamplingEnabled");
+        CopySectionValue(root, map, "materialTranscode", "frameSamplingMode", "MaterialFrameSamplingMode");
+        CopySectionValue(root, map, "materialTranscode", "frameSamplingInterval", "MaterialFrameSamplingInterval");
+        CopySectionValue(root, map, "materialTranscode", "dropEveryNFrames", "MaterialDropEveryNFrames");
+        CopySectionValue(root, map, "materialTranscode", "dropCount", "MaterialDropCount");
+        CopySectionValue(root, map, "materialTranscode", "cropWidthPercent", "MaterialCropWidthPercent");
+        CopySectionValue(root, map, "materialTranscode", "cropHeightPercent", "MaterialCropHeightPercent");
+        CopySectionValue(root, map, "materialTranscode", "foregroundZoomPercent", "MaterialForegroundZoomPercent");
+        CopySectionValue(root, map, "materialTranscode", "dedupEnabled", "MaterialDedupEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupColorEnabled", "MaterialDedupColorEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupNoiseEnabled", "MaterialDedupNoiseEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupAudioEnabled", "MaterialDedupAudioEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupMetadataEnabled", "MaterialDedupMetadataEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupRotateEnabled", "MaterialDedupRotateEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupVignetteEnabled", "MaterialDedupVignetteEnabled");
+        CopySectionValue(root, map, "materialTranscode", "dedupFadeInEnabled", "MaterialDedupFadeInEnabled");
+        CopySectionValue(root, map, "materialTranscode", "watermarkEnabled", "MaterialWatermarkEnabled");
+        CopySectionValue(root, map, "materialTranscode", "watermarkText", "MaterialWatermarkText");
+        CopySectionValue(root, map, "materialTranscode", "watermarkFontSize", "MaterialWatermarkFontSize");
+        CopySectionValue(root, map, "materialTranscode", "watermarkPosition", "MaterialWatermarkPosition");
+        CopySectionValue(root, map, "materialTranscode", "watermarkMarginX", "MaterialWatermarkMarginX");
+        CopySectionValue(root, map, "materialTranscode", "watermarkMarginY", "MaterialWatermarkMarginY");
+        CopySectionValue(root, map, "materialTranscode", "outputWidth", "MaterialOutputWidth");
+        CopySectionValue(root, map, "materialTranscode", "outputHeight", "MaterialOutputHeight");
+        CopySectionValue(root, map, "materialTranscode", "pipWidthPercent", "MaterialPipWidthPercent");
+        CopySectionValue(root, map, "materialTranscode", "pipHeightPercent", "MaterialPipHeightPercent");
+
+        CopySectionValue(root, map, "uploadTranscode", "videoEncoder", "VideoEncoder");
+        CopySectionValue(root, map, "uploadTranscode", "preset", "VideoPreset");
+        CopySectionValue(root, map, "uploadTranscode", "targetVideoBitrateMbps", "UploadTargetVideoBitrateMbps");
+        CopySectionValue(root, map, "uploadTranscode", "maxVideoBitrateMbps", "UploadMaxVideoBitrateMbps");
+        CopySectionValue(root, map, "uploadTranscode", "minVideoBitrateMbps", "UploadMinVideoBitrateMbps");
+        CopySectionValue(root, map, "uploadTranscode", "audioBitrateKbps", "UploadAudioBitrateKbps");
+        CopySectionValue(root, map, "uploadTranscode", "bitrateFallbackEnabled", "UploadBitrateFallbackEnabled");
+        CopySectionValue(root, map, "uploadTranscode", "bitrateFallbackVideoBitrateMbps", "UploadBitrateFallbackVideoBitrateMbps");
+        CopyProfiles(root, map);
+
+        CopySectionValue(root, map, "nvenc", "cq", "NvencCq");
+        CopySectionValue(root, map, "nvenc", "maxParallel", "NvencMaxParallel");
+    }
+
+    private static void CopySectionValue(
+        JsonElement root,
+        IDictionary<string, string> map,
+        string sectionName,
+        string propertyName,
+        string targetKey)
+    {
+        if (root.TryGetProperty(sectionName, out var section) &&
+            section.ValueKind == JsonValueKind.Object &&
+            section.TryGetProperty(propertyName, out var value))
+        {
+            map[targetKey] = ToConfigString(value);
+        }
+    }
+
+    private static void CopyProfiles(JsonElement root, IDictionary<string, string> map)
+    {
+        if (!root.TryGetProperty("uploadTranscode", out var section) ||
+            section.ValueKind != JsonValueKind.Object ||
+            !section.TryGetProperty("profiles", out var profiles) ||
+            profiles.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        map["UploadBitrateProfilesJson"] = JsonSerializer.Serialize(new
+        {
+            profiles = JsonSerializer.Deserialize<object[]>(profiles.GetRawText()) ?? []
+        });
+    }
+
+    private static string ToConfigString(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? string.Empty,
+            JsonValueKind.Number => value.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            JsonValueKind.Object or JsonValueKind.Array => value.GetRawText(),
+            _ => string.Empty
+        };
     }
 
     private static string Get(IReadOnlyDictionary<string, string> map, params string[] keys)

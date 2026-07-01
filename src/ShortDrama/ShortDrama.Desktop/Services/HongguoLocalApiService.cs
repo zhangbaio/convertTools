@@ -60,7 +60,7 @@ public sealed class HongguoLocalApiService
 
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
-            $"{baseUrl}/search?q={Uri.EscapeDataString(keyword)}&limit=40&page={Math.Max(1, page)}");
+            $"{baseUrl}/search?q={Uri.EscapeDataString(keyword)}&limit=40&page={Math.Max(1, page)}&source=hglocal");
         ApplyHeaders(request, settings);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -148,7 +148,7 @@ public sealed class HongguoLocalApiService
         }
 
         var bookId = StripPrefix(prefixedOrRawBookId, HongguoLocalBookPrefix);
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/episodes?series_id={Uri.EscapeDataString(bookId)}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/episodes?series_id={Uri.EscapeDataString(bookId)}&source=hglocal");
         ApplyHeaders(request, settings);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -198,7 +198,7 @@ public sealed class HongguoLocalApiService
         }
 
         var videoId = StripPrefix(prefixedOrRawVideoId, HongguoLocalEpisodePrefix);
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/video_url?vid={Uri.EscapeDataString(videoId)}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/video_url?vid={Uri.EscapeDataString(videoId)}&source=hglocal");
         ApplyHeaders(request, settings);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -235,7 +235,7 @@ public sealed class HongguoLocalApiService
         var onlyTodayQuery = onlyToday ? "&only_today=true" : string.Empty;
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
-            $"{baseUrl}/latest?genre={Uri.EscapeDataString(genre)}{onlyTodayQuery}&limit=1000");
+            $"{baseUrl}/latest?genre={Uri.EscapeDataString(genre)}{onlyTodayQuery}&limit=1000&source=hglocal");
         ApplyHeaders(request, settings);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);

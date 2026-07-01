@@ -1082,13 +1082,7 @@ public sealed class WorkService : IWorkService
     private static string? ResolveConfigFilePath(string configDir)
     {
         var jsonPath = Path.Combine(configDir, "config.json");
-        if (File.Exists(jsonPath))
-        {
-            return jsonPath;
-        }
-
-        var legacyPath = Path.Combine(configDir, "config.txt");
-        return File.Exists(legacyPath) ? legacyPath : null;
+        return File.Exists(jsonPath) ? jsonPath : null;
     }
 
     private static Dictionary<string, string> ParseProjectInfoValues(IEnumerable<string> lines)

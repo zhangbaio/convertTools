@@ -50,7 +50,7 @@ public sealed class BatchFileRenamerTests
     {
         var projectDir = Directory.CreateTempSubdirectory().FullName;
         var videosDir = Directory.CreateDirectory(Path.Combine(projectDir, "videos")).FullName;
-        var configPath = Path.Combine(projectDir, "config.txt");
+        var configPath = Path.Combine(projectDir, "config.json");
 
         await File.WriteAllTextAsync(Path.Combine(projectDir, "短剧信息.txt"), """
 原剧名: 原剧名
@@ -61,7 +61,11 @@ public sealed class BatchFileRenamerTests
 制作公司: 湖北云漫科技有限公司
 """);
 
-        await File.WriteAllTextAsync(configPath, "VideoNameTemplate={index}-{name}");
+        await File.WriteAllTextAsync(configPath, """
+{
+  "VideoNameTemplate": "{index}-{name}"
+}
+""");
         await File.WriteAllBytesAsync(Path.Combine(videosDir, "episode1.mov"), [1]);
 
         var renamer = new BatchFileRenamer(

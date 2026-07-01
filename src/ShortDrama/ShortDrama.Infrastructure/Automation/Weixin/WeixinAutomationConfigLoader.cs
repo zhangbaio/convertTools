@@ -444,8 +444,7 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
             {
                 foreach (var candidate in new[]
                          {
-                             Path.Combine(current, "config", "config.json"),
-                             Path.Combine(current, "config", "config.txt")
+                             Path.Combine(current, "config", "config.json")
                          })
                 {
                     if (visited.Add(candidate))

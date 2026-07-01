@@ -47,6 +47,8 @@ public sealed class LoginSettingsTab : UserControl
         panel.Children.Add(Row("账号", BindText(nameof(ConfigWindowViewModel.HgnewAccount))));
         panel.Children.Add(Row("密码", BindPassword(nameof(ConfigWindowViewModel.HgnewPassword))));
         panel.Children.Add(Row("UDID", BuildHgnewUdidRow()));
+        panel.Children.Add(Row("下载超时(秒)", BindText(nameof(ConfigWindowViewModel.HongguoDownloadTimeoutSeconds))));
+        panel.Children.Add(Row("单集重试次数", BindText(nameof(ConfigWindowViewModel.HongguoEpisodeDownloadAttempts))));
         panel.Children.Add(Row("客户端版本", BindText(nameof(ConfigWindowViewModel.HgnewClientVersion))));
         panel.Children.Add(Row("测试结果", ReadOnlyText(nameof(ConfigWindowViewModel.HgnewProbeStatus))));
 
@@ -54,10 +56,16 @@ public sealed class LoginSettingsTab : UserControl
         panel.Children.Add(Row("本地链路地址", BindText(nameof(ConfigWindowViewModel.HongguoLocalBaseUrl))));
         panel.Children.Add(Row("本地链路密钥", BindText(nameof(ConfigWindowViewModel.HongguoLocalApiKey))));
 
+        panel.Children.Add(Row("测试结果", BuildHongguoLocalProbeRow()));
+
         panel.Children.Add(SectionTitle("pikachu"));
         panel.Children.Add(Row("内容类型", BuildPikachuTypeCombo()));
         panel.Children.Add(Row("代理服务地址", BindText(nameof(ConfigWindowViewModel.PikachuServerUrl))));
         panel.Children.Add(Row("番茄 Cookie", MultiLineText(nameof(ConfigWindowViewModel.PikachuFanqieCookie), 110)));
+
+        panel.Children.Add(Row("DeviceId", BindText(nameof(ConfigWindowViewModel.PikachuDeviceId))));
+        panel.Children.Add(Row("客户端版本", BindText(nameof(ConfigWindowViewModel.PikachuClientVersion))));
+        panel.Children.Add(Row("测试结果", BuildPikachuProbeRow()));
 
         return panel;
     }
@@ -145,6 +153,63 @@ public sealed class LoginSettingsTab : UserControl
         return grid;
     }
 
+    private static Control BuildHongguoLocalProbeRow()
+    {
+        var grid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            ColumnSpacing = 8
+        };
+
+        var status = ReadOnlyText(nameof(ConfigWindowViewModel.HongguoLocalProbeStatus));
+        grid.Children.Add(status);
+        Grid.SetColumn(status, 0);
+
+        var probeButton = new Button
+        {
+            Content = "测试 hglocal",
+            MinWidth = 110
+        };
+        probeButton.Click += ProbeHongguoLocal_Click;
+        grid.Children.Add(probeButton);
+        Grid.SetColumn(probeButton, 1);
+
+        return grid;
+    }
+
+    private static Control BuildPikachuProbeRow()
+    {
+        var grid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"),
+            ColumnSpacing = 8
+        };
+
+        var status = ReadOnlyText(nameof(ConfigWindowViewModel.PikachuProbeStatus));
+        grid.Children.Add(status);
+        Grid.SetColumn(status, 0);
+
+        var readButton = new Button
+        {
+            Content = "从红果读取",
+            MinWidth = 110
+        };
+        readButton.Click += ReadPikachuRuntime_Click;
+        grid.Children.Add(readButton);
+        Grid.SetColumn(readButton, 1);
+
+        var probeButton = new Button
+        {
+            Content = "测试 pikachu",
+            MinWidth = 110
+        };
+        probeButton.Click += ProbePikachu_Click;
+        grid.Children.Add(probeButton);
+        Grid.SetColumn(probeButton, 2);
+
+        return grid;
+    }
+
     private static Control BuildPikachuTypeCombo()
     {
         var combo = new ComboBox
@@ -177,6 +242,30 @@ public sealed class LoginSettingsTab : UserControl
         if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
         {
             await viewModel.ProbeHgnewLoginAsync();
+        }
+    }
+
+    private static async void ProbeHongguoLocal_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
+        {
+            await viewModel.ProbeHongguoLocalAsync();
+        }
+    }
+
+    private static async void ReadPikachuRuntime_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
+        {
+            await viewModel.ReadPikachuRuntimeAsync();
+        }
+    }
+
+    private static async void ProbePikachu_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
+        {
+            await viewModel.ProbePikachuAsync();
         }
     }
 

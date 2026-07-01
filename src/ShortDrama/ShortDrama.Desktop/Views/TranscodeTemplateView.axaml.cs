@@ -2,7 +2,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Markup.Xaml;
-using Avalonia.Media;
 using Microsoft.Extensions.DependencyInjection;
 using ShortDrama.Desktop.Models;
 using ShortDrama.Desktop.Services;
@@ -50,7 +49,7 @@ public partial class TranscodeTemplateView : UserControl
     {
         VideoEncoderComboBox.ItemsSource = new[]
         {
-            new WorkflowStepOption("auto", "Auto"),
+            new WorkflowStepOption("auto", "自动"),
             new WorkflowStepOption("libx264", "CPU x264"),
             new WorkflowStepOption("h264_nvenc", "NVIDIA NVENC"),
             new WorkflowStepOption("h264_videotoolbox", "Apple VideoToolbox")
@@ -82,18 +81,11 @@ public partial class TranscodeTemplateView : UserControl
     private void WireEvents()
     {
         WirePreviewRefresh(MaterialConvertEnabledCheckBox);
-        WirePreviewRefresh(VideoEncoderComboBox);
-        WirePreviewRefresh(VideoPresetComboBox);
-        WirePreviewRefresh(NvencCqTextBox);
-        WirePreviewRefresh(NvencMaxParallelTextBox);
-        WirePreviewRefresh(VerboseTranscodeLogCheckBox);
-        WirePreviewRefresh(SkipBitrateDownscaleCheckBox);
-        WirePreviewRefresh(UploadTargetBitrateTextBox);
-        WirePreviewRefresh(UploadMaxBitrateTextBox);
-        WirePreviewRefresh(UploadMinBitrateTextBox);
-        WirePreviewRefresh(UploadAudioBitrateTextBox);
-        WirePreviewRefresh(UploadFallbackEnabledCheckBox);
-        WirePreviewRefresh(UploadFallbackBitrateTextBox);
+        WirePreviewRefresh(VideoEncoderComboBox, VideoPresetComboBox);
+        WirePreviewRefresh(TranscodeParallelTextBox, NvencCqTextBox, NvencMaxParallelTextBox);
+        WirePreviewRefresh(VerboseTranscodeLogCheckBox, SkipBitrateDownscaleCheckBox);
+        WirePreviewRefresh(UploadTargetBitrateTextBox, UploadMaxBitrateTextBox, UploadMinBitrateTextBox, UploadAudioBitrateTextBox);
+        WirePreviewRefresh(UploadFallbackEnabledCheckBox, UploadFallbackBitrateTextBox);
         WirePreviewRefresh(Profile720EnabledCheckBox, Profile720MinTextBox, Profile720MaxTextBox, Profile720BitrateTextBox, Profile720AudioTextBox);
         WirePreviewRefresh(Profile1080EnabledCheckBox, Profile1080MinTextBox, Profile1080MaxTextBox, Profile1080BitrateTextBox, Profile1080AudioTextBox);
         WirePreviewRefresh(Profile2kEnabledCheckBox, Profile2kMinTextBox, Profile2kMaxTextBox, Profile2kBitrateTextBox, Profile2kAudioTextBox);
@@ -101,16 +93,17 @@ public partial class TranscodeTemplateView : UserControl
         WirePreviewRefresh(DynamicSpeedEnabledCheckBox, DynamicSpeedHeadSecondsTextBox, DynamicSpeedHeadPercentTextBox, DynamicSpeedMiddlePercentTextBox, DynamicSpeedTailSecondsTextBox, DynamicSpeedTailPercentTextBox);
         WirePreviewRefresh(FrameSamplingEnabledCheckBox, FrameSamplingModeComboBox, FrameSamplingIntervalTextBox);
         WirePreviewRefresh(CropWidthPercentTextBox, CropHeightPercentTextBox, OutputWidthTextBox, OutputHeightTextBox, ForegroundZoomPercentTextBox, PipWidthPercentTextBox, PipHeightPercentTextBox);
+        WirePreviewRefresh(DedupEnabledCheckBox, DedupColorCheckBox, DedupNoiseCheckBox, DedupAudioCheckBox, DedupMetadataCheckBox, DedupRotateCheckBox, DedupVignetteCheckBox, DedupFadeInCheckBox);
         WirePreviewRefresh(WatermarkEnabledCheckBox, WatermarkTextTextBox, WatermarkFontSizeTextBox, WatermarkPositionComboBox, WatermarkMarginXTextBox, WatermarkMarginYTextBox);
 
         DynamicSpeedEnabledCheckBox.IsCheckedChanged += (_, _) => RefreshDynamicSpeedState();
         DynamicSpeedPresetComboBox.SelectionChanged += (_, _) => ApplySelectedDynamicSpeedPreset();
         FrameSamplingEnabledCheckBox.IsCheckedChanged += (_, _) => RefreshFrameSamplingState();
+        DedupEnabledCheckBox.IsCheckedChanged += (_, _) => RefreshDedupState();
         WatermarkEnabledCheckBox.IsCheckedChanged += (_, _) => RefreshWatermarkState();
         WatermarkPositionComboBox.SelectionChanged += (_, _) => RefreshWatermarkState();
         UploadFallbackEnabledCheckBox.IsCheckedChanged += (_, _) => RefreshFallbackState();
 
-        TrimHeadTextBox.TextChanged += (_, _) => { if (!_updating) RefreshPreview(); };
         DynamicSpeedHeadSecondsTextBox.TextChanged += (_, _) => MarkDynamicPresetCustom();
         DynamicSpeedHeadPercentTextBox.TextChanged += (_, _) => MarkDynamicPresetCustom();
         DynamicSpeedMiddlePercentTextBox.TextChanged += (_, _) => MarkDynamicPresetCustom();
@@ -163,22 +156,21 @@ public partial class TranscodeTemplateView : UserControl
         }
 
         _mainWindowViewModel = DataContext as MainWindowViewModel;
-        if (_mainWindowViewModel is not null)
-        {
-            _mainWindowViewModel.PropertyChanged += OnMainWindowViewModelPropertyChanged;
-            _currentRootDir = _mainWindowViewModel.RootDir;
-            LoadConfig();
-        }
-    }
-
-    private void OnMainWindowViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (!string.Equals(e.PropertyName, nameof(MainWindowViewModel.RootDir), StringComparison.Ordinal))
+        if (_mainWindowViewModel is null)
         {
             return;
         }
 
-        if (_mainWindowViewModel is null || string.Equals(_currentRootDir, _mainWindowViewModel.RootDir, StringComparison.OrdinalIgnoreCase))
+        _mainWindowViewModel.PropertyChanged += OnMainWindowViewModelPropertyChanged;
+        _currentRootDir = _mainWindowViewModel.RootDir;
+        LoadConfig();
+    }
+
+    private void OnMainWindowViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!string.Equals(e.PropertyName, nameof(MainWindowViewModel.RootDir), StringComparison.Ordinal) ||
+            _mainWindowViewModel is null ||
+            string.Equals(_currentRootDir, _mainWindowViewModel.RootDir, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
@@ -189,12 +181,7 @@ public partial class TranscodeTemplateView : UserControl
 
     private void ResolveServices()
     {
-        if (_configService is not null)
-        {
-            return;
-        }
-
-        if (Application.Current is not App app)
+        if (_configService is not null || Application.Current is not App app)
         {
             return;
         }
@@ -222,8 +209,9 @@ public partial class TranscodeTemplateView : UserControl
                 ? (project.VideoUseHardwareEncoder ? "auto" : "libx264")
                 : project.VideoEncoder);
             VideoPresetComboBox.SelectedItem = string.IsNullOrWhiteSpace(project.VideoPreset) ? "veryfast" : project.VideoPreset;
+            TranscodeParallelTextBox.Text = DefaultText(project.VideoConcurrentCount, "4");
             NvencCqTextBox.Text = DefaultText(project.NvencCq, "21");
-            NvencMaxParallelTextBox.Text = DefaultText(project.NvencMaxParallel, DefaultText(project.VideoConcurrentCount, "4"));
+            NvencMaxParallelTextBox.Text = DefaultText(project.NvencMaxParallel, "4");
             VerboseTranscodeLogCheckBox.IsChecked = project.VerboseTranscodeLogEnabled;
             SkipBitrateDownscaleCheckBox.IsChecked = project.SkipBitrateDownscaleForHighBitrate;
             UploadTargetBitrateTextBox.Text = string.IsNullOrWhiteSpace(project.UploadTargetVideoBitrateMbps)
@@ -260,6 +248,16 @@ public partial class TranscodeTemplateView : UserControl
             CropHeightPercentTextBox.Text = DefaultText(project.MaterialCropHeightPercent, "0");
             CropWidthPercentTextBox.Text = DefaultText(project.MaterialCropWidthPercent, "0");
             ForegroundZoomPercentTextBox.Text = DefaultText(project.MaterialForegroundZoomPercent, "0");
+
+            DedupEnabledCheckBox.IsChecked = project.MaterialDedupEnabled;
+            DedupColorCheckBox.IsChecked = project.MaterialDedupColorEnabled;
+            DedupNoiseCheckBox.IsChecked = project.MaterialDedupNoiseEnabled;
+            DedupAudioCheckBox.IsChecked = project.MaterialDedupAudioEnabled;
+            DedupMetadataCheckBox.IsChecked = project.MaterialDedupMetadataEnabled;
+            DedupRotateCheckBox.IsChecked = project.MaterialDedupRotateEnabled;
+            DedupVignetteCheckBox.IsChecked = project.MaterialDedupVignetteEnabled;
+            DedupFadeInCheckBox.IsChecked = project.MaterialDedupFadeInEnabled;
+
             WatermarkEnabledCheckBox.IsChecked = project.MaterialWatermarkEnabled;
             WatermarkTextTextBox.Text = project.MaterialWatermarkText;
             WatermarkFontSizeTextBox.Text = DefaultText(project.MaterialWatermarkFontSize, "35");
@@ -278,6 +276,7 @@ public partial class TranscodeTemplateView : UserControl
 
         RefreshDynamicSpeedState();
         RefreshFrameSamplingState();
+        RefreshDedupState();
         RefreshWatermarkState();
         RefreshFallbackState();
         RefreshPreview();
@@ -292,8 +291,9 @@ public partial class TranscodeTemplateView : UserControl
             return;
         }
 
-        if (!TryParseInteger(NvencCqTextBox.Text, 0, 51, out var nvencCq) ||
-            !TryParseInteger(NvencMaxParallelTextBox.Text, 1, 16, out var nvencMaxParallel) ||
+        if (!TryParseInteger(TranscodeParallelTextBox.Text, 1, 8, out var transcodeParallel) ||
+            !TryParseInteger(NvencCqTextBox.Text, 0, 51, out var nvencCq) ||
+            !TryParseInteger(NvencMaxParallelTextBox.Text, 1, 8, out var nvencMaxParallel) ||
             !TryParseDouble(UploadTargetBitrateTextBox.Text, 1d, 50d, out var targetBitrate) ||
             !TryParseDouble(UploadMaxBitrateTextBox.Text, 1d, 80d, out var maxBitrate) ||
             !TryParseDouble(UploadMinBitrateTextBox.Text, 0d, 80d, out var minBitrate) ||
@@ -336,16 +336,16 @@ public partial class TranscodeTemplateView : UserControl
         }
 
         var project = _configService.LoadProject(_currentRootDir);
-        var selectedEncoder = GetSelectedOptionKey(VideoEncoderComboBox, "libx264");
+        var selectedEncoder = GetSelectedOptionKey(VideoEncoderComboBox, "auto");
         var updated = project with
         {
             MaterialConvertEnabled = MaterialConvertEnabledCheckBox.IsChecked == true,
             VideoUseHardwareEncoder = !string.Equals(selectedEncoder, "libx264", StringComparison.OrdinalIgnoreCase),
             VideoEncoder = selectedEncoder,
             VideoPreset = VideoPresetComboBox.SelectedItem as string ?? "veryfast",
+            VideoConcurrentCount = transcodeParallel.ToString(CultureInfo.InvariantCulture),
             NvencCq = nvencCq.ToString(CultureInfo.InvariantCulture),
             NvencMaxParallel = nvencMaxParallel.ToString(CultureInfo.InvariantCulture),
-            VideoConcurrentCount = nvencMaxParallel.ToString(CultureInfo.InvariantCulture),
             VerboseTranscodeLogEnabled = VerboseTranscodeLogCheckBox.IsChecked == true,
             SkipBitrateDownscaleForHighBitrate = SkipBitrateDownscaleCheckBox.IsChecked == true,
             UploadTargetVideoBitrateMbps = targetBitrate.ToString("0.###", CultureInfo.InvariantCulture),
@@ -356,9 +356,7 @@ public partial class TranscodeTemplateView : UserControl
             UploadBitrateFallbackVideoBitrateMbps = fallbackBitrate.ToString("0.###", CultureInfo.InvariantCulture),
             UploadBitrateProfilesJson = UploadTranscodeBitrateProfiles.Serialize(profiles!),
             VideoBitrateBps = ToBitrateBps(targetBitrate).ToString(CultureInfo.InvariantCulture),
-            VideoBitrateMode = string.Equals(selectedEncoder, "libx264", StringComparison.OrdinalIgnoreCase)
-                ? "Cbr"
-                : DefaultText(project.VideoBitrateMode, "Cbr"),
+            VideoBitrateMode = "Cbr",
             VideoAudioBitrateBps = (audioBitrate * 1000).ToString(CultureInfo.InvariantCulture),
             MaterialTrimHeadSeconds = trimHeadSeconds.ToString("0.###", CultureInfo.InvariantCulture),
             MaterialTrimTailSeconds = trimTailSeconds.ToString("0.###", CultureInfo.InvariantCulture),
@@ -378,6 +376,14 @@ public partial class TranscodeTemplateView : UserControl
             MaterialCropWidthPercent = cropWidthPercent.ToString("0.###", CultureInfo.InvariantCulture),
             MaterialCropHeightPercent = cropHeightPercent.ToString("0.###", CultureInfo.InvariantCulture),
             MaterialForegroundZoomPercent = foregroundZoomPercent.ToString("0.###", CultureInfo.InvariantCulture),
+            MaterialDedupEnabled = DedupEnabledCheckBox.IsChecked == true,
+            MaterialDedupColorEnabled = DedupColorCheckBox.IsChecked == true,
+            MaterialDedupNoiseEnabled = DedupNoiseCheckBox.IsChecked == true,
+            MaterialDedupAudioEnabled = DedupAudioCheckBox.IsChecked == true,
+            MaterialDedupMetadataEnabled = DedupMetadataCheckBox.IsChecked == true,
+            MaterialDedupRotateEnabled = DedupRotateCheckBox.IsChecked == true,
+            MaterialDedupVignetteEnabled = DedupVignetteCheckBox.IsChecked == true,
+            MaterialDedupFadeInEnabled = DedupFadeInCheckBox.IsChecked == true,
             MaterialWatermarkEnabled = WatermarkEnabledCheckBox.IsChecked == true,
             MaterialWatermarkText = WatermarkTextTextBox.Text?.Trim() ?? string.Empty,
             MaterialWatermarkFontSize = watermarkFontSize.ToString(CultureInfo.InvariantCulture),
@@ -392,7 +398,7 @@ public partial class TranscodeTemplateView : UserControl
 
         _configService.SaveProject(updated);
         LoadConfig();
-        SetStatus("转码模板配置已保存。");
+        SetStatus("转码模板配置已保存到 JSON。");
     }
 
     private void ResetToDefaults()
@@ -403,6 +409,7 @@ public partial class TranscodeTemplateView : UserControl
             MaterialConvertEnabledCheckBox.IsChecked = true;
             SelectComboByKey(VideoEncoderComboBox, "auto");
             VideoPresetComboBox.SelectedItem = "veryfast";
+            TranscodeParallelTextBox.Text = "4";
             NvencCqTextBox.Text = "21";
             NvencMaxParallelTextBox.Text = "4";
             VerboseTranscodeLogCheckBox.IsChecked = false;
@@ -429,14 +436,20 @@ public partial class TranscodeTemplateView : UserControl
             DynamicSpeedMiddlePercentTextBox.Text = "6";
             DynamicSpeedTailSecondsTextBox.Text = "2.5";
             DynamicSpeedTailPercentTextBox.Text = "8";
-
             FrameSamplingEnabledCheckBox.IsChecked = true;
             SelectComboByKey(FrameSamplingModeComboBox, "fixed_interval");
             FrameSamplingIntervalTextBox.Text = "20";
-
             CropHeightPercentTextBox.Text = "0";
             CropWidthPercentTextBox.Text = "0";
             ForegroundZoomPercentTextBox.Text = "0";
+            DedupEnabledCheckBox.IsChecked = false;
+            DedupColorCheckBox.IsChecked = false;
+            DedupNoiseCheckBox.IsChecked = false;
+            DedupAudioCheckBox.IsChecked = false;
+            DedupMetadataCheckBox.IsChecked = false;
+            DedupRotateCheckBox.IsChecked = false;
+            DedupVignetteCheckBox.IsChecked = false;
+            DedupFadeInCheckBox.IsChecked = false;
             WatermarkEnabledCheckBox.IsChecked = false;
             WatermarkTextTextBox.Text = string.Empty;
             WatermarkFontSizeTextBox.Text = "35";
@@ -455,6 +468,7 @@ public partial class TranscodeTemplateView : UserControl
 
         RefreshDynamicSpeedState();
         RefreshFrameSamplingState();
+        RefreshDedupState();
         RefreshWatermarkState();
         RefreshFallbackState();
         RefreshPreview();
@@ -478,6 +492,18 @@ public partial class TranscodeTemplateView : UserControl
         var enabled = FrameSamplingEnabledCheckBox.IsChecked == true;
         FrameSamplingModeComboBox.IsEnabled = enabled;
         FrameSamplingIntervalTextBox.IsEnabled = enabled;
+    }
+
+    private void RefreshDedupState()
+    {
+        var enabled = DedupEnabledCheckBox.IsChecked == true;
+        DedupColorCheckBox.IsEnabled = enabled;
+        DedupNoiseCheckBox.IsEnabled = enabled;
+        DedupAudioCheckBox.IsEnabled = enabled;
+        DedupMetadataCheckBox.IsEnabled = enabled;
+        DedupRotateCheckBox.IsEnabled = enabled;
+        DedupVignetteCheckBox.IsEnabled = enabled;
+        DedupFadeInCheckBox.IsEnabled = enabled;
     }
 
     private void RefreshWatermarkState()
@@ -508,7 +534,8 @@ public partial class TranscodeTemplateView : UserControl
         }
 
         var presetKey = GetSelectedOptionKey(DynamicSpeedPresetComboBox, "custom");
-        if (!DynamicSpeedPresets.TryGetValue(presetKey, out var preset) || string.Equals(preset.Key, "custom", StringComparison.Ordinal))
+        if (!DynamicSpeedPresets.TryGetValue(presetKey, out var preset) ||
+            string.Equals(preset.Key, "custom", StringComparison.Ordinal))
         {
             return;
         }
@@ -532,12 +559,8 @@ public partial class TranscodeTemplateView : UserControl
 
     private void MarkDynamicPresetCustom()
     {
-        if (_updating || _updatingDynamicPreset)
-        {
-            return;
-        }
-
-        if (string.Equals(GetSelectedOptionKey(DynamicSpeedPresetComboBox, "custom"), "custom", StringComparison.OrdinalIgnoreCase))
+        if (_updating || _updatingDynamicPreset ||
+            string.Equals(GetSelectedOptionKey(DynamicSpeedPresetComboBox, "custom"), "custom", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
@@ -613,13 +636,12 @@ public partial class TranscodeTemplateView : UserControl
         var textX = watermarkPosition == "top_left"
             ? watermarkMarginX
             : Math.Max(0, outputWidth - desiredSize.Width - watermarkMarginX);
-        var textY = Math.Max(0, watermarkMarginY);
         Canvas.SetLeft(PreviewWatermarkTextBlock, textX);
-        Canvas.SetTop(PreviewWatermarkTextBlock, textY);
+        Canvas.SetTop(PreviewWatermarkTextBlock, Math.Max(0, watermarkMarginY));
 
         PreviewDescriptionTextBlock.Text = foregroundZoomPercent > 0.001d
-            ? $"Portrait preview\nZoom +{foregroundZoomPercent:0.#}%"
-            : "Portrait preview";
+            ? $"竖屏预览\n放大 +{foregroundZoomPercent:0.#}%"
+            : "竖屏预览";
         Canvas.SetLeft(PreviewDescriptionTextBlock, 18);
         Canvas.SetTop(PreviewDescriptionTextBlock, 18);
     }

@@ -15,8 +15,7 @@ public sealed class HongguoNewApiService
     private const string FallbackDailyUrl = "http://129.211.169.30:996/new.php";
     private const string AppKey = "c8b9d4a1f3e265c89a0b1d3f4e5a6c7b";
     private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("asKVK4K5tEPg4inz");
-    private const string DefaultVersion = "1.3.4";
-    private const string MinVersion = DefaultVersion;
+    private const string DefaultVersion = "1.3.8";
     private static readonly string[] AxiosWrapperKeys = ["status", "statusText", "headers", "config", "request"];
     private static readonly HashSet<int> LoginRetryCodes = [46, 141, 401];
     private static readonly string[] LoginRetryHints =
@@ -664,8 +663,7 @@ public sealed class HongguoNewApiService
 
     private static string NormalizeVersion(string clientVersion)
     {
-        var version = string.IsNullOrWhiteSpace(clientVersion) ? DefaultVersion : clientVersion.Trim();
-        return CompareVersions(version, MinVersion) < 0 ? MinVersion : version;
+        return string.IsNullOrWhiteSpace(clientVersion) ? DefaultVersion : clientVersion.Trim();
     }
 
     private static string BuildVideoPlaybackParam(string videoId, string quality, string token, string udid)

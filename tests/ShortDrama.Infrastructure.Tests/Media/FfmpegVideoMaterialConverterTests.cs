@@ -44,22 +44,29 @@ public sealed class FfmpegVideoMaterialConverterTests
         var inputDir = Directory.CreateTempSubdirectory();
         var outputDir = Directory.CreateTempSubdirectory();
         var projectDir = Directory.CreateTempSubdirectory();
-        var configPath = Path.Combine(projectDir.FullName, "config.txt");
+        var configPath = Path.Combine(projectDir.FullName, "config.json");
 
         await File.WriteAllTextAsync(configPath, """
-MaterialConvertEnabled=true
-MaterialTrimHeadSeconds=4
-MaterialTrimTailSeconds=2
-MaterialSpeedPercent=10
-MaterialDropEveryNFrames=20
-MaterialDropCount=1
-MaterialCropWidthPercent=2
-MaterialCropHeightPercent=2
-VideoBitrateBps=5000000
-VideoBitrateMode=Cbr
-VideoAudioBitrateBps=96000
-VideoFps=30
-VideoUseHardwareEncoder=false
+{
+  "materialTranscode": {
+    "enabled": true,
+    "trimHeadSeconds": 4,
+    "trimTailSeconds": 2,
+    "speedPercent": 10,
+    "frameSamplingEnabled": true,
+    "frameSamplingMode": "fixed_interval",
+    "frameSamplingInterval": 20,
+    "cropWidthPercent": 2,
+    "cropHeightPercent": 2
+  },
+  "video": {
+    "bitrateBps": 5000000,
+    "bitrateMode": "Cbr",
+    "audioBitrateBps": 96000,
+    "fps": 30,
+    "useHardwareEncoder": false
+  }
+}
 """);
 
         var inputPath = Path.Combine(inputDir.FullName, "episode01.mp4");
@@ -95,41 +102,47 @@ VideoUseHardwareEncoder=false
         var inputDir = Directory.CreateTempSubdirectory();
         var outputDir = Directory.CreateTempSubdirectory();
         var projectDir = Directory.CreateTempSubdirectory();
-        var configPath = Path.Combine(projectDir.FullName, "config.txt");
+        var configPath = Path.Combine(projectDir.FullName, "config.json");
 
         await File.WriteAllTextAsync(configPath, """
-MaterialConvertEnabled=true
-MaterialTrimHeadSeconds=0.5
-MaterialTrimTailSeconds=0.5
-MaterialSpeedPercent=0
-MaterialDynamicSpeedEnabled=true
-MaterialDynamicSpeedPresetName=light_rhythm
-MaterialDynamicSpeedHeadSeconds=2.5
-MaterialDynamicSpeedHeadPercent=8
-MaterialDynamicSpeedMiddlePercent=6
-MaterialDynamicSpeedTailSeconds=2.5
-MaterialDynamicSpeedTailPercent=8
-MaterialFrameSamplingEnabled=true
-MaterialFrameSamplingMode=fixed_interval
-MaterialFrameSamplingInterval=20
-MaterialCropWidthPercent=0
-MaterialCropHeightPercent=0
-MaterialForegroundZoomPercent=7
-MaterialWatermarkEnabled=true
-MaterialWatermarkText=TEST
-MaterialWatermarkFontSize=35
-MaterialWatermarkPosition=top_right
-MaterialWatermarkMarginX=30
-MaterialWatermarkMarginY=30
-MaterialOutputWidth=1080
-MaterialOutputHeight=1920
-MaterialPipWidthPercent=80
-MaterialPipHeightPercent=70
-VideoBitrateBps=5000000
-VideoBitrateMode=Cbr
-VideoAudioBitrateBps=96000
-VideoFps=30
-VideoUseHardwareEncoder=false
+{
+  "materialTranscode": {
+    "enabled": true,
+    "trimHeadSeconds": 0.5,
+    "trimTailSeconds": 0.5,
+    "speedPercent": 0,
+    "dynamicSpeedEnabled": true,
+    "dynamicSpeedPresetName": "light_rhythm",
+    "dynamicSpeedHeadSeconds": 2.5,
+    "dynamicSpeedHeadPercent": 8,
+    "dynamicSpeedMiddlePercent": 6,
+    "dynamicSpeedTailSeconds": 2.5,
+    "dynamicSpeedTailPercent": 8,
+    "frameSamplingEnabled": true,
+    "frameSamplingMode": "fixed_interval",
+    "frameSamplingInterval": 20,
+    "cropWidthPercent": 0,
+    "cropHeightPercent": 0,
+    "foregroundZoomPercent": 7,
+    "watermarkEnabled": true,
+    "watermarkText": "TEST",
+    "watermarkFontSize": 35,
+    "watermarkPosition": "top_right",
+    "watermarkMarginX": 30,
+    "watermarkMarginY": 30,
+    "outputWidth": 1080,
+    "outputHeight": 1920,
+    "pipWidthPercent": 80,
+    "pipHeightPercent": 70
+  },
+  "video": {
+    "bitrateBps": 5000000,
+    "bitrateMode": "Cbr",
+    "audioBitrateBps": 96000,
+    "fps": 30,
+    "useHardwareEncoder": false
+  }
+}
 """);
 
         var inputPath = Path.Combine(inputDir.FullName, "episode01.mp4");
@@ -163,6 +176,75 @@ VideoUseHardwareEncoder=false
         filterComplex.Should().Contain("pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black");
         filterComplex.Should().Contain("drawtext=text='TEST'");
         filterComplex.Should().Contain("setpts=N/(30*TB)");
+    }
+
+    [Fact]
+    public async Task ConvertAsync_Should_Apply_Dedup_Filters_From_Json()
+    {
+        var inputDir = Directory.CreateTempSubdirectory();
+        var outputDir = Directory.CreateTempSubdirectory();
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = Path.Combine(projectDir.FullName, "config.json");
+
+        await File.WriteAllTextAsync(configPath, """
+{
+  "materialTranscode": {
+    "enabled": true,
+    "trimHeadSeconds": 0,
+    "trimTailSeconds": 0,
+    "frameSamplingEnabled": false,
+    "dedupEnabled": true,
+    "dedupColorEnabled": true,
+    "dedupNoiseEnabled": true,
+    "dedupAudioEnabled": true,
+    "dedupMetadataEnabled": true,
+    "dedupRotateEnabled": true,
+    "dedupVignetteEnabled": true,
+    "dedupFadeInEnabled": true
+  },
+  "video": {
+    "bitrateBps": 5000000,
+    "bitrateMode": "Cbr",
+    "audioBitrateBps": 96000,
+    "fps": 30,
+    "useHardwareEncoder": false
+  }
+}
+""");
+
+        var inputPath = Path.Combine(inputDir.FullName, "episode01.mp4");
+        var outputPath = Path.Combine(outputDir.FullName, "episode01.mp4");
+        await File.WriteAllBytesAsync(inputPath, [1, 2, 3]);
+
+        var runner = new ScriptedProcessRunner(new Dictionary<string, ProbeScenario>(StringComparer.Ordinal)
+        {
+            [inputPath] = new ProbeScenario(DurationSeconds: 90d, Width: 1080, Height: 1920, VideoBitrateBps: 5_500_000, AudioBitrateBps: 128_000),
+            [outputPath] = new ProbeScenario(DurationSeconds: 90d, Width: 1080, Height: 1920, VideoBitrateBps: 5_000_000, AudioBitrateBps: 96_000)
+        });
+
+        var converter = new FfmpegVideoMaterialConverter(
+            runner,
+            NullLogger<FfmpegVideoMaterialConverter>.Instance);
+
+        var result = await converter.ConvertAsync(
+            new VideoMaterialConvertRequest(projectDir.FullName, inputDir.FullName, outputDir.FullName, configPath, Overwrite: true),
+            progress: null,
+            CancellationToken.None);
+
+        result.ConvertedFiles.Should().Be(1);
+        runner.FfmpegInvocations.Should().ContainSingle();
+        var args = runner.FfmpegInvocations[0];
+        var filterComplex = args.SkipWhile(arg => !string.Equals(arg, "-filter_complex", StringComparison.Ordinal))
+            .Skip(1)
+            .First();
+
+        filterComplex.Should().Contain("eq=brightness=");
+        filterComplex.Should().Contain("noise=alls=1.2");
+        filterComplex.Should().Contain("rotate=");
+        filterComplex.Should().Contain("vignette=PI/8");
+        filterComplex.Should().Contain("fade=t=in:st=0:d=0.25");
+        filterComplex.Should().Contain("volume=0.998");
+        args.Should().ContainInOrder("-map_metadata", "-1");
     }
 
     private sealed class RecordingProcessRunner : IExternalProcessRunner

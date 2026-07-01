@@ -27,6 +27,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private const string SearchModeMangaToday = "manga_today";
     private const string SearchModeAiToday = "ai_today";
     private const string SearchModeHistory = "history";
+    private const string SearchModeSimilarUpnew = "similar_upnew";
     private const string EpisodeRangeAll = "all";
     private const string EpisodeRangeFirst3 = "first-3";
     private const string EpisodeRangeCustom = "custom";
@@ -136,6 +137,7 @@ public partial class MainWindowViewModel : ViewModelBase
         LoadMangaTodayDramaCommand = new AsyncRelayCommand(LoadMangaTodayDramaAsync, CanLoadTodayDrama);
         LoadAiTodayDramaCommand = new AsyncRelayCommand(LoadAiTodayDramaAsync, CanLoadTodayDrama);
         LoadHistoryDramaCommand = new AsyncRelayCommand(LoadHistoryDramaAsync, CanLoadTodayDrama);
+        LoadSimilarUpnewCommand = new AsyncRelayCommand(LoadSimilarUpnewAsync, CanLoadSimilarUpnew);
         GoPreviousSearchPageCommand = new AsyncRelayCommand(GoPreviousSearchPageAsync, CanGoPreviousSearchPage);
         GoNextSearchPageCommand = new AsyncRelayCommand(GoNextSearchPageAsync, CanGoNextSearchPage);
         ImportCheckedDramaCommand = new AsyncRelayCommand(ImportCheckedDramaAsync, CanImportCheckedDrama);
@@ -143,6 +145,8 @@ public partial class MainWindowViewModel : ViewModelBase
         AddCheckedToVideoChannelQueueCommand = new AsyncRelayCommand(AddCheckedToVideoChannelQueueAsync, CanImportCheckedDrama);
         AddCheckedToMiniprogramQueueCommand = new AsyncRelayCommand(AddCheckedToMiniprogramQueueAsync, CanImportCheckedDrama);
         AddCheckedToKuaishouQueueCommand = new AsyncRelayCommand(AddCheckedToKuaishouQueueAsync, CanImportCheckedDrama);
+        AddCheckedToKuaishouPersonalQueueCommand = new AsyncRelayCommand(AddCheckedToKuaishouPersonalQueueAsync, CanImportCheckedDrama);
+        AddCheckedToKuaishouEnterpriseQueueCommand = new AsyncRelayCommand(AddCheckedToKuaishouEnterpriseQueueAsync, CanImportCheckedDrama);
         DownloadCheckedDramaCommand = new AsyncRelayCommand(DownloadCheckedDramaAsync, CanDownloadCheckedDrama);
         ApplySearchFiltersCommand = new RelayCommand(ApplySearchFilters, CanApplySearchFilters);
         ReloadConfigCommand = new RelayCommand(LoadConfig, CanOperateWithRootDir);
@@ -196,6 +200,8 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedExecutionModeOption = ExecutionModeOptions.FirstOrDefault();
         SelectedRunLogTabOption = RunLogTabOptions.FirstOrDefault();
         SelectedDownloadEpisodeRangeOption = DownloadEpisodeRangeOptions.FirstOrDefault();
+        SelectedSimilarScopeOption = SimilarScopeOptions.FirstOrDefault();
+        SelectedSimilarSensitivityOption = SimilarSensitivityOptions.FirstOrDefault(item => string.Equals(item.Key, "medium", StringComparison.Ordinal));
         SelectedProjectLogFilter = ProjectLogFilters.First();
         SelectedStepLogFilter = StepLogFilters.First();
         _interactionService.RequestChanged += OnInteractionRequestChanged;
@@ -254,6 +260,18 @@ public partial class MainWindowViewModel : ViewModelBase
         new(EpisodeRangeFirst3, "前3集"),
         new(EpisodeRangeCustom, "自定义")
     ];
+    public ObservableCollection<WorkflowStepOption> SimilarScopeOptions { get; } =
+    [
+        new("both", "漫剧+AI短剧"),
+        new("manga", "仅漫剧"),
+        new("ai", "仅AI短剧")
+    ];
+    public ObservableCollection<WorkflowStepOption> SimilarSensitivityOptions { get; } =
+    [
+        new("loose", "灵敏度-低"),
+        new("medium", "灵敏度-中"),
+        new("strict", "灵敏度-高")
+    ];
     public ObservableCollection<string> WeixinMonetizationTypeOptions { get; } =
     [
         "IAA广告变现",
@@ -287,6 +305,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public IAsyncRelayCommand LoadMangaTodayDramaCommand { get; }
     public IAsyncRelayCommand LoadAiTodayDramaCommand { get; }
     public IAsyncRelayCommand LoadHistoryDramaCommand { get; }
+    public IAsyncRelayCommand LoadSimilarUpnewCommand { get; }
     public IAsyncRelayCommand GoPreviousSearchPageCommand { get; }
     public IAsyncRelayCommand GoNextSearchPageCommand { get; }
     public IAsyncRelayCommand DownloadCheckedDramaCommand { get; }
@@ -295,6 +314,8 @@ public partial class MainWindowViewModel : ViewModelBase
     public IAsyncRelayCommand AddCheckedToVideoChannelQueueCommand { get; }
     public IAsyncRelayCommand AddCheckedToMiniprogramQueueCommand { get; }
     public IAsyncRelayCommand AddCheckedToKuaishouQueueCommand { get; }
+    public IAsyncRelayCommand AddCheckedToKuaishouPersonalQueueCommand { get; }
+    public IAsyncRelayCommand AddCheckedToKuaishouEnterpriseQueueCommand { get; }
     public IRelayCommand ApplySearchFiltersCommand { get; }
     public IRelayCommand ReloadConfigCommand { get; }
     public IRelayCommand SaveConfigCommand { get; }
@@ -345,6 +366,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private string searchKeyword = string.Empty;
 
     [ObservableProperty]
+    private string similarSeedTerms = string.Empty;
+
+    [ObservableProperty]
     private bool exactSearchEnabled;
 
     [ObservableProperty]
@@ -355,6 +379,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private string searchQueryDays = "1";
+
+    [ObservableProperty]
+    private WorkflowStepOption? selectedSimilarScopeOption;
+
+    [ObservableProperty]
+    private WorkflowStepOption? selectedSimilarSensitivityOption;
 
     [ObservableProperty]
     private int currentSearchPage = 1;
@@ -708,6 +738,7 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     partial void OnSearchKeywordChanged(string value) => RefreshCommandStates();
+    partial void OnSimilarSeedTermsChanged(string value) => RefreshCommandStates();
     partial void OnExactSearchEnabledChanged(bool value) => RefreshCommandStates();
     partial void OnSearchMinEpisodeCountChanged(string value) => RefreshCommandStates();
     partial void OnSearchMaxEpisodeCountChanged(string value) => RefreshCommandStates();
@@ -834,6 +865,10 @@ public partial class MainWindowViewModel : ViewModelBase
         !IsSearchBusy &&
         CanOperateWithRootDir() &&
         Directory.Exists(RootDir);
+
+    private bool CanLoadSimilarUpnew() =>
+        CanLoadTodayDrama() &&
+        (!string.IsNullOrWhiteSpace(SimilarSeedTerms) || !string.IsNullOrWhiteSpace(SearchKeyword));
 
     private bool CanGoPreviousSearchPage() =>
         !IsSearchBusy &&
@@ -970,6 +1005,7 @@ public partial class MainWindowViewModel : ViewModelBase
         LoadMangaTodayDramaCommand.NotifyCanExecuteChanged();
         LoadAiTodayDramaCommand.NotifyCanExecuteChanged();
         LoadHistoryDramaCommand.NotifyCanExecuteChanged();
+        LoadSimilarUpnewCommand.NotifyCanExecuteChanged();
         GoPreviousSearchPageCommand.NotifyCanExecuteChanged();
         GoNextSearchPageCommand.NotifyCanExecuteChanged();
         ImportCheckedDramaCommand.NotifyCanExecuteChanged();
@@ -977,6 +1013,8 @@ public partial class MainWindowViewModel : ViewModelBase
         AddCheckedToVideoChannelQueueCommand.NotifyCanExecuteChanged();
         AddCheckedToMiniprogramQueueCommand.NotifyCanExecuteChanged();
         AddCheckedToKuaishouQueueCommand.NotifyCanExecuteChanged();
+        AddCheckedToKuaishouPersonalQueueCommand.NotifyCanExecuteChanged();
+        AddCheckedToKuaishouEnterpriseQueueCommand.NotifyCanExecuteChanged();
         DownloadCheckedDramaCommand.NotifyCanExecuteChanged();
         ApplySearchFiltersCommand.NotifyCanExecuteChanged();
         ReloadConfigCommand.NotifyCanExecuteChanged();
@@ -2625,6 +2663,22 @@ public partial class MainWindowViewModel : ViewModelBase
         await LoadSearchResultsAsync();
     }
 
+    private async Task LoadSimilarUpnewAsync()
+    {
+        var terms = ResolveSimilarTerms();
+        if (terms.Count == 0)
+        {
+            SearchSummary = "请输入相似检索剧名或题材词。";
+            StatusMessage = SearchSummary;
+            return;
+        }
+
+        _searchMode = SearchModeSimilarUpnew;
+        _lastSearchKeyword = string.Join(",", terms);
+        CurrentSearchPage = 1;
+        await LoadSearchResultsAsync();
+    }
+
     private async Task GoPreviousSearchPageAsync()
     {
         if (CurrentSearchPage <= 1)
@@ -2650,6 +2704,7 @@ public partial class MainWindowViewModel : ViewModelBase
             SearchModeMangaToday => $"正在获取漫剧上新，查询近 {ParseSearchQueryDays()} 天...",
             SearchModeAiToday => $"正在获取 AI 短剧上新，查询近 {ParseSearchQueryDays()} 天...",
             SearchModeHistory => $"正在获取历史上新，查询近 {ParseSearchQueryDays()} 天...",
+            SearchModeSimilarUpnew => $"正在相似上新检索，查询近 {ParseSearchQueryDays()} 天...",
             _ => $"正在搜索短剧：{_lastSearchKeyword}"
         };
 
@@ -2668,6 +2723,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 SearchModeHistory => await LoadRouterSearchResultsAsync(
                     router => router.GetHistoryAsync(queryDays, cancellationToken),
                     fallback: () => _dramaSearchService.GetTodayAsync(cancellationToken)),
+                SearchModeSimilarUpnew => await LoadSimilarUpnewResultsAsync(queryDays, cancellationToken),
                 _ => await _dramaSearchService.SearchAsync(_lastSearchKeyword, CurrentSearchPage, cancellationToken)
             };
 
@@ -2712,6 +2768,13 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         var modeLabel = ResolveSearchModeLabel();
+        if (string.Equals(_searchMode, SearchModeSimilarUpnew, StringComparison.Ordinal))
+        {
+            return totalCount == 0
+                ? $"{modeLabel}未命中“{_lastSearchKeyword}”的相似上新。"
+                : $"{modeLabel}命中 {totalCount} 条，筛选后 {filteredCount} 条，当前展示 {visibleCount} 条，分页大小 {pageSize}。";
+        }
+
         return totalCount == 0
             ? $"{modeLabel}暂无结果。"
             : filteredCount == 0
@@ -2739,6 +2802,48 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         return await fallback();
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> LoadSimilarUpnewResultsAsync(
+        int queryDays,
+        CancellationToken cancellationToken)
+    {
+        var terms = ResolveSimilarTerms();
+        if (terms.Count == 0 || _dramaSearchService is not DramaSourceRouter router)
+        {
+            return [];
+        }
+
+        var scope = SelectedSimilarScopeOption?.Key ?? "both";
+        var candidates = new List<DramaSearchItem>();
+        if (scope is "both" or "manga")
+        {
+            candidates.AddRange(await router.GetMangaTodayAsync(queryDays, cancellationToken));
+        }
+
+        if (scope is "both" or "ai")
+        {
+            candidates.AddRange(await router.GetAiTodayAsync(queryDays, cancellationToken));
+        }
+
+        var deduped = candidates
+            .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
+            .GroupBy(item => item.BookId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+
+        return SimilarUpnewFilter.Filter(
+            deduped,
+            terms,
+            SelectedSimilarSensitivityOption?.Key ?? "medium");
+    }
+
+    private IReadOnlyList<string> ResolveSimilarTerms()
+    {
+        var seedText = string.IsNullOrWhiteSpace(SimilarSeedTerms)
+            ? SearchKeyword
+            : SimilarSeedTerms;
+        return SimilarUpnewFilter.ParseTerms(seedText);
     }
 
     private void ApplyLoadedSearchResults(bool appendLog)
@@ -2819,6 +2924,7 @@ public partial class MainWindowViewModel : ViewModelBase
             SearchModeMangaToday => $"漫剧上新（近 {ParseSearchQueryDays()} 天）",
             SearchModeAiToday => $"AI 短剧上新（近 {ParseSearchQueryDays()} 天）",
             SearchModeHistory => $"历史上新（近 {ParseSearchQueryDays()} 天）",
+            SearchModeSimilarUpnew => $"相似上新（近 {ParseSearchQueryDays()} 天）",
             _ => "短剧搜索"
         };
     }
@@ -2844,6 +2950,18 @@ public partial class MainWindowViewModel : ViewModelBase
             queueKey: "kuaishou",
             queueLabel: "快手队列",
             executionHint: "当前桌面版先同步项目和勾选状态到共享任务队列，快手独立执行链路后续补齐。");
+
+    private Task AddCheckedToKuaishouPersonalQueueAsync() =>
+        AddCheckedDramaToPlatformQueueAsync(
+            queueKey: "kuaishou_personal",
+            queueLabel: "快手分账个人版队列",
+            executionHint: "已同步到快手分账个人版队列，可在对应上传流程中继续处理。");
+
+    private Task AddCheckedToKuaishouEnterpriseQueueAsync() =>
+        AddCheckedDramaToPlatformQueueAsync(
+            queueKey: "kuaishou_enterprise",
+            queueLabel: "快手分账企业版队列",
+            executionHint: "已同步到快手分账企业版队列，可在对应上传流程中继续处理。");
 
     private async Task DownloadCheckedDramaAsync()
     {

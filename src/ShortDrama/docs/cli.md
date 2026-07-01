@@ -21,7 +21,7 @@ shortdrama parse-info \
 ```bash
 shortdrama rewrite project-info \
   --project-dir "/path/to/project" \
-  --config-file "/path/to/config.txt" \
+  --config-file "/path/to/config.json" \
   --json-output
 ```
 
@@ -35,7 +35,7 @@ Optional:
 Behavior:
 
 - reads `短剧信息.txt`
-- calls the chat model configured in `config.txt`
+- calls the chat model configured in `config.json`
 - rewrites `推荐语` and `简介`
 - writes `短剧信息_改写.txt` by default
 
@@ -52,7 +52,7 @@ Optional:
 ```bash
 --input-file "/path/to/海报图片.jpg"
 --output-file "/path/to/新剧名-海报.jpg"
---config-file "/path/to/config.txt"
+--config-file "/path/to/config.json"
 --name-template "{name}-海报"
 --use-ai
 --overwrite
@@ -63,7 +63,7 @@ Behavior:
 - defaults source file to `海报图片.*`
 - defaults destination file name to `{title}-海报.<ext>`
 - if `--use-ai --config-file` is set, the chat model generates the poster title first
-- poster image replacement is AI-only and requires a valid image edit endpoint in `config.txt`
+- poster image replacement is AI-only and requires a valid image edit endpoint in `config.json`
 - by default the image edit request uses `ImageModelEndpoint + /images/edits`
 - if the provider uses a different route, set `ImageEditEndpoint`, `ImageEditPath`, or `ImageEditModelId`
 
@@ -72,7 +72,7 @@ Behavior:
 ```bash
 shortdrama batch-file-rename run \
   --project-dir "/path/to/project" \
-  --config-file "/path/to/config.txt" \
+  --config-file "/path/to/config.json" \
   --json-output
 ```
 
@@ -89,7 +89,7 @@ Behavior:
 - defaults input dir to `<project-dir>/videos`
 - renames all supported video files in sorted order
 - supports `{name}` and `{index}`
-- if `--config-file` is set, `VideoNameTemplate` is read from `config.txt`
+- if `--config-file` is set, `VideoNameTemplate` is read from `config.json`
 
 ## Build cost report
 
@@ -117,7 +117,7 @@ If `--config-dir` is omitted, the CLI walks upward from the project directory an
 ```bash
 shortdrama transcode batch \
   --project-dir "/path/to/project" \
-  --config-file "/path/to/config.txt" \
+  --config-file "/path/to/config.json" \
   --json-output
 ```
 
@@ -126,7 +126,7 @@ Optional:
 ```bash
 --input-dir "/path/to/input"
 --output-dir "/path/to/output"
---config-file "/path/to/config.txt"
+--config-file "/path/to/config.json"
 --overwrite
 --crf 23
 --preset medium
@@ -137,7 +137,7 @@ Defaults:
 - input dir: `<project-dir>/videos`
 - output dir: `<project-dir>/transcoded`
 - output format: `mp4` with `H.264/AAC`
-- if `--config-file` is set, bitrate / fps / resolution / hardware encoder settings are loaded from `config.txt`
+- if `--config-file` is set, bitrate / fps / resolution / hardware encoder settings are loaded from `config.json`
 
 ## Generate project images
 
@@ -145,11 +145,11 @@ Defaults:
 shortdrama project-image generate \
   --project-dir "/path/to/project" \
   --template-dir "/path/to/project-image-templates" \
-  --config-file "/path/to/config.txt" \
+  --config-file "/path/to/config.json" \
   --json-output
 ```
 
-`--template-dir` 现在默认必用；如果不显式传入，则必须在 `config.txt` 中配置 `ProjectImageTemplateDir`，并且目录下需要完整提供 `工程图_1.png` 到 `工程图_N.png`。
+`--template-dir` 现在默认必用；如果不显式传入，则必须在 `config.json` 中配置 `ProjectImageTemplateDir`，并且目录下需要完整提供 `工程图_1.png` 到 `工程图_N.png`。
 
 Optional:
 
@@ -165,5 +165,5 @@ Defaults:
 - input dir: `<project-dir>/videos`
 - output dir: `<project-dir>`
 - output files: `工程图_1.png`, `工程图_2.png`, ...
-- template dir: `--template-dir` or `ProjectImageTemplateDir` in `config.txt` (required)
-- if `--config-file` is set, `ProjectImageCount` is loaded from `config.txt`
+- template dir: `--template-dir` or `ProjectImageTemplateDir` in `config.json` (required)
+- if `--config-file` is set, `ProjectImageCount` is loaded from `config.json`

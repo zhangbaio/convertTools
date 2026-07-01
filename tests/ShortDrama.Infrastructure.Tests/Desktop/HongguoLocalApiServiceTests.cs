@@ -2,6 +2,7 @@ using FluentAssertions;
 using ShortDrama.Core.Models;
 using ShortDrama.Desktop.Models;
 using ShortDrama.Desktop.Services;
+using System.Globalization;
 using System.Net;
 using System.Text;
 using Xunit;
@@ -42,6 +43,7 @@ public sealed class HongguoLocalApiServiceTests
         results[0].EpisodeTotal.Should().Be(68);
         results[0].PosterUrl.Should().Be("https://example.com/poster.jpg");
         handler.Requests.Single().RequestUri!.ToString().Should().Contain("/api/hongguo/search?");
+        handler.Requests.Single().RequestUri!.Query.Should().Contain("source=hglocal");
         handler.Requests.Single().Headers.GetValues("x-api-key").Single().Should().Be("local-key");
     }
 
@@ -82,21 +84,23 @@ public sealed class HongguoLocalApiServiceTests
     [Fact]
     public async Task GetLatestByGenreAsync_Should_Filter_By_Recent_Days()
     {
+        var recentDate = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var oldDate = DateTime.Today.AddDays(-14).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var handler = new RecordingHandler();
-        handler.EnqueueJson("""
+        handler.EnqueueJson($$"""
             {
               "items": [
                 {
                   "series_id": "recent-1",
                   "title": "最近上新",
                   "episode_cnt": 12,
-                  "first_seen": "2026-06-14 09:30:00"
+                  "first_seen": "{{recentDate}} 09:30:00"
                 },
                 {
                   "series_id": "old-1",
                   "title": "更早上新",
                   "episode_cnt": 10,
-                  "first_seen": "2026-06-01 09:30:00"
+                  "first_seen": "{{oldDate}} 09:30:00"
                 }
               ]
             }
@@ -131,6 +135,7 @@ public sealed class HongguoLocalApiServiceTests
         items[0].VideoId.Should().Be("hglocal_ep:video-1");
         items[1].VideoId.Should().Be("hglocal_ep:video-2");
         handler.Requests.Single().RequestUri!.ToString().Should().Contain("series_id=series-1");
+        handler.Requests.Single().RequestUri!.Query.Should().Contain("source=hglocal");
     }
 
     [Fact]
@@ -150,6 +155,7 @@ public sealed class HongguoLocalApiServiceTests
 
         playback.Url.Should().Be("https://example.com/video.mp4");
         handler.Requests.Single().RequestUri!.ToString().Should().Contain("vid=video-1");
+        handler.Requests.Single().RequestUri!.Query.Should().Contain("source=hglocal");
     }
 
     private static GlobalConfigSnapshot CreateSettings()

@@ -282,13 +282,7 @@ internal static class CostReportImageRenderer
     private static string? ResolveConfigPath(string configDir)
     {
         var jsonPath = Path.Combine(configDir, "config.json");
-        if (File.Exists(jsonPath))
-        {
-            return jsonPath;
-        }
-
-        var legacyPath = Path.Combine(configDir, "config.txt");
-        return File.Exists(legacyPath) ? legacyPath : null;
+        return File.Exists(jsonPath) ? jsonPath : null;
     }
 
     private static string? GetConfigValue(IReadOnlyDictionary<string, string> map, params string[] keys)

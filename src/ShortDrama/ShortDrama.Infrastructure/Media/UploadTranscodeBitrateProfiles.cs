@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace ShortDrama.Infrastructure.Media;
@@ -31,8 +32,14 @@ public static class UploadTranscodeBitrateProfiles
         try
         {
             using var document = JsonDocument.Parse(rawValue);
-            if (!document.RootElement.TryGetProperty("profiles", out var profilesElement) ||
-                profilesElement.ValueKind != JsonValueKind.Array)
+            var root = document.RootElement;
+            var profilesElement = root.ValueKind == JsonValueKind.Array
+                ? root
+                : root.TryGetProperty("profiles", out var nestedProfiles)
+                    ? nestedProfiles
+                    : default;
+
+            if (profilesElement.ValueKind != JsonValueKind.Array)
             {
                 return DefaultProfiles.Select(Clone).ToArray();
             }
@@ -47,15 +54,22 @@ public static class UploadTranscodeBitrateProfiles
                 }
 
                 index++;
-                var bitrateValue = GetDouble(item, "bitrate_mbps") ?? GetDouble(item, "target_mbps") ?? 4.8d;
+                var minShortEdge = Math.Max(1, GetInt(item, "min_short_edge") ?? GetInt(item, "minShortEdge") ?? 1);
+                var maxShortEdge = Math.Max(0, GetInt(item, "max_short_edge") ?? GetInt(item, "maxShortEdge") ?? 0);
+                if (maxShortEdge > 0 && maxShortEdge < minShortEdge)
+                {
+                    maxShortEdge = minShortEdge;
+                }
+
+                var bitrateValue = GetDouble(item, "bitrate_mbps") ?? GetDouble(item, "bitrateMbps") ?? GetDouble(item, "target_mbps") ?? 4.8d;
                 profiles.Add(new UploadTranscodeBitrateProfile(
                     Name: GetString(item, "name") ?? $"档位{index}",
-                    MinShortEdge: Math.Max(1, GetInt(item, "min_short_edge") ?? 1),
-                    MaxShortEdge: Math.Max(0, GetInt(item, "max_short_edge") ?? 0),
+                    MinShortEdge: minShortEdge,
+                    MaxShortEdge: maxShortEdge,
                     BitrateMbps: Math.Max(1.0d, bitrateValue),
-                    AudioKbps: Math.Max(64, GetInt(item, "audio_kbps") ?? 128),
+                    AudioKbps: Math.Max(64, GetInt(item, "audio_kbps") ?? GetInt(item, "audioKbps") ?? 128),
                     Enabled: GetBool(item, "enabled") ?? true,
-                    VideoEncoder: NormalizeEncoder(GetString(item, "video_encoder") ?? "auto"),
+                    VideoEncoder: NormalizeEncoder(GetString(item, "video_encoder") ?? GetString(item, "videoEncoder") ?? "auto"),
                     Preset: NormalizePreset(GetString(item, "preset") ?? "veryfast")));
             }
 
@@ -140,7 +154,8 @@ public static class UploadTranscodeBitrateProfiles
             return number;
         }
 
-        return value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out number)
+        return value.ValueKind == JsonValueKind.String &&
+               int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out number)
             ? number
             : null;
     }
@@ -157,7 +172,8 @@ public static class UploadTranscodeBitrateProfiles
             return number;
         }
 
-        return value.ValueKind == JsonValueKind.String && double.TryParse(value.GetString(), out number)
+        return value.ValueKind == JsonValueKind.String &&
+               double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out number)
             ? number
             : null;
     }
