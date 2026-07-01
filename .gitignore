@@ -7,3 +7,7 @@
 **/.vscode/
 .dotnet/
 .setup-cache/
+
+# 运行/临时产物
+.tmp/
+run-logs/
