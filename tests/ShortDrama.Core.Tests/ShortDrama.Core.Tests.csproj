@@ -16,7 +16,7 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\ShortDrama.Core\ShortDrama.Core.csproj" />
-    <ProjectReference Include="..\..\src\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\ShortDrama\ShortDrama.Core\ShortDrama.Core.csproj" />
+    <ProjectReference Include="..\..\src\ShortDrama\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

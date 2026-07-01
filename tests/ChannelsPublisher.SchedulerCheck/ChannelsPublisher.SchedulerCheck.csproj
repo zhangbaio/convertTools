@@ -7,6 +7,6 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\ChannelsPublisher.Core\ChannelsPublisher.Core.csproj" />
+    <ProjectReference Include="..\..\src\ChannelsPublisher\ChannelsPublisher.Core\ChannelsPublisher.Core.csproj" />
   </ItemGroup>
 </Project>
