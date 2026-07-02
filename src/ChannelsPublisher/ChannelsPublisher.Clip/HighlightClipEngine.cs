@@ -43,12 +43,25 @@ public sealed class HighlightClipEngine
                 finally { try { File.Delete(wav); } catch { /* 忽略 */ } }
 
                 var cands = CandidateBuilder.Build(ep, segs, (int)Math.Round(durSec * 1000));
+                if (opts.AudioEnergy && cands.Count > 0)
+                {
+                    var n = await AudioEnergy.ApplyAsync(cands, opts.FfmpegPath, ep.VideoPath, log, ct);
+                    if (n > 0) log?.Invoke($"  音频能量：{n} 段已按响度评分");
+                }
                 all.AddRange(cands);
                 log?.Invoke($"  字幕 {segs.Count} 句 → 候选 {cands.Count} 段");
             }
 
             if (all.Count == 0)
                 return new ClipEngineResult(false, Array.Empty<string>(), "无候选片段（ASR 无字幕或视频过短）");
+
+            // LLM 复评分（可选，重算 total）→ 信号加权 → 选段。
+            if (opts.EnableLlmScore && !string.IsNullOrWhiteSpace(opts.AiEndpoint))
+            {
+                try { await new LlmScorer().ApplyAsync(all, opts, log, ct); }
+                catch (Exception ex) { log?.Invoke($"⚠️ AI 复评分整体跳过：{ex.Message}"); }
+            }
+            SignalWeights.Apply(all);
 
             var selected = HighlightPlanner.Select(all, epDur);
             int minMs = Math.Max(1, opts.ClipMinSeconds) * 1000;
@@ -73,15 +86,21 @@ public sealed class HighlightClipEngine
         catch (Exception ex) { return new ClipEngineResult(false, Array.Empty<string>(), $"{ex.GetType().Name}: {ex.Message}"); }
     }
 
-    // 简版发表元数据（.publish.json）：描述取分最高片段文本首段，标签留空（LLM 文案后续分期接）。
+    // 发表元数据（.publish.json）：优先用 LLM 回填的推荐语/短标题/标签，否则回退候选文本。
     private static void WriteSidecar(string videoPath, IReadOnlyList<ClipCandidate> bin)
     {
         var top = bin.OrderByDescending(c => c.Total).FirstOrDefault();
-        var desc = (top?.Text ?? "").Trim();
+        var desc = FirstNonEmpty(top?.RecommendReason, top?.Summary, top?.Text);
         if (desc.Length > 40) desc = desc[..40];
-        var json = JsonSerializer.Serialize(new { description = desc, tags = Array.Empty<string>(), short_title = "", caption = desc });
+        var shortTitle = (top?.Title ?? "").Trim();
+        var tags = top?.Tags ?? new List<string>();
+        var caption = tags.Count > 0 ? $"{desc} {string.Join(" ", tags.Select(t => "#" + t))}" : desc;
+        var json = JsonSerializer.Serialize(new { description = desc, tags, short_title = shortTitle, caption });
         try { File.WriteAllText(Path.ChangeExtension(videoPath, ".publish.json"), json); } catch { /* 忽略 */ }
     }
+
+    private static string FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim() ?? "";
 
     private static string SafeName(string name)
     {

@@ -299,9 +299,14 @@ public partial class MaterialUploadView : UserControl
             ClipCount = Math.Max(1, hi?.Count ?? 3),
             RenderSpeed = string.IsNullOrWhiteSpace(clip.RenderSpeed) ? "fast" : clip.RenderSpeed,
             HardwareEncode = clip.HardwareEncode,
+            AudioEnergy = clip.AudioEnergy,
+            EnableLlmScore = clip.EnableLlmScore,
             VolcAppId = settings.MaterialClipVolcengineAppId,
             VolcAccessToken = settings.MaterialClipVolcengineAccessToken,
             AsrLanguage = string.IsNullOrWhiteSpace(settings.MaterialClipAsrLanguage) ? "zh-CN" : settings.MaterialClipAsrLanguage,
+            AiEndpoint = settings.AiTextEndpoint,
+            AiApiKey = settings.AiTextApiKey,
+            AiModel = settings.AiTextModel,
         };
     }
 }

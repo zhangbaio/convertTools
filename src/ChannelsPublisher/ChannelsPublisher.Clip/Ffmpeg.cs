@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 
 namespace ChannelsPublisher.Clip;
 
@@ -25,6 +26,28 @@ public static class Ffmpeg
         var stderr = await stderrTask;
         if (proc.ExitCode != 0)
             throw new Exception($"ffmpeg 退出码 {proc.ExitCode}：{stderr.Trim()}");
+    }
+
+    /// <summary>执行并捕获 stdout+stderr（不因非零退出抛错，供 best-effort 分析如 ebur128）。</summary>
+    public static async Task<(int ExitCode, string Stdout, string Stderr)> RunCaptureAsync(string ffmpeg, IReadOnlyList<string> args, CancellationToken ct)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = ffmpeg,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        using var proc = new Process { StartInfo = psi };
+        if (!proc.Start()) throw new Exception($"无法启动 ffmpeg：{ffmpeg}");
+        var outTask = proc.StandardOutput.ReadToEndAsync();
+        var errTask = proc.StandardError.ReadToEndAsync();
+        await proc.WaitForExitAsync(ct);
+        return (proc.ExitCode, await outTask, await errTask);
     }
 
     public static async Task<double> ProbeDurationSecondsAsync(string ffprobe, string path, CancellationToken ct)

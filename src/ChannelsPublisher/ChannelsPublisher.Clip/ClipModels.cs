@@ -22,6 +22,16 @@ public sealed class ClipCandidate
     public double Cliffhanger { get; set; }
     public double Total { get; set; }
 
+    // 可选信号（音频能量 0-10 / 镜头密度 0-10）；未计算则 0。
+    public double AudioEnergy { get; set; }
+    public double ShotDensity { get; set; }
+
+    // LLM 复评分产出的元数据（用于发表文案 sidecar）。
+    public string Summary { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string RecommendReason { get; set; } = "";
+    public List<string> Tags { get; set; } = new();
+
     public int DurationMs => Math.Max(0, EndMs - StartMs);
     // 钩子分：悬念为主、反转次之、综合辅助（移植自 rendering_highlight hook_score）。
     public double HookScore => 0.45 * Cliffhanger + 0.35 * Twist + 0.20 * Total;
@@ -38,10 +48,19 @@ public sealed class ClipEngineOptions
     public string RenderSpeed { get; set; } = "fast";  // fast/balanced/quality
     public bool HardwareEncode { get; set; } = true;   // 预留（当前用 libx264 CRF）
 
+    // 可选选段信号
+    public bool AudioEnergy { get; set; } = true;      // ffmpeg ebur128 响度加权
+    public bool EnableLlmScore { get; set; }           // AI 复评分（需 AI 文本接口）
+
     // 火山在线 ASR
     public string VolcAppId { get; set; } = "";
     public string VolcAccessToken { get; set; } = "";
     public string AsrLanguage { get; set; } = "zh-CN";
+
+    // AI 文本接口（LLM 复评分 / 文案，OpenAI 兼容 chat/completions）
+    public string AiEndpoint { get; set; } = "";
+    public string AiApiKey { get; set; } = "";
+    public string AiModel { get; set; } = "";
 
     public string FfmpegPath { get; set; } = "ffmpeg";
     public string FfprobePath { get; set; } = "ffprobe";
