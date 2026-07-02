@@ -237,7 +237,7 @@ public partial class MaterialUploadView : UserControl
         }
 
         var episodes = videos.Select((v, i) => new EpisodeSource(i + 1, v)).ToList();
-        var engine = new HighlightClipEngine();
+        var engine = new ClipEngine();
 
         GenerateClipsFullEngineButton.IsEnabled = false;
         ViewModel?.AppendExternalLog(
@@ -292,10 +292,13 @@ public partial class MaterialUploadView : UserControl
     {
         var (w, h) = (clip.OutputQuality ?? "").Trim().ToUpperInvariant() == "720P" ? (720, 1280) : (1080, 1920);
         var hi = clip.Modes.FirstOrDefault(m => m.Key == "highlight");
+        var modes = clip.Modes.Where(m => m.Enabled).Select(m => m.Key).ToList();
+        if (modes.Count == 0) modes.Add("highlight");
         return new ClipEngineOptions
         {
             Width = w,
             Height = h,
+            Modes = modes,
             ClipCount = Math.Max(1, hi?.Count ?? 3),
             RenderSpeed = string.IsNullOrWhiteSpace(clip.RenderSpeed) ? "fast" : clip.RenderSpeed,
             HardwareEncode = clip.HardwareEncode,

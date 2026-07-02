@@ -2,10 +2,10 @@ using System.Text.Json;
 
 namespace ChannelsPublisher.Clip;
 
-/// <summary>纯 C# 高光剪辑引擎（Phase 1，零 Python）：抽音 → 火山 ASR → 候选 → 关键词打分 →
-/// 50%+集配额选段 → 装箱 → ffmpeg 竖屏渲染 + concat。产物写 &lt;project&gt;/素材剪辑输出/高光/，供 material_clips 消费。
-/// 未含：音频能量/镜头密度/LLM 复评分/解说 TTS（后续分期）。</summary>
-public sealed class HighlightClipEngine
+/// <summary>纯 C# 剪辑引擎（零 Python）：抽音→火山 ASR→候选→关键词打分→音频能量→LLM 复评分→信号加权（共享一次），
+/// 再按每个模式(highlight/mashup)选段→装箱→ffmpeg 渲染。产物写 &lt;project&gt;/素材剪辑输出/&lt;模式&gt;/ + .publish.json。
+/// 切片/解说/本地 ASR 为后续分期。</summary>
+public sealed class ClipEngine
 {
     private readonly VolcengineAsrClient _asr = new();
     private readonly HighlightRenderer _renderer = new();
@@ -19,9 +19,7 @@ public sealed class HighlightClipEngine
     {
         try
         {
-            var outDir = Path.Combine(projectDir, "素材剪辑输出", "高光");
-            Directory.CreateDirectory(outDir);
-
+            // —— 共享分析：候选 + 音频能量 + LLM + 信号加权（只做一次，各模式复用）——
             var all = new List<ClipCandidate>();
             var epDur = new Dictionary<int, double>();
             foreach (var ep in episodes)
@@ -55,7 +53,6 @@ public sealed class HighlightClipEngine
             if (all.Count == 0)
                 return new ClipEngineResult(false, Array.Empty<string>(), "无候选片段（ASR 无字幕或视频过短）");
 
-            // LLM 复评分（可选，重算 total）→ 信号加权 → 选段。
             if (opts.EnableLlmScore && !string.IsNullOrWhiteSpace(opts.AiEndpoint))
             {
                 try { await new LlmScorer().ApplyAsync(all, opts, log, ct); }
@@ -63,22 +60,48 @@ public sealed class HighlightClipEngine
             }
             SignalWeights.Apply(all);
 
-            var selected = HighlightPlanner.Select(all, epDur);
+            // —— 逐模式选段 → 装箱 → 渲染 ——
+            var basename = SafeName(Path.GetFileName(projectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
             int minMs = Math.Max(1, opts.ClipMinSeconds) * 1000;
             int maxMs = Math.Max(opts.ClipMinSeconds, opts.ClipMaxSeconds) * 1000;
-            var bins = HighlightPlanner.PlanRangeBins(selected, opts.ClipCount, minMs, maxMs);
-            log?.Invoke($"选段 {selected.Count} 段 → 装箱 {bins.Count} 条短片");
+            var modes = opts.Modes is { Count: > 0 } ? opts.Modes : new List<string> { "highlight" };
 
-            var basename = SafeName(Path.GetFileName(projectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
             var outputs = new List<string>();
-            for (int i = 0; i < bins.Count; i++)
+            foreach (var modeRaw in modes)
             {
                 ct.ThrowIfCancellationRequested();
-                var outPath = Path.Combine(outDir, bins.Count <= 1 ? $"{basename}-高光.mp4" : $"{basename}-高光-{i + 1}.mp4");
-                log?.Invoke($"渲染 {i + 1}/{bins.Count}：{Path.GetFileName(outPath)}（{bins[i].Count} 段）");
-                await _renderer.RenderAsync(bins[i], outPath, opts, ct);
-                WriteSidecar(outPath, bins[i]);
-                outputs.Add(outPath);
+                var mode = (modeRaw ?? "").Trim().ToLowerInvariant();
+                List<ClipCandidate> ordered;
+                bool preserveOrder;
+                string folder, label;
+                switch (mode)
+                {
+                    case "highlight":
+                        ordered = HighlightPlanner.Select(all, epDur);
+                        preserveOrder = false; folder = "高光"; label = "高光";
+                        break;
+                    case "mashup":
+                        ordered = Mashup.Select(all, log);
+                        preserveOrder = true; folder = "混剪"; label = "混剪";
+                        break;
+                    default:
+                        log?.Invoke($"⚠️ 模式「{modeRaw}」本期未实现（当前支持 高光/混剪），跳过");
+                        continue;
+                }
+
+                var bins = HighlightPlanner.PlanRangeBins(ordered, opts.ClipCount, minMs, maxMs, preserveOrder);
+                var outDir = Path.Combine(projectDir, "素材剪辑输出", folder);
+                Directory.CreateDirectory(outDir);
+                log?.Invoke($"[{label}] 选段 {ordered.Count} 段 → 装箱 {bins.Count} 条短片");
+                for (int i = 0; i < bins.Count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var outPath = Path.Combine(outDir, bins.Count <= 1 ? $"{basename}-{label}.mp4" : $"{basename}-{label}-{i + 1}.mp4");
+                    log?.Invoke($"[{label}] 渲染 {i + 1}/{bins.Count}：{Path.GetFileName(outPath)}（{bins[i].Count} 段）");
+                    await _renderer.RenderAsync(bins[i], outPath, opts, ct);
+                    WriteSidecar(outPath, bins[i]);
+                    outputs.Add(outPath);
+                }
             }
             return new ClipEngineResult(true, outputs, null);
         }
@@ -86,7 +109,7 @@ public sealed class HighlightClipEngine
         catch (Exception ex) { return new ClipEngineResult(false, Array.Empty<string>(), $"{ex.GetType().Name}: {ex.Message}"); }
     }
 
-    // 发表元数据（.publish.json）：优先用 LLM 回填的推荐语/短标题/标签，否则回退候选文本。
+    // 发表元数据（.publish.json）：优先 LLM 推荐语/短标题/标签，否则回退候选文本。
     private static void WriteSidecar(string videoPath, IReadOnlyList<ClipCandidate> bin)
     {
         var top = bin.OrderByDescending(c => c.Total).FirstOrDefault();

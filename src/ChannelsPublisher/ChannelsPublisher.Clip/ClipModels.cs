@@ -42,7 +42,8 @@ public sealed class ClipEngineOptions
 {
     public int Width { get; set; } = 1080;
     public int Height { get; set; } = 1920;
-    public int ClipCount { get; set; } = 3;            // 产出短片条数
+    public List<string> Modes { get; set; } = new() { "highlight" }; // highlight/mashup（切片/解说后续）
+    public int ClipCount { get; set; } = 3;            // 每模式产出短片条数
     public int ClipMinSeconds { get; set; } = 60;      // 每条时长下限
     public int ClipMaxSeconds { get; set; } = 120;     // 每条时长上限
     public string RenderSpeed { get; set; } = "fast";  // fast/balanced/quality

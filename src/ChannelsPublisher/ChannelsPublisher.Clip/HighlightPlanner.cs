@@ -52,13 +52,31 @@ public static class HighlightPlanner
         return quota;
     }
 
-    /// <summary>把选中片段贪心装箱进 count 个 [minMs,maxMs] 的短片；每片钩子片段置前（冷开场）。</summary>
-    public static List<List<ClipCandidate>> PlanRangeBins(IReadOnlyList<ClipCandidate> selected, int count, int minMs, int maxMs)
+    /// <summary>把选中片段装箱进 count 个 [minMs,maxMs] 的短片。
+    /// preserveOrder=false（高光）：按分贪心装箱、每片钩子置前；
+    /// preserveOrder=true（混剪）：保留传入的叙事弧顺序，顺序填满一片再进下一片。</summary>
+    public static List<List<ClipCandidate>> PlanRangeBins(IReadOnlyList<ClipCandidate> selected, int count, int minMs, int maxMs, bool preserveOrder = false)
     {
         int n = Math.Max(1, count);
         var binMs = new int[n];
         var bins = new List<List<ClipCandidate>>();
         for (int i = 0; i < n; i++) bins.Add(new List<ClipCandidate>());
+
+        if (preserveOrder)
+        {
+            int b = 0;
+            foreach (var c in selected)
+            {
+                int dur = c.DurationMs;
+                // 当前片已达下限且再加会超上限 → 进下一片。
+                if (binMs[b] + dur > maxMs && binMs[b] >= minMs) b++;
+                if (b >= n) break;
+                if (binMs[b] + dur > maxMs && bins[b].Count > 0) continue; // 放不下且非空则跳过该片
+                bins[b].Add(c);
+                binMs[b] += dur;
+            }
+            return bins.Where(x => x.Count > 0).ToList();
+        }
 
         foreach (var c in selected.OrderByDescending(c => c.Total))
         {
