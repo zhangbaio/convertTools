@@ -71,28 +71,32 @@ public sealed class ClipEngine
             {
                 ct.ThrowIfCancellationRequested();
                 var mode = (modeRaw ?? "").Trim().ToLowerInvariant();
-                List<ClipCandidate> ordered;
-                bool preserveOrder;
+                List<List<ClipCandidate>> bins;
                 string folder, label;
                 switch (mode)
                 {
                     case "highlight":
-                        ordered = HighlightPlanner.Select(all, epDur);
-                        preserveOrder = false; folder = "高光"; label = "高光";
+                        bins = HighlightPlanner.PlanRangeBins(HighlightPlanner.Select(all, epDur), opts.ClipCount, minMs, maxMs, preserveOrder: false);
+                        folder = "高光"; label = "高光";
                         break;
                     case "mashup":
-                        ordered = Mashup.Select(all, log);
-                        preserveOrder = true; folder = "混剪"; label = "混剪";
+                        bins = HighlightPlanner.PlanRangeBins(Mashup.Select(all, log), opts.ClipCount, minMs, maxMs, preserveOrder: true);
+                        folder = "混剪"; label = "混剪";
+                        break;
+                    case "slice":
+                        int targetMs = (opts.ClipMinSeconds + opts.ClipMaxSeconds) / 2 * 1000;
+                        bins = Slice.SelectWindows(all, opts.ClipCount, targetMs, log)
+                            .Select(w => new List<ClipCandidate> { w }).ToList(); // 每窗=一条连续切片
+                        folder = "切片"; label = "切片";
                         break;
                     default:
-                        log?.Invoke($"⚠️ 模式「{modeRaw}」本期未实现（当前支持 高光/混剪），跳过");
+                        log?.Invoke($"⚠️ 模式「{modeRaw}」本期未实现（当前支持 高光/混剪/切片），跳过");
                         continue;
                 }
 
-                var bins = HighlightPlanner.PlanRangeBins(ordered, opts.ClipCount, minMs, maxMs, preserveOrder);
                 var outDir = Path.Combine(projectDir, "素材剪辑输出", folder);
                 Directory.CreateDirectory(outDir);
-                log?.Invoke($"[{label}] 选段 {ordered.Count} 段 → 装箱 {bins.Count} 条短片");
+                log?.Invoke($"[{label}] 产出 {bins.Count} 条短片");
                 for (int i = 0; i < bins.Count; i++)
                 {
                     ct.ThrowIfCancellationRequested();
