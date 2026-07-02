@@ -310,6 +310,12 @@ public partial class MaterialUploadView : UserControl
             AiEndpoint = settings.AiTextEndpoint,
             AiApiKey = settings.AiTextApiKey,
             AiModel = settings.AiTextModel,
+            OrigEnabled = clip.OrigEnabled,
+            OrigZoom = clip.OrigZoom,
+            OrigColor = clip.OrigColor,
+            OrigSpeed = clip.OrigSpeed,
+            OrigFade = clip.OrigFade,
+            OrigStickerDir = clip.OrigStickerDir,
         };
     }
 }

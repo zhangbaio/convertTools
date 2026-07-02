@@ -74,6 +74,7 @@ public partial class ClipConfigDialog : Window
         OrigColorBox.IsChecked = c.OrigColor;
         OrigSpeedBox.IsChecked = c.OrigSpeed;
         OrigFadeBox.IsChecked = c.OrigFade;
+        OrigStickerDirBox.Text = c.OrigStickerDir;
     }
 
     private void OnSave(object? sender, RoutedEventArgs e)
@@ -121,10 +122,24 @@ public partial class ClipConfigDialog : Window
         c.OrigColor = OrigColorBox.IsChecked == true;
         c.OrigSpeed = OrigSpeedBox.IsChecked == true;
         c.OrigFade = OrigFadeBox.IsChecked == true;
+        c.OrigStickerDir = OrigStickerDirBox.Text?.Trim() ?? "";
 
         c.Save();
         Close(true);
     }
+
+    private async void OnBrowseStickerDir(object? sender, RoutedEventArgs e)
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
+        {
+            Title = "选择贴纸/水印 PNG 目录",
+            AllowMultiple = false,
+        });
+        var folder = folders.FirstOrDefault();
+        if (folder is not null) OrigStickerDirBox.Text = folder.Path.LocalPath;
+    }
+
+    private void OnClearStickerDir(object? sender, RoutedEventArgs e) => OrigStickerDirBox.Text = "";
 
     private void OnCancel(object? sender, RoutedEventArgs e) => Close(false);
 

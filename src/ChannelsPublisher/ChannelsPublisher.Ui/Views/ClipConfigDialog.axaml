@@ -89,7 +89,7 @@
                     <TextBlock Text="秒" VerticalAlignment="Center" />
                 </StackPanel>
 
-                <TextBlock Text="原创度扰动（喂 C# Prep）" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <TextBlock Text="原创度扰动（成片后处理）" FontWeight="SemiBold" Margin="0,4,0,0" />
                 <CheckBox x:Name="OrigEnabledBox" Content="启用原创度处理（成片加随机轻扰动，降低重复率）" />
                 <StackPanel Orientation="Horizontal" Spacing="16">
                     <CheckBox x:Name="OrigZoomBox" Content="微缩放裁剪" />
@@ -97,6 +97,12 @@
                     <CheckBox x:Name="OrigSpeedBox" Content="轻微变速" />
                     <CheckBox x:Name="OrigFadeBox" Content="开闭幕" />
                 </StackPanel>
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                    <TextBlock Grid.Column="0" Text="贴纸目录" VerticalAlignment="Center" />
+                    <TextBox Grid.Column="1" x:Name="OrigStickerDirBox" Watermark="可选：贴纸/水印 PNG 目录，随机叠一张到随机角落" />
+                    <Button Grid.Column="2" Content="浏览" Click="OnBrowseStickerDir" />
+                    <Button Grid.Column="3" Content="清除" Click="OnClearStickerDir" />
+                </Grid>
             </StackPanel>
         </ScrollViewer>
     </DockPanel>

@@ -81,7 +81,12 @@ public sealed class ClipEngine
                     try { lines = await new CommentaryScripter().BuildAsync(commSegs, opts, basename, log, ct); }
                     catch (Exception ex) { log?.Invoke($"⚠️ 解说脚本失败，跳过解说：{ex.Message}"); continue; }
                     var commOut = await new CommentaryRenderer().RenderAsync(projectDir, commSegs, lines, opts, basename, log, ct);
-                    if (commOut != null) { outputs.Add(commOut); log?.Invoke($"[解说] 完成 → {Path.GetFileName(commOut)}"); }
+                    if (commOut != null)
+                    {
+                        await ClipOriginality.ApplyAsync(commOut, opts, log, ct);
+                        outputs.Add(commOut);
+                        log?.Invoke($"[解说] 完成 → {Path.GetFileName(commOut)}");
+                    }
                     continue;
                 }
 
@@ -117,6 +122,7 @@ public sealed class ClipEngine
                     var outPath = Path.Combine(outDir, bins.Count <= 1 ? $"{basename}-{label}.mp4" : $"{basename}-{label}-{i + 1}.mp4");
                     log?.Invoke($"[{label}] 渲染 {i + 1}/{bins.Count}：{Path.GetFileName(outPath)}（{bins[i].Count} 段）");
                     await _renderer.RenderAsync(bins[i], outPath, opts, ct);
+                    await ClipOriginality.ApplyAsync(outPath, opts, log, ct);
                     WriteSidecar(outPath, bins[i]);
                     outputs.Add(outPath);
                 }

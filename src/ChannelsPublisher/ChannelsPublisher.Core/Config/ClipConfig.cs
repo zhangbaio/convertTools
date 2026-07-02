@@ -50,12 +50,13 @@ public sealed class ClipConfig
     public bool TitleCard { get; set; }
     public int TitleCardSeconds { get; set; } = 4;
 
-    // 原创度扰动（喂 C# Prep）
+    // 原创度扰动（成片后处理 + 喂 C# Prep）
     public bool OrigEnabled { get; set; }
     public bool OrigZoom { get; set; } = true;
     public bool OrigColor { get; set; }
     public bool OrigSpeed { get; set; }
     public bool OrigFade { get; set; }
+    public string OrigStickerDir { get; set; } = ""; // 贴纸/水印 PNG 目录（随机叠一张到随机角落）
 
     private static readonly JsonSerializerOptions Options = new()
     {

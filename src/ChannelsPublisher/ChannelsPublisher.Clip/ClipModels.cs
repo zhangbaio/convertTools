@@ -71,6 +71,14 @@ public sealed class ClipEngineOptions
     public string CommentaryStyleStrength { get; set; } = "standard"; // subtle/standard/strong
     public bool BurnSubtitles { get; set; } = true;                   // 解说段：抹除原字幕(底部模糊带)+烧录解说字幕
 
+    // 原创度后处理（对成片做确定性轻扰动，降低重复率）
+    public bool OrigEnabled { get; set; }
+    public bool OrigZoom { get; set; } = true;
+    public bool OrigColor { get; set; }
+    public bool OrigSpeed { get; set; }
+    public bool OrigFade { get; set; }
+    public string OrigStickerDir { get; set; } = "";                  // 贴纸/水印 PNG 目录，随机叠一张到随机角落
+
     public string FfmpegPath { get; set; } = "ffmpeg";
     public string FfprobePath { get; set; } = "ffprobe";
 }
