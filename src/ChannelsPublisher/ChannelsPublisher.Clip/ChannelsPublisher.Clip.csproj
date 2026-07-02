@@ -5,4 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- 本地离线 ASR（SenseVoice + silero VAD）。模型文件由用户单独下载到 models/ 目录。 -->
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.10.32" />
+  </ItemGroup>
 </Project>

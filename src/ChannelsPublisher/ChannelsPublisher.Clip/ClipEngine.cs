@@ -7,8 +7,29 @@ namespace ChannelsPublisher.Clip;
 /// 切片/解说/本地 ASR 为后续分期。</summary>
 public sealed class ClipEngine
 {
-    private readonly VolcengineAsrClient _asr = new();
+    private readonly VolcengineAsrClient _volc = new();
+    private readonly LocalAsrClient _local = new();
     private readonly HighlightRenderer _renderer = new();
+
+    // 按引擎选 ASR：local=本地；hybrid=本地优先、字密度不足改火山；否则火山在线。
+    private async Task<List<SubtitleSegment>> RunAsrAsync(string wav, ClipEngineOptions opts, Action<string>? log, CancellationToken ct)
+    {
+        var engine = (opts.AsrEngine ?? "volcengine").Trim().ToLowerInvariant();
+        if (engine == "local")
+            return await _local.TranscribeAsync(wav, opts, log, ct);
+        if (engine == "hybrid")
+        {
+            var local = await _local.TranscribeAsync(wav, opts, log, ct);
+            double speechSec = local.Sum(s => Math.Max(0, s.EndMs - s.StartMs)) / 1000.0;
+            int chars = local.Sum(s => (s.Text ?? "").Trim().Length);
+            double density = speechSec > 0 ? chars / speechSec : 0;
+            if (speechSec > 0 && density >= opts.HybridMinCharsPerSec) return local;
+            log?.Invoke($"  混合：本地字密度 {density:F2} < 阈值 {opts.HybridMinCharsPerSec}，改用火山复核");
+            try { return await _volc.TranscribeAsync(wav, opts, log, ct); }
+            catch (Exception ex) { log?.Invoke($"  火山复核失败，保留本地：{ex.Message}"); return local; }
+        }
+        return await _volc.TranscribeAsync(wav, opts, log, ct);
+    }
 
     public async Task<ClipEngineResult> GenerateAsync(
         string projectDir,
@@ -36,7 +57,7 @@ public sealed class ClipEngine
                 try
                 {
                     await Ffmpeg.ExtractAudioAsync(opts.FfmpegPath, ep.VideoPath, wav, ct);
-                    segs = await _asr.TranscribeAsync(wav, opts, log, ct);
+                    segs = await RunAsrAsync(wav, opts, log, ct);
                 }
                 finally { try { File.Delete(wav); } catch { /* 忽略 */ } }
 

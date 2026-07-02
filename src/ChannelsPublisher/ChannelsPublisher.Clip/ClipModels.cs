@@ -53,10 +53,19 @@ public sealed class ClipEngineOptions
     public bool AudioEnergy { get; set; } = true;      // ffmpeg ebur128 响度加权
     public bool EnableLlmScore { get; set; }           // AI 复评分（需 AI 文本接口）
 
+    // ASR 引擎：volcengine(在线) / local(本地 SenseVoice) / hybrid(本地优先+火山复核)
+    public string AsrEngine { get; set; } = "volcengine";
+    public string AsrLanguage { get; set; } = "zh-CN";
+
     // 火山在线 ASR
     public string VolcAppId { get; set; } = "";
     public string VolcAccessToken { get; set; } = "";
-    public string AsrLanguage { get; set; } = "zh-CN";
+
+    // 本地 ASR（SenseVoice + silero VAD）
+    public string LocalModelDir { get; set; } = "";   // 含 model(.int8).onnx + tokens.txt
+    public string LocalVadPath { get; set; } = "";    // silero_vad.onnx；空=在模型目录及其上级找
+    public bool LocalUseItn { get; set; }             // 数字逆归一化（默认关）
+    public double HybridMinCharsPerSec { get; set; } = 1.0; // 混合判据：本地字密度低于此值改用火山
 
     // AI 文本接口（LLM 复评分 / 解说脚本 / 文案，OpenAI 兼容 chat/completions）
     public string AiEndpoint { get; set; } = "";
