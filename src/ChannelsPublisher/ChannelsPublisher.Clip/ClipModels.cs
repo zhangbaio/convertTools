@@ -69,6 +69,7 @@ public sealed class ClipEngineOptions
     public double TtsSpeedRatio { get; set; } = 1.0;
     public double CommentaryNarrationRatio { get; set; } = 70.0;      // 旁白占比 40-100
     public string CommentaryStyleStrength { get; set; } = "standard"; // subtle/standard/strong
+    public bool BurnSubtitles { get; set; } = true;                   // 解说段：抹除原字幕(底部模糊带)+烧录解说字幕
 
     public string FfmpegPath { get; set; } = "ffmpeg";
     public string FfprobePath { get; set; } = "ffprobe";

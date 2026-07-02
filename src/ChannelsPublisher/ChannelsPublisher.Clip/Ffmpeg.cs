@@ -7,7 +7,7 @@ namespace ChannelsPublisher.Clip;
 /// <summary>ffmpeg/ffprobe 子进程封装（用 ArgumentList 避免转义）。</summary>
 public static class Ffmpeg
 {
-    public static async Task RunAsync(string ffmpeg, IReadOnlyList<string> args, CancellationToken ct)
+    public static async Task RunAsync(string ffmpeg, IReadOnlyList<string> args, CancellationToken ct, string? workingDirectory = null)
     {
         var psi = new ProcessStartInfo
         {
@@ -17,6 +17,7 @@ public static class Ffmpeg
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        if (!string.IsNullOrWhiteSpace(workingDirectory)) psi.WorkingDirectory = workingDirectory;
         foreach (var a in args) psi.ArgumentList.Add(a);
 
         using var proc = new Process { StartInfo = psi };
