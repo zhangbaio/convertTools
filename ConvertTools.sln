@@ -47,6 +47,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ShortDrama.Core.Tests", "te
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ShortDrama.Infrastructure.Tests", "tests\ShortDrama.Infrastructure.Tests\ShortDrama.Infrastructure.Tests.csproj", "{234C5D28-2669-40C9-8781-88A0729A597E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChannelsPublisher.Clip", "src\ChannelsPublisher\ChannelsPublisher.Clip\ChannelsPublisher.Clip.csproj", "{1A50B543-2749-4220-91D9-50AA1B337CFD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -124,6 +126,10 @@ Global
 		{234C5D28-2669-40C9-8781-88A0729A597E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{234C5D28-2669-40C9-8781-88A0729A597E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{234C5D28-2669-40C9-8781-88A0729A597E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1A50B543-2749-4220-91D9-50AA1B337CFD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1A50B543-2749-4220-91D9-50AA1B337CFD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1A50B543-2749-4220-91D9-50AA1B337CFD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1A50B543-2749-4220-91D9-50AA1B337CFD}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{8E3335D2-1EB3-4188-85CB-67F6057886A0} = {10871E69-F49D-4411-B029-CE261D01D6D5}
@@ -145,5 +151,6 @@ Global
 		{4B44D099-E2B1-43BF-947A-9B09155AFD7D} = {D5D117F1-7555-4720-BD22-2B6AEC8F491A}
 		{212FF2D5-4BC5-4857-8A4E-8E48FEC6EABC} = {D5D117F1-7555-4720-BD22-2B6AEC8F491A}
 		{234C5D28-2669-40C9-8781-88A0729A597E} = {D5D117F1-7555-4720-BD22-2B6AEC8F491A}
+		{1A50B543-2749-4220-91D9-50AA1B337CFD} = {142F2B92-CC2B-439D-8C7E-E15684D8E1E5}
 	EndGlobalSection
 EndGlobal

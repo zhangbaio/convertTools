@@ -2,10 +2,11 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using ChannelsPublisher.Clip;
 using Microsoft.Extensions.DependencyInjection;
 using ShortDrama.Desktop.Services;
 using ShortDrama.Desktop.ViewModels;
-using ShortDrama.Infrastructure.Automation;
 
 namespace ShortDrama.Desktop.Views;
 
@@ -194,7 +195,7 @@ public partial class MaterialUploadView : UserControl
         ViewModel?.AppendExternalLog("已打开剪辑配置窗口。", stepKey: "material-upload", stepLabel: "素材上传");
     }
 
-    // 用完整 Python 剪辑引擎（桥接）对选定项目目录生成剪辑成片到 素材剪辑输出/。
+    // 纯 C# 高光剪辑引擎入口：选项目目录 → 火山 ASR + ffmpeg → 素材剪辑输出/高光/。
     private static readonly string[] ClipVideoExt = { ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm" };
 
     private async void GenerateClipsFullEngineButton_Click(object? sender, RoutedEventArgs e)
@@ -225,39 +226,48 @@ public partial class MaterialUploadView : UserControl
             return;
         }
 
-        // 模式与覆盖取自全局剪辑配置 ClipConfig（同发表配置对话框那份）。
         var clip = ChannelsPublisher.Core.Config.ClipConfig.Load();
-        var modes = clip.Modes.Where(m => m.Enabled).Select(m => m.Key).ToList();
-        if (modes.Count == 0) modes.Add("highlight");
+        var settings = app.Services.GetRequiredService<GlobalSettingsService>().Load();
+        var opts = BuildClipEngineOptions(clip, settings);
+        if (string.IsNullOrWhiteSpace(opts.VolcAppId))
+        {
+            ViewModel?.AppendExternalLog("未配置火山 ASR 凭据（系统服务 → ASR配置），无法生成高光剪辑。",
+                stepKey: "material-upload", stepLabel: "素材上传", isFailure: true);
+            return;
+        }
 
-        var runner = app.Services.GetRequiredService<PythonClipEngineRunner>();
-        var request = new ClipEngineRequest(projectDir, videos, modes, BuildClipOverrides(clip));
+        var episodes = videos.Select((v, i) => new EpisodeSource(i + 1, v)).ToList();
+        var engine = new HighlightClipEngine();
 
         GenerateClipsFullEngineButton.IsEnabled = false;
         ViewModel?.AppendExternalLog(
-            $"完整引擎剪辑：{Path.GetFileName(projectDir)}（{videos.Count} 源视频，模式 {string.Join("/", modes)}）开始…（ASR+渲染，较慢）",
+            $"纯 C# 高光引擎：{Path.GetFileName(projectDir)}（{videos.Count} 源视频）开始…（火山 ASR + ffmpeg，较慢）",
             stepKey: "material-upload", stepLabel: "素材上传");
-        if (ViewModel != null) ViewModel.StatusMessage = "完整引擎剪辑生成中…";
+        if (ViewModel != null) ViewModel.StatusMessage = "高光剪辑生成中…";
         try
         {
-            var result = await Task.Run(() => runner.GenerateAsync(request, CancellationToken.None));
+            var result = await Task.Run(() => engine.GenerateAsync(
+                projectDir, episodes, opts,
+                msg => Dispatcher.UIThread.Post(() =>
+                    ViewModel?.AppendExternalLog(msg, stepKey: "material-upload", stepLabel: "素材上传")),
+                CancellationToken.None));
             if (result.Ok)
             {
                 ViewModel?.AppendExternalLog(
-                    $"完整引擎剪辑完成：产出 {result.Outputs.Count} 条 → {Path.Combine(projectDir, "素材剪辑输出")}",
+                    $"高光剪辑完成：{result.Outputs.Count} 条 → {Path.Combine(projectDir, "素材剪辑输出", "高光")}",
                     stepKey: "material-upload", stepLabel: "素材上传");
-                if (ViewModel != null) ViewModel.StatusMessage = $"剪辑生成完成：{result.Outputs.Count} 条";
+                if (ViewModel != null) ViewModel.StatusMessage = $"剪辑完成：{result.Outputs.Count} 条";
             }
             else
             {
-                ViewModel?.AppendExternalLog($"完整引擎剪辑失败：{result.Error}",
+                ViewModel?.AppendExternalLog($"高光剪辑失败：{result.Error}",
                     stepKey: "material-upload", stepLabel: "素材上传", isFailure: true);
                 if (ViewModel != null) ViewModel.StatusMessage = "剪辑生成失败";
             }
         }
         catch (Exception ex)
         {
-            ViewModel?.AppendExternalLog($"完整引擎剪辑出错：{ex.Message}",
+            ViewModel?.AppendExternalLog($"高光剪辑出错：{ex.Message}",
                 stepKey: "material-upload", stepLabel: "素材上传", isFailure: true);
         }
         finally
@@ -275,16 +285,23 @@ public partial class MaterialUploadView : UserControl
             .ToList();
     }
 
-    // ClipConfig → Python 引擎 settings 覆盖（其余沿用用户 ~/.weixin_channel_tool/settings.json）。
-    private static Dictionary<string, object> BuildClipOverrides(ChannelsPublisher.Core.Config.ClipConfig clip)
+    // ClipConfig(画质/条数/速度) + 用户 GlobalSettings(火山 ASR 凭据/语言) → 剪辑引擎选项。
+    private static ClipEngineOptions BuildClipEngineOptions(
+        ChannelsPublisher.Core.Config.ClipConfig clip,
+        ShortDrama.Desktop.Models.GlobalConfigSnapshot settings)
     {
-        var ov = new Dictionary<string, object>();
-        var q = (clip.OutputQuality ?? "").Trim().ToUpperInvariant();
-        if (q == "720P") ov["material_clip_output_quality"] = "720p";
-        else if (q == "1080P") ov["material_clip_output_quality"] = "1080p";
+        var (w, h) = (clip.OutputQuality ?? "").Trim().ToUpperInvariant() == "720P" ? (720, 1280) : (1080, 1920);
         var hi = clip.Modes.FirstOrDefault(m => m.Key == "highlight");
-        if (hi != null) ov["material_clip_per_episode_top_n"] = Math.Max(1, hi.Count);
-        ov["material_clip_hardware_encode"] = clip.HardwareEncode;
-        return ov;
+        return new ClipEngineOptions
+        {
+            Width = w,
+            Height = h,
+            ClipCount = Math.Max(1, hi?.Count ?? 3),
+            RenderSpeed = string.IsNullOrWhiteSpace(clip.RenderSpeed) ? "fast" : clip.RenderSpeed,
+            HardwareEncode = clip.HardwareEncode,
+            VolcAppId = settings.MaterialClipVolcengineAppId,
+            VolcAccessToken = settings.MaterialClipVolcengineAccessToken,
+            AsrLanguage = string.IsNullOrWhiteSpace(settings.MaterialClipAsrLanguage) ? "zh-CN" : settings.MaterialClipAsrLanguage,
+        };
     }
 }

@@ -18,6 +18,8 @@
     <ProjectReference Include="..\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
     <!-- 素材发布视图（多账号内嵌浏览器并发发布）—— 库项目，避免跨 exe 引用资源冲突 -->
     <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Ui\ChannelsPublisher.Ui.csproj" />
+    <!-- 纯 C# 剪辑引擎（高光） -->
+    <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Clip\ChannelsPublisher.Clip.csproj" />
   </ItemGroup>
 
   <ItemGroup>
