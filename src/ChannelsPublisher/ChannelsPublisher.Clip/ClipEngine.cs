@@ -71,6 +71,20 @@ public sealed class ClipEngine
             {
                 ct.ThrowIfCancellationRequested();
                 var mode = (modeRaw ?? "").Trim().ToLowerInvariant();
+
+                // 解说：独立管线（LLM 脚本 + 火山 TTS + 配音渲染），单条成片，不走通用装箱。
+                if (mode == "commentary")
+                {
+                    var commSegs = Commentary.Select(all, epDur, log);
+                    if (commSegs.Count == 0) { log?.Invoke("⚠️ 解说无可用片段，跳过"); continue; }
+                    List<NarrationLine> lines;
+                    try { lines = await new CommentaryScripter().BuildAsync(commSegs, opts, basename, log, ct); }
+                    catch (Exception ex) { log?.Invoke($"⚠️ 解说脚本失败，跳过解说：{ex.Message}"); continue; }
+                    var commOut = await new CommentaryRenderer().RenderAsync(projectDir, commSegs, lines, opts, basename, log, ct);
+                    if (commOut != null) { outputs.Add(commOut); log?.Invoke($"[解说] 完成 → {Path.GetFileName(commOut)}"); }
+                    continue;
+                }
+
                 List<List<ClipCandidate>> bins;
                 string folder, label;
                 switch (mode)

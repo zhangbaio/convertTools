@@ -58,10 +58,17 @@ public sealed class ClipEngineOptions
     public string VolcAccessToken { get; set; } = "";
     public string AsrLanguage { get; set; } = "zh-CN";
 
-    // AI 文本接口（LLM 复评分 / 文案，OpenAI 兼容 chat/completions）
+    // AI 文本接口（LLM 复评分 / 解说脚本 / 文案，OpenAI 兼容 chat/completions）
     public string AiEndpoint { get; set; } = "";
     public string AiApiKey { get; set; } = "";
     public string AiModel { get; set; } = "";
+
+    // 解说（commentary）：火山 TTS 复用 Volc 凭据；语音/旁白比例/风格
+    public string TtsVoiceType { get; set; } = "BV701_streaming";
+    public string TtsCluster { get; set; } = "volcano_tts";
+    public double TtsSpeedRatio { get; set; } = 1.0;
+    public double CommentaryNarrationRatio { get; set; } = 70.0;      // 旁白占比 40-100
+    public string CommentaryStyleStrength { get; set; } = "standard"; // subtle/standard/strong
 
     public string FfmpegPath { get; set; } = "ffmpeg";
     public string FfprobePath { get; set; } = "ffprobe";

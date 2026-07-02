@@ -14,7 +14,7 @@
         <ScrollViewer>
             <StackPanel Spacing="10">
                 <TextBlock Text="剪辑模式（一键创作时参与）" FontWeight="SemiBold" />
-                <Grid ColumnDefinitions="Auto,Auto,80,Auto" RowDefinitions="Auto,Auto" RowSpacing="6" ColumnSpacing="12">
+                <Grid ColumnDefinitions="Auto,Auto,80,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="12">
                     <CheckBox Grid.Row="0" Grid.Column="0" x:Name="HighlightEnabledBox" Content="高光" MinWidth="80" />
                     <TextBlock Grid.Row="0" Grid.Column="1" Text="每集条数" VerticalAlignment="Center" />
                     <NumericUpDown Grid.Row="0" Grid.Column="2" x:Name="HighlightCountBox" Minimum="1" Maximum="10" />
@@ -23,6 +23,14 @@
                     <TextBlock Grid.Row="1" Grid.Column="1" Text="每集条数" VerticalAlignment="Center" />
                     <NumericUpDown Grid.Row="1" Grid.Column="2" x:Name="MashupCountBox" Minimum="1" Maximum="10" />
                     <CheckBox Grid.Row="1" Grid.Column="3" x:Name="MashupForceBox" Content="覆盖重生" VerticalAlignment="Center" />
+                    <CheckBox Grid.Row="2" Grid.Column="0" x:Name="SliceEnabledBox" Content="切片" MinWidth="80" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="每集条数" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="2" Grid.Column="2" x:Name="SliceCountBox" Minimum="1" Maximum="10" />
+                    <CheckBox Grid.Row="2" Grid.Column="3" x:Name="SliceForceBox" Content="覆盖重生" VerticalAlignment="Center" />
+                    <CheckBox Grid.Row="3" Grid.Column="0" x:Name="CommentaryEnabledBox" Content="解说" MinWidth="80" />
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="每集条数" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="3" Grid.Column="2" x:Name="CommentaryCountBox" Minimum="1" Maximum="10" />
+                    <CheckBox Grid.Row="3" Grid.Column="3" x:Name="CommentaryForceBox" Content="覆盖重生" VerticalAlignment="Center" />
                 </Grid>
 
                 <TextBlock Text="选段质量" FontWeight="SemiBold" Margin="0,4,0,0" />

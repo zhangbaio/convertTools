@@ -10,7 +10,7 @@ public static class HighlightPlanner
         int totalKeep = Math.Max(1, (int)Math.Round(candidates.Count * 0.5));
 
         var byEp = candidates.GroupBy(c => c.EpisodeIndex).ToDictionary(g => g.Key, g => g.ToList());
-        var quota = AllocateQuota(byEp, episodeDurationsSec, totalKeep);
+        var quota = AllocateEpisodeQuota(byEp, episodeDurationsSec, totalKeep);
 
         var selected = new HashSet<ClipCandidate>();
         foreach (var (ep, items) in byEp)
@@ -22,7 +22,7 @@ public static class HighlightPlanner
         return candidates.OrderByDescending(c => c.Total).Where(selected.Contains).ToList();
     }
 
-    private static Dictionary<int, int> AllocateQuota(
+    public static Dictionary<int, int> AllocateEpisodeQuota(
         Dictionary<int, List<ClipCandidate>> byEp,
         IReadOnlyDictionary<int, double> durs,
         int totalKeep)

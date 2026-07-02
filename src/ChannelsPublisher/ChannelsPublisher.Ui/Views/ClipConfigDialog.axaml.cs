@@ -40,6 +40,14 @@ public partial class ClipConfigDialog : Window
         MashupEnabledBox.IsChecked = ma.Enabled;
         MashupCountBox.Value = ma.Count;
         MashupForceBox.IsChecked = ma.Force;
+        var sl = Mode("slice");
+        SliceEnabledBox.IsChecked = sl.Enabled;
+        SliceCountBox.Value = sl.Count;
+        SliceForceBox.IsChecked = sl.Force;
+        var co = Mode("commentary");
+        CommentaryEnabledBox.IsChecked = co.Enabled;
+        CommentaryCountBox.Value = co.Count;
+        CommentaryForceBox.IsChecked = co.Force;
 
         EpisodeQuotaBox.IsChecked = c.EpisodeQuota;
         EnableLlmScoreBox.IsChecked = c.EnableLlmScore;
@@ -79,6 +87,14 @@ public partial class ClipConfigDialog : Window
         ma.Enabled = MashupEnabledBox.IsChecked == true;
         ma.Count = (int)(MashupCountBox.Value ?? 5);
         ma.Force = MashupForceBox.IsChecked == true;
+        var sl = Mode("slice");
+        sl.Enabled = SliceEnabledBox.IsChecked == true;
+        sl.Count = (int)(SliceCountBox.Value ?? 3);
+        sl.Force = SliceForceBox.IsChecked == true;
+        var co = Mode("commentary");
+        co.Enabled = CommentaryEnabledBox.IsChecked == true;
+        co.Count = (int)(CommentaryCountBox.Value ?? 1);
+        co.Force = CommentaryForceBox.IsChecked == true;
 
         c.EpisodeQuota = EpisodeQuotaBox.IsChecked == true;
         c.EnableLlmScore = EnableLlmScoreBox.IsChecked == true;

@@ -23,6 +23,8 @@ public sealed class ClipConfig
     {
         new ClipModeSetting { Key = "highlight", Label = "高光", Enabled = true, Count = 5 },
         new ClipModeSetting { Key = "mashup", Label = "混剪", Enabled = false, Count = 5 },
+        new ClipModeSetting { Key = "slice", Label = "切片", Enabled = false, Count = 3 },
+        new ClipModeSetting { Key = "commentary", Label = "解说", Enabled = false, Count = 1 },
     };
 
     // 选段质量
