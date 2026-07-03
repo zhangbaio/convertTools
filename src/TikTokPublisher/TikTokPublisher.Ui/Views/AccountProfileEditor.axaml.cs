@@ -145,7 +145,7 @@ public partial class AccountProfileEditor : UserControl
         profile.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
         profile.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
         profile.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
-        profile.TiktokSilenceThresholdDb = (double)(SilenceThresholdBox.Value ?? -40);
+        profile.TiktokSilenceThresholdDb = (double)(SilenceThresholdBox.Value ?? -45);
         profile.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
         profile.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
         var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);

@@ -211,6 +211,23 @@ public static class WorkspaceQueueDatabase
             CREATE INDEX IF NOT EXISTS idx_upload_projects_workspace
                 ON upload_projects(workspace_path, project_dir)
             """);
+        ExecuteNonQuery(conn, """
+            CREATE TABLE IF NOT EXISTS project_state_documents (
+                document_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL DEFAULT '',
+                workspace_path TEXT NOT NULL DEFAULT '',
+                project_dir TEXT NOT NULL DEFAULT '',
+                workflow_project_dir TEXT NOT NULL DEFAULT '',
+                document_type TEXT NOT NULL DEFAULT '',
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """);
+        ExecuteNonQuery(conn, """
+            CREATE INDEX IF NOT EXISTS idx_project_state_documents_project_type
+                ON project_state_documents(project_id, document_type)
+            """);
     }
 
     private static void ExecuteNonQuery(SqliteConnection conn, string sql)

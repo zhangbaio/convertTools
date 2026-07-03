@@ -72,8 +72,8 @@ public sealed class TikTokAccountProfile
     public int TiktokUploadBatchStallSeconds { get; set; } = 75;
     public int TiktokUploadBatchMaxRetries { get; set; } = 3;
     public bool TiktokSilenceValidationEnabled { get; set; }
-    public int TiktokMaxContinuousSilenceSeconds { get; set; } = 3;
-    public double TiktokSilenceThresholdDb { get; set; } = -40;
+    public int TiktokMaxContinuousSilenceSeconds { get; set; } = 20;
+    public double TiktokSilenceThresholdDb { get; set; } = -45.0;
     public string TiktokExcelReportPath { get; set; } = "";
 
     /// <summary>WebView2 UserDataFolder（每账号独立浏览器会话）。</summary>

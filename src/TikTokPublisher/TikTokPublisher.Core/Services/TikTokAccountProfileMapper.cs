@@ -6,6 +6,11 @@ namespace TikTokPublisher.Core.Services;
 /// <summary>将 Python <c>account_profiles</c> JSON（snake_case）映射为 C# 模型。</summary>
 public static class TikTokAccountProfileMapper
 {
+    private const string FingerprintStartCommandKey = "tiktok_fingerprint_browser_start_command";
+    private const string LegacyFingerprintStartCommandKey = "tiktok_fingerprint_start_command";
+    private const int DefaultMaxContinuousSilenceSeconds = 20;
+    private const double DefaultSilenceThresholdDb = -45.0;
+
     public static TikTokAccountProfile FromPythonPayload(
         JsonElement payload,
         string profileId,
@@ -28,7 +33,9 @@ public static class TikTokAccountProfileMapper
             TiktokStorageStatePath = FirstNonEmpty(authStatePath, S(payload, "tiktok_storage_state_path")) ?? "",
             TiktokLoginBrowserMode = NormalizeBrowserModeFromPython(S(payload, "tiktok_login_browser_mode")),
             TiktokFingerprintBrowserCdpEndpoint = S(payload, "tiktok_fingerprint_browser_cdp_endpoint"),
-            TiktokFingerprintStartCommand = S(payload, "tiktok_fingerprint_start_command"),
+            TiktokFingerprintStartCommand = FirstNonEmpty(
+                S(payload, FingerprintStartCommandKey),
+                S(payload, LegacyFingerprintStartCommandKey)) ?? "",
             TiktokSeriesUrl = FirstNonEmpty(S(payload, "tiktok_series_url"), TikTokUrls.DefaultSeriesDraftUrl) ?? TikTokUrls.DefaultSeriesDraftUrl,
             LastWorkspace = S(payload, "last_workspace"),
             LastDownloadWorkspace = S(payload, "last_download_workspace"),
@@ -74,8 +81,8 @@ public static class TikTokAccountProfileMapper
             TiktokUploadBatchStallSeconds = Math.Clamp(I(payload, "tiktok_upload_batch_stall_seconds", 75), 20, 600),
             TiktokUploadBatchMaxRetries = Math.Clamp(I(payload, "tiktok_upload_batch_max_retries", 3), 1, 10),
             TiktokSilenceValidationEnabled = B(payload, "tiktok_silence_validation_enabled"),
-            TiktokMaxContinuousSilenceSeconds = Math.Max(1, I(payload, "tiktok_max_continuous_silence_seconds", 3)),
-            TiktokSilenceThresholdDb = D(payload, "tiktok_silence_threshold_db", -40),
+            TiktokMaxContinuousSilenceSeconds = Math.Max(1, I(payload, "tiktok_max_continuous_silence_seconds", DefaultMaxContinuousSilenceSeconds)),
+            TiktokSilenceThresholdDb = D(payload, "tiktok_silence_threshold_db", DefaultSilenceThresholdDb),
             TiktokExcelReportPath = S(payload, "tiktok_excel_report_path"),
         };
 
@@ -243,7 +250,7 @@ public static class TikTokAccountProfileMapper
         Set(payload, "tiktok_storage_state_path", profile.TiktokStorageStatePath);
         Set(payload, "tiktok_login_browser_mode", NormalizeBrowserModeToPython(profile.TiktokLoginBrowserMode));
         Set(payload, "tiktok_fingerprint_browser_cdp_endpoint", profile.TiktokFingerprintBrowserCdpEndpoint);
-        Set(payload, "tiktok_fingerprint_start_command", profile.TiktokFingerprintStartCommand);
+        Set(payload, FingerprintStartCommandKey, profile.TiktokFingerprintStartCommand);
         Set(payload, "tiktok_series_url", profile.TiktokSeriesUrl);
         Set(payload, "last_workspace", profile.LastWorkspace);
         Set(payload, "last_download_workspace", profile.LastDownloadWorkspace);

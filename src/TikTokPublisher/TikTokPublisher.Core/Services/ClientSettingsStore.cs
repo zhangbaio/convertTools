@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -145,7 +146,7 @@ public static class ClientSettingsStore
             return "";
         }
 
-        return Path.Combine(Path.GetFullPath(workspacePath), "tiktok_uploader.db");
+        return WorkspaceQueuePaths.QueueDatabasePath(workspacePath);
     }
 
     private static JsonObject? LoadRawObject(string? databasePath = null)

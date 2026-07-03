@@ -59,7 +59,7 @@ public static class TikTokUploadStateStore
         var current = new DirectoryInfo(Path.GetFullPath(projectDir));
         while (current is not null)
         {
-            var dbPath = Path.Combine(current.FullName, "tiktok_uploader.db");
+            var dbPath = Path.Combine(current.FullName, WorkspaceQueuePaths.QueueDatabaseFileName);
             if (File.Exists(dbPath))
                 return current.FullName;
             current = current.Parent;

@@ -58,7 +58,7 @@ public sealed class TikTokPlaywrightAutomation : IPublishAutomation, IAsyncDispo
 
         var dailyLimit = await TikTokBrowserActions.DetectDailyEpisodeLimitAsync(page);
         if (dailyLimit is not null)
-            return PublishResult.Fail($"检测到 TikTok 单日创建剧集上限：{dailyLimit}");
+            return PublishResult.FailAndStopQueue($"检测到 TikTok 单日创建剧集上限：{dailyLimit}");
 
         try
         {
@@ -115,7 +115,7 @@ public sealed class TikTokPlaywrightAutomation : IPublishAutomation, IAsyncDispo
                 var limitMsg = $"检测到 TikTok 单日创建剧集上限：{dailyLimit}";
                 if (hasWorkflow)
                     TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, limitMsg, payload.Title);
-                return PublishResult.Fail(limitMsg);
+                return PublishResult.FailAndStopQueue(limitMsg);
             }
 
             if (hasWorkflow)

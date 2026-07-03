@@ -158,7 +158,7 @@
                         </Grid>
                         <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto" RowSpacing="6" ColumnSpacing="8">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="静音阈值 dB" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="0" Grid.Column="1" x:Name="SilenceThresholdBox" Minimum="-80" Maximum="0" Value="-40" Width="160" HorizontalAlignment="Left" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" x:Name="SilenceThresholdBox" Minimum="-80" Maximum="0" Value="-45" Width="160" HorizontalAlignment="Left" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

@@ -31,9 +31,11 @@ public sealed class PublishResult
 {
     public bool Ok { get; init; }
     public string Message { get; init; } = "";
+    public bool StopQueue { get; init; }
 
     public static PublishResult Success(string message = "完成") => new() { Ok = true, Message = message };
     public static PublishResult Fail(string message) => new() { Ok = false, Message = message };
+    public static PublishResult FailAndStopQueue(string message) => new() { Ok = false, Message = message, StopQueue = true };
 }
 
 public sealed record PublishProgress(

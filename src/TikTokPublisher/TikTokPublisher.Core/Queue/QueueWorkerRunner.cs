@@ -236,6 +236,7 @@ public sealed class QueueWorkerRunner
             }
             else if (preUploadTasks.Count == 0 && uploadTasks.Count == 0)
             {
+                DrainPendingAsStopped();
                 break;
             }
 
@@ -282,7 +283,11 @@ public sealed class QueueWorkerRunner
                     await completed.ConfigureAwait(false);
                     Mutate(() =>
                     {
-                        if (uploadEnabled && ShouldRunStep(preItem, QueueStepRegistry.UploadSeries, options))
+                        if (stopped)
+                        {
+                            MarkStopped(preItem, uploadEnabled ? QueueStepRegistry.UploadSeries : preItem.CurrentStep);
+                        }
+                        else if (uploadEnabled && ShouldRunStep(preItem, QueueStepRegistry.UploadSeries, options))
                         {
                             MarkWaitingSlot(preItem);
                             readyForUpload.Enqueue(preItem);
@@ -348,6 +353,14 @@ public sealed class QueueWorkerRunner
                     {
                         failed++;
                     }
+                }
+                catch (QueueStopRequestedException ex)
+                {
+                    failed++;
+                    stopped = true;
+                    Report(onProgress, workspace, uploadCtx.Item,
+                        $"队列已停止：{ex.Message}", QueueStepRegistry.UploadSeries);
+                    DrainPendingAsStopped();
                 }
                 catch (OperationCanceledException)
                 {
@@ -435,6 +448,7 @@ public sealed class QueueWorkerRunner
 
         Exception? failure = null;
         var failureMessage = "";
+        var stopQueue = false;
         try
         {
             if (!await host.EnsureAccountBrowserReadyAsync(account, ct).ConfigureAwait(false))
@@ -464,6 +478,7 @@ public sealed class QueueWorkerRunner
                     return true;
                 }
                 failureMessage = result.Message;
+                stopQueue = result.StopQueue;
             }
         }
         catch (OperationCanceledException)
@@ -475,6 +490,15 @@ public sealed class QueueWorkerRunner
         {
             failure = ex;
             failureMessage = ex.Message;
+        }
+
+        if (stopQueue)
+        {
+            mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, failureMessage));
+            Report(onProgress, workspace, item,
+                $"上传失败，已停止后续队列：{failureMessage}",
+                QueueStepRegistry.UploadSeries);
+            throw new QueueStopRequestedException(failureMessage);
         }
 
         if (manualIntervention is not null && !ct.IsCancellationRequested && !manualIntervention.WasResolved(item.ProjectDir))
@@ -662,4 +686,6 @@ public sealed class QueueWorkerRunner
             StepKey = stepKey,
         });
     }
+
+    private sealed class QueueStopRequestedException(string message) : Exception(message);
 }

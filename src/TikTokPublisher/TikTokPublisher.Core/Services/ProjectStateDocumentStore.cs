@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Services;
@@ -21,7 +22,7 @@ public static class ProjectStateDocumentStore
         if (string.IsNullOrWhiteSpace(databasePath))
             return;
 
-        PythonDatabaseInitializer.EnsureInitialized(databasePath);
+        WorkspaceQueueDatabase.EnsureDatabase(databasePath);
         var workspaceKey = NormalizePath(workspaceRoot);
         var projectKey = NormalizePath(projectDir);
         var workflowKey = string.IsNullOrWhiteSpace(workflowProjectDir) ? "" : NormalizePath(workflowProjectDir);
