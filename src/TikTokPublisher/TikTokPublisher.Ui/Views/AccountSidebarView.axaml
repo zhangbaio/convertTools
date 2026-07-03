@@ -1,0 +1,67 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
+             x:Class="TikTokPublisher.Ui.Views.AccountSidebarView"
+             x:DataType="vm:MainViewModel">
+
+    <Border Classes="accountSidebarFrame" Padding="8">
+        <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,8">
+                <TextBlock Text="账号" Classes="pageSummary" />
+
+                <Grid ColumnDefinitions="*,*">
+                    <Button Grid.Column="0" Content="+ 添加账号"
+                            Classes="sidebarPrimaryAction"
+                            Command="{Binding AddAccountCommand}" Margin="0,0,3,0" />
+                    <Button Grid.Column="1" Content="账号配置"
+                            Click="OnAccountSettingsClick" Margin="3,0,0,0" />
+                </Grid>
+
+                <Grid ColumnDefinitions="*,*">
+                    <Button Grid.Column="0" Content="重命名"
+                            Click="OnRenameClick" Margin="0,0,3,0" />
+                    <Button Grid.Column="1" Content="删除"
+                            Classes="dangerAction"
+                            Click="OnDeleteClick" Margin="3,0,0,0" />
+                </Grid>
+
+                <Grid ColumnDefinitions="*,*">
+                    <Button Grid.Column="0" Content="同步 Python"
+                            Click="OnSyncWithPythonClick" Margin="0,0,3,0" />
+                    <Button Grid.Column="1" Content="从 Python 导入"
+                            Click="OnImportFromPythonClick" Margin="3,0,0,0" />
+                </Grid>
+            </StackPanel>
+
+            <TextBox DockPanel.Dock="Top"
+                     Margin="0,0,0,8"
+                     Watermark="昵称/ID/邮箱"
+                     Text="{Binding AccountSearchText, Mode=TwoWay}" />
+
+            <TextBlock DockPanel.Dock="Bottom"
+                       Classes="pageSummary"
+                       TextWrapping="Wrap"
+                       Margin="0,8,0,0"
+                       Text="{Binding SelectedAccount.DisplayName, TargetNullValue='未选择账号', StringFormat='当前：{0}'}" />
+
+            <ListBox x:Name="AccountList"
+                     ItemsSource="{Binding FilteredAccounts}"
+                     SelectedItem="{Binding SelectedAccount, Mode=TwoWay}">
+                <ListBox.Styles>
+                    <Style Selector="ListBox#AccountList">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderThickness" Value="0" />
+                    </Style>
+                </ListBox.Styles>
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:AccountItemViewModel">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding Subtitle}" FontSize="12" Classes="pageSummary" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+    </Border>
+</UserControl>

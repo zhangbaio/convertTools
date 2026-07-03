@@ -1,0 +1,188 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="TikTokPublisher.Ui.Views.AccountProfileEditor"
+             Background="{StaticResource PythonPageBgBrush}">
+
+    <DockPanel Margin="16,14,16,16">
+        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                <Button Content="登录账号" Click="OnLoginClick" Classes="secondaryAction" />
+                <Button Content="重新登录账号" Click="OnReloginClick" Classes="secondaryAction" />
+            </StackPanel>
+            <Button Grid.Column="1" Content="保存账号配置" Click="OnSaveClick" Classes="primaryAction" MinWidth="140" />
+        </Grid>
+
+        <TextBlock DockPanel.Dock="Top" Text="账号配置" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" />
+
+        <TabControl>
+            <TabItem Header="登录设置">
+                <ScrollViewer>
+                    <Grid Margin="4" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="100,*" RowSpacing="10" ColumnSpacing="10">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="登录状态" VerticalAlignment="Top" Margin="0,4,0,0" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="LoginStatusText" Classes="pageSummary" TextWrapping="Wrap" Text="尚未登录" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="账号昵称" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="NicknameBox" Watermark="用于左侧账号列表显示，可留空" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="TikTok 用户名" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="2" Grid.Column="1" x:Name="LoginEmailBox" Watermark="邮箱或用户名" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="TikTok 密码" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="3" Grid.Column="1" x:Name="PasswordBox" PasswordChar="●" RevealPassword="False" Watermark="可选，与 Python 共用" />
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="登录态文件" VerticalAlignment="Center" />
+                        <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" x:Name="StorageStateBox" Watermark="留空时使用 ~/.tiktok_uploader_client/profiles/{id}/tiktok_auth_state.json" />
+                            <Button Grid.Column="1" Content="浏览" Click="OnBrowseAuthPathClick" Margin="8,0,0,0" />
+                        </Grid>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="网络 / IP">
+                <ScrollViewer>
+                    <Grid Margin="4" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="100,*" RowSpacing="10" ColumnSpacing="10">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="登录浏览器" VerticalAlignment="Center" />
+                        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="LoginBrowserModeCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="embedded">内置浏览器</ComboBoxItem>
+                            <ComboBoxItem Tag="cdp">指纹浏览器 / CDP</ComboBoxItem>
+                        </ComboBox>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="CDP 地址" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="CdpEndpointBox" Watermark="例如 http://127.0.0.1:9222" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="启动命令" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="2" Grid.Column="1" x:Name="FingerprintStartCommandBox" Watermark="指纹浏览器启动命令或本地 API URL" />
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="启用代理" VerticalAlignment="Center" />
+                        <CheckBox Grid.Row="3" Grid.Column="1" x:Name="ProxyEnabledBox" Content="启用账号代理" />
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="代理类型" VerticalAlignment="Center" />
+                        <ComboBox Grid.Row="4" Grid.Column="1" x:Name="ProxyTypeCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="http">HTTP/HTTPS</ComboBoxItem>
+                            <ComboBoxItem Tag="socks5">SOCKS5</ComboBoxItem>
+                            <ComboBoxItem Tag="socks4">SOCKS4</ComboBoxItem>
+                        </ComboBox>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="代理主机" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="5" Grid.Column="1" x:Name="ProxyHostBox" />
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="代理端口" VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="ProxyPortBox" Minimum="0" Maximum="65535" Value="0" Width="160" HorizontalAlignment="Left" />
+
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="代理用户名" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="7" Grid.Column="1" x:Name="ProxyUsernameBox" />
+
+                        <TextBlock Grid.Row="8" Grid.Column="0" Text="代理密码" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="8" Grid.Column="1" x:Name="ProxyPasswordBox" PasswordChar="●" RevealPassword="False" />
+
+                        <TextBlock Grid.Row="9" Grid.Column="0" Text="代理备注" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="9" Grid.Column="1" x:Name="ProxyLabelBox" Watermark="例如：91HTTP 静态独享IP" />
+
+                        <TextBlock Grid.Row="10" Grid.Column="0" Text="静态IP备注" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="10" Grid.Column="1" x:Name="StaticIpNoteBox" Watermark="例如：美国洛杉矶 203.0.113.10" />
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="发布配置">
+                <ScrollViewer>
+                    <StackPanel Spacing="8" Margin="4">
+                        <TextBox x:Name="ContractIdBox" Watermark="合同 ID" />
+                        <ComboBox x:Name="ContractModeCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="manual">指定合同 ID</ComboBoxItem>
+                            <ComboBoxItem Tag="first_available">使用第一个可用合同</ComboBoxItem>
+                        </ComboBox>
+                        <ComboBox x:Name="SubmitActionCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="none">不提交</ComboBoxItem>
+                            <ComboBoxItem Tag="draft">保存草稿</ComboBoxItem>
+                            <ComboBoxItem Tag="submit">提交</ComboBoxItem>
+                        </ComboBox>
+                        <ComboBox x:Name="PublishModeCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="auto_after_review">过审后自动发布</ComboBoxItem>
+                            <ComboBoxItem Tag="manual">手动发布</ComboBoxItem>
+                            <ComboBoxItem Tag="scheduled">定时发布</ComboBoxItem>
+                        </ComboBox>
+                        <ComboBox x:Name="AudienceCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="female">女性</ComboBoxItem>
+                            <ComboBoxItem Tag="male">男性</ComboBoxItem>
+                            <ComboBoxItem Tag="ai_recommend">AI 推荐</ComboBoxItem>
+                        </ComboBox>
+                        <ComboBox x:Name="SourceLanguageCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="zh">中文</ComboBoxItem>
+                            <ComboBoxItem Tag="en">English</ComboBoxItem>
+                            <ComboBoxItem Tag="id">Indonesian</ComboBoxItem>
+                        </ComboBox>
+                        <ComboBox x:Name="UploadStrategyCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="classic">经典（一次性上传全部视频）</ComboBoxItem>
+                            <ComboBoxItem Tag="batch">分批（每批 N 个，卡死整批重传）</ComboBoxItem>
+                        </ComboBox>
+                        <CheckBox x:Name="PaidEnabledBox" Content="启用付费模式" />
+                        <CheckBox x:Name="PaidRatioEnabledBox" Content="启用付费比例" />
+                        <NumericUpDown x:Name="PaidRatioPercentBox" Minimum="0" Maximum="100" Value="0" Width="160" HorizontalAlignment="Left" />
+                        <CheckBox x:Name="AiDramaBox" Content="AI 短剧" IsChecked="True" />
+                        <CheckBox x:Name="ConsignmentBox" Content="寄售模式" />
+                        <CheckBox x:Name="AnchorPromotionBox" Content="锚点推广" />
+                        <CheckBox x:Name="SilenceValidationBox" Content="启用静音检测校验" />
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="8">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="预期价格模式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="ExpectedPriceModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="manual">手动价格</ComboBoxItem>
+                                <ComboBoxItem Tag="option_index">按选项序号</ComboBoxItem>
+                            </ComboBox>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="预期全集价格" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <TextBox x:Name="ExpectedPriceValueBox" Watermark="例如：22.33 或 $22.33 | $0.29/EP" MinWidth="280" />
+                                <Button Content="同步价格选项" Click="OnSyncExpectedPriceClick" />
+                            </StackPanel>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="价格选项序号" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="ExpectedPriceOptionIndexBox" Minimum="1" Maximum="999" Value="1" Width="160" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="已同步选项" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ExpectedPriceOptionsCombo" HorizontalAlignment="Stretch" />
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="个人页预览集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="1" />
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="1" />
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="20" Value="1" />
+                            <TextBlock Grid.Row="7" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="7" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
+                            <TextBlock Grid.Row="8" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="8" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="1" />
+                            <TextBlock Grid.Row="9" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
+                            <TextBlock Grid.Row="10" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="10" Grid.Column="1" x:Name="UploadBatchStallBox" Minimum="20" Maximum="600" Value="75" />
+                            <TextBlock Grid.Row="11" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="11" Grid.Column="1" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto" RowSpacing="6" ColumnSpacing="8">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="静音阈值 dB" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" x:Name="SilenceThresholdBox" Minimum="-80" Maximum="0" Value="-40" Width="160" HorizontalAlignment="Left" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="基础设置">
+                <ScrollViewer>
+                    <StackPanel Spacing="8" Margin="4">
+                        <TextBox x:Name="SeriesUrlBox" Watermark="短剧中心 URL" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox x:Name="WorkspaceBox" Watermark="上传工作目录" MinWidth="420" />
+                            <Button Content="浏览…" Click="OnBrowseWorkspaceClick" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox x:Name="DownloadWorkspaceBox" Watermark="下载工作目录" MinWidth="420" />
+                            <Button Content="浏览…" Click="OnBrowseDownloadWorkspaceClick" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox x:Name="ExcelReportBox" Watermark="Excel 报表路径" MinWidth="420" />
+                            <Button Content="浏览…" Click="OnBrowseExcelReportClick" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</UserControl>

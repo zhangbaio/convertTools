@@ -1,0 +1,196 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
+             x:Class="TikTokPublisher.Ui.Views.TikTokQueueView"
+             x:Name="QueueViewRoot"
+             x:DataType="vm:MainViewModel"
+             Background="{StaticResource PythonPageBgBrush}">
+
+    <DockPanel Margin="16,14,16,16">
+        <!-- 顶部控制区：对齐 Python controlsFrame -->
+        <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,10">
+            <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Grid.Column="0" Text="工作目录" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <TextBox Grid.Column="1" Text="{Binding WorkspacePath}" IsReadOnly="True" Watermark="选择工作目录" />
+                    <Button Grid.Column="2" Content="选择工作目录" Click="OnPickWorkspaceClick" Margin="10,0,0,0" />
+                </Grid>
+
+                <WrapPanel Orientation="Horizontal">
+                    <Button Content="刷新项目" Click="OnScanWorkspaceClick" Margin="0,0,8,8" />
+                    <Button Content="绑定选中账号" Click="OnBindSelectedAccountClick" Margin="0,0,8,8" />
+                    <Button Content="绑定全部待上传" Click="OnBindAllPendingClick" Margin="0,0,8,8" />
+                    <Button Content="归档选中" Click="OnArchiveSelectedClick" Margin="0,0,8,8" />
+                    <Button Content="从队列移除" Click="OnRemoveSelectedClick" Margin="0,0,8,8" />
+                    <CheckBox Content="仅待上传" IsChecked="{Binding ShowOnlyPendingUpload}" VerticalAlignment="Center" Margin="0,0,8,8" />
+                    <Button Content="全选" Click="OnSelectAllQueueClick" Margin="0,0,8,8" />
+                    <Button Content="取消全选" Click="OnClearQueueSelectionClick" Margin="0,0,8,8" />
+                </WrapPanel>
+
+                <WrapPanel Orientation="Horizontal">
+                    <Button Content="打开浏览器" Click="OnOpenBrowserClick" Classes="secondaryAction" Margin="0,0,8,8" />
+                    <Button Content="运行日志" Click="OnOpenLogsClick" Margin="0,0,8,8" />
+                    <Button x:Name="StartQueueButton" Content="执行选中队列" Click="OnStartQueueClick" Classes="primaryAction" Margin="0,0,8,8" />
+                    <Button x:Name="StopQueueButton" Content="停止" Click="OnStopQueueClick" Classes="dangerAction" IsEnabled="False" Margin="0,0,8,8" />
+                    <Button Content="发布配置" Click="OnPublishConfigClick" Margin="0,0,8,8" />
+                    <Button Content="手动发布测试" Click="OnPublishClick" Margin="0,0,8,8" />
+                    <Button x:Name="ManualSuccessButton" Content="人工介入：标记成功" Click="OnManualInterventionSuccessClick"
+                            Classes="primaryAction" IsEnabled="False" Margin="0,0,8,8" />
+                    <Button x:Name="ManualFailButton" Content="人工介入：标记失败" Click="OnManualInterventionFailClick"
+                            Classes="dangerAction" IsEnabled="False" Margin="0,0,8,8" />
+                </WrapPanel>
+                <TextBlock x:Name="ManualInterventionHint"
+                           Text="{Binding ManualInterventionHint}"
+                           Foreground="#B94218"
+                           IsVisible="{Binding ManualInterventionPending}"
+                           TextWrapping="Wrap" Margin="0,-6,0,4" />
+
+                <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Grid.Column="0" Text="搜索" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <TextBox Grid.Column="1"
+                             Watermark="搜索原剧名 / 新剧名 / 时间 / 状态 / 问题"
+                             Text="{Binding QueueSearchText, Mode=TwoWay}" />
+                </Grid>
+
+                <Border Classes="taskStepFrame">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                            <TextBlock Grid.Column="0" Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                                <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" />
+                                <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" />
+                            </StackPanel>
+                        </Grid>
+
+                        <WrapPanel Orientation="Horizontal">
+                            <CheckBox Content="下载" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="改写" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="静音检测" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="静音修复" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="素材校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="删源视频" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="上传剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,4" />
+                        </WrapPanel>
+
+                        <WrapPanel Orientation="Horizontal">
+                            <CheckBox Content="上传完成后自动归档" IsChecked="{Binding AutoArchiveAfterUpload}" Margin="0,0,16,0" />
+                            <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding ForceRerunCompletedSteps}" Margin="0,0,16,0" />
+                            <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding PreferUploadWhenReady}" Margin="0,0,16,0" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Classes="pageSummary" Text="{Binding WorkspaceBindingSummary}" />
+                <TextBlock Classes="pageSummary" Text="{Binding QueueSummaryText}" />
+            </StackPanel>
+        </Border>
+
+        <!-- 手动发布区：Dock=Bottom 先声明，让表格成为最后一个 fill 子项 -->
+        <Border DockPanel.Dock="Bottom" Classes="controlsFrame" MaxHeight="220" Margin="0,10,0,0">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="手动发布（多账号并发）" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <Button Content="添加素材" Click="OnAddMaterialsClick" Margin="0,0,8,8" />
+                    <Button Content="导入任务(JSON)" Click="OnImportTasksClick" Margin="0,0,8,8" />
+                    <TextBlock Text="结束动作" VerticalAlignment="Center" Margin="0,0,8,8" />
+                    <ComboBox ItemsSource="{Binding FinalActionChoices}" SelectedItem="{Binding SelectedFinalAction}" MinWidth="150" Margin="0,0,8,8">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:FinalActionChoice">
+                                <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBlock Text="并发账号" VerticalAlignment="Center" Margin="0,0,8,8" />
+                    <NumericUpDown Value="{Binding MaxParallel}" Minimum="1" Maximum="8" Increment="1" Width="110" Margin="0,0,8,8" />
+                    <Button x:Name="StartPublishButton" Content="开始发布" Click="OnStartPublishClick" Classes="primaryAction" Margin="0,0,8,8" />
+                    <Button x:Name="StopPublishButton" Content="停止" Click="OnStopPublishClick" Classes="dangerAction" IsEnabled="False" Margin="0,0,8,8" />
+                    <Button Content="清空已完成" Click="OnClearDoneClick" Margin="0,0,8,8" />
+                    <Button Content="清除续传记录" Click="OnClearResumeClick" Margin="0,0,8,8" />
+                </WrapPanel>
+
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="140,*,150,80,*" Margin="0,0,0,4">
+                    <TextBlock Grid.Column="0" Text="账号" Classes="pageSummary" />
+                    <TextBlock Grid.Column="1" Text="视频" Classes="pageSummary" />
+                    <TextBlock Grid.Column="2" Text="剧集" Classes="pageSummary" />
+                    <TextBlock Grid.Column="3" Text="状态" Classes="pageSummary" />
+                    <TextBlock Grid.Column="4" Text="信息" Classes="pageSummary" />
+                </Grid>
+
+                <ListBox ItemsSource="{Binding Tasks}" MaxHeight="100" Background="Transparent">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PublishTaskItemViewModel">
+                            <Grid ColumnDefinitions="140,*,150,80,*">
+                                <TextBlock Grid.Column="0" Text="{Binding AccountName}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="1" Text="{Binding VideoName}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="2" Text="{Binding DramaName}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="3" Text="{Binding StatusText}" />
+                                <TextBlock Grid.Column="4" Text="{Binding Message}" TextTrimming="CharacterEllipsis" Classes="pageSummary" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- 队列表格：作为 DockPanel 最后一个未指定 Dock 的子项，自动填充剩余空间 -->
+        <Border BorderBrush="#DFD1C0" BorderThickness="1" CornerRadius="6">
+            <DockPanel>
+                <ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72">
+                        <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
+                        <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
+                        <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
+                        <TextBlock Grid.Column="3" Text="原剧名" Classes="tableHeader" />
+                        <TextBlock Grid.Column="4" Text="新剧名" Classes="tableHeader" />
+                        <TextBlock Grid.Column="5" Text="集数" Classes="tableHeader" />
+                        <TextBlock Grid.Column="6" Text="加入时间" Classes="tableHeader" />
+                        <TextBlock Grid.Column="7" Text="下载" Classes="tableHeader" />
+                        <TextBlock Grid.Column="8" Text="改写" Classes="tableHeader" />
+                        <TextBlock Grid.Column="9" Text="海报" Classes="tableHeader" />
+                        <TextBlock Grid.Column="10" Text="修复" Classes="tableHeader" />
+                        <TextBlock Grid.Column="11" Text="静音检测" Classes="tableHeader" />
+                        <TextBlock Grid.Column="12" Text="静音修复" Classes="tableHeader" />
+                        <TextBlock Grid.Column="13" Text="校验" Classes="tableHeader" />
+                        <TextBlock Grid.Column="14" Text="删源" Classes="tableHeader" />
+                        <TextBlock Grid.Column="15" Text="上传" Classes="tableHeader" />
+                        <TextBlock Grid.Column="16" Text="状态" Classes="tableHeader" />
+                    </Grid>
+                </ScrollViewer>
+
+                <ListBox x:Name="QueueProjectList"
+                         ItemsSource="{Binding FilteredQueueProjectRows}"
+                         Background="{StaticResource PythonInputBg}"
+                         SelectionMode="Multiple"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
+                            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
+                                <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" MinHeight="36">
+                                    <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
+                                    <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled}" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                    <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" FontSize="12" />
+                                    <TextBlock Grid.Column="3" Text="{Binding OriginalTitle}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" Foreground="#0F63C7" />
+                                    <TextBlock Grid.Column="4" Text="{Binding NewTitle}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" Foreground="#0F63C7" />
+                                    <TextBlock Grid.Column="5" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
+                                    <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="7" Text="{Binding DownloadStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" Classes="pageSummary" />
+                                    <TextBlock Grid.Column="8" Text="{Binding RewriteStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" Classes="pageSummary" />
+                                    <TextBlock Grid.Column="9" Text="{Binding PosterStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" Classes="pageSummary" />
+                                    <TextBlock Grid.Column="10" Text="{Binding RepairStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="11" Text="{Binding SilenceDetectStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="12" Text="{Binding SilenceRepairStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="13" Text="{Binding ValidateStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="14" Text="{Binding DeleteSourceStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" Classes="pageSummary" />
+                                    <TextBlock Grid.Column="15" Text="{Binding UploadStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="16" Text="{Binding StatusText}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ScrollViewer>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+    </DockPanel>
+</UserControl>

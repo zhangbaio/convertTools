@@ -1,0 +1,238 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Styles.Resources>
+    <!-- 对齐 Python tiktok_uploader_client/theme.py -->
+    <Color x:Key="PythonBg">#F5F6F8</Color>
+    <Color x:Key="PythonPageBg">#F5F6F8</Color>
+    <Color x:Key="PythonPanelBg">#FFF9F2</Color>
+    <Color x:Key="PythonPanelBorder">#E0D4C6</Color>
+    <Color x:Key="PythonText">#231F1A</Color>
+    <Color x:Key="PythonMuted">#6D5A48</Color>
+    <Color x:Key="PythonPrimary">#0F7AE5</Color>
+    <Color x:Key="PythonPrimaryHover">#0C6FD3</Color>
+    <Color x:Key="PythonSecondary">#55A9EE</Color>
+    <Color x:Key="PythonDangerText">#8F2F25</Color>
+    <Color x:Key="PythonDangerBg">#FFF1EF</Color>
+    <Color x:Key="PythonTableHeader">#EFE4D6</Color>
+    <Color x:Key="PythonTableRowAlt">#FBF6EF</Color>
+    <Color x:Key="PythonInputBg">#FFFDFA</Color>
+    <Color x:Key="PythonInputBorder">#D9CAB7</Color>
+    <Color x:Key="PythonStatusBar">#ECE2D6</Color>
+    <Color x:Key="PythonNavSelectedBg">#EDF5FF</Color>
+    <Color x:Key="PythonSuccessText">#087443</Color>
+    <Color x:Key="PythonPendingText">#8A5A00</Color>
+
+    <SolidColorBrush x:Key="PythonBgBrush" Color="{StaticResource PythonBg}" />
+    <SolidColorBrush x:Key="PythonPageBgBrush" Color="{StaticResource PythonPageBg}" />
+    <SolidColorBrush x:Key="PythonPanelBgBrush" Color="{StaticResource PythonPanelBg}" />
+    <SolidColorBrush x:Key="PythonPanelBorderBrush" Color="{StaticResource PythonPanelBorder}" />
+    <SolidColorBrush x:Key="PythonTextBrush" Color="{StaticResource PythonText}" />
+    <SolidColorBrush x:Key="PythonMutedBrush" Color="{StaticResource PythonMuted}" />
+    <SolidColorBrush x:Key="PythonPrimaryBrush" Color="{StaticResource PythonPrimary}" />
+    <SolidColorBrush x:Key="PythonStatusBarBrush" Color="{StaticResource PythonStatusBar}" />
+
+    <CornerRadius x:Key="PythonPanelRadius">8</CornerRadius>
+    <CornerRadius x:Key="PythonButtonRadius">6</CornerRadius>
+    <Thickness x:Key="PythonPanelPadding">16,12</Thickness>
+    </Styles.Resources>
+
+    <Style Selector="Window">
+        <Setter Property="Background" Value="{StaticResource PythonPageBgBrush}" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Foreground" Value="{StaticResource PythonTextBrush}" />
+    </Style>
+
+    <Style Selector="Border.controlsFrame">
+        <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource PythonPanelBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource PythonPanelRadius}" />
+        <Setter Property="Padding" Value="{StaticResource PythonPanelPadding}" />
+    </Style>
+
+    <Style Selector="Border.taskStepFrame">
+        <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource PythonPanelBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="8,6" />
+    </Style>
+
+    <Style Selector="Border.accountSidebarFrame">
+        <Setter Property="Background" Value="#FFFFFF" />
+        <Setter Property="BorderBrush" Value="#E5E7EB" />
+        <Setter Property="BorderThickness" Value="0,0,1,0" />
+    </Style>
+
+    <Style Selector="Border.topNavFrame">
+        <Setter Property="Background" Value="#FFFFFF" />
+        <Setter Property="BorderBrush" Value="#E5E7EB" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+
+    <Style Selector="Border.browserFrame">
+        <Setter Property="Background" Value="#FFFFFF" />
+        <Setter Property="BorderBrush" Value="#E5E7EB" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
+
+    <Style Selector="TextBlock.topBrandLabel">
+        <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+
+    <Style Selector="TextBlock.pageSummary">
+        <Setter Property="Foreground" Value="{StaticResource PythonMutedBrush}" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+
+    <Style Selector="TextBlock.tableHeader">
+        <Setter Property="Foreground" Value="#4F4134" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Padding" Value="8,10" />
+        <Setter Property="Background" Value="{StaticResource PythonTableHeader}" />
+    </Style>
+
+    <Style Selector="Button">
+        <Setter Property="Background" Value="{StaticResource PythonInputBg}" />
+        <Setter Property="BorderBrush" Value="#D8C7B3" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource PythonButtonRadius}" />
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="MinHeight" Value="34" />
+    </Style>
+
+    <Style Selector="Button:pointerover">
+        <Setter Property="Background" Value="#FFF3E6" />
+        <Setter Property="BorderBrush" Value="#CDB79D" />
+    </Style>
+
+    <Style Selector="Button.primaryAction">
+        <Setter Property="Background" Value="{StaticResource PythonPrimaryBrush}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="BorderBrush" Value="#0B67C2" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+
+    <Style Selector="Button.primaryAction:pointerover">
+        <Setter Property="Background" Value="{StaticResource PythonPrimaryHover}" />
+    </Style>
+
+    <Style Selector="Button.secondaryAction">
+        <Setter Property="Background" Value="{StaticResource PythonSecondary}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="BorderBrush" Value="#3B94DC" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+
+    <Style Selector="Button.dangerAction">
+        <Setter Property="Background" Value="{StaticResource PythonDangerBg}" />
+        <Setter Property="Foreground" Value="{StaticResource PythonDangerText}" />
+        <Setter Property="BorderBrush" Value="#E8B5AD" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="Button.sidebarPrimaryAction">
+        <Setter Property="Background" Value="{StaticResource PythonPrimaryBrush}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="BorderBrush" Value="#0B67C2" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+
+    <Style Selector="TextBox, ComboBox, NumericUpDown">
+        <Setter Property="Background" Value="{StaticResource PythonInputBg}" />
+        <Setter Property="BorderBrush" Value="{StaticResource PythonInputBorder}" />
+        <Setter Property="CornerRadius" Value="{StaticResource PythonButtonRadius}" />
+        <Setter Property="MinHeight" Value="34" />
+    </Style>
+
+    <Style Selector="ListBox">
+        <Setter Property="Background" Value="{StaticResource PythonInputBg}" />
+        <Setter Property="BorderBrush" Value="#DFD1C0" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
+
+    <Style Selector="ListBox#GlobalAccountList">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <Style Selector="ListBox#GlobalAccountList ListBoxItem">
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Margin" Value="0,2" />
+    </Style>
+
+    <Style Selector="ListBox#GlobalAccountList ListBoxItem:selected /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource PythonNavSelectedBg}" />
+    </Style>
+
+    <Style Selector="ListBox#GlobalAccountList ListBoxItem:selected TextBlock">
+        <Setter Property="Foreground" Value="#0F63C7" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+
+    <Style Selector="ListBox#TopModuleNav">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+
+    <Style Selector="ListBox#TopModuleNav ListBoxItem">
+        <Setter Property="Padding" Value="14,12,14,10" />
+        <Setter Property="Margin" Value="0,0,3,0" />
+        <Setter Property="BorderThickness" Value="0,0,0,3" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+
+    <Style Selector="ListBox#TopModuleNav ListBoxItem:selected">
+        <Setter Property="Background" Value="{StaticResource PythonNavSelectedBg}" />
+        <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource PythonPrimaryBrush}" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+
+    <Style Selector="Border.statusBarFrame">
+        <Setter Property="Background" Value="{StaticResource PythonStatusBarBrush}" />
+        <Setter Property="BorderBrush" Value="#D6C6B4" />
+        <Setter Property="BorderThickness" Value="1,1,0,0" />
+    </Style>
+
+    <!-- 顶部水平一级 TAB（对齐 Python Qt 客户端） -->
+    <Style Selector="Button.topNavItem">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0,0,0,3" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="CornerRadius" Value="0" />
+        <Setter Property="Padding" Value="16,10,16,8" />
+        <Setter Property="Margin" Value="0,0,4,0" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Foreground" Value="#111827" />
+    </Style>
+
+    <Style Selector="Button.topNavItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#F3F6FB" />
+    </Style>
+
+    <Style Selector="Button.topNavItemActive">
+        <Setter Property="BorderBrush" Value="{StaticResource PythonPrimaryBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
+        <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+
+    <Style Selector="Button.topNavItemActive /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource PythonNavSelectedBg}" />
+    </Style>
+
+    <Style Selector="TextBlock.stepStatusCompleted">
+        <Setter Property="Foreground" Value="{StaticResource PythonSuccessText}" />
+    </Style>
+
+    <Style Selector="TextBlock.stepStatusPending">
+        <Setter Property="Foreground" Value="{StaticResource PythonPendingText}" />
+    </Style>
+
+</Styles>

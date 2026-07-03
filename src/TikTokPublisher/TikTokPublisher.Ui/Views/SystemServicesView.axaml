@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
+             x:Class="TikTokPublisher.Ui.Views.SystemServicesView"
+             x:DataType="vm:SystemServicesViewModel"
+             Background="{StaticResource PythonPageBgBrush}">
+
+    <ScrollViewer Margin="16,14,16,16">
+        <StackPanel Spacing="14" MaxWidth="760">
+            <TextBlock Text="系统服务" Classes="pageTitle" />
+            <TextBlock Text="账号授权登录（与 Python 客户端共享 account_state.bin）。" Classes="pageSummary" TextWrapping="Wrap" />
+
+            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="授权服务地址" VerticalAlignment="Center" />
+                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AuthServerUrl}" Watermark="https://auth.example.com" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="当前状态" VerticalAlignment="Center" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LicenseSummary}" TextWrapping="Wrap" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="账号" VerticalAlignment="Center" />
+                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding LoginAccount}" />
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="密码" VerticalAlignment="Center" />
+                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding LoginPassword}" PasswordChar="●" RevealPassword="False" />
+
+                <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <Button Content="保存地址" Command="{Binding SaveAuthServerUrlCommand}" />
+                    <Button Content="登录" Command="{Binding LoginCommand}" Classes="primaryAction" />
+                    <Button Content="退出登录" Command="{Binding LogoutCommand}" />
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Text="{Binding LoginStatus}" Classes="pageSummary" TextWrapping="Wrap" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

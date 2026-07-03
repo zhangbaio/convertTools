@@ -1,0 +1,30 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
+             x:Class="TikTokPublisher.Ui.Views.ArchivedProjectsView"
+             x:DataType="vm:ArchivedProjectsViewModel"
+             Background="{StaticResource PythonPageBgBrush}">
+
+    <DockPanel Margin="16,14,16,16">
+        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Button Content="刷新" Command="{Binding RefreshCommand}" Margin="0,0,8,8" />
+            <Button Content="恢复选中" Command="{Binding RestoreSelectedCommand}" Margin="0,0,8,8" />
+            <Button Content="删除选中" Command="{Binding DeleteSelectedCommand}" Classes="dangerAction" Margin="0,0,8,8" />
+            <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Classes="pageSummary" />
+        </WrapPanel>
+
+        <ListBox ItemsSource="{Binding Rows}" Background="{StaticResource PythonInputBg}">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ArchivedProjectRowViewModel">
+                    <Grid ColumnDefinitions="64,*,*,*,180" MinHeight="34">
+                        <CheckBox Grid.Column="0" IsChecked="{Binding Selected}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding DisplayName}" Margin="8,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="2" Text="{Binding OriginalTitle}" Margin="8,0" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="3" Text="{Binding NewTitle}" Margin="8,0" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="4" Text="{Binding ArchivedAt}" Margin="8,0" VerticalAlignment="Center" FontSize="12" />
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+</UserControl>

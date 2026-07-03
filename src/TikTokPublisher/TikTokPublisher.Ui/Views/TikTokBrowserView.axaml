@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
+             x:Class="TikTokPublisher.Ui.Views.TikTokBrowserView"
+             x:DataType="vm:MainViewModel">
+
+    <DockPanel Margin="16,14,16,16">
+        <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,10">
+            <TextBlock Text="TikTok 短剧中心" FontSize="18" FontWeight="Bold" />
+            <TextBlock Classes="pageSummary"
+                       Text="每账号独立 WebView2 会话；切换账号仅切换可见性，不重启浏览器。" />
+        </StackPanel>
+
+        <Border DockPanel.Dock="Top" Classes="browserFrame" Padding="8,6" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="打开登录页" Click="OnOpenLoginClick" Classes="secondaryAction" />
+                <Button Content="刷新" Click="OnReloadClick" />
+                <TextBlock VerticalAlignment="Center" Classes="pageSummary"
+                           Text="{Binding SelectedAccount.DisplayName, TargetNullValue='请先选择账号', StringFormat='当前账号：{0}'}" />
+            </StackPanel>
+        </Border>
+
+        <Border Classes="browserFrame" ClipToBounds="True">
+            <Panel x:Name="BrowserArea">
+                <TextBlock x:Name="EmptyHint"
+                           Text="请先在左侧选择或添加账号，然后点击「打开登录页」加载 TikTok 短剧中心。"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           MaxWidth="520"
+                           TextAlignment="Center"
+                           Classes="pageSummary"
+                           FontSize="15" />
+            </Panel>
+        </Border>
+    </DockPanel>
+</UserControl>

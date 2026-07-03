@@ -1,0 +1,146 @@
+using Avalonia.Controls;
+using TikTokPublisher.Ui.ViewModels;
+
+namespace TikTokPublisher.Ui.Views;
+
+public partial class SystemSettingsView : UserControl
+{
+    private SystemSettingsViewModel? _vm;
+
+    public SystemSettingsView()
+    {
+        InitializeComponent();
+    }
+
+    public void Bind(SystemSettingsViewModel vm)
+    {
+        _vm = vm;
+        DataContext = vm;
+        InitializeComboBoxes();
+        SyncCombosFromVm();
+        vm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName is nameof(SystemSettingsViewModel.DramaSourceChain)
+                or nameof(SystemSettingsViewModel.Hongguo52ApiSearchType)
+                or nameof(SystemSettingsViewModel.PikachuDramaType)
+                or nameof(SystemSettingsViewModel.TiktokSilenceAsrEngine)
+                or nameof(SystemSettingsViewModel.TiktokSilenceRepairMode)
+                or nameof(SystemSettingsViewModel.PosterMode)
+                or nameof(SystemSettingsViewModel.ImageProvider))
+            {
+                SyncCombosFromVm();
+            }
+        };
+    }
+
+    private void InitializeComboBoxes()
+    {
+        DramaSourceCombo.Items.Clear();
+        DramaSourceCombo.Items.Add(CreateItem("红果新接口", "hgnew"));
+        DramaSourceCombo.Items.Add(CreateItem("52API", "hg52api"));
+        DramaSourceCombo.Items.Add(CreateItem("本地直连", "hglocal"));
+        DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
+        DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
+
+        Api52SearchTypeCombo.Items.Clear();
+        Api52SearchTypeCombo.Items.Add(CreateItem("综合搜索 (search)", "search"));
+        Api52SearchTypeCombo.Items.Add(CreateItem("漫画搜索 (mj_search)", "mj_search"));
+        Api52SearchTypeCombo.SelectionChanged += OnApi52SearchTypeChanged;
+
+        PikachuTypeCombo.Items.Clear();
+        PikachuTypeCombo.Items.Add(CreateItem("红果短剧 (search_tab_id=10)", "short"));
+        PikachuTypeCombo.Items.Add(CreateItem("红果漫画 (search_tab_id=13)", "manga"));
+        PikachuTypeCombo.SelectionChanged += OnPikachuTypeChanged;
+
+        AsrEngineCombo.Items.Clear();
+        AsrEngineCombo.Items.Add(CreateItem("火山 ASR（在线，最准）", "volcengine"));
+        AsrEngineCombo.Items.Add(CreateItem("本地 Paraformer（免费离线）", "local"));
+        AsrEngineCombo.Items.Add(CreateItem("混合（本地 + 临界用火山复核）", "hybrid"));
+        AsrEngineCombo.SelectionChanged += OnAsrEngineChanged;
+
+        SilenceRepairModeCombo.Items.Clear();
+        SilenceRepairModeCombo.Items.Add(CreateItem("自动（片头尾裁剪/中间变速）", "auto"));
+        SilenceRepairModeCombo.Items.Add(CreateItem("一律裁剪", "trim"));
+        SilenceRepairModeCombo.Items.Add(CreateItem("一律变速", "speedup"));
+        SilenceRepairModeCombo.SelectionChanged += OnSilenceRepairModeChanged;
+
+        PosterModeCombo.Items.Clear();
+        PosterModeCombo.Items.Add(CreateItem("原图", "original"));
+        PosterModeCombo.Items.Add(CreateItem("AI 改图", "ai"));
+        PosterModeCombo.SelectionChanged += OnPosterModeChanged;
+
+        ImageProviderCombo.Items.Clear();
+        ImageProviderCombo.Items.Add(CreateItem("豆包", "doubao"));
+        ImageProviderCombo.Items.Add(CreateItem("Ofox Image2", "ofox_image2"));
+        ImageProviderCombo.SelectionChanged += OnImageProviderChanged;
+    }
+
+    private static ComboBoxItem CreateItem(string label, string value) =>
+        new() { Content = label, Tag = value };
+
+    private void SyncCombosFromVm()
+    {
+        if (_vm is null) return;
+        SelectComboItem(DramaSourceCombo, _vm.DramaSourceChain);
+        SelectComboItem(Api52SearchTypeCombo, _vm.Hongguo52ApiSearchType);
+        SelectComboItem(PikachuTypeCombo, _vm.PikachuDramaType);
+        SelectComboItem(AsrEngineCombo, _vm.TiktokSilenceAsrEngine);
+        SelectComboItem(SilenceRepairModeCombo, _vm.TiktokSilenceRepairMode);
+        SelectComboItem(PosterModeCombo, _vm.PosterMode);
+        SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
+    }
+
+    private static void SelectComboItem(ComboBox combo, string? value)
+    {
+        foreach (var item in combo.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(item.Tag as string, value, StringComparison.OrdinalIgnoreCase))
+            {
+                combo.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private void OnDramaSourceChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || DramaSourceCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.DramaSourceChain = item.Tag as string ?? "hgnew";
+    }
+
+    private void OnApi52SearchTypeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || Api52SearchTypeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.Hongguo52ApiSearchType = item.Tag as string ?? "search";
+    }
+
+    private void OnPikachuTypeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || PikachuTypeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.PikachuDramaType = item.Tag as string ?? "short";
+    }
+
+    private void OnAsrEngineChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || AsrEngineCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.TiktokSilenceAsrEngine = item.Tag as string ?? "local";
+    }
+
+    private void OnSilenceRepairModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || SilenceRepairModeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.TiktokSilenceRepairMode = item.Tag as string ?? "auto";
+    }
+
+    private void OnPosterModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || PosterModeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.PosterMode = item.Tag as string ?? "original";
+    }
+
+    private void OnImageProviderChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ImageProviderCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.ImageProvider = item.Tag as string ?? "doubao";
+    }
+}
