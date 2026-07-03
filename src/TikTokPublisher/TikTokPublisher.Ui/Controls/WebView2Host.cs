@@ -11,7 +11,7 @@ namespace TikTokPublisher.Ui.Controls;
 /// <summary>把 WebView2（Edge 内核）内嵌进 Avalonia 的原生控件宿主。
 ///
 /// 每实例一个账号：UserDataFolder 隔离登录态；启动带 --remote-debugging-port 暴露 CDP，
-/// 供 Playwright ConnectOverCDP 驱动发布流程。</summary>
+/// 供剧集上传经 ConnectOverCDP 驱动内置浏览器中的表单自动化。</summary>
 public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 {
     private static readonly string InitLog = Path.Combine(Path.GetTempPath(), "webview2-host.log");

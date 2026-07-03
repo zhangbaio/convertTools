@@ -33,6 +33,13 @@ public partial class MainWindow : Window
         DownloadView.Bind(_viewModel.DramaDownload, _viewModel.AppendLog);
 
         QueueView.OpenBrowserRequested += (_, _) => NavigateTo("browser");
+        QueueView.PublishBrowserFocusRequested += account =>
+        {
+            if (_viewModel.SelectedAccount?.Id != account.Id)
+                _viewModel.SelectedAccount = account;
+            _browserHost.ShowAccount(account);
+            NavigateTo("browser");
+        };
         QueueView.OpenLogsRequested += (_, _) => NavigateTo("logs");
         AccountsView.LoginRequested += (_, _) => BeginEmbeddedAccountLoginAsync(forceRelogin: false);
         AccountsView.ReloginRequested += (_, _) => BeginEmbeddedAccountLoginAsync(forceRelogin: true);

@@ -21,7 +21,7 @@ public sealed class QueueWorkerSummary
     public bool Stopped { get; init; }
 }
 
-/// <summary>由 UI 层提供浏览器 CDP 与 Playwright 发布能力。</summary>
+/// <summary>由 UI 层提供内置浏览器 CDP 与剧集发布能力。</summary>
 public interface IQueuePublishHost
 {
     Task<bool> EnsureAccountBrowserReadyAsync(TikTokAccountProfile account, CancellationToken ct);
@@ -444,7 +444,7 @@ public sealed class QueueWorkerRunner
         ManualInterventionCoordinator? manualIntervention)
     {
         mutate(() => MarkRunning(item, QueueStepRegistry.UploadSeries));
-        Report(onProgress, workspace, item, $"[{account.DisplayName}] 准备浏览器…", QueueStepRegistry.UploadSeries);
+        Report(onProgress, workspace, item, $"[{account.DisplayName}] 准备内置浏览器…", QueueStepRegistry.UploadSeries);
 
         Exception? failure = null;
         var failureMessage = "";
@@ -453,7 +453,7 @@ public sealed class QueueWorkerRunner
         {
             if (!await host.EnsureAccountBrowserReadyAsync(account, ct).ConfigureAwait(false))
             {
-                failureMessage = "浏览器未就绪，请先登录";
+                failureMessage = "内置浏览器未就绪或未登录，请先在「浏览器」页完成登录";
             }
             else
             {
@@ -593,6 +593,13 @@ public sealed class QueueWorkerRunner
     private static bool ShouldRunStep(QueueProjectItem item, string stepKey, QueueRunOptions options)
     {
         if (options.ForceRerunCompletedSteps) return true;
+        if (stepKey == QueueStepRegistry.RewriteInfo &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            QueueMaterialStepService.NeedsAiRewrite(item))
+        {
+            return true;
+        }
+
         return item.StepStates.GetValueOrDefault(stepKey) != QueueStepStatus.Completed;
     }
 

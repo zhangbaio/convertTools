@@ -137,10 +137,70 @@ public sealed class BrowserSessionHost
         {
             ct.ThrowIfCancellationRequested();
             if (host.CdpEndpoint is not null) return true;
-            await Task.Delay(500, ct);
+            await Task.Delay(500, ct).ConfigureAwait(false);
         }
 
         return false;
+    }
+
+    /// <summary>为剧集上传准备内置浏览器：创建/显示会话、等待 CDP、校验登录态。</summary>
+    public async Task<EmbeddedPublishPrepareResult> PrepareForPublishAsync(
+        AccountItemViewModel account,
+        CancellationToken ct = default)
+    {
+        account.Model.TiktokLoginBrowserMode = "embedded";
+        var host = TryGetHost(account.Id);
+        if (host is null)
+        {
+            return new EmbeddedPublishPrepareResult(
+                false,
+                null,
+                "内置浏览器尚未初始化，请先在「浏览器」页打开该账号");
+        }
+
+        ShowAccount(account);
+
+        for (var attempt = 0; attempt < 120; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (host.CdpEndpoint is { } endpoint)
+            {
+                account.Model.TiktokFingerprintBrowserCdpEndpoint = endpoint;
+                if (EmbeddedBrowserLoginHelper.IsLoginUrl(host.CurrentUrl))
+                {
+                    return new EmbeddedPublishPrepareResult(
+                        false,
+                        endpoint,
+                        "账号未登录，请在内置浏览器完成 TikTok 登录后重试");
+                }
+
+                return new EmbeddedPublishPrepareResult(true, endpoint, "");
+            }
+
+            await Task.Delay(500, ct).ConfigureAwait(false);
+        }
+
+        return new EmbeddedPublishPrepareResult(
+            false,
+            null,
+            "内置浏览器 CDP 未就绪，请打开「浏览器」页等待加载完成");
+    }
+
+    public Task<EmbeddedPublishPrepareResult> PrepareForPublishAsync(
+        TikTokAccountProfile account,
+        Func<TikTokAccountProfile, AccountItemViewModel?> resolveAccountVm,
+        CancellationToken ct = default)
+    {
+        var accountVm = resolveAccountVm(account);
+        if (accountVm is null)
+        {
+            return Task.FromResult(new EmbeddedPublishPrepareResult(
+                false,
+                null,
+                $"未找到账号视图：{account.DisplayName}"));
+        }
+
+        return PrepareForPublishAsync(accountVm, ct);
     }
 
     public async Task SaveAuthAsync(AccountItemViewModel account, bool auto = false)

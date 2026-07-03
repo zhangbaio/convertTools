@@ -1,4 +1,5 @@
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace TikTokPublisher.Ui.ViewModels;
@@ -26,7 +27,13 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public bool IsEnabled => Item.Enabled;
     public string Title => Item.Title;
     public string OriginalTitle => string.IsNullOrWhiteSpace(Item.OriginalTitle) ? Item.DisplayName : Item.OriginalTitle;
-    public string NewTitle => string.IsNullOrWhiteSpace(Item.NewTitle) ? Item.Title : Item.NewTitle;
+    public string NewTitle => FirstNonEmpty(
+        Item.NewTitle,
+        ResolveWorkflowDisplayName(NewProjectDir),
+        Item.Title,
+        OriginalTitle);
+    public string OriginalProjectDir => Item.ProjectDir;
+    public string NewProjectDir => ResolveWorkflowProjectDir(Item.ProjectDir);
     public int EpisodeCount => Item.EpisodeCount;
     public string QueuedAt => Item.QueuedAt;
     public string AccountName => string.IsNullOrWhiteSpace(Item.AccountProfileName)
@@ -59,4 +66,41 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
 
     private string StepOf(string key) =>
         Item.StepStates.GetValueOrDefault(key, QueueStepStatus.Pending);
+
+    private static string ResolveWorkflowProjectDir(string projectDir)
+    {
+        try
+        {
+            return ProjectWorkspaceService.ResolveWorkflowProjectDir(projectDir);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static string ResolveWorkflowDisplayName(string workflowProjectDir)
+    {
+        if (string.IsNullOrWhiteSpace(workflowProjectDir)) return "";
+
+        var name = Path.GetFileName(workflowProjectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(name) ||
+            string.Equals(name, "workflow", StringComparison.OrdinalIgnoreCase))
+        {
+            return "";
+        }
+
+        return name.TrimStart('_').Trim();
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            var text = (value ?? "").Trim();
+            if (!string.IsNullOrWhiteSpace(text)) return text;
+        }
+
+        return "";
+    }
 }

@@ -6,6 +6,24 @@
              x:DataType="vm:MainViewModel"
              Background="{StaticResource PythonPageBgBrush}">
 
+    <UserControl.Styles>
+        <Style Selector="Button.queueLink">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.queueLink:pointerover">
+            <Setter Property="Background" Value="#EEF6FF" />
+        </Style>
+        <Style Selector="Button.queueLink:pressed">
+            <Setter Property="Background" Value="#DCEBFF" />
+        </Style>
+    </UserControl.Styles>
+
     <DockPanel Margin="16,14,16,16">
         <!-- 顶部控制区：对齐 Python controlsFrame -->
         <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,10">
@@ -171,8 +189,24 @@
                                     <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
                                     <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled}" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                     <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" FontSize="12" />
-                                    <TextBlock Grid.Column="3" Text="{Binding OriginalTitle}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" Foreground="#0F63C7" />
-                                    <TextBlock Grid.Column="4" Text="{Binding NewTitle}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" Foreground="#0F63C7" />
+                                    <Button Grid.Column="3"
+                                            Classes="queueLink"
+                                            Click="OnOpenOriginalProjectFolderClick"
+                                            ToolTip.Tip="{Binding OriginalProjectDir}">
+                                        <TextBlock Text="{Binding OriginalTitle}"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="#0F63C7" />
+                                    </Button>
+                                    <Button Grid.Column="4"
+                                            Classes="queueLink"
+                                            Click="OnOpenNewProjectFolderClick"
+                                            ToolTip.Tip="{Binding NewProjectDir}">
+                                        <TextBlock Text="{Binding NewTitle}"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="#0F63C7" />
+                                    </Button>
                                     <TextBlock Grid.Column="5" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
                                     <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
                                     <TextBlock Grid.Column="7" Text="{Binding DownloadStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" Classes="pageSummary" />

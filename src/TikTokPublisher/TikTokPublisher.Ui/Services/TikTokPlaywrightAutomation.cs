@@ -6,7 +6,7 @@ using TikTokPublisher.Ui.Services.TikTok;
 
 namespace TikTokPublisher.Ui.Services;
 
-/// <summary>TikTok 短剧中心 Playwright 自动化。经 WebView2 CDP 连接，调用 <see cref="TikTokBrowserActions"/>。</summary>
+/// <summary>TikTok 短剧中心剧集上传自动化。经内置 WebView2 暴露的 CDP 连接，调用 <see cref="TikTokBrowserActions"/>。</summary>
 public sealed class TikTokPlaywrightAutomation : IPublishAutomation, IAsyncDisposable
 {
     private IPlaywright? _pw;
@@ -39,10 +39,12 @@ public sealed class TikTokPlaywrightAutomation : IPublishAutomation, IAsyncDispo
 
         var pw = await PwAsync();
         await using var browser = await pw.Chromium.ConnectOverCDPAsync(cdpEndpoint);
-        var context = browser.Contexts.FirstOrDefault() ?? await browser.NewContextAsync();
-        var page = context.Pages.FirstOrDefault() ?? await context.NewPageAsync();
+        var context = browser.Contexts.FirstOrDefault()
+            ?? throw new InvalidOperationException("内置浏览器上下文不可用，请重新打开「浏览器」页");
+        var page = context.Pages.FirstOrDefault()
+            ?? throw new InvalidOperationException("内置浏览器页面不可用，请重新打开「浏览器」页");
 
-        L("进入 TikTok 短剧草稿页…");
+        L("已通过内置浏览器 CDP 连接，进入 TikTok 短剧草稿页…");
         await page.GotoAsync(targetUrl, new PageGotoOptions
         {
             WaitUntil = WaitUntilState.DOMContentLoaded,
@@ -54,7 +56,7 @@ public sealed class TikTokPlaywrightAutomation : IPublishAutomation, IAsyncDispo
         ct.ThrowIfCancellationRequested();
 
         if (IsLoginPage(page.Url))
-            return PublishResult.Fail("账号未登录（请先在右侧浏览器完成 TikTok 登录）");
+            return PublishResult.Fail("账号未登录（请先在内置浏览器完成 TikTok 登录）");
 
         var dailyLimit = await TikTokBrowserActions.DetectDailyEpisodeLimitAsync(page);
         if (dailyLimit is not null)

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -26,6 +27,7 @@ public partial class TikTokQueueView : UserControl
 
     public event EventHandler? OpenBrowserRequested;
     public event EventHandler? OpenLogsRequested;
+    public event Action<AccountItemViewModel>? PublishBrowserFocusRequested;
 
     public TikTokQueueView()
     {
@@ -239,6 +241,52 @@ public partial class TikTokQueueView : UserControl
 
     private void OnOpenLogsClick(object? sender, RoutedEventArgs e) => OpenLogsRequested?.Invoke(this, EventArgs.Empty);
 
+    private void OnOpenOriginalProjectFolderClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var row = (sender as Control)?.DataContext as QueueProjectRowViewModel;
+        OpenQueueProjectFolder(row?.OriginalProjectDir, "原剧名");
+    }
+
+    private void OnOpenNewProjectFolderClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var row = (sender as Control)?.DataContext as QueueProjectRowViewModel;
+        OpenQueueProjectFolder(row?.NewProjectDir, "新剧名");
+    }
+
+    private void OpenQueueProjectFolder(string? path, string label)
+    {
+        var vm = _vm;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            if (vm is not null) vm.StatusMessage = $"未找到{label}目录";
+            return;
+        }
+
+        try
+        {
+            var folder = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path.Trim()));
+            if (!Directory.Exists(folder))
+            {
+                if (vm is not null) vm.StatusMessage = $"{label}目录不存在：{folder}";
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = folder,
+                UseShellExecute = true,
+            });
+
+            if (vm is not null) vm.StatusMessage = $"已打开{label}目录：{folder}";
+        }
+        catch (Exception ex)
+        {
+            if (vm is not null) vm.StatusMessage = $"打开{label}目录失败：{ex.Message}";
+        }
+    }
+
     private void OnSelectAllQueueClick(object? sender, RoutedEventArgs e)
     {
         if (QueueProjectList is null) return;
@@ -396,18 +444,38 @@ public partial class TikTokQueueView : UserControl
 
     private async Task<bool> EnsureAccountBrowserReadyAsync(TikTokAccountProfile account, CancellationToken ct)
     {
-        if (_browserHost is null || _vm is null) return false;
+        var cdp = await EnsureEmbeddedPublishCdpAsync(account, ct, focusBrowser: true).ConfigureAwait(false);
+        return cdp is not null;
+    }
+
+    private async Task<string?> EnsureEmbeddedPublishCdpAsync(
+        TikTokAccountProfile account,
+        CancellationToken ct,
+        bool focusBrowser)
+    {
+        if (_browserHost is null || _vm is null) return null;
 
         var accountVm = _vm.FindAccount(account.Id) ?? _vm.Accounts.FirstOrDefault(a => a.Id == account.Id);
-        if (accountVm is null) return false;
+        if (accountVm is null) return null;
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            if (focusBrowser && _vm.SelectedAccount?.Id != accountVm.Id)
+                _vm.SelectedAccount = accountVm;
             _browserHost.GetOrCreateHost(accountVm);
             _browserHost.ShowAccount(accountVm);
+            if (focusBrowser)
+                PublishBrowserFocusRequested?.Invoke(accountVm);
         });
 
-        return await _browserHost.EnsureReadyAsync(account, ct);
+        var result = await _browserHost.PrepareForPublishAsync(accountVm, ct).ConfigureAwait(false);
+        if (!result.Ok)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+                _vm.StatusMessage = $"[{account.DisplayName}] {result.Message}");
+        }
+
+        return result.Ok ? result.CdpEndpoint : null;
     }
 
     private async Task<PublishResult> PublishQueueProjectAsync(
@@ -419,7 +487,7 @@ public partial class TikTokQueueView : UserControl
     {
         var host = _browserHost?.TryGetHost(account.Id);
         if (host?.CdpEndpoint is null)
-            return PublishResult.Fail("浏览器 CDP 未就绪，请先在「浏览器」页登录");
+            return PublishResult.Fail("内置浏览器 CDP 未就绪，请先在「浏览器」页登录");
 
         var item = QueuePublishHost.ToPublishItem(project);
         if (string.IsNullOrWhiteSpace(item.VideoPath))
@@ -434,12 +502,15 @@ public partial class TikTokQueueView : UserControl
         var vm = _vm;
         var account = vm?.SelectedAccount;
         if (vm is null || account is null) { vm!.StatusMessage = "请先选择账号"; return; }
-        if (_browserHost?.TryGetHost(account.Id)?.CdpEndpoint is not { } cdp)
+
+        var cdp = await EnsureEmbeddedPublishCdpAsync(account.Model, CancellationToken.None, focusBrowser: true)
+            .ConfigureAwait(true);
+        if (cdp is null)
         {
-            vm.StatusMessage = "浏览器未就绪，请先打开「浏览器」页登录";
             OpenBrowserRequested?.Invoke(this, EventArgs.Empty);
             return;
         }
+
         if (Storage is null) return;
 
         var files = await Storage.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -583,16 +654,18 @@ public partial class TikTokQueueView : UserControl
         foreach (var group in candidates.GroupBy(t => t.Account.Id))
         {
             var acctVm = group.First().Account;
-            var cdp = _browserHost?.TryGetHost(acctVm.Id)?.CdpEndpoint;
+            var cdp = await EnsureEmbeddedPublishCdpAsync(acctVm.Model, CancellationToken.None, focusBrowser: false)
+                .ConfigureAwait(true);
             if (cdp is null)
             {
-                foreach (var t in group) { t.Status = PublishTaskStatus.Failed; t.Message = "浏览器未就绪"; }
+                foreach (var t in group) { t.Status = PublishTaskStatus.Failed; t.Message = "内置浏览器未就绪"; }
                 continue;
             }
+
             foreach (var t in group) { t.Status = PublishTaskStatus.Pending; t.Message = "排队中"; }
             jobs.Add(new AccountPublishJob(acctVm.Model, cdp, group.Select(t => t.Item).ToList()));
         }
-        if (jobs.Count == 0) { vm.StatusMessage = "无可发布账号（请先在浏览器页登录）"; return; }
+        if (jobs.Count == 0) { vm.StatusMessage = "无可发布账号（请先在内置浏览器页登录）"; return; }
 
         _scheduler ??= new PublishScheduler(_automation);
         var finalAction = vm.SelectedFinalAction?.Value ?? FinalAction.None;

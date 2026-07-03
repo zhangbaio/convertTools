@@ -58,24 +58,30 @@ public static class QueueMaterialStepService
         var episodeCount = ProjectWorkspaceService.ResolveSourceEpisodeCount(item.ProjectDir);
         var workflowDir = ProjectWorkspaceService.EnsureWorkflowInfo(item.ProjectDir, episodeCount, log);
         var infoPath = Path.Combine(workflowDir, "短剧信息.txt");
+        var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        EnsureRewriteInputDefaults(infoPath, item, context, episodeCount);
 
         var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
         try
         {
             var outputPath = infoPath;
-            if (File.Exists(outputPath) && !overwriteExisting)
+            var outputExists = File.Exists(outputPath);
+            var needsRewrite = outputExists && NeedsAiRewrite(item, context, outputPath);
+            if (outputExists && !overwriteExisting && !needsRewrite)
             {
-                log("短剧信息已存在，跳过 AI 改写。");
+                log("短剧信息已存在且新剧名有效，跳过 AI 改写。");
             }
             else
             {
+                if (outputExists && !overwriteExisting && needsRewrite)
+                    log("短剧信息已存在但新剧名未改写，重新执行 AI 改写。");
                 log("开始 AI 改写短剧信息…");
                 var result = await QueueInfrastructureServices.InfoRewriter.RewriteAsync(
                     new ProjectInfoRewriteRequest(
                         workflowDir,
                         configPath,
                         outputPath,
-                        overwriteExisting || !File.Exists(outputPath)),
+                        overwriteExisting || outputExists),
                     ct);
                 log($"改写完成：{result.Title}");
             }
@@ -87,6 +93,21 @@ public static class QueueMaterialStepService
 
         await WriteTikTokPublishFieldsAsync(item, settings, account, episodeCount, workflowDir, log, ct);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
+    }
+
+    public static bool NeedsAiRewrite(QueueProjectItem item)
+    {
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+            var infoPath = Path.Combine(context.WorkflowProjectDir, "短剧信息.txt");
+            if (!File.Exists(infoPath)) return true;
+            return NeedsAiRewrite(item, context, infoPath);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public static async Task RunGeneratePosterAsync(
@@ -217,6 +238,94 @@ public static class QueueMaterialStepService
         log($"TikTok 发布字段已生成：目标观众={TikTokPublishRecommendationService.TargetAudienceDisplayText(recommendation.TargetAudience)}，题材类型={string.Join("、", recommendation.Genres)}");
     }
 
+    private static void EnsureRewriteInputDefaults(
+        string infoPath,
+        QueueProjectItem item,
+        ProjectWorkspaceContext context,
+        int episodeCount)
+    {
+        var existing = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        var originalTitle = FirstNonEmpty(
+            existing.GetValueOrDefault("原剧名"),
+            item.OriginalTitle,
+            item.DisplayName,
+            Path.GetFileName(context.SourceProjectDir));
+        var currentTitle = FirstNonEmpty(
+            existing.GetValueOrDefault("新剧名"),
+            existing.GetValueOrDefault("剧名"),
+            item.NewTitle,
+            item.Title,
+            originalTitle);
+        var totalMinutes = Math.Max(1, episodeCount);
+        var costWan = Math.Max(1, (int)Math.Round(totalMinutes * 1500d / 10000d, MidpointRounding.AwayFromZero));
+
+        var updates = new Dictionary<string, string>(StringComparer.Ordinal);
+        AddIfMissing(existing, updates, "原剧名", originalTitle);
+        if (!existing.ContainsKey("新剧名") && !existing.ContainsKey("剧名"))
+            updates["新剧名"] = currentTitle;
+        AddIfMissing(existing, updates, "集数", totalMinutes.ToString());
+        AddIfMissing(existing, updates, "时长", $"{totalMinutes} 分钟");
+        AddIfMissing(existing, updates, "成本", $"{costWan} 万元");
+        AddIfMissing(existing, updates, "制作公司", "未填写公司");
+
+        ProjectInfoTextHelper.UpdateFields(infoPath, updates);
+    }
+
+    private static bool NeedsAiRewrite(
+        QueueProjectItem item,
+        ProjectWorkspaceContext context,
+        string infoPath)
+    {
+        var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        return !IsProjectInfoRewritten(info, item, context);
+    }
+
+    private static bool IsProjectInfoRewritten(
+        IReadOnlyDictionary<string, string> info,
+        QueueProjectItem item,
+        ProjectWorkspaceContext context)
+    {
+        var originalTitle = NormalizeComparableTitle(FirstNonEmpty(
+            info.GetValueOrDefault("原剧名"),
+            item.OriginalTitle,
+            Path.GetFileName(context.SourceProjectDir)));
+        var title = NormalizeComparableTitle(FirstNonEmpty(
+            info.GetValueOrDefault("新剧名"),
+            info.GetValueOrDefault("剧名"),
+            item.NewTitle,
+            item.Title));
+        var shortTitle = NormalizeComparableTitle(info.GetValueOrDefault("短标题"));
+
+        if (string.IsNullOrWhiteSpace(title)) return false;
+        if (!string.IsNullOrWhiteSpace(originalTitle) && string.Equals(title, originalTitle, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!string.IsNullOrWhiteSpace(shortTitle) &&
+            (string.Equals(shortTitle, title, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(shortTitle, originalTitle, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void AddIfMissing(
+        IReadOnlyDictionary<string, string> existing,
+        Dictionary<string, string> updates,
+        string key,
+        string value)
+    {
+        if (existing.ContainsKey(key) || string.IsNullOrWhiteSpace(value)) return;
+        updates[key] = value;
+    }
+
+    private static string NormalizeComparableTitle(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        var text = value.Trim().Replace('：', ':');
+        return string.Concat(text.Where(ch => !char.IsWhiteSpace(ch)));
+    }
+
     private static DownloadMetadata ReadDownloadMetadata(string sourceProjectDir)
     {
         var path = Path.Combine(sourceProjectDir, "shortdrama-project.json");
@@ -270,4 +379,3 @@ public static class QueueMaterialStepService
 
     private sealed record DownloadMetadata(string BookId, string Episodes, string Quality, string Title);
 }
-

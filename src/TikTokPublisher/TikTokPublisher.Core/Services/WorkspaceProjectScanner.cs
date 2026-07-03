@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -67,9 +68,13 @@ public static class WorkspaceProjectScanner
     {
         var metadata = ReadJsonObject(Path.Combine(projectDir, ProjectMetadataFile));
         var dramaInfo = ParseInfoFile(Path.Combine(projectDir, DramaInfoFile));
-        var workflowDir = Directory.Exists(Path.Combine(projectDir, "workflow"))
-            ? Path.Combine(projectDir, "workflow")
-            : projectDir;
+        var resolvedWorkflowDir = ResolveWorkflowProjectDir(projectDir);
+        var nestedWorkflowDir = Path.Combine(projectDir, "workflow");
+        var workflowDir = Directory.Exists(resolvedWorkflowDir)
+            ? resolvedWorkflowDir
+            : Directory.Exists(nestedWorkflowDir)
+                ? nestedWorkflowDir
+                : projectDir;
         var workflowInfo = ParseInfoFile(Path.Combine(workflowDir, DramaInfoFile));
 
         var videos = FindVideoFiles(projectDir);
@@ -92,6 +97,9 @@ public static class WorkspaceProjectScanner
             workflowInfo.GetValueOrDefault("新剧名"),
             workflowInfo.GetValueOrDefault("剧名"),
             dramaInfo.GetValueOrDefault("新剧名"),
+            metadata?["newTitle"]?.GetValue<string>(),
+            metadata?["new_title"]?.GetValue<string>(),
+            ResolveWorkflowDisplayName(resolvedWorkflowDir),
             metadata?["displayName"]?.GetValue<string>()) ?? "";
 
         var description = FirstNonEmpty(
@@ -176,6 +184,32 @@ public static class WorkspaceProjectScanner
                 result[key] = value;
         }
         return result;
+    }
+
+    private static string ResolveWorkflowProjectDir(string projectDir)
+    {
+        try
+        {
+            return ProjectWorkspaceService.ResolveWorkflowProjectDir(projectDir);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static string? ResolveWorkflowDisplayName(string workflowProjectDir)
+    {
+        if (string.IsNullOrWhiteSpace(workflowProjectDir)) return null;
+
+        var name = Path.GetFileName(workflowProjectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(name) ||
+            string.Equals(name, "workflow", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return name.TrimStart('_').Trim();
     }
 
     private static string? FirstNonEmpty(params string?[] values)
