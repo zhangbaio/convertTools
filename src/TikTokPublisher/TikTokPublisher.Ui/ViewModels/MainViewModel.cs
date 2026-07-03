@@ -103,6 +103,8 @@ public sealed partial class MainViewModel : ViewModelBase
         WireSystemSettings();
         SystemServices.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
+        ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
+        ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
         DramaDownload.UploadWorkspaceRequested += () => WorkspacePath;
         WireQueueOrchestrator();
@@ -137,6 +139,8 @@ public sealed partial class MainViewModel : ViewModelBase
         WireSystemSettings();
         SystemServices.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
+        ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
+        ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
         DramaDownload.UploadWorkspaceRequested += () => WorkspacePath;
         WireQueueOrchestrator();
@@ -997,6 +1001,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         PersistQueueItems();
         RefreshWorkspaceProjects(root);
+        ArchivedProjects.SetWorkspace(root);
         StatusMessage = $"已归档 {rows.Length} 个项目";
         AppendLog(StatusMessage);
     }

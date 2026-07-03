@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TikTokPublisher.Core.Archive;
@@ -103,98 +104,303 @@ public sealed partial class ArchivedProjectRowViewModel : ViewModelBase
     public ArchivedProjectRowViewModel(ArchivedProjectItem item) => Item = item;
 
     [ObservableProperty] private bool _selected;
+    [ObservableProperty] private int _rowIndex;
 
     public string DisplayName => Item.DisplayName;
     public string OriginalTitle => Item.OriginalTitle;
     public string NewTitle => Item.NewTitle;
+    public string ArchiveSource => Item.ArchiveSource.ToLowerInvariant() switch
+    {
+        "" or "tiktok" => "TikTok",
+        "kuaishou" => "快手",
+        "video_channel" => "视频号",
+        "miniprogram" => "小程序",
+        _ => Item.ArchiveSource,
+    };
     public string ArchivedAt => Item.ArchivedAt;
+    public string MetadataPath => Item.MetadataPath;
+    public string ArchiveDisplayPath => string.IsNullOrWhiteSpace(Item.MetadataPath)
+        ? Item.ArchiveProjectDir
+        : Item.MetadataPath;
+    public string SourceDir => Item.ArchivedSourceDir;
+    public string WorkflowDir => Item.ArchivedWorkflowDir;
 }
 
 public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 {
     public ObservableCollection<ArchivedProjectRowViewModel> Rows { get; } = new();
+    public ObservableCollection<ArchivedProjectRowViewModel> FilteredRows { get; } = new();
 
     [ObservableProperty] private string _workspacePath = "";
+    [ObservableProperty] private string _archiveRootDir = "";
+    [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private string _statusMessage = "";
+    [ObservableProperty] private string _rootSummary = "归档根目录: 未选择工作目录";
+    [ObservableProperty] private ArchivedProjectRowViewModel? _selectedRow;
 
     public event Action<string>? StatusRequested;
+    public event Action? Restored;
+    public Func<TikTokAccountProfile?>? AccountProvider { get; set; }
 
     public void SetWorkspace(string? workspacePath)
     {
         WorkspacePath = workspacePath?.Trim() ?? "";
+        SyncArchiveRootFromSettings();
         Refresh();
     }
+
+    public void SetArchiveRootDir(string? archiveRootDir)
+    {
+        ArchiveRootDir = Path.GetFullPath((archiveRootDir ?? "").Trim());
+        var settings = ClientSettingsStore.Load();
+        settings.ArchiveRootDir = ArchiveRootDir;
+        ClientSettingsStore.Save(settings);
+        Refresh();
+    }
+
+    partial void OnSearchTextChanged(string value) => ApplySearchFilter();
 
     [RelayCommand]
     private void Refresh()
     {
         Rows.Clear();
-        if (string.IsNullOrWhiteSpace(WorkspacePath) || !Directory.Exists(WorkspacePath))
+        FilteredRows.Clear();
+        RootSummary = string.IsNullOrWhiteSpace(ArchiveRootDir)
+            ? "归档根目录: 未选择工作目录"
+            : $"归档根目录: {ArchiveRootDir}";
+        var workspace = WorkspaceForAction();
+        if (workspace is null || !Directory.Exists(workspace))
         {
             StatusMessage = "请先绑定工作目录";
             return;
         }
 
-        foreach (var item in TikTokArchivedProjectService.List(WorkspacePath))
+        foreach (var item in TikTokArchivedProjectService.List(workspace, ArchiveRootDir))
             Rows.Add(new ArchivedProjectRowViewModel(item));
-        StatusMessage = $"已归档 {Rows.Count} 个项目";
+        ApplySearchFilter();
     }
 
-    [RelayCommand]
-    private async Task RestoreSelectedAsync()
+    public void SelectAll()
     {
-        var targets = Rows.Where(r => r.Selected).ToArray();
-        if (targets.Length == 0)
+        foreach (var row in FilteredRows)
+            row.Selected = true;
+    }
+
+    public void ClearSelection()
+    {
+        foreach (var row in FilteredRows)
+            row.Selected = false;
+    }
+
+    public void SelectToCurrentProject()
+    {
+        if (SelectedRow is null)
         {
-            StatusMessage = "请先勾选要恢复的项目";
+            StatusMessage = "请先点击选中一个目标项目";
             return;
         }
 
-        foreach (var row in targets)
+        var current = FilteredRows.IndexOf(SelectedRow);
+        if (current < 0)
         {
-            try
-            {
-                TikTokArchivedProjectService.Restore(WorkspacePath, row.Item.ArchiveProjectDir);
-            }
-            catch (Exception ex)
-            {
-                StatusMessage = $"恢复失败：{ex.Message}";
-                StatusRequested?.Invoke(StatusMessage);
-                return;
-            }
-        }
-
-        Refresh();
-        StatusMessage = $"已恢复 {targets.Length} 个项目";
-        StatusRequested?.Invoke(StatusMessage);
-    }
-
-    [RelayCommand]
-    private async Task DeleteSelectedAsync()
-    {
-        var targets = Rows.Where(r => r.Selected).ToArray();
-        if (targets.Length == 0)
-        {
-            StatusMessage = "请先勾选要删除的项目";
+            StatusMessage = "当前项目不在筛选结果中";
             return;
         }
 
-        foreach (var row in targets)
+        var anchor = FilteredRows
+            .Select((row, index) => (row, index))
+            .FirstOrDefault(pair => pair.row.Selected)
+            .index;
+        var start = Math.Min(anchor, current);
+        var end = Math.Max(anchor, current);
+        for (var i = start; i <= end; i++)
+            FilteredRows[i].Selected = true;
+        StatusMessage = $"已勾选 {end - start + 1} 个归档项目";
+    }
+
+    public void OpenArchiveRoot() => OpenPath(ArchiveRootDir);
+    public void OpenSelectedArchiveDir() => OpenPath(SelectedRow?.ArchiveDisplayPath);
+    public void OpenSelectedSourceDir() => OpenPath(SelectedRow?.SourceDir);
+    public void OpenSelectedWorkflowDir() => OpenPath(SelectedRow?.WorkflowDir);
+    public void OpenRowSource(ArchivedProjectRowViewModel? row) => OpenPath(row?.SourceDir);
+    public void OpenRowWorkflow(ArchivedProjectRowViewModel? row) => OpenPath(row?.WorkflowDir);
+
+    public async Task RestoreSelectedAsync()
+    {
+        var targets = TargetRowsForRestore();
+        if (targets.Length == 0)
         {
-            try
-            {
-                await TikTokArchivedProjectService.DeleteAsync(WorkspacePath, row.Item.ArchiveProjectDir);
-            }
-            catch (Exception ex)
-            {
-                StatusMessage = $"删除失败：{ex.Message}";
-                StatusRequested?.Invoke(StatusMessage);
-                return;
-            }
+            StatusMessage = "请先勾选要回退的归档项目（或点击选中一行）";
+            return;
         }
 
+        var workspace = WorkspaceForAction();
+        if (workspace is null)
+        {
+            StatusMessage = "未找到可恢复的工作目录";
+            return;
+        }
+
+        var (success, failures) = await Task.Run(() =>
+        {
+            var ok = 0;
+            var errors = new List<string>();
+            foreach (var row in targets)
+            {
+                try
+                {
+                    TikTokArchivedProjectService.Restore(workspace, row.Item.ArchiveProjectDir, ArchiveRootDir);
+                    ok++;
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"{row.DisplayName}: {ex.Message}");
+                }
+            }
+
+            return (ok, errors);
+        });
+
         Refresh();
-        StatusMessage = $"已删除 {targets.Length} 个归档项目";
+        if (success > 0)
+            Restored?.Invoke();
+        StatusMessage = failures.Count == 0
+            ? $"已回退 {success} 个归档项目"
+            : $"回退完成：成功 {success} 个，失败 {failures.Count} 个";
+        StatusRequested?.Invoke(StatusMessage);
+        foreach (var failure in failures.Take(5))
+            StatusRequested?.Invoke($"回退失败：{failure}");
+    }
+
+    public async Task DeleteSelectedAsync()
+    {
+        var row = SelectedRow;
+        if (row is null)
+        {
+            StatusMessage = "请先选中一个归档项目";
+            return;
+        }
+
+        var workspace = WorkspaceForAction();
+        if (workspace is null)
+        {
+            StatusMessage = "未找到可删除的工作目录";
+            return;
+        }
+
+        await TikTokArchivedProjectService.DeleteAsync(workspace, row.Item.ArchiveProjectDir, ArchiveRootDir);
+        Refresh();
+        StatusMessage = $"已删除归档项目：{row.DisplayName}";
         StatusRequested?.Invoke(StatusMessage);
     }
+
+    public async Task SyncCheckedToManagementAsync()
+    {
+        var targets = Rows.Where(row => row.Selected).ToArray();
+        if (targets.Length == 0)
+        {
+            StatusMessage = "请先勾选要同步到管理系统的已归档项目";
+            return;
+        }
+
+        var ok = 0;
+        var failed = 0;
+        foreach (var row in targets)
+        {
+            var item = TikTokArchivedProjectService.ToQueueItemForSync(row.Item);
+            var result = await TikTokManagementUploadRecordSyncService
+                .SyncUploadRecordAsync(item, AccountProvider?.Invoke(), CancellationToken.None);
+            if (result.Ok) ok++; else failed++;
+            StatusRequested?.Invoke($"同步归档项目：{row.DisplayName} - {result.Message}");
+        }
+
+        StatusMessage = $"同步完成：成功 {ok}，失败 {failed}";
+        StatusRequested?.Invoke(StatusMessage);
+    }
+
+    private void SyncArchiveRootFromSettings()
+    {
+        var settings = ClientSettingsStore.Load();
+        ArchiveRootDir = string.IsNullOrWhiteSpace(settings.ArchiveRootDir)
+            ? string.IsNullOrWhiteSpace(WorkspacePath) ? "" : Path.Combine(Path.GetFullPath(WorkspacePath), "archive")
+            : Path.GetFullPath(settings.ArchiveRootDir);
+        RootSummary = string.IsNullOrWhiteSpace(ArchiveRootDir)
+            ? "归档根目录: 未选择工作目录"
+            : $"归档根目录: {ArchiveRootDir}";
+    }
+
+    private void ApplySearchFilter()
+    {
+        FilteredRows.Clear();
+        var keyword = (SearchText ?? "").Trim().ToLowerInvariant();
+        var index = 1;
+        foreach (var row in Rows)
+        {
+            if (keyword.Length > 0 &&
+                !Contains(row.DisplayName, keyword) &&
+                !Contains(row.OriginalTitle, keyword) &&
+                !Contains(row.NewTitle, keyword) &&
+                !Contains(row.ArchiveSource, keyword))
+            {
+                continue;
+            }
+
+            row.RowIndex = index++;
+            FilteredRows.Add(row);
+        }
+
+        StatusMessage = FilteredRows.Count == Rows.Count
+            ? $"已归档: {Rows.Count}"
+            : $"已归档: {FilteredRows.Count} / {Rows.Count}";
+    }
+
+    private ArchivedProjectRowViewModel[] TargetRowsForRestore()
+    {
+        var checkedRows = Rows.Where(r => r.Selected).ToArray();
+        if (checkedRows.Length > 0)
+            return checkedRows;
+        return SelectedRow is null ? Array.Empty<ArchivedProjectRowViewModel>() : new[] { SelectedRow };
+    }
+
+    private string? WorkspaceForAction()
+    {
+        if (!string.IsNullOrWhiteSpace(WorkspacePath) && Directory.Exists(WorkspacePath))
+            return Path.GetFullPath(WorkspacePath);
+        if (!string.IsNullOrWhiteSpace(ArchiveRootDir))
+        {
+            var parent = Directory.GetParent(Path.GetFullPath(ArchiveRootDir));
+            if (parent is not null)
+                return parent.FullName;
+        }
+
+        return null;
+    }
+
+    private void OpenPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            StatusMessage = "未找到目录";
+            return;
+        }
+
+        var target = Path.GetFullPath(path);
+        if (File.Exists(target))
+            target = Path.GetDirectoryName(target) ?? target;
+        if (!Directory.Exists(target))
+        {
+            StatusMessage = $"目录不存在：{target}";
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = target,
+            UseShellExecute = true,
+        });
+        StatusMessage = $"已打开：{target}";
+    }
+
+    private static bool Contains(string? value, string keyword) =>
+        (value ?? "").ToLowerInvariant().Contains(keyword);
 }

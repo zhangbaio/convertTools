@@ -5,26 +5,108 @@
              x:DataType="vm:ArchivedProjectsViewModel"
              Background="{StaticResource PythonPageBgBrush}">
 
-    <DockPanel Margin="16,14,16,16">
-        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-            <Button Content="刷新" Command="{Binding RefreshCommand}" Margin="0,0,8,8" />
-            <Button Content="恢复选中" Command="{Binding RestoreSelectedCommand}" Margin="0,0,8,8" />
-            <Button Content="删除选中" Command="{Binding DeleteSelectedCommand}" Classes="dangerAction" Margin="0,0,8,8" />
-            <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Classes="pageSummary" />
-        </WrapPanel>
+    <UserControl.Styles>
+        <Style Selector="Button.archiveLink">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.archiveLink:pointerover">
+            <Setter Property="Background" Value="#EEF6FF" />
+        </Style>
+    </UserControl.Styles>
 
-        <ListBox ItemsSource="{Binding Rows}" Background="{StaticResource PythonInputBg}">
-            <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="vm:ArchivedProjectRowViewModel">
-                    <Grid ColumnDefinitions="64,*,*,*,180" MinHeight="34">
-                        <CheckBox Grid.Column="0" IsChecked="{Binding Selected}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1" Text="{Binding DisplayName}" Margin="8,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Grid.Column="2" Text="{Binding OriginalTitle}" Margin="8,0" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Grid.Column="3" Text="{Binding NewTitle}" Margin="8,0" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Grid.Column="4" Text="{Binding ArchivedAt}" Margin="8,0" VerticalAlignment="Center" FontSize="12" />
+    <DockPanel Margin="16,14,16,16">
+        <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,10">
+            <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                    <TextBlock Grid.Column="0" Text="归档目录" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <TextBox Grid.Column="1" Text="{Binding ArchiveRootDir}" IsReadOnly="True" Watermark="请选择归档目录" />
+                    <Button Grid.Column="2" Content="选择归档目录" Click="OnChooseArchiveRootClick" Margin="10,0,0,0" />
+                </Grid>
+
+                <Grid ColumnDefinitions="Auto,*">
+                    <TextBlock Grid.Column="0" Text="搜索" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <TextBox Grid.Column="1"
+                             Text="{Binding SearchText, Mode=TwoWay}"
+                             Watermark="搜索项目名、原剧名、新剧名..." />
+                </Grid>
+
+                <WrapPanel Orientation="Horizontal">
+                    <Button Content="刷新归档列表" Command="{Binding RefreshCommand}" Margin="0,0,8,8" />
+                    <Button Content="打开归档目录" Click="OnOpenArchiveDirClick" Margin="0,0,8,8" />
+                    <Button Content="打开 Source" Click="OnOpenSourceClick" Margin="0,0,8,8" />
+                    <Button Content="打开 Workflow" Click="OnOpenWorkflowClick" Margin="0,0,8,8" />
+                    <Button Content="勾选到当前项目" Click="OnSelectToCurrentClick" Margin="0,0,8,8" />
+                    <Button Content="全选" Click="OnSelectAllClick" Margin="0,0,8,8" />
+                    <Button Content="取消全选" Click="OnClearSelectionClick" Margin="0,0,8,8" />
+                    <Button Content="回退归档项目" Click="OnRestoreSelectedClick" Margin="0,0,8,8" />
+                    <Button Content="删除归档项目" Click="OnDeleteSelectedClick" Classes="dangerAction" Margin="0,0,8,8" />
+                    <Button Content="同步勾选任务" Click="OnSyncSelectedClick" Margin="0,0,8,8" />
+                </WrapPanel>
+
+                <TextBlock Text="{Binding StatusMessage}" Classes="pageSummary" />
+                <TextBlock Text="{Binding RootSummary}" Classes="pageSummary" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
+        <Border BorderBrush="#DFD1C0" BorderThickness="1" CornerRadius="6">
+            <DockPanel>
+                <ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <Grid ColumnDefinitions="56,56,220,220,90,160,280,220,220">
+                        <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
+                        <TextBlock Grid.Column="1" Text="选择" Classes="tableHeader" />
+                        <TextBlock Grid.Column="2" Text="原剧名" Classes="tableHeader" />
+                        <TextBlock Grid.Column="3" Text="新剧名" Classes="tableHeader" />
+                        <TextBlock Grid.Column="4" Text="归档来源" Classes="tableHeader" />
+                        <TextBlock Grid.Column="5" Text="归档时间" Classes="tableHeader" />
+                        <TextBlock Grid.Column="6" Text="归档目录" Classes="tableHeader" />
+                        <TextBlock Grid.Column="7" Text="Source" Classes="tableHeader" />
+                        <TextBlock Grid.Column="8" Text="Workflow" Classes="tableHeader" />
                     </Grid>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
+                </ScrollViewer>
+
+                <ListBox x:Name="ArchivedList"
+                         ItemsSource="{Binding FilteredRows}"
+                         SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+                         Background="{StaticResource PythonInputBg}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ArchivedProjectRowViewModel">
+                            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
+                                <Grid ColumnDefinitions="56,56,220,220,90,160,280,220,220" MinHeight="36">
+                                    <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
+                                    <CheckBox Grid.Column="1" IsChecked="{Binding Selected, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    <Button Grid.Column="2"
+                                            Classes="archiveLink"
+                                            Click="OnOpenRowSourceClick"
+                                            ToolTip.Tip="{Binding SourceDir}">
+                                        <TextBlock Text="{Binding OriginalTitle}"
+                                                   Foreground="#0F63C7"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </Button>
+                                    <Button Grid.Column="3"
+                                            Classes="archiveLink"
+                                            Click="OnOpenRowWorkflowClick"
+                                            ToolTip.Tip="{Binding WorkflowDir}">
+                                        <TextBlock Text="{Binding NewTitle}"
+                                                   Foreground="#0F63C7"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </Button>
+                                    <TextBlock Grid.Column="4" Text="{Binding ArchiveSource}" VerticalAlignment="Center" Margin="8,0" />
+                                    <TextBlock Grid.Column="5" Text="{Binding ArchivedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="6" Text="{Binding ArchiveDisplayPath}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="7" Text="{Binding SourceDir}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="8" Text="{Binding WorkflowDir}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </ScrollViewer>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
     </DockPanel>
 </UserControl>
