@@ -7,7 +7,8 @@ public sealed record DramaDownloadRequest(
     string? BookId,
     string Episodes,
     string Quality,
-    int Concurrent);
+    int Concurrent,
+    string EpisodeNumberMode = "source");
 
 public sealed record DramaDownloadResult(
     bool Ok,

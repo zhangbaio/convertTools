@@ -33,7 +33,8 @@ public static class QueueMaterialStepService
             BookId: bookId,
             Episodes: FirstNonEmpty(metadata.Episodes, "all"),
             Quality: FirstNonEmpty(metadata.Quality, settings.DramaDownloadDefaultQuality, "1080P"),
-            Concurrent: concurrent);
+            Concurrent: concurrent,
+            EpisodeNumberMode: FirstNonEmpty(metadata.EpisodeNumberMode, "source"));
 
         var progress = new Progress<string>(log);
         var result = await ShortDramaDramaServices.Downloader.DownloadAsync(request, progress, ct);
@@ -218,14 +219,23 @@ public static class QueueMaterialStepService
             merged.GetValueOrDefault("剧情简介"),
             item.Description);
 
+        var infoPayload = TikTokProjectPayloadFactory.BuildFromPublishItem(new PublishItem
+        {
+            ProjectDir = item.ProjectDir,
+            GenreCategory = item.GenreCategory,
+            EpisodeCount = episodeCount,
+        });
+
         var payload = new TikTokProjectPayload
         {
             SourceProjectDir = context.SourceProjectDir,
             WorkflowProjectDir = workflowDir,
-            Title = title,
-            OriginalTitle = originalTitle,
-            Description = description,
+            Title = title ?? "",
+            OriginalTitle = originalTitle ?? "",
+            Description = description ?? "",
             EpisodeCount = Math.Max(1, episodeCount),
+            TargetAudience = infoPayload.TargetAudience,
+            Genres = infoPayload.Genres,
         };
 
         var options = TikTokPublishOptionsBuilder.FromAccount(account);
@@ -351,23 +361,24 @@ public static class QueueMaterialStepService
     private static DownloadMetadata ReadDownloadMetadata(string sourceProjectDir)
     {
         var path = Path.Combine(sourceProjectDir, "shortdrama-project.json");
-        if (!File.Exists(path)) return new DownloadMetadata("", "all", "", "");
+        if (!File.Exists(path)) return new DownloadMetadata("", "all", "", "", "");
         try
         {
             using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
             if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
-                return new DownloadMetadata("", "all", "", "");
+                return new DownloadMetadata("", "all", "", "", "");
 
             var root = doc.RootElement;
             return new DownloadMetadata(
                 GetString(root, "bookId") ?? GetString(root, "book_id") ?? "",
                 GetString(root, "episodes") ?? "all",
                 GetString(root, "quality") ?? "",
-                GetString(root, "title") ?? GetString(root, "displayName") ?? "");
+                GetString(root, "title") ?? GetString(root, "displayName") ?? "",
+                GetString(root, "episodeNumberMode") ?? GetString(root, "episode_number_mode") ?? "");
         }
         catch
         {
-            return new DownloadMetadata("", "all", "", "");
+            return new DownloadMetadata("", "all", "", "", "");
         }
     }
 
@@ -432,5 +443,5 @@ public static class QueueMaterialStepService
         }
     }
 
-    private sealed record DownloadMetadata(string BookId, string Episodes, string Quality, string Title);
+    private sealed record DownloadMetadata(string BookId, string Episodes, string Quality, string Title, string EpisodeNumberMode);
 }

@@ -51,6 +51,11 @@ public sealed class DramaProjectBootstrapper : IDramaProjectBootstrapper
             ? "all"
             : request.Episodes.Trim();
 
+        var quality = string.IsNullOrWhiteSpace(request.Quality)
+            ? "1080P"
+            : request.Quality.Trim();
+        var concurrent = Math.Clamp(request.Concurrent, 1, 10);
+        var episodeNumberMode = NormalizeEpisodeNumberMode(request.EpisodeNumberMode);
         var metadata = new
         {
             projectKey,
@@ -61,13 +66,19 @@ public sealed class DramaProjectBootstrapper : IDramaProjectBootstrapper
             originalTitle = request.Drama.Title.Trim(),
             intro = request.Drama.Intro?.Trim() ?? string.Empty,
             category,
-            episodeCount = Math.Max(1, request.Drama.EpisodeTotal),
+            episodeCount = Math.Max(0, request.Drama.EpisodeTotal),
+            favoriteCount = Math.Max(0, request.Drama.FavoriteCount),
             posterUrl = request.Drama.PosterUrl?.Trim() ?? string.Empty,
+            configDir = string.Empty,
             episodes,
-            quality = "1080P+",
-            concurrent = 3,
+            quality,
+            concurrent,
+            episodeNumberMode,
             workflowDirName,
             workflowProjectDir,
+            sourceProjectDir,
+            queueEntryDramaType = request.QueueEntryDramaType?.Trim() ?? string.Empty,
+            queue_entry_drama_type = request.QueueEntryDramaType?.Trim() ?? string.Empty,
             createdAt = DateTimeOffset.Now.ToString("O")
         };
 
@@ -133,5 +144,12 @@ public sealed class DramaProjectBootstrapper : IDramaProjectBootstrapper
         {
             return null;
         }
+    }
+
+    private static string NormalizeEpisodeNumberMode(string? value)
+    {
+        return string.Equals(value?.Trim(), "continuous", StringComparison.OrdinalIgnoreCase)
+            ? "continuous"
+            : "source";
     }
 }

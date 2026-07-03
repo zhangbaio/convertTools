@@ -35,11 +35,14 @@ public static class DramaDownloadQueueStore
             state.DefaultQuality = "1080P";
         if (state.DownloadEpisodeNumberMode is not ("source" or "continuous"))
             state.DownloadEpisodeNumberMode = "source";
+        state.CategoryInclude ??= "";
+        state.CategoryExclude ??= "";
+        state.AuthorExclude ??= "";
     }
 
     private static DramaDownloadQueueItem NormalizeItem(DramaDownloadQueueItem item)
     {
-        if (item.Status is "下载中" or "生成素材中" or "已下载" or "解析链接中" or "校验文件")
+        if (item.Status is "下载中" or "生成素材中" or "生成派生产物中" or "已下载" or "解析链接中" or "校验文件")
         {
             item.Status = "待下载";
             item.Progress = "0%";
@@ -47,6 +50,9 @@ public static class DramaDownloadQueueStore
             if (string.IsNullOrWhiteSpace(item.LastError))
                 item.LastError = "上次任务在应用关闭前未完成，已重置为待下载";
         }
+
+        if (string.Equals(item.Status, "已完成", StringComparison.Ordinal))
+            item.Status = "完成";
 
         if (item.Quality is not ("1080P+" or "1080P" or "720P" or "480P"))
             item.Quality = "1080P";

@@ -1,34 +1,35 @@
 using ShortDrama.Core.Models;
+using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Drama;
 
 public sealed class DramaDownloadRunner
 {
-    private const int EpisodeConcurrent = 3;
-
     public async Task RunQueueAsync(
         IReadOnlyList<DramaDownloadQueueItem> items,
-        int concurrency,
+        int downloadConcurrent,
         Action<DramaDownloadQueueItem, string> log,
         Action<DramaDownloadQueueItem> onUpdated,
         CancellationToken ct)
     {
-        var pending = items.Where(i => i.Status is "待下载" or "失败").ToList();
+        var pending = items.Where(i => i.Status is "待下载" or "失败" or "素材校验失败").ToList();
         if (pending.Count == 0) return;
 
-        var gate = new SemaphoreSlim(Math.Clamp(concurrency, 1, 10));
-        var tasks = pending.Select(item => RunOneAsync(item, gate, log, onUpdated, ct)).ToList();
-        await Task.WhenAll(tasks);
+        var concurrent = Math.Clamp(downloadConcurrent, 1, 10);
+        foreach (var item in pending)
+        {
+            ct.ThrowIfCancellationRequested();
+            await RunOneAsync(item, concurrent, log, onUpdated, ct).ConfigureAwait(false);
+        }
     }
 
     private static async Task RunOneAsync(
         DramaDownloadQueueItem item,
-        SemaphoreSlim gate,
+        int downloadConcurrent,
         Action<DramaDownloadQueueItem, string> log,
         Action<DramaDownloadQueueItem> onUpdated,
         CancellationToken ct)
     {
-        await gate.WaitAsync(ct);
         try
         {
             item.Status = "下载中";
@@ -48,7 +49,8 @@ public sealed class DramaDownloadRunner
                 BookId: item.BookId,
                 Episodes: item.Episodes,
                 Quality: string.IsNullOrWhiteSpace(item.Quality) ? "1080P+" : item.Quality,
-                Concurrent: EpisodeConcurrent);
+                Concurrent: downloadConcurrent,
+                EpisodeNumberMode: string.IsNullOrWhiteSpace(item.EpisodeNumberMode) ? "source" : item.EpisodeNumberMode);
 
             var progress = new Progress<string>(msg =>
             {
@@ -63,14 +65,29 @@ public sealed class DramaDownloadRunner
 
             if (result.Ok)
             {
-                item.Status = "已完成";
+                item.Status = "已下载";
+                item.Progress = "95%";
+                item.Speed = "-";
+                item.StatusDetail = result.Message ?? $"共下载 {result.VideoCount} 集";
+                onUpdated(item);
+                log(item, $"[{item.Title}] {result.Message ?? "下载完成"}");
+
+                if (item.GenerateMaterials)
+                {
+                    item.Status = "生成派生产物中";
+                    item.Progress = "96%";
+                    item.StatusDetail = "正在生成派生产物";
+                    onUpdated(item);
+                    ProjectWorkspaceService.EnsureWorkflowInfo(projectDir, Math.Max(1, result.VideoCount), message => log(item, message));
+                }
+
+                item.Status = "完成";
                 item.Progress = "100%";
-                item.Speed = "0 KB/s";
-                item.StatusDetail = result.Message ?? $"共 {result.VideoCount} 集";
+                item.Speed = "-";
+                item.StatusDetail = $"共完成 {result.VideoCount} 集";
                 item.CompletedAt = DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss");
                 item.UpdatedAt = item.CompletedAt;
                 onUpdated(item);
-                log(item, $"[{item.Title}] {result.Message ?? "下载完成"}");
             }
             else
             {
@@ -91,10 +108,6 @@ public sealed class DramaDownloadRunner
             item.StatusDetail = ex.Message;
             onUpdated(item);
             log(item, $"[{item.Title}] 下载失败：{ex.Message}");
-        }
-        finally
-        {
-            gate.Release();
         }
     }
 

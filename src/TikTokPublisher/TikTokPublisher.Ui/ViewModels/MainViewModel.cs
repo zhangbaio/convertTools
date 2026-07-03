@@ -99,6 +99,7 @@ public sealed partial class MainViewModel : ViewModelBase
         SystemServices.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
+        DramaDownload.UploadWorkspaceRequested += () => WorkspacePath;
     }
 
     private void WireSystemSettings()
@@ -131,6 +132,7 @@ public sealed partial class MainViewModel : ViewModelBase
         SystemServices.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
+        DramaDownload.UploadWorkspaceRequested += () => WorkspacePath;
         _queueWorker.ManualIntervention.PendingChanged += OnManualInterventionPendingChanged;
     }
 

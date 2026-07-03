@@ -12,6 +12,7 @@ public sealed class DramaSearchItem
     public string Author { get; set; } = "";
     public int FavoriteCount { get; set; }
     public bool Selected { get; set; }
+    public string SourceMode { get; set; } = "";
 }
 
 public sealed class DramaDownloadQueueItem
@@ -32,6 +33,13 @@ public sealed class DramaDownloadQueueItem
     public string UpdatedAt { get; set; } = "";
     public string QueueEntrySource { get; set; } = "download_queue";
     public string QueueEntryDramaType { get; set; } = "";
+    public string SourceMode { get; set; } = "";
+    public string Author { get; set; } = "";
+    public string Category { get; set; } = "";
+    public int EpisodeTotal { get; set; }
+    public int FavoriteCount { get; set; }
+    public string PublishTime { get; set; } = "";
+    public string PosterUrl { get; set; } = "";
 }
 
 public sealed class DramaDownloadQueueState
@@ -45,4 +53,7 @@ public sealed class DramaDownloadQueueState
     public int DownloadConcurrent { get; set; } = 3;
     public string DownloadEpisodeNumberMode { get; set; } = "source";
     public string DefaultQuality { get; set; } = "1080P";
+    public string CategoryInclude { get; set; } = "";
+    public string CategoryExclude { get; set; } = "";
+    public string AuthorExclude { get; set; } = "";
 }

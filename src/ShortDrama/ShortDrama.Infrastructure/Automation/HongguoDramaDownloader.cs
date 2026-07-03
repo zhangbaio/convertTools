@@ -9,6 +9,8 @@ namespace ShortDrama.Infrastructure.Automation;
 public sealed class HongguoDramaDownloader : IDramaDownloader
 {
     private const string DefaultQuality = "1080P+";
+    private const string DownloadStateFileName = ".weixin-channel-download-state.json";
+    private const string EpisodeNumberModeContinuous = "continuous";
     private const int ChunkSize = 65_536;
     private static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(350);
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
@@ -101,7 +103,7 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
         try
         {
             var episodes = await client.GetEpisodesAsync(request.BookId, cancellationToken);
-            tasks = BuildTasks(request.BookId, episodes, request.Episodes);
+            tasks = BuildTasks(request.BookId, episodes, request.Episodes, NormalizeEpisodeNumberMode(request.EpisodeNumberMode));
         }
         catch (Exception ex)
         {
@@ -161,20 +163,26 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
 
         if (failures.Count > 0)
         {
-            return new DramaDownloadResult(
+            var failed = new DramaDownloadResult(
                 Ok: false,
                 OutputDir: request.OutputDir,
                 VideoCount: finalVideoCount,
                 Message: string.Join("；", failures.Distinct(StringComparer.Ordinal)));
+            WriteDownloadState(request, failed, tasks, failures, NormalizeEpisodeNumberMode(request.EpisodeNumberMode));
+            PersistEpisodeNumberMode(request.ProjectDir, NormalizeEpisodeNumberMode(request.EpisodeNumberMode));
+            return failed;
         }
 
-        return new DramaDownloadResult(
+        var result = new DramaDownloadResult(
             Ok: finalVideoCount > 0,
             OutputDir: request.OutputDir,
             VideoCount: finalVideoCount,
             Message: finalVideoCount > 0
                 ? $"下载完成，共 {finalVideoCount} 个视频。"
                 : "下载执行完成，但未发现视频文件。");
+        WriteDownloadState(request, result, tasks, [], NormalizeEpisodeNumberMode(request.EpisodeNumberMode));
+        PersistEpisodeNumberMode(request.ProjectDir, NormalizeEpisodeNumberMode(request.EpisodeNumberMode));
+        return result;
     }
 
     private async Task DownloadEpisodeWithConcurrencyAsync(
@@ -224,12 +232,26 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
         CancellationToken cancellationToken)
     {
         var progressReporter = new EpisodeProgressReporter(task, totalCount, progress);
-        var finalPath = Path.Combine(outputDir, $"第{task.EpisodeNumber}集.mp4");
+        var finalPath = Path.Combine(outputDir, BuildEpisodeFileName(task));
         var tempPath = $"{finalPath}.part";
 
         try
         {
             progressReporter.ReportStatus("准备", "等待获取链接");
+
+            var existingVideo = FindExistingEpisodeVideo(outputDir, task);
+            if (!string.IsNullOrWhiteSpace(existingVideo))
+            {
+                if (!string.Equals(Path.GetFullPath(existingVideo), Path.GetFullPath(finalPath), StringComparison.OrdinalIgnoreCase) &&
+                    !File.Exists(finalPath))
+                {
+                    File.Move(existingVideo, finalPath);
+                    existingVideo = finalPath;
+                }
+
+                progressReporter.Report(100d, 0d, "已存在", "视频已存在，跳过");
+                return EpisodeDownloadResult.Success();
+            }
 
             if (HasValidVideoFile(finalPath))
             {
@@ -379,10 +401,12 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
     private static IReadOnlyList<EpisodeDownloadTask> BuildTasks(
         string bookId,
         IReadOnlyList<JsonElement> episodes,
-        string selection)
+        string selection,
+        string episodeNumberMode)
     {
         var selectedEpisodes = ParseEpisodeSelection(selection);
         var tasks = new List<EpisodeDownloadTask>();
+        var continuous = string.Equals(episodeNumberMode, EpisodeNumberModeContinuous, StringComparison.Ordinal);
 
         for (var index = 0; index < episodes.Count; index++)
         {
@@ -393,11 +417,9 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
                 continue;
             }
 
-            var episodeNumber = ExtractEpisodeNumber(episode, index + 1);
-            if (selectedEpisodes is not null && !selectedEpisodes.Contains(episodeNumber))
-            {
-                continue;
-            }
+            var sourceEpisodeNumber = ExtractEpisodeNumber(episode, index + 1);
+            var sequenceEpisodeNumber = index + 1;
+            var episodeNumber = continuous ? sequenceEpisodeNumber : sourceEpisodeNumber;
 
             var title = ReadFirstNonEmpty(
                 GetString(episode, "title"),
@@ -409,11 +431,22 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
                 BookId: bookId,
                 VideoId: videoId,
                 EpisodeNumber: episodeNumber,
+                SourceEpisodeNumber: sourceEpisodeNumber,
+                SequenceEpisodeNumber: sequenceEpisodeNumber,
                 EpisodeTitle: title,
                 PosterUrl: ExtractPosterUrl(episode)));
         }
 
-        return tasks.OrderBy(item => item.EpisodeNumber).ThenBy(item => item.Order).ToArray();
+        var ordered = tasks.OrderBy(item => item.SourceEpisodeNumber).ThenBy(item => item.SequenceEpisodeNumber).ToArray();
+        if (selectedEpisodes is null)
+        {
+            return ordered.Select((item, index) => item with { Order = index + 1 }).ToArray();
+        }
+
+        return ordered
+            .Where(item => selectedEpisodes.Contains(continuous ? item.SequenceEpisodeNumber : item.SourceEpisodeNumber))
+            .Select((item, index) => item with { Order = index + 1 })
+            .ToArray();
     }
 
     private static HashSet<int>? ParseEpisodeSelection(string? selection)
@@ -620,6 +653,117 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
         }
     }
 
+    private static string NormalizeEpisodeNumberMode(string? value)
+    {
+        return string.Equals(value?.Trim(), EpisodeNumberModeContinuous, StringComparison.OrdinalIgnoreCase)
+            ? EpisodeNumberModeContinuous
+            : "source";
+    }
+
+    private static string BuildEpisodeFileName(EpisodeDownloadTask task) => $"第{task.EpisodeNumber}集.mp4";
+
+    private static string? FindExistingEpisodeVideo(string outputDir, EpisodeDownloadTask task)
+    {
+        foreach (var directory in new[] { outputDir, Path.Combine(outputDir, "videos") })
+        {
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            foreach (var path in Directory.EnumerateFiles(directory, "*.*", SearchOption.TopDirectoryOnly)
+                         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var stem = Path.GetFileNameWithoutExtension(path);
+                if (string.Equals(stem, Path.GetFileNameWithoutExtension(BuildEpisodeFileName(task)), StringComparison.OrdinalIgnoreCase) ||
+                    BuildEpisodeMarkers(task).Any(marker => stem.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (HasValidVideoFile(path))
+                    {
+                        return path;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> BuildEpisodeMarkers(EpisodeDownloadTask task)
+    {
+        foreach (var number in new[] { task.EpisodeNumber, task.SourceEpisodeNumber, task.SequenceEpisodeNumber }.Where(value => value > 0).Distinct())
+        {
+            yield return $"第{number}集";
+            yield return $"第{number:00}集";
+        }
+    }
+
+    private static void WriteDownloadState(
+        DramaDownloadRequest request,
+        DramaDownloadResult result,
+        IReadOnlyList<EpisodeDownloadTask> tasks,
+        IReadOnlyList<string> failures,
+        string episodeNumberMode)
+    {
+        try
+        {
+            var payload = new
+            {
+                ok = result.Ok,
+                project_dir = request.OutputDir,
+                video_count = result.VideoCount,
+                message = result.Message ?? "",
+                failures,
+                stopped = false,
+                episodes = string.IsNullOrWhiteSpace(request.Episodes) ? "all" : request.Episodes,
+                quality = request.Quality,
+                concurrent = Math.Clamp(request.Concurrent, 1, 10),
+                episode_number_mode = episodeNumberMode,
+                episode_mappings = tasks.Select(task => new
+                {
+                    source_episode_number = task.SourceEpisodeNumber,
+                    sequence_episode_number = task.SequenceEpisodeNumber,
+                    episode_title = task.EpisodeTitle
+                }).ToArray()
+            };
+            File.WriteAllText(
+                Path.Combine(request.OutputDir, DownloadStateFileName),
+                JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch
+        {
+            // Download state is best-effort metadata for queue interoperability.
+        }
+    }
+
+    private static void PersistEpisodeNumberMode(string projectDir, string episodeNumberMode)
+    {
+        var metadataPath = Path.Combine(projectDir, "shortdrama-project.json");
+        if (!File.Exists(metadataPath))
+        {
+            return;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
+            var payload = JsonSerializer.Deserialize<Dictionary<string, object?>>(document.RootElement.GetRawText())
+                          ?? new Dictionary<string, object?>(StringComparer.Ordinal);
+            payload["episodeNumberMode"] = episodeNumberMode;
+            payload["episode_number_mode"] = episodeNumberMode;
+            File.WriteAllText(metadataPath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch
+        {
+            // Ignore metadata update failures.
+        }
+    }
+
     private static int CountVideoFiles(string directory)
     {
         if (!Directory.Exists(directory))
@@ -819,6 +963,8 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
         string BookId,
         string VideoId,
         int EpisodeNumber,
+        int SourceEpisodeNumber,
+        int SequenceEpisodeNumber,
         string EpisodeTitle,
         string PosterUrl)
     {

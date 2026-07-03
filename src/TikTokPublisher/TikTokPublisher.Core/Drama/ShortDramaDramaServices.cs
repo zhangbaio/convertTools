@@ -1,4 +1,5 @@
 using ShortDrama.Core.Interfaces;
+using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Models;
 using System.Net;
@@ -78,6 +79,43 @@ public static class ShortDramaDramaServices
         return items.Select(FromCore).ToArray();
     }
 
+    public static async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)
+    {
+        RefreshSettings();
+        if (Search is not DramaSourceRouter router)
+        {
+            return [];
+        }
+
+        var items = await router.GetHistoryAsync(days, cancellationToken);
+        return items.Select(FromCore).ToArray();
+    }
+
+    public static async Task<string> BootstrapAsync(
+        string rootDir,
+        DramaSearchItem item,
+        string episodes,
+        string quality,
+        int concurrent,
+        string episodeNumberMode,
+        string queueEntryDramaType,
+        CancellationToken cancellationToken)
+    {
+        var bootstrapper = new DramaProjectBootstrapper();
+        var result = await bootstrapper.BootstrapAsync(
+            new DramaProjectBootstrapRequest(
+                RootDir: rootDir,
+                Drama: ToCore(item),
+                CompanyName: null,
+                Episodes: string.IsNullOrWhiteSpace(episodes) ? "all" : episodes.Trim(),
+                Quality: string.IsNullOrWhiteSpace(quality) ? "1080P" : quality.Trim(),
+                Concurrent: Math.Clamp(concurrent, 1, 10),
+                EpisodeNumberMode: NormalizeEpisodeNumberMode(episodeNumberMode),
+                QueueEntryDramaType: queueEntryDramaType),
+            cancellationToken);
+        return result.SourceProjectDir;
+    }
+
     public static DramaSearchItem FromCore(CoreSearchItem core) => new()
     {
         BookId = core.BookId,
@@ -90,6 +128,24 @@ public static class ShortDramaDramaServices
         PublishTime = core.PublishTime,
         FavoriteCount = core.FavoriteCount,
     };
+
+    private static CoreSearchItem ToCore(DramaSearchItem item) => new(
+        BookId: item.BookId,
+        Title: item.Title,
+        Category: item.Category,
+        EpisodeTotal: item.EpisodeTotal,
+        Intro: item.Intro,
+        PosterUrl: item.PosterUrl,
+        Author: item.Author,
+        PublishTime: item.PublishTime,
+        FavoriteCount: item.FavoriteCount);
+
+    private static string NormalizeEpisodeNumberMode(string? value)
+    {
+        return string.Equals(value?.Trim(), "continuous", StringComparison.OrdinalIgnoreCase)
+            ? "continuous"
+            : "source";
+    }
 
     private static HttpClient CreateHttpClient()
     {
