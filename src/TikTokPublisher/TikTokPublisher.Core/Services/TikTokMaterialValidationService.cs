@@ -1,4 +1,9 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Media;
+using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -9,6 +14,13 @@ public static class TikTokMaterialValidationService
         public bool SilenceValidationEnabled { get; init; } = true;
         public double MaxContinuousSilenceSeconds { get; init; } = TikTokVideoConstraints.DefaultMaxContinuousSilenceSeconds;
         public double SilenceThresholdDb { get; init; } = TikTokVideoConstraints.DefaultSilenceThresholdDb;
+
+        public static Options FromAccount(TikTokAccountProfile? account) => new()
+        {
+            SilenceValidationEnabled = account?.TiktokSilenceValidationEnabled ?? true,
+            MaxContinuousSilenceSeconds = Math.Max(1, account?.TiktokMaxContinuousSilenceSeconds ?? (int)TikTokVideoConstraints.DefaultMaxContinuousSilenceSeconds),
+            SilenceThresholdDb = account?.TiktokSilenceThresholdDb ?? TikTokVideoConstraints.DefaultSilenceThresholdDb,
+        };
     }
 
     public static async Task ValidateAsync(
@@ -17,7 +29,8 @@ public static class TikTokMaterialValidationService
         string originalTitle,
         Options options,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        TikTokAccountProfile? account = null)
     {
         var payload = TikTokUploadStagingService.BuildPayload(
             sourceProjectDir, title, originalTitle,
@@ -34,6 +47,8 @@ public static class TikTokMaterialValidationService
 
         if (payload.UploadPaths.Count != payload.SourcePaths.Count)
             throw new InvalidOperationException("TikTok 素材校验失败：上传副本数量异常");
+
+        TikTokUploadManifestService.Save(sourceProjectDir, account, payload, log);
 
         var ffprobe = MediaBinaryResolver.ResolveFfprobe();
         var issues = new List<string>();
@@ -121,6 +136,7 @@ public static class TikTokMaterialValidationService
         }
 
         log?.Invoke($"通过：共 {payload.SourcePaths.Count} 个视频。");
+        SaveValidationState(sourceProjectDir, payload, options);
     }
 
     public static IEnumerable<string> ValidateVideoLimits(long fileSizeBytes, double durationSeconds)
@@ -141,5 +157,58 @@ public static class TikTokMaterialValidationService
         var minutes = total / 60;
         var rest = total % 60;
         return minutes > 0 ? $"{minutes}分{rest}秒" : $"{rest}秒";
+    }
+
+    private static void SaveValidationState(
+        string sourceProjectDir,
+        TikTokUploadStagingService.StagingResult payload,
+        Options options)
+    {
+        var context = ProjectWorkspaceService.LoadContext(sourceProjectDir);
+        var episodes = payload.UploadPaths
+            .Select(TikTokSilenceAsrService.CacheKey)
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Distinct(StringComparer.Ordinal)
+            .ToDictionary(key => key, _ => (object?)true, StringComparer.Ordinal);
+
+        var state = new Dictionary<string, object?>
+        {
+            ["fingerprint"] = ComputeMaterialFingerprint(payload.UploadPaths),
+            ["params"] = ValidationParamsSignature(options),
+            ["episodes"] = episodes,
+        };
+        ProjectStateDocumentStore.SaveDocument(
+            context.WorkspaceRoot,
+            context.SourceProjectDir,
+            "material_validation_state",
+            state,
+            context.WorkflowProjectDir);
+    }
+
+    private static string ValidationParamsSignature(Options options) =>
+        $"v1|{(options.SilenceValidationEnabled ? 1 : 0)}|{options.MaxContinuousSilenceSeconds:g}|{options.SilenceThresholdDb:g}";
+
+    private static string ComputeMaterialFingerprint(IReadOnlyList<string> uploadVideoPaths)
+    {
+        var entries = new List<object?[]>();
+        foreach (var path in uploadVideoPaths)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists) return "";
+                var mtimeNs = (long)(info.LastWriteTimeUtc - DateTime.UnixEpoch).Ticks * 100L;
+                entries.Add([info.Name, info.Length, mtimeNs]);
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        if (entries.Count == 0) return "";
+        entries.Sort((a, b) => string.CompareOrdinal(a[0]?.ToString(), b[0]?.ToString()));
+        var text = JsonSerializer.Serialize(entries);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
     }
 }

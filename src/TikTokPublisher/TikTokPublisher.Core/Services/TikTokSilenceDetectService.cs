@@ -55,6 +55,8 @@ public static class TikTokSilenceDetectService
             return;
         }
 
+        TikTokSilenceAsrService.SaveReport(sourceProjectDir, payload.UploadPaths, reports, threshold);
+
         var flagged = 0;
         for (var i = 0; i < reports.Count; i++)
         {

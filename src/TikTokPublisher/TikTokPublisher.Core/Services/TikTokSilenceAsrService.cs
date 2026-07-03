@@ -135,6 +135,60 @@ public static class TikTokSilenceAsrService
         return results;
     }
 
+    public static string CacheKey(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists) return Path.GetFileName(path);
+            var mtime = new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeSeconds();
+            return $"{info.Name}|{info.Length}|{mtime}";
+        }
+        catch
+        {
+            return Path.GetFileName(path);
+        }
+    }
+
+    public static void SaveReport(
+        string sourceProjectDir,
+        IReadOnlyList<string> uploadPaths,
+        IReadOnlyList<SilenceGapReport> reports,
+        double thresholdSeconds)
+    {
+        var context = Queue.ProjectWorkspaceService.LoadContext(sourceProjectDir);
+        var items = new List<Dictionary<string, object?>>();
+        for (var i = 0; i < reports.Count; i++)
+        {
+            var report = reports[i];
+            if (report is null || report.EpisodeIndex <= 0) continue;
+            var path = i < uploadPaths.Count ? uploadPaths[i] : report.Name;
+            items.Add(new Dictionary<string, object?>
+            {
+                ["episode_index"] = report.EpisodeIndex,
+                ["name"] = report.Name,
+                ["duration_seconds"] = report.DurationSeconds,
+                ["max_gap_seconds"] = report.MaxGapSeconds,
+                ["gap_start_seconds"] = report.GapStartSeconds,
+                ["gap_end_seconds"] = report.GapEndSeconds,
+                ["position"] = report.Position,
+                ["cache_key"] = CacheKey(path),
+            });
+        }
+
+        ProjectStateDocumentStore.SaveDocument(
+            context.WorkspaceRoot,
+            context.SourceProjectDir,
+            "silence_asr_report",
+            new Dictionary<string, object?>
+            {
+                ["version"] = 1,
+                ["threshold_seconds"] = thresholdSeconds,
+                ["items"] = items,
+            },
+            context.WorkflowProjectDir);
+    }
+
     /// <summary>按引擎调度：火山在线走 ASR；本地/混合当前 C# 版暂无 sherpa-onnx，退回电平静音。</summary>
     private static async Task<IReadOnlyList<SpeechInterval>> GetSpeechIntervalsAsync(
         string videoPath,

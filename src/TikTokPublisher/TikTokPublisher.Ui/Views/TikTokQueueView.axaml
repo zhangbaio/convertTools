@@ -81,14 +81,14 @@
                         </Grid>
 
                         <WrapPanel Orientation="Horizontal">
-                            <CheckBox Content="下载" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,4" />
-                            <CheckBox Content="改写" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,4" />
-                            <CheckBox Content="海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="下载剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,4" />
                             <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,4" />
                             <CheckBox Content="静音检测" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,4" />
                             <CheckBox Content="静音修复" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,4" />
                             <CheckBox Content="素材校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,4" />
-                            <CheckBox Content="删源视频" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,4" />
+                            <CheckBox Content="删除源视频" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,4" />
                             <CheckBox Content="上传剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,4" />
                         </WrapPanel>
 
@@ -96,6 +96,7 @@
                             <CheckBox Content="上传完成后自动归档" IsChecked="{Binding AutoArchiveAfterUpload}" Margin="0,0,16,0" />
                             <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding ForceRerunCompletedSteps}" Margin="0,0,16,0" />
                             <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding PreferUploadWhenReady}" Margin="0,0,16,0" />
+                            <CheckBox Content="同步管理系统" IsChecked="{Binding SyncManagementAfterUpload}" Margin="0,0,16,0" />
                         </WrapPanel>
                     </StackPanel>
                 </Border>

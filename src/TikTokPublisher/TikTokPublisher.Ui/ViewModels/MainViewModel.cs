@@ -50,6 +50,7 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _forceRerunCompletedSteps;
     [ObservableProperty] private bool _autoArchiveAfterUpload;
     [ObservableProperty] private bool _preferUploadWhenReady;
+    [ObservableProperty] private bool _syncManagementAfterUpload;
     [ObservableProperty] private bool _queueDownloadEnabled;
     [ObservableProperty] private bool _queueRewriteEnabled;
     [ObservableProperty] private bool _queueGeneratePosterEnabled;
@@ -190,6 +191,12 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnPreferUploadWhenReadyChanged(bool value)
     {
         _queueRunOptions.PreferUploadWhenReady = value;
+        PersistQueueRunOptions();
+    }
+
+    partial void OnSyncManagementAfterUploadChanged(bool value)
+    {
+        _queueRunOptions.SyncManagementAfterUpload = value;
         PersistQueueRunOptions();
     }
 
@@ -466,6 +473,7 @@ public sealed partial class MainViewModel : ViewModelBase
         ForceRerunCompletedSteps = _queueRunOptions.ForceRerunCompletedSteps;
         AutoArchiveAfterUpload = _queueRunOptions.AutoArchiveAfterUpload;
         PreferUploadWhenReady = _queueRunOptions.PreferUploadWhenReady;
+        SyncManagementAfterUpload = _queueRunOptions.SyncManagementAfterUpload;
         ApplyQueueStepTogglesFromOptions();
         UpdateWorkspaceBindingSummary(root);
 
@@ -696,6 +704,7 @@ public sealed partial class MainViewModel : ViewModelBase
         _queueRunOptions.ForceRerunCompletedSteps = ForceRerunCompletedSteps;
         _queueRunOptions.AutoArchiveAfterUpload = AutoArchiveAfterUpload;
         _queueRunOptions.PreferUploadWhenReady = PreferUploadWhenReady;
+        _queueRunOptions.SyncManagementAfterUpload = SyncManagementAfterUpload;
         var concurrency = SelectedAccount?.Model.TiktokProjectConcurrency ?? _queueRunOptions.ProjectConcurrency;
         _queueRunOptions.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
     }

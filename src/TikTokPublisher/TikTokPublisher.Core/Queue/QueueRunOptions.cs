@@ -16,14 +16,14 @@ public static class QueueStepRegistry
     /// <summary>与 Python <c>STEP_ORDER</c> 一致。</summary>
     public static IReadOnlyList<QueueStepDefinition> All { get; } = new[]
     {
-        new QueueStepDefinition(QueueStepKeys.Download, "下载", true),
-        new QueueStepDefinition(QueueStepKeys.RewriteInfo, "改写", true),
-        new QueueStepDefinition(QueueStepKeys.GeneratePoster, "海报", true),
+        new QueueStepDefinition(QueueStepKeys.Download, "下载剧集", true),
+        new QueueStepDefinition(QueueStepKeys.RewriteInfo, "改写信息", true),
+        new QueueStepDefinition(QueueStepKeys.GeneratePoster, "生成海报", true),
         new QueueStepDefinition(SmallVideoRepair, "小文件修复", true),
         new QueueStepDefinition(SilenceDetect, "静音检测", true),
         new QueueStepDefinition(SilenceRepair, "静音修复", true),
         new QueueStepDefinition(MaterialValidate, "素材校验", true),
-        new QueueStepDefinition(QueueStepKeys.DeleteSourceVideos, "删源视频", true),
+        new QueueStepDefinition(QueueStepKeys.DeleteSourceVideos, "删除源视频", true),
         new QueueStepDefinition(UploadSeries, "上传剧集", true),
     };
 
@@ -47,6 +47,7 @@ public sealed class QueueRunOptions
     public bool AutoArchiveAfterUpload { get; set; }
     public bool ForceRerunCompletedSteps { get; set; }
     public bool PreferUploadWhenReady { get; set; }
+    public bool SyncManagementAfterUpload { get; set; }
     public int ProjectConcurrency { get; set; } = 4;
 
     public bool IsStepEnabled(string stepKey) =>
@@ -61,6 +62,7 @@ public sealed class QueueRunOptions
         ["auto_archive_after_upload"] = AutoArchiveAfterUpload,
         ["force_rerun_completed_steps"] = ForceRerunCompletedSteps,
         ["prefer_upload_when_ready"] = PreferUploadWhenReady,
+        ["sync_management_after_upload"] = SyncManagementAfterUpload,
         ["project_concurrency"] = Math.Clamp(ProjectConcurrency, 1, 20),
     };
 
@@ -86,6 +88,9 @@ public sealed class QueueRunOptions
             AutoArchiveAfterUpload = GetBool(payload, "auto_archive_after_upload"),
             ForceRerunCompletedSteps = GetBool(payload, "force_rerun_completed_steps"),
             PreferUploadWhenReady = GetBool(payload, "prefer_upload_when_ready"),
+            SyncManagementAfterUpload =
+                GetBool(payload, "sync_management_after_upload") ||
+                GetBool(payload, "sync_management_on_upload_success"),
             ProjectConcurrency = Math.Clamp(GetInt(payload, "project_concurrency", 4), 1, 20),
         };
     }

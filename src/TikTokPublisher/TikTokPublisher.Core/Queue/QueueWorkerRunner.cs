@@ -40,8 +40,6 @@ public sealed class QueueWorkerRunner
 
     private readonly UploadSlotCoordinator _uploadSlots = new();
     public ManualInterventionCoordinator ManualIntervention { get; } = new();
-    private static readonly TikTokMaterialValidationService.Options DefaultMaterialOptions = new();
-
     public async Task<QueueWorkerSummary> RunAsync(
         string workspaceRoot,
         IList<QueueProjectItem> items,
@@ -415,9 +413,7 @@ public sealed class QueueWorkerRunner
             mutate(() => MarkRunning(item, stepKey));
             Report(onProgress, workspace, item, $"开始 {QueueStepRegistry.LabelOf(stepKey)}…", stepKey);
 
-            var stepAccount = stepKey == QueueStepRegistry.RewriteInfo
-                ? ResolveAccount(accountStore, item)
-                : null;
+            var stepAccount = ResolveAccount(accountStore, item);
             await RunPreUploadStepAsync(
                 item,
                 stepKey,
@@ -475,6 +471,8 @@ public sealed class QueueWorkerRunner
                         item.AccountProfileName = account.DisplayName;
                     });
                     Report(onProgress, workspace, item, result.Message, QueueStepRegistry.UploadSeries);
+                    await SyncManagementAfterUploadIfEnabledAsync(
+                        options, workspace, item, account, onProgress, ct).ConfigureAwait(false);
                     return true;
                 }
                 failureMessage = result.Message;
@@ -530,6 +528,8 @@ public sealed class QueueWorkerRunner
                         item.AccountProfileName = account.DisplayName;
                     });
                     Report(onProgress, workspace, item, "人工介入：已标记上传成功", QueueStepRegistry.UploadSeries);
+                    await SyncManagementAfterUploadIfEnabledAsync(
+                        options, workspace, item, account, onProgress, ct).ConfigureAwait(false);
                     return true;
                 case ManualInterventionResult.Failed:
                     mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, failureMessage));
@@ -555,6 +555,7 @@ public sealed class QueueWorkerRunner
         CancellationToken ct)
     {
         var settings = ClientSettingsStore.Load();
+        var materialOptions = TikTokMaterialValidationService.Options.FromAccount(account);
         switch (stepKey)
         {
             case QueueStepRegistry.Download:
@@ -575,18 +576,52 @@ public sealed class QueueWorkerRunner
                 break;
             case QueueStepRegistry.SilenceDetect:
                 await TikTokSilenceDetectService.DetectAsync(
-                    item.ProjectDir, item.Title, item.OriginalTitle, DefaultMaterialOptions, log, ct).ConfigureAwait(false);
+                    item.ProjectDir, item.Title, item.OriginalTitle, materialOptions, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.SilenceRepair:
                 await TikTokSilenceRepairService.RepairAsync(
-                    item.ProjectDir, item.Title, item.OriginalTitle, DefaultMaterialOptions, log, ct).ConfigureAwait(false);
+                    item.ProjectDir, item.Title, item.OriginalTitle, materialOptions, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.MaterialValidate:
                 await TikTokMaterialValidationService.ValidateAsync(
-                    item.ProjectDir, item.Title, item.OriginalTitle, DefaultMaterialOptions, log, ct).ConfigureAwait(false);
+                    item.ProjectDir, item.Title, item.OriginalTitle, materialOptions, log, ct, account).ConfigureAwait(false);
                 break;
             default:
                 throw new InvalidOperationException($"未知预处理步骤：{stepKey}");
+        }
+    }
+
+    private static async Task SyncManagementAfterUploadIfEnabledAsync(
+        QueueRunOptions options,
+        string workspace,
+        QueueProjectItem item,
+        TikTokAccountProfile account,
+        Action<QueueWorkerProgress>? onProgress,
+        CancellationToken ct)
+    {
+        if (!options.SyncManagementAfterUpload) return;
+
+        try
+        {
+            var result = await TikTokManagementUploadRecordSyncService
+                .SyncUploadRecordAsync(item, account, ct)
+                .ConfigureAwait(false);
+            Report(
+                onProgress,
+                workspace,
+                item,
+                result.Ok
+                    ? $"已同步管理系统：{result.Message}"
+                    : $"同步管理系统失败：{result.Message}",
+                QueueStepRegistry.UploadSeries);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Report(onProgress, workspace, item, $"同步管理系统异常：{ex.Message}", QueueStepRegistry.UploadSeries);
         }
     }
 

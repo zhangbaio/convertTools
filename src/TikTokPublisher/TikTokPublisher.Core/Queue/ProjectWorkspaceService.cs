@@ -74,6 +74,36 @@ public static class ProjectWorkspaceService
         return workflowDir;
     }
 
+    public static string SyncWorkflowProjectDirName(string projectDir, string displayTitle, Action<string>? log = null)
+    {
+        var context = LoadContext(projectDir);
+        var sourceProjectDir = Path.GetFullPath(context.SourceProjectDir);
+        var currentWorkflowDir = Path.GetFullPath(context.WorkflowProjectDir);
+        var desiredName = "_" + SanitizeWorkflowName(FirstNonEmpty(displayTitle, Path.GetFileName(sourceProjectDir)));
+        var desiredWorkflowDir = Path.Combine(ResolveWorkflowRoot(sourceProjectDir), desiredName);
+
+        if (!string.Equals(currentWorkflowDir, desiredWorkflowDir, StringComparison.OrdinalIgnoreCase))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(desiredWorkflowDir)!);
+            if (Directory.Exists(desiredWorkflowDir))
+                throw new InvalidOperationException($"目标 workflow 目录已存在: {desiredWorkflowDir}");
+
+            if (Directory.Exists(currentWorkflowDir))
+                Directory.Move(currentWorkflowDir, desiredWorkflowDir);
+            else
+                Directory.CreateDirectory(desiredWorkflowDir);
+
+            log?.Invoke($"workflow 目录已切换为：{desiredWorkflowDir}");
+        }
+        else
+        {
+            Directory.CreateDirectory(desiredWorkflowDir);
+        }
+
+        UpdateWorkflowMetadata(sourceProjectDir, desiredWorkflowDir);
+        return desiredWorkflowDir;
+    }
+
     public static string EnsureWorkflowInfo(
         string projectDir,
         int episodeCount,
@@ -279,6 +309,15 @@ public static class ProjectWorkspaceService
 
         Directory.CreateDirectory(Path.GetDirectoryName(metadataPath)!);
         File.WriteAllText(metadataPath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static string SanitizeWorkflowName(string? name)
+    {
+        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
+        var sanitized = new string((name ?? "").Trim().Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray())
+            .Trim()
+            .Trim('.');
+        return string.IsNullOrWhiteSpace(sanitized) ? "workflow-project" : sanitized;
     }
 
     private static bool ShouldSyncSourceFile(string path)

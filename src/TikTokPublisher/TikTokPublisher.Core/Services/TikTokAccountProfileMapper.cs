@@ -80,7 +80,9 @@ public static class TikTokAccountProfileMapper
             TiktokUploadBatchSize = Math.Clamp(I(payload, "tiktok_upload_batch_size", 3), 1, 20),
             TiktokUploadBatchStallSeconds = Math.Clamp(I(payload, "tiktok_upload_batch_stall_seconds", 75), 20, 600),
             TiktokUploadBatchMaxRetries = Math.Clamp(I(payload, "tiktok_upload_batch_max_retries", 3), 1, 10),
-            TiktokSilenceValidationEnabled = B(payload, "tiktok_silence_validation_enabled"),
+            TiktokSilenceValidationEnabled = payload.TryGetProperty("tiktok_silence_validation_enabled", out _)
+                ? B(payload, "tiktok_silence_validation_enabled")
+                : true,
             TiktokMaxContinuousSilenceSeconds = Math.Max(1, I(payload, "tiktok_max_continuous_silence_seconds", DefaultMaxContinuousSilenceSeconds)),
             TiktokSilenceThresholdDb = D(payload, "tiktok_silence_threshold_db", DefaultSilenceThresholdDb),
             TiktokExcelReportPath = S(payload, "tiktok_excel_report_path"),

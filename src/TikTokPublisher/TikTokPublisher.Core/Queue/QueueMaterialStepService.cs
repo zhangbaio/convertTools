@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ShortDrama.Core.Models;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
@@ -91,6 +92,13 @@ public static class QueueMaterialStepService
             TryDelete(configPath);
         }
 
+        var newTitle = ResolveNewTitle(infoPath, item, context);
+        if (!string.IsNullOrWhiteSpace(newTitle))
+        {
+            workflowDir = ProjectWorkspaceService.SyncWorkflowProjectDirName(context.SourceProjectDir, newTitle, log);
+            infoPath = Path.Combine(workflowDir, "短剧信息.txt");
+        }
+
         await WriteTikTokPublishFieldsAsync(item, settings, account, episodeCount, workflowDir, log, ct);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
     }
@@ -118,7 +126,7 @@ public static class QueueMaterialStepService
     {
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var workflowDir = ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
-        var outputPath = Path.Combine(workflowDir, "海报图片.jpg");
+        var outputPath = Path.Combine(workflowDir, "海报图片.png");
 
         var inputPath = await QueueMaterialPrepareService.PrepareMaterialInputsAsync(item.ProjectDir, log, ct)
             ?? ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir);
@@ -155,7 +163,7 @@ public static class QueueMaterialStepService
         {
             Directory.CreateDirectory(workflowDir);
             if (File.Exists(outputPath)) File.Delete(outputPath);
-            File.Copy(inputPath, outputPath, overwrite: true);
+            await ConvertPosterToPngAsync(inputPath, outputPath, ct).ConfigureAwait(false);
             log($"已复制原图海报：{Path.GetFileName(outputPath)}");
         }
 
@@ -309,6 +317,20 @@ public static class QueueMaterialStepService
         return true;
     }
 
+    private static string ResolveNewTitle(
+        string infoPath,
+        QueueProjectItem item,
+        ProjectWorkspaceContext context)
+    {
+        var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        return FirstNonEmpty(
+            info.GetValueOrDefault("新剧名"),
+            info.GetValueOrDefault("剧名"),
+            item.NewTitle,
+            item.Title,
+            Path.GetFileName(context.SourceProjectDir));
+    }
+
     private static void AddIfMissing(
         IReadOnlyDictionary<string, string> existing,
         Dictionary<string, string> updates,
@@ -363,6 +385,39 @@ public static class QueueMaterialStepService
         }
 
         return "";
+    }
+
+    private static async Task ConvertPosterToPngAsync(string inputPath, string outputPath, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        if (Path.GetExtension(inputPath).Equals(".png", StringComparison.OrdinalIgnoreCase))
+        {
+            File.Copy(inputPath, outputPath, overwrite: true);
+            return;
+        }
+
+        var ffmpeg = FfmpegLocator.ResolveFfmpeg();
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                WorkingDirectory = Path.GetDirectoryName(inputPath) ?? Environment.CurrentDirectory,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            },
+        };
+        foreach (var arg in new[] { "-hide_banner", "-loglevel", "error", "-y", "-i", inputPath, outputPath })
+            process.StartInfo.ArgumentList.Add(arg);
+
+        process.Start();
+        var stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
+        await process.WaitForExitAsync(ct).ConfigureAwait(false);
+        if (process.ExitCode != 0 || !File.Exists(outputPath) || new FileInfo(outputPath).Length <= 0)
+            throw new InvalidOperationException($"海报图片转 PNG 失败：{Path.GetFileName(inputPath)}（{stderr.Trim()}）");
     }
 
     private static void TryDelete(string path)

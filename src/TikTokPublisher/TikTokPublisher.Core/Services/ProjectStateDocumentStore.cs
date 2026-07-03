@@ -18,15 +18,29 @@ public static class ProjectStateDocumentStore
         Dictionary<string, object?> payload,
         string? workflowProjectDir = null)
     {
+        SaveDocument(workspaceRoot, projectDir, UploadStateDocumentType, payload, workflowProjectDir);
+    }
+
+    public static void SaveDocument(
+        string workspaceRoot,
+        string projectDir,
+        string documentType,
+        Dictionary<string, object?> payload,
+        string? workflowProjectDir = null)
+    {
         var databasePath = ClientSettingsStore.WorkspaceDatabasePath(workspaceRoot);
         if (string.IsNullOrWhiteSpace(databasePath))
+            return;
+
+        var docType = (documentType ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(docType))
             return;
 
         WorkspaceQueueDatabase.EnsureDatabase(databasePath);
         var workspaceKey = NormalizePath(workspaceRoot);
         var projectKey = NormalizePath(projectDir);
         var workflowKey = string.IsNullOrWhiteSpace(workflowProjectDir) ? "" : NormalizePath(workflowProjectDir);
-        var documentId = StableDocumentId(workspaceKey, projectKey, UploadStateDocumentType);
+        var documentId = StableDocumentId(workspaceKey, projectKey, docType);
         var now = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss");
         var payloadJson = JsonSerializer.Serialize(payload ?? new Dictionary<string, object?>());
 
@@ -65,7 +79,7 @@ public static class ProjectStateDocumentStore
         command.Parameters.AddWithValue("$workspace_path", workspaceKey);
         command.Parameters.AddWithValue("$project_dir", projectKey);
         command.Parameters.AddWithValue("$workflow_project_dir", workflowKey);
-        command.Parameters.AddWithValue("$document_type", UploadStateDocumentType);
+        command.Parameters.AddWithValue("$document_type", docType);
         command.Parameters.AddWithValue("$payload_json", payloadJson);
         command.Parameters.AddWithValue("$created_at", createdAt);
         command.Parameters.AddWithValue("$updated_at", now);
@@ -83,6 +97,6 @@ public static class ProjectStateDocumentStore
     private static string StableProjectId(string workspaceKey, string projectKey)
     {
         var payload = string.Join('\n', workspaceKey, projectKey);
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"project\n{payload}"))).ToLowerInvariant();
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
     }
 }
