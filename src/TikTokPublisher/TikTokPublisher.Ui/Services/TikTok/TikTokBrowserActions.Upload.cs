@@ -9,7 +9,8 @@ public static partial class TikTokBrowserActions
     private static readonly Regex UploadedContentCountPattern = new(@"正片内容\s*[\(（](\d+)[\)）]", RegexOptions.Compiled);
     private static readonly Regex PercentPattern = new(@"(\d{1,3})\s*%", RegexOptions.Compiled);
 
-    private const long CdpFileTransferLimitBytes = 45L * 1024 * 1024;
+    /// <summary>ConnectOverCDP 下 Playwright 串流上限；单文件超过此值必须走 CDP 路径注入。</summary>
+    internal const long CdpFileTransferLimitBytes = 45L * 1024 * 1024;
 
     public static async Task UploadLocalVideosAsync(
         IPage page,
@@ -30,7 +31,16 @@ public static partial class TikTokBrowserActions
         await page.WaitForTimeoutAsync(5000);
         await EnsureVideoUploadStartedAsync(page, button, resolved, resolved.Count, log, ct);
         if (waitForFinish)
-            await WaitVideoUploadFinishedAsync(page, expectedCount: resolved.Count, log: log, ct: ct);
+        {
+            await WaitVideoUploadFinishedAsync(
+                page,
+                expectedCount: resolved.Count,
+                titleCandidates: null,
+                stallSeconds: 180,
+                log: log,
+                ct: ct,
+                videoPaths: resolved);
+        }
     }
 
     public static async Task WaitVideoUploadFinishedAsync(
@@ -41,10 +51,12 @@ public static partial class TikTokBrowserActions
         Action<string>? log = null,
         CancellationToken ct = default,
         int timeoutSeconds = 7200,
-        double settleSeconds = 3.0)
+        double settleSeconds = 3.0,
+        IReadOnlyList<string>? videoPaths = null)
     {
+        timeoutSeconds = ResolveUploadTimeoutSeconds(timeoutSeconds, expectedCount, videoPaths);
         var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
-        var stallLimit = ResolveUploadStallSeconds(stallSeconds, expectedCount);
+        var stallLimit = ResolveUploadStallSeconds(stallSeconds, expectedCount, videoPaths);
         string lastStatus = "";
         DateTime? readySince = null;
         (int? uploaded, int percent, bool uploading)? lastSignature = null;
@@ -133,6 +145,12 @@ public static partial class TikTokBrowserActions
         IReadOnlyList<string> resolvedPaths,
         CancellationToken ct)
     {
+        if (await CdpDomFileUpload.TrySetFilesAsync(page, resolvedPaths, ct).ConfigureAwait(false))
+            return;
+
+        if (ContainsPlaywrightStreamBlockedFile(resolvedPaths))
+            throw CreateCdpPathInjectionRequiredException(resolvedPaths);
+
         var batches = BuildVideoUploadBatches(resolvedPaths);
         for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
@@ -145,30 +163,54 @@ public static partial class TikTokBrowserActions
                 continue;
             }
 
-            try
-            {
-                await button.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
-                var chooser = await page.RunAndWaitForFileChooserAsync(async () =>
-                {
-                    await ClickWithFallbackAsync(button, ct);
-                }, new() { Timeout = 15000 });
-                await chooser.SetFilesAsync(batch);
-            }
-            catch (Exception ex)
-            {
-                var input = await FindVideoFileInputAsync(page);
-                if (input is null)
-                {
-                    if (await CdpDomFileUpload.TrySetFilesAsync(page, batch, ct).ConfigureAwait(false))
-                        continue;
-                    throw new InvalidOperationException($"未找到 TikTok 视频上传控件：{ex.Message}", ex);
-                }
+            if (ContainsPlaywrightStreamBlockedFile(batch))
+                throw CreateCdpPathInjectionRequiredException(batch);
 
-                await FeedVideoFilesWithBatchesAsync(page, input, batch, ct);
-            }
+            await FeedVideoFilesViaPlaywrightAsync(page, button, batch, ct);
 
             if (batchIndex < batches.Count - 1)
                 await page.WaitForTimeoutAsync(400);
+        }
+    }
+
+    public static async Task FeedVideoFilesToInputAsync(
+        IPage page,
+        ILocator input,
+        IReadOnlyList<string> resolvedPaths,
+        CancellationToken ct)
+    {
+        if (await CdpDomFileUpload.TrySetFilesAsync(page, resolvedPaths, ct).ConfigureAwait(false))
+            return;
+
+        if (ContainsPlaywrightStreamBlockedFile(resolvedPaths))
+            throw CreateCdpPathInjectionRequiredException(resolvedPaths);
+
+        await FeedVideoFilesWithBatchesAsync(page, input, resolvedPaths, ct);
+    }
+
+    private static async Task FeedVideoFilesViaPlaywrightAsync(
+        IPage page,
+        ILocator button,
+        IReadOnlyList<string> batch,
+        CancellationToken ct)
+    {
+        var timeoutMs = ResolveSetInputFilesTimeoutMs(batch);
+        try
+        {
+            await button.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+            var chooser = await page.RunAndWaitForFileChooserAsync(async () =>
+            {
+                await ClickWithFallbackAsync(button, ct);
+            }, new() { Timeout = 15000 });
+            await chooser.SetFilesAsync(batch);
+        }
+        catch (Exception ex)
+        {
+            var input = await FindVideoFileInputAsync(page);
+            if (input is null)
+                throw new InvalidOperationException($"未找到 TikTok 视频上传控件：{ex.Message}", ex);
+
+            await SetInputFilesWithCdpGuardAsync(page, input, batch, timeoutMs, ct);
         }
     }
 
@@ -218,7 +260,7 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct)
     {
-        var startupSeconds = ResolveUploadStartupSeconds(expectedCount);
+        var startupSeconds = ResolveUploadStartupSeconds(expectedCount, resolvedPaths);
         if (await WaitVideoUploadSignalAsync(page, startupSeconds, ct))
             return;
 
@@ -266,13 +308,92 @@ public static partial class TikTokBrowserActions
         return false;
     }
 
-    private static double ResolveUploadStartupSeconds(int expectedCount) =>
-        Math.Min(180, Math.Max(45, 6 * Math.Max(0, expectedCount)));
+    private static double ResolveUploadStartupSeconds(int expectedCount, IReadOnlyList<string>? videoPaths = null)
+    {
+        var baseline = Math.Min(180, Math.Max(45, 6 * Math.Max(0, expectedCount)));
+        return baseline + ResolveUploadSizeBonusSeconds(videoPaths, expectedCount) * 0.5;
+    }
 
-    private static double ResolveUploadStallSeconds(double baseSeconds, int expectedCount)
+    internal static double ResolveUploadStallSeconds(
+        double baseSeconds,
+        int expectedCount,
+        IReadOnlyList<string>? videoPaths = null)
     {
         var baseline = baseSeconds > 0 ? baseSeconds : 180;
-        return Math.Min(600, Math.Max(baseline, 20.0 * Math.Max(0, expectedCount)));
+        var countScaled = Math.Max(baseline, 20.0 * Math.Max(0, expectedCount));
+        return Math.Min(1200, countScaled + ResolveUploadSizeBonusSeconds(videoPaths, expectedCount));
+    }
+
+    internal static int ResolveUploadTimeoutSeconds(
+        int baseTimeoutSeconds,
+        int expectedCount,
+        IReadOnlyList<string>? videoPaths = null)
+    {
+        var baseline = Math.Max(baseTimeoutSeconds, 3600);
+        var bonus = (int)ResolveUploadSizeBonusSeconds(videoPaths, expectedCount);
+        return Math.Min(14_400, baseline + bonus * 4);
+    }
+
+    internal static int ResolveSetInputFilesTimeoutMs(IReadOnlyList<string> paths)
+    {
+        var maxBytes = paths.Count == 0 ? 0 : paths.Max(SafeFileSize);
+        var sizeMb = maxBytes / (1024.0 * 1024.0);
+        return (int)Math.Min(600_000, Math.Max(60_000, 60_000 + sizeMb * 2000));
+    }
+
+    internal static int ResolveEditEpisodeProgressSeconds(
+        string? videoPath,
+        double stallSeconds,
+        int expectedCount)
+    {
+        IReadOnlyList<string>? paths = string.IsNullOrWhiteSpace(videoPath) ? null : new[] { videoPath };
+        var baseline = Math.Max(60, stallSeconds);
+        return (int)Math.Min(900, baseline + ResolveUploadSizeBonusSeconds(paths, expectedCount));
+    }
+
+    private static double ResolveUploadSizeBonusSeconds(IReadOnlyList<string>? videoPaths, int expectedCount)
+    {
+        if (videoPaths is null || videoPaths.Count == 0)
+            return 0;
+
+        var maxMb = videoPaths.Max(SafeFileSize) / (1024.0 * 1024.0);
+        var avgMb = videoPaths.Sum(SafeFileSize) / (1024.0 * 1024.0) / Math.Max(1, expectedCount);
+        var referenceMb = Math.Max(maxMb, avgMb);
+        if (referenceMb <= 50)
+            return 0;
+
+        return 60.0 * Math.Ceiling(referenceMb / 50.0);
+    }
+
+    private static bool ContainsPlaywrightStreamBlockedFile(IReadOnlyList<string> paths) =>
+        paths.Any(path => SafeFileSize(path) > CdpFileTransferLimitBytes);
+
+    private static bool ExceedsPlaywrightStreamBatchLimit(IReadOnlyList<string> paths) =>
+        paths.Sum(SafeFileSize) > CdpFileTransferLimitBytes;
+
+    private static InvalidOperationException CreateCdpPathInjectionRequiredException(IReadOnlyList<string> paths)
+    {
+        var largest = paths
+            .Select(path => (path, size: SafeFileSize(path)))
+            .OrderByDescending(item => item.size)
+            .FirstOrDefault();
+        var name = string.IsNullOrWhiteSpace(largest.path) ? "未知文件" : Path.GetFileName(largest.path);
+        var sizeLabel = FormatFileSize(largest.size);
+        return new InvalidOperationException(
+            $"视频文件过大（{name}，{sizeLabel}），内嵌浏览器须通过 CDP 路径注入上传，但未能绑定文件控件。" +
+            "请确认当前在「内容上传」步骤且页面已加载完成，然后重试。");
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes <= 0) return "0 B";
+        if (bytes >= 1024L * 1024 * 1024)
+            return $"{bytes / (1024.0 * 1024 * 1024):0.##} GB";
+        if (bytes >= 1024 * 1024)
+            return $"{bytes / (1024.0 * 1024):0.#} MB";
+        if (bytes >= 1024)
+            return $"{bytes / 1024.0:0.#} KB";
+        return $"{bytes} B";
     }
 
     public static async Task FeedVideoFilesToButtonAsync(
@@ -401,17 +522,41 @@ public static partial class TikTokBrowserActions
         {
             ct.ThrowIfCancellationRequested();
             var batch = batches[batchIndex];
-            if (!await CdpDomFileUpload.TrySetFilesAsync(page, batch, ct).ConfigureAwait(false))
+            if (await CdpDomFileUpload.TrySetFilesAsync(page, batch, ct).ConfigureAwait(false))
             {
-                if (batch.Count == 1)
-                    await input.SetInputFilesAsync(batch[0], new() { Timeout = 60000 });
-                else
-                    await input.SetInputFilesAsync(batch, new() { Timeout = 60000 });
+                if (batchIndex < batches.Count - 1)
+                    await Task.Delay(400, ct);
+                continue;
             }
+
+            if (ContainsPlaywrightStreamBlockedFile(batch) || ExceedsPlaywrightStreamBatchLimit(batch))
+                throw CreateCdpPathInjectionRequiredException(batch);
+
+            await SetInputFilesWithCdpGuardAsync(
+                page, input, batch, ResolveSetInputFilesTimeoutMs(batch), ct);
 
             if (batchIndex < batches.Count - 1)
                 await Task.Delay(400, ct);
         }
+    }
+
+    private static async Task SetInputFilesWithCdpGuardAsync(
+        IPage page,
+        ILocator input,
+        IReadOnlyList<string> batch,
+        int timeoutMs,
+        CancellationToken ct)
+    {
+        if (await CdpDomFileUpload.TrySetFilesAsync(page, batch, ct).ConfigureAwait(false))
+            return;
+
+        if (ContainsPlaywrightStreamBlockedFile(batch) || ExceedsPlaywrightStreamBatchLimit(batch))
+            throw CreateCdpPathInjectionRequiredException(batch);
+
+        if (batch.Count == 1)
+            await input.SetInputFilesAsync(batch[0], new() { Timeout = timeoutMs });
+        else
+            await input.SetInputFilesAsync(batch, new() { Timeout = timeoutMs });
     }
 
     private static async Task FeedVideoFilesWithBatchesAsync(
@@ -429,8 +574,17 @@ public static partial class TikTokBrowserActions
             foreach (var path in resolvedPaths)
             {
                 ct.ThrowIfCancellationRequested();
-                if (!await CdpDomFileUpload.TrySetFilesAsync(page, new[] { path }, ct).ConfigureAwait(false))
-                    await input.SetInputFilesAsync(path, new() { Timeout = 60000 });
+                var single = new[] { path };
+                if (await CdpDomFileUpload.TrySetFilesAsync(page, single, ct).ConfigureAwait(false))
+                {
+                    await Task.Delay(400, ct);
+                    continue;
+                }
+
+                if (ContainsPlaywrightStreamBlockedFile(single))
+                    throw CreateCdpPathInjectionRequiredException(single);
+
+                await input.SetInputFilesAsync(path, new() { Timeout = ResolveSetInputFilesTimeoutMs(single) });
                 await Task.Delay(400, ct);
             }
             return;

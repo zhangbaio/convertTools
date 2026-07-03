@@ -81,11 +81,13 @@ public static class TikTokBatchUploadService
                 log?.Invoke($"第 {batchIndex + 1}/{batches.Count} 批（{labels}）开始上传（第 {attempt} 次尝试）。");
 
                 await FeedBatchAsync(page, batch, log, ct);
+                var batchStallSeconds = TikTokBrowserActions.ResolveUploadStallSeconds(
+                    stallSeconds, batch.Count, batch);
                 var outcome = await WaitBatchAsync(
                     page,
                     targetReady,
                     titleCandidates,
-                    stallSeconds,
+                    batchStallSeconds,
                     log,
                     ct);
 
@@ -126,7 +128,7 @@ public static class TikTokBatchUploadService
             var input = await TikTokBrowserActions.FindVideoFileInputAsync(page);
             if (input is null)
                 throw new InvalidOperationException("未找到 TikTok 视频上传控件（上传视频按钮 / 文件输入均不可用）。");
-            await input.SetInputFilesAsync(resolved, new() { Timeout = 15000 });
+            await TikTokBrowserActions.FeedVideoFilesToInputAsync(page, input, resolved, ct);
         }
 
         log?.Invoke($"已提交本批 {batch.Count} 个文件。");

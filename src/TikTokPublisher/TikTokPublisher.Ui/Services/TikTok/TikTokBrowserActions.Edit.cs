@@ -217,7 +217,8 @@ public static partial class TikTokBrowserActions
             await UploadLocalVideosAsync(page, missingPaths, waitForFinish: false, log, ct);
             Log(log, "TikTok 编辑流程已触发补传，开始等待视频补传完成。");
             await WaitVideoUploadFinishedAsync(
-                page, expectedCount, PayloadTitleCandidates(payload), options.UploadStallSeconds, log, ct);
+                page, expectedCount, PayloadTitleCandidates(payload), options.UploadStallSeconds, log, ct,
+                videoPaths: missingPaths);
             return;
         }
 
@@ -230,7 +231,7 @@ public static partial class TikTokBrowserActions
             var beforeCount = await DetectUploadedVideoCountAsync(page);
             await UploadLocalVideosAsync(page, new[] { path }, waitForFinish: false, log, ct);
             await WaitForEditEpisodeUploadProgressAsync(
-                page, beforeCount, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct);
+                page, beforeCount, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct, path);
             Log(log, episode is not null
                 ? $"TikTok 第 {episode} 集已提交上传。"
                 : $"TikTok 已提交补传：{Path.GetFileName(path)}");
@@ -238,7 +239,8 @@ public static partial class TikTokBrowserActions
 
         Log(log, "TikTok 编辑流程逐集补传已提交，开始等待全部视频上传完成。");
         await WaitVideoUploadFinishedAsync(
-            page, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct);
+            page, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct,
+            videoPaths: missingPaths);
     }
 
     private static async Task WaitForEditEpisodeUploadProgressAsync(
@@ -248,11 +250,13 @@ public static partial class TikTokBrowserActions
         IReadOnlyList<string>? titleCandidates,
         double stallSeconds,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? videoPath = null)
     {
         var baseline = beforeCount ?? 0;
         var target = Math.Min(expectedCount, baseline + 1);
-        var deadline = DateTime.UtcNow.AddSeconds(Math.Max(60, stallSeconds));
+        var waitSeconds = ResolveEditEpisodeProgressSeconds(videoPath, stallSeconds, expectedCount);
+        var deadline = DateTime.UtcNow.AddSeconds(waitSeconds);
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
