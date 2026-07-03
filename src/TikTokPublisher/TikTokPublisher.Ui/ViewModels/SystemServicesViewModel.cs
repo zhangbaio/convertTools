@@ -21,7 +21,10 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
 
     public void Load()
     {
-        AuthServerUrl = ClientSettingsStore.Load().AuthServerUrl ?? "";
+        var settings = ClientSettingsStore.Load();
+        AuthServerUrl = settings.AuthServerUrl ?? "";
+        LoginAccount = settings.AuthAccount ?? "";
+        LoginPassword = settings.AuthPassword ?? "";
         RefreshLicenseSummary();
     }
 
@@ -52,10 +55,11 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         {
             var settings = ClientSettingsStore.Load();
             settings.AuthServerUrl = AuthServerUrl.Trim();
+            settings.AuthAccount = LoginAccount.Trim();
+            settings.AuthPassword = LoginPassword;
             ClientSettingsStore.Save(settings);
 
             await LicenseAuthService.LoginAsync(settings.AuthServerUrl, LoginAccount, LoginPassword);
-            LoginPassword = "";
             LoginStatus = "登录成功";
             RefreshLicenseSummary();
             StatusRequested?.Invoke("授权登录成功");
@@ -85,6 +89,8 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     {
         var settings = ClientSettingsStore.Load();
         settings.AuthServerUrl = AuthServerUrl.Trim();
+        settings.AuthAccount = LoginAccount.Trim();
+        settings.AuthPassword = LoginPassword;
         ClientSettingsStore.Save(settings);
         StatusRequested?.Invoke("授权服务地址已保存");
     }

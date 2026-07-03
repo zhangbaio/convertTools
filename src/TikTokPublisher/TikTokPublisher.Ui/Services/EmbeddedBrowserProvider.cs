@@ -23,20 +23,30 @@ public sealed class EmbeddedBrowserProvider : IEmbeddedBrowserProvider
         _onFocusBrowser = onFocusBrowser;
     }
 
-    public async Task<IEmbeddedBrowser?> GetBrowserAsync(TikTokAccountProfile account, CancellationToken ct)
+    public async Task<IEmbeddedBrowser?> GetBrowserAsync(
+        TikTokAccountProfile account,
+        CancellationToken ct,
+        EmbeddedBrowserAccessOptions? options = null)
     {
         var accountVm = _resolveAccountVm(account);
         if (accountVm is null)
             return null;
 
+        var bringToFront = options?.BringToFront == true;
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            _browserHost.InvalidateHostIfNetworkChanged(account);
             _browserHost.GetOrCreateHost(accountVm);
-            _browserHost.ShowAccount(accountVm);
-            _onFocusBrowser?.Invoke(accountVm);
+            if (bringToFront)
+            {
+                _browserHost.ShowAccount(accountVm);
+                _onFocusBrowser?.Invoke(accountVm);
+            }
         });
 
-        var result = await _browserHost.PrepareForPublishAsync(accountVm, ct).ConfigureAwait(false);
+        var result = await _browserHost
+            .PrepareForPublishAsync(accountVm, bringToFront, ct)
+            .ConfigureAwait(false);
         if (!result.Ok)
             return null;
 

@@ -77,33 +77,85 @@ public sealed class BrowserSessionHost
         AuthStatusChanged?.Invoke("请在下方浏览器完成 TikTok 登录");
     }
 
-    public WebView2Host GetOrCreateHost(AccountItemViewModel account)
+    public WebView2Host GetOrCreateHost(AccountItemViewModel account) =>
+        GetOrCreateHost(account, out _);
+
+    public WebView2Host GetOrCreateHost(AccountItemViewModel account, out bool created)
     {
+        created = false;
         if (_hosts.TryGetValue(account.Id, out var existing))
-            return existing;
+        {
+            SyncProxySettings(existing, account.Model);
+            if (_hosts.TryGetValue(account.Id, out existing))
+                return existing;
+        }
 
         if (_container is null)
             throw new InvalidOperationException("BrowserSessionHost 尚未 Attach 到容器。");
 
+        created = true;
         var host = new WebView2Host
         {
             UserDataFolder = account.Model.ProfileDir,
-            RemoteDebuggingPort = 9222 + _hosts.Count,
+            RemoteDebuggingPort = AccountBrowserPortAllocator.Allocate(account.Id),
             IsVisible = false,
         };
-        var proxy = TikTokProxyHelper.BuildFromAccount(account.Model);
-        if (proxy is not null)
-        {
-            host.ProxyServer = proxy.Server;
-            host.ProxyUsername = proxy.Username;
-            host.ProxyPassword = proxy.Password;
-        }
+        ApplyProxySettings(host, account.Model);
 
         host.NavigationCompleted += url => _ = OnNavigationCompletedAsync(account, url);
         _hosts[account.Id] = host;
         _container.Children.Add(host);
         host.Navigate(MainViewModel.TikTokLoginUrl);
         return host;
+    }
+
+    public void InvalidateHostIfNetworkChanged(TikTokAccountProfile account)
+    {
+        if (!_hosts.TryGetValue(account.Id, out var host))
+            return;
+
+        var fingerprint = TikTokProxyHelper.BuildFingerprint(account);
+        if (string.Equals(_proxyFingerprints.GetValueOrDefault(account.Id), fingerprint, StringComparison.Ordinal))
+            return;
+
+        if (_hosts.Remove(account.Id, out var existing))
+        {
+            existing.CloseBrowser();
+            _container?.Children.Remove(existing);
+        }
+
+        AccountBrowserPortAllocator.Release(account.Id);
+        _proxyFingerprints.Remove(account.Id);
+    }
+
+    private readonly Dictionary<string, string> _proxyFingerprints = new(StringComparer.OrdinalIgnoreCase);
+
+    private void ApplyProxySettings(WebView2Host host, TikTokAccountProfile account)
+    {
+        var proxy = TikTokProxyHelper.BuildFromAccount(account);
+        if (proxy is null)
+        {
+            host.ProxyServer = "";
+            host.ProxyUsername = "";
+            host.ProxyPassword = "";
+            _proxyFingerprints[account.Id] = "direct";
+            return;
+        }
+
+        host.ProxyServer = proxy.Server;
+        host.ProxyUsername = proxy.Username;
+        host.ProxyPassword = proxy.Password;
+        _proxyFingerprints[account.Id] = TikTokProxyHelper.BuildFingerprint(account);
+    }
+
+    private void SyncProxySettings(WebView2Host host, TikTokAccountProfile account)
+    {
+        var fingerprint = TikTokProxyHelper.BuildFingerprint(account);
+        if (string.Equals(_proxyFingerprints.GetValueOrDefault(account.Id), fingerprint, StringComparison.Ordinal))
+            return;
+
+        // WebView2 代理在环境创建后不可热更新，需重建会话。
+        InvalidateHostIfNetworkChanged(account);
     }
 
     public WebView2Host? TryGetHost(string accountId) =>
@@ -117,6 +169,9 @@ public sealed class BrowserSessionHost
             _container?.Children.Remove(existing);
             await Task.Delay(250, ct).ConfigureAwait(false);
         }
+
+        AccountBrowserPortAllocator.Release(account.Id);
+        _proxyFingerprints.Remove(account.Id);
 
         _autofillStates.Remove(account.Id);
         _wasOnLoginPage.Remove(account.Id);
@@ -143,22 +198,16 @@ public sealed class BrowserSessionHost
         return false;
     }
 
-    /// <summary>为剧集上传准备内置浏览器：创建/显示会话、等待 CDP、校验登录态。</summary>
+    /// <summary>为剧集上传准备内置浏览器：创建会话、等待 CDP、校验登录态（默认不切前台）。</summary>
     public async Task<EmbeddedPublishPrepareResult> PrepareForPublishAsync(
         AccountItemViewModel account,
+        bool bringToFront = false,
         CancellationToken ct = default)
     {
         account.Model.TiktokLoginBrowserMode = "embedded";
-        var host = TryGetHost(account.Id);
-        if (host is null)
-        {
-            return new EmbeddedPublishPrepareResult(
-                false,
-                null,
-                "内置浏览器尚未初始化，请先在「浏览器」页打开该账号");
-        }
-
-        ShowAccount(account);
+        var host = TryGetHost(account.Id) ?? GetOrCreateHost(account);
+        if (bringToFront)
+            ShowAccount(account);
 
         for (var attempt = 0; attempt < 120; attempt++)
         {
@@ -189,6 +238,7 @@ public sealed class BrowserSessionHost
     public Task<EmbeddedPublishPrepareResult> PrepareForPublishAsync(
         TikTokAccountProfile account,
         Func<TikTokAccountProfile, AccountItemViewModel?> resolveAccountVm,
+        bool bringToFront = false,
         CancellationToken ct = default)
     {
         var accountVm = resolveAccountVm(account);
@@ -200,7 +250,7 @@ public sealed class BrowserSessionHost
                 $"未找到账号视图：{account.DisplayName}"));
         }
 
-        return PrepareForPublishAsync(accountVm, ct);
+        return PrepareForPublishAsync(accountVm, bringToFront, ct);
     }
 
     public async Task SaveAuthAsync(AccountItemViewModel account, bool auto = false)

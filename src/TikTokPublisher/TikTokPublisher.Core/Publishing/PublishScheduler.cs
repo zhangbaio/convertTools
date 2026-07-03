@@ -1,5 +1,6 @@
 ﻿using TikTokPublisher.Core.Abstractions;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Publishing;
 
@@ -43,7 +44,9 @@ public sealed class PublishScheduler
         await gate.WaitAsync(ct);
         try
         {
-            var browser = await _browserProvider.GetBrowserAsync(job.Account, ct).ConfigureAwait(false);
+            var browser = await _browserProvider
+                .GetBrowserAsync(job.Account, ct, EmbeddedBrowserAccessOptions.Background)
+                .ConfigureAwait(false);
             if (browser is null)
             {
                 foreach (var item in job.Items)
@@ -51,6 +54,13 @@ public sealed class PublishScheduler
                     Report(onProgress, job, item, "内置浏览器未就绪，请先在「浏览器」页登录", done: true, ok: false);
                 }
                 return;
+            }
+
+            var proxy = TikTokProxyHelper.BuildFromAccount(job.Account);
+            if (proxy is not null)
+            {
+                foreach (var item in job.Items)
+                    Report(onProgress, job, item, $"使用账号代理：{proxy.Description}", done: false, ok: false);
             }
 
             foreach (var item in job.Items)

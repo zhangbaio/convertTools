@@ -64,8 +64,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private double _tiktokSilenceRepairMaxSpeed = 2;
     [ObservableProperty] private bool _tiktokSilenceRepairBlocking;
     [ObservableProperty] private int _tiktokSilenceDetectConcurrency = 5;
+    [ObservableProperty] private int _tiktokMaterialValidateConcurrency = 4;
     [ObservableProperty] private string _tiktokSilenceAsrLanguage = "zh-CN";
     [ObservableProperty] private bool _tiktokManualInterventionOnSingleFailure;
+    [ObservableProperty] private string _asrProbeStatus = "";
 
     [ObservableProperty] private string _aiTextEndpoint = "https://ark.cn-beijing.volces.com/api/v3";
     [ObservableProperty] private string _aiTextApiKey = "";
@@ -84,6 +86,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _imageModelApiKey = "";
     [ObservableProperty] private string _imageModelEndpoint = "";
     [ObservableProperty] private string _doubaoImageResolution = "2K";
+    [ObservableProperty] private string _doubaoImageRatio = "3:4";
     [ObservableProperty] private string _ofoxImage2ModelId = "openai/gpt-image-2";
     [ObservableProperty] private string _ofoxImage2ApiKey = "";
     [ObservableProperty] private string _ofoxImage2Endpoint = "https://api.ofox.ai/v1";
@@ -99,6 +102,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _posterGenerationSafeRetryPrompt = "";
     [ObservableProperty] private string _posterNameSystemPrompt = "";
     [ObservableProperty] private string _posterNameUserPrompt = "";
+    [ObservableProperty] private bool _tiktokExcelAutoExportEnabled = true;
+    [ObservableProperty] private bool _managementDedupEnabled;
+    [ObservableProperty] private string _managementDedupScope = "tiktok_username";
 
     public IReadOnlyList<string> DramaSourceOptions { get; } =
     [
@@ -111,8 +117,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> AsrEngineOptions { get; } = ["volcengine", "local", "hybrid"];
     public IReadOnlyList<string> SilenceRepairModeOptions { get; } = ["auto", "trim", "speedup"];
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
-    public IReadOnlyList<string> PosterModeOptions { get; } = ["original", "ai"];
+    public IReadOnlyList<string> PosterModeOptions { get; } = ["original", "poster_ai_erase_pil_title", "poster_ai_edit"];
     public IReadOnlyList<string> ImageProviderOptions { get; } = ["doubao", "ofox_image2"];
+    public IReadOnlyList<string> PosterTitleVerifyModeOptions { get; } = ["fallback_repaint", "warn", "blocking"];
+    public IReadOnlyList<string> ManagementDedupScopeOptions { get; } = ["tiktok_username", "software_user"];
 
     public void Load(string? workspacePath = null)
     {
@@ -158,6 +166,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokSilenceRepairMaxSpeed = TiktokSilenceRepairMaxSpeed,
         TiktokSilenceRepairBlocking = TiktokSilenceRepairBlocking,
         TiktokSilenceDetectConcurrency = TiktokSilenceDetectConcurrency,
+        TiktokMaterialValidateConcurrency = TiktokMaterialValidateConcurrency,
         TiktokSilenceAsrLanguage = TiktokSilenceAsrLanguage.Trim(),
         TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure,
         AiTextEndpoint = AiTextEndpoint.Trim(),
@@ -176,6 +185,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         ImageModelApiKey = ImageModelApiKey,
         ImageModelEndpoint = ImageModelEndpoint.Trim(),
         DoubaoImageResolution = DoubaoImageResolution,
+        DoubaoImageRatio = DoubaoImageRatio,
         OfoxImage2ModelId = OfoxImage2ModelId.Trim(),
         OfoxImage2ApiKey = OfoxImage2ApiKey,
         OfoxImage2Endpoint = OfoxImage2Endpoint.Trim(),
@@ -191,6 +201,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PosterGenerationSafeRetryPrompt = PosterGenerationSafeRetryPrompt,
         PosterNameSystemPrompt = PosterNameSystemPrompt,
         PosterNameUserPrompt = PosterNameUserPrompt,
+        TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled,
+        ManagementDedupEnabled = ManagementDedupEnabled,
+        ManagementDedupScope = ManagementDedupScope,
     };
 
     [RelayCommand]
@@ -415,6 +428,26 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void ProbeLocalAsr()
+    {
+        var settings = ToSettings();
+        settings.TiktokSilenceAsrEngine = "local";
+        var (ok, reason) = TikTokSilenceAsrService.CheckAvailable(settings);
+        AsrProbeStatus = ok ? "本地 Paraformer 配置可用" : reason;
+        StatusRequested?.Invoke(AsrProbeStatus);
+    }
+
+    [RelayCommand]
+    private void ProbeVolcengineAsr()
+    {
+        var settings = ToSettings();
+        settings.TiktokSilenceAsrEngine = "volcengine";
+        var (ok, reason) = TikTokSilenceAsrService.CheckAvailable(settings);
+        AsrProbeStatus = ok ? "火山 ASR 凭据已配置" : reason;
+        StatusRequested?.Invoke(AsrProbeStatus);
+    }
+
+    [RelayCommand]
     private void BackupMainDatabase()
     {
         try
@@ -429,6 +462,30 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             var backupDir = Path.Combine(Path.GetDirectoryName(source)!, "backups");
             Directory.CreateDirectory(backupDir);
             var target = Path.Combine(backupDir, $"tiktok_uploader_{DateTime.Now:yyyyMMdd_HHmmss}.db");
+            File.Copy(source, target, overwrite: false);
+            StatusRequested?.Invoke($"已备份到 {target}");
+        }
+        catch (Exception ex)
+        {
+            StatusRequested?.Invoke($"备份失败：{ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private void BackupWorkspaceDatabase()
+    {
+        try
+        {
+            var source = WorkspaceDatabasePath;
+            if (string.IsNullOrWhiteSpace(source) || !File.Exists(source))
+            {
+                StatusRequested?.Invoke("工作区数据库不存在");
+                return;
+            }
+
+            var backupDir = Path.Combine(Path.GetDirectoryName(source)!, "backups");
+            Directory.CreateDirectory(backupDir);
+            var target = Path.Combine(backupDir, $".tiktok-task-queue_{DateTime.Now:yyyyMMdd_HHmmss}.db");
             File.Copy(source, target, overwrite: false);
             StatusRequested?.Invoke($"已备份到 {target}");
         }
@@ -532,6 +589,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokSilenceRepairMaxSpeed = settings.TiktokSilenceRepairMaxSpeed;
         TiktokSilenceRepairBlocking = settings.TiktokSilenceRepairBlocking;
         TiktokSilenceDetectConcurrency = settings.TiktokSilenceDetectConcurrency;
+        TiktokMaterialValidateConcurrency = settings.TiktokMaterialValidateConcurrency;
         TiktokSilenceAsrLanguage = settings.TiktokSilenceAsrLanguage;
         TiktokManualInterventionOnSingleFailure = settings.TiktokManualInterventionOnSingleFailure;
         AiTextEndpoint = settings.AiTextEndpoint;
@@ -550,6 +608,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         ImageModelApiKey = settings.ImageModelApiKey;
         ImageModelEndpoint = settings.ImageModelEndpoint;
         DoubaoImageResolution = settings.DoubaoImageResolution;
+        DoubaoImageRatio = settings.DoubaoImageRatio;
         OfoxImage2ModelId = settings.OfoxImage2ModelId;
         OfoxImage2ApiKey = settings.OfoxImage2ApiKey;
         OfoxImage2Endpoint = settings.OfoxImage2Endpoint;
@@ -565,6 +624,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PosterGenerationSafeRetryPrompt = settings.PosterGenerationSafeRetryPrompt;
         PosterNameSystemPrompt = settings.PosterNameSystemPrompt;
         PosterNameUserPrompt = settings.PosterNameUserPrompt;
+        TiktokExcelAutoExportEnabled = settings.TiktokExcelAutoExportEnabled;
+        ManagementDedupEnabled = settings.ManagementDedupEnabled;
+        ManagementDedupScope = settings.ManagementDedupScope;
     }
 
     private static void AppendDatabaseStats(List<string> lines, string label, string path)

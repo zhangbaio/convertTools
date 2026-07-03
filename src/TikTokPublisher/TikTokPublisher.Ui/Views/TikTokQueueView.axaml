@@ -36,10 +36,15 @@
 
                 <WrapPanel Orientation="Horizontal">
                     <Button Content="刷新项目" Click="OnScanWorkspaceClick" Margin="0,0,8,8" />
+                    <Button Content="上传短剧" Click="OnUploadTitlesClick" Margin="0,0,8,8" />
+                    <Button Content="编辑剧集" Click="OnEditSelectedClick" Margin="0,0,8,8" />
+                    <Button Content="修复静音视频" Click="OnRepairSilenceClick" Margin="0,0,8,8" />
                     <Button Content="绑定选中账号" Click="OnBindSelectedAccountClick" Margin="0,0,8,8" />
                     <Button Content="绑定全部待上传" Click="OnBindAllPendingClick" Margin="0,0,8,8" />
+                    <Button Content="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Margin="0,0,8,8" />
                     <Button Content="归档选中" Click="OnArchiveSelectedClick" Margin="0,0,8,8" />
                     <Button Content="从队列移除" Click="OnRemoveSelectedClick" Margin="0,0,8,8" />
+                    <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerAction" Margin="0,0,8,8" />
                     <CheckBox Content="仅待上传" IsChecked="{Binding ShowOnlyPendingUpload}" VerticalAlignment="Center" Margin="0,0,8,8" />
                     <Button Content="全选" Click="OnSelectAllQueueClick" Margin="0,0,8,8" />
                     <Button Content="取消全选" Click="OnClearQueueSelectionClick" Margin="0,0,8,8" />
@@ -47,8 +52,12 @@
 
                 <WrapPanel Orientation="Horizontal">
                     <Button Content="打开浏览器" Click="OnOpenBrowserClick" Classes="secondaryAction" Margin="0,0,8,8" />
+                    <Button Content="导出Excel" Click="OnExportExcelClick" Margin="0,0,8,8" />
+                    <Button Content="打开Excel" Click="OnOpenExcelClick" Margin="0,0,8,8" />
+                    <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Margin="0,0,8,8" />
                     <Button Content="运行日志" Click="OnOpenLogsClick" Margin="0,0,8,8" />
                     <Button x:Name="StartQueueButton" Content="执行选中队列" Click="OnStartQueueClick" Classes="primaryAction" Margin="0,0,8,8" />
+                    <Button x:Name="StartAllQueuesButton" Content="执行全部账号工作目录" Click="OnStartAllQueuesClick" Classes="primaryAction" Margin="0,0,8,8" />
                     <Button x:Name="StopQueueButton" Content="停止" Click="OnStopQueueClick" Classes="dangerAction" IsEnabled="False" Margin="0,0,8,8" />
                     <Button Content="发布配置" Click="OnPublishConfigClick" Margin="0,0,8,8" />
                     <Button Content="手动发布测试" Click="OnPublishClick" Margin="0,0,8,8" />
@@ -57,6 +66,10 @@
                     <Button x:Name="ManualFailButton" Content="人工介入：标记失败" Click="OnManualInterventionFailClick"
                             Classes="dangerAction" IsEnabled="False" Margin="0,0,8,8" />
                 </WrapPanel>
+                <TextBlock Text="{Binding RunningWorkspacesSummary}"
+                           Foreground="#1A5F8A"
+                           IsVisible="{Binding IsQueueRunning}"
+                           TextWrapping="Wrap" Margin="0,-2,0,4" />
                 <TextBlock x:Name="ManualInterventionHint"
                            Text="{Binding ManualInterventionHint}"
                            Foreground="#B94218"

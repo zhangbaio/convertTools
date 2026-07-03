@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -14,12 +15,14 @@ public static class TikTokMaterialValidationService
         public bool SilenceValidationEnabled { get; init; } = true;
         public double MaxContinuousSilenceSeconds { get; init; } = TikTokVideoConstraints.DefaultMaxContinuousSilenceSeconds;
         public double SilenceThresholdDb { get; init; } = TikTokVideoConstraints.DefaultSilenceThresholdDb;
+        public int Concurrency { get; init; } = 4;
 
-        public static Options FromAccount(TikTokAccountProfile? account) => new()
+        public static Options FromAccount(TikTokAccountProfile? account, ClientSettings? settings = null) => new()
         {
             SilenceValidationEnabled = account?.TiktokSilenceValidationEnabled ?? true,
             MaxContinuousSilenceSeconds = Math.Max(1, account?.TiktokMaxContinuousSilenceSeconds ?? (int)TikTokVideoConstraints.DefaultMaxContinuousSilenceSeconds),
             SilenceThresholdDb = account?.TiktokSilenceThresholdDb ?? TikTokVideoConstraints.DefaultSilenceThresholdDb,
+            Concurrency = Math.Clamp(settings?.TiktokMaterialValidateConcurrency ?? 4, 1, 16),
         };
     }
 
@@ -186,7 +189,7 @@ public static class TikTokMaterialValidationService
     }
 
     private static string ValidationParamsSignature(Options options) =>
-        $"v1|{(options.SilenceValidationEnabled ? 1 : 0)}|{options.MaxContinuousSilenceSeconds:g}|{options.SilenceThresholdDb:g}";
+        $"v1|{(options.SilenceValidationEnabled ? 1 : 0)}|{options.MaxContinuousSilenceSeconds:g}|{options.SilenceThresholdDb:g}|{options.Concurrency}";
 
     private static string ComputeMaterialFingerprint(IReadOnlyList<string> uploadVideoPaths)
     {

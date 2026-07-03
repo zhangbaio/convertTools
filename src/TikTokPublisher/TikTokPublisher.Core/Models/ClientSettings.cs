@@ -42,6 +42,7 @@ public sealed class ClientSettings
     public double TiktokSilenceRepairMaxSpeed { get; set; } = 2.0;
     public bool TiktokSilenceRepairBlocking { get; set; }
     public int TiktokSilenceDetectConcurrency { get; set; } = 5;
+    public int TiktokMaterialValidateConcurrency { get; set; } = 4;
     public string TiktokSilenceAsrLanguage { get; set; } = "zh-CN";
     public bool TiktokManualInterventionOnSingleFailure { get; set; }
 
@@ -62,6 +63,7 @@ public sealed class ClientSettings
     public string ImageModelApiKey { get; set; } = "";
     public string ImageModelEndpoint { get; set; } = "";
     public string DoubaoImageResolution { get; set; } = "2K";
+    public string DoubaoImageRatio { get; set; } = "3:4";
     public string OfoxImage2ModelId { get; set; } = "openai/gpt-image-2";
     public string OfoxImage2ApiKey { get; set; } = "";
     public string OfoxImage2Endpoint { get; set; } = "https://api.ofox.ai/v1";
@@ -81,6 +83,11 @@ public sealed class ClientSettings
     public string LastDownloadWorkspace { get; set; } = "";
     public string ArchiveRootDir { get; set; } = "";
     public string AuthServerUrl { get; set; } = "";
+    public string AuthAccount { get; set; } = "";
+    public string AuthPassword { get; set; } = "";
+    public bool TiktokExcelAutoExportEnabled { get; set; } = true;
+    public bool ManagementDedupEnabled { get; set; }
+    public string ManagementDedupScope { get; set; } = "tiktok_username";
 
     public ClientSettings Clone() => new()
     {
@@ -116,6 +123,7 @@ public sealed class ClientSettings
         TiktokSilenceRepairMaxSpeed = TiktokSilenceRepairMaxSpeed,
         TiktokSilenceRepairBlocking = TiktokSilenceRepairBlocking,
         TiktokSilenceDetectConcurrency = TiktokSilenceDetectConcurrency,
+        TiktokMaterialValidateConcurrency = TiktokMaterialValidateConcurrency,
         TiktokSilenceAsrLanguage = TiktokSilenceAsrLanguage,
         TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure,
         AiTextEndpoint = AiTextEndpoint,
@@ -134,6 +142,7 @@ public sealed class ClientSettings
         ImageModelApiKey = ImageModelApiKey,
         ImageModelEndpoint = ImageModelEndpoint,
         DoubaoImageResolution = DoubaoImageResolution,
+        DoubaoImageRatio = DoubaoImageRatio,
         OfoxImage2ModelId = OfoxImage2ModelId,
         OfoxImage2ApiKey = OfoxImage2ApiKey,
         OfoxImage2Endpoint = OfoxImage2Endpoint,
@@ -152,5 +161,10 @@ public sealed class ClientSettings
         LastDownloadWorkspace = LastDownloadWorkspace,
         ArchiveRootDir = ArchiveRootDir,
         AuthServerUrl = AuthServerUrl,
+        AuthAccount = AuthAccount,
+        AuthPassword = AuthPassword,
+        TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled,
+        ManagementDedupEnabled = ManagementDedupEnabled,
+        ManagementDedupScope = ManagementDedupScope,
     };
 }

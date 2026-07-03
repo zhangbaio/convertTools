@@ -8,11 +8,11 @@ namespace TikTokPublisher.Ui.Services;
 public sealed class QueuePublishHost : IQueuePublishHost
 {
     private readonly Func<TikTokAccountProfile, CancellationToken, Task<bool>> _ensureBrowser;
-    private readonly Func<TikTokAccountProfile, QueueProjectItem, FinalAction, Action<string>, CancellationToken, Task<PublishResult>> _publish;
+    private readonly Func<TikTokAccountProfile, QueueProjectItem, FinalAction, QueueRunOptions, Action<string>, CancellationToken, Task<PublishResult>> _publish;
 
     public QueuePublishHost(
         Func<TikTokAccountProfile, CancellationToken, Task<bool>> ensureBrowser,
-        Func<TikTokAccountProfile, QueueProjectItem, FinalAction, Action<string>, CancellationToken, Task<PublishResult>> publish)
+        Func<TikTokAccountProfile, QueueProjectItem, FinalAction, QueueRunOptions, Action<string>, CancellationToken, Task<PublishResult>> publish)
     {
         _ensureBrowser = ensureBrowser;
         _publish = publish;
@@ -25,9 +25,10 @@ public sealed class QueuePublishHost : IQueuePublishHost
         TikTokAccountProfile account,
         QueueProjectItem project,
         FinalAction finalAction,
+        QueueRunOptions options,
         Action<string> log,
         CancellationToken ct) =>
-        _publish(account, project, finalAction, log, ct);
+        _publish(account, project, finalAction, options, log, ct);
 
     public static PublishItem ToPublishItem(QueueProjectItem project)
     {

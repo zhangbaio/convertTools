@@ -49,18 +49,18 @@ public sealed class TikTokAccountProfile
     public bool TiktokPaidEnabled { get; set; }
     public bool TiktokPaidRatioEnabled { get; set; }
     public double TiktokPaidRatioPercent { get; set; }
-    public int TiktokProjectConcurrency { get; set; } = 1;
+    public int TiktokProjectConcurrency { get; set; } = 4;
 
     // 发布表单扩展（对齐 Python account_profiles 字段）
-    public bool TiktokAnchorPromotionEnabled { get; set; }
-    public string TiktokTargetAudienceMode { get; set; } = "female";
-    public int TiktokGenreCount { get; set; } = 1;
+    public bool TiktokAnchorPromotionEnabled { get; set; } = true;
+    public string TiktokTargetAudienceMode { get; set; } = "ai_recommend";
+    public int TiktokGenreCount { get; set; } = 3;
     public string TiktokSourceLanguage { get; set; } = "zh";
     public bool TiktokIsAiDrama { get; set; } = true;
     public string TiktokPublishMode { get; set; } = "auto_after_review";
-    public bool TiktokConsignmentEnabled { get; set; }
-    public int TiktokProfilePreviewEpisodes { get; set; } = 1;
-    public int TiktokFreePreviewEpisodes { get; set; } = 1;
+    public bool TiktokConsignmentEnabled { get; set; } = true;
+    public int TiktokProfilePreviewEpisodes { get; set; } = 3;
+    public int TiktokFreePreviewEpisodes { get; set; } = 3;
     public string TiktokExpectedFullPriceMode { get; set; } = "manual";
     public int TiktokExpectedFullPriceOptionIndex { get; set; } = 1;
     public string TiktokExpectedFullPriceValue { get; set; } = "";

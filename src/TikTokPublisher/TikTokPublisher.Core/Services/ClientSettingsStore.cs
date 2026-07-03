@@ -48,10 +48,6 @@ public static class ClientSettingsStore
         "tiktok_silence_validation_enabled",
         "tiktok_max_continuous_silence_seconds",
         "tiktok_silence_threshold_db",
-        "tiktok_silence_detect_concurrency",
-        "tiktok_material_validate_concurrency",
-        "tiktok_silence_asr_language",
-        "tiktok_silence_repair_mode",
         "tiktok_paid_enabled",
         "tiktok_paid_ratio_enabled",
         "tiktok_paid_ratio_percent",
@@ -63,7 +59,6 @@ public static class ClientSettingsStore
         "tiktok_expected_full_price_label",
         "tiktok_expected_full_price_options_json",
         "tiktok_project_concurrency",
-        "tiktok_manual_intervention_on_single_failure",
         "tiktok_upload_stall_seconds",
         "tiktok_upload_strategy",
         "tiktok_upload_batch_size",
@@ -216,6 +211,14 @@ public static class ClientSettingsStore
             : "short";
         settings.TiktokSilenceAsrEngine = NormalizeAsrEngine(settings.TiktokSilenceAsrEngine);
         settings.TiktokSilenceRepairMode = NormalizeRepairMode(settings.TiktokSilenceRepairMode);
+        settings.TiktokSilenceDetectConcurrency = Math.Clamp(settings.TiktokSilenceDetectConcurrency, 1, 16);
+        settings.TiktokMaterialValidateConcurrency = Math.Clamp(settings.TiktokMaterialValidateConcurrency, 1, 16);
+        settings.TiktokSilenceAsrLanguage = string.IsNullOrWhiteSpace(settings.TiktokSilenceAsrLanguage)
+            ? "zh-CN"
+            : settings.TiktokSilenceAsrLanguage.Trim();
+        settings.PosterMode = NormalizePosterMode(settings.PosterMode);
+        settings.DoubaoImageRatio = NormalizeDoubaoImageRatio(settings.DoubaoImageRatio);
+        settings.ManagementDedupScope = NormalizeManagementDedupScope(settings.ManagementDedupScope);
         return settings;
     }
 
@@ -238,6 +241,33 @@ public static class ClientSettingsStore
             "auto" or "trim" or "speedup" => (value ?? "auto").Trim().ToLowerInvariant(),
             _ => "auto"
         };
+
+    private static string NormalizePosterMode(string? value) =>
+        (value ?? "original").Trim().ToLowerInvariant() switch
+        {
+            "original" or "poster_ai_erase_pil_title" or "poster_ai_edit" => (value ?? "original").Trim().ToLowerInvariant(),
+            "ai" => "poster_ai_edit",
+            _ => "original"
+        };
+
+    private static string NormalizeDoubaoImageRatio(string? value) =>
+        (value ?? "3:4").Trim() switch
+        {
+            "3:4" => "3:4",
+            _ => "3:4"
+        };
+
+    private static string NormalizeManagementDedupScope(string? value)
+    {
+        var normalized = (value ?? "tiktok_username").Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "tiktok" or "tiktok_account" or "tiktok_account_username" or "tt_account" or "account_username" => "tiktok_username",
+            "software" or "login_user" or "owner" or "owner_user" => "software_user",
+            "tiktok_username" or "software_user" => normalized,
+            _ => "tiktok_username"
+        };
+    }
 
     private static string ResolvePath(string? databasePath) =>
         string.IsNullOrWhiteSpace(databasePath) ? AppPaths.PythonDatabaseFile : Path.GetFullPath(databasePath);

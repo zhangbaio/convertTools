@@ -29,6 +29,7 @@ public interface IQueuePublishHost
         TikTokAccountProfile account,
         QueueProjectItem project,
         FinalAction finalAction,
+        QueueRunOptions options,
         Action<string> log,
         CancellationToken ct);
 }
@@ -38,8 +39,11 @@ public sealed class QueueWorkerRunner
 {
     private const int ProjectConcurrencyHardMax = 20;
 
-    private readonly UploadSlotCoordinator _uploadSlots = new();
+    private readonly UploadSlotCoordinator _uploadSlots;
     public ManualInterventionCoordinator ManualIntervention { get; } = new();
+
+    public QueueWorkerRunner(UploadSlotCoordinator? sharedUploadSlots = null) =>
+        _uploadSlots = sharedUploadSlots ?? new UploadSlotCoordinator();
     public async Task<QueueWorkerSummary> RunAsync(
         string workspaceRoot,
         IList<QueueProjectItem> items,
@@ -49,11 +53,17 @@ public sealed class QueueWorkerRunner
         FinalAction finalAction,
         Action<QueueWorkerProgress>? onProgress,
         Action<IReadOnlyList<QueueProjectItem>>? onPersist,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyCollection<string>? projectDirFilter = null)
     {
         var workspace = Path.GetFullPath(workspaceRoot);
+        var filter = projectDirFilter?
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var candidates = items
             .Where(i => i.Enabled && !i.Archived)
+            .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)))
             .OrderBy(i => string.IsNullOrWhiteSpace(i.QueuedAt) ? "9999" : i.QueuedAt, StringComparer.Ordinal)
             .ThenBy(i => i.ProjectDir, StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -458,6 +468,7 @@ public sealed class QueueWorkerRunner
                     account,
                     item,
                     finalAction,
+                    options,
                     msg => Report(onProgress, workspace, item, msg, QueueStepRegistry.UploadSeries),
                     ct).ConfigureAwait(false);
 
@@ -555,7 +566,7 @@ public sealed class QueueWorkerRunner
         CancellationToken ct)
     {
         var settings = ClientSettingsStore.Load();
-        var materialOptions = TikTokMaterialValidationService.Options.FromAccount(account);
+        var materialOptions = TikTokMaterialValidationService.Options.FromAccount(account, settings);
         switch (stepKey)
         {
             case QueueStepRegistry.Download:

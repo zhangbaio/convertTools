@@ -50,6 +50,7 @@ public partial class MainWindow : Window
         LogView.ReturnRequested += (_, _) => NavigateTo("queue");
         LogView.StopRequested += (_, _) => _viewModel.RequestStopQueue();
         _viewModel.NavigatePageRequested += NavigateTo;
+        _viewModel.AccountProfileNetworkChanged += profile => _browserHost.InvalidateHostIfNetworkChanged(profile);
         AccountSidebar.NavigatePageRequested += (_, _) => NavigateTo("accounts");
 
         NavigateTo("queue");

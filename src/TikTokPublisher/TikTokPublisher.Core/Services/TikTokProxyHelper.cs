@@ -7,6 +7,13 @@ public static class TikTokProxyHelper
 {
     public sealed record ProxyConfig(string Server, string Username, string Password, string Description);
 
+    public static string BuildFingerprint(TikTokAccountProfile account)
+    {
+        var proxy = BuildFromAccount(account);
+        if (proxy is null) return "direct";
+        return $"{proxy.Server}|{proxy.Username}";
+    }
+
     public static ProxyConfig? BuildFromAccount(TikTokAccountProfile account)
     {
         if (!account.TiktokProxyEnabled) return null;

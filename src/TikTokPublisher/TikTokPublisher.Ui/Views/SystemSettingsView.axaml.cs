@@ -26,7 +26,9 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.TiktokSilenceAsrEngine)
                 or nameof(SystemSettingsViewModel.TiktokSilenceRepairMode)
                 or nameof(SystemSettingsViewModel.PosterMode)
-                or nameof(SystemSettingsViewModel.ImageProvider))
+                or nameof(SystemSettingsViewModel.ImageProvider)
+                or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
+                or nameof(SystemSettingsViewModel.ManagementDedupScope))
             {
                 SyncCombosFromVm();
             }
@@ -66,13 +68,25 @@ public partial class SystemSettingsView : UserControl
 
         PosterModeCombo.Items.Clear();
         PosterModeCombo.Items.Add(CreateItem("原图", "original"));
-        PosterModeCombo.Items.Add(CreateItem("AI 改图", "ai"));
+        PosterModeCombo.Items.Add(CreateItem("AI去字+PIL重绘", "poster_ai_erase_pil_title"));
+        PosterModeCombo.Items.Add(CreateItem("原图AI重绘", "poster_ai_edit"));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;
 
         ImageProviderCombo.Items.Clear();
         ImageProviderCombo.Items.Add(CreateItem("豆包", "doubao"));
         ImageProviderCombo.Items.Add(CreateItem("Ofox Image2", "ofox_image2"));
         ImageProviderCombo.SelectionChanged += OnImageProviderChanged;
+
+        PosterTitleVerifyModeCombo.Items.Clear();
+        PosterTitleVerifyModeCombo.Items.Add(CreateItem("失败后重绘", "fallback_repaint"));
+        PosterTitleVerifyModeCombo.Items.Add(CreateItem("仅警告", "warn"));
+        PosterTitleVerifyModeCombo.Items.Add(CreateItem("阻断失败", "blocking"));
+        PosterTitleVerifyModeCombo.SelectionChanged += OnPosterTitleVerifyModeChanged;
+
+        ManagementDedupScopeCombo.Items.Clear();
+        ManagementDedupScopeCombo.Items.Add(CreateItem("按 TikTok 账号", "tiktok_username"));
+        ManagementDedupScopeCombo.Items.Add(CreateItem("按软件账号", "software_user"));
+        ManagementDedupScopeCombo.SelectionChanged += OnManagementDedupScopeChanged;
     }
 
     private static ComboBoxItem CreateItem(string label, string value) =>
@@ -88,6 +102,8 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(SilenceRepairModeCombo, _vm.TiktokSilenceRepairMode);
         SelectComboItem(PosterModeCombo, _vm.PosterMode);
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
+        SelectComboItem(PosterTitleVerifyModeCombo, _vm.PosterTitleVerifyMode);
+        SelectComboItem(ManagementDedupScopeCombo, _vm.ManagementDedupScope);
     }
 
     private static void SelectComboItem(ComboBox combo, string? value)
@@ -142,5 +158,17 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || ImageProviderCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.ImageProvider = item.Tag as string ?? "doubao";
+    }
+
+    private void OnPosterTitleVerifyModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || PosterTitleVerifyModeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.PosterTitleVerifyMode = item.Tag as string ?? "fallback_repaint";
+    }
+
+    private void OnManagementDedupScopeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ManagementDedupScopeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.ManagementDedupScope = item.Tag as string ?? "tiktok_username";
     }
 }

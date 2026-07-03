@@ -49,12 +49,24 @@ public sealed class QueueRunOptions
     public bool PreferUploadWhenReady { get; set; }
     public bool SyncManagementAfterUpload { get; set; }
     public int ProjectConcurrency { get; set; } = 4;
+    public string UploadEntryMode { get; set; } = "";
 
     public bool IsStepEnabled(string stepKey) =>
         EnabledSteps.Contains(stepKey, StringComparer.Ordinal);
 
     public IReadOnlyList<string> OrderedEnabledSteps() =>
         QueueStepRegistry.OrderEnabledSteps(EnabledSteps).ToList();
+
+    public QueueRunOptions Clone() => new()
+    {
+        EnabledSteps = EnabledSteps.ToList(),
+        AutoArchiveAfterUpload = AutoArchiveAfterUpload,
+        ForceRerunCompletedSteps = ForceRerunCompletedSteps,
+        PreferUploadWhenReady = PreferUploadWhenReady,
+        SyncManagementAfterUpload = SyncManagementAfterUpload,
+        ProjectConcurrency = ProjectConcurrency,
+        UploadEntryMode = UploadEntryMode,
+    };
 
     public Dictionary<string, object?> ToDictionary() => new()
     {
@@ -64,6 +76,7 @@ public sealed class QueueRunOptions
         ["prefer_upload_when_ready"] = PreferUploadWhenReady,
         ["sync_management_after_upload"] = SyncManagementAfterUpload,
         ["project_concurrency"] = Math.Clamp(ProjectConcurrency, 1, 20),
+        ["upload_entry_mode"] = NormalizeUploadEntryMode(UploadEntryMode),
     };
 
     public static QueueRunOptions FromDictionary(Dictionary<string, object?>? payload)
@@ -92,7 +105,14 @@ public sealed class QueueRunOptions
                 GetBool(payload, "sync_management_after_upload") ||
                 GetBool(payload, "sync_management_on_upload_success"),
             ProjectConcurrency = Math.Clamp(GetInt(payload, "project_concurrency", 4), 1, 20),
+            UploadEntryMode = NormalizeUploadEntryMode(GetString(payload, "upload_entry_mode")),
         };
+    }
+
+    private static string NormalizeUploadEntryMode(string? value)
+    {
+        var normalized = (value ?? "").Trim().ToLowerInvariant();
+        return normalized is "edit" or "edit_existing" or "existing" ? "edit" : "";
     }
 
     private static bool GetBool(Dictionary<string, object?> payload, string key) =>
@@ -108,4 +128,7 @@ public sealed class QueueRunOptions
         if (!payload.TryGetValue(key, out var v) || v is null) return fallback;
         return int.TryParse(v.ToString(), out var n) ? n : fallback;
     }
+
+    private static string GetString(Dictionary<string, object?> payload, string key, string fallback = "")
+        => payload.TryGetValue(key, out var value) ? (value?.ToString() ?? "").Trim() : fallback;
 }

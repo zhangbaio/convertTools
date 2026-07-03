@@ -79,7 +79,24 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 return PublishResult.FailAndStopQueue($"检测到 TikTok 单日创建剧集上限：{dailyLimit}");
 
             var enteredEditFlow = false;
-            if (hasWorkflow)
+            if (item.ForceEditUpload && hasWorkflow)
+            {
+                L("已选择编辑剧集模式，直接查找平台已有草稿…");
+                enteredEditFlow = await TikTokEditFlowService.TryEnterExistingDraftFlowAsync(
+                    page,
+                    workflowDir,
+                    payload,
+                    options,
+                    recommendation,
+                    coverPath,
+                    L,
+                    ct,
+                    allowPlatformSearch: true)
+                    .ConfigureAwait(false);
+                if (!enteredEditFlow)
+                    return PublishResult.Fail("未找到可编辑草稿，无法进入编辑剧集模式");
+            }
+            else if (hasWorkflow)
             {
                 enteredEditFlow = await TikTokEditFlowService.TryEnterExistingDraftFlowAsync(
                     page,

@@ -1,10 +1,14 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using TikTokPublisher.Core.Abstractions;
 using TikTokPublisher.Core.Config;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
@@ -45,7 +49,23 @@ public partial class TikTokQueueView : UserControl
         vm.NavigateRequested += OnNavigateRequested;
         vm.AccountSwitchRequested += OnAccountSwitchRequested;
         vm.PropertyChanged += OnManualInterventionPropertyChanged;
+        vm.PropertyChanged += OnQueueRunningPropertyChanged;
         RefreshManualInterventionButtons();
+        RefreshQueueRunButtons();
+    }
+
+    private void OnQueueRunningPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(MainViewModel.IsQueueRunning))
+            Dispatcher.UIThread.Post(RefreshQueueRunButtons);
+    }
+
+    private void RefreshQueueRunButtons()
+    {
+        var running = _vm?.IsQueueRunning == true;
+        if (StartQueueButton is not null) StartQueueButton.IsEnabled = !(_vm?.IsCurrentWorkspaceQueueRunning() ?? false);
+        if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !running;
+        if (StopQueueButton is not null) StopQueueButton.IsEnabled = running;
     }
 
     private void OnManualInterventionPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -364,6 +384,146 @@ public partial class TikTokQueueView : UserControl
     private IEnumerable<QueueProjectRowViewModel> GetSelectedQueueRows() =>
         QueueProjectList.SelectedItems?.OfType<QueueProjectRowViewModel>() ?? Enumerable.Empty<QueueProjectRowViewModel>();
 
+    private IReadOnlyList<string> GetSelectedProjectDirs() =>
+        GetSelectedQueueRows()
+            .Select(row => row.Item.ProjectDir)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    private sealed record UploadTitlesDialogResult(
+        string RawText,
+        int EpisodeMin,
+        int EpisodeMax,
+        string MatchMode);
+
+    private static async Task<UploadTitlesDialogResult?> ShowUploadTitlesDialogAsync(Window owner)
+    {
+        var dialog = new Window
+        {
+            Title = "上传短剧",
+            Width = 560,
+            Height = 460,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var titleBox = new TextBox
+        {
+            AcceptsReturn = true,
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            MinHeight = 220,
+            Watermark = "每行一个短剧名；按剧名+集数匹配时格式：剧名 80",
+        };
+        var matchEpisodeBox = new CheckBox
+        {
+            Content = "按剧名 + 集数匹配",
+        };
+        var minBox = new TextBox
+        {
+            Text = UploadTitleImportService.DefaultEpisodeMin.ToString(),
+            Width = 80,
+        };
+        var maxBox = new TextBox
+        {
+            Text = UploadTitleImportService.DefaultEpisodeMax.ToString(),
+            Width = 80,
+        };
+        var cancelButton = BuildDialogButton("取消", () => dialog.Close(null));
+        var importButton = BuildDialogButton("导入", () =>
+        {
+            var min = ParseIntOrDefault(minBox.Text, UploadTitleImportService.DefaultEpisodeMin);
+            var max = ParseIntOrDefault(maxBox.Text, UploadTitleImportService.DefaultEpisodeMax);
+            var mode = matchEpisodeBox.IsChecked == true
+                ? UploadTitleImportService.MatchModeTitleEpisode
+                : UploadTitleImportService.MatchModeTitle;
+            dialog.Close(new UploadTitlesDialogResult(titleBox.Text ?? "", min, max, mode));
+        }, primary: true);
+
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(16),
+            Spacing = 10,
+            Children =
+            {
+                new TextBlock { Text = "批量输入短剧名称" },
+                titleBox,
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 10,
+                    Children =
+                    {
+                        matchEpisodeBox,
+                        new TextBlock { Text = "最小集数", VerticalAlignment = VerticalAlignment.Center },
+                        minBox,
+                        new TextBlock { Text = "最大集数", VerticalAlignment = VerticalAlignment.Center },
+                        maxBox,
+                    },
+                },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Spacing = 8,
+                    Children = { cancelButton, importButton },
+                },
+            },
+        };
+
+        return await dialog.ShowDialog<UploadTitlesDialogResult?>(owner);
+    }
+
+    private static async Task<bool> ConfirmAsync(Window owner, string title, string message)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 420,
+            Height = 180,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var cancelButton = BuildDialogButton("取消", () => dialog.Close(false));
+        var continueButton = BuildDialogButton("继续", () => dialog.Close(true), primary: true);
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(16),
+            Spacing = 14,
+            Children =
+            {
+                new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Spacing = 8,
+                    Children =
+                    {
+                        cancelButton,
+                        continueButton,
+                    },
+                },
+            },
+        };
+
+        return await dialog.ShowDialog<bool>(owner);
+    }
+
+    private static Button BuildDialogButton(string text, Action click, bool primary = false)
+    {
+        var button = new Button
+        {
+            Content = text,
+            MinWidth = 84,
+        };
+        if (primary)
+            button.Classes.Add("primaryAction");
+        button.Click += (_, _) => click();
+        return button;
+    }
+
+    private static int ParseIntOrDefault(string? text, int fallback) =>
+        int.TryParse((text ?? "").Trim(), out var value) ? value : fallback;
+
     private async void OnArchiveSelectedClick(object? sender, RoutedEventArgs e)
     {
         if (_vm is null) return;
@@ -375,13 +535,183 @@ public partial class TikTokQueueView : UserControl
         _vm?.RemoveSelectedQueueProjects(GetSelectedQueueRows());
     }
 
-    private async void OnStartQueueClick(object? sender, RoutedEventArgs e)
+    private async void OnUploadTitlesClick(object? sender, RoutedEventArgs e)
     {
         var vm = _vm;
         if (vm is null) return;
-        if (vm.IsQueueRunning)
+        if (string.IsNullOrWhiteSpace(vm.WorkspacePath))
         {
-            vm.StatusMessage = "队列已在运行中";
+            vm.StatusMessage = "请先选择工作目录";
+            return;
+        }
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is null) return;
+
+        var request = await ShowUploadTitlesDialogAsync(owner);
+        if (request is null) return;
+
+        vm.StatusMessage = "正在按标题导入短剧…";
+        try
+        {
+            await vm.ImportUploadTitlesAsync(
+                request.RawText,
+                request.EpisodeMin,
+                request.EpisodeMax,
+                request.MatchMode,
+                CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"上传短剧导入失败：{ex.Message}";
+            vm.AppendLog(vm.StatusMessage);
+        }
+    }
+
+    private async void OnEditSelectedClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null) return;
+        var dirs = GetSelectedProjectDirs();
+        if (dirs.Count == 0)
+        {
+            vm.StatusMessage = "请先选中要编辑的剧集";
+            return;
+        }
+
+        var options = vm.CreateCurrentQueueRunOptionsSnapshot();
+        options.EnabledSteps = new List<string> { QueueStepRegistry.UploadSeries };
+        options.ForceRerunCompletedSteps = true;
+        options.UploadEntryMode = "edit";
+        await StartQueueRunAsync(options, dirs);
+    }
+
+    private async void OnRepairSilenceClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null) return;
+        var dirs = GetSelectedProjectDirs();
+        if (dirs.Count == 0)
+        {
+            vm.StatusMessage = "请先选中要修复静音的视频";
+            return;
+        }
+
+        var options = vm.CreateCurrentQueueRunOptionsSnapshot();
+        options.EnabledSteps = new List<string> { QueueStepRegistry.SilenceRepair };
+        options.ForceRerunCompletedSteps = true;
+        options.UploadEntryMode = "";
+        await StartQueueRunAsync(options, dirs);
+    }
+
+    private void OnSelectToCurrentProjectClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null || QueueProjectList is null) return;
+        var anchor = GetSelectedQueueRows().FirstOrDefault();
+        if (anchor is null)
+        {
+            vm.StatusMessage = "请先选中一个当前项目";
+            return;
+        }
+
+        QueueProjectList.SelectedItems.Clear();
+        var key = string.IsNullOrWhiteSpace(anchor.OriginalTitle) ? anchor.Title : anchor.OriginalTitle;
+        var matched = 0;
+        foreach (var row in vm.FilteredQueueProjectRows)
+        {
+            var rowKey = string.IsNullOrWhiteSpace(row.OriginalTitle) ? row.Title : row.OriginalTitle;
+            if (!string.Equals(rowKey, key, StringComparison.OrdinalIgnoreCase)) continue;
+            QueueProjectList.SelectedItems.Add(row);
+            matched++;
+        }
+
+        vm.StatusMessage = matched > 0 ? $"已选中当前项目相关记录：{matched} 个" : "没有匹配到当前项目";
+    }
+
+    private async void OnDeleteSelectedClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null) return;
+        var rows = GetSelectedQueueRows().ToArray();
+        if (rows.Length == 0)
+        {
+            vm.StatusMessage = "请先选中要删除的项目";
+            return;
+        }
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var ok = owner is null || await ConfirmAsync(
+            owner,
+            "删除勾选项目",
+            $"将删除选中项目的源目录和 workflow 目录，共 {rows.Length} 个项目。此操作不可撤销，是否继续？");
+        if (!ok) return;
+
+        await vm.DeleteSelectedQueueProjectsAsync(rows);
+    }
+
+    private void OnExportExcelClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null) return;
+        try
+        {
+            var path = vm.ExportQueueExcel();
+            vm.StatusMessage = $"已导出 Excel：{path}";
+            vm.AppendLog(vm.StatusMessage);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"导出 Excel 失败：{ex.Message}";
+        }
+    }
+
+    private void OnOpenExcelClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null) return;
+        try
+        {
+            var path = vm.ExportQueueExcel();
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true,
+            });
+            vm.StatusMessage = $"已打开 Excel：{path}";
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"打开 Excel 失败：{ex.Message}";
+        }
+    }
+
+    private async void OnSyncSelectedManagementClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null) return;
+        try
+        {
+            await vm.SyncSelectedManagementAsync(GetSelectedQueueRows(), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"同步管理系统失败：{ex.Message}";
+        }
+    }
+
+    private async void OnStartQueueClick(object? sender, RoutedEventArgs e)
+        => await StartQueueRunAsync();
+
+    private async Task StartQueueRunAsync(
+        QueueRunOptions? optionsOverride = null,
+        IReadOnlyCollection<string>? projectDirFilter = null)
+    {
+        var vm = _vm;
+        if (vm is null) return;
+        if (vm.IsCurrentWorkspaceQueueRunning())
+        {
+            vm.StatusMessage = "当前工作目录队列已在运行中";
             return;
         }
 
@@ -397,9 +727,15 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
+        if (projectDirFilter is not null && projectDirFilter.Count == 0)
+        {
+            vm.StatusMessage = "请先在队列表格中选择项目";
+            return;
+        }
+
         var host = CreateQueuePublishHost();
         var ct = vm.BeginQueueRun();
-        SetQueueRunning(true);
+        RefreshQueueRunButtons();
         vm.StatusMessage = "TikTok 队列执行中…";
         try
         {
@@ -407,7 +743,9 @@ public partial class TikTokQueueView : UserControl
                 host,
                 p => Dispatcher.UIThread.Post(() => vm.HandleQueueWorkerProgress(p)),
                 items => Dispatcher.UIThread.Post(() => vm.ApplyPersistedQueueItems(items)),
-                ct);
+                ct,
+                optionsOverride,
+                projectDirFilter);
             if (summary is not null && !summary.Stopped)
                 vm.StatusMessage = $"队列结束：成功 {summary.SuccessCount}，失败 {summary.FailedCount}";
         }
@@ -422,15 +760,70 @@ public partial class TikTokQueueView : UserControl
         finally
         {
             vm.EndQueueRun();
-            SetQueueRunning(false);
+            RefreshQueueRunButtons();
+        }
+    }
+
+    private async void OnStartAllQueuesClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null) return;
+        if (vm.IsQueueRunning)
+        {
+            vm.StatusMessage = "已有工作目录队列在运行中";
+            return;
+        }
+
+        var targets = vm.BuildAccountWorkspaceTargets();
+        if (targets.Count == 0)
+        {
+            vm.StatusMessage = "没有可执行的工作目录（请为账号配置有效工作目录）";
+            return;
+        }
+
+        var host = CreateQueuePublishHost();
+        var ct = vm.BeginQueueRun();
+        RefreshQueueRunButtons();
+        vm.StatusMessage = $"并行执行 {targets.Count} 个工作目录队列…";
+        try
+        {
+            var summaries = await vm.RunAllAccountWorkspaceQueuesAsync(
+                host,
+                p => Dispatcher.UIThread.Post(() => vm.HandleQueueWorkerProgress(p)),
+                (root, items) => Dispatcher.UIThread.Post(() =>
+                {
+                    if (string.Equals(Path.GetFullPath(root), Path.GetFullPath(vm.WorkspacePath), StringComparison.OrdinalIgnoreCase))
+                        vm.ApplyPersistedQueueItems(items);
+                }),
+                ct);
+
+            var success = summaries.Sum(s => s?.SuccessCount ?? 0);
+            var failed = summaries.Sum(s => s?.FailedCount ?? 0);
+            var stopped = summaries.Any(s => s?.Stopped == true);
+            vm.StatusMessage = stopped
+                ? "多工作目录队列已停止"
+                : $"多工作目录队列结束：成功 {success}，失败 {failed}";
+        }
+        catch (OperationCanceledException)
+        {
+            vm.StatusMessage = "多工作目录队列已停止";
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"多工作目录队列出错：{ex.Message}";
+        }
+        finally
+        {
+            vm.EndQueueRun();
+            RefreshQueueRunButtons();
         }
     }
 
     private void OnStopQueueClick(object? sender, RoutedEventArgs e)
     {
         _vm?.RequestStopQueue();
-        if (StopQueueButton is not null) StopQueueButton.IsEnabled = false;
         if (_vm is not null) _vm.StatusMessage = "正在停止队列…";
+        RefreshQueueRunButtons();
     }
 
     private void SetQueueRunning(bool running)
@@ -459,7 +852,9 @@ public partial class TikTokQueueView : UserControl
 
     private async Task<bool> EnsureAccountBrowserReadyAsync(TikTokAccountProfile account, CancellationToken ct)
     {
-        var browser = await RequireBrowserProvider().GetBrowserAsync(account, ct).ConfigureAwait(false);
+        var browser = await RequireBrowserProvider()
+            .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Background)
+            .ConfigureAwait(false);
         return browser is not null;
     }
 
@@ -467,14 +862,18 @@ public partial class TikTokQueueView : UserControl
         TikTokAccountProfile account,
         QueueProjectItem project,
         FinalAction finalAction,
+        QueueRunOptions options,
         Action<string> log,
         CancellationToken ct)
     {
-        var browser = await RequireBrowserProvider().GetBrowserAsync(account, ct).ConfigureAwait(false);
+        var browser = await RequireBrowserProvider()
+            .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Background)
+            .ConfigureAwait(false);
         if (browser is null)
             return PublishResult.Fail("内置浏览器未就绪或未登录，请先在「浏览器」页完成登录");
 
         var item = QueuePublishHost.ToPublishItem(project);
+        item.ForceEditUpload = string.Equals(options.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(item.VideoPath))
             return PublishResult.Fail("项目没有可用视频");
 
@@ -488,7 +887,9 @@ public partial class TikTokQueueView : UserControl
         var account = vm?.SelectedAccount;
         if (vm is null || account is null) { vm!.StatusMessage = "请先选择账号"; return; }
 
-        if (await RequireBrowserProvider().GetBrowserAsync(account.Model, CancellationToken.None).ConfigureAwait(true) is null)
+        if (await RequireBrowserProvider()
+                .GetBrowserAsync(account.Model, CancellationToken.None, EmbeddedBrowserAccessOptions.Interactive)
+                .ConfigureAwait(true) is null)
         {
             vm.StatusMessage = "内置浏览器未就绪，请先登录";
             OpenBrowserRequested?.Invoke(this, EventArgs.Empty);
@@ -637,7 +1038,9 @@ public partial class TikTokQueueView : UserControl
         foreach (var group in candidates.GroupBy(t => t.Account.Id))
         {
             var acctVm = group.First().Account;
-            if (await RequireBrowserProvider().GetBrowserAsync(acctVm.Model, CancellationToken.None).ConfigureAwait(true) is null)
+            if (await RequireBrowserProvider()
+                    .GetBrowserAsync(acctVm.Model, CancellationToken.None, EmbeddedBrowserAccessOptions.Interactive)
+                    .ConfigureAwait(true) is null)
             {
                 foreach (var t in group) { t.Status = PublishTaskStatus.Failed; t.Message = "内置浏览器未就绪"; }
                 continue;

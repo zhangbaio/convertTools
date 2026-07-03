@@ -55,6 +55,19 @@ public static class PythonDatabaseInitializer
             """, tx);
         conn.ExecuteNonQuery(
             """
+            CREATE TABLE IF NOT EXISTS upload_task_events (
+                event_id TEXT PRIMARY KEY,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """, tx);
+        conn.ExecuteNonQuery(
+            """
+            CREATE INDEX IF NOT EXISTS idx_upload_task_events_created_at
+                ON upload_task_events(created_at);
+            """, tx);
+        conn.ExecuteNonQuery(
+            """
             CREATE INDEX IF NOT EXISTS idx_tiktok_account_profiles_display_order
                 ON tiktok_account_profiles(display_order, profile_id);
             """, tx);

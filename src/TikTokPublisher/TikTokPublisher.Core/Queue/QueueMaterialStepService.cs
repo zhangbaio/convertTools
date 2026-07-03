@@ -135,9 +135,9 @@ public static class QueueMaterialStepService
             throw new InvalidOperationException("未找到可用于生成海报的封面图片，且无法从视频抽帧。");
 
         var posterMode = (settings.PosterMode ?? "original").Trim();
-        if (string.Equals(posterMode, "ai", StringComparison.OrdinalIgnoreCase))
+        if (IsAiPosterMode(posterMode))
         {
-            if (string.IsNullOrWhiteSpace(settings.ImageModelEndpoint) || string.IsNullOrWhiteSpace(settings.ImageModelApiKey))
+            if (!HasImageModelConfig(settings))
                 throw new InvalidOperationException("海报 AI 模式需要配置 ImageModel 接口。");
 
             var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
@@ -441,6 +441,25 @@ public static class QueueMaterialStepService
         {
             // ignore temp cleanup failures
         }
+    }
+
+    private static bool IsAiPosterMode(string? posterMode)
+    {
+        var mode = (posterMode ?? "original").Trim().ToLowerInvariant();
+        return mode is "ai" or "poster_ai_erase_pil_title" or "poster_ai_edit";
+    }
+
+    private static bool HasImageModelConfig(ClientSettings settings)
+    {
+        var provider = (settings.ImageProvider ?? "doubao").Trim().ToLowerInvariant();
+        if (provider == "ofox_image2")
+        {
+            return !string.IsNullOrWhiteSpace(settings.OfoxImage2Endpoint)
+                   && !string.IsNullOrWhiteSpace(settings.OfoxImage2ApiKey);
+        }
+
+        return !string.IsNullOrWhiteSpace(settings.ImageModelEndpoint)
+               && !string.IsNullOrWhiteSpace(settings.ImageModelApiKey);
     }
 
     private sealed record DownloadMetadata(string BookId, string Episodes, string Quality, string Title, string EpisodeNumberMode);

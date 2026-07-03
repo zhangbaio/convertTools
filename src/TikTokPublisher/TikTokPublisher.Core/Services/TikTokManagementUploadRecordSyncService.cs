@@ -12,6 +12,10 @@ using TikTokPublisher.Core.Queue;
 namespace TikTokPublisher.Core.Services;
 
 public sealed record TikTokManagementUploadRecordSyncResult(bool Ok, string Message);
+public sealed record TikTokManagementDuplicateCheckResult(
+    bool Ok,
+    string Message,
+    IReadOnlySet<string> Duplicates);
 
 /// <summary>同步 TikTok 上传记录到短剧管理系统；接口契约对齐 Python management_upload_record_sync_service。</summary>
 public static class TikTokManagementUploadRecordSyncService
@@ -71,6 +75,74 @@ public static class TikTokManagementUploadRecordSyncService
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
         {
             return new(false, $"连接管理系统失败：{ex.Message}");
+        }
+    }
+
+    public static async Task<TikTokManagementDuplicateCheckResult> CheckDuplicateOriginalNamesAsync(
+        IEnumerable<string> originalNames,
+        string dedupeScope,
+        TikTokAccountProfile? account,
+        CancellationToken ct)
+    {
+        var names = originalNames
+            .Select(name => (name ?? "").Trim())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (names.Length == 0)
+            return new(true, "", new HashSet<string>(StringComparer.Ordinal));
+
+        var settings = ClientSettingsStore.Load();
+        var state = LicenseStore.Load();
+        var baseUrl = CleanBaseUrl(state.ServerUrl);
+        if (string.IsNullOrWhiteSpace(baseUrl))
+            baseUrl = CleanBaseUrl(settings.AuthServerUrl);
+        if (string.IsNullOrWhiteSpace(baseUrl))
+            return new(false, "管理系统地址未配置", new HashSet<string>(StringComparer.Ordinal));
+
+        var accountName = FirstNonEmpty(state.AccountUsername, state.Email, state.LicenseKey);
+        var machineId = (state.MachineId ?? "").Trim();
+        var token = (state.Token ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(machineId) || string.IsNullOrWhiteSpace(token))
+            return new(false, "软件未登录或登录态不完整", new HashSet<string>(StringComparer.Ordinal));
+
+        var scope = NormalizeDedupeScope(dedupeScope);
+        var payload = new Dictionary<string, object?>
+        {
+            ["original_names"] = names,
+            ["platform"] = Platform,
+            ["dedupe_scope"] = scope,
+        };
+        if (scope == "tiktok_username")
+        {
+            var username = FirstNonEmpty(
+                account?.TiktokLoginEmail,
+                account?.TiktokLastLoginEmail,
+                account?.TiktokAccountNickname);
+            payload["tiktok_username"] = username;
+            payload["tiktok_account_username"] = username;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/client-api/upload-records/check-duplicates");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.TryAddWithoutValidation("X-TT-Account", accountName);
+        request.Headers.TryAddWithoutValidation("X-TT-Machine-Id", machineId);
+        request.Headers.TryAddWithoutValidation("X-TT-Token", token);
+        request.Content = JsonContent(payload);
+
+        try
+        {
+            using var response = await Http.SendAsync(request, ct).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            return InterpretDuplicateResponse((int)response.StatusCode, SafeJson(body));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+        {
+            return new(false, $"连接管理系统失败：{ex.Message}", new HashSet<string>(StringComparer.Ordinal));
         }
     }
 
@@ -178,6 +250,37 @@ public static class TikTokManagementUploadRecordSyncService
         return new(false, FirstNonEmpty(message, $"管理系统返回错误：HTTP {status}"));
     }
 
+    private static TikTokManagementDuplicateCheckResult InterpretDuplicateResponse(int status, JsonNode? parsed)
+    {
+        if (status >= 400)
+        {
+            var message = parsed is JsonObject errorObject
+                ? FirstNonEmpty(errorObject["error"]?.ToString(), errorObject["message"]?.ToString())
+                : parsed?.ToString() ?? "";
+            return new(false, FirstNonEmpty(message, $"管理系统返回错误：HTTP {status}"), new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        if (parsed is not JsonObject obj || TryGetBoolean(obj, "ok") is false)
+        {
+            var message = parsed is JsonObject errorObject
+                ? FirstNonEmpty(errorObject["error"]?.ToString(), errorObject["message"]?.ToString())
+                : parsed?.ToString() ?? "";
+            return new(false, FirstNonEmpty(message, "管理系统查重失败"), new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        if (obj["data"] is JsonObject data && data["duplicates"] is JsonArray duplicates)
+        {
+            foreach (var node in duplicates)
+            {
+                var value = (node?.ToString() ?? "").Trim();
+                if (!string.IsNullOrWhiteSpace(value)) set.Add(value);
+            }
+        }
+
+        return new(true, "", set);
+    }
+
     private static string ResolveSeriesId(string projectDir)
     {
         if (string.IsNullOrWhiteSpace(projectDir)) return "";
@@ -228,6 +331,20 @@ public static class TikTokManagementUploadRecordSyncService
     }
 
     private static string CleanBaseUrl(string? value) => (value ?? "").Trim().TrimEnd('/');
+
+    private static StringContent JsonContent(object payload) =>
+        new(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json");
+
+    private static string NormalizeDedupeScope(string? value)
+    {
+        var normalized = (value ?? "tiktok_username").Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "software" or "login_user" or "owner" or "owner_user" => "software_user",
+            "software_user" => "software_user",
+            _ => "tiktok_username",
+        };
+    }
 
     private static string FirstNonEmpty(params string?[] values)
     {

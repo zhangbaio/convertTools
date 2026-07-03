@@ -55,10 +55,12 @@ public static class TikTokAccountProfileMapper
             TiktokPaidEnabled = B(payload, "tiktok_paid_enabled"),
             TiktokPaidRatioEnabled = B(payload, "tiktok_paid_ratio_enabled"),
             TiktokPaidRatioPercent = D(payload, "tiktok_paid_ratio_percent"),
-            TiktokProjectConcurrency = Math.Max(1, I(payload, "tiktok_project_concurrency", 1)),
-            TiktokAnchorPromotionEnabled = B(payload, "tiktok_anchor_promotion_enabled"),
-            TiktokTargetAudienceMode = FirstNonEmpty(S(payload, "tiktok_target_audience_mode"), "female") ?? "female",
-            TiktokGenreCount = Math.Max(1, I(payload, "tiktok_genre_count", 1)),
+            TiktokProjectConcurrency = Math.Max(1, I(payload, "tiktok_project_concurrency", 4)),
+            TiktokAnchorPromotionEnabled = payload.TryGetProperty("tiktok_anchor_promotion_enabled", out _)
+                ? B(payload, "tiktok_anchor_promotion_enabled")
+                : true,
+            TiktokTargetAudienceMode = FirstNonEmpty(S(payload, "tiktok_target_audience_mode"), "ai_recommend") ?? "ai_recommend",
+            TiktokGenreCount = Math.Max(1, I(payload, "tiktok_genre_count", 3)),
             TiktokSourceLanguage = FirstNonEmpty(S(payload, "tiktok_source_language"), "zh") ?? "zh",
             TiktokIsAiDrama = payload.TryGetProperty("tiktok_is_ai_drama", out var ai) ? ai.ValueKind switch
             {
@@ -67,9 +69,11 @@ public static class TikTokAccountProfileMapper
                 _ => B(payload, "tiktok_is_ai_drama", true),
             } : true,
             TiktokPublishMode = FirstNonEmpty(S(payload, "tiktok_publish_mode"), "auto_after_review") ?? "auto_after_review",
-            TiktokConsignmentEnabled = B(payload, "tiktok_consignment_enabled"),
-            TiktokProfilePreviewEpisodes = Math.Max(1, I(payload, "tiktok_profile_preview_episodes", 1)),
-            TiktokFreePreviewEpisodes = Math.Max(1, I(payload, "tiktok_free_preview_episodes", 1)),
+            TiktokConsignmentEnabled = payload.TryGetProperty("tiktok_consignment_enabled", out _)
+                ? B(payload, "tiktok_consignment_enabled")
+                : true,
+            TiktokProfilePreviewEpisodes = Math.Max(1, I(payload, "tiktok_profile_preview_episodes", 3)),
+            TiktokFreePreviewEpisodes = Math.Max(1, I(payload, "tiktok_free_preview_episodes", 3)),
             TiktokExpectedFullPriceMode = FirstNonEmpty(S(payload, "tiktok_expected_full_price_mode"), "manual") ?? "manual",
             TiktokExpectedFullPriceOptionIndex = Math.Max(1, I(payload, "tiktok_expected_full_price_option_index", 1)),
             TiktokExpectedFullPriceValue = S(payload, "tiktok_expected_full_price_value"),
