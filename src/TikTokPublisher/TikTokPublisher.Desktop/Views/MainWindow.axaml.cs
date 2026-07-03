@@ -34,8 +34,12 @@ public partial class MainWindow : Window
 
         QueueView.OpenBrowserRequested += (_, _) => NavigateTo("browser");
         QueueView.OpenLogsRequested += (_, _) => NavigateTo("logs");
-        AccountsView.LoginRequested += async (_, _) => await BeginEmbeddedAccountLoginAsync(forceRelogin: false);
-        AccountsView.ReloginRequested += async (_, _) => await BeginEmbeddedAccountLoginAsync(forceRelogin: true);
+        AccountsView.LoginRequested += (_, _) => BeginEmbeddedAccountLoginAsync(forceRelogin: false);
+        AccountsView.ReloginRequested += (_, _) => BeginEmbeddedAccountLoginAsync(forceRelogin: true);
+        _viewModel.EmbeddedLoginRequested += OnEmbeddedLoginRequested;
+        _browserHost.AuthSaved += args => _viewModel.HandleEmbeddedAuthSaved(args.Account, args.Result);
+        _browserHost.AuthSaveFailed += _viewModel.HandleEmbeddedAuthSaveFailed;
+        _browserHost.AuthStatusChanged += _viewModel.HandleEmbeddedAuthStatusChanged;
         LogView.ReturnRequested += (_, _) => NavigateTo("queue");
         LogView.StopRequested += (_, _) => _viewModel.RequestStopQueue();
         _viewModel.NavigatePageRequested += NavigateTo;
@@ -62,24 +66,27 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task BeginEmbeddedAccountLoginAsync(bool forceRelogin)
+    private void BeginEmbeddedAccountLoginAsync(bool forceRelogin)
     {
-        var account = _viewModel.SelectedAccount;
-        if (account is null)
+        if (_viewModel.SelectedAccount is null)
         {
             _viewModel.StatusMessage = "请先在左侧选择一个账号";
             return;
         }
 
-        var resetWarning = "";
-        if (forceRelogin)
-            resetWarning = await _browserHost.ResetAccountAsync(account);
-
         _viewModel.BeginAccountLogin(forceRelogin);
-        NavigateTo("browser");
+    }
 
-        if (!string.IsNullOrWhiteSpace(resetWarning))
-            _viewModel.StatusMessage += $"；{resetWarning}";
+    private async void OnEmbeddedLoginRequested(AccountItemViewModel account, bool forceRelogin)
+    {
+        if (forceRelogin)
+        {
+            var resetWarning = await _browserHost.ResetAccountAsync(account);
+            if (!string.IsNullOrWhiteSpace(resetWarning))
+                _viewModel.StatusMessage += $"；{resetWarning}";
+        }
+
+        _browserHost.BeginLogin(account, forceRelogin);
     }
 
     private void NavigateTo(string tag)

@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Services;
 using TikTokPublisher.Ui.ViewModels;
 
@@ -54,24 +55,43 @@ public partial class TikTokBrowserView : UserControl
 
     private void OnOpenLoginClick(object? sender, RoutedEventArgs e)
     {
-        var account = _vm?.SelectedAccount;
-        if (account is null)
+        if (_vm?.SelectedAccount is null)
         {
             if (_vm is not null) _vm.StatusMessage = "请先在左侧选择账号";
             return;
         }
 
-        var host = _browserHost?.GetOrCreateHost(account);
-        _browserHost?.ShowAccount(account);
-        host?.Navigate(MainViewModel.TikTokLoginUrl);
-        account.Status = AccountStatus.LoggingIn;
-        _vm!.StatusMessage = $"[{account.DisplayName}] 已在内置浏览器打开 TikTok 登录页";
+        _vm.BeginAccountLogin(forceRelogin: false);
+    }
+
+    private void OnHomeClick(object? sender, RoutedEventArgs e)
+    {
+        var account = _vm?.SelectedAccount;
+        if (account is null || _browserHost is null)
+            return;
+
+        var url = EmbeddedBrowserLoginHelper.ResolveHomeUrl(account.Model);
+        var host = _browserHost.GetOrCreateHost(account);
+        _browserHost.ShowAccount(account);
+        host.Navigate(url);
+        _vm!.StatusMessage = $"[{account.DisplayName}] 已打开短剧中心主页";
     }
 
     private void OnReloadClick(object? sender, RoutedEventArgs e)
     {
         if (_vm?.SelectedAccount is null) return;
-        var host = _browserHost?.TryGetHost(_vm.SelectedAccount.Id);
-        host?.Navigate(MainViewModel.TikTokLoginUrl);
+        _browserHost?.TryGetHost(_vm.SelectedAccount.Id)?.Reload();
+    }
+
+    private async void OnSaveAuthClick(object? sender, RoutedEventArgs e)
+    {
+        var account = _vm?.SelectedAccount;
+        if (account is null || _browserHost is null)
+        {
+            if (_vm is not null) _vm.StatusMessage = "请先在左侧选择账号";
+            return;
+        }
+
+        await _browserHost.SaveAuthAsync(account);
     }
 }

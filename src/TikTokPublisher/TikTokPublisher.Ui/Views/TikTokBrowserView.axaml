@@ -12,18 +12,23 @@
         </StackPanel>
 
         <Border DockPanel.Dock="Top" Classes="browserFrame" Padding="8,6" Margin="0,0,0,10">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="打开登录页" Click="OnOpenLoginClick" Classes="secondaryAction" />
-                <Button Content="刷新" Click="OnReloadClick" />
-                <TextBlock VerticalAlignment="Center" Classes="pageSummary"
-                           Text="{Binding SelectedAccount.DisplayName, TargetNullValue='请先选择账号', StringFormat='当前账号：{0}'}" />
+            <StackPanel Spacing="6">
+                <WrapPanel Orientation="Horizontal">
+                    <Button Content="打开登录页" Click="OnOpenLoginClick" Classes="secondaryAction" Margin="0,0,8,8" />
+                    <Button Content="主页" Click="OnHomeClick" Margin="0,0,8,8" />
+                    <Button Content="刷新" Click="OnReloadClick" Margin="0,0,8,8" />
+                    <Button Content="保存授权" Click="OnSaveAuthClick" Classes="primaryAction" Margin="0,0,8,8" />
+                    <TextBlock VerticalAlignment="Center" Classes="pageSummary" Margin="0,0,8,8"
+                               Text="{Binding SelectedAccount.DisplayName, TargetNullValue='请先选择账号', StringFormat='当前账号：{0}'}" />
+                </WrapPanel>
+                <TextBlock Classes="pageSummary" Text="{Binding BrowserAuthStatus}" TextWrapping="Wrap" />
             </StackPanel>
         </Border>
 
         <Border Classes="browserFrame" ClipToBounds="True">
             <Panel x:Name="BrowserArea">
                 <TextBlock x:Name="EmptyHint"
-                           Text="请先在左侧选择或添加账号，然后点击「打开登录页」加载 TikTok 短剧中心。"
+                           Text="请先在左侧选择或添加账号，然后点击「登录」或「打开登录页」加载 TikTok 短剧中心。"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
                            TextWrapping="Wrap"

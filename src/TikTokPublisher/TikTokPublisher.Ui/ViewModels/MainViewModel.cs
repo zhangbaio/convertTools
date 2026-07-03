@@ -62,6 +62,7 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private int _todayUploadCount;
     [ObservableProperty] private bool _manualInterventionPending;
     [ObservableProperty] private string _manualInterventionHint = "";
+    [ObservableProperty] private string _browserAuthStatus = "";
 
     public ObservableCollection<WorkspaceProjectItemViewModel> WorkspaceProjects { get; } = new();
     public ObservableCollection<WorkspaceProjectItemViewModel> FilteredWorkspaceProjects { get; } = new();
@@ -79,6 +80,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public event Action<AccountItemViewModel, string>? NavigateRequested;
     public event Action<AccountItemViewModel>? AccountSwitchRequested;
+    public event Action<AccountItemViewModel, bool>? EmbeddedLoginRequested;
 
     public MainViewModel(AccountStore store, AccountContextService context)
     {
@@ -280,13 +282,37 @@ public sealed partial class MainViewModel : ViewModelBase
             AccountLoginStatusHelper.DeleteAuthState(SelectedAccount.Model);
 
         SelectedAccount.Status = AccountStatus.LoggingIn;
+        SelectedAccount.Model.TiktokLoginBrowserMode = "embedded";
+        BrowserAuthStatus = forceRelogin
+            ? "请在内置浏览器中重新完成 TikTok 登录"
+            : "请在内置浏览器中完成 TikTok 登录";
         StatusMessage = forceRelogin
             ? $"[{SelectedAccount.DisplayName}] 已打开内置浏览器，请重新完成 TikTok 登录"
             : $"[{SelectedAccount.DisplayName}] 已打开内置浏览器，请完成 TikTok 登录";
 
-        NavigateRequested?.Invoke(SelectedAccount, TikTokLoginUrl);
+        EmbeddedLoginRequested?.Invoke(SelectedAccount, forceRelogin);
         NavigatePageRequested?.Invoke("browser");
     }
+
+    public void HandleEmbeddedAuthSaved(AccountItemViewModel account, EmbeddedAuthSaveResult result)
+    {
+        SaveAccountProfile(account.Model);
+        account.Status = AccountStatus.Online;
+        account.RefreshFromModel();
+        BrowserAuthStatus = $"授权已保存（{result.CookieCount} 个 Cookie）";
+        StatusMessage = $"[{account.DisplayName}] TikTok 登录成功，授权已保存";
+        AppendLog(StatusMessage);
+    }
+
+    public void HandleEmbeddedAuthSaveFailed(string message)
+    {
+        BrowserAuthStatus = "保存失败";
+        StatusMessage = $"保存 TikTok 授权失败：{message}";
+        AppendLog(StatusMessage);
+    }
+
+    public void HandleEmbeddedAuthStatusChanged(string message) =>
+        BrowserAuthStatus = message;
 
     public async Task SyncExpectedPriceOptionsAsync(TikTokAccountProfile profile, CancellationToken ct = default)
     {
@@ -315,52 +341,6 @@ public sealed partial class MainViewModel : ViewModelBase
             StatusMessage = $"同步价格选项失败：{ex.Message}";
             AppendLog($"同步价格选项失败：{ex.Message}");
             throw;
-        }
-    }
-
-    private async Task RunPlaywrightLoginAsync(AccountItemViewModel account, CancellationToken ct)
-    {
-        try
-        {
-            AppendLog($"[{account.DisplayName}] 开始 Playwright 自动登录…");
-            var result = await TikTokLoginService.LoginAsync(
-                account.Model,
-                msg => AppendLog(msg),
-                ct);
-
-            account.Model.TiktokLastLoginEmail = result.Email;
-            account.Model.TiktokLastLoginAt = result.LoggedInAt;
-            if (!string.IsNullOrWhiteSpace(result.AuthPath))
-                account.Model.TiktokStorageStatePath = result.AuthPath;
-
-            SaveAccountProfile(account.Model);
-            account.Status = AccountStatus.Online;
-            account.RefreshFromModel();
-            StatusMessage = result.AlreadyLoggedIn
-                ? $"[{account.DisplayName}] 已登录，登录态已保存"
-                : $"[{account.DisplayName}] 登录成功";
-            AppendLog(StatusMessage);
-
-            NavigateRequested?.Invoke(account, TikTokUrls.DefaultSeriesListUrl);
-            NavigatePageRequested?.Invoke("browser");
-        }
-        catch (OperationCanceledException)
-        {
-            account.Status = AccountStatus.Offline;
-            StatusMessage = "登录已取消";
-        }
-        catch (Exception ex)
-        {
-            account.Status = AccountStatus.Offline;
-            StatusMessage = $"登录失败：{ex.Message}";
-            AppendLog($"[{account.DisplayName}] 登录失败：{ex.Message}");
-            NavigateRequested?.Invoke(account, TikTokLoginUrl);
-            NavigatePageRequested?.Invoke("browser");
-        }
-        finally
-        {
-            if (ReferenceEquals(account, SelectedAccount))
-                OnPropertyChanged(nameof(SelectedAccount));
         }
     }
 
@@ -450,6 +430,9 @@ public sealed partial class MainViewModel : ViewModelBase
 
     [RelayCommand]
     private void Login() => BeginAccountLogin(forceRelogin: false);
+
+    [RelayCommand]
+    private void Relogin() => BeginAccountLogin(forceRelogin: true);
 
     public void SetWorkspacePath(string path)
     {

@@ -195,7 +195,7 @@ public partial class AccountProfileEditor : UserControl
         e.Handled = true;
         if (!SaveToProfile()) return;
         if (_vm is not null)
-            _vm.StatusMessage = "已保存账号配置，正在启动登录…";
+            _vm.StatusMessage = "已保存账号配置，正在打开内置浏览器…";
         LoginRequested?.Invoke(this, EventArgs.Empty);
     }
 
@@ -204,7 +204,7 @@ public partial class AccountProfileEditor : UserControl
         e.Handled = true;
         if (!SaveToProfile()) return;
         if (_vm is not null)
-            _vm.StatusMessage = "已保存账号配置，正在重新登录…";
+            _vm.StatusMessage = "已保存账号配置，正在重新打开内置浏览器…";
         ReloginRequested?.Invoke(this, EventArgs.Empty);
     }
 

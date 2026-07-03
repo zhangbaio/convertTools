@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Platform;
 using TikTokPublisher.Core.Abstractions;
+using TikTokPublisher.Core.Services;
 using Microsoft.Web.WebView2.Core;
 
 namespace TikTokPublisher.Ui.Controls;
@@ -10,11 +11,16 @@ namespace TikTokPublisher.Ui.Controls;
 /// <summary>把 WebView2（Edge 内核）内嵌进 Avalonia 的原生控件宿主。
 ///
 /// 每实例一个账号：UserDataFolder 隔离登录态；启动带 --remote-debugging-port 暴露 CDP，
-/// 供 PuppeteerSharp/Playwright ConnectOverCDP 驱动 P1 已验证的发布流程。
-/// WebView2=Edge 内核，天生带 H.264/AAC 编解码器且能穿透 wujie 的 Shadow DOM。</summary>
+/// 供 Playwright ConnectOverCDP 驱动发布流程。</summary>
 public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 {
     private static readonly string InitLog = Path.Combine(Path.GetTempPath(), "webview2-host.log");
+    private static readonly string[] CookieSources =
+    [
+        "https://www.tiktokdramacenter.com",
+        "https://tiktokdramacenter.com",
+        "https://www.tiktok.com",
+    ];
 
     private CoreWebView2Controller? _controller;
     private string? _pendingUrl;
@@ -25,15 +31,16 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     public string ProxyUsername { get; set; } = "";
     public string ProxyPassword { get; set; } = "";
 
+    public string? CurrentUrl => _controller?.CoreWebView2?.Source;
+
     public string? CdpEndpoint =>
         _controller != null && RemoteDebuggingPort > 0 ? $"http://127.0.0.1:{RemoteDebuggingPort}" : null;
 
-    /// <summary>WebView2 就绪后回调（可用于把账号标记为在线）。</summary>
     public event Action? Ready;
+    public event Action<string>? NavigationCompleted;
 
     public WebView2Host()
     {
-        // 控件显隐 → 同步 WebView2 控制器可见性（隐藏账号的 WebView 仍存活，会话/自动化不断）
         this.GetObservable(IsVisibleProperty).Subscribe(new AnonymousObserver<bool>(v =>
         {
             if (_controller != null) _controller.IsVisible = v;
@@ -53,9 +60,57 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         else _pendingUrl = url;
     }
 
+    public void Reload()
+    {
+        try { _controller?.CoreWebView2?.Reload(); }
+        catch { /* ignore */ }
+    }
+
+    public async Task<string?> ExecuteScriptAsync(string script)
+    {
+        if (_controller?.CoreWebView2 is null)
+            return null;
+        try
+        {
+            return await _controller.CoreWebView2.ExecuteScriptAsync(script).ConfigureAwait(true);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<EmbeddedBrowserCookie>> GetCookiesAsync()
+    {
+        if (_controller?.CoreWebView2 is null)
+            return [];
+
+        var manager = _controller.CoreWebView2.CookieManager;
+        var byKey = new Dictionary<string, EmbeddedBrowserCookie>(StringComparer.Ordinal);
+        foreach (var source in CookieSources)
+        {
+            try
+            {
+                var cookies = await manager.GetCookiesAsync(source).ConfigureAwait(true);
+                foreach (var cookie in cookies)
+                {
+                    var converted = ToEmbeddedCookie(cookie);
+                    var key = $"{converted.Name}|{converted.Domain}|{converted.Path}";
+                    byKey[key] = converted;
+                }
+            }
+            catch
+            {
+                // 单个域名读取失败时继续
+            }
+        }
+
+        return byKey.Values.ToList();
+    }
+
     public void CloseBrowser()
     {
-        try { _controller?.Close(); } catch { /* 忽略关闭异常 */ }
+        try { _controller?.Close(); } catch { /* ignore */ }
         _controller = null;
         _pendingUrl = null;
     }
@@ -93,20 +148,28 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             _controller.IsVisible = IsVisible;
             UpdateBounds();
 
-            if (_controller.CoreWebView2 is not null &&
-                (!string.IsNullOrWhiteSpace(ProxyUsername) || !string.IsNullOrWhiteSpace(ProxyPassword)))
+            if (_controller.CoreWebView2 is not null)
             {
-                _controller.CoreWebView2.BasicAuthenticationRequested += (_, args) =>
+                if (!string.IsNullOrWhiteSpace(ProxyUsername) || !string.IsNullOrWhiteSpace(ProxyPassword))
                 {
-                    args.Response.UserName = ProxyUsername;
-                    args.Response.Password = ProxyPassword;
+                    _controller.CoreWebView2.BasicAuthenticationRequested += (_, args) =>
+                    {
+                        args.Response.UserName = ProxyUsername;
+                        args.Response.Password = ProxyPassword;
+                    };
+                }
+
+                _controller.CoreWebView2.NavigationCompleted += (_, args) =>
+                {
+                    if (args.IsSuccess)
+                        NavigationCompleted?.Invoke(_controller.CoreWebView2.Source);
                 };
             }
 
             Log($"ready udf={udf} port={RemoteDebuggingPort} proxy={ProxyServer} cdp={CdpEndpoint}");
             Ready?.Invoke();
 
-            if (_pendingUrl != null)
+            if (_pendingUrl != null && _controller.CoreWebView2 is not null)
             {
                 _controller.CoreWebView2.Navigate(_pendingUrl);
                 _pendingUrl = null;
@@ -116,6 +179,36 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         {
             Log($"FAILED udf={UserDataFolder} port={RemoteDebuggingPort} :: {ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    private static EmbeddedBrowserCookie ToEmbeddedCookie(CoreWebView2Cookie cookie)
+    {
+        long expires = -1;
+        try
+        {
+            if (!cookie.IsSession)
+                expires = new DateTimeOffset(cookie.Expires).ToUnixTimeSeconds();
+        }
+        catch
+        {
+            expires = -1;
+        }
+
+        return new EmbeddedBrowserCookie(
+            cookie.Name ?? "",
+            cookie.Value ?? "",
+            cookie.Domain ?? "",
+            string.IsNullOrWhiteSpace(cookie.Path) ? "/" : cookie.Path,
+            expires,
+            cookie.IsHttpOnly,
+            cookie.IsSecure,
+            cookie.SameSite switch
+            {
+                CoreWebView2CookieSameSiteKind.Strict => "Strict",
+                CoreWebView2CookieSameSiteKind.Lax => "Lax",
+                CoreWebView2CookieSameSiteKind.None => "None",
+                _ => "Lax",
+            });
     }
 
     private void UpdateBounds()
@@ -130,11 +223,10 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     private static void Log(string message)
     {
         try { File.AppendAllText(InitLog, $"{DateTime.Now:HH:mm:ss} [WebView2] {message}{Environment.NewLine}"); }
-        catch { /* 日志失败不影响运行 */ }
+        catch { /* ignore */ }
     }
 }
 
-/// <summary>轻量 IObserver（避免引入 System.Reactive）。</summary>
 internal sealed class AnonymousObserver<T> : IObserver<T>
 {
     private readonly Action<T> _onNext;

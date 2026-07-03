@@ -6,10 +6,19 @@ using TikTokPublisher.Ui.ViewModels;
 
 namespace TikTokPublisher.Ui.Services;
 
+public sealed record EmbeddedAuthSavedEventArgs(
+    AccountItemViewModel Account,
+    EmbeddedAuthSaveResult Result);
+
 /// <summary>每账号独立 WebView2，切换仅改可见性（对齐 Python 多账号会话策略）。</summary>
 public sealed class BrowserSessionHost
 {
+    private const int LoginAutofillMaxAttempts = 6;
+
     private readonly Dictionary<string, WebView2Host> _hosts = new();
+    private readonly Dictionary<string, LoginAutofillState> _autofillStates = new();
+    private readonly Dictionary<string, bool> _wasOnLoginPage = new();
+    private readonly int[] _autofillDelaysMs = [1200, 2200, 3500, 5000, 6500, 8000];
     private Panel? _container;
     private TextBlock? _emptyHint;
 
@@ -20,6 +29,10 @@ public sealed class BrowserSessionHost
     }
 
     public IReadOnlyDictionary<string, WebView2Host> Hosts => _hosts;
+
+    public event Action<EmbeddedAuthSavedEventArgs>? AuthSaved;
+    public event Action<string>? AuthStatusChanged;
+    public event Action<string>? AuthSaveFailed;
 
     public void ShowAccount(AccountItemViewModel? account)
     {
@@ -37,6 +50,31 @@ public sealed class BrowserSessionHost
         var target = GetOrCreateHost(account);
         target.IsVisible = true;
         _emptyHint.IsVisible = false;
+    }
+
+    public void BeginLogin(AccountItemViewModel account, bool forceRelogin = false)
+    {
+        account.Status = AccountStatus.LoggingIn;
+        account.Model.TiktokLoginBrowserMode = "embedded";
+
+        if (forceRelogin)
+        {
+            _autofillStates.Remove(account.Id);
+            _wasOnLoginPage.Remove(account.Id);
+        }
+
+        var email = (account.Model.TiktokLoginEmail ?? account.Model.TiktokLastLoginEmail ?? "").Trim();
+        var pwd = account.Model.TiktokLoginPassword ?? "";
+        if (!string.IsNullOrEmpty(email) || !string.IsNullOrEmpty(pwd))
+        {
+            _autofillStates[account.Id] = new LoginAutofillState(email, pwd, 0);
+        }
+
+        var host = GetOrCreateHost(account);
+        ShowAccount(account);
+        host.Navigate(MainViewModel.TikTokLoginUrl);
+        _wasOnLoginPage[account.Id] = true;
+        AuthStatusChanged?.Invoke("请在下方浏览器完成 TikTok 登录");
     }
 
     public WebView2Host GetOrCreateHost(AccountItemViewModel account)
@@ -60,7 +98,8 @@ public sealed class BrowserSessionHost
             host.ProxyUsername = proxy.Username;
             host.ProxyPassword = proxy.Password;
         }
-        host.Ready += () => account.Status = AccountStatus.Online;
+
+        host.NavigationCompleted += url => _ = OnNavigationCompletedAsync(account, url);
         _hosts[account.Id] = host;
         _container.Children.Add(host);
         host.Navigate(MainViewModel.TikTokLoginUrl);
@@ -79,8 +118,13 @@ public sealed class BrowserSessionHost
             await Task.Delay(250, ct).ConfigureAwait(false);
         }
 
+        _autofillStates.Remove(account.Id);
+        _wasOnLoginPage.Remove(account.Id);
+        AccountLoginStatusHelper.DeleteAuthState(account.Model);
+
         var warning = await TryDeleteProfileDirectoryAsync(account.Model.ProfileDir, ct).ConfigureAwait(false);
         Directory.CreateDirectory(account.Model.ProfileDir);
+        account.Status = AccountStatus.Offline;
         return warning;
     }
 
@@ -97,6 +141,114 @@ public sealed class BrowserSessionHost
         }
 
         return false;
+    }
+
+    public async Task SaveAuthAsync(AccountItemViewModel account, bool auto = false)
+    {
+        var host = TryGetHost(account.Id);
+        if (host is null)
+        {
+            AuthSaveFailed?.Invoke("内置浏览器尚未打开账号页面。");
+            return;
+        }
+
+        var currentUrl = host.CurrentUrl ?? "";
+        if (EmbeddedBrowserLoginHelper.IsLoginUrl(currentUrl))
+        {
+            AuthSaveFailed?.Invoke("当前仍在登录页，请登录成功后再保存授权。");
+            return;
+        }
+
+        AuthStatusChanged?.Invoke(auto ? "检测到登录成功，正在保存授权..." : "正在读取授权...");
+        try
+        {
+            var cookies = await host.GetCookiesAsync().ConfigureAwait(true);
+            var rawLocalStorage = await host.ExecuteScriptAsync(EmbeddedBrowserScripts.LocalStorageExport).ConfigureAwait(true);
+            var localStorageText = UnwrapScriptResult(rawLocalStorage);
+            var localStorageByOrigin = EmbeddedAuthExportService.ParseLocalStorageExport(localStorageText);
+            var result = EmbeddedAuthExportService.SaveAuthState(account.Model, cookies, localStorageByOrigin);
+            account.Status = AccountStatus.Online;
+            account.RefreshFromModel();
+            _wasOnLoginPage[account.Id] = false;
+            _autofillStates.Remove(account.Id);
+            AuthSaved?.Invoke(new EmbeddedAuthSavedEventArgs(account, result));
+            AuthStatusChanged?.Invoke($"授权已保存（{result.CookieCount} 个 Cookie）");
+        }
+        catch (Exception ex)
+        {
+            AuthSaveFailed?.Invoke(ex.Message);
+            AuthStatusChanged?.Invoke("保存失败");
+        }
+    }
+
+    private async Task OnNavigationCompletedAsync(AccountItemViewModel account, string url)
+    {
+        if (EmbeddedBrowserLoginHelper.IsLoginUrl(url))
+        {
+            _wasOnLoginPage[account.Id] = true;
+            await ScheduleLoginAutofillAsync(account).ConfigureAwait(true);
+            return;
+        }
+
+        if (_wasOnLoginPage.TryGetValue(account.Id, out var wasLogin) && wasLogin)
+        {
+            _wasOnLoginPage[account.Id] = false;
+            _autofillStates.Remove(account.Id);
+            await SaveAuthAsync(account, auto: true).ConfigureAwait(true);
+            return;
+        }
+
+        if (_autofillStates.ContainsKey(account.Id))
+            _autofillStates.Remove(account.Id);
+    }
+
+    private async Task ScheduleLoginAutofillAsync(AccountItemViewModel account)
+    {
+        if (!_autofillStates.TryGetValue(account.Id, out var state))
+            return;
+
+        var host = TryGetHost(account.Id);
+        if (host is null) return;
+
+        var delay = _autofillDelaysMs[Math.Min(state.Attempts, _autofillDelaysMs.Length - 1)];
+        await Task.Delay(delay).ConfigureAwait(true);
+        if (!_autofillStates.ContainsKey(account.Id))
+            return;
+
+        state = state with { Attempts = state.Attempts + 1 };
+        _autofillStates[account.Id] = state;
+
+        var script = EmbeddedBrowserScripts.BuildLoginAutofillScript(state.Email, state.Password);
+        await host.ExecuteScriptAsync(script).ConfigureAwait(true);
+
+        if (state.Attempts < LoginAutofillMaxAttempts
+            && _autofillStates.ContainsKey(account.Id)
+            && EmbeddedBrowserLoginHelper.IsLoginUrl(host.CurrentUrl))
+        {
+            _ = ScheduleLoginAutofillAsync(account);
+        }
+        else
+        {
+            _autofillStates.Remove(account.Id);
+        }
+    }
+
+    private async Task ContinueAutofillAsync(AccountItemViewModel account)
+    {
+        await ScheduleLoginAutofillAsync(account).ConfigureAwait(true);
+    }
+
+    private static string? UnwrapScriptResult(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+        var text = raw.Trim();
+        if (text.Length >= 2 && text.StartsWith('"') && text.EndsWith('"'))
+        {
+            try { return System.Text.Json.JsonSerializer.Deserialize<string>(text); }
+            catch { return text.Trim('"'); }
+        }
+        return text;
     }
 
     private static async Task<string> TryDeleteProfileDirectoryAsync(string profileDir, CancellationToken ct)
@@ -138,4 +290,6 @@ public sealed class BrowserSessionHost
             ? "清理账号浏览器会话失败"
             : $"清理账号浏览器会话失败：{fullPath}";
     }
+
+    private sealed record LoginAutofillState(string Email, string Password, int Attempts);
 }
