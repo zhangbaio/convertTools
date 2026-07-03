@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Ui.Services;
 using TikTokPublisher.Ui.ViewModels;
 
@@ -53,13 +54,18 @@ public partial class TikTokBrowserView : UserControl
 
     private void OnOpenLoginClick(object? sender, RoutedEventArgs e)
     {
-        if (_vm?.SelectedAccount is null)
+        var account = _vm?.SelectedAccount;
+        if (account is null)
         {
             if (_vm is not null) _vm.StatusMessage = "请先在左侧选择账号";
             return;
         }
 
-        _vm.LoginCommand.Execute(null);
+        var host = _browserHost?.GetOrCreateHost(account);
+        _browserHost?.ShowAccount(account);
+        host?.Navigate(MainViewModel.TikTokLoginUrl);
+        account.Status = AccountStatus.LoggingIn;
+        _vm!.StatusMessage = $"[{account.DisplayName}] 已在内置浏览器打开 TikTok 登录页";
     }
 
     private void OnReloadClick(object? sender, RoutedEventArgs e)

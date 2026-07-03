@@ -34,8 +34,8 @@ public partial class MainWindow : Window
 
         QueueView.OpenBrowserRequested += (_, _) => NavigateTo("browser");
         QueueView.OpenLogsRequested += (_, _) => NavigateTo("logs");
-        AccountsView.LoginRequested += (_, _) => _viewModel.BeginAccountLogin(forceRelogin: false);
-        AccountsView.ReloginRequested += (_, _) => _viewModel.BeginAccountLogin(forceRelogin: true);
+        AccountsView.LoginRequested += async (_, _) => await BeginEmbeddedAccountLoginAsync(forceRelogin: false);
+        AccountsView.ReloginRequested += async (_, _) => await BeginEmbeddedAccountLoginAsync(forceRelogin: true);
         LogView.ReturnRequested += (_, _) => NavigateTo("queue");
         LogView.StopRequested += (_, _) => _viewModel.RequestStopQueue();
         _viewModel.NavigatePageRequested += NavigateTo;
@@ -60,6 +60,26 @@ public partial class MainWindow : Window
             _viewModel.StatusMessage = "尚未登录授权账号，请前往「系统服务」登录。";
             NavigateTo("services");
         }
+    }
+
+    private async Task BeginEmbeddedAccountLoginAsync(bool forceRelogin)
+    {
+        var account = _viewModel.SelectedAccount;
+        if (account is null)
+        {
+            _viewModel.StatusMessage = "请先在左侧选择一个账号";
+            return;
+        }
+
+        var resetWarning = "";
+        if (forceRelogin)
+            resetWarning = await _browserHost.ResetAccountAsync(account);
+
+        _viewModel.BeginAccountLogin(forceRelogin);
+        NavigateTo("browser");
+
+        if (!string.IsNullOrWhiteSpace(resetWarning))
+            _viewModel.StatusMessage += $"；{resetWarning}";
     }
 
     private void NavigateTo(string tag)

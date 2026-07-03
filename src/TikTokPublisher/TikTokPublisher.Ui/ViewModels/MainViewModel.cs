@@ -22,7 +22,6 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly AccountContextService _context;
     private readonly QueueWorkerRunner _queueWorker = new();
     private CancellationTokenSource? _queueCts;
-    private CancellationTokenSource? _loginCts;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
     public ObservableCollection<AccountItemViewModel> FilteredAccounts { get; } = new();
@@ -282,15 +281,11 @@ public sealed partial class MainViewModel : ViewModelBase
 
         SelectedAccount.Status = AccountStatus.LoggingIn;
         StatusMessage = forceRelogin
-            ? $"[{SelectedAccount.DisplayName}] 正在重新登录…"
-            : $"[{SelectedAccount.DisplayName}] 正在启动 Playwright 登录…";
+            ? $"[{SelectedAccount.DisplayName}] 已打开内置浏览器，请重新完成 TikTok 登录"
+            : $"[{SelectedAccount.DisplayName}] 已打开内置浏览器，请完成 TikTok 登录";
 
-        _loginCts?.Cancel();
-        _loginCts?.Dispose();
-        _loginCts = new CancellationTokenSource();
-        var account = SelectedAccount;
-        var token = _loginCts.Token;
-        _ = RunPlaywrightLoginAsync(account, token);
+        NavigateRequested?.Invoke(SelectedAccount, TikTokLoginUrl);
+        NavigatePageRequested?.Invoke("browser");
     }
 
     public async Task SyncExpectedPriceOptionsAsync(TikTokAccountProfile profile, CancellationToken ct = default)
@@ -401,6 +396,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void RefreshFilteredAccounts()
     {
+        var selectedId = SelectedAccount?.Id ?? _store.ActiveAccountId;
         FilteredAccounts.Clear();
         var query = (AccountSearchText ?? "").Trim();
         foreach (var account in Accounts)
@@ -412,6 +408,14 @@ public sealed partial class MainViewModel : ViewModelBase
                 || account.Subtitle.Contains(query, StringComparison.OrdinalIgnoreCase))
                 FilteredAccounts.Add(account);
         }
+
+        var restored = FilteredAccounts.FirstOrDefault(a => a.Id == selectedId)
+                       ?? FilteredAccounts.FirstOrDefault(a => a.Id == _store.ActiveAccountId)
+                       ?? FilteredAccounts.FirstOrDefault();
+        if (restored is not null && SelectedAccount?.Id != restored.Id)
+            SelectedAccount = restored;
+        else if (restored is null && SelectedAccount is not null)
+            SelectedAccount = null;
     }
 
     private void UpdateWorkspaceBindingSummary(string root)

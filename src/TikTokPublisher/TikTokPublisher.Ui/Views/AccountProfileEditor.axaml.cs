@@ -39,6 +39,7 @@ public partial class AccountProfileEditor : UserControl
         var profile = _vm?.SelectedAccount?.Model;
         if (profile is null)
         {
+            ClearFields();
             LoginStatusText.Text = "尚未登录";
             return;
         }
@@ -100,86 +101,133 @@ public partial class AccountProfileEditor : UserControl
         StaticIpNoteBox.Text = profile.TiktokStaticIpNote;
     }
 
-    private void SaveToProfile()
+    private bool SaveToProfile()
     {
         var profile = _vm?.SelectedAccount?.Model;
-        if (profile is null || _vm is null) return;
+        if (profile is null || _vm is null)
+        {
+            if (_vm is not null)
+                _vm.StatusMessage = "请先在左侧选择一个账号";
+            return false;
+        }
 
-        profile.TiktokAccountNickname = NicknameBox.Text?.Trim() ?? "";
-        profile.TiktokLoginEmail = LoginEmailBox.Text?.Trim() ?? "";
-        profile.TiktokLoginPassword = PasswordBox.Text ?? "";
-        profile.TiktokStorageStatePath = StorageStateBox.Text?.Trim() ?? profile.TiktokStorageStatePath;
-        profile.TiktokSeriesUrl = string.IsNullOrWhiteSpace(SeriesUrlBox.Text)
-            ? TikTokUrls.DefaultSeriesDraftUrl
-            : SeriesUrlBox.Text.Trim();
+        try
+        {
+            profile.TiktokAccountNickname = NicknameBox.Text?.Trim() ?? "";
+            profile.TiktokLoginEmail = LoginEmailBox.Text?.Trim() ?? "";
+            profile.TiktokLoginPassword = PasswordBox.Text ?? "";
+            profile.TiktokStorageStatePath = StorageStateBox.Text?.Trim() ?? profile.TiktokStorageStatePath;
+            profile.TiktokSeriesUrl = string.IsNullOrWhiteSpace(SeriesUrlBox.Text)
+                ? TikTokUrls.DefaultSeriesDraftUrl
+                : SeriesUrlBox.Text.Trim();
 
-        var workspace = WorkspaceBox.Text?.Trim() ?? "";
-        profile.TiktokUploadProfilePath = workspace;
-        profile.LastWorkspace = workspace;
-        profile.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
-        profile.TiktokExcelReportPath = ExcelReportBox.Text?.Trim() ?? "";
+            var workspace = WorkspaceBox.Text?.Trim() ?? "";
+            profile.TiktokUploadProfilePath = workspace;
+            profile.LastWorkspace = workspace;
+            profile.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
+            profile.TiktokExcelReportPath = ExcelReportBox.Text?.Trim() ?? "";
 
-        profile.TiktokLoginBrowserMode = TagOf(LoginBrowserModeCombo, "embedded");
-        profile.TiktokFingerprintBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";
-        profile.TiktokFingerprintStartCommand = FingerprintStartCommandBox.Text?.Trim() ?? "";
+            profile.TiktokLoginBrowserMode = TagOf(LoginBrowserModeCombo, "embedded");
+            profile.TiktokFingerprintBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";
+            profile.TiktokFingerprintStartCommand = FingerprintStartCommandBox.Text?.Trim() ?? "";
 
-        profile.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
-        profile.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
-        profile.TiktokSubmitAction = TagOf(SubmitActionCombo, "draft");
-        profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
-        profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "female");
-        profile.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
-        profile.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "classic");
-        profile.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
-        profile.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
-        profile.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
-        profile.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
-        profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
-        profile.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
-        profile.TiktokSilenceValidationEnabled = SilenceValidationBox.IsChecked == true;
-        profile.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 1);
-        profile.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 1);
-        profile.TiktokGenreCount = (int)(GenreCountBox.Value ?? 1);
-        profile.TiktokUploadStallSeconds = (int)(UploadStallBox.Value ?? 180);
-        profile.TiktokProjectConcurrency = (int)(ProjectConcurrencyBox.Value ?? 1);
-        profile.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
-        profile.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
-        profile.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
-        profile.TiktokSilenceThresholdDb = (double)(SilenceThresholdBox.Value ?? -45);
-        profile.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
-        profile.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
-        var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
-        profile.TiktokExpectedFullPriceValue = priceValue;
-        profile.TiktokExpectedFullPriceLabel = priceLabel;
+            profile.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
+            profile.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
+            profile.TiktokSubmitAction = TagOf(SubmitActionCombo, "draft");
+            profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
+            profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "female");
+            profile.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
+            profile.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "classic");
+            profile.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
+            profile.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
+            profile.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
+            profile.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
+            profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
+            profile.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
+            profile.TiktokSilenceValidationEnabled = SilenceValidationBox.IsChecked == true;
+            profile.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 1);
+            profile.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 1);
+            profile.TiktokGenreCount = (int)(GenreCountBox.Value ?? 1);
+            profile.TiktokUploadStallSeconds = (int)(UploadStallBox.Value ?? 180);
+            profile.TiktokProjectConcurrency = (int)(ProjectConcurrencyBox.Value ?? 1);
+            profile.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
+            profile.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
+            profile.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
+            profile.TiktokSilenceThresholdDb = (double)(SilenceThresholdBox.Value ?? -45);
+            profile.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
+            profile.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
+            var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
+            profile.TiktokExpectedFullPriceValue = priceValue;
+            profile.TiktokExpectedFullPriceLabel = priceLabel;
 
-        profile.TiktokProxyEnabled = ProxyEnabledBox.IsChecked == true;
-        profile.TiktokProxyType = TagOf(ProxyTypeCombo, "http");
-        profile.TiktokProxyHost = ProxyHostBox.Text?.Trim() ?? "";
-        profile.TiktokProxyPort = (int)(ProxyPortBox.Value ?? 0);
-        profile.TiktokProxyUsername = ProxyUsernameBox.Text?.Trim() ?? "";
-        profile.TiktokProxyPassword = ProxyPasswordBox.Text ?? "";
-        profile.TiktokProxyLabel = ProxyLabelBox.Text?.Trim() ?? "";
-        profile.TiktokStaticIpNote = StaticIpNoteBox.Text?.Trim() ?? "";
+            profile.TiktokProxyEnabled = ProxyEnabledBox.IsChecked == true;
+            profile.TiktokProxyType = TagOf(ProxyTypeCombo, "http");
+            profile.TiktokProxyHost = ProxyHostBox.Text?.Trim() ?? "";
+            profile.TiktokProxyPort = (int)(ProxyPortBox.Value ?? 0);
+            profile.TiktokProxyUsername = ProxyUsernameBox.Text?.Trim() ?? "";
+            profile.TiktokProxyPassword = ProxyPasswordBox.Text ?? "";
+            profile.TiktokProxyLabel = ProxyLabelBox.Text?.Trim() ?? "";
+            profile.TiktokStaticIpNote = StaticIpNoteBox.Text?.Trim() ?? "";
 
-        _vm.SaveAccountProfile(profile);
-        _vm.SelectedAccount?.RefreshFromModel();
-        _vm.RefreshFilteredAccounts();
-        _vm.StatusMessage = $"已保存账号「{profile.DisplayName}」配置";
-        ReloadFromSelectedAccount();
+            _vm.SaveAccountProfile(profile);
+            _vm.SelectedAccount?.RefreshFromModel();
+            _vm.RefreshFilteredAccounts();
+            _vm.StatusMessage = $"已保存账号「{profile.DisplayName}」配置";
+            ReloadFromSelectedAccount();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusMessage = $"保存账号配置失败：{ex.Message}";
+            _vm.AppendLog($"保存账号配置失败：{ex.GetType().Name}: {ex.Message}");
+            return false;
+        }
     }
 
-    private void OnSaveClick(object? sender, RoutedEventArgs e) => SaveToProfile();
+    private void OnSaveClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        SaveToProfile();
+    }
 
     private void OnLoginClick(object? sender, RoutedEventArgs e)
     {
-        SaveToProfile();
+        e.Handled = true;
+        if (!SaveToProfile()) return;
+        if (_vm is not null)
+            _vm.StatusMessage = "已保存账号配置，正在启动登录…";
         LoginRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void OnReloginClick(object? sender, RoutedEventArgs e)
     {
-        SaveToProfile();
+        e.Handled = true;
+        if (!SaveToProfile()) return;
+        if (_vm is not null)
+            _vm.StatusMessage = "已保存账号配置，正在重新登录…";
         ReloginRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ClearFields()
+    {
+        NicknameBox.Text = "";
+        LoginEmailBox.Text = "";
+        PasswordBox.Text = "";
+        StorageStateBox.Text = "";
+        SeriesUrlBox.Text = TikTokUrls.DefaultSeriesDraftUrl;
+        WorkspaceBox.Text = "";
+        DownloadWorkspaceBox.Text = "";
+        ExcelReportBox.Text = "";
+        CdpEndpointBox.Text = "";
+        FingerprintStartCommandBox.Text = "";
+        ContractIdBox.Text = "";
+        ExpectedPriceValueBox.Text = "";
+        ExpectedPriceOptionsCombo.Items.Clear();
+        ProxyHostBox.Text = "";
+        ProxyUsernameBox.Text = "";
+        ProxyPasswordBox.Text = "";
+        ProxyLabelBox.Text = "";
+        StaticIpNoteBox.Text = "";
     }
 
     private async void OnBrowseAuthPathClick(object? sender, RoutedEventArgs e) =>

@@ -70,6 +70,20 @@ public sealed class BrowserSessionHost
     public WebView2Host? TryGetHost(string accountId) =>
         _hosts.TryGetValue(accountId, out var host) ? host : null;
 
+    public async Task<string> ResetAccountAsync(AccountItemViewModel account, CancellationToken ct = default)
+    {
+        if (_hosts.Remove(account.Id, out var existing))
+        {
+            existing.CloseBrowser();
+            _container?.Children.Remove(existing);
+            await Task.Delay(250, ct).ConfigureAwait(false);
+        }
+
+        var warning = await TryDeleteProfileDirectoryAsync(account.Model.ProfileDir, ct).ConfigureAwait(false);
+        Directory.CreateDirectory(account.Model.ProfileDir);
+        return warning;
+    }
+
     public async Task<bool> EnsureReadyAsync(TikTokAccountProfile account, CancellationToken ct)
     {
         var host = TryGetHost(account.Id);
@@ -83,5 +97,45 @@ public sealed class BrowserSessionHost
         }
 
         return false;
+    }
+
+    private static async Task<string> TryDeleteProfileDirectoryAsync(string profileDir, CancellationToken ct)
+    {
+        var fullPath = "";
+        try
+        {
+            fullPath = Path.GetFullPath(profileDir);
+            var profilesRoot = Path.GetFullPath(AppPaths.ProfilesRoot)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var rootWithSeparator = profilesRoot + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
+                return $"跳过清理非默认账号目录：{fullPath}";
+
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                try
+                {
+                    if (Directory.Exists(fullPath))
+                        Directory.Delete(fullPath, recursive: true);
+                    return "";
+                }
+                catch (IOException) when (attempt < 4)
+                {
+                    await Task.Delay(250, ct).ConfigureAwait(false);
+                }
+                catch (UnauthorizedAccessException) when (attempt < 4)
+                {
+                    await Task.Delay(250, ct).ConfigureAwait(false);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+
+        return string.IsNullOrWhiteSpace(fullPath)
+            ? "清理账号浏览器会话失败"
+            : $"清理账号浏览器会话失败：{fullPath}";
     }
 }

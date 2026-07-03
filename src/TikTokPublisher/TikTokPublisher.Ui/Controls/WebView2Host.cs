@@ -53,6 +53,13 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         else _pendingUrl = url;
     }
 
+    public void CloseBrowser()
+    {
+        try { _controller?.Close(); } catch { /* 忽略关闭异常 */ }
+        _controller = null;
+        _pendingUrl = null;
+    }
+
     protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
     {
         var handle = base.CreateNativeControlCore(parent);
@@ -63,8 +70,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     protected override void DestroyNativeControlCore(IPlatformHandle control)
     {
-        try { _controller?.Close(); } catch { /* 忽略关闭异常 */ }
-        _controller = null;
+        CloseBrowser();
         base.DestroyNativeControlCore(control);
     }
 
