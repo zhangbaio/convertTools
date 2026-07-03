@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -32,23 +33,34 @@ public partial class AccountSettingsDialog : Window
         ContractIdBox.Text = p.TiktokContractId;
         SelectByTag(ContractModeCombo, p.TiktokContractIdMode, "manual");
         SelectByTag(SubmitActionCombo, p.TiktokSubmitAction, "draft");
+        SubmitEnabledBox.IsChecked = p.TiktokSubmitEnabled;
         SelectByTag(PublishModeCombo, p.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "female");
         SelectByTag(SourceLanguageCombo, p.TiktokSourceLanguage, "zh");
         SelectByTag(UploadStrategyCombo, p.TiktokUploadStrategy, "classic");
 
         PaidEnabledBox.IsChecked = p.TiktokPaidEnabled;
+        PaidRatioEnabledBox.IsChecked = p.TiktokPaidRatioEnabled;
+        PaidRatioPercentBox.Value = (decimal)p.TiktokPaidRatioPercent;
         AiDramaBox.IsChecked = p.TiktokIsAiDrama;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         AnchorPromotionBox.IsChecked = p.TiktokAnchorPromotionEnabled;
         ProfilePreviewBox.Value = p.TiktokProfilePreviewEpisodes;
         FreePreviewBox.Value = p.TiktokFreePreviewEpisodes;
+        GenreCountBox.Value = p.TiktokGenreCount;
         UploadStallBox.Value = p.TiktokUploadStallSeconds;
         ProjectConcurrencyBox.Value = p.TiktokProjectConcurrency;
         UploadBatchSizeBox.Value = p.TiktokUploadBatchSize;
         UploadBatchStallBox.Value = p.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = p.TiktokUploadBatchMaxRetries;
-        ExpectedPriceValueBox.Text = p.TiktokExpectedFullPriceValue;
+        SelectByTag(ExpectedPriceModeCombo, p.TiktokExpectedFullPriceMode, "manual");
+        ExpectedPriceOptionIndexBox.Value = p.TiktokExpectedFullPriceOptionIndex;
+        ExpectedPriceValueBox.Text = !string.IsNullOrWhiteSpace(p.TiktokExpectedFullPriceLabel)
+            ? p.TiktokExpectedFullPriceLabel
+            : p.TiktokExpectedFullPriceValue;
+        SilenceValidationBox.IsChecked = p.TiktokSilenceValidationEnabled;
+        SilenceThresholdBox.Value = (decimal)p.TiktokSilenceThresholdDb;
+        MaxContinuousSilenceSecondsBox.Value = p.TiktokMaxContinuousSilenceSeconds;
 
         ProxyEnabledBox.IsChecked = p.TiktokProxyEnabled;
         SelectByTag(ProxyTypeCombo, p.TiktokProxyType, "http");
@@ -74,22 +86,33 @@ public partial class AccountSettingsDialog : Window
         p.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
         p.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
         p.TiktokSubmitAction = TagOf(SubmitActionCombo, "draft");
+        p.TiktokSubmitEnabled = SubmitEnabledBox.IsChecked == true;
         p.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
         p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "female");
         p.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
         p.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "classic");
         p.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
+        p.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
+        p.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
         p.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
         p.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
         p.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 1);
         p.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 1);
+        p.TiktokGenreCount = (int)(GenreCountBox.Value ?? 1);
         p.TiktokUploadStallSeconds = (int)(UploadStallBox.Value ?? 180);
         p.TiktokProjectConcurrency = (int)(ProjectConcurrencyBox.Value ?? 1);
         p.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
         p.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
         p.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
-        p.TiktokExpectedFullPriceValue = ExpectedPriceValueBox.Text?.Trim() ?? "";
+        p.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
+        p.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
+        var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
+        p.TiktokExpectedFullPriceValue = priceValue;
+        p.TiktokExpectedFullPriceLabel = priceLabel;
+        p.TiktokSilenceValidationEnabled = SilenceValidationBox.IsChecked == true;
+        p.TiktokSilenceThresholdDb = (double)(SilenceThresholdBox.Value ?? -45);
+        p.TiktokMaxContinuousSilenceSeconds = (int)(MaxContinuousSilenceSecondsBox.Value ?? 20);
 
         p.TiktokProxyEnabled = ProxyEnabledBox.IsChecked == true;
         p.TiktokProxyType = TagOf(ProxyTypeCombo, "http");
@@ -136,4 +159,17 @@ public partial class AccountSettingsDialog : Window
 
     private static string TagOf(ComboBox combo, string fallback)
         => (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? fallback;
+
+    private static (string Value, string Label) NormalizeExpectedPriceInput(string? text)
+    {
+        var raw = (text ?? "").Trim();
+        if (string.IsNullOrEmpty(raw)) return ("", "");
+
+        var totalMatch = Regex.Match(raw, @"\$?(\d+(?:\.\d+)?)");
+        var value = totalMatch.Success ? totalMatch.Groups[1].Value : raw;
+        var label = raw.Contains("每集", StringComparison.Ordinal) || raw.Contains("/EP", StringComparison.OrdinalIgnoreCase)
+            ? raw
+            : (raw.StartsWith('$') ? raw : $"${value}");
+        return (value, label);
+    }
 }

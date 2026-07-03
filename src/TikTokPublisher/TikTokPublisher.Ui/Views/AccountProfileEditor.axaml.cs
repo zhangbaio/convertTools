@@ -63,6 +63,7 @@ public partial class AccountProfileEditor : UserControl
         ContractIdBox.Text = profile.TiktokContractId;
         SelectByTag(ContractModeCombo, profile.TiktokContractIdMode, "manual");
         SelectByTag(SubmitActionCombo, profile.TiktokSubmitAction, "draft");
+        SubmitEnabledBox.IsChecked = profile.TiktokSubmitEnabled;
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "female");
         SelectByTag(SourceLanguageCombo, profile.TiktokSourceLanguage, "zh");
@@ -84,6 +85,7 @@ public partial class AccountProfileEditor : UserControl
         UploadBatchStallBox.Value = profile.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = profile.TiktokUploadBatchMaxRetries;
         SilenceThresholdBox.Value = (decimal)profile.TiktokSilenceThresholdDb;
+        MaxContinuousSilenceSecondsBox.Value = profile.TiktokMaxContinuousSilenceSeconds;
 
         SelectByTag(ExpectedPriceModeCombo, profile.TiktokExpectedFullPriceMode, "manual");
         ExpectedPriceOptionIndexBox.Value = profile.TiktokExpectedFullPriceOptionIndex;
@@ -134,6 +136,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
             profile.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
             profile.TiktokSubmitAction = TagOf(SubmitActionCombo, "draft");
+            profile.TiktokSubmitEnabled = SubmitEnabledBox.IsChecked == true;
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "female");
             profile.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
@@ -154,6 +157,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
             profile.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
             profile.TiktokSilenceThresholdDb = (double)(SilenceThresholdBox.Value ?? -45);
+            profile.TiktokMaxContinuousSilenceSeconds = (int)(MaxContinuousSilenceSecondsBox.Value ?? 20);
             profile.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
             profile.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
             var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
@@ -221,6 +225,8 @@ public partial class AccountProfileEditor : UserControl
         CdpEndpointBox.Text = "";
         FingerprintStartCommandBox.Text = "";
         ContractIdBox.Text = "";
+        SubmitEnabledBox.IsChecked = true;
+        MaxContinuousSilenceSecondsBox.Value = 20;
         ExpectedPriceValueBox.Text = "";
         ExpectedPriceOptionsCombo.Items.Clear();
         ProxyHostBox.Text = "";
