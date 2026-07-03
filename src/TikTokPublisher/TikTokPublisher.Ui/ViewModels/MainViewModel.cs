@@ -729,7 +729,7 @@ public sealed partial class MainViewModel : ViewModelBase
                     RefreshRunningWorkspacesSummary();
                 },
                 onPersist,
-                ct).ConfigureAwait(false);
+                ct);
         }
         finally
         {

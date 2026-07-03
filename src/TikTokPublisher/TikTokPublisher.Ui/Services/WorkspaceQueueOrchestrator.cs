@@ -202,7 +202,8 @@ public sealed class WorkspaceQueueOrchestrator
         FinalAction finalAction,
         Action<QueueWorkerProgress> onProgress,
         Action<string, IReadOnlyList<QueueProjectItem>> onPersist,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyCollection<string>? projectDirFilter = null)
     {
         try
         {
