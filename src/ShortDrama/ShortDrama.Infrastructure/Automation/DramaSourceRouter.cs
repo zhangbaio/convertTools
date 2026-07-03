@@ -1,6 +1,5 @@
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
-using ShortDrama.Desktop.Models;
 using ShortDrama.Infrastructure.Automation;
 using System.Globalization;
 using System.Net.Http.Headers;
@@ -8,7 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace ShortDrama.Desktop.Services;
+namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 {
@@ -19,13 +18,15 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private static readonly string[] DownloadDefaults = ["hgnew", "hglocal", "pikachu"];
     private static readonly string[] NewReleaseDefaults = ["hgnew", "hglocal"];
     private static readonly string[] RankingDefaults = ["hglocal", "pikachu"];
+    private const string DownloadStateFileName = ".weixin-channel-download-state.json";
+    private const string EpisodeNumberModeContinuous = "continuous";
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif"];
     private static readonly ProductInfoHeaderValue UserAgentProduct = new("ShortDramaDesktop", "1.0");
     private static readonly string MobileUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
     private readonly HttpClient _httpClient;
-    private readonly GlobalSettingsService _globalSettingsService;
+    private readonly IDramaSettingsProvider _settingsProvider;
     private readonly HongguoLocalApiService _hglocalApiService;
     private readonly HongguoNewApiService _hgnewApiService;
     private readonly HongguoDramaSearchService _hgnewSearchService;
@@ -34,7 +35,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     public DramaSourceRouter(
         HttpClient httpClient,
-        GlobalSettingsService globalSettingsService,
+        IDramaSettingsProvider settingsProvider,
         HongguoLocalApiService hglocalApiService,
         HongguoNewApiService hgnewApiService,
         HongguoDramaSearchService hgnewSearchService,
@@ -42,7 +43,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         HongguoMemoryReaderService hongguoMemoryReaderService)
     {
         _httpClient = httpClient;
-        _globalSettingsService = globalSettingsService;
+        _settingsProvider = settingsProvider;
         _hglocalApiService = hglocalApiService;
         _hgnewApiService = hgnewApiService;
         _hgnewSearchService = hgnewSearchService;
@@ -55,7 +56,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int page,
         CancellationToken cancellationToken)
     {
-        var settings = _globalSettingsService.Load();
+        var settings = _settingsProvider.Get();
         Exception? lastError = null;
 
         foreach (var source in ResolveServiceOrder(settings.DramaServiceOrderSearch, SearchDefaults, settings.DramaSourceChain))
@@ -89,7 +90,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return [];
     }
 
-    public async Task<int> ProbePikachuSearchAsync(GlobalConfigSnapshot settings, CancellationToken cancellationToken)
+    public async Task<int> ProbePikachuSearchAsync(DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         var items = await SearchPikachuAsync("测试", 1, settings, cancellationToken);
         return items.Count;
@@ -97,7 +98,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetTodayAsync(CancellationToken cancellationToken)
     {
-        var settings = _globalSettingsService.Load();
+        var settings = _settingsProvider.Get();
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => _hgnewApiService.GetTodayNewAsync(settings, "djnew", ct),
@@ -107,7 +108,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetMangaTodayAsync(int days, CancellationToken cancellationToken)
     {
-        var settings = _globalSettingsService.Load();
+        var settings = _settingsProvider.Get();
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewMangaTodayAsync(settings, days, ct),
@@ -117,7 +118,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(int days, CancellationToken cancellationToken)
     {
-        var settings = _globalSettingsService.Load();
+        var settings = _settingsProvider.Get();
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewAiTodayAsync(settings, days, ct),
@@ -127,7 +128,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)
     {
-        var settings = _globalSettingsService.Load();
+        var settings = _settingsProvider.Get();
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewHistoryAsync(settings, days, ct),
@@ -138,7 +139,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private async Task<IReadOnlyList<DramaSearchItem>> SearchHgnewAsync(
         string keyword,
         int page,
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         CancellationToken cancellationToken)
     {
         try
@@ -153,7 +154,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> LoadNewReleaseAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> hgnewLoader,
         Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> hglocalLoader,
         CancellationToken cancellationToken)
@@ -191,7 +192,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> LoadHgnewMangaTodayAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         int days,
         CancellationToken cancellationToken)
     {
@@ -212,7 +213,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> LoadHgnewAiTodayAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         int days,
         CancellationToken cancellationToken)
     {
@@ -233,7 +234,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> LoadHgnewHistoryAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         int days,
         CancellationToken cancellationToken)
     {
@@ -254,7 +255,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> LoadHgnewDailyModeWithFallbackAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string mode,
         int days,
         CancellationToken cancellationToken)
@@ -312,7 +313,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
-        var settings = _globalSettingsService.Load();
+        var settings = _settingsProvider.Get();
         var downloadTimeoutSeconds = ParsePositiveInt(settings.HongguoDownloadTimeoutSeconds, 60);
         var downloadAttempts = ParsePositiveInt(settings.HongguoEpisodeDownloadAttempts, 5);
         var bookId = request.BookId?.Trim() ?? string.Empty;
@@ -384,7 +385,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             return new DramaDownloadResult(false, request.OutputDir, CountVideoFiles(request.OutputDir), ex.Message);
         }
 
-        var tasks = BuildEpisodeTasks(episodes, request.Episodes);
+        var episodeNumberMode = NormalizeEpisodeNumberMode(request.EpisodeNumberMode);
+        var tasks = BuildEpisodeTasks(episodes, request.Episodes, episodeNumberMode);
         if (tasks.Count == 0)
         {
             return new DramaDownloadResult(false, request.OutputDir, CountVideoFiles(request.OutputDir), "没有可下载的剧集。");
@@ -422,12 +424,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var videoCount = CountVideoFiles(request.OutputDir);
         if (failures.Count > 0)
         {
-            return new DramaDownloadResult(false, request.OutputDir, videoCount, string.Join("；", failures.Distinct(StringComparer.Ordinal)));
+            var failed = new DramaDownloadResult(false, request.OutputDir, videoCount, string.Join("；", failures.Distinct(StringComparer.Ordinal)));
+            WriteDownloadState(request, failed, tasks, failures, episodeNumberMode);
+            PersistEpisodeNumberMode(request.ProjectDir, episodeNumberMode);
+            return failed;
         }
 
-        return new DramaDownloadResult(videoCount > 0, request.OutputDir, videoCount, videoCount > 0
+        var result = new DramaDownloadResult(videoCount > 0, request.OutputDir, videoCount, videoCount > 0
             ? $"下载完成，共 {videoCount} 个视频。"
             : "下载完成，但未发现视频文件。");
+        WriteDownloadState(request, result, tasks, [], episodeNumberMode);
+        PersistEpisodeNumberMode(request.ProjectDir, episodeNumberMode);
+        return result;
     }
 
     private async Task DownloadEpisodeAsync(
@@ -446,8 +454,21 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         await semaphore.WaitAsync(cancellationToken);
         try
         {
-            var finalPath = Path.Combine(outputDir, $"第{task.EpisodeNumber}集.mp4");
+            var finalPath = Path.Combine(outputDir, BuildEpisodeFileName(task));
             var tempPath = $"{finalPath}.part";
+            var existingVideo = FindExistingEpisodeVideo(outputDir, task);
+            if (!string.IsNullOrWhiteSpace(existingVideo))
+            {
+                if (!string.Equals(Path.GetFullPath(existingVideo), Path.GetFullPath(finalPath), StringComparison.OrdinalIgnoreCase) &&
+                    !File.Exists(finalPath))
+                {
+                    File.Move(existingVideo, finalPath);
+                    existingVideo = finalPath;
+                }
+
+                progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集已存在，跳过");
+                return;
+            }
 
             if (HasValidVideoFile(finalPath))
             {
@@ -565,7 +586,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private async Task<IReadOnlyList<DramaSearchItem>> SearchPikachuAsync(
         string keyword,
         int page,
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(settings.PikachuFanqieCookie))
@@ -729,21 +750,21 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private Task<IReadOnlyList<DramaSearchItem>> SearchLocalAsync(
         string keyword,
         int page,
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         CancellationToken cancellationToken)
     {
         return _hglocalApiService.SearchAsync(settings, keyword, page, cancellationToken);
     }
 
     private Task<IReadOnlyList<DramaSearchItem>> GetLocalTodayAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         CancellationToken cancellationToken)
     {
         return _hglocalApiService.GetTodayNewAsync(settings, "short_play", cancellationToken);
     }
 
     private Task<IReadOnlyList<DramaSearchItem>> GetLatestByGenreAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string genre,
         int days,
         CancellationToken cancellationToken)
@@ -753,7 +774,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private async Task<IReadOnlyList<SourceEpisode>> GetLocalEpisodesAsync(
         string prefixedBookId,
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         CancellationToken cancellationToken)
     {
         var episodes = await _hglocalApiService.GetEpisodesAsync(settings, prefixedBookId, cancellationToken);
@@ -768,14 +789,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private async Task<SourceVideoDetail> GetLocalVideoUrlAsync(
         string prefixedVideoId,
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         CancellationToken cancellationToken)
     {
         var detail = await _hglocalApiService.GetVideoPlaybackAsync(settings, prefixedVideoId, cancellationToken);
         return new SourceVideoDetail(detail.Url);
     }
 
-    private async Task<IReadOnlyList<SourceEpisode>> GetPikachuEpisodesAsync(string prefixedBookId, GlobalConfigSnapshot settings, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<SourceEpisode>> GetPikachuEpisodesAsync(string prefixedBookId, DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         var serverUrl = NormalizeServerUrl(settings.PikachuServerUrl);
         var bookId = StripPrefix(prefixedBookId, PikachuBookPrefix);
@@ -829,7 +850,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return episodes;
     }
 
-    private async Task<IReadOnlyList<SourceEpisode>> GetHgnewEpisodesAsync(string bookId, GlobalConfigSnapshot settings, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<SourceEpisode>> GetHgnewEpisodesAsync(string bookId, DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         var items = await _hgnewApiService.GetEpisodesAsync(settings, bookId, cancellationToken);
         return items
@@ -841,13 +862,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             .ToArray();
     }
 
-    private async Task<SourceVideoDetail> GetHgnewVideoUrlAsync(string videoId, string quality, GlobalConfigSnapshot settings, CancellationToken cancellationToken)
+    private async Task<SourceVideoDetail> GetHgnewVideoUrlAsync(string videoId, string quality, DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         var detail = await _hgnewApiService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
         return new SourceVideoDetail(detail.Url);
     }
 
-    private async Task<SourceVideoDetail> GetPikachuVideoUrlAsync(string prefixedVideoId, string quality, GlobalConfigSnapshot settings, CancellationToken cancellationToken)
+    private async Task<SourceVideoDetail> GetPikachuVideoUrlAsync(string prefixedVideoId, string quality, DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         var serverUrl = NormalizeServerUrl(settings.PikachuServerUrl);
         var videoId = StripPrefix(prefixedVideoId, PikachuEpisodePrefix);
@@ -887,7 +908,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return new SourceVideoDetail(url);
     }
 
-    private async Task<string> ResolvePikachuDeviceIdAsync(GlobalConfigSnapshot settings, CancellationToken cancellationToken)
+    private async Task<string> ResolvePikachuDeviceIdAsync(DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         var configured = settings.PikachuDeviceId?.Trim();
         if (!string.IsNullOrWhiteSpace(configured))
@@ -902,7 +923,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             throw new InvalidOperationException($"未配置 pikachu_device_id，且未能从红果进程读取 DeviceId：{readResult.Reason}");
         }
 
-        _globalSettingsService.Save(settings with { PikachuDeviceId = deviceId });
+        _settingsProvider.SavePikachuDeviceId(deviceId);
         return deviceId;
     }
 
@@ -939,13 +960,39 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
     }
 
-    private static IReadOnlyList<EpisodeTask> BuildEpisodeTasks(IReadOnlyList<SourceEpisode> episodes, string selection)
+    private static IReadOnlyList<EpisodeTask> BuildEpisodeTasks(
+        IReadOnlyList<SourceEpisode> episodes,
+        string selection,
+        string episodeNumberMode)
     {
+        var continuous = string.Equals(episodeNumberMode, EpisodeNumberModeContinuous, StringComparison.Ordinal);
         var selectedEpisodes = ParseEpisodeSelection(selection);
-        return episodes
-            .Where(item => selectedEpisodes is null || selectedEpisodes.Contains(item.EpisodeNumber))
+        var ordered = episodes
             .OrderBy(item => item.EpisodeNumber)
-            .Select((item, index) => new EpisodeTask(index + 1, item.EpisodeNumber, item.Title, item.VideoId, item.PosterUrl))
+            .Select((item, index) =>
+            {
+                var sequenceNumber = index + 1;
+                var sourceNumber = item.EpisodeNumber > 0 ? item.EpisodeNumber : sequenceNumber;
+                var outputNumber = continuous ? sequenceNumber : sourceNumber;
+                return new EpisodeTask(
+                    Order: sequenceNumber,
+                    EpisodeNumber: outputNumber,
+                    SourceEpisodeNumber: sourceNumber,
+                    SequenceEpisodeNumber: sequenceNumber,
+                    Title: item.Title,
+                    VideoId: item.VideoId,
+                    PosterUrl: item.PosterUrl);
+            })
+            .ToArray();
+
+        if (selectedEpisodes is null)
+        {
+            return ordered;
+        }
+
+        return ordered
+            .Where(item => selectedEpisodes.Contains(continuous ? item.SequenceEpisodeNumber : item.SourceEpisodeNumber))
+            .Select((item, index) => item with { Order = index + 1 })
             .ToArray();
     }
 
@@ -1036,6 +1083,117 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         catch
         {
             // Ignore cleanup failures.
+        }
+    }
+
+    private static string NormalizeEpisodeNumberMode(string? value)
+    {
+        return string.Equals(value?.Trim(), EpisodeNumberModeContinuous, StringComparison.OrdinalIgnoreCase)
+            ? EpisodeNumberModeContinuous
+            : "source";
+    }
+
+    private static string BuildEpisodeFileName(EpisodeTask task) => $"第{task.EpisodeNumber}集.mp4";
+
+    private static string? FindExistingEpisodeVideo(string outputDir, EpisodeTask task)
+    {
+        foreach (var directory in new[] { outputDir, Path.Combine(outputDir, "videos") })
+        {
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            foreach (var path in Directory.EnumerateFiles(directory, "*.*", SearchOption.TopDirectoryOnly)
+                         .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var stem = Path.GetFileNameWithoutExtension(path);
+                if (string.Equals(stem, Path.GetFileNameWithoutExtension(BuildEpisodeFileName(task)), StringComparison.OrdinalIgnoreCase) ||
+                    BuildEpisodeMarkers(task).Any(marker => stem.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (HasValidVideoFile(path))
+                    {
+                        return path;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> BuildEpisodeMarkers(EpisodeTask task)
+    {
+        foreach (var number in new[] { task.EpisodeNumber, task.SourceEpisodeNumber, task.SequenceEpisodeNumber }.Where(value => value > 0).Distinct())
+        {
+            yield return $"第{number}集";
+            yield return $"第{number:00}集";
+        }
+    }
+
+    private static void WriteDownloadState(
+        DramaDownloadRequest request,
+        DramaDownloadResult result,
+        IReadOnlyList<EpisodeTask> tasks,
+        IReadOnlyList<string> failures,
+        string episodeNumberMode)
+    {
+        try
+        {
+            var payload = new
+            {
+                ok = result.Ok,
+                project_dir = request.OutputDir,
+                video_count = result.VideoCount,
+                message = result.Message ?? "",
+                failures,
+                stopped = false,
+                episodes = string.IsNullOrWhiteSpace(request.Episodes) ? "all" : request.Episodes,
+                quality = request.Quality,
+                concurrent = Math.Clamp(request.Concurrent, 1, 10),
+                episode_number_mode = episodeNumberMode,
+                episode_mappings = tasks.Select(task => new
+                {
+                    source_episode_number = task.SourceEpisodeNumber,
+                    sequence_episode_number = task.SequenceEpisodeNumber,
+                    episode_title = task.Title
+                }).ToArray()
+            };
+            File.WriteAllText(
+                Path.Combine(request.OutputDir, DownloadStateFileName),
+                JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch
+        {
+            // Download state is helpful for queue interoperability, but should not fail a completed download.
+        }
+    }
+
+    private static void PersistEpisodeNumberMode(string projectDir, string episodeNumberMode)
+    {
+        var metadataPath = Path.Combine(projectDir, "shortdrama-project.json");
+        if (!File.Exists(metadataPath))
+        {
+            return;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
+            var payload = JsonSerializer.Deserialize<Dictionary<string, object?>>(document.RootElement.GetRawText())
+                          ?? new Dictionary<string, object?>(StringComparer.Ordinal);
+            payload["episodeNumberMode"] = episodeNumberMode;
+            payload["episode_number_mode"] = episodeNumberMode;
+            File.WriteAllText(metadataPath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch
+        {
+            // Ignore metadata update failures.
         }
     }
 
@@ -1266,6 +1424,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private sealed record EpisodeTask(
         int Order,
         int EpisodeNumber,
+        int SourceEpisodeNumber,
+        int SequenceEpisodeNumber,
         string Title,
         string VideoId,
         string PosterUrl);

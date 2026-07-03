@@ -45,7 +45,9 @@ public sealed class QueuePublishHost : IQueuePublishHost
             DramaName = project.Title,
             Description = project.Description,
             GenreCategory = project.GenreCategory,
-            EpisodeCount = Math.Max(project.EpisodeCount, Math.Max(1, uploadVideos.Count)),
+            EpisodeCount = !string.IsNullOrWhiteSpace(project.ProjectDir)
+                ? ProjectWorkspaceService.ResolveSourceEpisodeCount(project.ProjectDir)
+                : Math.Max(project.EpisodeCount, Math.Max(1, uploadVideos.Count)),
             CoverPath = project.CoverPath,
             ProjectKey = project.DisplayName,
             ProjectDir = project.ProjectDir,

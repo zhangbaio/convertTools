@@ -84,10 +84,10 @@ public partial class ConfigView : UserControl
 
         var configService = app.Services.GetRequiredService<Services.DesktopConfigService>();
         var shellService = app.Services.GetRequiredService<Services.DesktopShellService>();
-        var hgnewApiService = app.Services.GetRequiredService<Services.HongguoNewApiService>();
-        var hglocalApiService = app.Services.GetRequiredService<Services.HongguoLocalApiService>();
-        var dramaSourceRouter = app.Services.GetRequiredService<Services.DramaSourceRouter>();
-        var hongguoMemoryReaderService = app.Services.GetRequiredService<Services.HongguoMemoryReaderService>();
+        var hgnewApiService = app.Services.GetRequiredService<ShortDrama.Infrastructure.Automation.HongguoNewApiService>();
+        var hglocalApiService = app.Services.GetRequiredService<ShortDrama.Infrastructure.Automation.HongguoLocalApiService>();
+        var dramaSourceRouter = app.Services.GetRequiredService<ShortDrama.Infrastructure.Automation.DramaSourceRouter>();
+        var hongguoMemoryReaderService = app.Services.GetRequiredService<ShortDrama.Infrastructure.Automation.HongguoMemoryReaderService>();
         var xingeRemoteControlService = app.Services.GetRequiredService<Services.XingeRemoteControlService>();
         var configVm = new ConfigWindowViewModel(
             mainWindowViewModel.RootDir,

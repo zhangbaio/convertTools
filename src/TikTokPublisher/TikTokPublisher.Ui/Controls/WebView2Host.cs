@@ -2,6 +2,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using TikTokPublisher.Core.Abstractions;
 using TikTokPublisher.Core.Services;
 using Microsoft.Web.WebView2.Core;
@@ -31,7 +32,14 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     public string ProxyUsername { get; set; } = "";
     public string ProxyPassword { get; set; } = "";
 
-    public string? CurrentUrl => _controller?.CoreWebView2?.Source;
+    public string? CurrentUrl
+    {
+        get
+        {
+            try { return _controller?.CoreWebView2?.Source; }
+            catch { return null; }
+        }
+    }
 
     public string? CdpEndpoint =>
         _controller != null && RemoteDebuggingPort > 0 ? $"http://127.0.0.1:{RemoteDebuggingPort}" : null;
@@ -48,16 +56,23 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         SizeChanged += (_, _) => UpdateBounds();
     }
 
-    public Task NavigateAsync(string url)
-    {
-        Navigate(url);
-        return Task.CompletedTask;
-    }
+    public Task NavigateAsync(string url) => NavigateOnUiThreadAsync(url);
 
     public void Navigate(string url)
     {
         if (_controller?.CoreWebView2 != null) _controller.CoreWebView2.Navigate(url);
         else _pendingUrl = url;
+    }
+
+    public Task NavigateOnUiThreadAsync(string url)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            Navigate(url);
+            return Task.CompletedTask;
+        }
+
+        return Dispatcher.UIThread.InvokeAsync(() => Navigate(url)).GetTask();
     }
 
     public void Reload()

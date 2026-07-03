@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services.Asr;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -94,8 +95,8 @@ public static class TikTokSilenceAsrService
         var engine = TikTokAsrEngine.Normalize(settings.TiktokSilenceAsrEngine);
         var workers = engine == TikTokAsrEngine.Volcengine
             ? Math.Clamp(settings.TiktokSilenceDetectConcurrency, 1, 16)
-            : 1;
-        workers = Math.Min(workers, uploadPaths.Count);
+            : Math.Min(2, uploadPaths.Count);
+        workers = Math.Max(1, Math.Min(workers, uploadPaths.Count));
 
         var results = new SilenceGapReport[uploadPaths.Count];
         using var throttle = new SemaphoreSlim(Math.Max(1, workers));
@@ -189,7 +190,7 @@ public static class TikTokSilenceAsrService
             context.WorkflowProjectDir);
     }
 
-    /// <summary>按引擎调度：火山在线走 ASR；本地/混合当前 C# 版暂无 sherpa-onnx，退回电平静音。</summary>
+    /// <summary>按引擎调度：火山在线 / 本地 Paraformer / 混合复核。</summary>
     private static async Task<IReadOnlyList<SpeechInterval>> GetSpeechIntervalsAsync(
         string videoPath,
         ClientSettings settings,
@@ -198,43 +199,71 @@ public static class TikTokSilenceAsrService
         CancellationToken ct)
     {
         var engine = TikTokAsrEngine.Normalize(settings.TiktokSilenceAsrEngine);
-        if (engine == TikTokAsrEngine.Volcengine
-            || (engine == TikTokAsrEngine.Hybrid && HasVolcCredentials(settings)))
-        {
+        if (engine == TikTokAsrEngine.Volcengine)
             return await RecognizeWithVolcAsync(videoPath, settings, ct).ConfigureAwait(false);
+
+        if (engine == TikTokAsrEngine.Local)
+            return await RecognizeWithLocalAsync(videoPath, settings, log, ct).ConfigureAwait(false);
+
+        // hybrid: 本地优先，临界带内用火山复核
+        var local = await RecognizeWithLocalAsync(videoPath, settings, log, ct).ConfigureAwait(false);
+        var (maxGap, _, _) = ComputeMaxNoSpeechGap(local, durationSeconds);
+        var (low, high) = HybridBand(settings);
+        if (maxGap < low || maxGap > high || !HasVolcCredentials(settings))
+        {
+            log?.Invoke($"混合ASR：采用本地结果（最长无台词 {maxGap:F1}s 未落临界带[{low:F0},{high:F0}]，免火山）。");
+            return local;
         }
 
-        // 本地 / 混合 fallback：C# 端暂未集成 sherpa-onnx Paraformer，用 ffmpeg silencedetect
-        // 反推有台词区间（把连续静音之间的段视作 “可能有台词”）。这是近似解，日志里明说以便用户切引擎。
-        log?.Invoke($"⚠️ 未启用火山 ASR：C# 版当前无本地 Paraformer 推理，退回按电平静音近似。请到「系统设置 → ASR 配置」切换为「火山ASR(在线)」以获得更准结果。");
-        return await FallbackByLevelSilenceAsync(videoPath, durationSeconds, ct).ConfigureAwait(false);
+        log?.Invoke($"混合ASR：本地初筛最长无台词 {maxGap:F1}s 落入临界带[{low:F0},{high:F0}]，改用火山复核。");
+        try
+        {
+            var volc = await RecognizeWithVolcAsync(videoPath, settings, ct).ConfigureAwait(false);
+            log?.Invoke("混合ASR：火山复核完成（采用火山结果）。");
+            return volc;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"混合ASR：火山复核失败（{ex.Message}），回退采用本地结果。");
+            return local;
+        }
     }
 
-    private static async Task<IReadOnlyList<SpeechInterval>> FallbackByLevelSilenceAsync(
+    private static async Task<IReadOnlyList<SpeechInterval>> RecognizeWithLocalAsync(
         string videoPath,
-        double durationSeconds,
+        ClientSettings settings,
+        Action<string>? log,
         CancellationToken ct)
     {
-        // 用 ffmpeg silencedetect 找出所有静音段，反推有台词段。
-        var segments = await TikTokAudioSilenceService.DetectExcessiveSilenceAsync(
-            videoPath, durationSeconds,
-            maxContinuousSilenceSeconds: 0.5,
-            silenceThresholdDb: -40,
-            ct).ConfigureAwait(false);
-        if (segments.Count == 0)
-            return new[] { new SpeechInterval(0, durationSeconds) };
+        var (ok, reason) = SherpaOnnxModelResolver.CheckAvailable(settings);
+        if (!ok)
+            throw new InvalidOperationException(reason);
 
-        var speech = new List<SpeechInterval>();
-        var cursor = 0.0;
-        foreach (var seg in segments.OrderBy(s => s.StartSeconds))
+        var wavPath = await ExtractAsrWavAsync(videoPath, ct).ConfigureAwait(false);
+        try
         {
-            if (seg.StartSeconds > cursor + 0.01)
-                speech.Add(new SpeechInterval(cursor, seg.StartSeconds));
-            cursor = Math.Max(cursor, seg.EndSeconds);
+            log?.Invoke("本地 Paraformer ASR 识别中…");
+            return await LocalParaformerAsrClient.RecognizeSpeechIntervalsAsync(wavPath, settings, ct)
+                .ConfigureAwait(false);
         }
-        if (cursor < durationSeconds - 0.01)
-            speech.Add(new SpeechInterval(cursor, durationSeconds));
-        return speech;
+        finally
+        {
+            TryDelete(wavPath);
+            TryDelete(Path.GetDirectoryName(wavPath));
+        }
+    }
+
+    private static (double Low, double High) HybridBand(ClientSettings settings)
+    {
+        var low = settings.TiktokSilenceHybridLowSeconds;
+        var high = settings.TiktokSilenceHybridHighSeconds;
+        if (low > high)
+            (low, high) = (high, low);
+        return (low, high);
     }
 
     private static async Task<IReadOnlyList<SpeechInterval>> RecognizeWithVolcAsync(
@@ -416,9 +445,8 @@ public static class TikTokSilenceAsrService
                 ? (true, "")
                 : (false, "未配置火山 ASR（系统设置 → ASR 配置 → AppID / AccessToken）。");
         }
-        // 本地/混合：C# 端暂无 sherpa-onnx；如未提供火山凭据，就走 fallback。
-        if (engine == TikTokAsrEngine.Hybrid && HasVolcCredentials(settings)) return (true, "");
-        return (true, "");
+
+        return SherpaOnnxModelResolver.CheckAvailable(settings);
     }
 
     private static bool HasVolcCredentials(ClientSettings settings) =>

@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
 using ShortDrama.Desktop.Models;
 using ShortDrama.Desktop.Services;
+using ShortDrama.Infrastructure.Automation;
 using ShortDrama.Infrastructure.Imaging;
 using System.Collections.ObjectModel;
 
@@ -442,7 +443,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
     {
         try
         {
-            await _hongguoNewApiService.ProbeLoginAsync(BuildWorkingGlobalConfig(), CancellationToken.None);
+            await _hongguoNewApiService.ProbeLoginAsync(GlobalDramaSettingsProvider.FromGlobal(BuildWorkingGlobalConfig()), CancellationToken.None);
             HgnewProbeStatus = $"测试登录成功：{DateTime.Now:HH:mm:ss}";
         }
         catch (Exception ex)
@@ -455,7 +456,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
     {
         try
         {
-            var results = await _hongguoLocalApiService.SearchAsync(BuildWorkingGlobalConfig(), "测试", 1, CancellationToken.None);
+            var results = await _hongguoLocalApiService.SearchAsync(GlobalDramaSettingsProvider.FromGlobal(BuildWorkingGlobalConfig()), "测试", 1, CancellationToken.None);
             HongguoLocalProbeStatus = $"hglocal 连接成功，返回 {results.Count} 条：{DateTime.Now:HH:mm:ss}";
         }
         catch (Exception ex)
@@ -493,7 +494,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
     {
         try
         {
-            var count = await _dramaSourceRouter.ProbePikachuSearchAsync(BuildWorkingGlobalConfig(), CancellationToken.None);
+            var count = await _dramaSourceRouter.ProbePikachuSearchAsync(GlobalDramaSettingsProvider.FromGlobal(BuildWorkingGlobalConfig()), CancellationToken.None);
             PikachuProbeStatus = $"pikachu 搜索成功，返回 {count} 条：{DateTime.Now:HH:mm:ss}";
         }
         catch (Exception ex)

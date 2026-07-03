@@ -120,10 +120,74 @@ public static partial class TikTokBrowserActions
         if (!File.Exists(resolved))
             throw new InvalidOperationException($"封面不存在：{resolved}");
 
-        await DismissLeavePageDialogIfPresentAsync(page, log);
-        var trigger = page.Locator(".semi-upload-picture-add").First;
-        if (await trigger.CountAsync() > 0)
+        if (await IsCoverAlreadyUploadedAsync(page))
         {
+            Log(log, "TikTok 封面已存在，跳过上传。");
+            await VerifyCoverUploadCompleteAsync(page, log, ct);
+            return;
+        }
+
+        await DismissLeavePageDialogIfPresentAsync(page, log);
+        if (!await TryFeedCoverFileAsync(page, resolved, log, ct))
+            throw new InvalidOperationException("未找到 TikTok 封面上传控件。");
+
+        Log(log, $"已选择 TikTok 封面: {Path.GetFileName(resolved)}");
+        await page.WaitForTimeoutAsync(1500);
+        await ConfirmCoverCropDialogIfPresentAsync(page, log, ct);
+        await VerifyCoverUploadCompleteAsync(page, log, ct);
+    }
+
+    private static async Task<bool> TryFeedCoverFileAsync(
+        IPage page,
+        string resolved,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        // 对齐 Python upload_cover：优先点击 semi-upload-picture-add + file chooser，失败再用 coverStruct 隐藏 input。
+        foreach (var triggerSelector in new[]
+                 {
+                     "#coverStruct .semi-upload-picture-add",
+                     "[x-field-id='coverStruct'] .semi-upload-picture-add",
+                     ".semi-upload-picture-add",
+                 })
+        {
+            var trigger = page.Locator(triggerSelector).First;
+            if (await trigger.CountAsync() == 0) continue;
+            if (await TryFeedCoverViaChooserAsync(page, trigger, resolved, log, ct))
+                return true;
+        }
+
+        var input = await FindCoverFileInputAsync(page);
+        if (input is not null)
+        {
+            await input.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+            await input.SetInputFilesAsync(resolved, new() { Timeout = 15000 });
+            return true;
+        }
+
+        return false;
+    }
+
+    private static async Task<bool> TryFeedCoverViaChooserAsync(
+        IPage page,
+        ILocator trigger,
+        string resolved,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        try
+        {
+            await trigger.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+            var chooser = await page.RunAndWaitForFileChooserAsync(async () =>
+            {
+                await ClickWithFallbackAsync(trigger, ct);
+            }, new() { Timeout = 15000 });
+            await chooser.SetFilesAsync(resolved);
+            return true;
+        }
+        catch
+        {
+            if (!await DismissLeavePageDialogIfPresentAsync(page, log)) return false;
             try
             {
                 var chooser = await page.RunAndWaitForFileChooserAsync(async () =>
@@ -131,28 +195,86 @@ public static partial class TikTokBrowserActions
                     await ClickWithFallbackAsync(trigger, ct);
                 }, new() { Timeout = 15000 });
                 await chooser.SetFilesAsync(resolved);
+                return true;
             }
             catch
             {
-                if (!await DismissLeavePageDialogIfPresentAsync(page, log))
-                    throw;
-                var chooser = await page.RunAndWaitForFileChooserAsync(async () =>
-                {
-                    await ClickWithFallbackAsync(trigger, ct);
-                }, new() { Timeout = 15000 });
-                await chooser.SetFilesAsync(resolved);
+                return false;
             }
         }
-        else
+    }
+
+    private static async Task<bool> IsCoverAlreadyUploadedAsync(IPage page)
+    {
+        try
         {
-            var input = await FindCoverFileInputAsync(page);
-            if (input is null)
-                throw new InvalidOperationException("未找到 TikTok 封面上传控件。");
-            await input.SetInputFilesAsync(resolved, new() { Timeout = 15000 });
+            var body = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 });
+            if (body.Contains("替换封面", StringComparison.Ordinal)) return true;
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            var preview = page.Locator("#coverStruct img, [x-field-id='coverStruct'] img").First;
+            if (await preview.CountAsync() > 0 && await preview.IsVisibleAsync()) return true;
+        }
+        catch { /* ignore */ }
+
+        return false;
+    }
+
+    private static async Task WaitForCoverUploadAppliedAsync(IPage page, Action<string>? log, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(45);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (await IsCoverAlreadyUploadedAsync(page))
+            {
+                Log(log, "TikTok 封面已上传并就绪。");
+                return;
+            }
+
+            if (await ConfirmCoverCropDialogIfPresentAsync(page, log, ct))
+                continue;
+
+            await page.WaitForTimeoutAsync(800);
         }
 
-        Log(log, $"已选择 TikTok 封面: {Path.GetFileName(resolved)}");
-        await page.WaitForTimeoutAsync(1500);
+        throw new InvalidOperationException("TikTok 封面上传后未检测到「替换封面」或封面预览，可能裁剪未确认成功。");
+    }
+
+    private static async Task<bool> ConfirmCoverCropDialogIfPresentAsync(IPage page, Action<string>? log, CancellationToken ct)
+    {
+        string body;
+        try { body = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 }); }
+        catch { return false; }
+
+        if (!body.Contains("剪裁", StringComparison.Ordinal) && !body.Contains("裁剪", StringComparison.Ordinal))
+            return false;
+
+        var dialog = page.Locator("[role='dialog']").Filter(new() { HasText = "剪裁" }).First;
+        if (await dialog.CountAsync() == 0)
+            dialog = page.Locator("[role='dialog']").Filter(new() { HasText = "裁剪" }).First;
+
+        foreach (var text in new[] { "Confirm", "确认", "确定" })
+        {
+            try
+            {
+                var btn = (await dialog.CountAsync() > 0
+                        ? dialog.Locator("button").Filter(new() { HasText = text })
+                        : page.Locator("button").Filter(new() { HasText = text }))
+                    .First;
+                if (await btn.CountAsync() == 0 || !await btn.IsVisibleAsync()) continue;
+                await btn.ClickAsync(new() { Timeout = 5000 });
+                await page.WaitForTimeoutAsync(1200);
+                Log(log, $"已确认封面裁剪对话框：{text}");
+                return true;
+            }
+            catch { /* try next */ }
+        }
+
+        return false;
     }
 
     public static async Task FillSharedPublishFieldsAsync(
@@ -163,11 +285,25 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct)
     {
+        await EnsureSeriesDetailsStepAsync(page, ct);
         await SetSwitchAsync(page, "#anchorPromotionStatus", options.AnchorPromotionEnabled, ct);
+        await PauseBetweenFieldsAsync(page);
+
         await SelectTargetAudienceAsync(page, recommendation.TargetAudience, log, ct);
+        await VerifyTargetAudienceAsync(page, recommendation.TargetAudience, log, ct);
+        await PauseBetweenFieldsAsync(page);
+
         await SelectGenresAsync(page, recommendation.Genres, log, ct);
+        await PauseBetweenFieldsAsync(page);
+
         await SelectTuxOptionByFieldAsync(page, ["源语言"], options.SourceLanguageLabels, fallbackIndex: 3, log, ct);
-        await FillTextAsync(page, "#totalVideoNum", payload.EpisodeCount.ToString(), ct);
+        await VerifyComboboxFieldAsync(page, ["源语言"], options.SourceLanguageLabels, "源语言", log, ct);
+        await PauseBetweenFieldsAsync(page);
+
+        await FillEpisodeCountAsync(page, payload.EpisodeCount, log, ct);
+        await VerifyEpisodeCountAsync(page, payload.EpisodeCount, log, ct);
+        await PauseBetweenFieldsAsync(page);
+
         await SelectTuxOptionByFieldAsync(
             page,
             ["是否 AI 短剧", "是否AI短剧"],
@@ -175,8 +311,20 @@ public static partial class TikTokBrowserActions
             fallbackIndex: 4,
             log,
             ct);
+        await VerifyComboboxFieldAsync(
+            page,
+            ["是否 AI 短剧", "是否AI短剧"],
+            new[] { options.IsAiDrama ? "是" : "否" },
+            "是否 AI 短剧",
+            log,
+            ct);
+        await PauseBetweenFieldsAsync(page);
+
         await AcceptPromiseAsync(page, log, ct);
+        await PauseBetweenFieldsAsync(page);
+
         await SelectPublishModeAsync(page, options.PublishModeLabel, ct);
+        await PauseBetweenFieldsAsync(page);
         await SetSwitchAsync(page, "#consignmentStatus", options.ConsignmentEnabled, ct);
         await ApplyCommercialModeAsync(page, options, log, ct);
     }
@@ -192,9 +340,8 @@ public static partial class TikTokBrowserActions
 
         if (options.ContractIdMode == TikTokPublishConstants.ContractIdModeFirstAvailable)
         {
-            await combo.ClickAsync(new() { Timeout = 10000 });
-            await page.WaitForTimeoutAsync(500);
-            var option = await FindFirstContractOptionAsync(page);
+            await OpenContractDropdownAsync(page, combo, ct);
+            var option = await WaitForFirstContractOptionAsync(page, ct);
             if (option is null)
             {
                 var visible = await CollectContractOptionTextsAsync(page);
@@ -212,8 +359,7 @@ public static partial class TikTokBrowserActions
             return;
         }
 
-        await combo.ClickAsync(new() { Timeout = 10000 });
-        await page.WaitForTimeoutAsync(500);
+        await OpenContractDropdownAsync(page, combo, ct);
         var matched = await FindContractOptionAsync(page, options.ContractId);
         if (matched is null)
         {
@@ -223,6 +369,68 @@ public static partial class TikTokBrowserActions
         }
         await matched.ClickAsync(new() { Timeout = 10000 });
         Log(log, $"已选择合同: {options.ContractId}");
+    }
+
+    private static async Task OpenContractDropdownAsync(IPage page, ILocator combo, CancellationToken ct)
+    {
+        await combo.ClickAsync(new() { Timeout = 10000 });
+        await page.WaitForTimeoutAsync(500);
+        try
+        {
+            var input = combo.Locator("input").First;
+            if (await input.CountAsync() > 0)
+                await input.ClickAsync(new() { Timeout = 3000 });
+        }
+        catch { /* optional search input */ }
+        await page.WaitForTimeoutAsync(300);
+    }
+
+    private static async Task EnsureSeriesDetailsStepAsync(IPage page, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            var tab = page.GetByText("剧集详情", new() { Exact = false }).First;
+            if (await tab.CountAsync() > 0)
+            {
+                await tab.ClickAsync(new() { Timeout = 5000 });
+                await page.WaitForTimeoutAsync(1200);
+            }
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            await page.Locator("#totalVideoNum").First
+                .ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+        }
+        catch { /* ignore */ }
+    }
+
+    private static async Task FillEpisodeCountAsync(
+        IPage page,
+        int episodeCount,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var value = Math.Max(1, episodeCount).ToString();
+        var locator = page.Locator("#totalVideoNum").First;
+        await locator.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+        await locator.ClickAsync(new() { Timeout = 5000 });
+        await locator.FillAsync(value);
+        try
+        {
+            var actual = await locator.InputValueAsync();
+            if (!string.Equals(actual, value, StringComparison.Ordinal))
+            {
+                await locator.PressAsync("Control+A");
+                await locator.PressSequentiallyAsync(value, new() { Delay = 30 });
+            }
+        }
+        catch { /* ignore */ }
+
+        Log(log, $"TikTok 总集数已填写：{value}");
     }
 
     private static async Task FillTextAsync(IPage page, string selector, string value, CancellationToken ct)
@@ -243,30 +451,102 @@ public static partial class TikTokBrowserActions
             await locator.ClickAsync(new() { Force = true });
     }
 
+    private static async Task EnsureCommercialModeStepAsync(IPage page, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            var tab = page.GetByText("商业模式", new() { Exact = false }).First;
+            if (await tab.CountAsync() > 0)
+            {
+                await tab.ClickAsync(new() { Timeout = 5000 });
+                await page.WaitForTimeoutAsync(1200);
+            }
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            await page.Locator("#business-mode-section, #previewVideoNum, #previewVideoNumOnProfile").First
+                .ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+        }
+        catch { /* ignore */ }
+    }
+
+    private static async Task FillNumericFieldAsync(
+        IPage page,
+        string selector,
+        int value,
+        Action<string>? log,
+        string fieldName,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var text = Math.Max(0, value).ToString();
+        var locator = page.Locator(selector).First;
+        await locator.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+        await locator.ClickAsync(new() { Timeout = 5000 });
+        await locator.FillAsync(text);
+        try
+        {
+            var actual = await locator.InputValueAsync();
+            if (!string.Equals(actual?.Trim(), text, StringComparison.Ordinal))
+            {
+                await locator.PressAsync("Control+A");
+                await locator.PressSequentiallyAsync(text, new() { Delay = 30 });
+            }
+        }
+        catch { /* ignore */ }
+
+        Log(log, $"TikTok {fieldName}已填写：{text}");
+    }
+
     private static async Task ApplyCommercialModeAsync(
         IPage page,
         TikTokPublishOptions options,
         Action<string>? log,
         CancellationToken ct)
     {
-        await FillTextAsync(page, "#previewVideoNumOnProfile", options.ProfilePreviewEpisodes.ToString(), ct);
-        if (!options.PaidEnabled)
+        await EnsureCommercialModeStepAsync(page, ct);
+        await PauseBetweenFieldsAsync(page);
+
+        await FillNumericFieldAsync(
+            page, "#previewVideoNumOnProfile", options.ProfilePreviewEpisodes, log, "个人页剧集展示集数", ct);
+        await VerifyNumericFieldAsync(page, "#previewVideoNumOnProfile", options.ProfilePreviewEpisodes, "个人页剧集展示集数", log, ct);
+        await PauseBetweenFieldsAsync(page);
+
+        var shouldFillPaidPreviewFields = options.PaidEnabled
+            || options.FreePreviewEpisodes > 0
+            || string.Equals(options.ExpectedFullPriceMode, "option_index", StringComparison.OrdinalIgnoreCase)
+            || !string.IsNullOrWhiteSpace(options.ExpectedFullPriceValue);
+
+        if (!shouldFillPaidPreviewFields)
         {
             Log(log, $"商业模式已按付费=否填写个人页剧集展示集数：{options.ProfilePreviewEpisodes}");
             return;
         }
 
-        await FillTextAsync(page, "#previewVideoNum", options.FreePreviewEpisodes.ToString(), ct);
-        if (options.ExpectedFullPriceMode == "manual" && string.IsNullOrWhiteSpace(options.ExpectedFullPriceValue))
-            throw new InvalidOperationException("是否付费=是 时，必须配置“预期全集价格设置”。");
+        await FillNumericFieldAsync(
+            page, "#previewVideoNum", options.FreePreviewEpisodes, log, "免费预览集数", ct);
+        await VerifyNumericFieldAsync(page, "#previewVideoNum", options.FreePreviewEpisodes, "免费预览集数", log, ct);
+        await PauseBetweenFieldsAsync(page);
 
-        await SelectExpectedFullPriceAsync(page, options, ct);
+        if (options.PaidEnabled
+            && options.ExpectedFullPriceMode == "manual"
+            && string.IsNullOrWhiteSpace(options.ExpectedFullPriceValue))
+        {
+            throw new InvalidOperationException("是否付费=是 时，必须配置“预期全集价格设置”。");
+        }
+
+        await SelectExpectedFullPriceAsync(page, options, log, ct);
+        await VerifyExpectedFullPriceAsync(page, options, log, ct);
+
         var label = options.ExpectedFullPriceMode == "option_index"
             ? $"第 {options.ExpectedFullPriceOptionIndex} 个价格选项"
             : options.ExpectedFullPriceLabel ?? options.ExpectedFullPriceValue;
-        Log(log,
-            $"商业模式已按付费=是填写个人页剧集展示集数：{options.ProfilePreviewEpisodes}，" +
-            $"免费预览集数：{options.FreePreviewEpisodes}，预期全集价格：{label}");
+        Log(log, options.PaidEnabled
+            ? $"商业模式已按付费=是填写个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期全集价格：{label}"
+            : $"商业模式已按付费=否预填个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期全集价格：{label}");
     }
 
     private static async Task SelectTargetAudienceAsync(
@@ -291,8 +571,10 @@ public static partial class TikTokBrowserActions
         var desired = genres.Where(g => !string.IsNullOrWhiteSpace(g)).Select(g => g.Trim()).Distinct().ToList();
         if (desired.Count == 0) return;
 
-        var combo = await FindComboboxByFieldLabelAsync(page, ["题材类型", "题材"])
-                    ?? page.Locator("button[role='combobox']").Nth(2);
+        var combo = await FindComboboxByFieldLabelAsync(page, ["题材类型", "题材"]);
+        if (combo is null)
+            throw new InvalidOperationException("未找到 TikTok「题材类型」下拉框，请确认已切换到剧集详情步骤。");
+        await combo.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
         await OpenComboboxAsync(page, combo, ct);
 
         var selected = await CollectSelectedGenreTextsAsync(page);
@@ -342,31 +624,58 @@ public static partial class TikTokBrowserActions
     private static async Task AcceptPromiseAsync(IPage page, Action<string>? log, CancellationToken ct)
     {
         await DismissFloatingAssistantAsync(page, log);
+        if (await IsMainPromiseCheckedAsync(page))
+        {
+            Log(log, "TikTok 本人承诺已勾选，跳过。");
+            return;
+        }
+
         var candidates = new[]
         {
             page.Locator("label").Filter(new() { HasText = "本人承诺" }).First,
             page.Locator("span").Filter(new() { HasText = "本人承诺" }).First,
+            page.Locator("a").Filter(new() { HasText = "版权内容自查清单" }).First,
+            page.Locator("span").Filter(new() { HasText = "版权内容自查清单" }).First,
             page.Locator(".semi-checkbox").First,
             page.Locator("input.semi-checkbox-input").First,
         };
-        foreach (var candidate in candidates)
-        {
-            try
-            {
-                if (await candidate.CountAsync() == 0) continue;
-                await candidate.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
-                await ClickWithFallbackAsync(candidate, ct);
-                await page.WaitForTimeoutAsync(600);
-            }
-            catch { /* 尝试下一个 */ }
 
-            if (await HandlePromiseDrawerAsync(page, log, ct)) return;
-            if (await IsMainPromiseCheckedAsync(page)) { Log(log, "已勾选本人承诺。"); return; }
+        for (var round = 0; round < 3; round++)
+        {
+            foreach (var candidate in candidates)
+            {
+                try
+                {
+                    if (await candidate.CountAsync() == 0) continue;
+                    await candidate.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+                    await ClickWithFallbackAsync(candidate, ct);
+                    await page.WaitForTimeoutAsync(600);
+                }
+                catch { /* 尝试下一个 */ }
+
+                if (await HandlePromiseDrawerAsync(page, log, ct)
+                    && await WaitForMainPromiseCheckedAsync(page, log, ct))
+                    return;
+
+                if (await IsMainPromiseCheckedAsync(page))
+                {
+                    Log(log, "已勾选本人承诺。");
+                    return;
+                }
+            }
+
+            if (await HandlePromiseDrawerAsync(page, log, ct)
+                && await WaitForMainPromiseCheckedAsync(page, log, ct))
+                return;
         }
 
-        if (await HandlePromiseDrawerAsync(page, log, ct)) return;
-        if (await IsMainPromiseCheckedAsync(page)) { Log(log, "已勾选本人承诺。"); return; }
-        throw new InvalidOperationException("TikTok 本人承诺未能勾选成功。");
+        if (await IsMainPromiseCheckedAsync(page))
+        {
+            Log(log, "已勾选本人承诺。");
+            return;
+        }
+
+        throw new InvalidOperationException("TikTok 本人承诺未能勾选成功（请检查版权内容自查清单是否已全部勾选并同意）。");
     }
 
     private static async Task SelectPublishModeAsync(IPage page, string label, CancellationToken ct)
@@ -480,6 +789,19 @@ public static partial class TikTokBrowserActions
         await page.WaitForTimeoutAsync(800);
         foreach (var text in new[] { "确认", "确定", "提交", "同意" })
         {
+            try
+            {
+                var modalBtn = page.Locator("[data-testid='tux-web-modal'][role='dialog'] button")
+                    .Filter(new() { HasText = text }).First;
+                if (await modalBtn.CountAsync() > 0 && await modalBtn.IsVisibleAsync())
+                {
+                    await modalBtn.ClickAsync(new() { Timeout = 5000 });
+                    Log(log, $"已确认提交对话框（modal）：{text}");
+                    return;
+                }
+            }
+            catch { /* try next */ }
+
             try
             {
                 var btn = page.Locator("button").Filter(new() { HasText = text }).First;

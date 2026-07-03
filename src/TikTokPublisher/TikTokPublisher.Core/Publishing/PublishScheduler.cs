@@ -1,17 +1,22 @@
-﻿using TikTokPublisher.Core.Models;
+﻿using TikTokPublisher.Core.Abstractions;
+using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Publishing;
 
 public sealed record AccountPublishJob(
     TikTokAccountProfile Account,
-    string CdpEndpoint,
     IReadOnlyList<PublishItem> Items);
 
 public sealed class PublishScheduler
 {
     private readonly IPublishAutomation _automation;
+    private readonly IEmbeddedBrowserProvider _browserProvider;
 
-    public PublishScheduler(IPublishAutomation automation) => _automation = automation;
+    public PublishScheduler(IPublishAutomation automation, IEmbeddedBrowserProvider browserProvider)
+    {
+        _automation = automation;
+        _browserProvider = browserProvider;
+    }
 
     public async Task RunAsync(
         IReadOnlyList<AccountPublishJob> jobs,
@@ -38,6 +43,16 @@ public sealed class PublishScheduler
         await gate.WaitAsync(ct);
         try
         {
+            var browser = await _browserProvider.GetBrowserAsync(job.Account, ct).ConfigureAwait(false);
+            if (browser is null)
+            {
+                foreach (var item in job.Items)
+                {
+                    Report(onProgress, job, item, "内置浏览器未就绪，请先在「浏览器」页登录", done: true, ok: false);
+                }
+                return;
+            }
+
             foreach (var item in job.Items)
             {
                 ct.ThrowIfCancellationRequested();
@@ -49,10 +64,10 @@ public sealed class PublishScheduler
                     result = await _automation.PublishAsync(
                         job.Account,
                         item,
-                        job.CdpEndpoint,
+                        browser,
                         finalAction,
                         msg => Report(onProgress, job, item, msg, done: false, ok: false),
-                        ct);
+                        ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {

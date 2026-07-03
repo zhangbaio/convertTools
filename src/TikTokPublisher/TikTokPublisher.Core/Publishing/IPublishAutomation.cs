@@ -1,4 +1,5 @@
-﻿using TikTokPublisher.Core.Models;
+﻿using TikTokPublisher.Core.Abstractions;
+using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Publishing;
 
@@ -8,7 +9,7 @@ public interface IPublishAutomation
     Task<PublishResult> PublishAsync(
         TikTokAccountProfile account,
         PublishItem item,
-        string cdpEndpoint,
+        IEmbeddedBrowser browser,
         FinalAction finalAction,
         Action<string>? log,
         CancellationToken ct);

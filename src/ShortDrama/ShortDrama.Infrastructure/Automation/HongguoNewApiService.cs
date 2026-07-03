@@ -1,5 +1,4 @@
 using ShortDrama.Core.Models;
-using ShortDrama.Desktop.Models;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
@@ -7,7 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace ShortDrama.Desktop.Services;
+namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class HongguoNewApiService
 {
@@ -61,13 +60,13 @@ public sealed class HongguoNewApiService
         _httpClient = httpClient;
     }
 
-    public async Task ProbeLoginAsync(GlobalConfigSnapshot settings, CancellationToken cancellationToken)
+    public async Task ProbeLoginAsync(DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         await EnsureTokenAsync(ResolveCredentials(settings), 30, cancellationToken);
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string keyword,
         int page,
         CancellationToken cancellationToken)
@@ -90,7 +89,7 @@ public sealed class HongguoNewApiService
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetTodayNewAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string mode,
         CancellationToken cancellationToken)
     {
@@ -121,7 +120,7 @@ public sealed class HongguoNewApiService
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetDailyByDatesAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string mode,
         IReadOnlyList<DateOnly> dates,
         CancellationToken cancellationToken)
@@ -147,7 +146,7 @@ public sealed class HongguoNewApiService
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetHistoryByDatesAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string mode,
         IReadOnlyList<DateOnly> dates,
         CancellationToken cancellationToken)
@@ -191,7 +190,7 @@ public sealed class HongguoNewApiService
     }
 
     public async Task<IReadOnlyList<HongguoEpisodeInfo>> GetEpisodesAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string bookId,
         CancellationToken cancellationToken)
     {
@@ -242,7 +241,7 @@ public sealed class HongguoNewApiService
     }
 
     public async Task<HongguoVideoPlayback> GetVideoPlaybackAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string videoId,
         string quality,
         CancellationToken cancellationToken)
@@ -824,7 +823,7 @@ public sealed class HongguoNewApiService
         };
     }
 
-    private static HongguoCredentials ResolveCredentials(GlobalConfigSnapshot settings)
+    private static HongguoCredentials ResolveCredentials(DramaSourceSettings settings)
     {
         var account = (settings.HgnewAccount ?? string.Empty).Trim();
         var password = (settings.HgnewPassword ?? string.Empty).Trim();

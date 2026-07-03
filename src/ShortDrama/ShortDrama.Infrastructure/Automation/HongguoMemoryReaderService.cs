@@ -1,9 +1,8 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace ShortDrama.Desktop.Services;
+namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class HongguoMemoryReaderService
 {
@@ -113,9 +112,9 @@ public sealed class HongguoMemoryReaderService
         return null;
     }
 
-    private static Process? FindHongguoProcess()
+    private static System.Diagnostics.Process? FindHongguoProcess()
     {
-        foreach (var process in Process.GetProcesses())
+        foreach (var process in System.Diagnostics.Process.GetProcesses())
         {
             if (LooksLikeHongguoProcess(process))
             {
@@ -128,7 +127,7 @@ public sealed class HongguoMemoryReaderService
         return null;
     }
 
-    private static bool LooksLikeHongguoProcess(Process process)
+    private static bool LooksLikeHongguoProcess(System.Diagnostics.Process process)
     {
         try
         {
@@ -161,7 +160,7 @@ public sealed class HongguoMemoryReaderService
                value.Contains("红果", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string? TryGetProcessPath(Process process)
+    private static string? TryGetProcessPath(System.Diagnostics.Process process)
     {
         try
         {
@@ -174,7 +173,7 @@ public sealed class HongguoMemoryReaderService
     }
 
     private static void ReadProcessMemory(
-        Process process,
+        System.Diagnostics.Process process,
         CancellationToken cancellationToken,
         Func<byte[], bool> inspectChunk)
     {

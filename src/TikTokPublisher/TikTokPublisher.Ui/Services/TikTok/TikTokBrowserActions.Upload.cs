@@ -9,6 +9,8 @@ public static partial class TikTokBrowserActions
     private static readonly Regex UploadedContentCountPattern = new(@"正片内容\s*[\(（](\d+)[\)）]", RegexOptions.Compiled);
     private static readonly Regex PercentPattern = new(@"(\d{1,3})\s*%", RegexOptions.Compiled);
 
+    private const long CdpFileTransferLimitBytes = 45L * 1024 * 1024;
+
     public static async Task UploadLocalVideosAsync(
         IPage page,
         IReadOnlyList<string> videoPaths,
@@ -131,22 +133,81 @@ public static partial class TikTokBrowserActions
         IReadOnlyList<string> resolvedPaths,
         CancellationToken ct)
     {
-        try
+        var batches = BuildVideoUploadBatches(resolvedPaths);
+        for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
-            await button.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
-            var chooser = await page.RunAndWaitForFileChooserAsync(async () =>
+            ct.ThrowIfCancellationRequested();
+            var batch = batches[batchIndex];
+            if (await CdpDomFileUpload.TrySetFilesAsync(page, batch, ct).ConfigureAwait(false))
             {
-                await ClickWithFallbackAsync(button, ct);
-            }, new() { Timeout = 15000 });
-            await chooser.SetFilesAsync(resolvedPaths);
+                if (batchIndex < batches.Count - 1)
+                    await page.WaitForTimeoutAsync(400);
+                continue;
+            }
+
+            try
+            {
+                await button.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+                var chooser = await page.RunAndWaitForFileChooserAsync(async () =>
+                {
+                    await ClickWithFallbackAsync(button, ct);
+                }, new() { Timeout = 15000 });
+                await chooser.SetFilesAsync(batch);
+            }
+            catch (Exception ex)
+            {
+                var input = await FindVideoFileInputAsync(page);
+                if (input is null)
+                {
+                    if (await CdpDomFileUpload.TrySetFilesAsync(page, batch, ct).ConfigureAwait(false))
+                        continue;
+                    throw new InvalidOperationException($"未找到 TikTok 视频上传控件：{ex.Message}", ex);
+                }
+
+                await FeedVideoFilesWithBatchesAsync(page, input, batch, ct);
+            }
+
+            if (batchIndex < batches.Count - 1)
+                await page.WaitForTimeoutAsync(400);
         }
-        catch (Exception ex)
+    }
+
+    private static List<IReadOnlyList<string>> BuildVideoUploadBatches(IReadOnlyList<string> resolvedPaths)
+    {
+        if (resolvedPaths.Count == 0)
+            return new List<IReadOnlyList<string>>();
+
+        var totalBytes = resolvedPaths.Sum(path => SafeFileSize(path));
+        if (resolvedPaths.Count == 1 || totalBytes <= CdpFileTransferLimitBytes)
+            return new List<IReadOnlyList<string>> { resolvedPaths.ToList() };
+
+        var batches = new List<IReadOnlyList<string>>();
+        var current = new List<string>();
+        long currentBytes = 0;
+        foreach (var path in resolvedPaths)
         {
-            var input = await FindVideoFileInputAsync(page);
-            if (input is null)
-                throw new InvalidOperationException($"未找到 TikTok 视频上传控件：{ex.Message}", ex);
-            await input.SetInputFilesAsync(resolvedPaths, new() { Timeout = 15000 });
+            var size = SafeFileSize(path);
+            if (current.Count > 0 && currentBytes + size > CdpFileTransferLimitBytes)
+            {
+                batches.Add(current);
+                current = new List<string>();
+                currentBytes = 0;
+            }
+
+            current.Add(path);
+            currentBytes += size;
         }
+
+        if (current.Count > 0)
+            batches.Add(current);
+
+        return batches;
+    }
+
+    private static long SafeFileSize(string path)
+    {
+        try { return new FileInfo(path).Length; }
+        catch { return 0; }
     }
 
     private static async Task EnsureVideoUploadStartedAsync(
@@ -273,26 +334,126 @@ public static partial class TikTokBrowserActions
 
     private static async Task<ILocator?> FindVideoFileInputInternalAsync(IPage page)
     {
+        // accept 现为扩展名(.mp4,.mov)，需同时匹配 mp4/mov/video（对齐 Python browser_actions）。
         var selectors = new[]
         {
+            "input.semi-upload-hidden-input[accept*='mp4']",
+            "input.semi-upload-hidden-input[accept*='mov']",
+            "input.semi-upload-hidden-input[accept*='video']",
+            "input[type=file][accept*='mp4']",
+            "input[type=file][accept*='mov']",
+            "input[type=file][accept*='video']",
             "input.semi-upload-hidden-input",
             "input.semi-upload-hidden-input-replace",
-            "input[type=file][accept*='video']",
+            "input[type=file]",
         };
+
+        ILocator? best = null;
+        var bestScore = -1;
         foreach (var selector in selectors)
         {
-            var loc = page.Locator(selector).First;
-            if (await loc.CountAsync() > 0) return loc;
+            var locator = page.Locator(selector);
+            int count;
+            try { count = Math.Min(await locator.CountAsync(), 8); }
+            catch { continue; }
+
+            for (var index = 0; index < count; index++)
+            {
+                var candidate = locator.Nth(index);
+                string accept;
+                try { accept = (await candidate.GetAttributeAsync("accept") ?? "").Trim().ToLowerInvariant(); }
+                catch { accept = ""; }
+
+                var isVideo = accept.Contains("mp4") || accept.Contains("mov") || accept.Contains("video");
+                if (!string.IsNullOrEmpty(accept) && !isVideo) continue;
+
+                string? multipleAttr;
+                try { multipleAttr = await candidate.GetAttributeAsync("multiple"); }
+                catch { multipleAttr = null; }
+
+                var score = 0;
+                if (isVideo) score += 5;
+                if (!string.IsNullOrEmpty(accept)) score += 2;
+                if (multipleAttr is not null) score += 4;
+                var normalized = selector.ToLowerInvariant();
+                if (normalized.Contains("semi-upload-hidden-input") && !normalized.Contains("replace")) score += 3;
+                if (normalized.Contains("replace")) score -= 1;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = candidate;
+                }
+            }
         }
-        return null;
+
+        return best;
+    }
+
+    private static async Task SetInputFilesInBatchesAsync(
+        IPage page,
+        ILocator input,
+        IReadOnlyList<string> resolvedPaths,
+        CancellationToken ct)
+    {
+        var batches = BuildVideoUploadBatches(resolvedPaths);
+        for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var batch = batches[batchIndex];
+            if (!await CdpDomFileUpload.TrySetFilesAsync(page, batch, ct).ConfigureAwait(false))
+            {
+                if (batch.Count == 1)
+                    await input.SetInputFilesAsync(batch[0], new() { Timeout = 60000 });
+                else
+                    await input.SetInputFilesAsync(batch, new() { Timeout = 60000 });
+            }
+
+            if (batchIndex < batches.Count - 1)
+                await Task.Delay(400, ct);
+        }
+    }
+
+    private static async Task FeedVideoFilesWithBatchesAsync(
+        IPage page,
+        ILocator input,
+        IReadOnlyList<string> resolvedPaths,
+        CancellationToken ct)
+    {
+        string? multipleAttr;
+        try { multipleAttr = await input.GetAttributeAsync("multiple"); }
+        catch { multipleAttr = null; }
+
+        if (multipleAttr is null)
+        {
+            foreach (var path in resolvedPaths)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!await CdpDomFileUpload.TrySetFilesAsync(page, new[] { path }, ct).ConfigureAwait(false))
+                    await input.SetInputFilesAsync(path, new() { Timeout = 60000 });
+                await Task.Delay(400, ct);
+            }
+            return;
+        }
+
+        await SetInputFilesInBatchesAsync(page, input, resolvedPaths, ct);
     }
 
     private static async Task<ILocator?> FindCoverFileInputAsync(IPage page)
     {
+        // 对齐 Python _find_cover_file_input：限定在 coverStruct 区域，避免误传视频/pdf 控件。
         var selectors = new[]
         {
-            "input[type=file][accept*='image']",
-            ".semi-upload input[type=file]",
+            "#coverStruct input.semi-upload-hidden-input-replace",
+            "#coverStruct input.semi-upload-hidden-input",
+            "[x-field-id='coverStruct'] input.semi-upload-hidden-input-replace",
+            "[x-field-id='coverStruct'] input.semi-upload-hidden-input",
+            ".uploadField-Xm2Vjl input.semi-upload-hidden-input-replace",
+            ".uploadField-Xm2Vjl input.semi-upload-hidden-input",
+            "input.semi-upload-hidden-input-replace[accept='image/*']",
+            "input.semi-upload-hidden-input[accept='image/*']",
+            "input.semi-upload-hidden-input-replace[accept*='image']",
+            "input.semi-upload-hidden-input[accept*='image']",
         };
         foreach (var selector in selectors)
         {

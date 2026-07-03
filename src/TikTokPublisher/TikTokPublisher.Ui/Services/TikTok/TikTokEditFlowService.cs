@@ -185,11 +185,13 @@ public static class TikTokEditFlowService
         await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log);
 
         var normalized = NormalizeTitleCandidates(titleCandidates?.ToArray() ?? Array.Empty<string>());
-        if (normalized.Count > 0)
+        var searchKeys = ExpandTitleSearchKeywords(normalized);
+        if (searchKeys.Count > 0)
         {
-            foreach (var title in normalized)
+            foreach (var title in searchKeys)
             {
                 ct.ThrowIfCancellationRequested();
+                log?.Invoke($"TikTok 在原剧管理搜索：{title}");
                 await ApplySeriesListSearchAsync(page, title, ct);
                 var detailUrl = await FindMatchingDetailUrlAsync(page, title);
                 if (!string.IsNullOrWhiteSpace(detailUrl))
@@ -199,6 +201,31 @@ public static class TikTokEditFlowService
         }
 
         return await FindFirstVisibleDetailUrlAsync(page);
+    }
+
+    private static List<string> ExpandTitleSearchKeywords(IReadOnlyList<string> titles)
+    {
+        var results = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var title in titles)
+        {
+            foreach (var candidate in ExpandSingleTitleSearchKeywords(title))
+            {
+                if (seen.Add(candidate)) results.Add(candidate);
+            }
+        }
+        return results;
+    }
+
+    private static IEnumerable<string> ExpandSingleTitleSearchKeywords(string title)
+    {
+        var text = (title ?? "").Trim();
+        if (string.IsNullOrEmpty(text)) yield break;
+        yield return text;
+        if (text.Length >= 6)
+            yield return text[..6];
+        if (text.Length >= 4)
+            yield return text[..4];
     }
 
     private static async Task ApplySeriesListSearchAsync(IPage page, string title, CancellationToken ct)
@@ -216,7 +243,16 @@ public static class TikTokEditFlowService
 
     private static async Task<ILocator?> FindSeriesListSearchInputAsync(IPage page)
     {
-        foreach (var selector in new[] { "input[type='search']", "input[placeholder]", "input[type='text']", "input:not([type])", "input" })
+        foreach (var selector in new[]
+                 {
+                     "input[placeholder*='短剧']",
+                     "input[placeholder*='查询']",
+                     "input[type='search']",
+                     "input[placeholder]",
+                     "input[type='text']",
+                     "input:not([type])",
+                     "input",
+                 })
         {
             var locator = page.Locator(selector);
             int count;
@@ -243,6 +279,30 @@ public static class TikTokEditFlowService
 
     private static async Task<string> FindMatchingDetailUrlAsync(IPage page, string title)
     {
+        var fromRow = await FindDetailUrlInRowsAsync(page, title, requireDraft: true);
+        if (!string.IsNullOrWhiteSpace(fromRow)) return fromRow;
+
+        if (title.Length >= 4)
+        {
+            var prefix = title[..Math.Min(4, title.Length)];
+            fromRow = await FindDetailUrlInRowsAsync(page, prefix, requireDraft: true);
+            if (!string.IsNullOrWhiteSpace(fromRow)) return fromRow;
+        }
+
+        string bodyText;
+        try { bodyText = NormalizeWhitespace(await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 })); }
+        catch { bodyText = ""; }
+        if (bodyText.Contains(title, StringComparison.Ordinal) || (title.Length >= 4 && bodyText.Contains(title[..4], StringComparison.Ordinal)))
+        {
+            var ids = DetailIdPattern.Matches(bodyText).Select(m => m.Groups[1].Value).ToList();
+            if (ids.Count == 1)
+                return $"{TikTokUrls.DefaultSeriesDraftUrl}/{ids[0]}";
+        }
+        return "";
+    }
+
+    private static async Task<string> FindDetailUrlInRowsAsync(IPage page, string titleFragment, bool requireDraft)
+    {
         foreach (var selector in new[] { "tbody tr", "tr", "[role='row']" })
         {
             var rows = page.Locator(selector);
@@ -253,21 +313,12 @@ public static class TikTokEditFlowService
                 string text;
                 try { text = NormalizeWhitespace(await row.InnerTextAsync(new() { Timeout = 500 })); }
                 catch { continue; }
-                if (string.IsNullOrEmpty(text) || !text.Contains(title, StringComparison.Ordinal)) continue;
+                if (string.IsNullOrEmpty(text) || !text.Contains(titleFragment, StringComparison.Ordinal)) continue;
+                if (requireDraft && !text.Contains("草稿", StringComparison.Ordinal)) continue;
                 var ids = DetailIdPattern.Matches(text).Select(m => m.Groups[1].Value).ToList();
                 if (ids.Count > 0)
                     return $"{TikTokUrls.DefaultSeriesDraftUrl}/{ids[0]}";
             }
-        }
-
-        string bodyText;
-        try { bodyText = NormalizeWhitespace(await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 })); }
-        catch { bodyText = ""; }
-        if (bodyText.Contains(title, StringComparison.Ordinal))
-        {
-            var ids = DetailIdPattern.Matches(bodyText).Select(m => m.Groups[1].Value).ToList();
-            if (ids.Count == 1)
-                return $"{TikTokUrls.DefaultSeriesDraftUrl}/{ids[0]}";
         }
         return "";
     }

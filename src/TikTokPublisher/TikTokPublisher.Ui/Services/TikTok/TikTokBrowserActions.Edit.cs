@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Publishing;
@@ -13,6 +14,10 @@ public static partial class TikTokBrowserActions
     {
         "草稿", "已上传", "上传完成", "Draft", "Uploaded", "Upload complete", "Completed",
     };
+
+    private static readonly Regex EditVideoRowPattern = new(
+        @"第\s*(\d+)\s*集.*?-第\s*(\d+)\s*集",
+        RegexOptions.Compiled | RegexOptions.Singleline);
 
     public sealed record EditVideoRow(int Slot, int Real);
 
@@ -52,12 +57,7 @@ public static partial class TikTokBrowserActions
         var expectedCount = Math.Max(payload.EpisodeCount, uploadPaths.Count);
         if (expectedCount <= 0) return;
 
-        if (uploadPaths.Count < expectedCount)
-        {
-            throw new InvalidOperationException(
-                $"TikTok 编辑补传缺少本地视频文件：短剧总集数 {expectedCount}，本地可上传视频 {uploadPaths.Count} 个。" +
-                "请先补齐源视频后再执行编辑发布。");
-        }
+        await EnsureEditContentUploadTabAsync(page, ct);
 
         List<EditVideoRow> rows;
         try
@@ -68,6 +68,13 @@ public static partial class TikTokBrowserActions
         {
             rows = new List<EditVideoRow>();
             Log(log, $"读取草稿正片列表失败，回退按数量补传（{ex.Message}）。");
+        }
+
+        if (rows.Count == 0)
+        {
+            rows = await TryReadEditVideoRowsFromBodyAsync(page, ct);
+            if (rows.Count > 0)
+                Log(log, $"正片表格读取失败，已从页面正文解析 {rows.Count} 行 slot/real。");
         }
 
         if (rows.Count > 0)
@@ -103,14 +110,16 @@ public static partial class TikTokBrowserActions
             }
 
             if (missingPaths.Count == 0) return;
-            await UploadLocalVideosAsync(page, missingPaths, waitForFinish: false, log, ct);
-            await WaitVideoUploadFinishedAsync(
-                page,
-                expectedCount,
-                PayloadTitleCandidates(payload),
-                options.UploadStallSeconds,
-                log,
-                ct);
+            if (uploadPaths.Count < expectedCount)
+            {
+                Log(log,
+                    $"TikTok 本地视频 {uploadPaths.Count} 个，短剧总集数 {expectedCount}，" +
+                    $"无法补传剩余 {missingPaths.Count} 集，跳过补传继续填表。");
+                return;
+            }
+
+            await UploadEditFlowMissingVideosAsync(
+                page, missingPaths, expectedCount, payload, options, log, ct);
             return;
         }
 
@@ -155,77 +164,229 @@ public static partial class TikTokBrowserActions
                 $"TikTok 草稿当前已上传 {detected.UploadedCount}/{expectedCount} 个视频，继续补传剩余 {pathsToUpload.Count} 个。");
         }
 
-        await UploadLocalVideosAsync(page, pathsToUpload, waitForFinish: false, log, ct);
-        Log(log, "TikTok 编辑流程已触发补传，开始等待视频补传完成。");
-        await WaitVideoUploadFinishedAsync(
-            page,
-            expectedCount,
-            PayloadTitleCandidates(payload),
-            options.UploadStallSeconds,
-            log,
-            ct);
+        if (pathsToUpload.Count > 0 && uploadPaths.Count < expectedCount)
+        {
+            Log(log,
+                $"TikTok 本地视频 {uploadPaths.Count} 个，短剧总集数 {expectedCount}，" +
+                $"无法补传缺失的 {pathsToUpload.Count} 集，跳过补传继续填表。");
+            return;
+        }
+
+        await UploadEditFlowMissingVideosAsync(
+            page, pathsToUpload, expectedCount, payload, options, log, ct);
     }
 
-    public static async Task<List<EditVideoRow>> ReadEditVideoRowsAsync(IPage page, CancellationToken ct)
+    private static async Task EnsureEditContentUploadTabAsync(IPage page, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         try
         {
-            if (await page.Locator(".semi-table-body").CountAsync() == 0)
+            if (await page.Locator(".semi-table-body").CountAsync() > 0)
+                return;
+
+            var tab = page.GetByText("内容上传", new() { Exact = false }).First;
+            if (await tab.CountAsync() > 0)
             {
-                var tab = page.GetByText("内容上传", new() { Exact = false }).First;
-                if (await tab.CountAsync() > 0)
-                {
-                    await tab.ClickAsync(new() { Timeout = 5000 });
-                    await page.WaitForTimeoutAsync(1500);
-                }
+                await tab.ClickAsync(new() { Timeout = 5000 });
+                await page.WaitForTimeoutAsync(1500);
             }
         }
         catch { /* ignore */ }
 
         try
         {
-            await page.Locator(".semi-table-body").First.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 8000 });
+            await page.Locator(".semi-table-body").First.WaitForAsync(
+                new() { State = WaitForSelectorState.Visible, Timeout = 8000 });
         }
         catch { /* continue */ }
+    }
 
-        var rawRows = await page.EvaluateAsync<List<Dictionary<string, int>>>(
-            """
-            async () => {
-              const body = document.querySelector(".semi-table-body");
-              if (!body) return [];
-              const collected = {};
-              const grab = () => {
-                body.querySelectorAll("tr.semi-table-row").forEach((tr) => {
-                  const cell = tr.querySelector("td");
-                  const txt = (cell && cell.textContent || "").trim();
-                  const m = txt.match(/第\s*(\d+)\s*集.*?-第\s*(\d+)\s*集/);
-                  if (m) collected[+m[1]] = { slot: +m[1], real: +m[2] };
-                });
-              };
-              let last = -1, stable = 0;
-              for (let i = 0; i < 80 && stable < 3; i++) {
-                grab();
-                const n = Object.keys(collected).length;
-                if (n === last) stable++; else { stable = 0; last = n; }
-                body.scrollTop = body.scrollTop + 400;
-                await new Promise((r) => setTimeout(r, 150));
-              }
-              body.scrollTop = 0;
-              return Object.values(collected).sort((a, b) => a.slot - b.slot);
-            }
-            """);
+    private static async Task UploadEditFlowMissingVideosAsync(
+        IPage page,
+        IReadOnlyList<string> missingPaths,
+        int expectedCount,
+        TikTokPublishPayload payload,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (missingPaths.Count == 0) return;
 
-        return (rawRows ?? new List<Dictionary<string, int>>())
-            .Select(item =>
+        if (missingPaths.Count == 1)
+        {
+            await UploadLocalVideosAsync(page, missingPaths, waitForFinish: false, log, ct);
+            Log(log, "TikTok 编辑流程已触发补传，开始等待视频补传完成。");
+            await WaitVideoUploadFinishedAsync(
+                page, expectedCount, PayloadTitleCandidates(payload), options.UploadStallSeconds, log, ct);
+            return;
+        }
+
+        Log(log, $"TikTok 编辑补传 {missingPaths.Count} 集，按集数顺序逐集上传（避免批量追加到末尾错位）。");
+        var titleCandidates = PayloadTitleCandidates(payload);
+        foreach (var path in missingPaths)
+        {
+            ct.ThrowIfCancellationRequested();
+            var episode = ExtractEpisodeIndexFromPath(path);
+            var beforeCount = await DetectUploadedVideoCountAsync(page);
+            await UploadLocalVideosAsync(page, new[] { path }, waitForFinish: false, log, ct);
+            await WaitForEditEpisodeUploadProgressAsync(
+                page, beforeCount, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct);
+            Log(log, episode is not null
+                ? $"TikTok 第 {episode} 集已提交上传。"
+                : $"TikTok 已提交补传：{Path.GetFileName(path)}");
+        }
+
+        Log(log, "TikTok 编辑流程逐集补传已提交，开始等待全部视频上传完成。");
+        await WaitVideoUploadFinishedAsync(
+            page, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct);
+    }
+
+    private static async Task WaitForEditEpisodeUploadProgressAsync(
+        IPage page,
+        int? beforeCount,
+        int expectedCount,
+        IReadOnlyList<string>? titleCandidates,
+        double stallSeconds,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var baseline = beforeCount ?? 0;
+        var target = Math.Min(expectedCount, baseline + 1);
+        var deadline = DateTime.UtcNow.AddSeconds(Math.Max(60, stallSeconds));
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var current = await DetectUploadedVideoCountAsync(page);
+            if (current is not null && current.Value >= target)
+                return;
+
+            try
             {
-                if (!item.TryGetValue("slot", out var slot) || !item.TryGetValue("real", out var real))
-                    return null;
-                return new EditVideoRow(slot, real);
-            })
-            .Where(row => row is not null)
-            .Cast<EditVideoRow>()
-            .ToList();
+                var body = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 });
+                if (body.Contains("上传失败", StringComparison.Ordinal) ||
+                    body.Contains("Upload failed", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("TikTok 视频上传失败，请查看页面提示。");
+                var ready = ExtractReadyUploadedVideoCount(body, titleCandidates);
+                if (ready is not null && ready.Value >= target)
+                    return;
+            }
+            catch (InvalidOperationException) { throw; }
+            catch { /* ignore */ }
+
+            await page.WaitForTimeoutAsync(2000);
+        }
+
+        Log(log, $"⚠️ 单集补传后未在限时内确认进度（{baseline}->{target}），继续下一集。");
+    }
+
+    public static async Task<List<EditVideoRow>> ReadEditVideoRowsAsync(IPage page, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await EnsureEditContentUploadTabAsync(page, ct);
+
+        JsonElement rawRows;
+        try
+        {
+            rawRows = await page.EvaluateAsync<JsonElement>(
+                """
+                async () => {
+                  const body = document.querySelector(".semi-table-body");
+                  if (!body) return [];
+                  const collected = {};
+                  const grab = () => {
+                    body.querySelectorAll("tr.semi-table-row").forEach((tr) => {
+                      const txt = Array.from(tr.querySelectorAll("td"))
+                        .map((td) => (td.textContent || "").trim())
+                        .filter(Boolean)
+                        .join(" ");
+                      const m = txt.match(/第\s*(\d+)\s*集[\s\S]*?-第\s*(\d+)\s*集/);
+                      if (m) collected[+m[1]] = { slot: +m[1], real: +m[2] };
+                    });
+                  };
+                  body.scrollTop = 0;
+                  let last = -1, stable = 0;
+                  for (let i = 0; i < 100 && stable < 4; i++) {
+                    grab();
+                    const n = Object.keys(collected).length;
+                    if (n === last) stable++; else { stable = 0; last = n; }
+                    body.scrollTop = body.scrollTop + 350;
+                    await new Promise((r) => setTimeout(r, 120));
+                  }
+                  body.scrollTop = 0;
+                  return Object.values(collected).sort((a, b) => a.slot - b.slot);
+                }
+                """);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Evaluate 正片列表失败：{ex.Message}", ex);
+        }
+
+        return ParseEditVideoRows(rawRows);
+    }
+
+    private static async Task<List<EditVideoRow>> TryReadEditVideoRowsFromBodyAsync(IPage page, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            var bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 10000 });
+            return ParseEditVideoRowsFromText(bodyText);
+        }
+        catch
+        {
+            return new List<EditVideoRow>();
+        }
+    }
+
+    internal static List<EditVideoRow> ParseEditVideoRows(JsonElement rawRows)
+    {
+        var rows = new List<EditVideoRow>();
+        if (rawRows.ValueKind != JsonValueKind.Array)
+            return rows;
+
+        foreach (var item in rawRows.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+                continue;
+            if (!TryReadIntProperty(item, "slot", out var slot) || !TryReadIntProperty(item, "real", out var real))
+                continue;
+            if (slot <= 0 || real <= 0)
+                continue;
+            rows.Add(new EditVideoRow(slot, real));
+        }
+
+        return rows.OrderBy(row => row.Slot).ToList();
+    }
+
+    internal static List<EditVideoRow> ParseEditVideoRowsFromText(string bodyText)
+    {
+        var bySlot = new Dictionary<int, EditVideoRow>();
+        foreach (var line in bodyText.Split('\n'))
+        {
+            var match = EditVideoRowPattern.Match(line);
+            if (!match.Success) continue;
+            if (!int.TryParse(match.Groups[1].Value, out var slot) ||
+                !int.TryParse(match.Groups[2].Value, out var real))
+                continue;
+            bySlot[slot] = new EditVideoRow(slot, real);
+        }
+
+        return bySlot.Values.OrderBy(row => row.Slot).ToList();
+    }
+
+    private static bool TryReadIntProperty(JsonElement item, string name, out int value)
+    {
+        value = 0;
+        if (!item.TryGetProperty(name, out var prop))
+            return false;
+
+        return prop.ValueKind switch
+        {
+            JsonValueKind.Number => prop.TryGetInt32(out value),
+            JsonValueKind.String => int.TryParse(prop.GetString(), out value),
+            _ => false,
+        };
     }
 
     public static async Task<int> DeleteEditVideoRowsFromSlotAsync(
@@ -234,6 +395,7 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct)
     {
+        await EnsureEditContentUploadTabAsync(page, ct);
         var deleted = 0;
         for (var guard = 0; guard < 500; guard++)
         {

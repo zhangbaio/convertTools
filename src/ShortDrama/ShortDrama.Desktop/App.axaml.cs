@@ -66,6 +66,7 @@ public partial class App : Application
         services.AddSingleton<WeixinMaterialChannelVideoDeleteService>();
         services.AddSingleton<IWeixinLoginNotificationService, DesktopWeixinLoginNotificationService>();
         services.AddSingleton<XingeRemoteControlService>();
+        services.AddSingleton<IDramaSettingsProvider, GlobalDramaSettingsProvider>();
         services.AddSingleton<HongguoNewApiService>();
         services.AddSingleton<HongguoLocalApiService>();
         services.AddSingleton<HongguoMemoryReaderService>();

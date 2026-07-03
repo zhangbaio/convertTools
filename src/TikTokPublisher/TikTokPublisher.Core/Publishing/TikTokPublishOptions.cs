@@ -112,7 +112,7 @@ public sealed class TikTokPublishOptions
         ConsignmentEnabled = account.TiktokConsignmentEnabled,
         PaidEnabled = account.TiktokPaidEnabled,
         ProfilePreviewEpisodes = Math.Max(1, account.TiktokProfilePreviewEpisodes),
-        FreePreviewEpisodes = Math.Max(1, account.TiktokFreePreviewEpisodes),
+        FreePreviewEpisodes = Math.Max(0, account.TiktokFreePreviewEpisodes),
         ExpectedFullPriceMode = string.IsNullOrWhiteSpace(account.TiktokExpectedFullPriceMode) ? "manual" : account.TiktokExpectedFullPriceMode,
         ExpectedFullPriceOptionIndex = account.TiktokExpectedFullPriceOptionIndex > 0 ? account.TiktokExpectedFullPriceOptionIndex : 1,
         ExpectedFullPriceValue = account.TiktokExpectedFullPriceValue,
@@ -126,16 +126,25 @@ public sealed class TikTokPublishOptions
 
     public TikTokPublishRecommendation BuildRecommendation(PublishItem item)
     {
-        var genres = new List<string>();
-        if (!string.IsNullOrWhiteSpace(item.GenreCategory))
-            genres.Add(item.GenreCategory.Trim());
+        var projectPayload = TikTokProjectPayloadFactory.BuildFromPublishItem(item);
+        var maxCount = Math.Max(1, GenreCount);
+
+        var targetAudience = !string.IsNullOrWhiteSpace(projectPayload.TargetAudience)
+            ? projectPayload.TargetAudience
+            : TargetAudienceMode is "male" or "female"
+                ? TargetAudienceMode
+                : "female";
+
+        var genres = projectPayload.Genres.Count > 0
+            ? projectPayload.Genres.Take(maxCount).ToList()
+            : TikTokProjectPayloadFactory.ParseGenreTokens(item.GenreCategory ?? "").Take(maxCount).ToList();
         if (genres.Count == 0)
             genres.Add("都市");
-        var audience = string.IsNullOrWhiteSpace(TargetAudienceMode) ? "female" : TargetAudienceMode;
+
         return new TikTokPublishRecommendation
         {
-            TargetAudience = audience,
-            Genres = genres.Take(Math.Max(1, GenreCount)).ToList(),
+            TargetAudience = targetAudience,
+            Genres = genres,
         };
     }
 }
@@ -151,19 +160,12 @@ public sealed class TikTokPublishPayload
 
     public static TikTokPublishPayload FromPublishItem(PublishItem item)
     {
-        var title = !string.IsNullOrWhiteSpace(item.Title)
-            ? item.Title.Trim()
-            : !string.IsNullOrWhiteSpace(item.DramaName)
-                ? item.DramaName!.Trim()
-                : Path.GetFileNameWithoutExtension(item.VideoPath);
-        var originalTitle = !string.IsNullOrWhiteSpace(item.OriginalTitle)
-            ? item.OriginalTitle.Trim()
-            : title;
+        var projectPayload = TikTokProjectPayloadFactory.BuildFromPublishItem(item);
 
         IReadOnlyList<string> uploadPaths;
         if (!string.IsNullOrWhiteSpace(item.ProjectDir) && Directory.Exists(item.ProjectDir))
         {
-            var resolved = ProjectVideoResolver.ResolveUploadVideos(item.ProjectDir);
+            var resolved = ProjectVideoResolver.ResolveUploadVideos(item.ProjectDir, allowStagedFallback: true);
             uploadPaths = resolved.Count > 0 ? resolved : new[] { item.VideoPath };
         }
         else
@@ -171,13 +173,12 @@ public sealed class TikTokPublishPayload
             uploadPaths = new[] { item.VideoPath };
         }
 
-        var episodeCount = item.EpisodeCount > 0 ? item.EpisodeCount : Math.Max(1, uploadPaths.Count);
         return new TikTokPublishPayload
         {
-            Title = title,
-            OriginalTitle = originalTitle,
-            Description = item.Description ?? "",
-            EpisodeCount = episodeCount,
+            Title = projectPayload.Title,
+            OriginalTitle = projectPayload.OriginalTitle,
+            Description = projectPayload.Description,
+            EpisodeCount = projectPayload.EpisodeCount,
             VideoPaths = uploadPaths,
             UploadVideoPaths = uploadPaths,
         };

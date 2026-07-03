@@ -1,10 +1,9 @@
 using ShortDrama.Core.Models;
-using ShortDrama.Desktop.Models;
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
-namespace ShortDrama.Desktop.Services;
+namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class HongguoLocalApiService
 {
@@ -19,7 +18,7 @@ public sealed class HongguoLocalApiService
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string keyword,
         int page,
         CancellationToken cancellationToken)
@@ -47,7 +46,7 @@ public sealed class HongguoLocalApiService
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> SearchDirectAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string keyword,
         int page,
         CancellationToken cancellationToken)
@@ -79,7 +78,7 @@ public sealed class HongguoLocalApiService
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> SearchRecentSnapshotsAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string keyword,
         int page,
         CancellationToken cancellationToken)
@@ -111,7 +110,7 @@ public sealed class HongguoLocalApiService
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetTodayNewAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string genre,
         CancellationToken cancellationToken)
     {
@@ -121,7 +120,7 @@ public sealed class HongguoLocalApiService
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetLatestByGenreAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string genre,
         int days,
         CancellationToken cancellationToken)
@@ -137,7 +136,7 @@ public sealed class HongguoLocalApiService
     }
 
     public async Task<IReadOnlyList<LocalEpisodeInfo>> GetEpisodesAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string prefixedOrRawBookId,
         CancellationToken cancellationToken)
     {
@@ -187,7 +186,7 @@ public sealed class HongguoLocalApiService
     }
 
     public async Task<LocalVideoPlayback> GetVideoPlaybackAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string prefixedOrRawVideoId,
         CancellationToken cancellationToken)
     {
@@ -221,7 +220,7 @@ public sealed class HongguoLocalApiService
     }
 
     private async Task<IReadOnlyList<JsonElement>> FetchLatestItemsAsync(
-        GlobalConfigSnapshot settings,
+        DramaSourceSettings settings,
         string genre,
         bool onlyToday,
         CancellationToken cancellationToken)
@@ -364,7 +363,7 @@ public sealed class HongguoLocalApiService
         return false;
     }
 
-    private static void ApplyHeaders(HttpRequestMessage request, GlobalConfigSnapshot settings)
+    private static void ApplyHeaders(HttpRequestMessage request, DramaSourceSettings settings)
     {
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.TryAddWithoutValidation("User-Agent", "ShortDramaDesktop/1.0");

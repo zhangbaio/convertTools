@@ -14,6 +14,8 @@ public sealed class TikTokProjectPayload
     public string OriginalTitle { get; init; } = "";
     public string Description { get; init; } = "";
     public int EpisodeCount { get; init; } = 1;
+    public string TargetAudience { get; init; } = "";
+    public IReadOnlyList<string> Genres { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>对齐 Python <c>ai_recommendation_service.py</c>。</summary>
@@ -48,7 +50,12 @@ public static class TikTokPublishRecommendationService
         }
 
         string targetAudience;
-        if (targetMode is "female" or "male")
+        if (!string.IsNullOrWhiteSpace(payload.TargetAudience))
+        {
+            targetAudience = payload.TargetAudience;
+            log?.Invoke($"TikTok 目标观众使用短剧信息：{TargetAudienceDisplayText(targetAudience)}");
+        }
+        else if (targetMode is "female" or "male")
         {
             targetAudience = targetMode;
         }
@@ -68,17 +75,26 @@ public static class TikTokPublishRecommendationService
             }
         }
 
-        JsonElement genreElement = default;
-        recommendation?.TryGetValue("genres", out genreElement);
-        var genres = recommendation is not null && genreElement.ValueKind != JsonValueKind.Undefined
-            ? NormalizeGenres(genreElement, maxCount, TikTokPublishConstants.GenreOptions)
-            : new List<string>();
-        if (genres.Count == 0)
+        List<string> genres;
+        if (payload.Genres.Count > 0)
         {
-            log?.Invoke(string.IsNullOrWhiteSpace(aiError)
-                ? "TikTok 题材类型 AI 推荐失败，使用本地规则：AI 返回为空或不在真实题材候选内"
-                : $"TikTok 题材类型 AI 推荐失败，使用本地规则: {aiError}");
-            genres = HeuristicGenres(payload, maxCount, TikTokPublishConstants.GenreOptions);
+            genres = payload.Genres.Take(maxCount).ToList();
+            log?.Invoke($"TikTok 题材类型使用短剧信息：{string.Join("、", genres)}");
+        }
+        else
+        {
+            JsonElement genreElement = default;
+            recommendation?.TryGetValue("genres", out genreElement);
+            genres = recommendation is not null && genreElement.ValueKind != JsonValueKind.Undefined
+                ? NormalizeGenres(genreElement, maxCount, TikTokPublishConstants.GenreOptions)
+                : new List<string>();
+            if (genres.Count == 0)
+            {
+                log?.Invoke(string.IsNullOrWhiteSpace(aiError)
+                    ? "TikTok 题材类型 AI 推荐失败，使用本地规则：AI 返回为空或不在真实题材候选内"
+                    : $"TikTok 题材类型 AI 推荐失败，使用本地规则: {aiError}");
+                genres = HeuristicGenres(payload, maxCount, TikTokPublishConstants.GenreOptions);
+            }
         }
 
         return new TikTokPublishRecommendation
@@ -255,6 +271,9 @@ public static class TikTokPublishRecommendationService
 
     private static string HeuristicTargetAudience(TikTokProjectPayload payload)
     {
+        if (!string.IsNullOrWhiteSpace(payload.TargetAudience))
+            return payload.TargetAudience;
+
         var text = $"{payload.Title} {payload.Description}";
         string[] femaleMarkers = ["总裁", "豪门", "闪婚", "萌宝", "虐恋", "替身", "大女主", "千金", "团宠"];
         string[] maleMarkers = ["赘婿", "逆袭", "神医", "异能", "系统", "商战", "玄幻", "超级英雄"];
@@ -268,7 +287,10 @@ public static class TikTokPublishRecommendationService
         int maxCount,
         IReadOnlyList<string> genreOptions)
     {
-        var text = $"{payload.Title} {payload.Description}";
+        if (payload.Genres.Count > 0)
+            return payload.Genres.Take(maxCount).ToList();
+
+        var text = $"{payload.Title} {payload.Description} {string.Join(' ', payload.Genres)}";
         var selected = new List<string>();
         foreach (var genre in genreOptions)
         {

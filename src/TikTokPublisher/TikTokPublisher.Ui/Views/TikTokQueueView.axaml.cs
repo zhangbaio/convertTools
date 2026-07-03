@@ -18,7 +18,8 @@ public partial class TikTokQueueView : UserControl
 {
     private MainViewModel? _vm;
     private BrowserSessionHost? _browserHost;
-    private readonly TikTokPlaywrightAutomation _automation = new();
+    private readonly EmbeddedBrowserPublishAutomation _automation = new();
+    private EmbeddedBrowserProvider? _browserProvider;
     private PublishScheduler? _scheduler;
     private bool _ready;
     private TikTokPublishConfig _publishConfig = TikTokPublishConfig.Load();
@@ -442,40 +443,24 @@ public partial class TikTokQueueView : UserControl
         EnsureAccountBrowserReadyAsync,
         PublishQueueProjectAsync);
 
-    private async Task<bool> EnsureAccountBrowserReadyAsync(TikTokAccountProfile account, CancellationToken ct)
+    private EmbeddedBrowserProvider RequireBrowserProvider()
     {
-        var cdp = await EnsureEmbeddedPublishCdpAsync(account, ct, focusBrowser: true).ConfigureAwait(false);
-        return cdp is not null;
+        if (_browserHost is null || _vm is null)
+            throw new InvalidOperationException("队列视图尚未初始化内置浏览器。");
+
+        return _browserProvider ??= new EmbeddedBrowserProvider(
+            _browserHost,
+            account => _vm.FindAccount(account.Id) ?? _vm.Accounts.FirstOrDefault(a => a.Id == account.Id),
+            vm => PublishBrowserFocusRequested?.Invoke(vm));
     }
 
-    private async Task<string?> EnsureEmbeddedPublishCdpAsync(
-        TikTokAccountProfile account,
-        CancellationToken ct,
-        bool focusBrowser)
+    private PublishScheduler RequireScheduler() =>
+        _scheduler ??= new PublishScheduler(_automation, RequireBrowserProvider());
+
+    private async Task<bool> EnsureAccountBrowserReadyAsync(TikTokAccountProfile account, CancellationToken ct)
     {
-        if (_browserHost is null || _vm is null) return null;
-
-        var accountVm = _vm.FindAccount(account.Id) ?? _vm.Accounts.FirstOrDefault(a => a.Id == account.Id);
-        if (accountVm is null) return null;
-
-        await Dispatcher.UIThread.InvokeAsync(() =>
-        {
-            if (focusBrowser && _vm.SelectedAccount?.Id != accountVm.Id)
-                _vm.SelectedAccount = accountVm;
-            _browserHost.GetOrCreateHost(accountVm);
-            _browserHost.ShowAccount(accountVm);
-            if (focusBrowser)
-                PublishBrowserFocusRequested?.Invoke(accountVm);
-        });
-
-        var result = await _browserHost.PrepareForPublishAsync(accountVm, ct).ConfigureAwait(false);
-        if (!result.Ok)
-        {
-            await Dispatcher.UIThread.InvokeAsync(() =>
-                _vm.StatusMessage = $"[{account.DisplayName}] {result.Message}");
-        }
-
-        return result.Ok ? result.CdpEndpoint : null;
+        var browser = await RequireBrowserProvider().GetBrowserAsync(account, ct).ConfigureAwait(false);
+        return browser is not null;
     }
 
     private async Task<PublishResult> PublishQueueProjectAsync(
@@ -485,16 +470,16 @@ public partial class TikTokQueueView : UserControl
         Action<string> log,
         CancellationToken ct)
     {
-        var host = _browserHost?.TryGetHost(account.Id);
-        if (host?.CdpEndpoint is null)
-            return PublishResult.Fail("内置浏览器 CDP 未就绪，请先在「浏览器」页登录");
+        var browser = await RequireBrowserProvider().GetBrowserAsync(account, ct).ConfigureAwait(false);
+        if (browser is null)
+            return PublishResult.Fail("内置浏览器未就绪或未登录，请先在「浏览器」页完成登录");
 
         var item = QueuePublishHost.ToPublishItem(project);
         if (string.IsNullOrWhiteSpace(item.VideoPath))
             return PublishResult.Fail("项目没有可用视频");
 
         ApplyConfigDefaults(item);
-        return await _automation.PublishAsync(account, item, host.CdpEndpoint, finalAction, log, ct);
+        return await _automation.PublishAsync(account, item, browser, finalAction, log, ct).ConfigureAwait(false);
     }
 
     private async void OnPublishClick(object? sender, RoutedEventArgs e)
@@ -503,10 +488,9 @@ public partial class TikTokQueueView : UserControl
         var account = vm?.SelectedAccount;
         if (vm is null || account is null) { vm!.StatusMessage = "请先选择账号"; return; }
 
-        var cdp = await EnsureEmbeddedPublishCdpAsync(account.Model, CancellationToken.None, focusBrowser: true)
-            .ConfigureAwait(true);
-        if (cdp is null)
+        if (await RequireBrowserProvider().GetBrowserAsync(account.Model, CancellationToken.None).ConfigureAwait(true) is null)
         {
+            vm.StatusMessage = "内置浏览器未就绪，请先登录";
             OpenBrowserRequested?.Invoke(this, EventArgs.Empty);
             return;
         }
@@ -524,13 +508,12 @@ public partial class TikTokQueueView : UserControl
 
         var item = new PublishItem { VideoPath = file.Path.LocalPath, Description = "【TikTok 发布测试】" };
         ApplyConfigDefaults(item);
-        _scheduler ??= new PublishScheduler(_automation);
-        var job = new AccountPublishJob(account.Model, cdp, new[] { item });
+        var job = new AccountPublishJob(account.Model, new[] { item });
 
         vm.StatusMessage = $"[{account.DisplayName}] 发布中：{item.DisplayName}…";
         try
         {
-            await _scheduler.RunAsync(new[] { job }, FinalAction.None, maxParallelAccounts: 1,
+            await RequireScheduler().RunAsync(new[] { job }, FinalAction.None, maxParallelAccounts: 1,
                 p => Dispatcher.UIThread.Post(() => vm.StatusMessage = $"[{p.AccountName}] {p.ItemName}：{p.Message}"),
                 CancellationToken.None);
         }
@@ -654,27 +637,24 @@ public partial class TikTokQueueView : UserControl
         foreach (var group in candidates.GroupBy(t => t.Account.Id))
         {
             var acctVm = group.First().Account;
-            var cdp = await EnsureEmbeddedPublishCdpAsync(acctVm.Model, CancellationToken.None, focusBrowser: false)
-                .ConfigureAwait(true);
-            if (cdp is null)
+            if (await RequireBrowserProvider().GetBrowserAsync(acctVm.Model, CancellationToken.None).ConfigureAwait(true) is null)
             {
                 foreach (var t in group) { t.Status = PublishTaskStatus.Failed; t.Message = "内置浏览器未就绪"; }
                 continue;
             }
 
             foreach (var t in group) { t.Status = PublishTaskStatus.Pending; t.Message = "排队中"; }
-            jobs.Add(new AccountPublishJob(acctVm.Model, cdp, group.Select(t => t.Item).ToList()));
+            jobs.Add(new AccountPublishJob(acctVm.Model, group.Select(t => t.Item).ToList()));
         }
         if (jobs.Count == 0) { vm.StatusMessage = "无可发布账号（请先在内置浏览器页登录）"; return; }
 
-        _scheduler ??= new PublishScheduler(_automation);
         var finalAction = vm.SelectedFinalAction?.Value ?? FinalAction.None;
         _publishCts = new CancellationTokenSource();
         SetPublishing(true);
         vm.StatusMessage = $"开始发布：{jobs.Count} 账号 / {candidates.Count} 素材（并发 {vm.MaxParallel}）";
         try
         {
-            await _scheduler.RunAsync(jobs, finalAction, vm.MaxParallel,
+            await RequireScheduler().RunAsync(jobs, finalAction, vm.MaxParallel,
                 p => Dispatcher.UIThread.Post(() => UpdateTaskProgress(p)), _publishCts.Token);
             vm.StatusMessage = "发布结束";
         }

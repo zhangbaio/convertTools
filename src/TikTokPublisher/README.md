@@ -99,6 +99,6 @@ WebView2 浏览器在 **「浏览器」** Tab；队列执行时自动切到浏�
 7. ~~分批上传（`batch_upload_service`）~~（`TikTokBatchUploadService`）
 8. ~~队列 Worker + 素材预处理 pipeline~~（Phase 1–3）
 9. upload_state 写回 Python DB `tiktok_upload_state` 表
-10. 静音中段 ASR 修复（需 Python ASR 服务）
+10. 静音中段 ASR 修复（本地 Paraformer 或火山 ASR）
 11. download / rewrite / poster 等 Python 专属步骤（本模块不实现）
 12. 队列并发数对齐 Python 配置
