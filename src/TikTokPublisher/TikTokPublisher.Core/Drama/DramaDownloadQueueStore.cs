@@ -6,7 +6,7 @@ public static class DramaDownloadQueueStore
 {
     public static DramaDownloadQueueState Load(string? databasePath = null)
     {
-        if (PythonAppSettingStore.TryLoadJson<DramaDownloadQueueState>(
+        if (AppSettingStore.TryLoadJson<DramaDownloadQueueState>(
                 DramaDownloadQueueState.SettingKey, out var state, databasePath)
             && state is not null)
         {
@@ -20,7 +20,7 @@ public static class DramaDownloadQueueStore
     public static void Save(DramaDownloadQueueState state, string? databasePath = null)
     {
         Normalize(state);
-        PythonAppSettingStore.SaveJson(DramaDownloadQueueState.SettingKey, state, databasePath);
+        AppSettingStore.SaveJson(DramaDownloadQueueState.SettingKey, state, databasePath);
     }
 
     public static void Normalize(DramaDownloadQueueState state)

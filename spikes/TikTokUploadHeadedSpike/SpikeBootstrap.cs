@@ -36,7 +36,7 @@ internal static class SpikeBootstrap
             return (null, 0);
         }
 
-        var store = new AccountStore { AutoImportFromPythonOnLoad = true };
+        var store = new AccountStore();
         store.Load();
         var account = store.Accounts.FirstOrDefault(a => a.Id == opts.AccountId)
             ?? throw new InvalidOperationException($"未找到账号：{opts.AccountId}");

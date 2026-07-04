@@ -54,10 +54,4 @@ public partial class AccountSidebarView : UserControl
 
         vm.RemoveSelectedAccount();
     }
-
-    private void OnSyncWithPythonClick(object? sender, RoutedEventArgs e) =>
-        (DataContext as MainViewModel)?.SyncWithPythonClient();
-
-    private void OnImportFromPythonClick(object? sender, RoutedEventArgs e) =>
-        (DataContext as MainViewModel)?.ImportFromPythonClient();
 }

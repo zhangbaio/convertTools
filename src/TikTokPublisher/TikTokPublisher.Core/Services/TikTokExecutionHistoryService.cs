@@ -55,7 +55,7 @@ public static class TikTokExecutionHistoryService
         {
             var path = ClientSettingsStore.MainDatabasePath;
             if (!File.Exists(path)) return [];
-            PythonDatabaseInitializer.EnsureInitialized(path);
+            AppDatabaseInitializer.EnsureInitialized(path);
 
             using var conn = new SqliteConnection($"Data Source={path};Mode=ReadOnly");
             conn.Open();
@@ -137,7 +137,7 @@ public static class TikTokExecutionHistoryService
     private static void AppendPayload(Dictionary<string, object?> payload)
     {
         var path = ClientSettingsStore.MainDatabasePath;
-        PythonDatabaseInitializer.EnsureInitialized(path);
+        AppDatabaseInitializer.EnsureInitialized(path);
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         var createdAt = payload.GetValueOrDefault("timestamp")?.ToString() ?? DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
         using var conn = new SqliteConnection($"Data Source={path}");

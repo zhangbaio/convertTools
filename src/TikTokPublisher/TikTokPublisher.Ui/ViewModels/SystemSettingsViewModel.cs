@@ -461,7 +461,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
             var backupDir = Path.Combine(Path.GetDirectoryName(source)!, "backups");
             Directory.CreateDirectory(backupDir);
-            var target = Path.Combine(backupDir, $"tiktok_uploader_{DateTime.Now:yyyyMMdd_HHmmss}.db");
+            var target = Path.Combine(backupDir, $"tiktok_publisher_{DateTime.Now:yyyyMMdd_HHmmss}.db");
             File.Copy(source, target, overwrite: false);
             StatusRequested?.Invoke($"已备份到 {target}");
         }

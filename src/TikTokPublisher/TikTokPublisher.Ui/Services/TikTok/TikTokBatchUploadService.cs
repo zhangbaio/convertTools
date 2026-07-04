@@ -42,6 +42,28 @@ public static class TikTokBatchUploadService
         log?.Invoke("TikTok 分批上传完成，其余表单已填写。");
     }
 
+    /// <summary>按账号配置每批 N 个顺序上传（编辑流补传等场景可传入已有就绪数作为 baseline）。</summary>
+    public static async Task UploadPathsInBatchesAsync(
+        IPage page,
+        IReadOnlyList<string> videoPaths,
+        TikTokPublishOptions options,
+        IReadOnlyList<string>? titleCandidates,
+        Action<string>? log,
+        CancellationToken ct,
+        int baselineReadyCount = 0)
+    {
+        await UploadInBatchesAsync(
+            page,
+            videoPaths,
+            batchSize: options.UploadBatchSize,
+            stallSeconds: options.UploadBatchStallSeconds,
+            maxRetries: options.UploadBatchMaxRetries,
+            titleCandidates,
+            log,
+            ct,
+            baselineReadyCount);
+    }
+
     private static async Task UploadInBatchesAsync(
         IPage page,
         IReadOnlyList<string> videoPaths,
@@ -50,7 +72,8 @@ public static class TikTokBatchUploadService
         int maxRetries,
         IReadOnlyList<string>? titleCandidates,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        int baselineReadyCount = 0)
     {
         var total = videoPaths.Count;
         if (total == 0)
@@ -59,14 +82,17 @@ public static class TikTokBatchUploadService
         batchSize = Math.Clamp(batchSize, 1, 20);
         maxRetries = Math.Clamp(maxRetries, 1, 10);
         stallSeconds = Math.Clamp(stallSeconds, 20, 600);
+        baselineReadyCount = Math.Max(0, baselineReadyCount);
 
         var batches = new List<List<string>>();
         for (var i = 0; i < total; i += batchSize)
             batches.Add(videoPaths.Skip(i).Take(batchSize).ToList());
 
-        log?.Invoke($"分批上传：共 {total} 集，每批 {batchSize} 个，分 {batches.Count} 批顺序上传。");
+        log?.Invoke(
+            $"分批上传：共 {total} 集，每批 {batchSize} 个，分 {batches.Count} 批顺序上传" +
+            (baselineReadyCount > 0 ? $"（已有 {baselineReadyCount} 集就绪）。" : "。"));
 
-        var readyDone = 0;
+        var readyDone = baselineReadyCount;
         for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
             var batch = batches[batchIndex];
@@ -94,7 +120,8 @@ public static class TikTokBatchUploadService
                 if (outcome == BatchWaitOutcome.Done)
                 {
                     readyDone = targetReady;
-                    log?.Invoke($"第 {batchIndex + 1}/{batches.Count} 批上传完成（已就绪 {readyDone}/{total}）。");
+                    log?.Invoke(
+                        $"第 {batchIndex + 1}/{batches.Count} 批上传完成（已就绪 {readyDone}/{baselineReadyCount + total}）。");
                     break;
                 }
 

@@ -28,11 +28,11 @@
                         <TextBox Grid.Row="2" Grid.Column="1" x:Name="LoginEmailBox" Watermark="邮箱或用户名" />
 
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="TikTok 密码" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="3" Grid.Column="1" x:Name="PasswordBox" PasswordChar="●" RevealPassword="False" Watermark="可选，与 Python 共用" />
+                        <TextBox Grid.Row="3" Grid.Column="1" x:Name="PasswordBox" PasswordChar="●" RevealPassword="False" Watermark="可选，仅本地保存" />
 
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="登录态文件" VerticalAlignment="Center" />
                         <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto">
-                            <TextBox Grid.Column="0" x:Name="StorageStateBox" Watermark="留空时使用 ~/.tiktok_uploader_client/profiles/{id}/tiktok_auth_state.json" />
+                            <TextBox Grid.Column="0" x:Name="StorageStateBox" Watermark="留空时使用 ~/.tiktok_publisher/profiles/{id}/tiktok_auth_state.json" />
                             <Button Grid.Column="1" Content="浏览" Click="OnBrowseAuthPathClick" Margin="8,0,0,0" />
                         </Grid>
                     </Grid>

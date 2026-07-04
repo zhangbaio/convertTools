@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Licensing;
 
@@ -15,8 +16,7 @@ public static class LicenseStore
         WriteIndented = false,
     };
 
-    public static string StateDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".tiktok_uploader_client");
+    public static string StateDirectory => AppPaths.DataRoot;
 
     public static string StatePath => Path.Combine(StateDirectory, "account_state.bin");
     public static string LegacyStatePath => Path.Combine(StateDirectory, "license.json");

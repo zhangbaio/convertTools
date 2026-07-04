@@ -3,8 +3,8 @@ using Microsoft.Data.Sqlite;
 
 namespace TikTokPublisher.Core.Services;
 
-/// <summary>读写 Python <c>tiktok_uploader.db</c> 的 <c>app_settings</c> 表。</summary>
-public static class PythonAppSettingStore
+/// <summary>读写主库 <c>app_settings</c> 表中的 JSON 配置项。</summary>
+public static class AppSettingStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -40,7 +40,7 @@ public static class PythonAppSettingStore
     public static void SaveJson(string key, object value, string? databasePath = null)
     {
         var path = ResolvePath(databasePath);
-        PythonDatabaseInitializer.EnsureInitialized(path);
+        AppDatabaseInitializer.EnsureInitialized(path);
         var now = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss");
         var json = JsonSerializer.Serialize(value, JsonOptions);
 
@@ -61,5 +61,5 @@ public static class PythonAppSettingStore
     }
 
     private static string ResolvePath(string? databasePath) =>
-        string.IsNullOrWhiteSpace(databasePath) ? AppPaths.PythonDatabaseFile : Path.GetFullPath(databasePath);
+        string.IsNullOrWhiteSpace(databasePath) ? AppPaths.AppDatabaseFile : Path.GetFullPath(databasePath);
 }

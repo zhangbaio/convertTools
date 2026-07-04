@@ -31,13 +31,6 @@
                             Classes="dangerAction"
                             Click="OnDeleteClick" Margin="3,0,0,0" />
                 </Grid>
-
-                <Grid ColumnDefinitions="*,*">
-                    <Button Grid.Column="0" Content="同步 Python"
-                            Click="OnSyncWithPythonClick" Margin="0,0,3,0" />
-                    <Button Grid.Column="1" Content="从 Python 导入"
-                            Click="OnImportFromPythonClick" Margin="3,0,0,0" />
-                </Grid>
             </StackPanel>
 
             <TextBox DockPanel.Dock="Top"

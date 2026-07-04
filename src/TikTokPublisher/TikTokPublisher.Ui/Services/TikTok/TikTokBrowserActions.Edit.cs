@@ -212,75 +212,36 @@ public static partial class TikTokBrowserActions
     {
         if (missingPaths.Count == 0) return;
 
+        var titleCandidates = PayloadTitleCandidates(payload);
+        var baseline = await DetectUploadedVideoCountAsync(page)
+            ?? Math.Max(0, expectedCount - missingPaths.Count);
+        var batchSize = Math.Clamp(options.UploadBatchSize, 1, 20);
+
         if (missingPaths.Count == 1)
         {
             await UploadLocalVideosAsync(page, missingPaths, waitForFinish: false, log, ct);
             Log(log, "TikTok 编辑流程已触发补传，开始等待视频补传完成。");
             await WaitVideoUploadFinishedAsync(
-                page, expectedCount, PayloadTitleCandidates(payload), options.UploadStallSeconds, log, ct,
+                page, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct,
                 videoPaths: missingPaths);
             return;
         }
 
-        Log(log, $"TikTok 编辑补传 {missingPaths.Count} 集，按集数顺序逐集上传（避免批量追加到末尾错位）。");
-        var titleCandidates = PayloadTitleCandidates(payload);
-        foreach (var path in missingPaths)
-        {
-            ct.ThrowIfCancellationRequested();
-            var episode = ExtractEpisodeIndexFromPath(path);
-            var beforeCount = await DetectUploadedVideoCountAsync(page);
-            await UploadLocalVideosAsync(page, new[] { path }, waitForFinish: false, log, ct);
-            await WaitForEditEpisodeUploadProgressAsync(
-                page, beforeCount, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct, path);
-            Log(log, episode is not null
-                ? $"TikTok 第 {episode} 集已提交上传。"
-                : $"TikTok 已提交补传：{Path.GetFileName(path)}");
-        }
+        Log(log,
+            $"TikTok 编辑补传 {missingPaths.Count} 集，按配置每批 {batchSize} 个顺序上传（当前已就绪 {baseline}/{expectedCount}）。");
+        await TikTokBatchUploadService.UploadPathsInBatchesAsync(
+            page,
+            missingPaths,
+            options,
+            titleCandidates,
+            log,
+            ct,
+            baseline);
 
-        Log(log, "TikTok 编辑流程逐集补传已提交，开始等待全部视频上传完成。");
+        Log(log, "TikTok 编辑流程分批补传已提交，开始等待全部视频上传完成。");
         await WaitVideoUploadFinishedAsync(
             page, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct,
             videoPaths: missingPaths);
-    }
-
-    private static async Task WaitForEditEpisodeUploadProgressAsync(
-        IPage page,
-        int? beforeCount,
-        int expectedCount,
-        IReadOnlyList<string>? titleCandidates,
-        double stallSeconds,
-        Action<string>? log,
-        CancellationToken ct,
-        string? videoPath = null)
-    {
-        var baseline = beforeCount ?? 0;
-        var target = Math.Min(expectedCount, baseline + 1);
-        var waitSeconds = ResolveEditEpisodeProgressSeconds(videoPath, stallSeconds, expectedCount);
-        var deadline = DateTime.UtcNow.AddSeconds(waitSeconds);
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-            var current = await DetectUploadedVideoCountAsync(page);
-            if (current is not null && current.Value >= target)
-                return;
-
-            try
-            {
-                var body = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 });
-                if (body.Contains("上传失败", StringComparison.Ordinal) ||
-                    body.Contains("Upload failed", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("TikTok 视频上传失败，请查看页面提示。");
-                var ready = ExtractReadyUploadedVideoCount(body, titleCandidates);
-                if (ready is not null && ready.Value >= target)
-                    return;
-            }
-            catch (InvalidOperationException) { throw; }
-            catch { /* ignore */ }
-
-            await page.WaitForTimeoutAsync(2000);
-        }
-
-        Log(log, $"⚠️ 单集补传后未在限时内确认进度（{baseline}->{target}），继续下一集。");
     }
 
     public static async Task<List<EditVideoRow>> ReadEditVideoRowsAsync(IPage page, CancellationToken ct)

@@ -89,10 +89,6 @@ public partial class TikTokQueueView : UserControl
 
     public async void OpenAccountSettings() => await ShowAccountSettingsDialogAsync();
 
-    public void SyncWithPython() => OnSyncWithPythonClick(null, null!);
-
-    public void ImportFromPython() => OnImportFromPythonClick(null, null!);
-
     private IStorageProvider? Storage => TopLevel.GetTopLevel(this)?.StorageProvider;
 
     private void OnLoaded(object? sender, RoutedEventArgs e)
@@ -202,39 +198,6 @@ public partial class TikTokQueueView : UserControl
 
         vm.SaveAccountProfile(account.Model);
         vm.StatusMessage = $"已保存账号「{account.DisplayName}」的设置";
-    }
-
-    private void OnSyncWithPythonClick(object? sender, RoutedEventArgs e)
-    {
-        if (_vm is null) return;
-        try
-        {
-            if (!File.Exists(AppPaths.PythonDatabaseFile))
-                _vm.StatusMessage = $"未找到 Python 数据库，将创建：{AppPaths.PythonDatabaseFile}";
-            _vm.SyncWithPythonClient(merge: true);
-        }
-        catch (Exception ex)
-        {
-            _vm.StatusMessage = $"Python 账号同步失败：{ex.Message}";
-        }
-    }
-
-    private void OnImportFromPythonClick(object? sender, RoutedEventArgs e)
-    {
-        if (_vm is null) return;
-        try
-        {
-            if (!File.Exists(AppPaths.PythonDatabaseFile))
-            {
-                _vm.StatusMessage = $"未找到 Python 数据库：{AppPaths.PythonDatabaseFile}";
-                return;
-            }
-            _vm.ImportFromPythonClient(merge: true);
-        }
-        catch (Exception ex)
-        {
-            _vm.StatusMessage = $"Python 导入失败：{ex.Message}";
-        }
     }
 
     private void OnScanWorkspaceClick(object? sender, RoutedEventArgs e)

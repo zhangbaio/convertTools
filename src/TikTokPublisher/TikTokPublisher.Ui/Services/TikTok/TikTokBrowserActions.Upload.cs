@@ -341,16 +341,6 @@ public static partial class TikTokBrowserActions
         return (int)Math.Min(600_000, Math.Max(60_000, 60_000 + sizeMb * 2000));
     }
 
-    internal static int ResolveEditEpisodeProgressSeconds(
-        string? videoPath,
-        double stallSeconds,
-        int expectedCount)
-    {
-        IReadOnlyList<string>? paths = string.IsNullOrWhiteSpace(videoPath) ? null : new[] { videoPath };
-        var baseline = Math.Max(60, stallSeconds);
-        return (int)Math.Min(900, baseline + ResolveUploadSizeBonusSeconds(paths, expectedCount));
-    }
-
     private static double ResolveUploadSizeBonusSeconds(IReadOnlyList<string>? videoPaths, int expectedCount)
     {
         if (videoPaths is null || videoPaths.Count == 0)

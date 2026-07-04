@@ -946,22 +946,6 @@ public sealed partial class MainViewModel : ViewModelBase
         AccountProfileNetworkChanged?.Invoke(profile);
     }
 
-    public AccountStore.PythonImportResult SyncWithPythonClient(bool merge = true)
-    {
-        var result = _store.SyncWithPythonDatabase(merge: merge);
-        ReloadAccounts();
-        StatusMessage = result.Message;
-        return result;
-    }
-
-    public AccountStore.PythonImportResult ImportFromPythonClient(bool merge = true)
-    {
-        var result = _store.ImportFromPythonDatabase(merge: merge);
-        ReloadAccounts();
-        StatusMessage = result.Message;
-        return result;
-    }
-
     public void ImportDramaProjectsToQueue(IReadOnlyList<string> projectDirs)
     {
         var root = WorkspacePath.Trim();

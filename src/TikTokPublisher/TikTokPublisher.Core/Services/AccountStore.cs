@@ -3,9 +3,7 @@ using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Services;
 
-/// <summary>
-/// 账号档案读写。切换账号时只更新 active id，不做 Python 那种「全量 profile JSON + 平铺 settings」同步。
-/// </summary>
+/// <summary>账号档案读写（JSON + 独立 profiles 目录）。</summary>
 public sealed class AccountStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -16,13 +14,6 @@ public sealed class AccountStore
 
     private readonly List<TikTokAccountProfile> _accounts = new();
     private string _activeAccountId = "";
-    private bool _syncing;
-
-    /// <summary>保存/更新/删除账号后自动写回 Python <c>tiktok_uploader.db</c>。</summary>
-    public bool AutoSyncToPythonDatabase { get; set; } = true;
-
-    /// <summary>启动时从 Python DB 合并导入（Python 字段覆盖同 ID 本地档案）。</summary>
-    public bool AutoImportFromPythonOnLoad { get; set; } = true;
 
     public IReadOnlyList<TikTokAccountProfile> Accounts => _accounts;
     public string ActiveAccountId => _activeAccountId;
@@ -43,6 +34,11 @@ public sealed class AccountStore
                 var list = JsonSerializer.Deserialize<List<TikTokAccountProfile>>(File.ReadAllText(AppPaths.AccountsFile), JsonOptions);
                 if (list != null) _accounts.AddRange(list.Where(a => !string.IsNullOrWhiteSpace(a.Id)));
             }
+            else if (File.Exists(LegacyAccountsFile))
+            {
+                var list = JsonSerializer.Deserialize<List<TikTokAccountProfile>>(File.ReadAllText(LegacyAccountsFile), JsonOptions);
+                if (list != null) _accounts.AddRange(list.Where(a => !string.IsNullOrWhiteSpace(a.Id)));
+            }
         }
         catch
         {
@@ -55,6 +51,12 @@ public sealed class AccountStore
             {
                 var active = JsonSerializer.Deserialize<ActiveAccountPointer>(
                     File.ReadAllText(AppPaths.ActiveAccountFile), JsonOptions);
+                _activeAccountId = (active?.ActiveAccountId ?? "").Trim();
+            }
+            else if (File.Exists(LegacyActiveAccountFile))
+            {
+                var active = JsonSerializer.Deserialize<ActiveAccountPointer>(
+                    File.ReadAllText(LegacyActiveAccountFile), JsonOptions);
                 _activeAccountId = (active?.ActiveAccountId ?? "").Trim();
             }
         }
@@ -76,21 +78,8 @@ public sealed class AccountStore
         foreach (var account in _accounts)
             EnsureProfileDirs(account);
 
-        TryImportFromPythonOnLoad();
-    }
-
-    private void TryImportFromPythonOnLoad()
-    {
-        if (!AutoImportFromPythonOnLoad || !PythonAccountDatabaseSync.DatabaseExists())
-            return;
-        try
-        {
-            ImportFromPythonDatabase(merge: true, syncBack: false);
-        }
-        catch
-        {
-            // Python DB 损坏时不阻断 C# 启动
-        }
+        if (!File.Exists(AppPaths.AccountsFile) && _accounts.Count > 0)
+            SaveAccounts();
     }
 
     public TikTokAccountProfile Add(string name)
@@ -107,7 +96,7 @@ public sealed class AccountStore
         _accounts.Remove(account);
         if (_activeAccountId == account.Id)
             _activeAccountId = _accounts.FirstOrDefault()?.Id ?? "";
-        SaveAccounts(syncPython: false);
+        SaveAccounts();
         SaveActivePointer();
 
         try
@@ -156,130 +145,27 @@ public sealed class AccountStore
                ?? _accounts.FirstOrDefault(a => string.Equals(a.DisplayName, key, StringComparison.OrdinalIgnoreCase));
     }
 
-    public sealed class PythonImportResult
-    {
-        public int Imported { get; init; }
-        public int Updated { get; init; }
-        public int Skipped { get; init; }
-        public int Exported { get; init; }
-        public string ActiveProfileId { get; init; } = "";
-        public string Source { get; init; } = "";
-        public string Message { get; init; } = "";
-    }
-
-    public PythonImportResult SyncWithPythonDatabase(string? databasePath = null, bool merge = true)
-    {
-        var import = ImportFromPythonDatabase(databasePath, merge: merge, syncBack: false);
-        var export = TryExportToPythonDatabase(databasePath);
-        return new PythonImportResult
-        {
-            Imported = import.Imported,
-            Updated = import.Updated,
-            ActiveProfileId = import.ActiveProfileId,
-            Source = import.Source,
-            Exported = export?.Exported ?? 0,
-            Message = export is null
-                ? import.Message
-                : $"账号双向同步：导入 {import.Imported} / 更新 {import.Updated} / 导出 {export.Exported}",
-        };
-    }
-
-    /// <summary>从 Python <c>tiktok_uploader.db</c> 合并导入账号；同 ID 更新字段，保留已有 ProfileDir。</summary>
-    public PythonImportResult ImportFromPythonDatabase(
-        string? databasePath = null,
-        bool merge = true,
-        bool syncBack = true)
-    {
-        var bundle = PythonProfileImporter.Load(databasePath);
-        var imported = 0;
-        var updated = 0;
-
-        if (!merge)
-        {
-            _accounts.Clear();
-            imported = bundle.Profiles.Count;
-            _accounts.AddRange(bundle.Profiles);
-        }
-        else
-        {
-            foreach (var incoming in bundle.Profiles)
-            {
-                var existing = _accounts.FirstOrDefault(a => a.Id == incoming.Id);
-                if (existing is null)
-                {
-                    EnsureProfileDirs(incoming);
-                    _accounts.Add(incoming);
-                    imported++;
-                }
-                else
-                {
-                    var preservedDir = existing.ProfileDir;
-                    TikTokAccountProfileMapper.ApplyToExisting(existing, incoming);
-                    if (!string.IsNullOrWhiteSpace(preservedDir))
-                        existing.ProfileDir = preservedDir;
-                    EnsureProfileDirs(existing);
-                    updated++;
-                }
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(bundle.ActiveProfileId)
-            && _accounts.Any(a => a.Id == bundle.ActiveProfileId))
-            _activeAccountId = bundle.ActiveProfileId;
-
-        foreach (var account in _accounts)
-            EnsureProfileDirs(account);
-
-        SaveAccounts(syncPython: false);
-        SaveActivePointer(syncPython: false);
-
-        if (syncBack)
-            TryExportToPythonDatabase(databasePath);
-
-        return new PythonImportResult
-        {
-            Imported = imported,
-            Updated = updated,
-            ActiveProfileId = _activeAccountId,
-            Source = bundle.SourceDescription,
-            Message = $"已从 Python 导入 {imported} 个、更新 {updated} 个账号（来源：{bundle.SourceDescription}）",
-        };
-    }
-
-    public PythonAccountDatabaseSync.SyncResult? TryExportToPythonDatabase(string? databasePath = null)
-    {
-        if (!AutoSyncToPythonDatabase || _syncing || _accounts.Count == 0)
-            return null;
-        try
-        {
-            _syncing = true;
-            return PythonAccountDatabaseSync.ExportProfiles(_accounts, _activeAccountId, databasePath);
-        }
-        catch
-        {
-            return null;
-        }
-        finally
-        {
-            _syncing = false;
-        }
-    }
-    private void SaveAccounts(bool syncPython = true)
+    private void SaveAccounts()
     {
         Directory.CreateDirectory(AppPaths.DataRoot);
         File.WriteAllText(AppPaths.AccountsFile, JsonSerializer.Serialize(_accounts, JsonOptions));
-        if (syncPython)
-            TryExportToPythonDatabase();
     }
 
-    private void SaveActivePointer(bool syncPython = true)
+    private void SaveActivePointer()
     {
         Directory.CreateDirectory(AppPaths.DataRoot);
         var payload = new ActiveAccountPointer { ActiveAccountId = _activeAccountId };
         File.WriteAllText(AppPaths.ActiveAccountFile, JsonSerializer.Serialize(payload, JsonOptions));
-        if (syncPython)
-            TryExportToPythonDatabase();
     }
+
+    private static string LegacyAccountsFile =>
+        Path.Combine(LegacyDataRoot, "tiktok-accounts.json");
+
+    private static string LegacyActiveAccountFile =>
+        Path.Combine(LegacyDataRoot, "active-tiktok-account.json");
+
+    private static string LegacyDataRoot =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".tiktok_uploader_client");
 
     private static TikTokAccountProfile CreateProfileSkeleton(string id, string name)
     {

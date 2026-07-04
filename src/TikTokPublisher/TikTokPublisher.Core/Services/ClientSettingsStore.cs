@@ -91,7 +91,7 @@ public static class ClientSettingsStore
     {
         var normalized = Normalize(settings);
         var path = ResolvePath(databasePath);
-        PythonDatabaseInitializer.EnsureInitialized(path);
+        AppDatabaseInitializer.EnsureInitialized(path);
 
         var existing = LoadRawObject(path) ?? new JsonObject();
         var incoming = JsonSerializer.SerializeToNode(normalized, JsonOptions)?.AsObject() ?? new JsonObject();
@@ -132,7 +132,7 @@ public static class ClientSettingsStore
         cmd.ExecuteNonQuery();
     }
 
-    public static string MainDatabasePath => AppPaths.PythonDatabaseFile;
+    public static string MainDatabasePath => AppPaths.AppDatabaseFile;
 
     public static string WorkspaceDatabasePath(string? workspacePath)
     {
@@ -270,5 +270,5 @@ public static class ClientSettingsStore
     }
 
     private static string ResolvePath(string? databasePath) =>
-        string.IsNullOrWhiteSpace(databasePath) ? AppPaths.PythonDatabaseFile : Path.GetFullPath(databasePath);
+        string.IsNullOrWhiteSpace(databasePath) ? AppPaths.AppDatabaseFile : Path.GetFullPath(databasePath);
 }
