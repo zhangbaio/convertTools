@@ -194,7 +194,7 @@ public static class QueueMaterialStepService
                         Overwrite: true,
                         Log: log),
                     ct);
-                log($"海报已生成：{Path.GetFileName(outputPath)}");
+                log($"海报已生成：{Path.GetFileName(outputPath)}（请使用此 PNG 文件，不会覆盖原 HEIC）");
             }
             finally
             {

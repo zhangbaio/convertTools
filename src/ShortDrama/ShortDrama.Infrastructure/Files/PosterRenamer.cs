@@ -442,10 +442,10 @@ JSON 结构：
             Clamp01(aiLayout.Y ?? 0.78f),
             Clamp01(aiLayout.Width ?? 0.8f),
             Clamp01(aiLayout.Height ?? 0.16f),
-            Clamp(aiLayout.FontScale ?? 0.09f, 0.05f, 0.14f),
-            ParseColor(aiLayout.TextColor, new Rgba32(255, 255, 255, 255)),
-            ParseColor(aiLayout.BackgroundColor, new Rgba32(0, 0, 0, 255)),
-            Clamp01(aiLayout.BackgroundOpacity ?? 0.95f),
+            Clamp(aiLayout.FontScale ?? 0.08f, 0.05f, 0.14f),
+            ParseColor(aiLayout.TextColor, new Rgba32(246, 232, 90, 255)),
+            ParseColor(aiLayout.BackgroundColor, new Rgba32(26, 26, 26, 255)),
+            Clamp01(aiLayout.BackgroundOpacity ?? 0f),
             string.Equals(aiLayout.Align, "left", StringComparison.OrdinalIgnoreCase) ? HorizontalAlignment.Left :
                 string.Equals(aiLayout.Align, "right", StringComparison.OrdinalIgnoreCase) ? HorizontalAlignment.Right :
                 HorizontalAlignment.Center);

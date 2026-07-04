@@ -214,14 +214,33 @@ public sealed partial class PosterRenamer
         await WriteGeneratedPosterCandidateAsync(outputPath, erasedBytes, erasedPath, cancellationToken);
         Log(request, $"已生成AI去字底图：{Path.GetFileName(erasedPath)}");
 
+        var repaintLayout = layout;
+        if (!string.IsNullOrWhiteSpace(request.ConfigFile))
+        {
+            try
+            {
+                repaintLayout = await DetectPosterLayoutAsync(
+                    request.ConfigFile,
+                    erasedPath,
+                    title,
+                    cancellationToken);
+                Log(request, "已在去字底图上重新检测标题区域");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Log(request, $"去字后重新检测标题区域失败，沿用原布局：{ex.Message}");
+            }
+        }
+
         PosterTitleProgrammaticRenderer.Render(
             erasedPath,
             outputPath,
             title,
-            ToTitleLayout(layout));
+            ToTitleLayout(repaintLayout));
         Log(request, $"已使用PIL重绘标准标题：{Path.GetFileName(outputPath)}");
 
-        var finalVerify = await _titleVerifier.VerifyAsync(config, outputPath, title, ToTitleLayout(layout), cancellationToken);
+        var finalVerify = await _titleVerifier.VerifyAsync(
+            config, outputPath, title, ToTitleLayout(repaintLayout), cancellationToken);
         if (finalVerify.Ok)
             Log(request, "AI海报标题初次校验未通过，已通过AI去字+PIL重绘兜底修复");
         else

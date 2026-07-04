@@ -18,6 +18,10 @@ internal static class PosterTitleProgrammaticRenderer
         "/System/Library/Fonts/STHeiti Medium.ttc",
     ];
 
+    private static readonly FontCollection SharedFontCollection = new();
+    private static readonly object FontLoadLock = new();
+    private static FontFamily? _cachedPosterFamily;
+
     public static void Render(
         string inputPath,
         string outputPath,
@@ -42,10 +46,11 @@ internal static class PosterTitleProgrammaticRenderer
         }
 
         var fontSize = Math.Max(24, (int)Math.Round(height * layout.FontScale));
-        var font = FitTitleFont(title, rw, rh, fontSize);
         var strokeWidth = Math.Max(2f, fontSize / 18f);
-        var strokeColor = ChooseStrokeColor(layout.BackgroundColor);
-        var textBounds = TextMeasurer.MeasureBounds(title, new TextOptions(font) { Dpi = 72 });
+        var font = FitTitleFont(title, rw, rh, fontSize, strokeWidth);
+        var textBounds = TextMeasurer.MeasureBounds(
+            title,
+            new TextOptions(font) { Dpi = 72 });
         var textWidth = textBounds.Width;
         var textHeight = textBounds.Height;
         var tx = layout.Align switch
@@ -56,24 +61,15 @@ internal static class PosterTitleProgrammaticRenderer
         };
         var ty = ry + (rh - textHeight) / 2f - textBounds.Top;
         var origin = new PointF(tx, ty);
+        var strokeColor = ChooseStrokeColor(layout.TextColor);
 
-        canvas.Mutate(ctx =>
-        {
-            ctx.DrawText(
-                new DrawingOptions { GraphicsOptions = new GraphicsOptions { Antialias = true } },
-                title,
-                font,
-                Brushes.Solid(layout.TextColor),
-                Pens.Solid(strokeColor, strokeWidth),
-                origin);
-        });
+        canvas.Mutate(ctx => DrawOutlinedText(ctx, title, font, layout.TextColor, strokeColor, strokeWidth, origin));
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         if (Path.GetExtension(outputPath).Equals(".jpg", StringComparison.OrdinalIgnoreCase)
             || Path.GetExtension(outputPath).Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
         {
-            using var rgb = canvas.CloneAs<Rgba32>();
-            rgb.SaveAsJpeg(outputPath);
+            canvas.SaveAsJpeg(outputPath);
         }
         else
         {
@@ -81,15 +77,43 @@ internal static class PosterTitleProgrammaticRenderer
         }
     }
 
-    private static Font FitTitleFont(string title, int maxWidth, int maxHeight, int initialSize)
+    private static void DrawOutlinedText(
+        IImageProcessingContext ctx,
+        string title,
+        Font font,
+        Rgba32 fillColor,
+        Rgba32 strokeColor,
+        float strokeWidth,
+        PointF origin)
+    {
+        var offsets = new (float X, float Y)[]
+        {
+            (-strokeWidth, 0), (strokeWidth, 0), (0, -strokeWidth), (0, strokeWidth),
+            (-strokeWidth, -strokeWidth), (strokeWidth, -strokeWidth),
+            (-strokeWidth, strokeWidth), (strokeWidth, strokeWidth),
+        };
+
+        foreach (var (ox, oy) in offsets)
+        {
+            ctx.DrawText(title, font, strokeColor, new PointF(origin.X + ox, origin.Y + oy));
+        }
+
+        ctx.DrawText(title, font, fillColor, origin);
+    }
+
+    private static Font FitTitleFont(string title, int maxWidth, int maxHeight, int initialSize, float strokeWidth)
     {
         var size = Math.Max(20, initialSize);
         while (size >= 18)
         {
             var font = LoadPosterFont(size);
-            var bounds = TextMeasurer.MeasureBounds(title, new TextOptions(font));
-            if (bounds.Width <= maxWidth * 0.96f && bounds.Height <= maxHeight * 0.9f)
+            var bounds = TextMeasurer.MeasureBounds(title, new TextOptions(font) { Dpi = 72 });
+            if (bounds.Width + strokeWidth * 2 <= maxWidth * 0.96f
+                && bounds.Height + strokeWidth * 2 <= maxHeight * 0.9f)
+            {
                 return font;
+            }
+
             size -= 2;
         }
 
@@ -110,35 +134,60 @@ internal static class PosterTitleProgrammaticRenderer
 
     private static Font LoadPosterFont(int size)
     {
-        foreach (var candidate in FontCandidates)
-        {
-            if (!File.Exists(candidate))
-                continue;
-            try
-            {
-                var collection = new FontCollection();
-                var family = collection.Add(candidate);
-                return family.CreateFont(size, FontStyle.Bold);
-            }
-            catch
-            {
-                // try next
-            }
-        }
-
-        foreach (var familyName in new[] { "Microsoft YaHei", "SimHei", "PingFang SC", "Arial Unicode MS" })
-        {
-            if (SystemFonts.TryGet(familyName, out var family))
-                return family.CreateFont(size, FontStyle.Bold);
-        }
-
-        return SystemFonts.CreateFont(SystemFonts.Families.First().Name, size, FontStyle.Bold);
+        var family = ResolvePosterFontFamily();
+        return family.CreateFont(size, FontStyle.Bold);
     }
 
-    private static Rgba32 ChooseStrokeColor(Rgba32 background)
+    private static FontFamily ResolvePosterFontFamily()
     {
-        var luminance = (background.R * 299 + background.G * 587 + background.B * 114) / 1000.0;
-        return luminance > 80 ? new Rgba32(0, 0, 0, 255) : new Rgba32(18, 18, 18, 255);
+        if (_cachedPosterFamily is not null)
+        {
+            return _cachedPosterFamily.Value;
+        }
+
+        lock (FontLoadLock)
+        {
+            if (_cachedPosterFamily is not null)
+            {
+                return _cachedPosterFamily.Value;
+            }
+
+            foreach (var candidate in FontCandidates)
+            {
+                if (!File.Exists(candidate))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    _cachedPosterFamily = SharedFontCollection.Add(candidate);
+                    return _cachedPosterFamily.Value;
+                }
+                catch
+                {
+                    // try next
+                }
+            }
+
+            foreach (var familyName in new[] { "Microsoft YaHei", "SimHei", "PingFang SC", "Arial Unicode MS" })
+            {
+                if (SystemFonts.TryGet(familyName, out var family))
+                {
+                    _cachedPosterFamily = family;
+                    return family;
+                }
+            }
+
+            _cachedPosterFamily = SystemFonts.Families.First();
+            return _cachedPosterFamily.Value;
+        }
+    }
+
+    private static Rgba32 ChooseStrokeColor(Rgba32 textColor)
+    {
+        var luminance = (textColor.R * 299 + textColor.G * 587 + textColor.B * 114) / 1000.0;
+        return luminance > 140 ? new Rgba32(0, 0, 0, 255) : new Rgba32(18, 18, 18, 255);
     }
 }
 
