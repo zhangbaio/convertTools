@@ -47,7 +47,7 @@
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="提交动作" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="2" Grid.Column="1" x:Name="SubmitActionCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="none">不提交</ComboBoxItem>
-                                <ComboBoxItem Tag="draft">保存草稿</ComboBoxItem>
+                                <ComboBoxItem Tag="save">保存</ComboBoxItem>
                                 <ComboBoxItem Tag="submit">提交</ComboBoxItem>
                             </ComboBox>
 
@@ -97,13 +97,13 @@
                             <CheckBox Grid.Row="12" Grid.Column="1" x:Name="AnchorPromotionBox" Content="启用" />
 
                             <TextBlock Grid.Row="13" Grid.Column="0" Text="个人页预览集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="13" Grid.Column="1" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="1" />
+                            <NumericUpDown Grid.Row="13" Grid.Column="1" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="3" />
 
                             <TextBlock Grid.Row="14" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="14" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="1" />
+                            <NumericUpDown Grid.Row="14" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
 
                             <TextBlock Grid.Row="15" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="15" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="20" Value="1" />
+                            <NumericUpDown Grid.Row="15" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="20" Value="3" />
 
                             <TextBlock Grid.Row="16" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="16" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />

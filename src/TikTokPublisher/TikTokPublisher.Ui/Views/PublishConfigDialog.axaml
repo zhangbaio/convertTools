@@ -23,7 +23,7 @@
                 <TextBlock Text="默认结束动作" FontWeight="SemiBold" />
                 <ComboBox x:Name="FinalActionCombo" HorizontalAlignment="Stretch">
                     <ComboBoxItem Tag="none">只填不发（安全）</ComboBoxItem>
-                    <ComboBoxItem Tag="draft">保存草稿</ComboBoxItem>
+                    <ComboBoxItem Tag="save">保存</ComboBoxItem>
                     <ComboBoxItem Tag="publish">直接发表</ComboBoxItem>
                 </ComboBox>
 

@@ -8,7 +8,7 @@ public sealed class TikTokPublishConfig
 {
     public bool Enabled { get; set; } = true;
     public string RunStrategy { get; set; } = "all"; // all / resume / retry_failed
-    public string FinalAction { get; set; } = "none"; // none / draft / publish
+    public string FinalAction { get; set; } = "none"; // none / save / publish
     public bool PauseOnError { get; set; } = true;
 
     public string DramaName { get; set; } = "";

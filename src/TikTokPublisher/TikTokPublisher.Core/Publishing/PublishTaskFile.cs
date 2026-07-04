@@ -29,7 +29,7 @@ public sealed class PublishTaskDto
 ///
 /// 约定：Python prep（来源扫描/AI描述/原创度/封面）产出此结构，.NET 侧消费。
 /// {
-///   "finalAction": "none|draft|publish",
+///   "finalAction": "none|save|draft|publish",
 ///   "tasks": [ { "account": "账号名", "videoPath": "...", "description": "...",
 ///               "shortTitle": "...", "coverPath": "...", "dramaName": "...", "declareOriginal": true } ]
 /// }</summary>
@@ -57,7 +57,7 @@ public static class FinalActionExtensions
 {
     public static FinalAction Parse(string? value) => (value ?? "").Trim().ToLowerInvariant() switch
     {
-        "draft" or "草稿" or "保存草稿" => TikTokPublisher.Core.Publishing.FinalAction.Draft,
+        "save" or "draft" or "保存" or "草稿" or "保存草稿" => TikTokPublisher.Core.Publishing.FinalAction.Draft,
         "publish" or "发表" or "发布" => TikTokPublisher.Core.Publishing.FinalAction.Publish,
         _ => TikTokPublisher.Core.Publishing.FinalAction.None,
     };

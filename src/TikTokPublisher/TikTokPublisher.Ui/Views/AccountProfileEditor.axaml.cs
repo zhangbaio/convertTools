@@ -62,10 +62,11 @@ public partial class AccountProfileEditor : UserControl
 
         ContractIdBox.Text = profile.TiktokContractId;
         SelectByTag(ContractModeCombo, profile.TiktokContractIdMode, "manual");
-        SelectByTag(SubmitActionCombo, profile.TiktokSubmitAction, "draft");
-        SubmitEnabledBox.IsChecked = profile.TiktokSubmitEnabled;
+        var submitAction = NormalizeSubmitAction(profile.TiktokSubmitAction, profile.TiktokSubmitEnabled);
+        SelectByTag(SubmitActionCombo, submitAction, "submit");
+        SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
-        SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "female");
+        SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(SourceLanguageCombo, profile.TiktokSourceLanguage, "zh");
         SelectByTag(UploadStrategyCombo, profile.TiktokUploadStrategy, "classic");
 
@@ -78,9 +79,9 @@ public partial class AccountProfileEditor : UserControl
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         AnchorPromotionBox.IsChecked = profile.TiktokAnchorPromotionEnabled;
         SilenceValidationBox.IsChecked = profile.TiktokSilenceValidationEnabled;
-        ProfilePreviewBox.Value = profile.TiktokProfilePreviewEpisodes;
-        FreePreviewBox.Value = profile.TiktokFreePreviewEpisodes;
-        GenreCountBox.Value = profile.TiktokGenreCount;
+        ProfilePreviewBox.Value = profile.TiktokProfilePreviewEpisodes > 0 ? profile.TiktokProfilePreviewEpisodes : 3;
+        FreePreviewBox.Value = profile.TiktokFreePreviewEpisodes > 0 ? profile.TiktokFreePreviewEpisodes : 3;
+        GenreCountBox.Value = profile.TiktokGenreCount > 0 ? profile.TiktokGenreCount : 3;
         UploadStallBox.Value = profile.TiktokUploadStallSeconds;
         ProjectConcurrencyBox.Value = profile.TiktokProjectConcurrency;
         UploadBatchSizeBox.Value = profile.TiktokUploadBatchSize;
@@ -137,10 +138,10 @@ public partial class AccountProfileEditor : UserControl
 
             profile.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
             profile.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
-            profile.TiktokSubmitAction = TagOf(SubmitActionCombo, "draft");
-            profile.TiktokSubmitEnabled = SubmitEnabledBox.IsChecked == true;
+            profile.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
+            profile.TiktokSubmitEnabled = string.Equals(profile.TiktokSubmitAction, "submit", StringComparison.Ordinal);
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
-            profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "female");
+            profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
             profile.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
             profile.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "classic");
             profile.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
@@ -150,11 +151,11 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
             profile.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
             profile.TiktokSilenceValidationEnabled = SilenceValidationBox.IsChecked == true;
-            profile.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 1);
-            profile.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 1);
-            profile.TiktokGenreCount = (int)(GenreCountBox.Value ?? 1);
+            profile.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
+            profile.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);
+            profile.TiktokGenreCount = (int)(GenreCountBox.Value ?? 3);
             profile.TiktokUploadStallSeconds = (int)(UploadStallBox.Value ?? 180);
-            profile.TiktokProjectConcurrency = (int)(ProjectConcurrencyBox.Value ?? 1);
+            profile.TiktokProjectConcurrency = (int)(ProjectConcurrencyBox.Value ?? 4);
             profile.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
             profile.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
             profile.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
@@ -366,6 +367,18 @@ public partial class AccountProfileEditor : UserControl
         var file = files.FirstOrDefault();
         if (file is null) return;
         target.Text = file.Path.LocalPath;
+    }
+
+    private static string NormalizeSubmitAction(string? value, bool? legacyEnabled = null)
+    {
+        var action = (value ?? "").Trim().ToLowerInvariant();
+        return action switch
+        {
+            "none" => "none",
+            "submit" => "submit",
+            "save" => "save",
+            _ => legacyEnabled.HasValue && !legacyEnabled.Value ? "none" : "submit",
+        };
     }
 
     private static void SelectByTag(ComboBox combo, string? tag, string fallback)

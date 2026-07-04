@@ -32,10 +32,11 @@ public partial class AccountSettingsDialog : Window
 
         ContractIdBox.Text = p.TiktokContractId;
         SelectByTag(ContractModeCombo, p.TiktokContractIdMode, "manual");
-        SelectByTag(SubmitActionCombo, p.TiktokSubmitAction, "draft");
-        SubmitEnabledBox.IsChecked = p.TiktokSubmitEnabled;
+        var submitAction = NormalizeSubmitAction(p.TiktokSubmitAction, p.TiktokSubmitEnabled);
+        SelectByTag(SubmitActionCombo, submitAction, "submit");
+        SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
         SelectByTag(PublishModeCombo, p.TiktokPublishMode, "auto_after_review");
-        SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "female");
+        SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(SourceLanguageCombo, p.TiktokSourceLanguage, "zh");
         SelectByTag(UploadStrategyCombo, p.TiktokUploadStrategy, "classic");
 
@@ -47,9 +48,9 @@ public partial class AccountSettingsDialog : Window
         AiDramaBox.IsChecked = p.TiktokIsAiDrama;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         AnchorPromotionBox.IsChecked = p.TiktokAnchorPromotionEnabled;
-        ProfilePreviewBox.Value = p.TiktokProfilePreviewEpisodes;
-        FreePreviewBox.Value = p.TiktokFreePreviewEpisodes;
-        GenreCountBox.Value = p.TiktokGenreCount;
+        ProfilePreviewBox.Value = p.TiktokProfilePreviewEpisodes > 0 ? p.TiktokProfilePreviewEpisodes : 3;
+        FreePreviewBox.Value = p.TiktokFreePreviewEpisodes > 0 ? p.TiktokFreePreviewEpisodes : 3;
+        GenreCountBox.Value = p.TiktokGenreCount > 0 ? p.TiktokGenreCount : 3;
         UploadStallBox.Value = p.TiktokUploadStallSeconds;
         ProjectConcurrencyBox.Value = p.TiktokProjectConcurrency;
         UploadBatchSizeBox.Value = p.TiktokUploadBatchSize;
@@ -87,10 +88,10 @@ public partial class AccountSettingsDialog : Window
 
         p.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
         p.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
-        p.TiktokSubmitAction = TagOf(SubmitActionCombo, "draft");
-        p.TiktokSubmitEnabled = SubmitEnabledBox.IsChecked == true;
+        p.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
+        p.TiktokSubmitEnabled = string.Equals(p.TiktokSubmitAction, "submit", StringComparison.Ordinal);
         p.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
-        p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "female");
+        p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
         p.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
         p.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "classic");
         p.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
@@ -99,11 +100,11 @@ public partial class AccountSettingsDialog : Window
         p.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
         p.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
-        p.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 1);
-        p.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 1);
-        p.TiktokGenreCount = (int)(GenreCountBox.Value ?? 1);
+        p.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
+        p.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);
+        p.TiktokGenreCount = (int)(GenreCountBox.Value ?? 3);
         p.TiktokUploadStallSeconds = (int)(UploadStallBox.Value ?? 180);
-        p.TiktokProjectConcurrency = (int)(ProjectConcurrencyBox.Value ?? 1);
+        p.TiktokProjectConcurrency = (int)(ProjectConcurrencyBox.Value ?? 4);
         p.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
         p.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
         p.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
@@ -161,6 +162,18 @@ public partial class AccountSettingsDialog : Window
 
     private static string TagOf(ComboBox combo, string fallback)
         => (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? fallback;
+
+    private static string NormalizeSubmitAction(string? value, bool? legacyEnabled = null)
+    {
+        var action = (value ?? "").Trim().ToLowerInvariant();
+        return action switch
+        {
+            "none" => "none",
+            "submit" => "submit",
+            "save" => "save",
+            _ => legacyEnabled.HasValue && !legacyEnabled.Value ? "none" : "submit",
+        };
+    }
 
     private static (string Value, string Label) NormalizeExpectedPriceInput(string? text)
     {

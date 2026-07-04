@@ -77,7 +77,10 @@ public sealed class AccountStore
             _activeAccountId = _accounts[0].Id;
 
         foreach (var account in _accounts)
+        {
+            NormalizeProfileDefaults(account);
             EnsureProfileDirs(account);
+        }
 
         if (!File.Exists(AppPaths.AccountsFile) && _accounts.Count > 0)
             SaveAccounts();
@@ -113,6 +116,7 @@ public sealed class AccountStore
 
     public void Update(TikTokAccountProfile account)
     {
+        NormalizeProfileDefaults(account);
         account.UpdatedAt = DateTimeOffset.Now.ToString("o");
         EnsureProfileDirs(account);
         SaveAccounts();
@@ -191,6 +195,37 @@ public sealed class AccountStore
         Directory.CreateDirectory(account.ProfileDir);
         if (string.IsNullOrWhiteSpace(account.TiktokStorageStatePath))
             account.TiktokStorageStatePath = AppPaths.DefaultStorageStatePath(account.Id);
+    }
+
+    private static void NormalizeProfileDefaults(TikTokAccountProfile account)
+    {
+        account.TiktokSubmitAction = NormalizeSubmitAction(account.TiktokSubmitAction, account.TiktokSubmitEnabled);
+        account.TiktokSubmitEnabled = string.Equals(account.TiktokSubmitAction, "submit", StringComparison.Ordinal);
+        account.TiktokTargetAudienceMode = NormalizeTargetAudience(account.TiktokTargetAudienceMode);
+        if (account.TiktokGenreCount <= 0) account.TiktokGenreCount = 3;
+        if (account.TiktokProfilePreviewEpisodes <= 0) account.TiktokProfilePreviewEpisodes = 3;
+        if (account.TiktokFreePreviewEpisodes <= 0) account.TiktokFreePreviewEpisodes = 3;
+        if (account.TiktokProjectConcurrency <= 0) account.TiktokProjectConcurrency = 4;
+    }
+
+    private static string NormalizeSubmitAction(string? value, bool? legacyEnabled = null)
+    {
+        var action = (value ?? "").Trim().ToLowerInvariant();
+        return action switch
+        {
+            "none" => "none",
+            "submit" => "submit",
+            "save" => "save",
+            _ => legacyEnabled.HasValue && !legacyEnabled.Value ? "none" : "submit",
+        };
+    }
+
+    private static string NormalizeTargetAudience(string? value)
+    {
+        var normalized = (value ?? "").Trim().ToLowerInvariant();
+        return normalized is "female" or "male" or "ai_recommend"
+            ? normalized
+            : "ai_recommend";
     }
 
     private sealed class ActiveAccountPointer

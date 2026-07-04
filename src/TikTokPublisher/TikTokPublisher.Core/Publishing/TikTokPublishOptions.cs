@@ -56,16 +56,16 @@ public sealed class TikTokPublishOptions
 {
     public string ContractId { get; set; } = "";
     public string ContractIdMode { get; set; } = TikTokPublishConstants.ContractIdModeManual;
-    public bool AnchorPromotionEnabled { get; set; }
-    public string TargetAudienceMode { get; set; } = "female";
-    public int GenreCount { get; set; } = 1;
+    public bool AnchorPromotionEnabled { get; set; } = true;
+    public string TargetAudienceMode { get; set; } = "ai_recommend";
+    public int GenreCount { get; set; } = 3;
     public string SourceLanguage { get; set; } = "zh";
     public bool IsAiDrama { get; set; } = true;
     public string PublishMode { get; set; } = "auto_after_review";
-    public bool ConsignmentEnabled { get; set; }
+    public bool ConsignmentEnabled { get; set; } = true;
     public bool PaidEnabled { get; set; }
-    public int ProfilePreviewEpisodes { get; set; } = 1;
-    public int FreePreviewEpisodes { get; set; } = 1;
+    public int ProfilePreviewEpisodes { get; set; } = 3;
+    public int FreePreviewEpisodes { get; set; } = 3;
     public string ExpectedFullPriceMode { get; set; } = "manual";
     public int ExpectedFullPriceOptionIndex { get; set; } = 1;
     public string ExpectedFullPriceValue { get; set; } = "";
@@ -104,8 +104,8 @@ public sealed class TikTokPublishOptions
             ? TikTokPublishConstants.ContractIdModeManual
             : account.TiktokContractIdMode,
         AnchorPromotionEnabled = account.TiktokAnchorPromotionEnabled,
-        TargetAudienceMode = string.IsNullOrWhiteSpace(account.TiktokTargetAudienceMode) ? "female" : account.TiktokTargetAudienceMode,
-        GenreCount = account.TiktokGenreCount > 0 ? account.TiktokGenreCount : 1,
+        TargetAudienceMode = string.IsNullOrWhiteSpace(account.TiktokTargetAudienceMode) ? "ai_recommend" : account.TiktokTargetAudienceMode,
+        GenreCount = account.TiktokGenreCount > 0 ? account.TiktokGenreCount : 3,
         SourceLanguage = string.IsNullOrWhiteSpace(account.TiktokSourceLanguage) ? "zh" : account.TiktokSourceLanguage,
         IsAiDrama = account.TiktokIsAiDrama,
         PublishMode = string.IsNullOrWhiteSpace(account.TiktokPublishMode) ? "auto_after_review" : account.TiktokPublishMode,

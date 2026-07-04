@@ -21,7 +21,7 @@ public partial class PublishConfigDialog : Window
     {
         EnabledBox.IsChecked = _config.Enabled;
         SelectByTag(RunStrategyCombo, _config.RunStrategy);
-        SelectByTag(FinalActionCombo, _config.FinalAction);
+        SelectByTag(FinalActionCombo, NormalizeFinalAction(_config.FinalAction));
         PauseOnErrorBox.IsChecked = _config.PauseOnError;
         FillDescriptionBox.IsChecked = _config.FillDescription;
         DescriptionTemplateBox.Text = _config.DescriptionTemplate;
@@ -34,7 +34,7 @@ public partial class PublishConfigDialog : Window
     {
         _config.Enabled = EnabledBox.IsChecked == true;
         _config.RunStrategy = TagOf(RunStrategyCombo, "all");
-        _config.FinalAction = TagOf(FinalActionCombo, "none");
+        _config.FinalAction = NormalizeFinalAction(TagOf(FinalActionCombo, "none"));
         _config.PauseOnError = PauseOnErrorBox.IsChecked == true;
         _config.FillDescription = FillDescriptionBox.IsChecked == true;
         _config.DescriptionTemplate = DescriptionTemplateBox.Text ?? "";
@@ -56,4 +56,12 @@ public partial class PublishConfigDialog : Window
 
     private static string TagOf(ComboBox combo, string fallback)
         => (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? fallback;
+
+    private static string NormalizeFinalAction(string? value) =>
+        (value ?? "").Trim().ToLowerInvariant() switch
+        {
+            "save" or "draft" => "save",
+            "publish" => "publish",
+            _ => "none",
+        };
 }

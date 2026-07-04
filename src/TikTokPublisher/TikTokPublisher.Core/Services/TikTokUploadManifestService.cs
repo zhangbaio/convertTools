@@ -67,9 +67,7 @@ public static class TikTokUploadManifestService
         string? workflowProjectDir = null)
     {
         var options = TikTokPublishOptionsBuilder.FromAccount(account, workflowProjectDir);
-        var submitAction = string.IsNullOrWhiteSpace(account?.TiktokSubmitAction)
-            ? "draft"
-            : account!.TiktokSubmitAction.Trim();
+        var submitAction = NormalizeSubmitAction(account?.TiktokSubmitAction, account?.TiktokSubmitEnabled);
         var snapshot = new Dictionary<string, object?>
         {
             ["series_url"] = FirstNonEmpty(account?.TiktokSeriesUrl, TikTokUrls.DefaultSeriesDraftUrl),
@@ -120,5 +118,17 @@ public static class TikTokUploadManifestService
         }
 
         return "";
+    }
+
+    private static string NormalizeSubmitAction(string? value, bool? legacyEnabled = null)
+    {
+        var action = (value ?? "").Trim().ToLowerInvariant();
+        return action switch
+        {
+            "none" => "none",
+            "submit" => "submit",
+            "save" => "save",
+            _ => legacyEnabled.HasValue && !legacyEnabled.Value ? "none" : "submit",
+        };
     }
 }

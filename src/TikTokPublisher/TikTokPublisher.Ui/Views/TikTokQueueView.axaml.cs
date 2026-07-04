@@ -209,7 +209,7 @@ public partial class TikTokQueueView : UserControl
         var fa = _publishConfig.FinalAction switch
         {
             "publish" => FinalAction.Publish,
-            "draft" => FinalAction.Draft,
+            "save" or "draft" => FinalAction.Draft,
             _ => FinalAction.None,
         };
         var choice = vm.FinalActionChoices.FirstOrDefault(c => c.Value == fa);

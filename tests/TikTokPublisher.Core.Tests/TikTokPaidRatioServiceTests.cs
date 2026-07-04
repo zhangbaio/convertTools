@@ -8,6 +8,13 @@ using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
+[CollectionDefinition(PaidRatioTestCollection.Name, DisableParallelization = true)]
+public sealed class PaidRatioTestCollection
+{
+    public const string Name = "TikTokPaidRatio";
+}
+
+[Collection(PaidRatioTestCollection.Name)]
 public sealed class TikTokPaidRatioServiceTests : IDisposable
 {
     private readonly string _tempRoot;
@@ -228,6 +235,7 @@ public sealed class TikTokPaidRatioServiceTests : IDisposable
     }
 }
 
+[Collection(PaidRatioTestCollection.Name)]
 public sealed class TikTokUploadPrerequisiteServiceTests
 {
     private static TikTokAccountProfile CompleteAccount() => new()

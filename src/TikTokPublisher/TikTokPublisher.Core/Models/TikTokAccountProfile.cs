@@ -43,7 +43,7 @@ public sealed class TikTokAccountProfile
 
     // 发布默认
     public bool TiktokSubmitEnabled { get; set; } = true;
-    public string TiktokSubmitAction { get; set; } = "draft"; // draft | publish | none
+    public string TiktokSubmitAction { get; set; } = "submit"; // none | submit | save
     public string TiktokContractId { get; set; } = "";
     public string TiktokContractIdMode { get; set; } = "manual";
     public bool TiktokPaidEnabled { get; set; }
