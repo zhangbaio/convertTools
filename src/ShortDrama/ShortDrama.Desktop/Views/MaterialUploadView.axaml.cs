@@ -25,6 +25,16 @@ public partial class MaterialUploadView : UserControl
         DeleteChannelMaterialsButton.Click += DeleteChannelMaterialsButton_Click;
         OpenClipConfigButton.Click += OpenClipConfigButton_Click;
         GenerateClipsFullEngineButton.Click += GenerateClipsFullEngineButton_Click;
+        AddMaterialUploadAccountButton.Click += (_, _) => ViewModel?.AddMaterialUploadAccount();
+        RenameMaterialUploadAccountButton.Click += (_, _) => ViewModel?.SaveSelectedMaterialUploadAccountConfig();
+        DeleteMaterialUploadAccountButton.Click += (_, _) => ViewModel?.DeleteSelectedMaterialUploadAccount();
+        SetCurrentMaterialUploadAccountButton.Click += (_, _) => ViewModel?.SetSelectedMaterialUploadAccountActive();
+        LoginMaterialUploadAccountButton.Click += async (_, _) => await OpenSelectedMaterialUploadAccountBrowserAsync(relogin: false);
+        ReloginMaterialUploadAccountButton.Click += async (_, _) => await OpenSelectedMaterialUploadAccountBrowserAsync(relogin: true);
+        OpenMaterialUploadAccountBrowserButton.Click += async (_, _) => await OpenSelectedMaterialUploadAccountBrowserAsync(relogin: false);
+        BindCheckedMaterialUploadAccountButton.Click += (_, _) => ViewModel?.BindCheckedMaterialUploadProjectsToSelectedAccount();
+        SaveMaterialUploadAccountButton.Click += (_, _) => ViewModel?.SaveSelectedMaterialUploadAccountConfig();
+        BrowseMaterialUploadAuthFileButton.Click += BrowseMaterialUploadAuthFileButton_Click;
         MaterialUploadProjectsListBox.SelectionChanged += MaterialUploadProjectsListBox_SelectionChanged;
     }
 
@@ -60,6 +70,44 @@ public partial class MaterialUploadView : UserControl
         }
 
         await ViewModel.RunCheckedMaterialUploadQueueFromPageAsync();
+    }
+
+    private async Task OpenSelectedMaterialUploadAccountBrowserAsync(bool relogin)
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        await ViewModel.OpenSelectedMaterialUploadAccountBrowserAsync(relogin);
+    }
+
+    private async void BrowseMaterialUploadAuthFileButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (OwnerWindow?.StorageProvider is null)
+        {
+            return;
+        }
+
+        var files = await OwnerWindow.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择授权文件",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("JSON")
+                {
+                    Patterns = ["*.json"]
+                },
+                FilePickerFileTypes.All
+            ]
+        });
+
+        var file = files.FirstOrDefault();
+        if (file is not null)
+        {
+            ViewModel?.SetSelectedMaterialUploadAccountAuthFile(file.Path.LocalPath);
+        }
     }
 
     private async void RunSingleMaterialUpload_Click(object? sender, RoutedEventArgs e)

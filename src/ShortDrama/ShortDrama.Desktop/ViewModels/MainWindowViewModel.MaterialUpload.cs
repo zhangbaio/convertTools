@@ -1,3 +1,4 @@
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using ShortDrama.Desktop.Services;
 using System.Collections.ObjectModel;
@@ -7,12 +8,32 @@ namespace ShortDrama.Desktop.ViewModels;
 
 public partial class MainWindowViewModel
 {
+    private const string ProjectMetadataFileName = "shortdrama-project.json";
+    private const string WorkspaceAccountProfileConfigName = ".weixin-channel-workspace.json";
+    private static readonly string[] MaterialUploadProjectAccountKeys =
+    [
+        "materialUploadAccountProfileId",
+        "material_upload_account_profile_id"
+    ];
+    private static readonly string[] MaterialUploadWorkspaceAccountKeys =
+    [
+        "material_upload_account_profile_id",
+        "materialUploadAccountProfileId"
+    ];
     private bool _applyingMaterialUploadPageState;
 
     public ObservableCollection<ProjectListItemViewModel> MaterialUploadProjects { get; } = [];
+    public ObservableCollection<MaterialUploadAccountItemViewModel> MaterialUploadAccounts { get; } = [];
+    public ObservableCollection<MaterialUploadAccountItemViewModel> VisibleMaterialUploadAccounts { get; } = [];
 
     [ObservableProperty]
     private string materialUploadFilterText = string.Empty;
+
+    [ObservableProperty]
+    private string materialUploadAccountFilterText = string.Empty;
+
+    [ObservableProperty]
+    private MaterialUploadAccountItemViewModel? selectedMaterialUploadAccount;
 
     [ObservableProperty]
     private bool materialUploadAllowDuplicatePublish;
@@ -20,8 +41,31 @@ public partial class MainWindowViewModel
     [ObservableProperty]
     private bool materialUploadGenerateHighlights = true;
 
+    [ObservableProperty]
+    private int materialUploadMaxParallelAccounts = 2;
+
     partial void OnMaterialUploadAllowDuplicatePublishChanged(bool value) => PersistMaterialUploadPageState();
     partial void OnMaterialUploadGenerateHighlightsChanged(bool value) => PersistMaterialUploadPageState();
+
+    partial void OnMaterialUploadMaxParallelAccountsChanged(int value)
+    {
+        var normalized = Math.Clamp(value <= 0 ? 2 : value, 1, 8);
+        if (normalized != value)
+        {
+            MaterialUploadMaxParallelAccounts = normalized;
+            return;
+        }
+
+        PersistMaterialUploadPageState();
+        OnPropertyChanged(nameof(MaterialUploadSummary));
+    }
+
+    partial void OnMaterialUploadAccountFilterTextChanged(string value) => RefreshVisibleMaterialUploadAccounts();
+
+    partial void OnSelectedMaterialUploadAccountChanged(MaterialUploadAccountItemViewModel? value)
+    {
+        OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
+    }
 
     partial void OnMaterialUploadFilterTextChanged(string value)
     {
@@ -38,6 +82,7 @@ public partial class MainWindowViewModel
             MaterialUploadGenerateHighlights = state.GenerateHighlights;
             QueueStepMaterialUploadEnabled = state.MaterialUploadEnabled;
             MaterialUploadAllowDuplicatePublish = state.AllowDuplicatePublish;
+            MaterialUploadMaxParallelAccounts = state.MaxParallelAccounts;
         }
         finally
         {
@@ -57,7 +102,8 @@ public partial class MainWindowViewModel
             new DesktopStateService.MaterialUploadPageState(
                 MaterialUploadGenerateHighlights,
                 QueueStepMaterialUploadEnabled,
-                MaterialUploadAllowDuplicatePublish));
+                MaterialUploadAllowDuplicatePublish,
+                MaterialUploadMaxParallelAccounts));
     }
 
     public string MaterialUploadQueueButtonText =>
@@ -65,6 +111,265 @@ public partial class MainWindowViewModel
 
     public string MaterialUploadSummary =>
         $"项目数: {MaterialUploadProjects.Count} | 已勾选: {MaterialUploadProjects.Count(item => item.IsChecked)} | 当前项目: {SelectedProject?.DisplayName ?? "未选择"}";
+
+    public string CurrentMaterialUploadAccountSummary =>
+        SelectedMaterialUploadAccount is null
+            ? "当前：未选择账号"
+            : $"当前：{SelectedMaterialUploadAccount.DisplayName}";
+
+    public void LoadMaterialUploadAccounts()
+    {
+        MaterialUploadAccounts.Clear();
+        VisibleMaterialUploadAccounts.Clear();
+
+        var state = _stateService.LoadMaterialUploadAccountsState();
+        var profiles = state.Profiles ?? [];
+        if (profiles.Length == 0)
+        {
+            profiles =
+            [
+                DesktopStateService.CreateMaterialUploadAccount("账号1", [])
+            ];
+        }
+
+        var activeId = profiles.Any(item => string.Equals(item.Id, state.ActiveAccountProfileId, StringComparison.OrdinalIgnoreCase))
+            ? state.ActiveAccountProfileId
+            : profiles[0].Id;
+        foreach (var profile in profiles)
+        {
+            MaterialUploadAccounts.Add(new MaterialUploadAccountItemViewModel(
+                profile.Id,
+                profile.Name,
+                profile.AuthFile,
+                profile.BrowserProfileDir,
+                string.Equals(profile.Id, activeId, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        SelectedMaterialUploadAccount = MaterialUploadAccounts.FirstOrDefault(item => item.IsActive)
+                                        ?? MaterialUploadAccounts.FirstOrDefault();
+        RefreshVisibleMaterialUploadAccounts();
+        SaveMaterialUploadAccounts();
+        OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
+        OnPropertyChanged(nameof(MaterialUploadSummary));
+    }
+
+    public void RefreshVisibleMaterialUploadAccounts()
+    {
+        var selectedId = SelectedMaterialUploadAccount?.Id;
+        var filter = (MaterialUploadAccountFilterText ?? string.Empty).Trim();
+        var accounts = string.IsNullOrWhiteSpace(filter)
+            ? MaterialUploadAccounts
+            : MaterialUploadAccounts.Where(account =>
+                Contains(account.DisplayName, filter) ||
+                Contains(account.Id, filter) ||
+                Contains(account.AuthFile, filter));
+
+        VisibleMaterialUploadAccounts.Clear();
+        foreach (var account in accounts)
+        {
+            account.RefreshFileState();
+            VisibleMaterialUploadAccounts.Add(account);
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedId))
+        {
+            SelectedMaterialUploadAccount = VisibleMaterialUploadAccounts.FirstOrDefault(item =>
+                string.Equals(item.Id, selectedId, StringComparison.OrdinalIgnoreCase))
+                ?? SelectedMaterialUploadAccount;
+        }
+    }
+
+    public void AddMaterialUploadAccount(string? name = null)
+    {
+        var accountName = string.IsNullOrWhiteSpace(name)
+            ? $"账号{MaterialUploadAccounts.Count + 1}"
+            : name.Trim();
+        var state = DesktopStateService.CreateMaterialUploadAccount(
+            accountName,
+            MaterialUploadAccounts.Select(item => item.Id));
+        var account = new MaterialUploadAccountItemViewModel(
+            state.Id,
+            state.Name,
+            state.AuthFile,
+            state.BrowserProfileDir);
+        MaterialUploadAccounts.Add(account);
+        SelectedMaterialUploadAccount = account;
+        SetMaterialUploadAccountActive(account);
+        RefreshVisibleMaterialUploadAccounts();
+        StatusMessage = $"已新增素材上传账号：{account.DisplayName}";
+    }
+
+    public void RenameSelectedMaterialUploadAccount(string name)
+    {
+        var account = SelectedMaterialUploadAccount;
+        if (account is null || string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        account.Name = name.Trim();
+        SaveMaterialUploadAccounts();
+        RefreshVisibleMaterialUploadAccounts();
+        RefreshMaterialUploadAccountNames();
+        StatusMessage = $"已重命名素材上传账号：{account.DisplayName}";
+    }
+
+    public void DeleteSelectedMaterialUploadAccount()
+    {
+        var account = SelectedMaterialUploadAccount;
+        if (account is null)
+        {
+            return;
+        }
+
+        if (MaterialUploadAccounts.Count <= 1)
+        {
+            StatusMessage = "至少需要保留一个素材上传账号。";
+            AppendLog(StatusMessage);
+            return;
+        }
+
+        MaterialUploadAccounts.Remove(account);
+        if (account.IsActive)
+        {
+            SetMaterialUploadAccountActive(MaterialUploadAccounts.FirstOrDefault());
+        }
+
+        SelectedMaterialUploadAccount = MaterialUploadAccounts.FirstOrDefault(item => item.IsActive)
+                                        ?? MaterialUploadAccounts.FirstOrDefault();
+        SaveMaterialUploadAccounts();
+        RefreshVisibleMaterialUploadAccounts();
+        RefreshMaterialUploadAccountNames();
+        StatusMessage = $"已删除素材上传账号：{account.DisplayName}";
+    }
+
+    public void SetSelectedMaterialUploadAccountActive()
+    {
+        SetMaterialUploadAccountActive(SelectedMaterialUploadAccount);
+    }
+
+    public void SetSelectedMaterialUploadAccountAuthFile(string path)
+    {
+        if (SelectedMaterialUploadAccount is null || string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        SelectedMaterialUploadAccount.AuthFile = path.Trim();
+        SaveMaterialUploadAccounts();
+        RefreshVisibleMaterialUploadAccounts();
+    }
+
+    public void SaveSelectedMaterialUploadAccountConfig()
+    {
+        SaveMaterialUploadAccounts();
+        SelectedMaterialUploadAccount?.RefreshFileState();
+        RefreshVisibleMaterialUploadAccounts();
+        RefreshMaterialUploadAccountNames();
+        StatusMessage = SelectedMaterialUploadAccount is null
+            ? "未选择素材上传账号。"
+            : $"已保存账号配置：{SelectedMaterialUploadAccount.DisplayName}";
+    }
+
+    public void BindCheckedMaterialUploadProjectsToSelectedAccount()
+    {
+        var account = SelectedMaterialUploadAccount ?? GetActiveMaterialUploadAccount();
+        if (account is null)
+        {
+            StatusMessage = "请先选择素材上传账号。";
+            AppendLog(StatusMessage);
+            return;
+        }
+
+        var targets = MaterialUploadProjects.Where(item => item.IsChecked).ToArray();
+        if (targets.Length == 0 && SelectedProject is not null)
+        {
+            targets = [SelectedProject];
+        }
+
+        if (targets.Length == 0)
+        {
+            StatusMessage = "请先勾选要绑定账号的素材项目。";
+            AppendLog(StatusMessage);
+            return;
+        }
+
+        foreach (var project in targets)
+        {
+            BindMaterialUploadProjectToAccount(project, account);
+        }
+
+        OnPropertyChanged(nameof(MaterialUploadSummary));
+        StatusMessage = $"已绑定 {targets.Length} 个素材项目到账号：{account.DisplayName}";
+        AppendLog(StatusMessage);
+    }
+
+    public Task OpenSelectedMaterialUploadAccountBrowserAsync(bool relogin)
+    {
+        var account = SelectedMaterialUploadAccount ?? GetActiveMaterialUploadAccount();
+        if (account is null)
+        {
+            StatusMessage = "请先选择素材上传账号。";
+            AppendLog(StatusMessage);
+            return Task.CompletedTask;
+        }
+
+        if (IsWeixinBrowserSessionRunning)
+        {
+            StatusMessage = "微信浏览器已在运行，请先关闭当前浏览器窗口。";
+            AppendLog(StatusMessage);
+            return Task.CompletedTask;
+        }
+
+        if (relogin)
+        {
+            TryDeleteFile(account.AuthFile);
+            account.RefreshFileState();
+        }
+
+        var configPath = EnsureMaterialUploadAccountBrowserConfig(account);
+        var projectDir = Directory.Exists(RootDir) ? RootDir : Path.GetDirectoryName(configPath)!;
+        IsWeixinBrowserSessionRunning = true;
+        StatusMessage = $"正在打开素材上传账号浏览器：{account.DisplayName}";
+        AppendLog(StatusMessage, string.Empty, string.Empty, "weixin-browser", "打开浏览器");
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _weixinBrowserSessionLauncher.OpenHomeAsync(configPath, projectDir, CancellationToken.None);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    account.RefreshFileState();
+                    RefreshVisibleMaterialUploadAccounts();
+                    AppendLog(
+                        $"素材上传账号浏览器会话已结束：{account.DisplayName}",
+                        string.Empty,
+                        string.Empty,
+                        "weixin-browser",
+                        "打开浏览器");
+                    IsWeixinBrowserSessionRunning = false;
+                });
+            }
+            catch (Exception ex)
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    AppendLog(
+                        $"打开素材上传账号浏览器失败：{ex.Message}",
+                        string.Empty,
+                        string.Empty,
+                        "weixin-browser",
+                        "打开浏览器",
+                        isFailure: true);
+                    StatusMessage = ex.Message;
+                    IsWeixinBrowserSessionRunning = false;
+                });
+            }
+        });
+
+        return Task.CompletedTask;
+    }
 
     public void ApplyMaterialUploadFilter()
     {
@@ -162,17 +467,16 @@ public partial class MainWindowViewModel
                 return;
             }
 
-            await PrepareMaterialUploadOverridesAsync(targets, refreshAfter: false);
+            var executionTargets = ResolveMaterialUploadExecutionTargets(targets, bindMissing: true);
+            if (executionTargets.Length == 0)
+            {
+                StatusMessage = "未找到可用的素材上传账号。";
+                AppendLog(StatusMessage, string.Empty, string.Empty, "material-upload", "素材上传", isFailure: true);
+                return;
+            }
 
-            var mode = SelectedExecutionModeOption?.Key ?? ExecutionModeSerial;
-            if (string.Equals(mode, ExecutionModeConcurrent2, StringComparison.Ordinal))
-            {
-                await ExecuteMaterialUploadBatchConcurrentAsync(targets, cancellationToken);
-            }
-            else
-            {
-                await ExecuteMaterialUploadBatchSerialAsync(targets, cancellationToken);
-            }
+            await PrepareMaterialUploadOverridesAsync(executionTargets, refreshAfter: false);
+            await ExecuteMaterialUploadBatchByAccountAsync(executionTargets, cancellationToken);
 
             await RefreshProjectListAsync();
             StatusMessage = $"素材上传完成，共处理 {targets.Length} 个项目。";
@@ -218,7 +522,15 @@ public partial class MainWindowViewModel
                 return;
             }
 
-            await PrepareMaterialUploadOverridesAsync([project], refreshAfter: false);
+            var executionTargets = ResolveMaterialUploadExecutionTargets([project], bindMissing: true);
+            if (executionTargets.Length == 0)
+            {
+                StatusMessage = "未找到可用的素材上传账号。";
+                AppendLog(StatusMessage, project.ProjectKey, project.DisplayName, "material-upload", "素材上传", isFailure: true);
+                return;
+            }
+
+            await PrepareMaterialUploadOverridesAsync(executionTargets, refreshAfter: false);
             await ExecuteProjectBatchItemAsync(
                 project,
                 "weixin-material-upload",
@@ -305,6 +617,68 @@ public partial class MainWindowViewModel
         StatusMessage = summary;
     }
 
+    private async Task ExecuteMaterialUploadBatchByAccountAsync(
+        IReadOnlyList<MaterialUploadExecutionTarget> targets,
+        CancellationToken cancellationToken)
+    {
+        var total = targets.Count;
+        var groups = targets
+            .GroupBy(item => item.Account.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderBy(item => item.Index).ToArray())
+            .ToArray();
+
+        if (groups.Length <= 1 || MaterialUploadMaxParallelAccounts <= 1)
+        {
+            foreach (var target in targets.OrderBy(item => item.Index))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await ExecuteMaterialUploadTargetAsync(target, total, cancellationToken);
+            }
+
+            return;
+        }
+
+        using var gate = new SemaphoreSlim(Math.Clamp(MaterialUploadMaxParallelAccounts, 1, 8));
+        var tasks = groups.Select(group => RunMaterialUploadAccountGroupAsync(group, total, gate, cancellationToken));
+        await Task.WhenAll(tasks);
+    }
+
+    private async Task RunMaterialUploadAccountGroupAsync(
+        IReadOnlyList<MaterialUploadExecutionTarget> targets,
+        int total,
+        SemaphoreSlim gate,
+        CancellationToken cancellationToken)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            foreach (var target in targets)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await ExecuteMaterialUploadTargetAsync(target, total, cancellationToken);
+            }
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private async Task ExecuteMaterialUploadTargetAsync(
+        MaterialUploadExecutionTarget target,
+        int total,
+        CancellationToken cancellationToken)
+    {
+        await ExecuteProjectBatchItemAsync(
+            target.Project,
+            "weixin-material-upload",
+            "微信上传素材",
+            target.Index,
+            total,
+            cancellationToken,
+            clearLogs: false);
+    }
+
     private async Task ExecuteMaterialUploadBatchSerialAsync(
         ProjectListItemViewModel[] targets,
         CancellationToken cancellationToken)
@@ -363,13 +737,13 @@ public partial class MainWindowViewModel
     }
 
     private async Task PrepareMaterialUploadOverridesAsync(
-        IEnumerable<ProjectListItemViewModel> projects,
+        IEnumerable<MaterialUploadExecutionTarget> targets,
         bool refreshAfter = true)
     {
         var refreshed = false;
-        foreach (var project in projects)
+        foreach (var target in targets)
         {
-            if (TryApplyMaterialUploadRuntimeOverrides(project))
+            if (TryApplyMaterialUploadRuntimeOverrides(target.Project, target.Account))
             {
                 refreshed = true;
             }
@@ -381,7 +755,9 @@ public partial class MainWindowViewModel
         }
     }
 
-    private bool TryApplyMaterialUploadRuntimeOverrides(ProjectListItemViewModel project)
+    private bool TryApplyMaterialUploadRuntimeOverrides(
+        ProjectListItemViewModel project,
+        MaterialUploadAccountItemViewModel? account)
     {
         var configPath = ResolveMaterialPublishConfigPath(project);
         if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
@@ -395,6 +771,19 @@ public partial class MainWindowViewModel
             var videoPublish = root["video_publish"] as JsonObject ?? new JsonObject();
             root["video_publish"] = videoPublish;
             videoPublish["_runtime_allow_duplicate_material_publish"] = MaterialUploadAllowDuplicatePublish;
+            if (account is not null)
+            {
+                root["auth_file"] = account.AuthFile;
+                var browser = root["browser"] as JsonObject ?? new JsonObject();
+                root["browser"] = browser;
+                browser["user_data_dir"] = account.BrowserProfileDir;
+                videoPublish["_runtime_account_profile_id"] = account.Id;
+                videoPublish["_runtime_account_profile_name"] = account.DisplayName;
+                videoPublish["state_file"] = BuildAccountScopedStateFile(ReadJsonString(videoPublish, "state_file"), account.Id);
+                Directory.CreateDirectory(Path.GetDirectoryName(ExpandMaterialUploadPath(account.AuthFile)) ?? ".");
+                Directory.CreateDirectory(ExpandMaterialUploadPath(account.BrowserProfileDir));
+            }
+
             if (videoPublish["enabled"] is null)
             {
                 videoPublish["enabled"] = true;
@@ -415,6 +804,352 @@ public partial class MainWindowViewModel
             return false;
         }
     }
+
+    public void ApplyMaterialUploadAccountContext(ProjectListItemViewModel project)
+    {
+        var profileId = ResolveProjectMaterialUploadAccountProfileId(project);
+        var account = FindMaterialUploadAccount(profileId);
+        project.MaterialUploadAccountProfileId = profileId;
+        project.MaterialUploadAccountName = account?.DisplayName ?? profileId;
+    }
+
+    private MaterialUploadExecutionTarget[] ResolveMaterialUploadExecutionTargets(
+        IReadOnlyList<ProjectListItemViewModel> projects,
+        bool bindMissing)
+    {
+        var result = new List<MaterialUploadExecutionTarget>(projects.Count);
+        for (var index = 0; index < projects.Count; index++)
+        {
+            var project = projects[index];
+            var account = ResolveMaterialUploadAccountForProject(project, bindMissing);
+            if (account is null)
+            {
+                AppendLog(
+                    $"素材上传账号未配置，已跳过：{project.DisplayName}",
+                    project.ProjectKey,
+                    project.DisplayName,
+                    "weixin-material-upload",
+                    "素材上传",
+                    isFailure: true);
+                continue;
+            }
+
+            result.Add(new MaterialUploadExecutionTarget(project, account, index + 1));
+        }
+
+        return result.ToArray();
+    }
+
+    private MaterialUploadAccountItemViewModel? ResolveMaterialUploadAccountForProject(
+        ProjectListItemViewModel project,
+        bool bindMissing)
+    {
+        var profileId = project.MaterialUploadAccountProfileId;
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            profileId = ResolveProjectMaterialUploadAccountProfileId(project);
+            project.MaterialUploadAccountProfileId = profileId;
+        }
+
+        var account = FindMaterialUploadAccount(profileId);
+        if (account is not null)
+        {
+            project.MaterialUploadAccountName = account.DisplayName;
+            return account;
+        }
+
+        account = GetActiveMaterialUploadAccount() ?? SelectedMaterialUploadAccount ?? MaterialUploadAccounts.FirstOrDefault();
+        if (account is not null && (bindMissing || string.IsNullOrWhiteSpace(profileId)))
+        {
+            BindMaterialUploadProjectToAccount(project, account);
+            return account;
+        }
+
+        return account;
+    }
+
+    private void BindMaterialUploadProjectToAccount(
+        ProjectListItemViewModel project,
+        MaterialUploadAccountItemViewModel account)
+    {
+        project.MaterialUploadAccountProfileId = account.Id;
+        project.MaterialUploadAccountName = account.DisplayName;
+        foreach (var metadataPath in EnumerateProjectMetadataPaths(project))
+        {
+            try
+            {
+                var root = File.Exists(metadataPath)
+                    ? JsonNode.Parse(File.ReadAllText(metadataPath)) as JsonObject ?? new JsonObject()
+                    : new JsonObject();
+                root["materialUploadAccountProfileId"] = account.Id;
+                root.Remove("material_upload_account_profile_id");
+                File.WriteAllText(metadataPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch (Exception ex)
+            {
+                AppendLog(
+                    $"写入素材上传账号绑定失败：{ex.Message}",
+                    project.ProjectKey,
+                    project.DisplayName,
+                    "weixin-material-upload",
+                    "素材上传",
+                    isFailure: true);
+            }
+        }
+    }
+
+    private IEnumerable<string> EnumerateProjectMetadataPaths(ProjectListItemViewModel project)
+    {
+        var dirs = new[]
+        {
+            project.SourceProjectDir,
+            project.WorkflowProjectDir ?? string.Empty
+        };
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in dirs)
+        {
+            if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+            {
+                continue;
+            }
+
+            var path = Path.Combine(dir, ProjectMetadataFileName);
+            if (seen.Add(path))
+            {
+                yield return path;
+            }
+        }
+    }
+
+    private string ResolveProjectMaterialUploadAccountProfileId(ProjectListItemViewModel project)
+    {
+        foreach (var path in EnumerateProjectMetadataPaths(project))
+        {
+            var id = ReadAccountProfileId(path, MaterialUploadProjectAccountKeys);
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                return id;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(RootDir))
+        {
+            var workspacePath = Path.Combine(RootDir, WorkspaceAccountProfileConfigName);
+            var id = ReadAccountProfileId(workspacePath, MaterialUploadWorkspaceAccountKeys);
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                return id;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string ReadAccountProfileId(string path, IEnumerable<string> keys)
+    {
+        if (!File.Exists(path))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+            if (root is null)
+            {
+                return string.Empty;
+            }
+
+            foreach (var key in keys)
+            {
+                var value = ReadJsonString(root, key)?.Trim();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return string.Empty;
+    }
+
+    private static string? ReadJsonString(JsonObject root, string key)
+    {
+        return root[key] is JsonValue value &&
+               value.TryGetValue<string>(out var text)
+            ? text
+            : null;
+    }
+
+    private void SaveMaterialUploadAccounts()
+    {
+        var activeId = GetActiveMaterialUploadAccount()?.Id
+                       ?? SelectedMaterialUploadAccount?.Id
+                       ?? MaterialUploadAccounts.FirstOrDefault()?.Id
+                       ?? string.Empty;
+        _stateService.SaveMaterialUploadAccountsState(new DesktopStateService.MaterialUploadAccountsState(
+            activeId,
+            MaterialUploadAccounts.Select(item => item.ToState()).ToArray()));
+        foreach (var account in MaterialUploadAccounts)
+        {
+            account.RefreshFileState();
+        }
+
+        OnPropertyChanged(nameof(MaterialUploadSummary));
+    }
+
+    private void SetMaterialUploadAccountActive(MaterialUploadAccountItemViewModel? account)
+    {
+        if (account is null)
+        {
+            return;
+        }
+
+        foreach (var item in MaterialUploadAccounts)
+        {
+            item.IsActive = ReferenceEquals(item, account);
+        }
+
+        SelectedMaterialUploadAccount = account;
+        SaveMaterialUploadAccounts();
+        RefreshVisibleMaterialUploadAccounts();
+        OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
+    }
+
+    private MaterialUploadAccountItemViewModel? GetActiveMaterialUploadAccount() =>
+        MaterialUploadAccounts.FirstOrDefault(item => item.IsActive);
+
+    private MaterialUploadAccountItemViewModel? FindMaterialUploadAccount(string? profileId)
+    {
+        if (string.IsNullOrWhiteSpace(profileId))
+        {
+            return null;
+        }
+
+        return MaterialUploadAccounts.FirstOrDefault(item =>
+            string.Equals(item.Id, profileId.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void RefreshMaterialUploadAccountNames()
+    {
+        foreach (var project in Projects)
+        {
+            if (string.IsNullOrWhiteSpace(project.MaterialUploadAccountProfileId))
+            {
+                continue;
+            }
+
+            project.MaterialUploadAccountName = FindMaterialUploadAccount(project.MaterialUploadAccountProfileId)?.DisplayName
+                                                ?? project.MaterialUploadAccountProfileId;
+        }
+    }
+
+    private string EnsureMaterialUploadAccountBrowserConfig(MaterialUploadAccountItemViewModel account)
+    {
+        var profileRoot = Path.GetDirectoryName(ExpandMaterialUploadPath(account.AuthFile))
+                          ?? DesktopStateService.MaterialUploadProfilesRoot();
+        Directory.CreateDirectory(profileRoot);
+        Directory.CreateDirectory(ExpandMaterialUploadPath(account.BrowserProfileDir));
+        var outputDir = Path.Combine(profileRoot, "output");
+        Directory.CreateDirectory(outputDir);
+        var configPath = Path.Combine(profileRoot, "browser-login.json");
+        var root = new JsonObject
+        {
+            ["base_url"] = "https://channels.weixin.qq.com",
+            ["auth_file"] = account.AuthFile,
+            ["output_dir"] = outputDir,
+            ["browser"] = new JsonObject
+            {
+                ["headless"] = false,
+                ["slow_mo_ms"] = 50,
+                ["keep_open_seconds"] = 0,
+                ["user_data_dir"] = account.BrowserProfileDir
+            },
+            ["login"] = new JsonObject
+            {
+                ["timeout_seconds"] = 300
+            },
+            ["debug"] = new JsonObject
+            {
+                ["log_file"] = Path.Combine(outputDir, "browser-login.log"),
+                ["save_html"] = true,
+                ["save_text"] = true
+            }
+        };
+        File.WriteAllText(configPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        return configPath;
+    }
+
+    private static string BuildAccountScopedStateFile(string? stateFile, string accountId)
+    {
+        var safeId = SanitizeAccountId(accountId);
+        var value = string.IsNullOrWhiteSpace(stateFile)
+            ? ".weixin-channel-publish-state.json"
+            : stateFile.Trim();
+        var fileName = Path.GetFileName(value);
+        if (fileName.Contains(safeId, StringComparison.OrdinalIgnoreCase))
+        {
+            return value;
+        }
+
+        var directory = Path.GetDirectoryName(value);
+        var extension = Path.GetExtension(fileName);
+        var stem = extension.Length == 0 ? fileName : fileName[..^extension.Length];
+        var scoped = $"{stem}-{safeId}{extension}";
+        return string.IsNullOrWhiteSpace(directory) ? scoped : Path.Combine(directory, scoped);
+    }
+
+    private static string SanitizeAccountId(string value)
+    {
+        var chars = (value ?? string.Empty)
+            .Trim()
+            .Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '-')
+            .ToArray();
+        var safe = new string(chars).Trim('-', '_');
+        return string.IsNullOrWhiteSpace(safe) ? "account" : safe;
+    }
+
+    private static string ExpandMaterialUploadPath(string? path)
+    {
+        var text = (path ?? string.Empty).Trim();
+        if (text.StartsWith("~", StringComparison.Ordinal))
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            text = Path.Combine(home, text.TrimStart('~', Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        }
+
+        try
+        {
+            return Path.GetFullPath(text);
+        }
+        catch
+        {
+            return text;
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            var fullPath = ExpandMaterialUploadPath(path);
+            if (File.Exists(fullPath))
+            {
+                File.Delete(fullPath);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private sealed record MaterialUploadExecutionTarget(
+        ProjectListItemViewModel Project,
+        MaterialUploadAccountItemViewModel Account,
+        int Index);
 
     private string? ResolveMaterialPublishConfigPath(ProjectListItemViewModel project)
     {
@@ -449,6 +1184,9 @@ public partial class MainWindowViewModel
                || Contains(project.MaterialUploadStrategySummary, token)
                || Contains(project.MaterialUploadSelectionSummary, token)
                || Contains(project.MaterialPublishUploadedSummary, token)
+               || Contains(project.MaterialUploadAccountProfileId, token)
+               || Contains(project.MaterialUploadAccountName, token)
+               || Contains(project.MaterialUploadAccountDisplay, token)
                || Contains(project.MaterialUploadNodeStatus, token)
                || Contains(project.WorkflowProjectDir, token)
                || Contains(project.SourceProjectDir, token);

@@ -168,6 +168,12 @@ public partial class ProjectListItemViewModel : ViewModelBase
     [ObservableProperty]
     private string projectMaterialNodeStatus = "未完成";
 
+    [ObservableProperty]
+    private string materialUploadAccountProfileId = string.Empty;
+
+    [ObservableProperty]
+    private string materialUploadAccountName = string.Empty;
+
     public IBrush SchedulingStatusBrush => ResolveStatusBrush(SchedulingStatus);
     public IBrush DownloadStepStatusBrush => ResolveStatusBrush(DownloadStepStatus);
     public IBrush TranscodeStepStatusBrush => ResolveStatusBrush(TranscodeStepStatus);
@@ -210,6 +216,12 @@ public partial class ProjectListItemViewModel : ViewModelBase
     public int MaterialPublishUploadedCount => _materialPublishUploadedCount;
     public string MaterialPublishUploadedSummary =>
         _materialPublishConfiguredCount <= 0 ? "0/0" : $"{_materialPublishUploadedCount}/{_materialPublishConfiguredCount}";
+    public string MaterialUploadAccountDisplay =>
+        string.IsNullOrWhiteSpace(MaterialUploadAccountProfileId)
+            ? "未绑定"
+            : string.IsNullOrWhiteSpace(MaterialUploadAccountName)
+                ? MaterialUploadAccountProfileId
+                : MaterialUploadAccountName;
 
     public string GetProjectMaterialStepStatus(string stepKey)
     {
@@ -280,6 +292,8 @@ public partial class ProjectListItemViewModel : ViewModelBase
         OnPropertyChanged(nameof(MaterialUploadNodeBackgroundBrush));
         OnPropertyChanged(nameof(MaterialUploadNodeForegroundBrush));
     }
+    partial void OnMaterialUploadAccountProfileIdChanged(string value) => OnPropertyChanged(nameof(MaterialUploadAccountDisplay));
+    partial void OnMaterialUploadAccountNameChanged(string value) => OnPropertyChanged(nameof(MaterialUploadAccountDisplay));
     partial void OnProjectMaterialNodeStatusChanged(string value)
     {
         OnPropertyChanged(nameof(ProjectMaterialNodeBackgroundBrush));

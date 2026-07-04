@@ -205,6 +205,7 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedProjectLogFilter = ProjectLogFilters.First();
         SelectedStepLogFilter = StepLogFilters.First();
         _interactionService.RequestChanged += OnInteractionRequestChanged;
+        LoadMaterialUploadAccounts();
         LoadConfig();
         RefreshDependencies();
         QueueStartupScanIfNeeded();
@@ -3802,6 +3803,7 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 IsChecked = checkedKeys?.Contains(project.ProjectKey) == true
             };
+            ApplyMaterialUploadAccountContext(item);
             item.CheckedChanged += OnProjectRowCheckedChanged;
             item.PropertyChanged += OnProjectRowStatusChanged;
             Projects.Add(item);
