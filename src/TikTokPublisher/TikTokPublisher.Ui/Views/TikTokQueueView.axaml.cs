@@ -466,6 +466,31 @@ public partial class TikTokQueueView : UserControl
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+    private IReadOnlyList<string>? GetCheckedProjectDirsInDisplayOrder()
+    {
+        var vm = _vm;
+        if (vm is null) return null;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var dirs = new List<string>();
+
+        void AddCheckedRows(IEnumerable<QueueProjectRowViewModel> rows)
+        {
+            foreach (var row in rows)
+            {
+                if (!row.IsEnabled || string.IsNullOrWhiteSpace(row.Item.ProjectDir))
+                    continue;
+                var fullPath = Path.GetFullPath(row.Item.ProjectDir);
+                if (seen.Add(fullPath))
+                    dirs.Add(fullPath);
+            }
+        }
+
+        AddCheckedRows(vm.FilteredQueueProjectRows);
+        AddCheckedRows(vm.QueueProjectRows);
+        return dirs.Count == 0 ? null : dirs;
+    }
+
     private sealed record UploadTitlesDialogResult(
         string RawText,
         string MatchMode);
@@ -915,6 +940,8 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
+        var orderedProjectDirFilter = projectDirFilter ?? GetCheckedProjectDirsInDisplayOrder();
+
         await Task.Yield();
 
         var host = CreateQueuePublishHost();
@@ -929,7 +956,7 @@ public partial class TikTokQueueView : UserControl
                 items => Dispatcher.UIThread.Post(() => vm.ApplyPersistedQueueItems(items)),
                 ct,
                 optionsOverride,
-                projectDirFilter);
+                orderedProjectDirFilter);
             if (summary is not null && !summary.Stopped)
                 vm.StatusMessage = $"队列结束：成功 {summary.SuccessCount}，失败 {summary.FailedCount}";
         }

@@ -52,11 +52,18 @@ public static class TikTokSourceVideoCleanupService
             uploadVideoPaths = payload.UploadPaths.ToList();
         }
 
+        // 以「短剧信息」声明的总集数为准（下载缺集时源文件数会小于声明集数）。
+        var declaredCount = 0;
+        try { declaredCount = TikTokPublisher.Core.Queue.ProjectWorkspaceService.ResolveSourceEpisodeCount(source); }
+        catch { /* 信息文件缺失时按文件数校验 */ }
+        expectedCount = Math.Max(expectedCount, declaredCount);
+
         if (uploadVideoPaths.Count < expectedCount)
         {
             throw new InvalidOperationException(
                 $"上传副本数量不足，拒绝删除源视频：短剧总集数 {expectedCount}，" +
-                $"源视频 {sourceVideoPaths.Count} 个，上传副本 {uploadVideoPaths.Count} 个");
+                $"源视频 {sourceVideoPaths.Count} 个，上传副本 {uploadVideoPaths.Count} 个。" +
+                "请先重新执行下载步骤补齐缺失剧集。");
         }
 
         var invalidUploadPath = uploadVideoPaths.FirstOrDefault(path =>

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 
 namespace TikTokPublisher.Ui.Views;
 
@@ -50,7 +51,7 @@ public partial class AccountSettingsDialog : Window
         AnchorPromotionBox.IsChecked = p.TiktokAnchorPromotionEnabled;
         ProfilePreviewBox.Value = p.TiktokProfilePreviewEpisodes > 0 ? p.TiktokProfilePreviewEpisodes : 3;
         FreePreviewBox.Value = p.TiktokFreePreviewEpisodes > 0 ? p.TiktokFreePreviewEpisodes : 3;
-        GenreCountBox.Value = p.TiktokGenreCount > 0 ? p.TiktokGenreCount : 3;
+        GenreCountBox.Value = TikTokPublishOptions.NormalizeGenreCount(p.TiktokGenreCount);
         UploadStallBox.Value = p.TiktokUploadStallSeconds;
         ProjectConcurrencyBox.Value = p.TiktokProjectConcurrency;
         UploadBatchSizeBox.Value = p.TiktokUploadBatchSize;
@@ -102,7 +103,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
         p.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
         p.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);
-        p.TiktokGenreCount = (int)(GenreCountBox.Value ?? 3);
+        p.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount((int)(GenreCountBox.Value ?? TikTokPublishOptions.DefaultGenreCount));
         p.TiktokUploadStallSeconds = (int)(UploadStallBox.Value ?? 180);
         p.TiktokProjectConcurrency = (int)(ProjectConcurrencyBox.Value ?? 4);
         p.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);

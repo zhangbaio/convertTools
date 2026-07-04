@@ -428,7 +428,7 @@ public static class ProjectWorkspaceService
         File.WriteAllText(infoPath, string.Join(Environment.NewLine, lines) + Environment.NewLine);
     }
 
-    private static void UpdateProjectInfoField(string infoPath, string key, string value)
+    public static void UpdateProjectInfoField(string infoPath, string key, string value)
     {
         if (!File.Exists(infoPath)) return;
         var lines = File.ReadAllLines(infoPath).ToList();

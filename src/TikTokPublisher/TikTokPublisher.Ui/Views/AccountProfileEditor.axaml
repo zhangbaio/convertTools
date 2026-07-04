@@ -236,7 +236,7 @@
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
                             <TextBlock Grid.Row="6" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="20" Value="3" />
+                            <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
                             <TextBlock Grid.Row="7" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="7" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
                             <TextBlock Grid.Row="8" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />

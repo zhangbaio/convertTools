@@ -280,6 +280,7 @@ public sealed partial class MainViewModel : ViewModelBase
         _context.SwitchTo(value.Id);
         RefreshWorkspaceFromActiveAccount();
         AccountSwitchRequested?.Invoke(value);
+        RefreshTodayUploadCount();
         StatusMessage = $"已切换账号「{value.DisplayName}」";
     }
 
@@ -518,6 +519,25 @@ public sealed partial class MainViewModel : ViewModelBase
         QueueSummaryText =
             $"已加载 { _queueItems.Count} 个项目，勾选 {checkedCount} 个，待上传 {pending} 个" +
             (string.IsNullOrWhiteSpace(WorkspacePath) ? "" : $" · 工作目录 {WorkspacePath}");
+        RefreshTodayUploadCount();
+    }
+
+    /// <summary>今日上传完成数：按当前账号隔离统计（对齐 Python <c>_count_today_uploaded_projects</c>）。</summary>
+    public void RefreshTodayUploadCount()
+    {
+        var accountId = (SelectedAccount?.Id ?? "").Trim();
+        var today = DateTime.Now.Date;
+        TodayUploadCount = _queueItems.Count(item =>
+        {
+            if (accountId.Length > 0 &&
+                !string.Equals((item.AccountProfileId ?? "").Trim(), accountId, StringComparison.Ordinal))
+                return false;
+
+            var completedAt = (item.UploadCompletedAt ?? "").Trim();
+            return completedAt.Length > 0 &&
+                   DateTimeOffset.TryParse(completedAt, out var timestamp) &&
+                   timestamp.ToLocalTime().Date == today;
+        });
     }
 
     [RelayCommand]
@@ -1355,6 +1375,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 row.RefreshFrom(item);
         }
         ApplyQueueProjectFilter();
+        RefreshTodayUploadCount();
     }
 
     private void PersistQueueRunOptions()

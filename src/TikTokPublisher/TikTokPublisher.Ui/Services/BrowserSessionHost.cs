@@ -57,34 +57,23 @@ public sealed class BrowserSessionHost
             _emptyHint.IsVisible = visible && _hosts.Count == 0;
     }
 
-    private void ApplyHostVisibility(WebView2Host host, bool rendered)
+    private static void ApplyHostVisibility(WebView2Host host, bool rendered)
     {
+        // 禁止把原生控件从视觉树移除再添加（会销毁 WebView2 宿主 HWND，
+        // 导致后续 CoreWebView2Controller COM 调用挂死 UI 线程）。
+        // 同一时刻仅一个 host 以非零 bounds 渲染，无需调整 Z 序。
         if (rendered)
         {
             host.Width = double.NaN;
             host.Height = double.NaN;
             host.IsVisible = true;
-            BringHostToFront(host);
             host.SetRenderedVisible(true);
-            host.RefreshBounds();
             Dispatcher.UIThread.Post(host.RefreshBounds, DispatcherPriority.Render);
         }
         else
         {
             host.SetRenderedVisible(false);
         }
-    }
-
-    private void BringHostToFront(WebView2Host host)
-    {
-        if (_container is null || !_container.Children.Contains(host))
-            return;
-
-        if (_container.Children.IndexOf(host) == _container.Children.Count - 1)
-            return;
-
-        _container.Children.Remove(host);
-        _container.Children.Add(host);
     }
 
     private void OnHostReady(string accountId, WebView2Host host)

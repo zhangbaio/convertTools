@@ -69,6 +69,25 @@ public sealed class QueueWorkerRunner
         lock (_incomingLock)
             return _incomingItems.Count > 0;
     }
+
+    private static Dictionary<string, int>? BuildProjectDirOrder(IReadOnlyCollection<string>? projectDirFilter)
+    {
+        if (projectDirFilter is null || projectDirFilter.Count == 0)
+            return null;
+
+        var order = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in projectDirFilter)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+            var fullPath = Path.GetFullPath(path);
+            if (!order.ContainsKey(fullPath))
+                order[fullPath] = order.Count;
+        }
+
+        return order.Count == 0 ? null : order;
+    }
+
     public async Task<QueueWorkerSummary> RunAsync(
         string workspaceRoot,
         IList<QueueProjectItem> items,
@@ -82,16 +101,20 @@ public sealed class QueueWorkerRunner
         IReadOnlyCollection<string>? projectDirFilter = null)
     {
         var workspace = Path.GetFullPath(workspaceRoot);
-        var filter = projectDirFilter?
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(Path.GetFullPath)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var candidates = items
+        var filterOrder = BuildProjectDirOrder(projectDirFilter);
+        var filter = filterOrder?.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var candidateQuery = items
             .Where(i => i.Enabled && !i.Archived)
-            .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)))
-            .OrderBy(i => string.IsNullOrWhiteSpace(i.QueuedAt) ? "9999" : i.QueuedAt, StringComparer.Ordinal)
-            .ThenBy(i => i.ProjectDir, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)));
+        var candidates = filterOrder is not null
+            ? candidateQuery
+                .OrderBy(i => filterOrder.GetValueOrDefault(Path.GetFullPath(i.ProjectDir), int.MaxValue))
+                .ThenBy(i => i.ProjectDir, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : candidateQuery
+                .OrderBy(i => string.IsNullOrWhiteSpace(i.QueuedAt) ? "9999" : i.QueuedAt, StringComparer.Ordinal)
+                .ThenBy(i => i.ProjectDir, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
         var projectConcurrency = Math.Clamp(options.ProjectConcurrency, 1, ProjectConcurrencyHardMax);
         var orderedSteps = options.OrderedEnabledSteps();

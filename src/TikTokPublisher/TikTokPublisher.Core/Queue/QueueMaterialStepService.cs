@@ -48,8 +48,66 @@ public static class QueueMaterialStepService
         }
 
         log(result.Message ?? $"下载完成，共 {result.VideoCount} 集");
+        VerifyDownloadedEpisodesComplete(context.SourceProjectDir, item, log);
         ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex EpisodeNumberInFileName =
+        new(@"第\s*(\d+)\s*集", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly string[] EpisodeVideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".ts"];
+
+    /// <summary>下载后按「短剧信息」集数逐集核对文件，缺集视为下载失败，阻止进入后续步骤。</summary>
+    private static void VerifyDownloadedEpisodesComplete(
+        string sourceProjectDir,
+        QueueProjectItem item,
+        Action<string> log)
+    {
+        var expected = 0;
+        try { expected = ProjectWorkspaceService.ResolveSourceEpisodeCount(item.ProjectDir); }
+        catch { /* 信息文件缺失时回退 item.EpisodeCount */ }
+        if (expected <= 0) expected = item.EpisodeCount;
+        if (expected <= 1)
+        {
+            log("未能确定短剧总集数，跳过集数完整性校验。");
+            return;
+        }
+
+        var found = new HashSet<int>();
+        try
+        {
+            foreach (var dir in new[] { sourceProjectDir, Path.Combine(sourceProjectDir, "videos") })
+            {
+                if (!Directory.Exists(dir))
+                    continue;
+                foreach (var file in Directory.EnumerateFiles(dir))
+                {
+                    if (!EpisodeVideoExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+                        continue;
+                    var match = EpisodeNumberInFileName.Match(Path.GetFileName(file));
+                    if (match.Success && int.TryParse(match.Groups[1].Value, out var episode) && episode > 0)
+                        found.Add(episode);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            log($"集数完整性校验读取目录失败，跳过：{ex.Message}");
+            return;
+        }
+
+        var missing = Enumerable.Range(1, expected).Where(i => !found.Contains(i)).ToList();
+        if (missing.Count == 0)
+        {
+            log($"集数完整性校验通过：{expected}/{expected} 集齐全。");
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"下载完成但集数不完整：应 {expected} 集，实际 {found.Count} 集，" +
+            $"缺第 {string.Join("、", missing.Take(20))}{(missing.Count > 20 ? "…" : "")} 集。" +
+            "请重新执行下载步骤或检查片源。");
     }
 
     public static async Task RunRewriteAsync(
@@ -104,27 +162,40 @@ public static class QueueMaterialStepService
                 var forbiddenTitles = BuildForbiddenTitles(item, context, originalTitle, outputPath, otherHistory);
                 var forbiddenSynopses = BuildForbiddenSynopses(sourceSynopsis, otherHistory);
                 log("开始 AI 改写短剧信息…");
-                var result = await QueueInfrastructureServices.InfoRewriter.RewriteAsync(
-                    new ProjectInfoRewriteRequest(
-                        ProjectDir: workflowDir,
-                        ConfigFile: configPath,
-                        OutputFilePath: outputPath,
-                        Overwrite: overwriteExisting || outputExists,
-                        ForbiddenTitles: forbiddenTitles,
-                        ForbiddenSynopses: forbiddenSynopses,
-                        TargetSynopsisLength: TargetSynopsisLength(sourceSynopsis),
-                        RewriteVariantKey: rewriteVariantKey),
-                    ct);
-                AppendRewriteHistory(
-                    result,
-                    item,
-                    settings,
-                    account,
-                    context,
-                    originalTitle,
-                    sourceSynopsis,
-                    rewriteVariantKey);
-                log($"改写完成：{result.Title}");
+                try
+                {
+                    var result = await QueueInfrastructureServices.InfoRewriter.RewriteAsync(
+                        new ProjectInfoRewriteRequest(
+                            ProjectDir: workflowDir,
+                            ConfigFile: configPath,
+                            OutputFilePath: outputPath,
+                            Overwrite: overwriteExisting || outputExists,
+                            ForbiddenTitles: forbiddenTitles,
+                            ForbiddenSynopses: forbiddenSynopses,
+                            TargetSynopsisLength: TargetSynopsisLength(sourceSynopsis),
+                            RewriteVariantKey: rewriteVariantKey),
+                        ct);
+                    AppendRewriteHistory(
+                        result,
+                        item,
+                        settings,
+                        account,
+                        context,
+                        originalTitle,
+                        sourceSynopsis,
+                        rewriteVariantKey);
+                    log($"改写完成：{result.Title}");
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (TryApplyRewriteHistoryFallback(
+                    rewriteHistory, context, outputPath, otherHistory, item, log, ex))
+                {
+                    AppendCurrentRewriteHistory(
+                        item, settings, account, context, outputPath, originalTitle, sourceSynopsis, rewriteVariantKey);
+                }
             }
         }
         finally
@@ -388,6 +459,50 @@ public static class QueueMaterialStepService
                (!string.IsNullOrWhiteSpace(synopsis) &&
                 AiRewriteHistoryService.IsSynopsisDuplicate(synopsis, history.Select(record => record.NewSynopsis)));
     }
+
+    /// <summary>AI 改写多次失败时的兜底：复用本项目历史生成过的新剧名/简介（避开其它项目已用标题）。</summary>
+    private static bool TryApplyRewriteHistoryFallback(
+        IReadOnlyList<AiRewriteHistoryRecord> history,
+        ProjectWorkspaceContext context,
+        string infoPath,
+        IReadOnlyList<AiRewriteHistoryRecord> otherHistory,
+        QueueProjectItem item,
+        Action<string> log,
+        Exception failure)
+    {
+        if (!File.Exists(infoPath))
+            return false;
+
+        var forbiddenTitles = otherHistory
+            .Select(record => (record.NewTitle ?? "").Trim())
+            .Where(title => title.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var candidate = history
+            .Where(record => IsCurrentProjectHistory(record, context))
+            .Where(record => !string.IsNullOrWhiteSpace(record.NewTitle))
+            .Where(record => !forbiddenTitles.Contains(record.NewTitle.Trim()))
+            .OrderByDescending(record => record.CreatedAt, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (candidate is null)
+            return false;
+
+        var title = candidate.NewTitle.Trim();
+        var synopsis = NormalizeSingleLine(candidate.NewSynopsis);
+        ProjectWorkspaceService.UpdateProjectInfoField(infoPath, "新剧名", title);
+        if (!string.IsNullOrWhiteSpace(synopsis))
+            ProjectWorkspaceService.UpdateProjectInfoField(infoPath, "简介", synopsis);
+
+        item.NewTitle = title;
+        if (!string.IsNullOrWhiteSpace(synopsis))
+            item.Description = synopsis;
+
+        log($"AI 改写多次失败（{failure.Message}），已兜底复用本项目历史新剧名：「{title}」");
+        return true;
+    }
+
+    private static string NormalizeSingleLine(string? text) =>
+        string.Join(' ', (text ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()));
 
     private static bool IsCurrentProjectHistory(AiRewriteHistoryRecord record, ProjectWorkspaceContext context)
     {

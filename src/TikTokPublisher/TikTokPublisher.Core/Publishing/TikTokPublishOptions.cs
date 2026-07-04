@@ -54,11 +54,15 @@ public sealed class TikTokPublishRecommendation
 
 public sealed class TikTokPublishOptions
 {
+    public const int DefaultGenreCount = 3;
+    public const int MinGenreCount = 1;
+    public const int MaxGenreCount = 8;
+
     public string ContractId { get; set; } = "";
     public string ContractIdMode { get; set; } = TikTokPublishConstants.ContractIdModeManual;
     public bool AnchorPromotionEnabled { get; set; } = true;
     public string TargetAudienceMode { get; set; } = "ai_recommend";
-    public int GenreCount { get; set; } = 3;
+    public int GenreCount { get; set; } = DefaultGenreCount;
     public string SourceLanguage { get; set; } = "zh";
     public bool IsAiDrama { get; set; } = true;
     public string PublishMode { get; set; } = "auto_after_review";
@@ -105,7 +109,7 @@ public sealed class TikTokPublishOptions
             : account.TiktokContractIdMode,
         AnchorPromotionEnabled = account.TiktokAnchorPromotionEnabled,
         TargetAudienceMode = string.IsNullOrWhiteSpace(account.TiktokTargetAudienceMode) ? "ai_recommend" : account.TiktokTargetAudienceMode,
-        GenreCount = account.TiktokGenreCount > 0 ? account.TiktokGenreCount : 3,
+        GenreCount = NormalizeGenreCount(account.TiktokGenreCount),
         SourceLanguage = string.IsNullOrWhiteSpace(account.TiktokSourceLanguage) ? "zh" : account.TiktokSourceLanguage,
         IsAiDrama = account.TiktokIsAiDrama,
         PublishMode = string.IsNullOrWhiteSpace(account.TiktokPublishMode) ? "auto_after_review" : account.TiktokPublishMode,
@@ -131,7 +135,7 @@ public sealed class TikTokPublishOptions
     public TikTokPublishRecommendation BuildRecommendation(PublishItem item)
     {
         var projectPayload = TikTokProjectPayloadFactory.BuildFromPublishItem(item);
-        var maxCount = Math.Max(1, GenreCount);
+        var maxCount = NormalizeGenreCount(GenreCount);
 
         var targetAudience = !string.IsNullOrWhiteSpace(projectPayload.TargetAudience)
             ? projectPayload.TargetAudience
@@ -151,6 +155,9 @@ public sealed class TikTokPublishOptions
             Genres = genres,
         };
     }
+
+    public static int NormalizeGenreCount(int value) =>
+        Math.Clamp(value > 0 ? value : DefaultGenreCount, MinGenreCount, MaxGenreCount);
 }
 
 public sealed class TikTokPublishPayload

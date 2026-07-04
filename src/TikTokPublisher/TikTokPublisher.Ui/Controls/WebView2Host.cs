@@ -27,6 +27,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     private string? _pendingUrl;
     private string? _lastInitError;
     private bool _renderedVisible;
+    private bool _nativeHandleAlive;
 
     public string? LastInitError => _lastInitError;
 
@@ -78,18 +79,22 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             ApplyRenderedState();
     }
 
+    /// <summary>后台隐藏时保持的虚拟视口：视口为 0 会让页面布局塌缩，Playwright 点击等可操作性检查全部超时。</summary>
+    private static readonly Rectangle HiddenViewportBounds = new(0, 0, 1280, 860);
+
     private void ApplyRenderedState()
     {
         try
         {
-            if (_controller is null)
+            // 宿主 HWND 已销毁时禁止调用 controller（同步 COM 调用可能挂死 UI 线程）。
+            if (_controller is null || !_nativeHandleAlive)
                 return;
 
             _controller.IsVisible = _renderedVisible;
             if (_renderedVisible)
                 UpdateBounds();
             else
-                _controller.Bounds = new Rectangle(0, 0, 0, 0);
+                _controller.Bounds = HiddenViewportBounds;
         }
         catch { /* ignore */ }
     }
@@ -174,10 +179,11 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         if (!OperatingSystem.IsWindows())
             return handle;
 
+        _nativeHandleAlive = true;
         if (_controller is null)
             _ = InitAsync(handle.Handle);
         else
-            UpdateBounds();
+            ApplyRenderedState();
 
         return handle;
     }
@@ -187,11 +193,12 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         // 切页时 Avalonia 可能销毁原生 HWND；保留 WebView2 进程与 CDP，避免上传前反复冷启动。
         try
         {
-            if (_controller is not null)
+            if (_controller is not null && _nativeHandleAlive)
                 _controller.IsVisible = false;
         }
         catch { /* ignore */ }
 
+        _nativeHandleAlive = false;
         base.DestroyNativeControlCore(control);
     }
 
@@ -280,18 +287,25 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     private void UpdateBounds()
     {
-        if (_controller is null)
+        if (_controller is null || !_nativeHandleAlive)
             return;
 
         if (!_renderedVisible)
         {
-            _controller.Bounds = new Rectangle(0, 0, 0, 0);
+            _controller.Bounds = HiddenViewportBounds;
             return;
         }
 
         var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
         var w = Math.Max(0, (int)(Bounds.Width * scaling));
         var h = Math.Max(0, (int)(Bounds.Height * scaling));
+        if (w <= 1 || h <= 1)
+        {
+            // 挂载层折叠成 1×1 时保持虚拟视口，避免布局塌缩破坏后台自动化。
+            _controller.Bounds = HiddenViewportBounds;
+            return;
+        }
+
         _controller.Bounds = new Rectangle(0, 0, w, h);
     }
 

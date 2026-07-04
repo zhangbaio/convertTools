@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
@@ -202,7 +203,7 @@ public sealed class AccountStore
         account.TiktokSubmitAction = NormalizeSubmitAction(account.TiktokSubmitAction, account.TiktokSubmitEnabled);
         account.TiktokSubmitEnabled = string.Equals(account.TiktokSubmitAction, "submit", StringComparison.Ordinal);
         account.TiktokTargetAudienceMode = NormalizeTargetAudience(account.TiktokTargetAudienceMode);
-        if (account.TiktokGenreCount <= 0) account.TiktokGenreCount = 3;
+        account.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount(account.TiktokGenreCount);
         if (account.TiktokProfilePreviewEpisodes <= 0) account.TiktokProfilePreviewEpisodes = 3;
         if (account.TiktokFreePreviewEpisodes <= 0) account.TiktokFreePreviewEpisodes = 3;
         if (account.TiktokProjectConcurrency <= 0) account.TiktokProjectConcurrency = 4;

@@ -32,7 +32,7 @@ public static class TikTokPublishRecommendationService
         Action<string>? log,
         CancellationToken ct)
     {
-        var maxCount = Math.Clamp(options.GenreCount, 1, 8);
+        var maxCount = TikTokPublishOptions.NormalizeGenreCount(options.GenreCount);
         var targetMode = NormalizeTargetAudienceMode(options.TargetAudienceMode);
 
         string aiError = "";
@@ -127,13 +127,14 @@ public static class TikTokPublishRecommendationService
         if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
             throw new InvalidOperationException("AI 文本接口/API Key/模型未配置");
 
+        var maxCount = TikTokPublishOptions.NormalizeGenreCount(options.GenreCount);
         var prompt = JsonSerializer.Serialize(new
         {
             task = "为 TikTok Drama Center 新建剧集表单推荐目标观众和题材类型。",
             rules = new[]
             {
                 "target_audience 只能返回 男 或 女。",
-                $"genres 只能从 allowed_genres 中选择，返回 {options.GenreCount} 个以内。",
+                $"genres 只能从 allowed_genres 中选择，返回 {maxCount} 个以内。",
                 "只输出 JSON，不要解释。",
             },
             allowed_genres = TikTokPublishConstants.GenreOptions,
