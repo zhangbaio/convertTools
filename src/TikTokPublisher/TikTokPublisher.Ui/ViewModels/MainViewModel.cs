@@ -1191,11 +1191,106 @@ public sealed partial class MainViewModel : ViewModelBase
             AppendLog,
             ct);
 
-        RefreshWorkspaceProjects(root);
+        ApplyUploadTitleImportResult(result);
         StatusMessage =
             $"上传短剧导入完成：加入 {result.QueuedCount} 个，失败 {result.FailedCount} 个，重复 {result.Duplicates.Count} 个";
         AppendLog(StatusMessage);
         return result;
+    }
+
+    public void ApplyUploadTitleImportResult(UploadTitleImportResult result)
+    {
+        var root = WorkspacePath.Trim();
+        if (string.IsNullOrEmpty(root))
+            return;
+
+        var importedKeys = result.ProjectDirs
+            .Select(Path.GetFullPath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var queueRunning = IsCurrentWorkspaceQueueRunning();
+
+        ForceRerunCompletedSteps = false;
+        PreferUploadWhenReady = false;
+        OnPropertyChanged(nameof(ForceRerunCompletedSteps));
+        OnPropertyChanged(nameof(PreferUploadWhenReady));
+
+        if (queueRunning)
+        {
+            var appended = AppendImportedProjectsWhileRunning(importedKeys);
+            if (appended.Count > 0)
+            {
+                var added = _queueOrchestrator.TryAppendItemsToRunningWorkspace(root, appended);
+                AppendLog(added > 0
+                    ? $"已请求追加 {added} 个项目到运行中的队列末尾。"
+                    : $"已追加 {appended.Count} 个项目到队列列表。");
+            }
+
+            return;
+        }
+
+        RefreshWorkspaceProjects(root);
+        foreach (var item in _queueItems)
+        {
+            var isImported = importedKeys.Contains(Path.GetFullPath(item.ProjectDir));
+            item.Enabled = isImported;
+            if (isImported)
+                ResetQueueItemToPending(item);
+        }
+
+        PersistQueueItems();
+        RefreshQueueRowViewModels();
+    }
+
+    public bool ShouldAutoStartQueueAfterUploadTitleImport(UploadTitleImportResult result) =>
+        result.QueuedCount > 0 && !IsCurrentWorkspaceQueueRunning();
+
+    public int TryAppendToRunningQueue(IReadOnlyList<QueueProjectItem> items) =>
+        _queueOrchestrator.TryAppendItemsToRunningWorkspace(WorkspacePath, items);
+
+    private List<QueueProjectItem> AppendImportedProjectsWhileRunning(IReadOnlySet<string> importedKeys)
+    {
+        var root = WorkspacePath.Trim();
+        if (string.IsNullOrEmpty(root) || importedKeys.Count == 0)
+            return [];
+
+        var existingKeys = _queueItems
+            .Select(item => Path.GetFullPath(item.ProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var scanned = WorkspaceQueueService.ScanProjects(root)
+            .ToDictionary(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase);
+        var appended = new List<QueueProjectItem>();
+
+        foreach (var key in importedKeys)
+        {
+            if (existingKeys.Contains(key))
+                continue;
+            if (!scanned.TryGetValue(key, out var item))
+                continue;
+
+            item.Enabled = true;
+            ResetQueueItemToPending(item);
+            _queueItems.Add(item);
+            existingKeys.Add(key);
+            appended.Add(item);
+        }
+
+        if (appended.Count > 0)
+        {
+            PersistQueueItems();
+            RefreshQueueRowViewModels();
+        }
+
+        return appended;
+    }
+
+    private static void ResetQueueItemToPending(QueueProjectItem item)
+    {
+        item.StatusText = QueueStepStatus.Pending;
+        item.CurrentStep = "";
+        item.LastError = "";
+        foreach (var step in QueueStepRegistry.All)
+            item.StepStates[step.Key] = QueueStepStatus.Pending;
+        item.NormalizeStepStates();
     }
 
     public async Task DeleteSelectedQueueProjectsAsync(IEnumerable<QueueProjectRowViewModel> selectedRows)

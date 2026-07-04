@@ -459,15 +459,13 @@ public partial class TikTokQueueView : UserControl
 
     private sealed record UploadTitlesDialogResult(
         string RawText,
-        int EpisodeMin,
-        int EpisodeMax,
         string MatchMode);
 
     private static async Task<UploadTitlesDialogResult?> ShowUploadTitlesDialogAsync(Window owner)
     {
         var dialog = new Window
         {
-            Title = "上传短剧",
+            Title = "上传短剧 - TikTok",
             Width = 560,
             Height = 460,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -477,31 +475,29 @@ public partial class TikTokQueueView : UserControl
             AcceptsReturn = true,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             MinHeight = 220,
-            Watermark = "每行一个短剧名；按剧名+集数匹配时格式：剧名 80",
+            Watermark = "例如：\n她的豪门，我的刑场\n岁岁冥婚鬼夫夜夜来\n\n剧名 + 集数匹配：\n凤月无凭 43",
         };
-        var matchEpisodeBox = new CheckBox
+        var modeCombo = new ComboBox
         {
-            Content = "按剧名 + 集数匹配",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        var minBox = new TextBox
+        modeCombo.Items.Add(new ComboBoxItem
         {
-            Text = UploadTitleImportService.DefaultEpisodeMin.ToString(),
-            Width = 80,
-        };
-        var maxBox = new TextBox
+            Content = "仅剧名精确匹配",
+            Tag = UploadTitleImportService.MatchModeTitle,
+        });
+        modeCombo.Items.Add(new ComboBoxItem
         {
-            Text = UploadTitleImportService.DefaultEpisodeMax.ToString(),
-            Width = 80,
-        };
+            Content = "剧名 + 集数匹配",
+            Tag = UploadTitleImportService.MatchModeTitleEpisode,
+        });
+        modeCombo.SelectedIndex = 0;
         var cancelButton = BuildDialogButton("取消", () => dialog.Close(null));
-        var importButton = BuildDialogButton("导入", () =>
+        var importButton = BuildDialogButton("确定", () =>
         {
-            var min = ParseIntOrDefault(minBox.Text, UploadTitleImportService.DefaultEpisodeMin);
-            var max = ParseIntOrDefault(maxBox.Text, UploadTitleImportService.DefaultEpisodeMax);
-            var mode = matchEpisodeBox.IsChecked == true
-                ? UploadTitleImportService.MatchModeTitleEpisode
-                : UploadTitleImportService.MatchModeTitle;
-            dialog.Close(new UploadTitlesDialogResult(titleBox.Text ?? "", min, max, mode));
+            var mode = (modeCombo.SelectedItem as ComboBoxItem)?.Tag as string
+                ?? UploadTitleImportService.MatchModeTitle;
+            dialog.Close(new UploadTitlesDialogResult(titleBox.Text ?? "", mode));
         }, primary: true);
 
         dialog.Content = new StackPanel
@@ -510,21 +506,23 @@ public partial class TikTokQueueView : UserControl
             Spacing = 10,
             Children =
             {
-                new TextBlock { Text = "批量输入短剧名称" },
-                titleBox,
-                new StackPanel
+                new TextBlock
                 {
-                    Orientation = Orientation.Horizontal,
-                    Spacing = 10,
-                    Children =
-                    {
-                        matchEpisodeBox,
-                        new TextBlock { Text = "最小集数", VerticalAlignment = VerticalAlignment.Center },
-                        minBox,
-                        new TextBlock { Text = "最大集数", VerticalAlignment = VerticalAlignment.Center },
-                        maxBox,
-                    },
+                    Text = "一行输入一个短剧名称。确定后会按精确搜索模式匹配短剧，并加入项目执行队列。",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                 },
+                new TextBlock
+                {
+                    Text = $"当前导入集数限制：最小 {UploadTitleImportService.DefaultEpisodeMin} 集，最大 {UploadTitleImportService.DefaultEpisodeMax} 集。"
+                           + "超出范围的短剧会自动过滤，不加入队列。确定后会自动执行下载、改写、海报、修复、校验、上传默认步骤，删除源视频默认不会自动启用。",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                },
+                new TextBlock
+                {
+                    Text = "匹配模式",
+                },
+                modeCombo,
+                titleBox,
                 new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
@@ -536,6 +534,34 @@ public partial class TikTokQueueView : UserControl
         };
 
         return await dialog.ShowDialog<UploadTitlesDialogResult?>(owner);
+    }
+
+    private static async Task ShowMessageAsync(Window owner, string title, string message, bool warning = false)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 480,
+            Height = 220,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var okButton = BuildDialogButton("确定", () => dialog.Close(), primary: !warning);
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(16),
+            Spacing = 14,
+            Children =
+            {
+                new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Children = { okButton },
+                },
+            },
+        };
+        await dialog.ShowDialog<bool?>(owner);
     }
 
     private static async Task<bool> ConfirmAsync(Window owner, string title, string message)
@@ -636,14 +662,20 @@ public partial class TikTokQueueView : UserControl
 
         var request = await ShowUploadTitlesDialogAsync(owner);
         if (request is null) return;
+        if (string.IsNullOrWhiteSpace(request.RawText))
+        {
+            await ShowMessageAsync(owner, "缺少剧名", "请输入至少一个短剧名称。", warning: true);
+            return;
+        }
 
         vm.StatusMessage = "正在按标题导入短剧…";
+        UploadTitleImportResult? result;
         try
         {
-            await vm.ImportUploadTitlesAsync(
+            result = await vm.ImportUploadTitlesAsync(
                 request.RawText,
-                request.EpisodeMin,
-                request.EpisodeMax,
+                UploadTitleImportService.DefaultEpisodeMin,
+                UploadTitleImportService.DefaultEpisodeMax,
                 request.MatchMode,
                 CancellationToken.None);
         }
@@ -651,7 +683,44 @@ public partial class TikTokQueueView : UserControl
         {
             vm.StatusMessage = $"上传短剧导入失败：{ex.Message}";
             vm.AppendLog(vm.StatusMessage);
+            await ShowMessageAsync(owner, "上传短剧失败", ex.Message, warning: true);
+            return;
         }
+
+        if (result is null)
+            return;
+
+        foreach (var failure in result.Failures)
+            vm.AppendLog($"上传短剧未加入：{failure.Title}，{failure.Reason}");
+
+        if (result.Duplicates.Count > 0)
+        {
+            var dupLines = string.Join('\n', result.Duplicates.Take(30).Select(title => $"· {title}"));
+            var dupExtra = result.Duplicates.Count > 30 ? $"\n… 等共 {result.Duplicates.Count} 条" : "";
+            await ShowMessageAsync(
+                owner,
+                "上传短剧 · 已跳过重复",
+                $"以下 {result.Duplicates.Count} 个剧在管理系统已存在，已跳过未上传：\n\n{dupLines}{dupExtra}");
+        }
+
+        if (result.Failures.Count > 0)
+        {
+            var lines = string.Join('\n', result.Failures.Take(30).Select(item => $"· {item.Title}：{item.Reason}"));
+            var extra = result.Failures.Count > 30 ? $"\n… 等共 {result.Failures.Count} 条" : "";
+            await ShowMessageAsync(
+                owner,
+                "上传短剧 · 未加入的剧集",
+                $"加入 {result.QueuedCount} 个，未加入 {result.FailedCount} 个：\n\n{lines}{extra}",
+                warning: true);
+        }
+        else if (result.QueuedCount == 0)
+        {
+            await ShowMessageAsync(owner, "上传短剧", "没有可加入的剧集。");
+            return;
+        }
+
+        if (vm.ShouldAutoStartQueueAfterUploadTitleImport(result))
+            await StartQueueRunAsync();
     }
 
     private async void OnEditSelectedClick(object? sender, RoutedEventArgs e)

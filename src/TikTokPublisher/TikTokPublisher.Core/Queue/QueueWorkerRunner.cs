@@ -40,10 +40,32 @@ public sealed class QueueWorkerRunner
     private const int ProjectConcurrencyHardMax = 20;
 
     private readonly UploadSlotCoordinator _uploadSlots;
+    private readonly List<QueueProjectItem> _incomingItems = new();
+    private readonly object _incomingLock = new();
     public ManualInterventionCoordinator ManualIntervention { get; } = new();
 
     public QueueWorkerRunner(UploadSlotCoordinator? sharedUploadSlots = null) =>
         _uploadSlots = sharedUploadSlots ?? new UploadSlotCoordinator();
+
+    public int AddItems(IEnumerable<QueueProjectItem> items)
+    {
+        var added = items
+            .Where(item => item.Enabled)
+            .Select(CloneQueueItem)
+            .ToList();
+        if (added.Count == 0)
+            return 0;
+
+        lock (_incomingLock)
+            _incomingItems.AddRange(added);
+        return added.Count;
+    }
+
+    private bool HasIncomingItems()
+    {
+        lock (_incomingLock)
+            return _incomingItems.Count > 0;
+    }
     public async Task<QueueWorkerSummary> RunAsync(
         string workspaceRoot,
         IList<QueueProjectItem> items,
@@ -228,7 +250,8 @@ public sealed class QueueWorkerRunner
         while (pendingPreUpload.Count > 0
                || preUploadTasks.Count > 0
                || readyForUpload.Count > 0
-               || uploadTasks.Count > 0)
+               || uploadTasks.Count > 0
+               || HasIncomingItems())
         {
             if (ct.IsCancellationRequested && !stopped)
             {
@@ -238,6 +261,7 @@ public sealed class QueueWorkerRunner
 
             if (!stopped)
             {
+                DrainIncomingItems(items, candidates, pendingPreUpload, stateLock);
                 FillPreUploadSlots();
                 StartReadyUploads();
             }
@@ -744,6 +768,45 @@ public sealed class QueueWorkerRunner
             StepKey = stepKey,
         });
     }
+
+    private void DrainIncomingItems(
+        IList<QueueProjectItem> items,
+        List<QueueProjectItem> candidates,
+        Queue<(int Index, QueueProjectItem Item)> pendingPreUpload,
+        object stateLock)
+    {
+        List<QueueProjectItem> batch;
+        lock (_incomingLock)
+        {
+            if (_incomingItems.Count == 0)
+                return;
+            batch = _incomingItems.ToList();
+            _incomingItems.Clear();
+        }
+
+        lock (stateLock)
+        {
+            foreach (var item in batch)
+            {
+                if (!item.Enabled)
+                    continue;
+
+                var projectDir = Path.GetFullPath(item.ProjectDir);
+                if (items.Any(existing =>
+                        string.Equals(Path.GetFullPath(existing.ProjectDir), projectDir, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                items.Add(item);
+                candidates.Add(item);
+                pendingPreUpload.Enqueue((candidates.Count, item));
+            }
+        }
+    }
+
+    private static QueueProjectItem CloneQueueItem(QueueProjectItem item) =>
+        QueueProjectItem.FromPayload(item.ToPayload());
 
     private sealed class QueueStopRequestedException(string message) : Exception(message);
 }
