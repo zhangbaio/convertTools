@@ -71,6 +71,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly DesktopStateService _stateService;
     private readonly DesktopDependencyInspector _dependencyInspector;
     private readonly DesktopShellService _shellService;
+    private readonly MaterialDirectoryPublishService _materialDirectoryPublishService;
     private readonly MaterialHighlightGenerationService _materialHighlightGenerationService;
     private readonly XingeRemoteControlService _xingeRemoteControlService;
     private readonly IWorkflowInteractionService _interactionService;
@@ -105,6 +106,7 @@ public partial class MainWindowViewModel : ViewModelBase
         DesktopStateService stateService,
         DesktopDependencyInspector dependencyInspector,
         DesktopShellService shellService,
+        MaterialDirectoryPublishService materialDirectoryPublishService,
         MaterialHighlightGenerationService materialHighlightGenerationService,
         XingeRemoteControlService xingeRemoteControlService,
         IWorkflowInteractionService interactionService,
@@ -123,6 +125,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _stateService = stateService;
         _dependencyInspector = dependencyInspector;
         _shellService = shellService;
+        _materialDirectoryPublishService = materialDirectoryPublishService;
         _materialHighlightGenerationService = materialHighlightGenerationService;
         _xingeRemoteControlService = xingeRemoteControlService;
         _interactionService = interactionService;

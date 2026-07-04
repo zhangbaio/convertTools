@@ -44,17 +44,13 @@ public sealed class WeixinBrowserSessionLauncher : IWeixinBrowserSessionLauncher
         await _authStateService.ResolveAsync(config, cancellationToken);
         Directory.CreateDirectory(config.OutputDirectory);
         Directory.CreateDirectory(Path.GetDirectoryName(config.AuthFilePath) ?? config.ConfigDirectory);
-        Directory.CreateDirectory(config.Browser.UserDataDirectory);
 
         using var playwright = await _browserRuntimeService.CreatePlaywrightAsync(cancellationToken);
-        await using var context = await playwright.Chromium.LaunchPersistentContextAsync(
-            config.Browser.UserDataDirectory,
-            new BrowserTypeLaunchPersistentContextOptions
+        await using var browser = await playwright.Chromium.LaunchAsync(
+            new BrowserTypeLaunchOptions
             {
                 Headless = false,
                 SlowMo = config.Browser.SlowMoMs,
-                UserAgent = config.Browser.UserAgent,
-                ViewportSize = null,
                 Args =
                 [
                     "--disable-blink-features=AutomationControlled",
@@ -64,8 +60,9 @@ public sealed class WeixinBrowserSessionLauncher : IWeixinBrowserSessionLauncher
                     "--window-size=1920,1080"
                 ]
             });
+        await using var context = await CreateBrowserContextAsync(browser, config);
 
-        var page = context.Pages.FirstOrDefault() ?? await context.NewPageAsync();
+        var page = await context.NewPageAsync();
         await MaximizeBrowserWindowAsync(page);
         await _homePage.OpenAsync(page, config.BaseUrl, cancellationToken);
         await page.BringToFrontAsync();
@@ -161,6 +158,31 @@ public sealed class WeixinBrowserSessionLauncher : IWeixinBrowserSessionLauncher
         catch
         {
             // Chrome can restore persisted window bounds; CDP maximization is best effort.
+        }
+    }
+
+    private static async Task<IBrowserContext> CreateBrowserContextAsync(
+        IBrowser browser,
+        WeixinAutomationConfig config)
+    {
+        var contextOptions = new BrowserNewContextOptions
+        {
+            ViewportSize = ViewportSize.NoViewport,
+            UserAgent = config.Browser.UserAgent
+        };
+        if (!string.IsNullOrWhiteSpace(config.AuthFilePath) && File.Exists(config.AuthFilePath))
+        {
+            contextOptions.StorageStatePath = config.AuthFilePath;
+        }
+
+        try
+        {
+            return await browser.NewContextAsync(contextOptions);
+        }
+        catch when (!string.IsNullOrWhiteSpace(contextOptions.StorageStatePath))
+        {
+            contextOptions.StorageStatePath = null;
+            return await browser.NewContextAsync(contextOptions);
         }
     }
 

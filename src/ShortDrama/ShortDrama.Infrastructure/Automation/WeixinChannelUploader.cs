@@ -92,32 +92,23 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
 
         Directory.CreateDirectory(config.OutputDirectory);
         Directory.CreateDirectory(Path.GetDirectoryName(config.AuthFilePath) ?? config.ConfigDirectory);
-        Directory.CreateDirectory(config.Browser.UserDataDirectory);
 
         using var playwright = await _browserRuntimeService.CreatePlaywrightAsync(cancellationToken);
-        await using var context = await playwright.Chromium.LaunchPersistentContextAsync(
-            config.Browser.UserDataDirectory,
-            new BrowserTypeLaunchPersistentContextOptions
-        {
-            Headless = config.Browser.Headless,
-            SlowMo = config.Browser.SlowMoMs,
-            UserAgent = config.Browser.UserAgent,
-            ViewportSize = config.Browser.Headless
-                ? new ViewportSize
-                {
-                    Width = config.Browser.Viewport.Width,
-                    Height = config.Browser.Viewport.Height
-                }
-                : null,
-            Args =
-            [
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--start-maximized"
-            ]
-        });
+        await using var browser = await playwright.Chromium.LaunchAsync(
+            new BrowserTypeLaunchOptions
+            {
+                Headless = config.Browser.Headless,
+                SlowMo = config.Browser.SlowMoMs,
+                Args =
+                [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--start-maximized"
+                ]
+            });
+        await using var context = await CreateBrowserContextAsync(browser, config, progress);
 
-        var page = context.Pages.FirstOrDefault() ?? await context.NewPageAsync();
+        var page = await context.NewPageAsync();
         progress?.Report($"寰俊涓婁紶锛氭鍦ㄦ墦寮€鍚庡彴 {config.BaseUrl}");
 
         await _homePage.OpenAsync(page, config.BaseUrl, cancellationToken);
@@ -389,12 +380,17 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "褰撳墠椤圭洰宸茬鐢ㄥ井淇＄礌鏉愪笂浼犮€");
         }
 
-        var projectInfo = await _projectInfoParser.ParseAsync(request.ProjectDir, cancellationToken);
         var allPublishItems = WeixinMaterialPublishPage.ResolvePublishVideoItems(request.ProjectDir, config.VideoPublish);
         if (allPublishItems.Count == 0)
         {
             return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "褰撳墠椤圭洰鏈壘鍒板彲鍙戣〃鐨勭礌鏉愯棰戙€");
         }
+
+        var projectInfo = await ResolveMaterialPublishProjectInfoAsync(
+            request.ProjectDir,
+            config,
+            allPublishItems.Count,
+            cancellationToken);
 
         var statePath = WeixinMaterialPublishStateService.ResolveStatePath(request.ProjectDir, config.VideoPublish.StateFile);
         var publishState = WeixinMaterialPublishStateService.Load(statePath);
@@ -546,6 +542,44 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             Message: $"C# 寰俊绱犳潗涓婁紶宸插畬鎴愶紝鍏卞鐞?{selectedVideos.Count} 鏉¤棰戙€");
     }
 
+    private async Task<ProjectInfo> ResolveMaterialPublishProjectInfoAsync(
+        string projectDir,
+        WeixinAutomationConfig config,
+        int publishItemCount,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _projectInfoParser.ParseAsync(projectDir, cancellationToken);
+        }
+        catch when (string.Equals(
+                        WeixinMaterialPublishPage.NormalizeVideoSourceMode(config.VideoPublish.VideoSourceMode),
+                        "directory_publish",
+                        StringComparison.Ordinal))
+        {
+            var title = Path.GetFileName(projectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                title = "目录批量发表";
+            }
+
+            var count = Math.Max(1, publishItemCount);
+            return new ProjectInfo(
+                OriginalTitle: title,
+                Title: title,
+                Tagline: string.Empty,
+                Synopsis: string.Empty,
+                ShortTitle: string.Empty,
+                Tags: string.Empty,
+                EpisodeCount: count,
+                TotalMinutes: count,
+                CostAmountWan: 1m,
+                CompanyName: "未填写公司",
+                ProjectDir: projectDir,
+                SourceFilePath: config.ConfigPath ?? projectDir);
+        }
+    }
+
     private static string ResolveMaterialPublishStatePath(string projectDir, string stateFile)
     {
         return WeixinMaterialPublishStateService.ResolveStatePath(projectDir, stateFile);
@@ -619,6 +653,40 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
 
         progress?.Report("寰俊鍓ч泦涓婁紶锛氬凡纭鐧诲綍鎴愬姛銆");
         return "resume";
+    }
+
+    private static async Task<IBrowserContext> CreateBrowserContextAsync(
+        IBrowser browser,
+        WeixinAutomationConfig config,
+        IProgress<string>? progress)
+    {
+        var contextOptions = new BrowserNewContextOptions
+        {
+            UserAgent = config.Browser.UserAgent,
+            ViewportSize = config.Browser.Headless
+                ? new ViewportSize
+                {
+                    Width = config.Browser.Viewport.Width,
+                    Height = config.Browser.Viewport.Height
+                }
+                : ViewportSize.NoViewport
+        };
+        if (!string.IsNullOrWhiteSpace(config.AuthFilePath) && File.Exists(config.AuthFilePath))
+        {
+            contextOptions.StorageStatePath = config.AuthFilePath;
+            progress?.Report($"微信上传：已复用登录态文件 {config.AuthFilePath}");
+        }
+
+        try
+        {
+            return await browser.NewContextAsync(contextOptions);
+        }
+        catch (Exception ex) when (!string.IsNullOrWhiteSpace(contextOptions.StorageStatePath))
+        {
+            progress?.Report($"微信上传：登录态文件读取失败，改用全新会话：{ex.Message}");
+            contextOptions.StorageStatePath = null;
+            return await browser.NewContextAsync(contextOptions);
+        }
     }
 
     private async Task TryNotifyLoginQrRequiredAsync(

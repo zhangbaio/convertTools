@@ -161,72 +161,24 @@ public partial class MaterialUploadView : UserControl
 
     private async void DirectoryBatchPublishButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (ViewModel is null || OwnerWindow?.StorageProvider is null || Application.Current is not App app)
+        if (ViewModel is null || OwnerWindow is null)
         {
             return;
         }
 
-        var folders = await OwnerWindow.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "选择目录批量发表工作目录（一级子目录内放视频）",
-            AllowMultiple = false
-        });
-        var root = folders.FirstOrDefault()?.Path.LocalPath;
-        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+        var initialDirectory = Directory.Exists(ViewModel.RootDir) ? ViewModel.RootDir : string.Empty;
+        var window = new MaterialDirectoryPublishWindow(initialDirectory);
+        var accepted = await window.ShowDialog<bool>(OwnerWindow);
+        if (!accepted)
         {
             return;
         }
 
-        var service = app.Services.GetRequiredService<ManualMaterialProjectService>();
-        var subdirs = Directory.EnumerateDirectories(root)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-            .Where(path => service.ListVideoFiles(path).Count > 0)
-            .ToArray();
-        if (subdirs.Length == 0)
-        {
-            ViewModel.StatusMessage = "目录批量发表：未找到包含视频的一级子目录。";
-            ViewModel.AppendExternalLog(ViewModel.StatusMessage, stepKey: "material-upload", stepLabel: "素材上传", isFailure: true);
-            return;
-        }
-
-        var created = new List<ManualMaterialProjectResult>();
-        var failed = 0;
-        foreach (var subdir in subdirs)
-        {
-            var title = Path.GetFileName(subdir);
-            try
-            {
-                var result = service.CreateProject(new ManualMaterialProjectRequest(
-                    ViewModel.RootDir,
-                    subdir,
-                    title,
-                    title,
-                    null));
-                created.Add(result);
-                ViewModel.AppendExternalLog(result.Message, stepKey: "material-upload", stepLabel: "素材上传");
-            }
-            catch (Exception ex)
-            {
-                failed++;
-                ViewModel.AppendExternalLog(
-                    $"目录批量发表创建项目失败：{title}，{ex.Message}",
-                    stepKey: "material-upload",
-                    stepLabel: "素材上传",
-                    isFailure: true);
-            }
-        }
-
-        await ViewModel.ScanCommand.ExecuteAsync(null);
-        var createdWorkflowDirs = created
-            .Select(item => item.WorkflowProjectDirectory)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var project in ViewModel.MaterialUploadProjects)
-        {
-            project.IsChecked = createdWorkflowDirs.Contains(project.WorkflowProjectDir ?? string.Empty);
-        }
-
-        ViewModel.StatusMessage = $"目录批量发表已创建 {created.Count} 个素材项目" + (failed > 0 ? $"，失败 {failed} 个" : string.Empty);
-        ViewModel.AppendExternalLog(ViewModel.StatusMessage, stepKey: "material-upload", stepLabel: "素材上传");
+        await ViewModel.RunMaterialDirectoryBatchPublishAsync(
+            window.WorkspacePath,
+            window.HideLocation,
+            window.DeclareOriginal,
+            window.AiRewriteDescription);
     }
 
     private async void BrowseMaterialUploadAuthFileButton_Click(object? sender, RoutedEventArgs e)

@@ -62,6 +62,7 @@ public partial class App : Application
         services.AddSingleton<DesktopDependencyInspector>();
         services.AddSingleton<DesktopShellService>();
         services.AddSingleton<ManualMaterialProjectService>();
+        services.AddSingleton<MaterialDirectoryPublishService>();
         services.AddSingleton<MaterialHighlightGenerationService>();
         services.AddSingleton<WeixinMaterialChannelVideoDeleteService>();
         services.AddSingleton<IWeixinLoginNotificationService, DesktopWeixinLoginNotificationService>();

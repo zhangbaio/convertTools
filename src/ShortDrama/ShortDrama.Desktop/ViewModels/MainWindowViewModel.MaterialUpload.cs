@@ -422,6 +422,78 @@ public partial class MainWindowViewModel
         return Task.CompletedTask;
     }
 
+    public async Task RunMaterialDirectoryBatchPublishAsync(
+        string workspacePath,
+        bool hideLocation,
+        bool declareOriginal,
+        bool aiRewriteDescription)
+    {
+        if (IsBusy)
+        {
+            StatusMessage = "当前已有任务正在运行，请等待结束后再启动目录批量发表。";
+            AppendExternalLog(StatusMessage, stepKey: "weixin-material-upload", stepLabel: "素材上传", isFailure: true);
+            return;
+        }
+
+        var account = SelectedMaterialUploadAccount ?? GetActiveMaterialUploadAccount();
+        if (account is null)
+        {
+            StatusMessage = "请先选择素材上传账号。";
+            AppendExternalLog(StatusMessage, stepKey: "weixin-material-upload", stepLabel: "素材上传", isFailure: true);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(workspacePath) || !Directory.Exists(workspacePath))
+        {
+            StatusMessage = "目录批量发表：请选择一个存在的工作目录。";
+            AppendExternalLog(StatusMessage, stepKey: "weixin-material-upload", stepLabel: "素材上传", isFailure: true);
+            return;
+        }
+
+        var displayName = Path.GetFileName(workspacePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        ActivityTitle = $"素材上传日志 · 目录批量发表 · {displayName}";
+        SelectedStepLogFilter = StepLogFilters.FirstOrDefault(item => string.Equals(item.Key, "weixin-material-upload", StringComparison.Ordinal))
+            ?? SelectedStepLogFilter;
+
+        await RunBusyAsync($"正在目录批量发表：{workspacePath}", async cancellationToken =>
+        {
+            var progress = new Progress<string>(message =>
+            {
+                AppendExternalLog(
+                    message,
+                    projectLabel: displayName,
+                    stepKey: "weixin-material-upload",
+                    stepLabel: "素材上传");
+                StatusMessage = message;
+            });
+
+            var result = await _materialDirectoryPublishService.PublishAsync(
+                new MaterialDirectoryPublishOptions(
+                    WorkspacePath: workspacePath,
+                    AuthFilePath: ExpandMaterialUploadPath(account.AuthFile),
+                    BrowserProfileDir: ExpandMaterialUploadPath(account.BrowserProfileDir),
+                    AccountId: account.Id,
+                    AccountDisplayName: account.DisplayName,
+                    HideLocation: hideLocation,
+                    DeclareOriginal: declareOriginal,
+                    AiRewriteDescription: aiRewriteDescription,
+                    AllowDuplicatePublish: MaterialUploadAllowDuplicatePublish),
+                progress,
+                cancellationToken);
+
+            var message = $"目录批量发表流程结束：共 {result.Total} 条。输出目录 {result.OutputDirectory}";
+            StatusMessage = message;
+            AppendExternalLog(
+                message,
+                projectLabel: displayName,
+                stepKey: "weixin-material-upload",
+                stepLabel: "素材上传");
+            account.RefreshFileState();
+            RefreshVisibleMaterialUploadAccounts();
+            await RefreshProjectListAsync();
+        });
+    }
+
     public void ApplyMaterialUploadFilter()
     {
         var selectedProjectKey = SelectedProject?.ProjectKey;

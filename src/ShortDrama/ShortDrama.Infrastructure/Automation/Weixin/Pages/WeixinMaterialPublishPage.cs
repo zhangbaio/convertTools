@@ -16,6 +16,10 @@ public sealed class WeixinMaterialPublishPage
     private const string PublishVideoSourceModeDirectoryPublish = "directory_publish";
     private const string PublishVideoSourceModeProjectMaterials = "project_materials";
     private const string PublishVideoSourceModeSourceVideos = "source_videos";
+    private static readonly string[] DirectoryPublishDescriptionFileNames =
+    [
+        "description.txt", "desc.txt", "描述.txt"
+    ];
     private static readonly Regex EpisodeIndexRegex = new(
         @"第\s*0*(\d+)\s*集|episode\s*0*(\d+)|ep\s*0*(\d+)|(^|[^\d])0*(\d+)(?=[^\d]*$)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -150,6 +154,13 @@ public sealed class WeixinMaterialPublishPage
         {
             await ChooseOptionAsync(page, "定时发表", options.TimingOptionText);
             progress?.Report($"微信素材上传：已选择定时发表 -> {options.TimingOptionText}");
+        }
+
+        if (options.DeclareOriginal)
+        {
+            await SetCheckedByLabelAsync(page, "声明原创", enabled: true, cancellationToken);
+            await HandleOriginalDeclarationDialogAsync(page, cancellationToken);
+            progress?.Report("微信素材上传：已勾选声明原创。");
         }
     }
 
@@ -295,6 +306,289 @@ public sealed class WeixinMaterialPublishPage
         var option = await FindVisibleTextAsync(page, optionText, 10_000);
         await option.ClickAsync();
         await WaitBrieflyForLoadAsync(page);
+    }
+
+    private static async Task SetCheckedByLabelAsync(
+        IPage page,
+        string label,
+        bool enabled,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var safe = Escape(label);
+        var group = await FirstVisibleOrNullAsync(
+            [
+                page.Locator($".form-item:has(.label:has-text(\"{safe}\"))").First,
+                page.Locator($".weui-desktop-form__control-group:has(.weui-desktop-form__label:has-text(\"{safe}\"))").First,
+                page.Locator($"label:has-text(\"{safe}\")").First
+            ],
+            2_000);
+        var input = await FirstAttachedOrNullAsync(
+            [
+                group?.Locator("input[type='checkbox'], input[type='radio']").First,
+                page.GetByLabel(label, new PageGetByLabelOptions { Exact = false }).First,
+                page.Locator($"label:has-text(\"{safe}\") input[type='checkbox'], label:has-text(\"{safe}\") input[type='radio']").First
+            ],
+            1_000);
+
+        if (input is not null)
+        {
+            var current = await ReadCheckableStateAsync(input);
+            if (current == enabled)
+            {
+                return;
+            }
+
+            try
+            {
+                if (enabled)
+                {
+                    await input.CheckAsync(new LocatorCheckOptions { Force = true, Timeout = 1_000 });
+                }
+                else
+                {
+                    await input.UncheckAsync(new LocatorUncheckOptions { Force = true, Timeout = 1_000 });
+                }
+            }
+            catch
+            {
+                await input.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 1_000 });
+            }
+
+            await Task.Delay(250, cancellationToken);
+            current = await ReadCheckableStateAsync(input);
+            if (current == enabled || current is null)
+            {
+                return;
+            }
+        }
+
+        var checkable = await FirstVisibleOrNullAsync(
+            [
+                group?.Locator(".weui-desktop-icon-checkbox, .weui-desktop-icon-radio, [role='checkbox'], [aria-checked]").First,
+                page.Locator($"[role='checkbox']:has-text(\"{safe}\")").First,
+                page.GetByText(label, new PageGetByTextOptions { Exact = false }).First
+            ],
+            3_000);
+        if (checkable is null)
+        {
+            return;
+        }
+
+        var state = await ReadCheckableStateAsync(checkable);
+        if (state != enabled)
+        {
+            await checkable.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 2_000 });
+            await Task.Delay(250, cancellationToken);
+        }
+    }
+
+    private static async Task HandleOriginalDeclarationDialogAsync(IPage page, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var existingPages = page.Context.Pages.ToArray();
+        var dialog = await FirstVisibleOrNullAsync(
+            [
+                page.Locator(".weui-desktop-dialog__wrp:has-text(\"原创权益\"), .weui-desktop-dialog:has-text(\"原创权益\"), .dialog:has-text(\"原创权益\")").First,
+                page.GetByText("原创权益", new PageGetByTextOptions { Exact = false })
+                    .Locator("xpath=ancestor::*[contains(@class,'dialog') or contains(@class,'Dialog')][1]")
+                    .First
+            ],
+            4_000);
+        if (dialog is null)
+        {
+            return;
+        }
+
+        var agreementRow = await FirstVisibleOrNullAsync(
+            [
+                dialog.Locator("label:has-text(\"我已阅读并同意\")").First,
+                dialog.GetByText("我已阅读并同意", new LocatorGetByTextOptions { Exact = false })
+                    .Locator("xpath=ancestor::*[self::label or self::div][1]")
+                    .First,
+                dialog.Locator("label").Filter(new LocatorFilterOptions
+                {
+                    Has = dialog.GetByText("我已阅读并同意", new LocatorGetByTextOptions { Exact = false })
+                }).First
+            ],
+            2_000);
+        if (agreementRow is not null)
+        {
+            await SetDialogCheckableAsync(agreementRow, enabled: true, cancellationToken);
+        }
+
+        var confirm = await FirstVisibleOrNullAsync(
+            [
+                dialog.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { NameString = "声明原创", Exact = false }).First,
+                dialog.Locator("button:has-text(\"声明原创\")").First,
+                dialog.GetByText("声明原创", new LocatorGetByTextOptions { Exact = false }).First
+            ],
+            4_000);
+        if (confirm is not null)
+        {
+            await confirm.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 2_000 });
+        }
+
+        foreach (var candidate in page.Context.Pages)
+        {
+            if (ReferenceEquals(candidate, page) || existingPages.Contains(candidate))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (candidate.Url.Contains("weixin_agreement", StringComparison.OrdinalIgnoreCase) ||
+                    candidate.Url.Contains("readtemplate", StringComparison.OrdinalIgnoreCase))
+                {
+                    await candidate.CloseAsync();
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        try
+        {
+            await dialog.WaitForAsync(new LocatorWaitForOptions
+            {
+                State = WaitForSelectorState.Hidden,
+                Timeout = 3_000
+            });
+        }
+        catch
+        {
+        }
+    }
+
+    private static async Task SetDialogCheckableAsync(
+        ILocator row,
+        bool enabled,
+        CancellationToken cancellationToken)
+    {
+        var input = await FirstAttachedOrNullAsync(
+            [
+                row.Locator("input[type='checkbox'], input[type='radio']").First,
+                row.Locator("[role='checkbox'], [aria-checked]").First
+            ],
+            1_000);
+        if (input is not null)
+        {
+            var current = await ReadCheckableStateAsync(input);
+            if (current == enabled)
+            {
+                return;
+            }
+
+            try
+            {
+                if (enabled)
+                {
+                    await input.CheckAsync(new LocatorCheckOptions { Force = true, Timeout = 1_000 });
+                }
+                else
+                {
+                    await input.UncheckAsync(new LocatorUncheckOptions { Force = true, Timeout = 1_000 });
+                }
+            }
+            catch
+            {
+                await input.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 1_000 });
+            }
+
+            await Task.Delay(250, cancellationToken);
+            return;
+        }
+
+        await row.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 1_000 });
+        await Task.Delay(250, cancellationToken);
+    }
+
+    private static async Task<bool?> ReadCheckableStateAsync(ILocator locator)
+    {
+        try
+        {
+            if (await locator.CountAsync() <= 0)
+            {
+                return null;
+            }
+
+            return await locator.EvaluateAsync<bool?>(
+                """
+                element => {
+                  const input = element.matches?.("input[type='checkbox'], input[type='radio']")
+                    ? element
+                    : element.querySelector?.("input[type='checkbox'], input[type='radio']");
+                  if (input) return !!input.checked;
+                  const role = element.matches?.("[role='checkbox'], [aria-checked]")
+                    ? element
+                    : element.querySelector?.("[role='checkbox'], [aria-checked]");
+                  const checked = role?.getAttribute?.("aria-checked");
+                  if (checked === "true") return true;
+                  if (checked === "false") return false;
+                  return null;
+                }
+                """);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task<ILocator?> FirstVisibleOrNullAsync(IEnumerable<ILocator?> candidates, int timeoutMs)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (candidate is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await candidate.WaitForAsync(new LocatorWaitForOptions
+                {
+                    State = WaitForSelectorState.Visible,
+                    Timeout = timeoutMs
+                });
+                return candidate;
+            }
+            catch
+            {
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<ILocator?> FirstAttachedOrNullAsync(IEnumerable<ILocator?> candidates, int timeoutMs)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (candidate is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await candidate.WaitForAsync(new LocatorWaitForOptions
+                {
+                    State = WaitForSelectorState.Attached,
+                    Timeout = timeoutMs
+                });
+                return candidate;
+            }
+            catch
+            {
+            }
+        }
+
+        return null;
     }
 
     private static async Task OpenSeriesPickerAsync(IPage page, WeixinVideoPublishOptions options)
@@ -449,9 +743,16 @@ public sealed class WeixinMaterialPublishPage
             return BuildPublishItemsFromFiles(options.CustomVideoFiles, options);
         }
 
+        if (string.Equals(sourceMode, PublishVideoSourceModeDirectoryPublish, StringComparison.Ordinal))
+        {
+            return BuildPublishItemsFromFiles(
+                ResolveDirectoryPublishVideoFiles(projectDir),
+                options,
+                preserveOrder: true);
+        }
+
         if (string.Equals(sourceMode, PublishVideoSourceModeDownloadedSystemHighlight, StringComparison.Ordinal) ||
             string.Equals(sourceMode, PublishVideoSourceModeMaterialVideoDownload, StringComparison.Ordinal) ||
-            string.Equals(sourceMode, PublishVideoSourceModeDirectoryPublish, StringComparison.Ordinal) ||
             string.Equals(sourceMode, PublishVideoSourceModeSourceVideos, StringComparison.Ordinal))
         {
             var sourceFiles = Directory.Exists(projectDir)
@@ -495,15 +796,20 @@ public sealed class WeixinMaterialPublishPage
 
     private static IReadOnlyList<PublishVideoItem> BuildPublishItemsFromFiles(
         IEnumerable<string> paths,
-        WeixinVideoPublishOptions options)
+        WeixinVideoPublishOptions options,
+        bool preserveOrder = false)
     {
-        var files = paths
+        var candidates = paths
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(path => Path.GetFullPath(path))
             .Where(path => File.Exists(path) && IsVideoFile(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        var files = (preserveOrder
+                ? candidates
+                : candidates
             .OrderBy(BuildNaturalSortToken, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(path => path, StringComparer.OrdinalIgnoreCase))
             .ToArray();
 
         if (files.Length == 0)
@@ -520,6 +826,33 @@ public sealed class WeixinMaterialPublishPage
             .ToList();
     }
 
+    internal static IReadOnlyList<string> ResolveDirectoryPublishVideoFiles(string projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir) || !Directory.Exists(projectDir))
+        {
+            return [];
+        }
+
+        return Directory.EnumerateDirectories(projectDir, "*", SearchOption.TopDirectoryOnly)
+            .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+            .Select(PickLargestDirectoryPublishVideo)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!)
+            .ToArray();
+    }
+
+    private static string? PickLargestDirectoryPublishVideo(string directory)
+    {
+        return Directory.EnumerateFiles(directory, "*.*", SearchOption.TopDirectoryOnly)
+            .Where(IsVideoFile)
+            .Select(path => new FileInfo(path))
+            .Where(file => file.Exists && file.Length > 0)
+            .OrderByDescending(file => file.Length)
+            .ThenBy(file => file.FullName, StringComparer.OrdinalIgnoreCase)
+            .Select(file => file.FullName)
+            .FirstOrDefault();
+    }
+
     private static bool IsVideoFile(string path)
     {
         var ext = Path.GetExtension(path);
@@ -528,6 +861,9 @@ public sealed class WeixinMaterialPublishPage
                || ext.Equals(".m4v", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".mkv", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".avi", StringComparison.OrdinalIgnoreCase)
+               || ext.Equals(".flv", StringComparison.OrdinalIgnoreCase)
+               || ext.Equals(".ts", StringComparison.OrdinalIgnoreCase)
+               || ext.Equals(".wmv", StringComparison.OrdinalIgnoreCase)
                || ext.Equals(".webm", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -719,7 +1055,6 @@ public sealed class WeixinMaterialPublishPage
             return string.Empty;
         }
 
-        var fileName = Path.GetFileName(videoPath);
         foreach (var key in BuildDescriptionLookupKeys(videoPath))
         {
             if (options.VideoDescriptionMap.TryGetValue(key, out var mapped) &&
@@ -732,37 +1067,87 @@ public sealed class WeixinMaterialPublishPage
         var sidecar = Path.Combine(
             Path.GetDirectoryName(videoPath) ?? ".",
             Path.GetFileNameWithoutExtension(videoPath) + ".publish.json");
-        if (!File.Exists(sidecar))
+        if (File.Exists(sidecar))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(sidecar));
+                if (document.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var key in new[] { "description", "caption" })
+                    {
+                        if (document.RootElement.TryGetProperty(key, out var value) &&
+                            value.ValueKind == JsonValueKind.String)
+                        {
+                            var text = value.GetString()?.Trim();
+                            if (!string.IsNullOrWhiteSpace(text))
+                            {
+                                return text;
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        if (string.Equals(NormalizeVideoSourceMode(options.VideoSourceMode), PublishVideoSourceModeDirectoryPublish, StringComparison.Ordinal))
+        {
+            var directoryDescription = ResolveDirectoryPublishDescription(videoPath);
+            if (!string.IsNullOrWhiteSpace(directoryDescription))
+            {
+                return directoryDescription;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveDirectoryPublishDescription(string videoPath)
+    {
+        var directory = Path.GetDirectoryName(videoPath);
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
         {
             return string.Empty;
         }
 
-        try
+        foreach (var fileName in DirectoryPublishDescriptionFileNames)
         {
-            using var document = JsonDocument.Parse(File.ReadAllText(sidecar));
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            var descriptionPath = Path.Combine(directory, fileName);
+            if (!File.Exists(descriptionPath))
             {
-                return string.Empty;
+                continue;
             }
 
-            foreach (var key in new[] { "description", "caption" })
+            try
             {
-                if (document.RootElement.TryGetProperty(key, out var value) &&
-                    value.ValueKind == JsonValueKind.String)
+                var text = File.ReadAllText(descriptionPath).Trim();
+                if (!string.IsNullOrWhiteSpace(text))
                 {
-                    var text = value.GetString()?.Trim();
-                    if (!string.IsNullOrWhiteSpace(text))
-                    {
-                        return text;
-                    }
+                    return NormalizeHashtags(text);
                 }
             }
-        }
-        catch
-        {
+            catch
+            {
+            }
         }
 
-        return string.Empty;
+        return NormalizeHashtags(Path.GetFileName(directory));
+    }
+
+    private static string NormalizeHashtags(string text)
+    {
+        var value = (text ?? string.Empty).Trim();
+        if (value.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        value = Regex.Replace(value, @"(?<=[^\s#])#", " #");
+        value = Regex.Replace(value, @"[ \t]{2,}", " ");
+        return value.Trim();
     }
 
     private static IEnumerable<string> BuildDescriptionLookupKeys(string videoPath)

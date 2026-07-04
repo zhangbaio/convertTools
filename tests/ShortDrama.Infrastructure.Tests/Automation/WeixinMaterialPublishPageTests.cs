@@ -109,6 +109,35 @@ public sealed class WeixinMaterialPublishPageTests
         description.Should().Be("#旁车描述");
     }
 
+    [Fact]
+    public void DirectoryPublish_Should_PickLargestVideo_And_UseDescriptionTxt()
+    {
+        var projectDir = Directory.CreateTempSubdirectory().FullName;
+        var subDir = Directory.CreateDirectory(Path.Combine(projectDir, "截断文件夹名")).FullName;
+        File.WriteAllBytes(Path.Combine(subDir, "small.mp4"), [1]);
+        var largeVideo = Path.Combine(subDir, "large.mp4");
+        File.WriteAllBytes(largeVideo, [1, 2, 3, 4]);
+        File.WriteAllText(Path.Combine(subDir, "description.txt"), "完整描述 #话题A#话题B");
+
+        var options = BuildOptions(videoSourceMode: "directory_publish") with
+        {
+            EpisodeSelectionMode = "all",
+            PublishCount = 1,
+            PrependHashToDescription = false
+        };
+        var items = WeixinMaterialPublishPage.ResolvePublishVideoItems(projectDir, options);
+
+        items.Should().ContainSingle();
+        items[0].VideoPath.Should().Be(largeVideo);
+
+        var description = WeixinMaterialPublishPage.BuildPublishDescription(
+            new ProjectInfo("原剧", "新剧", null, null, null, null, 1, 1, 1, "公司", projectDir, ""),
+            options,
+            items[0]);
+
+        description.Should().Be("完整描述 #话题A #话题B");
+    }
+
     private static WeixinVideoPublishOptions BuildOptions(string videoSourceMode = "project")
     {
         return new WeixinVideoPublishOptions(

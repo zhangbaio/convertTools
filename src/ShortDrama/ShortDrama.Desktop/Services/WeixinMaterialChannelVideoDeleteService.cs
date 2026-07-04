@@ -64,7 +64,7 @@ public sealed class WeixinMaterialChannelVideoDeleteService
 
         var contextOptions = new BrowserNewContextOptions
         {
-            ViewportSize = null,
+            ViewportSize = ViewportSize.NoViewport,
             UserAgent = config.Browser.UserAgent
         };
         if (!string.IsNullOrWhiteSpace(config.AuthFilePath) && File.Exists(config.AuthFilePath))
