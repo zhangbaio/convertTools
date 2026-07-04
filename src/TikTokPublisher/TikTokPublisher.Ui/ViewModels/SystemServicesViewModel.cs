@@ -227,7 +227,7 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     public async Task RestoreSelectedAsync()
     {
-        var targets = TargetRowsForRestore();
+        var targets = TargetRowsForAction();
         if (targets.Length == 0)
         {
             StatusMessage = "请先勾选要回退的归档项目（或点击选中一行）";
@@ -274,10 +274,10 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     public async Task DeleteSelectedAsync()
     {
-        var row = SelectedRow;
-        if (row is null)
+        var targets = TargetRowsForAction();
+        if (targets.Length == 0)
         {
-            StatusMessage = "请先选中一个归档项目";
+            StatusMessage = "请先勾选要删除的归档项目（或点击选中一行）";
             return;
         }
 
@@ -288,11 +288,21 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
             return;
         }
 
-        await TikTokArchivedProjectService.DeleteAsync(workspace, row.Item.ArchiveProjectDir, ArchiveRootDir);
+        var deleted = 0;
+        foreach (var row in targets)
+        {
+            await TikTokArchivedProjectService.DeleteAsync(workspace, row.Item.ArchiveProjectDir, ArchiveRootDir);
+            deleted++;
+        }
+
         Refresh();
-        StatusMessage = $"已删除归档项目：{row.DisplayName}";
+        StatusMessage = deleted == 1
+            ? $"已删除归档项目：{targets[0].DisplayName}"
+            : $"已删除归档项目 {deleted} 个";
         StatusRequested?.Invoke(StatusMessage);
     }
+
+    public int GetActionTargetCount() => TargetRowsForAction().Length;
 
     public async Task SyncCheckedToManagementAsync()
     {
@@ -354,7 +364,7 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
             : $"已归档: {FilteredRows.Count} / {Rows.Count}";
     }
 
-    private ArchivedProjectRowViewModel[] TargetRowsForRestore()
+    private ArchivedProjectRowViewModel[] TargetRowsForAction()
     {
         var checkedRows = Rows.Where(r => r.Selected).ToArray();
         if (checkedRows.Length > 0)

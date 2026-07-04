@@ -440,6 +440,15 @@ public partial class TikTokQueueView : UserControl
     private IEnumerable<QueueProjectRowViewModel> GetSelectedQueueRows() =>
         QueueProjectList.SelectedItems?.OfType<QueueProjectRowViewModel>() ?? Enumerable.Empty<QueueProjectRowViewModel>();
 
+    private IEnumerable<QueueProjectRowViewModel> GetCheckedQueueRows() =>
+        _vm?.FilteredQueueProjectRows.Where(row => row.IsEnabled) ?? Enumerable.Empty<QueueProjectRowViewModel>();
+
+    private IReadOnlyList<QueueProjectRowViewModel> GetCheckedOrSelectedQueueRows()
+    {
+        var checkedRows = GetCheckedQueueRows().ToArray();
+        return checkedRows.Length > 0 ? checkedRows : GetSelectedQueueRows().ToArray();
+    }
+
     private IReadOnlyList<string> GetSelectedProjectDirs() =>
         GetSelectedQueueRows()
             .Select(row => row.Item.ProjectDir)
@@ -582,8 +591,29 @@ public partial class TikTokQueueView : UserControl
 
     private async void OnArchiveSelectedClick(object? sender, RoutedEventArgs e)
     {
-        if (_vm is null) return;
-        await _vm.ArchiveSelectedQueueProjectsAsync(GetSelectedQueueRows());
+        var vm = _vm;
+        if (vm is null) return;
+        var rows = GetCheckedOrSelectedQueueRows();
+        if (rows.Count == 0)
+        {
+            vm.StatusMessage = "请先勾选或选中要归档的项目";
+            return;
+        }
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is null)
+        {
+            vm.StatusMessage = "无法打开确认弹窗";
+            return;
+        }
+
+        if (!await ConfirmAsync(
+                owner,
+                "归档勾选项目",
+                $"将归档勾选的 {rows.Count} 个项目，是否继续？"))
+            return;
+
+        await vm.ArchiveSelectedQueueProjectsAsync(rows);
     }
 
     private void OnRemoveSelectedClick(object? sender, RoutedEventArgs e)
@@ -689,18 +719,24 @@ public partial class TikTokQueueView : UserControl
     {
         var vm = _vm;
         if (vm is null) return;
-        var rows = GetSelectedQueueRows().ToArray();
-        if (rows.Length == 0)
+        var rows = GetCheckedOrSelectedQueueRows();
+        if (rows.Count == 0)
         {
-            vm.StatusMessage = "请先选中要删除的项目";
+            vm.StatusMessage = "请先勾选或选中要删除的项目";
             return;
         }
 
         var owner = TopLevel.GetTopLevel(this) as Window;
-        var ok = owner is null || await ConfirmAsync(
+        if (owner is null)
+        {
+            vm.StatusMessage = "无法打开确认弹窗";
+            return;
+        }
+
+        var ok = await ConfirmAsync(
             owner,
             "删除勾选项目",
-            $"将删除选中项目的源目录和 workflow 目录，共 {rows.Length} 个项目。此操作不可撤销，是否继续？");
+            $"将删除勾选项目的源目录和 workflow 目录，共 {rows.Count} 个项目。此操作不可撤销，是否继续？");
         if (!ok) return;
 
         await vm.DeleteSelectedQueueProjectsAsync(rows);
@@ -748,7 +784,7 @@ public partial class TikTokQueueView : UserControl
         if (vm is null) return;
         try
         {
-            await vm.SyncSelectedManagementAsync(GetSelectedQueueRows(), CancellationToken.None);
+            await vm.SyncSelectedManagementAsync(GetCheckedOrSelectedQueueRows(), CancellationToken.None);
         }
         catch (Exception ex)
         {

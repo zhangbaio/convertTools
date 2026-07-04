@@ -53,10 +53,17 @@ public partial class ArchivedProjectsView : UserControl
         var vm = Vm;
         var owner = TopLevel.GetTopLevel(this) as Window;
         if (vm is null || owner is null) return;
+        var count = vm.GetActionTargetCount();
+        if (count == 0)
+        {
+            vm.StatusMessage = "请先勾选要回退的归档项目（或点击选中一行）";
+            return;
+        }
+
         if (!await ConfirmAsync(
                 owner,
                 "确认回退归档项目",
-                "确认将选中的归档项目回退到原工作区？若原位置已有同名目录，将跳过并报错，不会覆盖。"))
+                $"确认将 {count} 个归档项目回退到原工作区？若原位置已有同名目录，将跳过并报错，不会覆盖。"))
             return;
         await vm.RestoreSelectedAsync();
     }
@@ -66,10 +73,17 @@ public partial class ArchivedProjectsView : UserControl
         var vm = Vm;
         var owner = TopLevel.GetTopLevel(this) as Window;
         if (vm is null || owner is null) return;
+        var count = vm.GetActionTargetCount();
+        if (count == 0)
+        {
+            vm.StatusMessage = "请先勾选要删除的归档项目（或点击选中一行）";
+            return;
+        }
+
         if (!await ConfirmAsync(
                 owner,
                 "确认删除归档项目",
-                "确认删除当前选中的归档项目？此操作不可恢复。"))
+                $"确认删除 {count} 个归档项目？此操作不可恢复。"))
             return;
         await vm.DeleteSelectedAsync();
     }
