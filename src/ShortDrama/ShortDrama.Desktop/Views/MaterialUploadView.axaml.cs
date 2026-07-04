@@ -22,11 +22,11 @@ public partial class MaterialUploadView : UserControl
         OpenPublishConfigButton.Click += OpenPublishConfigButton_Click;
         OpenMaterialUploadToolbarBrowserButton.Click += async (_, _) => await OpenSelectedMaterialUploadAccountBrowserAsync(relogin: false);
         OpenMaterialRuntimeControlsButton.Click += OpenMaterialRuntimeControlsButton_Click;
-        PublishSystemHighlightButton.Click += async (_, _) => await OpenPublishConfigWithSourceAsync("system_highlight");
+        PublishSystemHighlightButton.Click += PublishSystemHighlightButton_Click;
         DownloadSystemHighlightButton.Click += async (_, _) => await OpenPublishConfigWithSourceAsync("downloaded_system_highlight");
         DownloadMaterialVideoButton.Click += async (_, _) => await OpenPublishConfigWithSourceAsync("material_video_download");
         DirectoryBatchPublishButton.Click += DirectoryBatchPublishButton_Click;
-        OpenSystemHighlightScheduleButton.Click += async (_, _) => await OpenPublishConfigWithSourceAsync("system_highlight");
+        OpenSystemHighlightScheduleButton.Click += OpenSystemHighlightScheduleButton_Click;
         ShowMaterialLogsButton.Click += ShowMaterialLogsButton_Click;
         CreateManualMaterialProjectButton.Click += CreateManualMaterialProjectButton_Click;
         DeleteChannelMaterialsButton.Click += DeleteChannelMaterialsButton_Click;
@@ -147,6 +147,41 @@ public partial class MaterialUploadView : UserControl
         ViewModel.StatusMessage = ViewModel.HasInteractionRequest
             ? "素材流程等待人工处理，可在日志页使用接管、继续、跳过或停止。"
             : "当前没有等待人工处理的素材流程；运行中任务可使用停止。";
+    }
+
+    private async void PublishSystemHighlightButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null || OwnerWindow is null)
+        {
+            return;
+        }
+
+        var window = new MaterialSystemHighlightBatchPublishWindow();
+        var result = await window.ShowDialog<MaterialSystemHighlightBatchPublishDialogResult?>(OwnerWindow);
+        if (result is null)
+        {
+            return;
+        }
+
+        await ViewModel.RunMaterialSystemHighlightBatchPublishAsync(result);
+    }
+
+    private async void OpenSystemHighlightScheduleButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null || OwnerWindow is null || Application.Current is not App app)
+        {
+            return;
+        }
+
+        var service = app.Services.GetRequiredService<MaterialSystemHighlightScheduleService>();
+        var window = new MaterialSystemHighlightScheduleWindow(service, ViewModel.RootDir, ViewModel.VisibleMaterialUploadAccounts);
+        var result = await window.ShowDialog<MaterialSystemHighlightScheduleDialogResult?>(OwnerWindow);
+        if (result is null)
+        {
+            return;
+        }
+
+        await ViewModel.HandleMaterialSystemHighlightScheduleDialogResultAsync(result);
     }
 
     private async Task OpenSelectedMaterialUploadAccountBrowserAsync(bool relogin)

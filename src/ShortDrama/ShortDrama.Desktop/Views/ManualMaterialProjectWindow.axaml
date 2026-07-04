@@ -11,7 +11,7 @@
           RowSpacing="12"
           ColumnSpacing="12">
         <TextBlock Grid.ColumnSpan="3"
-                   Text="适用于原项目已删除的场景：选择手动下载的视频目录，填写剧名，即可创建新项目并继续生成素材、上传。"
+                   Text="适用于原项目已删除或工作目录没有该剧的场景：有本地视频时会导入视频；没有视频时会创建新剧挂载项目，运行时按剧名自动搜索并下载。"
                    TextWrapping="Wrap" />
 
         <TextBlock Grid.Row="1"
@@ -21,7 +21,7 @@
                  Grid.Row="1"
                  Grid.Column="1"
                  IsReadOnly="True"
-                 Watermark="选择包含已下载视频的目录" />
+                 Watermark="选择视频目录；空目录会作为新剧挂载项目" />
         <Button x:Name="BrowseButton"
                 Grid.Row="1"
                 Grid.Column="2"
@@ -70,7 +70,7 @@
                            Value="0" />
             <TextBlock VerticalAlignment="Center"
                        Foreground="{DynamicResource DesktopTextSecondaryBrush}"
-                       Text="0 表示按视频数量自动计算" />
+                       Text="0 表示自动（有视频按视频数，无视频按30次）" />
         </StackPanel>
 
         <StackPanel Grid.Row="6"

@@ -26,6 +26,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         "weixin-channel-submit.json",
         "weixin-channel-config.json",
         "weixin-channel-publish-test.json",
+        "weixin-channel-material.json",
         "weixin-channel-test-no-final-click.json"
     ];
 
@@ -37,6 +38,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
     private readonly WeixinHomePage _homePage;
     private readonly WeixinSeriesSubmissionPage _seriesSubmissionPage;
     private readonly WeixinMaterialPublishPage _materialPublishPage;
+    private readonly WeixinSystemHighlightPublishPage _systemHighlightPublishPage;
     private readonly IWeixinLoginNotificationService _loginNotificationService;
 
     public WeixinChannelUploader(
@@ -48,6 +50,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         WeixinHomePage homePage,
         WeixinSeriesSubmissionPage seriesSubmissionPage,
         WeixinMaterialPublishPage materialPublishPage,
+        WeixinSystemHighlightPublishPage systemHighlightPublishPage,
         IWeixinLoginNotificationService? loginNotificationService = null)
     {
         _configLoader = configLoader;
@@ -58,6 +61,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         _homePage = homePage;
         _seriesSubmissionPage = seriesSubmissionPage;
         _materialPublishPage = materialPublishPage;
+        _systemHighlightPublishPage = systemHighlightPublishPage;
         _loginNotificationService = loginNotificationService ?? NoopWeixinLoginNotificationService.Instance;
     }
 
@@ -380,6 +384,20 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "褰撳墠椤圭洰宸茬鐢ㄥ井淇＄礌鏉愪笂浼犮€");
         }
 
+        if (string.Equals(
+                WeixinMaterialPublishPage.NormalizeVideoSourceMode(config.VideoPublish.VideoSourceMode),
+                "system_highlight",
+                StringComparison.Ordinal))
+        {
+            return await RunSystemHighlightMaterialPublishAsync(
+                request,
+                config,
+                page,
+                resolvedConfigPath,
+                progress,
+                cancellationToken);
+        }
+
         var allPublishItems = WeixinMaterialPublishPage.ResolvePublishVideoItems(request.ProjectDir, config.VideoPublish);
         if (allPublishItems.Count == 0)
         {
@@ -540,6 +558,171 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             ProjectDir: request.ProjectDir,
             ConfigPath: resolvedConfigPath,
             Message: $"C# 寰俊绱犳潗涓婁紶宸插畬鎴愶紝鍏卞鐞?{selectedVideos.Count} 鏉¤棰戙€");
+    }
+
+    private async Task<WeixinUploadResult> RunSystemHighlightMaterialPublishAsync(
+        WeixinUploadRequest request,
+        WeixinAutomationConfig config,
+        IPage page,
+        string? resolvedConfigPath,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var projectInfo = await ResolveMaterialPublishProjectInfoAsync(
+            request.ProjectDir,
+            config,
+            Math.Max(1, config.VideoPublish.PublishCount),
+            cancellationToken);
+        var statePath = WeixinMaterialPublishStateService.ResolveStatePath(request.ProjectDir, config.VideoPublish.StateFile);
+        var publishState = WeixinMaterialPublishStateService.Load(statePath);
+        var shortTitle = WeixinMaterialPublishPage.BuildShortTitle(projectInfo, config.VideoPublish);
+
+        var plan = await _systemHighlightPublishPage.ResolvePublishTargetsAsync(
+            page,
+            config.BaseUrl,
+            config.VideoPublish.Navigation,
+            config.VideoPublish,
+            projectInfo.Title,
+            progress,
+            cancellationToken);
+
+        if (plan.GenerationInProgress)
+        {
+            return new WeixinUploadResult(true, request.ProjectDir, resolvedConfigPath, "系统高光视频仍在生成中，已跳过当前项目。");
+        }
+
+        if (plan.SelectedCandidates.Count == 0)
+        {
+            progress?.Report("系统高光发布：没有可执行的高光卡片。");
+            return new WeixinUploadResult(true, request.ProjectDir, resolvedConfigPath, "系统高光发布没有可执行的高光卡片。");
+        }
+
+        progress?.Report($"系统高光发布：准备发表 {plan.SelectedCandidates.Count} 个高光视频。");
+        foreach (var candidate in plan.SelectedCandidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var videoPath = WeixinSystemHighlightPublishPage.BuildVirtualVideoPath(request.ProjectDir, candidate.SlotIndex);
+            var publishItem = new WeixinMaterialPublishPage.PublishVideoItem(candidate.SlotIndex, videoPath);
+            var description = WeixinMaterialPublishPage.BuildPublishDescription(projectInfo, config.VideoPublish, publishItem);
+            progress?.Report($"系统高光发布：开始处理第 {candidate.SlotIndex} 个高光视频 {candidate.TypeText} {candidate.DurationText}");
+            publishState = publishState with
+            {
+                Entries = UpsertMaterialPublishEntry(
+                    publishState.Entries,
+                    candidate.SlotIndex.ToString(),
+                    new MaterialPublishStateEntry("running", videoPath, DateTimeOffset.Now, null))
+            };
+            SaveMaterialPublishState(statePath, publishState);
+
+            IPage? publishPage = null;
+            try
+            {
+                publishPage = await _systemHighlightPublishPage.OpenPublishPageFromDetailPageAsync(
+                    page,
+                    candidate.SlotIndex,
+                    config.VideoPublish,
+                    progress,
+                    cancellationToken);
+
+                if (config.VideoPublish.FillDescription)
+                {
+                    await _materialPublishPage.EnsureDescriptionAsync(publishPage, description, progress, cancellationToken);
+                }
+
+                await _systemHighlightPublishPage.WaitForCoverPreviewReadyAsync(publishPage, progress, cancellationToken);
+                await _materialPublishPage.ChooseOptionsAsync(publishPage, config.VideoPublish, projectInfo.Title, progress, cancellationToken);
+                if (config.VideoPublish.FillShortTitle)
+                {
+                    await _materialPublishPage.FillShortTitleAsync(publishPage, shortTitle, progress, cancellationToken);
+                }
+
+                var decision = await RequestDecisionAsync(
+                    request,
+                    stage: "system-highlight-material-publish-ready",
+                    message: $"系统高光第 {candidate.SlotIndex} 个视频已填充完成。点击继续执行后将自动{config.VideoPublish.FinalActionText}；也可以手动接管或停止。",
+                    options: null,
+                    progress,
+                    cancellationToken);
+                if (string.Equals(decision, "stop", StringComparison.Ordinal))
+                {
+                    publishState = publishState with
+                    {
+                        Entries = UpsertMaterialPublishEntry(
+                            publishState.Entries,
+                            candidate.SlotIndex.ToString(),
+                            new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "用户停止"))
+                    };
+                    SaveMaterialPublishState(statePath, publishState);
+                    return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "系统高光发布已停止，可继续运行。");
+                }
+
+                await _materialPublishPage.FinalizeAsync(publishPage, config.VideoPublish, progress, cancellationToken);
+                await _materialPublishPage.SaveArtifactsAsync(
+                    publishPage,
+                    config,
+                    config.OutputDirectory,
+                    $"weixin-system-highlight-{candidate.SlotIndex:D2}",
+                    cancellationToken);
+
+                publishState = publishState with
+                {
+                    Entries = UpsertMaterialPublishEntry(
+                        publishState.Entries,
+                        candidate.SlotIndex.ToString(),
+                        new MaterialPublishStateEntry("success", videoPath, DateTimeOffset.Now, null))
+                };
+                SaveMaterialPublishState(statePath, publishState);
+                page = await _systemHighlightPublishPage.RestoreDetailPageAsync(
+                    page,
+                    publishPage,
+                    plan.DetailUrl,
+                    plan.DramaTitle,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                publishState = publishState with
+                {
+                    Entries = UpsertMaterialPublishEntry(
+                        publishState.Entries,
+                        candidate.SlotIndex.ToString(),
+                        new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "已取消"))
+                };
+                SaveMaterialPublishState(statePath, publishState);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                publishState = publishState with
+                {
+                    Entries = UpsertMaterialPublishEntry(
+                        publishState.Entries,
+                        candidate.SlotIndex.ToString(),
+                        new MaterialPublishStateEntry("failed", videoPath, DateTimeOffset.Now, ex.Message))
+                };
+                SaveMaterialPublishState(statePath, publishState);
+                if (!config.VideoPublish.PauseOnError)
+                {
+                    throw;
+                }
+
+                return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, $"系统高光发布失败：第 {candidate.SlotIndex} 个，{ex.Message}");
+            }
+        }
+
+        await _systemHighlightPublishPage.TryRegenerateSystemHighlightsAsync(page, config.VideoPublish, progress, cancellationToken);
+
+        if (config.Browser.KeepOpenSeconds > 0)
+        {
+            progress?.Report($"微信上传：按配置保留浏览器 {config.Browser.KeepOpenSeconds} 秒。");
+            await Task.Delay(TimeSpan.FromSeconds(config.Browser.KeepOpenSeconds), cancellationToken);
+        }
+
+        return new WeixinUploadResult(
+            Ok: true,
+            ProjectDir: request.ProjectDir,
+            ConfigPath: resolvedConfigPath,
+            Message: $"系统高光发布完成，共处理 {plan.SelectedCandidates.Count} 个高光视频。");
     }
 
     private async Task<ProjectInfo> ResolveMaterialPublishProjectInfoAsync(

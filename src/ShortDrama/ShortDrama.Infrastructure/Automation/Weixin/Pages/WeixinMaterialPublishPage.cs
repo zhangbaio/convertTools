@@ -11,6 +11,7 @@ public sealed class WeixinMaterialPublishPage
     private const string PublishVideoSourceModeProject = "project";
     private const string PublishVideoSourceModeMaterialClips = "material_clips";
     private const string PublishVideoSourceModeCustomFiles = "custom_files";
+    private const string PublishVideoSourceModeSystemHighlight = "system_highlight";
     private const string PublishVideoSourceModeDownloadedSystemHighlight = "downloaded_system_highlight";
     private const string PublishVideoSourceModeMaterialVideoDownload = "material_video_download";
     private const string PublishVideoSourceModeDirectoryPublish = "directory_publish";
@@ -119,6 +120,36 @@ public sealed class WeixinMaterialPublishPage
             10_000);
         await FillLocatorAsync(field, description);
         progress?.Report("微信素材上传：已填写视频描述。");
+    }
+
+    public async Task<string> EnsureDescriptionAsync(
+        IPage page,
+        string fallbackDescription,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var field = await FindEditableFieldAsync(
+            page,
+            "视频描述",
+            "textarea[placeholder*='添加描述'], textarea, [contenteditable='true']",
+            10_000);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var current = await ReadEditableValueAsync(field);
+            if (!string.IsNullOrWhiteSpace(current))
+            {
+                progress?.Report("微信素材上传：已保留平台自动生成的视频描述。");
+                return current.Trim();
+            }
+
+            await Task.Delay(200, cancellationToken);
+        }
+
+        await FillLocatorAsync(field, fallbackDescription);
+        progress?.Report("微信素材上传：平台描述为空，已填写默认视频描述。");
+        return fallbackDescription;
     }
 
     public async Task ChooseOptionsAsync(
@@ -708,6 +739,27 @@ public sealed class WeixinMaterialPublishPage
         }
     }
 
+    private static async Task<string> ReadEditableValueAsync(ILocator locator)
+    {
+        try
+        {
+            return await locator.EvaluateAsync<string>(
+                """
+                element => {
+                  const input = element.matches?.("textarea,input")
+                    ? element
+                    : element.querySelector?.("textarea,input");
+                  if (input) return String(input.value || "").trim();
+                  return String(element.innerText || element.textContent || "").trim();
+                }
+                """);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
     private static string Escape(string value)
     {
         return value.Replace("\\", "\\\\", StringComparison.Ordinal)
@@ -898,6 +950,7 @@ public sealed class WeixinMaterialPublishPage
         {
             "material_clips" or "material_clip" or "material_highlights" or "highlight_clips" or "clip_highlights" => PublishVideoSourceModeMaterialClips,
             "custom_files" or "custom" or "files" => PublishVideoSourceModeCustomFiles,
+            "system_highlight" or "system_highlights" or "highlight_system" or "generated_highlight" or "generated_highlights" => PublishVideoSourceModeSystemHighlight,
             "downloaded_system_highlight" or "downloaded_system_highlights" or "downloaded_highlight" or "downloaded_highlights" => PublishVideoSourceModeDownloadedSystemHighlight,
             "material_video_download" or "material_download" or "downloaded_material_video" => PublishVideoSourceModeMaterialVideoDownload,
             "directory_publish" or "dir_publish" => PublishVideoSourceModeDirectoryPublish,

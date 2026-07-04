@@ -1,6 +1,7 @@
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using ShortDrama.Desktop.Services;
+using ShortDrama.Desktop.Views;
 using System.Collections.ObjectModel;
 using System.Text.Json.Nodes;
 
@@ -21,6 +22,8 @@ public partial class MainWindowViewModel
         "materialUploadAccountProfileId"
     ];
     private bool _applyingMaterialUploadPageState;
+    private DispatcherTimer? _materialSystemHighlightScheduleTimer;
+    private bool _checkingMaterialSystemHighlightSchedule;
 
     public ObservableCollection<ProjectListItemViewModel> MaterialUploadProjects { get; } = [];
     public ObservableCollection<MaterialUploadAccountItemViewModel> MaterialUploadAccounts { get; } = [];
@@ -492,6 +495,265 @@ public partial class MainWindowViewModel
             RefreshVisibleMaterialUploadAccounts();
             await RefreshProjectListAsync();
         });
+    }
+
+    public async Task RunMaterialSystemHighlightBatchPublishAsync(MaterialSystemHighlightBatchPublishDialogResult dialog)
+    {
+        await RunMaterialSystemHighlightBatchPublishAsync(
+            dialog,
+            SelectedMaterialUploadAccount ?? GetActiveMaterialUploadAccount(),
+            RootDir,
+            scheduleRule: null);
+    }
+
+    private async Task RunMaterialSystemHighlightBatchPublishAsync(
+        MaterialSystemHighlightBatchPublishDialogResult dialog,
+        MaterialUploadAccountItemViewModel? account,
+        string workspacePath,
+        MaterialSystemHighlightScheduleRule? scheduleRule)
+    {
+        if (IsBusy)
+        {
+            StatusMessage = "当前已有任务正在运行，请等待结束后再启动系统高光发布。";
+            AppendExternalLog(StatusMessage, stepKey: "weixin-material-upload", stepLabel: "素材上传", isFailure: true);
+            return;
+        }
+
+        if (account is null)
+        {
+            StatusMessage = "请先选择素材上传账号。";
+            AppendExternalLog(StatusMessage, stepKey: "weixin-material-upload", stepLabel: "素材上传", isFailure: true);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(workspacePath) || !Directory.Exists(workspacePath))
+        {
+            StatusMessage = "系统高光发布：请选择一个存在的工作目录。";
+            AppendExternalLog(StatusMessage, stepKey: "weixin-material-upload", stepLabel: "素材上传", isFailure: true);
+            return;
+        }
+
+        ActivityTitle = "素材上传日志 · 系统高光发布";
+        SelectedStepLogFilter = StepLogFilters.FirstOrDefault(item => string.Equals(item.Key, "weixin-material-upload", StringComparison.Ordinal))
+            ?? SelectedStepLogFilter;
+
+        await RunBusyAsync("正在发布系统高光视频...", async cancellationToken =>
+        {
+            var progress = new Progress<string>(message =>
+            {
+                AppendExternalLog(
+                    message,
+                    stepKey: "weixin-material-upload",
+                    stepLabel: "素材上传");
+                StatusMessage = message;
+            });
+
+            var result = await _materialSystemHighlightBatchPublishService.PublishAsync(
+                new MaterialSystemHighlightBatchPublishOptions(
+                    WorkspacePath: workspacePath,
+                    TitlesText: dialog.TitlesText,
+                    DefaultDescription: dialog.DefaultDescription,
+                    PublishCount: dialog.PublishCount,
+                    PublishTargetMode: dialog.PublishTargetMode,
+                    PublishVideoTypes: dialog.PublishVideoTypes,
+                    RegenerateAfterPublish: dialog.RegenerateAfterPublish,
+                    RegenerateVideoTypes: dialog.RegenerateVideoTypes,
+                    AuthFilePath: ExpandMaterialUploadPath(account.AuthFile),
+                    BrowserProfileDir: ExpandMaterialUploadPath(account.BrowserProfileDir),
+                    AccountId: account.Id,
+                    AccountDisplayName: account.DisplayName,
+                    AllowDuplicatePublish: MaterialUploadAllowDuplicatePublish),
+                progress,
+                cancellationToken);
+
+            var message = $"系统高光发布流程结束：成功 {result.Succeeded} 个，失败 {result.Failed} 个。";
+            StatusMessage = message;
+            AppendExternalLog(message, stepKey: "weixin-material-upload", stepLabel: "素材上传");
+            if (scheduleRule is not null)
+            {
+                _materialSystemHighlightScheduleService.UpdateState(scheduleRule, message, DateTimeOffset.Now);
+            }
+
+            await RefreshProjectListAsync();
+        });
+    }
+
+    public async Task HandleMaterialSystemHighlightScheduleDialogResultAsync(MaterialSystemHighlightScheduleDialogResult result)
+    {
+        var message = $"已保存系统高光定时配置：{result.Rules.Count} 条规则。";
+        StatusMessage = message;
+        AppendExternalLog(message, stepKey: "weixin-material-upload", stepLabel: "素材上传");
+
+        StartMaterialSystemHighlightScheduler();
+        if (!string.IsNullOrWhiteSpace(result.RunNowRuleId))
+        {
+            var rule = result.Rules.FirstOrDefault(item =>
+                string.Equals(item.Id, result.RunNowRuleId, StringComparison.OrdinalIgnoreCase));
+            if (rule is not null)
+            {
+                await RunMaterialSystemHighlightScheduleRuleAsync(rule, reason: "立即执行");
+            }
+        }
+    }
+
+    private void StartMaterialSystemHighlightScheduler()
+    {
+        if (_materialSystemHighlightScheduleTimer is null)
+        {
+            _materialSystemHighlightScheduleTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(60)
+            };
+            _materialSystemHighlightScheduleTimer.Tick += async (_, _) =>
+                await CheckMaterialSystemHighlightScheduleAsync(startup: false);
+        }
+
+        if (!_materialSystemHighlightScheduleTimer.IsEnabled)
+        {
+            _materialSystemHighlightScheduleTimer.Start();
+        }
+
+        _ = CheckMaterialSystemHighlightScheduleAsync(startup: true);
+    }
+
+    private async Task CheckMaterialSystemHighlightScheduleAsync(bool startup)
+    {
+        if (_checkingMaterialSystemHighlightSchedule || IsBusy)
+        {
+            return;
+        }
+
+        _checkingMaterialSystemHighlightSchedule = true;
+        try
+        {
+            var now = DateTimeOffset.Now;
+            var stateMap = _materialSystemHighlightScheduleService.LoadStateMap();
+            foreach (var rule in _materialSystemHighlightScheduleService.LoadRules().Where(item => item.Enabled))
+            {
+                if (rule.OnlyWhenIdle && IsBusy)
+                {
+                    continue;
+                }
+
+                stateMap.TryGetValue(rule.Id, out var state);
+                if (!IsMaterialSystemHighlightScheduleDue(rule, state, now, startup))
+                {
+                    continue;
+                }
+
+                await RunMaterialSystemHighlightScheduleRuleAsync(rule, reason: startup ? "启动补跑" : "定时触发");
+                break;
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendExternalLog(
+                $"系统高光定时检查失败：{ex.Message}",
+                stepKey: "weixin-material-upload",
+                stepLabel: "素材上传",
+                isFailure: true);
+        }
+        finally
+        {
+            _checkingMaterialSystemHighlightSchedule = false;
+        }
+    }
+
+    private static bool IsMaterialSystemHighlightScheduleDue(
+        MaterialSystemHighlightScheduleRule rule,
+        MaterialSystemHighlightScheduleState? state,
+        DateTimeOffset now,
+        bool startup)
+    {
+        if (!rule.Enabled)
+        {
+            return false;
+        }
+
+        if (rule.TriggerMode == "interval")
+        {
+            if (DateTimeOffset.TryParse(state?.LastRunAt, out var lastRunAt) &&
+                now - lastRunAt < TimeSpan.FromMinutes(Math.Max(1, rule.IntervalMinutes)))
+            {
+                return false;
+            }
+
+            return !startup || rule.CatchUpOnStartup || string.IsNullOrWhiteSpace(state?.LastRunAt);
+        }
+
+        var parts = (rule.Time ?? "09:00").Split(':');
+        var hour = parts.Length == 2 && int.TryParse(parts[0], out var parsedHour) ? parsedHour : 9;
+        var minute = parts.Length == 2 && int.TryParse(parts[1], out var parsedMinute) ? parsedMinute : 0;
+        var scheduled = new DateTimeOffset(now.Date.AddHours(hour).AddMinutes(minute), now.Offset);
+        if (now < scheduled)
+        {
+            return false;
+        }
+
+        if (rule.ScheduleMode == "weekly")
+        {
+            var weekday = ((int)now.DayOfWeek + 6) % 7 + 1;
+            var weekdays = (rule.Weekdays ?? string.Empty)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(item => int.TryParse(item, out _))
+                .Select(int.Parse)
+                .ToHashSet();
+            if (weekdays.Count > 0 && !weekdays.Contains(weekday))
+            {
+                return false;
+            }
+        }
+
+        var runKey = rule.TriggerMode == "interval" ? $"{now:yyyyMMddHHmm}" : $"{now:yyyyMMdd}-{rule.Time}";
+        return !string.Equals(state?.LastRunKey, runKey, StringComparison.OrdinalIgnoreCase) &&
+               (!startup || rule.CatchUpOnStartup);
+    }
+
+    private async Task RunMaterialSystemHighlightScheduleRuleAsync(
+        MaterialSystemHighlightScheduleRule rule,
+        string reason)
+    {
+        rule = _materialSystemHighlightScheduleService.NormalizeRule(rule);
+        var workspacePath = !string.IsNullOrWhiteSpace(rule.WorkspacePath) && Directory.Exists(rule.WorkspacePath)
+            ? rule.WorkspacePath
+            : RootDir;
+        var account = FindMaterialUploadAccount(rule.ProfileId)
+                      ?? SelectedMaterialUploadAccount
+                      ?? GetActiveMaterialUploadAccount();
+        var titles = rule.Dramas
+            .Where(item => item.Enabled)
+            .Select(item => item.Title)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (titles.Length == 0)
+        {
+            AppendExternalLog(
+                $"系统高光定时{reason}：规则“{rule.Name}”没有可发布剧名。",
+                stepKey: "weixin-material-upload",
+                stepLabel: "素材上传",
+                isFailure: true);
+            return;
+        }
+
+        AppendExternalLog(
+            $"系统高光定时{reason}：{rule.Name}，共 {titles.Length} 部。",
+            stepKey: "weixin-material-upload",
+            stepLabel: "素材上传");
+
+        await RunMaterialSystemHighlightBatchPublishAsync(
+            new MaterialSystemHighlightBatchPublishDialogResult(
+                TitlesText: string.Join(Environment.NewLine, titles),
+                DefaultDescription: rule.DefaultDescription,
+                PublishCount: Math.Max(1, rule.PublishCount),
+                PublishTargetMode: rule.PublishTargetMode,
+                PublishVideoTypes: rule.PublishVideoTypes,
+                RegenerateAfterPublish: rule.RegenerateAfterPublish,
+                RegenerateVideoTypes: rule.RegenerateVideoTypes),
+            account,
+            workspacePath,
+            rule);
     }
 
     public void ApplyMaterialUploadFilter()

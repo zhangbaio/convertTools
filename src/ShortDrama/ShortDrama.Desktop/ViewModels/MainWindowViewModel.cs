@@ -72,6 +72,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly DesktopDependencyInspector _dependencyInspector;
     private readonly DesktopShellService _shellService;
     private readonly MaterialDirectoryPublishService _materialDirectoryPublishService;
+    private readonly MaterialSystemHighlightBatchPublishService _materialSystemHighlightBatchPublishService;
+    private readonly MaterialSystemHighlightScheduleService _materialSystemHighlightScheduleService;
     private readonly MaterialHighlightGenerationService _materialHighlightGenerationService;
     private readonly XingeRemoteControlService _xingeRemoteControlService;
     private readonly IWorkflowInteractionService _interactionService;
@@ -107,6 +109,8 @@ public partial class MainWindowViewModel : ViewModelBase
         DesktopDependencyInspector dependencyInspector,
         DesktopShellService shellService,
         MaterialDirectoryPublishService materialDirectoryPublishService,
+        MaterialSystemHighlightBatchPublishService materialSystemHighlightBatchPublishService,
+        MaterialSystemHighlightScheduleService materialSystemHighlightScheduleService,
         MaterialHighlightGenerationService materialHighlightGenerationService,
         XingeRemoteControlService xingeRemoteControlService,
         IWorkflowInteractionService interactionService,
@@ -126,6 +130,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _dependencyInspector = dependencyInspector;
         _shellService = shellService;
         _materialDirectoryPublishService = materialDirectoryPublishService;
+        _materialSystemHighlightBatchPublishService = materialSystemHighlightBatchPublishService;
+        _materialSystemHighlightScheduleService = materialSystemHighlightScheduleService;
         _materialHighlightGenerationService = materialHighlightGenerationService;
         _xingeRemoteControlService = xingeRemoteControlService;
         _interactionService = interactionService;
@@ -211,6 +217,7 @@ public partial class MainWindowViewModel : ViewModelBase
         LoadMaterialUploadAccounts();
         LoadConfig();
         RefreshDependencies();
+        StartMaterialSystemHighlightScheduler();
         QueueStartupScanIfNeeded();
     }
 

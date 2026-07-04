@@ -167,7 +167,17 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
                 MergePublishGroupSize = ResolveInt(videoPublishElement, "merge_publish_group_size") ?? 0,
                 DeclareOriginal = ResolveBool(videoPublishElement, "declare_original") ?? false,
                 ReplaceCoverWithLocalImage = ResolveBool(videoPublishElement, "replace_cover_with_local_image") ?? false,
-                CoverImagePath = ResolveOptionalPath(configDirectory, ResolveString(videoPublishElement, "cover_image_path"))
+                CoverImagePath = ResolveOptionalPath(configDirectory, ResolveString(videoPublishElement, "cover_image_path")),
+                SystemHighlightDramaTitle = ResolveString(videoPublishElement, "system_highlight_drama_title")
+                    ?? ResolveString(videoPublishElement, "system_highlight_title")
+                    ?? string.Empty,
+                SystemHighlightPublishTargetMode = NormalizeSystemHighlightTargetMode(
+                    ResolveString(videoPublishElement, "system_highlight_publish_target_mode")),
+                SystemHighlightPublishVideoTypes = NormalizeSystemHighlightVideoTypes(
+                    ResolveStringArray(videoPublishElement, "system_highlight_publish_video_types")),
+                SystemHighlightRegenerateAfterPublish = ResolveBool(videoPublishElement, "system_highlight_regenerate_after_publish") ?? false,
+                SystemHighlightRegenerateVideoTypes = NormalizeSystemHighlightVideoTypes(
+                    ResolveStringArray(videoPublishElement, "system_highlight_regenerate_video_types"))
             });
 
         return config;
@@ -757,6 +767,25 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
             "project_materials" or "project_material" => "project_materials",
             _ => "project"
         };
+    }
+
+    private static string NormalizeSystemHighlightTargetMode(string? value)
+    {
+        var normalized = (value ?? string.Empty).Trim().ToLowerInvariant();
+        return normalized is "type" or "types" or "video_type" or "video_types" ? "type" : "count";
+    }
+
+    private static IReadOnlyList<string> NormalizeSystemHighlightVideoTypes(IEnumerable<string> values)
+    {
+        var supported = new[] { "混剪", "解说", "切片" };
+        var requested = values
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item.Trim())
+            .ToHashSet(StringComparer.Ordinal);
+        return supported
+            .Where(item => requested.Count == 0 || requested.Contains(item))
+            .DefaultIfEmpty(supported[0])
+            .ToArray();
     }
 
     private static string ResolveOptionalPath(string baseDirectory, string? configuredPath)

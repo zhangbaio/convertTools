@@ -5,6 +5,7 @@ namespace ShortDrama.Desktop.Services;
 
 public sealed class ManualMaterialProjectService
 {
+    private const int DefaultEmptyMountPublishCount = 30;
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private static readonly byte[] PlaceholderPngBytes =
     [
@@ -53,52 +54,68 @@ public sealed class ManualMaterialProjectService
             ? newTitle
             : request.OriginalTitle.Trim();
 
+        Directory.CreateDirectory(videoSourceDir);
         var videoFiles = ListVideoFiles(videoSourceDir);
-        if (videoFiles.Count == 0)
+        var emptyNewDramaMount = videoFiles.Count == 0 && request.AllowEmptyNewDramaMount;
+        if (videoFiles.Count == 0 && !emptyNewDramaMount)
         {
             throw new InvalidOperationException($"所选目录中没有可用的视频文件：{videoSourceDir}");
         }
 
-        var episodeCount = request.EpisodeCount is > 0 ? request.EpisodeCount.Value : videoFiles.Count;
-        var sourceProjectDir = Path.Combine(workspaceRoot, SanitizeDirectoryName(originalTitle));
-        if (Directory.Exists(sourceProjectDir))
-        {
-            throw new InvalidOperationException($"源项目目录已存在：{sourceProjectDir}");
-        }
+        var episodeCount = request.EpisodeCount is > 0
+            ? request.EpisodeCount.Value
+            : emptyNewDramaMount
+                ? DefaultEmptyMountPublishCount
+                : videoFiles.Count;
+        var actualWorkspaceRoot = string.Equals(Path.GetFileName(workspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)), "workflow", StringComparison.OrdinalIgnoreCase)
+            ? Path.GetDirectoryName(workspaceRoot) ?? workspaceRoot
+            : workspaceRoot;
+        var sourceProjectDir = videoSourceDir;
 
-        var workflowProjectDir = Path.Combine(workspaceRoot, "workflow", $"_{SanitizeDirectoryName(newTitle)}");
+        var workflowProjectDir = Path.Combine(actualWorkspaceRoot, "workflow", $"_{SanitizeDirectoryName(newTitle)}");
         if (Directory.Exists(workflowProjectDir))
         {
             throw new InvalidOperationException($"workflow 项目目录已存在：{workflowProjectDir}");
         }
 
-        Directory.CreateDirectory(sourceProjectDir);
         Directory.CreateDirectory(workflowProjectDir);
         Directory.CreateDirectory(Path.Combine(workflowProjectDir, "videos"));
 
-        CopyVideos(videoFiles, sourceProjectDir);
-        CopyVideos(videoFiles, Path.Combine(workflowProjectDir, "videos"));
+        if (videoFiles.Count > 0)
+        {
+            CopyVideos(videoFiles, sourceProjectDir);
+            CopyVideos(videoFiles, Path.Combine(workflowProjectDir, "videos"));
+        }
 
         WriteProjectInfo(sourceProjectDir, newTitle, originalTitle, episodeCount);
         WriteProjectInfo(workflowProjectDir, newTitle, originalTitle, episodeCount);
 
-        WriteMetadata(sourceProjectDir, newTitle, originalTitle, sourceProjectDir, workflowProjectDir, videoSourceDir);
-        WriteMetadata(workflowProjectDir, newTitle, originalTitle, sourceProjectDir, workflowProjectDir, videoSourceDir);
+        WriteMetadata(sourceProjectDir, newTitle, originalTitle, episodeCount, sourceProjectDir, workflowProjectDir, videoSourceDir);
+        WriteMetadata(workflowProjectDir, newTitle, originalTitle, episodeCount, sourceProjectDir, workflowProjectDir, videoSourceDir);
 
-        EnsurePlaceholderImage(Path.Combine(workflowProjectDir, "海报图片.jpg"));
+        EnsurePlaceholderImage(Path.Combine(workflowProjectDir, "海报图片.png"));
         EnsurePlaceholderImage(Path.Combine(workflowProjectDir, "成本报表.png"));
         for (var index = 1; index <= 4; index++)
         {
-            EnsurePlaceholderImage(Path.Combine(workflowProjectDir, $"工程图_{index}.png"));
+            EnsurePlaceholderImage(Path.Combine(workflowProjectDir, $"工程图_{index:00}.png"));
         }
 
-        WriteDefaultMaterialPublishConfig(workflowProjectDir);
+        if (emptyNewDramaMount)
+        {
+            WriteNewDramaMountMaterialConfig(workflowProjectDir, newTitle, episodeCount);
+        }
+        else
+        {
+            WriteDefaultMaterialPublishConfig(workflowProjectDir);
+        }
 
         return new ManualMaterialProjectResult(
             sourceProjectDir,
             workflowProjectDir,
             videoFiles.Count,
-            $"手动素材项目创建成功：{newTitle}，共 {videoFiles.Count} 个视频文件。");
+            emptyNewDramaMount
+                ? $"新剧挂载素材项目创建成功：{newTitle}，当前无本地视频；运行时将自动搜索并下载 {episodeCount} 集。"
+                : $"手动素材项目创建成功：{newTitle}，共 {videoFiles.Count} 个视频文件。");
     }
 
     private static void CopyVideos(IReadOnlyList<string> sourceFiles, string targetDirectory)
@@ -140,17 +157,19 @@ public sealed class ManualMaterialProjectService
         string targetDirectory,
         string newTitle,
         string originalTitle,
+        int episodeCount,
         string sourceProjectDir,
         string workflowProjectDir,
         string originalVideoSourceDir)
     {
         var payload = new Dictionary<string, object?>
         {
+            ["projectKey"] = newTitle,
             ["title"] = newTitle,
+            ["displayName"] = newTitle,
             ["originalTitle"] = originalTitle,
             ["sourceName"] = originalTitle,
-            ["episodeCount"] = Math.Max(1, Directory.EnumerateFiles(sourceProjectDir, "*.*", SearchOption.TopDirectoryOnly)
-                .Count(path => VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))),
+            ["episodeCount"] = Math.Max(0, episodeCount),
             ["manualProject"] = true,
             ["sourceProjectDir"] = sourceProjectDir,
             ["workflowProjectDir"] = workflowProjectDir,
@@ -191,7 +210,48 @@ public sealed class ManualMaterialProjectService
             }
         };
 
-        var configPath = Path.Combine(workflowProjectDir, "weixin-channel-publish-test.json");
+        var configPath = Path.Combine(workflowProjectDir, "weixin-channel-material.json");
+        File.WriteAllText(configPath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }), Encoding.UTF8);
+    }
+
+    private static void WriteNewDramaMountMaterialConfig(string workflowProjectDir, string newTitle, int episodeCount)
+    {
+        var payload = new
+        {
+            task_type = "publish_videos",
+            pause_on_error = true,
+            video_publish = new
+            {
+                enabled = true,
+                run_strategy = "resume",
+                state_file = ".weixin-channel-material-publish-state.json",
+                allow_duplicate_publish = false,
+                publish_video_source_mode = "new_drama_mount",
+                video_source_mode = "new_drama_mount",
+                new_drama_mount_title = newTitle,
+                episode_selection_mode = "range",
+                start_episode_index = 1,
+                publish_count = Math.Max(1, episodeCount),
+                allow_empty_short_title = true,
+                allow_empty_tag = true,
+                fill_description = true,
+                fill_short_title = false,
+                description_template = "{新剧名}",
+                prepend_hash_to_description = true,
+                location_option_text = "不显示",
+                link_option_text = "视频号剧集",
+                activity_option_text = "不参与活动",
+                timing_option_text = "不定时",
+                final_action = "draft"
+            },
+            second_page = new
+            {
+                upload = new { paths = Array.Empty<string>() },
+                upload_queue = new { items = Array.Empty<object>() }
+            }
+        };
+
+        var configPath = Path.Combine(workflowProjectDir, "weixin-channel-material.json");
         File.WriteAllText(configPath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }), Encoding.UTF8);
     }
 
@@ -216,7 +276,8 @@ public sealed record ManualMaterialProjectRequest(
     string VideoSourceDirectory,
     string NewTitle,
     string OriginalTitle,
-    int? EpisodeCount);
+    int? EpisodeCount,
+    bool AllowEmptyNewDramaMount = true);
 
 public sealed record ManualMaterialProjectResult(
     string SourceProjectDirectory,

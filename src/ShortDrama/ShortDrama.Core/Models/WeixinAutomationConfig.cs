@@ -150,4 +150,9 @@ public sealed record WeixinVideoPublishOptions(
     public bool DeclareOriginal { get; init; }
     public bool ReplaceCoverWithLocalImage { get; init; }
     public string CoverImagePath { get; init; } = string.Empty;
+    public string SystemHighlightDramaTitle { get; init; } = string.Empty;
+    public string SystemHighlightPublishTargetMode { get; init; } = "count";
+    public IReadOnlyList<string> SystemHighlightPublishVideoTypes { get; init; } = [];
+    public bool SystemHighlightRegenerateAfterPublish { get; init; }
+    public IReadOnlyList<string> SystemHighlightRegenerateVideoTypes { get; init; } = [];
 }
