@@ -294,9 +294,14 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     public void SetWorkspace(string? workspacePath, bool refresh = true)
     {
+        var previousRoot = ArchiveRootDir;
         WorkspacePath = workspacePath?.Trim() ?? "";
         SyncArchiveRootFromSettings();
-        if (refresh)
+
+        // 切账号导致归档根目录变化时必须重载列表，否则界面停留在上一账号的归档记录。
+        var rootChanged = !string.IsNullOrWhiteSpace(previousRoot) &&
+                          !string.Equals(previousRoot, ArchiveRootDir, StringComparison.OrdinalIgnoreCase);
+        if (refresh || rootChanged)
             Refresh();
     }
 

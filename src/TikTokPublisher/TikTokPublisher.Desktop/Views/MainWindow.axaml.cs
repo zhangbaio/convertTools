@@ -329,7 +329,10 @@ public partial class MainWindow : Window
             Math.Abs(BrowserHostMount.Width - rect.Width) < 0.5 &&
             Math.Abs(BrowserHostMount.Height - rect.Height) < 0.5;
         if (unchanged)
+        {
+            _browserHost.RefreshPresentationBounds();
             return;
+        }
 
         BrowserHostMount.Margin = new Thickness(rect.X, rect.Y, 0, 0);
         BrowserHostMount.Width = rect.Width;
@@ -401,9 +404,9 @@ public partial class MainWindow : Window
             BrowserView.IsVisible = true;
             BrowserView.IsHitTestVisible = true;
             BrowserView.ZIndex = activeZ;
-            _browserHost.SetPresentationVisible(true);
             _browserHost.ShowAccount(_viewModel.SelectedAccount);
             SyncBrowserHostMountLayout();
+            _browserHost.SetPresentationVisible(true);
             ScheduleBrowserHostMountLayout();
         }
         else

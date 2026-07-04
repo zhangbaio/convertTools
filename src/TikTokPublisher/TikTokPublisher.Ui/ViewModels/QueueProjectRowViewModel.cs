@@ -15,12 +15,42 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     /// <summary>用户点击「启用」勾选框改变状态后触发（用于持久化与汇总刷新）。</summary>
     public event Action<QueueProjectRowViewModel>? EnabledChangedByUser;
 
-    public QueueProjectRowViewModel(QueueProjectItem item) => Item = item;
+    private string _lastRefreshFingerprint = "";
+
+    public QueueProjectRowViewModel(QueueProjectItem item)
+    {
+        Item = item;
+        _lastRefreshFingerprint = BuildRefreshFingerprint(item);
+    }
 
     public void RefreshFrom(QueueProjectItem item)
     {
+        var fingerprint = BuildRefreshFingerprint(item);
         Item = item;
+        // 内容未变时跳过全属性失效（OnPropertyChanged("") 会让整行所有绑定重求值，队列高频刷新时代价很大）。
+        if (string.Equals(_lastRefreshFingerprint, fingerprint, StringComparison.Ordinal))
+            return;
+
+        _lastRefreshFingerprint = fingerprint;
         OnPropertyChanged(string.Empty);
+    }
+
+    private static string BuildRefreshFingerprint(QueueProjectItem item)
+    {
+        var sb = new System.Text.StringBuilder(160);
+        sb.Append(item.Enabled ? '1' : '0').Append('|')
+          .Append(item.StatusText).Append('|')
+          .Append(item.CurrentStep).Append('|')
+          .Append(item.LastError).Append('|')
+          .Append(item.UploadCompletedAt).Append('|')
+          .Append(item.Title).Append('|')
+          .Append(item.NewTitle).Append('|')
+          .Append(item.AccountProfileName).Append('|')
+          .Append(item.EpisodeCount).Append('|')
+          .Append(item.QueuedAt);
+        foreach (var (key, value) in item.StepStates)
+            sb.Append('|').Append(key).Append('=').Append(value);
+        return sb.ToString();
     }
 
     public int RowIndex

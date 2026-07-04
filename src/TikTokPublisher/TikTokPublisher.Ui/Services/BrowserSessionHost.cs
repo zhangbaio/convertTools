@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Layout;
 using Avalonia.Threading;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
@@ -47,10 +48,13 @@ public sealed class BrowserSessionHost
     public void SetPresentationVisible(bool visible)
     {
         _presentationVisible = visible;
-        foreach (var host in _hosts.Values)
+        foreach (var entry in _hosts)
         {
+            var host = entry.Value;
             host.IsVisible = true;
-            host.SetRenderedVisible(false);
+            ApplyHostVisibility(
+                host,
+                visible && string.Equals(entry.Key, _activeAccountId, StringComparison.Ordinal));
         }
 
         if (_emptyHint is not null)
@@ -66,13 +70,24 @@ public sealed class BrowserSessionHost
         {
             host.Width = double.NaN;
             host.Height = double.NaN;
+            host.Margin = new Avalonia.Thickness(0);
+            host.HorizontalAlignment = HorizontalAlignment.Stretch;
+            host.VerticalAlignment = VerticalAlignment.Stretch;
+            host.ZIndex = 10;
             host.IsVisible = true;
             host.SetRenderedVisible(true);
             Dispatcher.UIThread.Post(host.RefreshBounds, DispatcherPriority.Render);
+            Dispatcher.UIThread.Post(host.RefreshBounds, DispatcherPriority.Background);
         }
         else
         {
             host.SetRenderedVisible(false);
+            host.Width = 1;
+            host.Height = 1;
+            host.Margin = new Avalonia.Thickness(-4096, -4096, 0, 0);
+            host.HorizontalAlignment = HorizontalAlignment.Left;
+            host.VerticalAlignment = VerticalAlignment.Top;
+            host.ZIndex = 0;
         }
     }
 
@@ -109,8 +124,13 @@ public sealed class BrowserSessionHost
 
         _activeAccountId = account?.Id;
 
-        foreach (var host in _hosts.Values)
-            ApplyHostVisibility(host, rendered: false);
+        foreach (var entry in _hosts)
+        {
+            var isTarget = account is not null
+                           && string.Equals(entry.Key, account.Id, StringComparison.Ordinal);
+            if (!isTarget || !_presentationVisible)
+                ApplyHostVisibility(entry.Value, rendered: false);
+        }
 
         if (account is null)
         {

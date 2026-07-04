@@ -307,6 +307,13 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         }
 
         _controller.Bounds = new Rectangle(0, 0, w, h);
+        NotifyParentWindowPositionChanged();
+    }
+
+    private void NotifyParentWindowPositionChanged()
+    {
+        try { _controller?.NotifyParentWindowPositionChanged(); }
+        catch { /* ignore */ }
     }
 
     private static void Log(string message)

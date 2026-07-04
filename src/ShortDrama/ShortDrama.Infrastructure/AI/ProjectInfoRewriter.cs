@@ -558,6 +558,172 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         return issues;
     }
 
+    private static NormalizedRewrite? TryBuildRecentTitleFallback(
+        ProjectInfo project,
+        string canonicalOriginalTitle,
+        ProjectInfoRewriteRequest request,
+        NormalizedRewrite? lastNormalized,
+        string? previousBadTitle)
+    {
+        var title = FirstNonEmpty(lastNormalized?.Title, previousBadTitle);
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return null;
+        }
+
+        title = NormalizeRewrittenTitle(title);
+        if (!IsFallbackTitleUsable(title, canonicalOriginalTitle, request))
+        {
+            return null;
+        }
+
+        var synopsis = BuildFallbackSynopsis(project, canonicalOriginalTitle, title, request, lastNormalized?.Synopsis);
+        var tagline = BuildFallbackTagline(project, canonicalOriginalTitle, title, synopsis, lastNormalized?.Tagline);
+        var shortTitle = BuildSafeFallbackShortTitle(project, canonicalOriginalTitle, title, synopsis, lastNormalized?.ShortTitle);
+        var tags = BuildFallbackTags(canonicalOriginalTitle, title, synopsis, lastNormalized?.Tags, project.Tags);
+
+        return new NormalizedRewrite(title, tagline, synopsis, shortTitle, tags);
+    }
+
+    private static bool IsFallbackTitleUsable(
+        string title,
+        string canonicalOriginalTitle,
+        ProjectInfoRewriteRequest request)
+    {
+        if (TitlesEqual(title, canonicalOriginalTitle) ||
+            TitlesTooSimilar(title, canonicalOriginalTitle) ||
+            IsLazyRetitle(title, canonicalOriginalTitle) ||
+            !IsReasonableTitleLength(title) ||
+            !string.IsNullOrWhiteSpace(ValidateTitleSafety(title)) ||
+            HasForbiddenTitle(title, request.ForbiddenTitles))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string BuildFallbackSynopsis(
+        ProjectInfo project,
+        string canonicalOriginalTitle,
+        string title,
+        ProjectInfoRewriteRequest request,
+        string? latestSynopsis)
+    {
+        var synopsis = FirstNonEmpty(latestSynopsis, project.Synopsis);
+        if (!string.IsNullOrWhiteSpace(synopsis))
+        {
+            synopsis = NormalizeGeneratedText(project, canonicalOriginalTitle, title, title, synopsis);
+            if (GetSynopsisIssues(synopsis, request).Count == 0 &&
+                !HasForbiddenSynopsis(synopsis, request.ForbiddenSynopses))
+            {
+                return synopsis;
+            }
+        }
+
+        var fallback = $"主角被迫跌入低谷，却在误解和危机中抓住转机，凭借智慧与韧劲一步步翻盘，揭开真相后重掌人生主动权。";
+        if (request.TargetSynopsisLength > 0 && fallback.Length < Math.Max(40, (int)Math.Floor(request.TargetSynopsisLength * 0.75d)))
+        {
+            fallback += "故事节奏紧凑，情绪反转不断，适合短剧平台连续追看。";
+        }
+
+        return fallback;
+    }
+
+    private static string BuildFallbackTagline(
+        ProjectInfo project,
+        string canonicalOriginalTitle,
+        string title,
+        string synopsis,
+        string? latestTagline)
+    {
+        var tagline = FirstNonEmpty(latestTagline, project.Tagline);
+        if (!string.IsNullOrWhiteSpace(tagline))
+        {
+            tagline = NormalizeGeneratedText(project, canonicalOriginalTitle, title, title, tagline);
+            if (IsReasonableTaglineLength(tagline) &&
+                string.IsNullOrWhiteSpace(ValidateTaglineSafety(tagline)))
+            {
+                return tagline;
+            }
+        }
+
+        foreach (var candidate in new[]
+                 {
+                     "逆境翻盘高能来袭",
+                     "命运反转爽感拉满",
+                     "低谷逆袭一路开挂",
+                     "真相揭开强势反击"
+                 })
+        {
+            if (!ContainsTitle(candidate, title) && !ContainsTitle(candidate, canonicalOriginalTitle))
+            {
+                return candidate;
+            }
+        }
+
+        return "逆境翻盘高能来袭";
+    }
+
+    private static string BuildSafeFallbackShortTitle(
+        ProjectInfo project,
+        string canonicalOriginalTitle,
+        string title,
+        string synopsis,
+        string? latestShortTitle)
+    {
+        var normalized = NormalizeShortTitle(canonicalOriginalTitle, title, latestShortTitle);
+        if (!string.IsNullOrWhiteSpace(normalized))
+        {
+            return normalized;
+        }
+
+        foreach (var candidate in new[]
+                 {
+                     BuildFallbackShortTitle(project, canonicalOriginalTitle, title, synopsis),
+                     "边关崛起",
+                     "荒境成王",
+                     "逆袭改命",
+                     "命运翻盘",
+                     "强势反击",
+                     "绝境重生"
+                 })
+        {
+            var cleaned = ProjectInfoTextNormalizer.SanitizeShortTitle(candidate, 15);
+            if (!string.IsNullOrWhiteSpace(cleaned) &&
+                !TitlesEqual(cleaned, title) &&
+                !TitlesTooSimilar(cleaned, title) &&
+                !TitlesEqual(cleaned, canonicalOriginalTitle) &&
+                !TitlesTooSimilar(cleaned, canonicalOriginalTitle) &&
+                !IsWeakGenericShortTitle(cleaned))
+            {
+                return cleaned;
+            }
+        }
+
+        return "逆袭改命";
+    }
+
+    private static string BuildFallbackTags(
+        string canonicalOriginalTitle,
+        string title,
+        string synopsis,
+        string? latestTags,
+        string? projectTags)
+    {
+        var tags = NormalizeTags(
+            canonicalOriginalTitle,
+            title,
+            ProjectInfoTextNormalizer.NormalizeTags(latestTags)
+                .Concat(ProjectInfoTextNormalizer.NormalizeTags(projectTags))
+                .Concat(BuildFallbackTagCandidates(title, synopsis))
+                .Concat(["逆袭", "命运", "剧情", "短剧"]));
+
+        return ProjectInfoTextNormalizer.NormalizeTags(tags).Count >= 3
+            ? tags
+            : "#逆袭#命运#剧情";
+    }
+
     private static string GetPreferred(IReadOnlyDictionary<string, string> config, params string[] keys)
     {
         foreach (var key in keys)

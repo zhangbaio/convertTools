@@ -236,7 +236,8 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         var timestamp = DateTime.Now.ToString("HH:mm:ss");
-        Logs.Append($"[{timestamp}] INFO {text}");
+        var level = LogService.InferLevel(text);
+        Logs.Append($"[{timestamp}] {LogService.FormatLevel(level)} {text}");
     }
 
     public void RefreshLogSnapshot(bool force = false)
@@ -707,7 +708,6 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void ApplyQueueProjectFilter()
     {
-        FilteredQueueProjectRows.Clear();
         var query = (QueueSearchText ?? "").Trim();
         IEnumerable<QueueProjectRowViewModel> rows = QueueProjectRows;
         if (ShowOnlyPendingUpload)
@@ -723,8 +723,32 @@ public sealed partial class MainViewModel : ViewModelBase
                 || p.LastError.Contains(query, StringComparison.OrdinalIgnoreCase));
         }
 
+        var target = rows.ToList();
+
+        // 结果集未变化时不动 ObservableCollection（避免队列运行期间每次刷新都整表重建行容器）。
+        if (target.Count == FilteredQueueProjectRows.Count)
+        {
+            var identical = true;
+            for (var i = 0; i < target.Count; i++)
+            {
+                if (!ReferenceEquals(target[i], FilteredQueueProjectRows[i]))
+                {
+                    identical = false;
+                    break;
+                }
+            }
+
+            if (identical)
+            {
+                for (var i = 0; i < target.Count; i++)
+                    target[i].RowIndex = i + 1;
+                return;
+            }
+        }
+
+        FilteredQueueProjectRows.Clear();
         var index = 1;
-        foreach (var vm in rows)
+        foreach (var vm in target)
         {
             vm.RowIndex = index++;
             FilteredQueueProjectRows.Add(vm);
@@ -1329,24 +1353,26 @@ public sealed partial class MainViewModel : ViewModelBase
         if (!isActiveWorkspace)
         {
             // 非当前账号的队列进度也写入全局日志（带项目名前缀），切换账号后可直接查看。
+            // 进度类消息限频后再写日志与执行历史，避免双队列并行时刷爆 UI 与 SQLite。
             if (ShouldAppendProgressLog(progress))
             {
                 var inactiveProject = progress.Item?.Title ?? progress.Item?.DisplayName ?? "";
                 var inactivePrefix = string.IsNullOrWhiteSpace(inactiveProject) ? "" : $"[{inactiveProject}] ";
                 AppendLog($"{inactivePrefix}{progress.Message}");
+
+                var batchId = _currentQueueBatchId;
+                _ = Task.Run(() => TikTokExecutionHistoryService.AppendEvent(
+                    "queue_progress",
+                    progress.Item?.StatusText ?? "info",
+                    progress.WorkspaceRoot,
+                    progress.Item,
+                    progress.StepKey ?? "",
+                    progress.Message,
+                    progress.Item?.LastError ?? "",
+                    batchId,
+                    account: null));
             }
 
-            var batchId = _currentQueueBatchId;
-            _ = Task.Run(() => TikTokExecutionHistoryService.AppendEvent(
-                "queue_progress",
-                progress.Item?.StatusText ?? "info",
-                progress.WorkspaceRoot,
-                progress.Item,
-                progress.StepKey ?? "",
-                progress.Message,
-                progress.Item?.LastError ?? "",
-                batchId,
-                account: null));
             return;
         }
 
@@ -1377,16 +1403,34 @@ public sealed partial class MainViewModel : ViewModelBase
             account: account));
     }
 
+    private readonly Dictionary<string, string> _normalizedPathCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>进度回调每条都要比较工作目录；缓存 GetFullPath 结果避免高频文件系统路径规范化。</summary>
+    private string NormalizePathCached(string path)
+    {
+        if (_normalizedPathCache.TryGetValue(path, out var cached))
+            return cached;
+
+        var normalized = SafeFullPath(path);
+        if (_normalizedPathCache.Count > 512)
+            _normalizedPathCache.Clear();
+        _normalizedPathCache[path] = normalized;
+        return normalized;
+    }
+
     private bool IsActiveWorkspace(string? workspaceRoot)
     {
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root) || string.IsNullOrWhiteSpace(workspaceRoot))
             return true;
         return string.Equals(
-            Path.GetFullPath(workspaceRoot),
-            Path.GetFullPath(root),
+            NormalizePathCached(workspaceRoot),
+            NormalizePathCached(root),
             StringComparison.OrdinalIgnoreCase);
     }
+
+    private readonly Dictionary<string, DateTime> _lastProgressLogTimeByKey = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan ProgressLogMinInterval = TimeSpan.FromMilliseconds(600);
 
     private bool ShouldAppendProgressLog(QueueWorkerProgress progress)
     {
@@ -1404,6 +1448,16 @@ public sealed partial class MainViewModel : ViewModelBase
         if (_lastProgressMessageByKey.TryGetValue(key, out var last) && string.Equals(last, message, StringComparison.Ordinal))
             return false;
 
+        // 下载/上传进度类消息每条内容都不同（百分比/速度变化），按 key 限频，
+        // 双队列并行时避免日志与执行历史写入压垮 UI 线程和后台线程池。
+        var now = DateTime.UtcNow;
+        if (_lastProgressLogTimeByKey.TryGetValue(key, out var lastTime) &&
+            now - lastTime < ProgressLogMinInterval)
+        {
+            return false;
+        }
+
+        _lastProgressLogTimeByKey[key] = now;
         _lastProgressMessageByKey[key] = message;
         return true;
     }

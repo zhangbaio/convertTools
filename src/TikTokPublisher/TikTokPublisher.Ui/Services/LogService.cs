@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
+using Avalonia.Media;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Ui.ViewModels;
 
@@ -11,6 +12,7 @@ public sealed class LogEntry
     public string Level { get; init; } = "info";
     public string ProjectName { get; init; } = "";
     public string ProjectPath { get; init; } = "";
+    public IBrush Foreground => LogService.BrushForLevel(Level);
 }
 
 public sealed class LogProjectItem
@@ -79,10 +81,10 @@ public sealed class LogService
         var line = (text ?? "").TrimEnd();
         if (string.IsNullOrWhiteSpace(line)) return;
 
-        var (level, project) = ParseHeader(line);
+        var (level, project, normalizedLine) = ParseHeader(line);
         var entry = new LogEntry
         {
-            Text = line,
+            Text = normalizedLine,
             Level = level,
             ProjectName = project,
             ProjectPath = ResolveProjectPath(project),
@@ -118,16 +120,26 @@ public sealed class LogService
             .GroupBy(r => r.Title.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First().Item.ProjectDir, StringComparer.OrdinalIgnoreCase);
 
-        Projects.Clear();
-        Projects.Add(new LogProjectItem { Title = "全部项目", ProjectPath = "", StatusTone = "none" });
+        var targetProjects = new List<LogProjectItem>
+        {
+            new() { Title = "全部项目", ProjectPath = "", StatusTone = "none" },
+        };
         foreach (var row in list.Where(r => r.IsEnabled && !string.IsNullOrWhiteSpace(r.Title)))
         {
-            Projects.Add(new LogProjectItem
+            targetProjects.Add(new LogProjectItem
             {
                 Title = row.Title,
                 ProjectPath = row.Item.ProjectDir,
                 StatusTone = ToneForRow(row),
             });
+        }
+
+        // 项目列表内容未变化时不重建集合（每次 Clear+Add 会让左侧 ListBox 整体重建）。
+        if (!ProjectListEquals(targetProjects))
+        {
+            Projects.Clear();
+            foreach (var project in targetProjects)
+                Projects.Add(project);
         }
 
         if (AutoFollowActiveProject)
@@ -138,8 +150,26 @@ public sealed class LogService
                 SelectedProjectPath = active.Item.ProjectDir;
         }
 
-        RefreshRendered();
+        // 渲染条目由 Append 增量维护；SelectedProjectPath/ProblemsOnly 变化时其 setter 已负责重建。
         ScheduleChanged();
+    }
+
+    private bool ProjectListEquals(IReadOnlyList<LogProjectItem> target)
+    {
+        if (target.Count != Projects.Count)
+            return false;
+
+        for (var i = 0; i < target.Count; i++)
+        {
+            var a = target[i];
+            var b = Projects[i];
+            if (!string.Equals(a.Title, b.Title, StringComparison.Ordinal) ||
+                !string.Equals(a.ProjectPath, b.ProjectPath, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(a.StatusTone, b.StatusTone, StringComparison.Ordinal))
+                return false;
+        }
+
+        return true;
     }
 
     public string BuildCopyText()
@@ -167,10 +197,7 @@ public sealed class LogService
         if (ProblemsOnly)
         {
             if (!IsProblemLevel(entry.Level)
-                && !entry.Text.Contains("失败", StringComparison.Ordinal)
-                && !entry.Text.Contains("错误", StringComparison.Ordinal)
-                && !entry.Text.Contains("异常", StringComparison.Ordinal)
-                && !entry.Text.Contains("超时", StringComparison.Ordinal))
+                && !ContainsProblemKeyword(entry.Text))
             {
                 return false;
             }
@@ -203,10 +230,7 @@ public sealed class LogService
         {
             query = query.Where(e =>
                 IsProblemLevel(e.Level)
-                || e.Text.Contains("失败", StringComparison.Ordinal)
-                || e.Text.Contains("错误", StringComparison.Ordinal)
-                || e.Text.Contains("异常", StringComparison.Ordinal)
-                || e.Text.Contains("超时", StringComparison.Ordinal));
+                || ContainsProblemKeyword(e.Text));
         }
 
         return query;
@@ -229,15 +253,103 @@ public sealed class LogService
         return _nameIndex.TryGetValue(projectName.Trim(), out var path) ? path : "";
     }
 
-    private static (string Level, string Project) ParseHeader(string line)
+    public static string InferLevel(string text)
+    {
+        var message = text ?? "";
+        if (ContainsAny(message,
+                "失败", "错误", "异常", "无法", "终止", "崩溃", "未成功", "未通过",
+                "failed", "failure", "error", "exception", "invalid"))
+        {
+            return "error";
+        }
+
+        if (ContainsAny(message,
+                "警告", "重试", "兜底", "重复", "相似", "不合格", "未发现", "未找到", "缺少",
+                "超时", "warn", "warning", "retry", "timeout"))
+        {
+            return "warn";
+        }
+
+        if (ContainsAny(message,
+                "成功", "完成", "已完成", "通过", "已保存", "已生成", "已同步", "已绑定",
+                "downloaded", "uploaded", "succeeded", "success", "done"))
+        {
+            return "success";
+        }
+
+        return "info";
+    }
+
+    public static string NormalizeLevel(string level)
+    {
+        var normalized = (level ?? "").Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "e" or "err" or "error" or "fail" or "failed" or "failure" => "error",
+            "w" or "warn" or "warning" => "warn",
+            "ok" or "success" or "succeeded" or "done" => "success",
+            _ => "info",
+        };
+    }
+
+    public static IBrush BrushForLevel(string level) => NormalizeLevel(level) switch
+    {
+        "error" => Brushes.Firebrick,
+        "warn" => Brushes.DarkOrange,
+        "success" => Brushes.SeaGreen,
+        _ => Brushes.Black,
+    };
+
+    public static string FormatLevel(string level) => NormalizeLevel(level) switch
+    {
+        "error" => "ERROR",
+        "warn" => "WARN",
+        "success" => "SUCCESS",
+        _ => "INFO",
+    };
+
+    private static (string Level, string Project, string Line) ParseHeader(string line)
     {
         var match = HeaderRegex.Match(line);
-        if (!match.Success) return ("info", "");
-        return (match.Groups["level"].Value.Trim().ToLowerInvariant(), match.Groups["project"].Value.Trim());
+        if (!match.Success)
+        {
+            var inferred = InferLevel(line);
+            return (inferred, "", line);
+        }
+
+        var declaredLevel = NormalizeLevel(match.Groups["level"].Value);
+        var project = match.Groups["project"].Value.Trim();
+        var rest = match.Groups["rest"].Value.TrimStart();
+        var inferredLevel = InferLevel(rest);
+        var level = declaredLevel == "info" && inferredLevel != "info"
+            ? inferredLevel
+            : declaredLevel;
+        var normalizedLine = BuildHeaderLine(
+            match.Groups["time"].Value.Trim(),
+            level,
+            project,
+            rest);
+        return (level, project, normalizedLine);
     }
 
     private static bool IsProblemLevel(string level) =>
-        level is "error" or "failed" or "fail" or "warn" or "warning" or "e" or "w";
+        NormalizeLevel(level) is "error" or "warn";
+
+    private static bool ContainsProblemKeyword(string text) =>
+        ContainsAny(text, "失败", "错误", "异常", "无法", "终止", "超时", "重试", "兜底", "警告",
+            "failed", "failure", "error", "exception", "retry", "timeout", "warn", "warning");
+
+    private static bool ContainsAny(string text, params string[] keywords)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        return keywords.Any(keyword => text.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string BuildHeaderLine(string time, string level, string project, string rest)
+    {
+        var projectPart = string.IsNullOrWhiteSpace(project) ? "" : $" [{project}]";
+        return $"[{time}] {FormatLevel(level)}{projectPart} {rest}".TrimEnd();
+    }
 
     private static string ToneForRow(QueueProjectRowViewModel row) => row.StatusText switch
     {
