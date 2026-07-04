@@ -8,7 +8,10 @@
         <TextBlock DockPanel.Dock="Top" Text="TikTok队列" FontWeight="Bold" Margin="0,0,0,8" />
 
         <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <Button Content="返回TikTok队列" Click="OnReturnClick" Margin="0,0,8,8" />
+            <Button Content="返回TikTok 上传"
+                    ToolTip.Tip="返回 TikTok 上传页面"
+                    Click="OnReturnClick"
+                    Margin="0,0,8,8" />
             <CheckBox x:Name="AutoFollowBox" Content="跟随最近活跃项目" IsChecked="True" Margin="0,0,8,8" />
             <CheckBox x:Name="ProblemsOnlyBox" Content="仅看问题" Margin="0,0,8,8" />
             <Button x:Name="StopButton" Content="停止" Classes="dangerAction" Click="OnStopClick" IsEnabled="False" Margin="0,0,8,8" />
