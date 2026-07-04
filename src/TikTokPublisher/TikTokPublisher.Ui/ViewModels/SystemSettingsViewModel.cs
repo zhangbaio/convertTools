@@ -66,7 +66,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokSilenceDetectConcurrency = 5;
     [ObservableProperty] private int _tiktokMaterialValidateConcurrency = 4;
     [ObservableProperty] private string _tiktokSilenceAsrLanguage = "zh-CN";
-    [ObservableProperty] private bool _tiktokManualInterventionOnSingleFailure;
+    [ObservableProperty] private bool _tiktokManualInterventionOnSingleFailure = true;
     [ObservableProperty] private string _asrProbeStatus = "";
 
     [ObservableProperty] private string _aiTextEndpoint = "https://ark.cn-beijing.volces.com/api/v3";

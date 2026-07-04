@@ -15,6 +15,12 @@ namespace TikTokPublisher.Ui.ViewModels;
 
 public sealed record FinalActionChoice(string Label, FinalAction Value);
 
+public sealed record ManualInterventionDialogRequest(
+    string WorkspaceRoot,
+    string ProjectTitle,
+    string ErrorMessage,
+    string Hint);
+
 public sealed partial class MainViewModel : ViewModelBase
 {
     public const string TikTokLoginUrl = TikTokUrls.DefaultLoginUrl;
@@ -30,6 +36,8 @@ public sealed partial class MainViewModel : ViewModelBase
     public ObservableCollection<PublishTaskItemViewModel> Tasks { get; } = new();
     public ObservableCollection<QueueProjectRowViewModel> QueueProjectRows { get; } = new();
     public ObservableCollection<QueueProjectRowViewModel> FilteredQueueProjectRows { get; } = new();
+
+    public event Action<ManualInterventionDialogRequest>? ManualInterventionDialogRequested;
 
     public IReadOnlyList<FinalActionChoice> FinalActionChoices { get; } = new[]
     {
@@ -161,7 +169,12 @@ public sealed partial class MainViewModel : ViewModelBase
             {
                 var title = string.IsNullOrWhiteSpace(item.Title) ? item.DisplayName : item.Title;
                 ManualInterventionHint =
-                    $"[{workspaceRoot}] 「{title}」上传失败，浏览器已保持打开。请在浏览器里处理完成后点击「标记成功 / 失败」。错误：{errorMessage}";
+                    $"[{workspaceRoot}] 「{title}」上传失败，浏览器已保持打开。请在弹窗中选择人工处理后继续，或跳过此项目。错误：{errorMessage}";
+                ManualInterventionDialogRequested?.Invoke(new ManualInterventionDialogRequest(
+                    workspaceRoot,
+                    title,
+                    errorMessage,
+                    ManualInterventionHint));
             }
             else
             {
@@ -171,9 +184,9 @@ public sealed partial class MainViewModel : ViewModelBase
         });
     }
 
-    public bool ResolveManualIntervention(string action)
+    public bool ResolveManualIntervention(string action, string? workspaceRoot = null)
     {
-        var handled = _queueOrchestrator.ResolveManualIntervention(action, _manualInterventionWorkspaceRoot);
+        var handled = _queueOrchestrator.ResolveManualIntervention(action, workspaceRoot ?? _manualInterventionWorkspaceRoot);
         if (handled)
         {
             ManualInterventionPending = _queueOrchestrator.HasManualInterventionPending;

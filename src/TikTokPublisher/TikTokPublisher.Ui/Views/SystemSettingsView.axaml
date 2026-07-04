@@ -188,7 +188,7 @@
                         </Grid>
 
                         <TextBlock Text="人工介入" FontWeight="Bold" />
-                        <CheckBox Content="单个项目失败时暂停等待人工介入（只在队列里只有 1 个项目时生效）"
+                        <CheckBox Content="项目上传失败时弹窗询问人工介入或跳过"
                                   IsChecked="{Binding TiktokManualInterventionOnSingleFailure}" />
                     </StackPanel>
                 </ScrollViewer>

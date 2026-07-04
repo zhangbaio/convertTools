@@ -44,7 +44,7 @@ public sealed class ClientSettings
     public int TiktokSilenceDetectConcurrency { get; set; } = 5;
     public int TiktokMaterialValidateConcurrency { get; set; } = 4;
     public string TiktokSilenceAsrLanguage { get; set; } = "zh-CN";
-    public bool TiktokManualInterventionOnSingleFailure { get; set; }
+    public bool TiktokManualInterventionOnSingleFailure { get; set; } = true;
 
     public string AiTextEndpoint { get; set; } = "https://ark.cn-beijing.volces.com/api/v3";
     public string AiTextApiKey { get; set; } = "";

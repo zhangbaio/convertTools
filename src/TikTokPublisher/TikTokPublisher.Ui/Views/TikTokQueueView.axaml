@@ -61,10 +61,6 @@
                     <Button x:Name="StopQueueButton" Content="停止" Click="OnStopQueueClick" Classes="dangerAction" IsEnabled="False" Margin="0,0,8,8" />
                     <Button Content="发布配置" Click="OnPublishConfigClick" Margin="0,0,8,8" />
                     <Button Content="手动发布测试" Click="OnPublishClick" Margin="0,0,8,8" />
-                    <Button x:Name="ManualSuccessButton" Content="人工介入：标记成功" Click="OnManualInterventionSuccessClick"
-                            Classes="primaryAction" IsEnabled="False" Margin="0,0,8,8" />
-                    <Button x:Name="ManualFailButton" Content="人工介入：标记失败" Click="OnManualInterventionFailClick"
-                            Classes="dangerAction" IsEnabled="False" Margin="0,0,8,8" />
                 </WrapPanel>
                 <TextBlock Text="{Binding RunningWorkspacesSummary}"
                            Foreground="#1A5F8A"

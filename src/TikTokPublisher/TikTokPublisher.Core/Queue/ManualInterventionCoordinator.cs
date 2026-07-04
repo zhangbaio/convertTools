@@ -7,7 +7,7 @@ public enum ManualInterventionResult
     NotHandled,
     /// <summary>用户标记为成功。</summary>
     Success,
-    /// <summary>用户标记为失败。</summary>
+    /// <summary>用户选择跳过，按失败处理。</summary>
     Failed,
     /// <summary>等待期间被停止。</summary>
     Stopped,
@@ -15,7 +15,7 @@ public enum ManualInterventionResult
 
 /// <summary>
 /// 人工介入调度器（对齐 Python <c>_wait_for_manual_intervention_if_available</c>）：
-/// 单项目上传失败时暂停等待用户在 UI 上标记「成功 / 失败」。
+/// 上传失败时暂停等待用户在 UI 上选择人工处理完成或跳过。
 /// </summary>
 public sealed class ManualInterventionCoordinator
 {
@@ -51,7 +51,7 @@ public sealed class ManualInterventionCoordinator
         }
     }
 
-    /// <summary>UI 侧调用：标记当前等待项目「成功 / 失败」。返回是否命中一个等待中的项目。</summary>
+    /// <summary>UI 侧调用：标记当前等待项目「成功 / 跳过」。返回是否命中一个等待中的项目。</summary>
     public bool Resolve(string action)
     {
         var normalized = (action ?? "").Trim().ToLowerInvariant();

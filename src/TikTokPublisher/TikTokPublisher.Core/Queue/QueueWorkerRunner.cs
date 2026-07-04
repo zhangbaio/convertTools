@@ -75,8 +75,7 @@ public sealed class QueueWorkerRunner
 
         ManualIntervention.Reset();
         var settings = ClientSettingsStore.Load();
-        var manualInterventionAllowed = candidates.Count == 1
-            && uploadEnabled
+        var manualInterventionAllowed = uploadEnabled
             && settings.TiktokManualInterventionOnSingleFailure;
 
         var success = 0;
@@ -514,7 +513,7 @@ public sealed class QueueWorkerRunner
         {
             mutate(() => MarkManualIntervention(item, failureMessage));
             Report(onProgress, workspace, item,
-                $"上传失败：{failureMessage}｜浏览器保持打开，请在队列页处理后标记「成功 / 失败」",
+                $"上传失败：{failureMessage}｜浏览器保持打开，等待弹窗选择人工处理完成或跳过",
                 QueueStepRegistry.UploadSeries);
 
             ManualInterventionResult action;
@@ -544,7 +543,7 @@ public sealed class QueueWorkerRunner
                     return true;
                 case ManualInterventionResult.Failed:
                     mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, failureMessage));
-                    Report(onProgress, workspace, item, "人工介入：已标记上传失败", QueueStepRegistry.UploadSeries);
+                    Report(onProgress, workspace, item, "人工介入：已跳过此项目并标记上传失败", QueueStepRegistry.UploadSeries);
                     return false;
                 case ManualInterventionResult.Stopped:
                     mutate(() => MarkStopped(item, QueueStepRegistry.UploadSeries));

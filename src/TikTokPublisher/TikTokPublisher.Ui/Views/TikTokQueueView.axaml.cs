@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using TikTokPublisher.Core.Abstractions;
@@ -29,6 +30,8 @@ public partial class TikTokQueueView : UserControl
     private TikTokPublishConfig _publishConfig = TikTokPublishConfig.Load();
     private CancellationTokenSource? _publishCts;
     private readonly PublishRunStateStore _runState = PublishRunStateStore.Load();
+    private readonly Queue<ManualInterventionDialogRequest> _manualInterventionDialogs = new();
+    private bool _manualInterventionDialogOpen;
 
     public event EventHandler? OpenBrowserRequested;
     public event EventHandler? OpenLogsRequested;
@@ -48,9 +51,8 @@ public partial class TikTokQueueView : UserControl
         DataContext = vm;
         vm.NavigateRequested += OnNavigateRequested;
         vm.AccountSwitchRequested += OnAccountSwitchRequested;
-        vm.PropertyChanged += OnManualInterventionPropertyChanged;
+        vm.ManualInterventionDialogRequested += OnManualInterventionDialogRequested;
         vm.PropertyChanged += OnQueueRunningPropertyChanged;
-        RefreshManualInterventionButtons();
         RefreshQueueRunButtons();
     }
 
@@ -68,24 +70,111 @@ public partial class TikTokQueueView : UserControl
         if (StopQueueButton is not null) StopQueueButton.IsEnabled = running;
     }
 
-    private void OnManualInterventionPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnManualInterventionDialogRequested(ManualInterventionDialogRequest request)
     {
-        if (e.PropertyName is nameof(MainViewModel.ManualInterventionPending))
-            Dispatcher.UIThread.Post(RefreshManualInterventionButtons);
+        Dispatcher.UIThread.Post(async () =>
+        {
+            _manualInterventionDialogs.Enqueue(request);
+            await ProcessManualInterventionDialogsAsync();
+        });
     }
 
-    private void RefreshManualInterventionButtons()
+    private async Task ProcessManualInterventionDialogsAsync()
     {
-        var pending = _vm?.ManualInterventionPending == true;
-        if (ManualSuccessButton is not null) ManualSuccessButton.IsEnabled = pending;
-        if (ManualFailButton is not null) ManualFailButton.IsEnabled = pending;
+        if (_manualInterventionDialogOpen) return;
+
+        _manualInterventionDialogOpen = true;
+        try
+        {
+            while (_manualInterventionDialogs.Count > 0)
+            {
+                var request = _manualInterventionDialogs.Dequeue();
+                var action = await ShowManualInterventionDialogAsync(request);
+                var handled = _vm?.ResolveManualIntervention(action, request.WorkspaceRoot) == true;
+                if (!handled && _vm is not null)
+                    _vm.StatusMessage = "人工介入请求已不存在，可能已被队列停止或处理。";
+            }
+        }
+        finally
+        {
+            _manualInterventionDialogOpen = false;
+        }
     }
 
-    private void OnManualInterventionSuccessClick(object? sender, RoutedEventArgs e)
-        => _vm?.ResolveManualIntervention("success");
+    private Task<string> ShowManualInterventionDialogAsync(ManualInterventionDialogRequest request)
+    {
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var dialog = new Window
+        {
+            Title = "上传失败，等待人工介入",
+            Width = 560,
+            Height = 280,
+            CanResize = false,
+            WindowStartupLocation = owner is null
+                ? WindowStartupLocation.CenterScreen
+                : WindowStartupLocation.CenterOwner,
+        };
 
-    private void OnManualInterventionFailClick(object? sender, RoutedEventArgs e)
-        => _vm?.ResolveManualIntervention("failed");
+        var openBrowserButton = BuildDialogButton("打开浏览器", () => OpenBrowserRequested?.Invoke(this, EventArgs.Empty));
+        var skipButton = BuildDialogButton("跳过此项目", () =>
+        {
+            tcs.TrySetResult("failed");
+            dialog.Close();
+        });
+        skipButton.Classes.Add("dangerAction");
+        var successButton = BuildDialogButton("已人工处理，标记成功", () =>
+        {
+            tcs.TrySetResult("success");
+            dialog.Close();
+        }, primary: true);
+
+        dialog.Closed += (_, _) => tcs.TrySetResult("failed");
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(16),
+            Spacing = 12,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = $"项目：{request.ProjectTitle}",
+                    FontWeight = FontWeight.SemiBold,
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                new TextBlock
+                {
+                    Text = request.ErrorMessage,
+                    Foreground = Brushes.Firebrick,
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                new TextBlock
+                {
+                    Text = "浏览器会保持打开。你可以先在浏览器中人工处理，处理完成后点击“已人工处理，标记成功”；如果不处理，点击“跳过此项目”继续队列。",
+                    TextWrapping = TextWrapping.Wrap,
+                },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Spacing = 8,
+                    Children =
+                    {
+                        openBrowserButton,
+                        skipButton,
+                        successButton,
+                    },
+                },
+            },
+        };
+
+        if (owner is not null)
+            dialog.Show(owner);
+        else
+            dialog.Show();
+
+        return tcs.Task;
+    }
 
     public async void OpenAccountSettings() => await ShowAccountSettingsDialogAsync();
 
@@ -105,6 +194,8 @@ public partial class TikTokQueueView : UserControl
         {
             _vm.NavigateRequested -= OnNavigateRequested;
             _vm.AccountSwitchRequested -= OnAccountSwitchRequested;
+            _vm.ManualInterventionDialogRequested -= OnManualInterventionDialogRequested;
+            _vm.PropertyChanged -= OnQueueRunningPropertyChanged;
         }
 
         if (_vm is null && DataContext is MainViewModel vm)
