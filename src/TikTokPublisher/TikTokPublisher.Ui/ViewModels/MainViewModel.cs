@@ -210,6 +210,12 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void AppendLog(string text)
     {
+        if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => AppendLog(text));
+            return;
+        }
+
         var timestamp = DateTime.Now.ToString("HH:mm:ss");
         Logs.Append($"[{timestamp}] INFO {text}");
         RefreshLogSnapshot();
