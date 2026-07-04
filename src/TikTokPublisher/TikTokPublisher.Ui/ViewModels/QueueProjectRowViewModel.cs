@@ -2,6 +2,7 @@ using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
+using System.Globalization;
 
 namespace TikTokPublisher.Ui.ViewModels;
 
@@ -36,7 +37,8 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public string OriginalProjectDir => Item.ProjectDir;
     public string NewProjectDir => ResolveWorkflowProjectDir(Item.ProjectDir);
     public int EpisodeCount => Item.EpisodeCount;
-    public string QueuedAt => Item.QueuedAt;
+    public string QueuedAt => FormatQueuedAt(Item.QueuedAt, compact: true);
+    public string QueuedAtTooltip => FormatQueuedAt(Item.QueuedAt, compact: false);
     public string AccountName => string.IsNullOrWhiteSpace(Item.AccountProfileName)
         ? (string.IsNullOrWhiteSpace(Item.AccountProfileId) ? "(未绑定)" : Item.AccountProfileId)
         : Item.AccountProfileName;
@@ -194,5 +196,28 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         }
 
         return "";
+    }
+
+    private static string FormatQueuedAt(string value, bool compact)
+    {
+        var text = (value ?? "").Trim();
+        if (string.IsNullOrEmpty(text)) return "";
+
+        if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var dto))
+        {
+            var local = dto.ToLocalTime();
+            return compact
+                ? local.ToString("MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)
+                : local.ToString("yyyy-MM-dd HH:mm:ss.fff zzz", CultureInfo.InvariantCulture);
+        }
+
+        if (DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var dt))
+        {
+            return compact
+                ? dt.ToString("MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)
+                : dt.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+        }
+
+        return text.Replace('T', ' ');
     }
 }

@@ -112,6 +112,7 @@ public static class WorkspaceQueueService
         var existing = items.ToDictionary(i => Path.GetFullPath(i.ProjectDir), StringComparer.OrdinalIgnoreCase);
         var appendedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var changed = false;
+        var lastQueuedAt = DateTimeOffset.MinValue;
 
         foreach (var projectDir in projectDirs)
         {
@@ -124,14 +125,14 @@ public static class WorkspaceQueueService
             if (existing.TryGetValue(normalized, out var existingItem))
             {
                 existingItem.Enabled = true;
-                existingItem.QueuedAt = DateTimeOffset.Now.ToString("o");
+                existingItem.QueuedAt = NextQueuedAt(ref lastQueuedAt);
                 changed = true;
                 continue;
             }
 
             var item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), null);
             item.Enabled = true;
-            item.QueuedAt = DateTimeOffset.Now.ToString("o");
+            item.QueuedAt = NextQueuedAt(ref lastQueuedAt);
             items.Add(item);
             existing[normalized] = item;
             changed = true;
@@ -188,7 +189,7 @@ public static class WorkspaceQueueService
         item.CoverPath = scanned.CoverPath;
 
         if (string.IsNullOrWhiteSpace(item.QueuedAt))
-            item.QueuedAt = DateTimeOffset.Now.ToString("o");
+            item.QueuedAt = ResolveInitialQueuedAt(scanned);
 
         item.NormalizeStepStates();
         RecoverLocalStepExecutionState(item);
@@ -553,4 +554,46 @@ public static class WorkspaceQueueService
             .OrderBy(item => string.IsNullOrWhiteSpace(item.QueuedAt) ? "9999" : item.QueuedAt, StringComparer.Ordinal)
             .ThenBy(item => item.ProjectDir, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    private static string ResolveInitialQueuedAt(WorkspaceProjectScanner.WorkspaceProject scanned)
+    {
+        var candidates = new List<DateTimeOffset>();
+        AddFileSystemCreatedAt(scanned.ProjectDir, candidates);
+        AddFileSystemCreatedAt(scanned.PrimaryVideoPath, candidates);
+        AddFileSystemCreatedAt(scanned.CoverPath, candidates);
+
+        return candidates.Count == 0
+            ? DateTimeOffset.Now.ToString("o")
+            : candidates.Min().ToString("o");
+    }
+
+    private static string NextQueuedAt(ref DateTimeOffset lastQueuedAt)
+    {
+        var now = DateTimeOffset.Now;
+        if (lastQueuedAt != DateTimeOffset.MinValue && now <= lastQueuedAt)
+            now = lastQueuedAt.AddMilliseconds(1);
+        lastQueuedAt = now;
+        return now.ToString("o");
+    }
+
+    private static void AddFileSystemCreatedAt(string? path, ICollection<DateTimeOffset> candidates)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                candidates.Add(new DateTimeOffset(Directory.GetCreationTime(path)));
+                return;
+            }
+
+            if (File.Exists(path))
+                candidates.Add(new DateTimeOffset(File.GetCreationTime(path)));
+        }
+        catch
+        {
+            // Filesystem timestamps are a display fallback only; scan should not fail on inaccessible metadata.
+        }
+    }
 }

@@ -277,7 +277,7 @@
                                                    Foreground="#0F63C7" />
                                     </Button>
                                     <TextBlock Grid.Column="5" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
-                                    <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" ClipToBounds="True" ToolTip.Tip="{Binding QueuedAt}" />
+                                    <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" ClipToBounds="True" ToolTip.Tip="{Binding QueuedAtTooltip}" />
                                     <Border Grid.Column="7" Classes="stepStatusBadge" Background="{Binding DownloadStatusBackgroundBrush}" BorderBrush="{Binding DownloadStatusBorderBrush}" ToolTip.Tip="{Binding DownloadStatus}">
                                         <TextBlock Text="{Binding DownloadStatus}" Foreground="{Binding DownloadStatusBrush}" Classes="stepStatusText" />
                                     </Border>
