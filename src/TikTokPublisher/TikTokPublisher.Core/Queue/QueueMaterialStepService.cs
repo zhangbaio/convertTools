@@ -191,7 +191,8 @@ public static class QueueMaterialStepService
                         OutputFilePath: outputPath,
                         ConfigFile: configPath,
                         UseAi: false,
-                        Overwrite: true),
+                        Overwrite: true,
+                        Log: log),
                     ct);
                 log($"海报已生成：{Path.GetFileName(outputPath)}");
             }

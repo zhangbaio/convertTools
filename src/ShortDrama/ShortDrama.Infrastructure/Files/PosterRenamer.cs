@@ -16,7 +16,7 @@ using System.Text.RegularExpressions;
 
 namespace ShortDrama.Infrastructure.Files;
 
-public sealed class PosterRenamer : IPosterRenamer
+public sealed partial class PosterRenamer : IPosterRenamer
 {
     private static readonly string[] SupportedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"];
     private const string DefaultPosterLayoutDetectPrompt = """
@@ -168,7 +168,35 @@ JSON 结构：
             File.Delete(outputPath);
         }
 
-        await RenderPosterAsync(inputPath, outputPath, posterName, request.ConfigFile, cancellationToken);
+        if (string.IsNullOrWhiteSpace(request.ConfigFile) || !File.Exists(request.ConfigFile))
+        {
+            throw new InvalidOperationException("AI 海报图片生成必须提供有效的 configFile。");
+        }
+
+        var config = KeyValueConfigReader.Read(request.ConfigFile);
+        var posterMode = NormalizePosterMode(GetOptional(config, "PosterMode"));
+        switch (posterMode)
+        {
+            case "poster_ai_edit":
+                try
+                {
+                    await GenerateCoverFromPosterAsync(
+                        request, inputPath, outputPath, posterName, request.ConfigFile, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Log(request, $"封面单次AI编辑失败，回退到原始海报模式：{ex.Message}");
+                    await RenderPosterAsync(inputPath, outputPath, posterName, request.ConfigFile, request, cancellationToken);
+                }
+                break;
+            case "poster_ai_erase_pil_title":
+                await GenerateErasePilTitlePosterAsync(
+                    request, inputPath, outputPath, posterName, request.ConfigFile, cancellationToken);
+                break;
+            default:
+                await RenderPosterAsync(inputPath, outputPath, posterName, request.ConfigFile, request, cancellationToken);
+                break;
+        }
 
         _logger.LogInformation("Updated poster: {Input} -> {Output}", inputPath, outputPath);
         return new PosterRenameResult(inputPath, outputPath, posterName);
@@ -179,6 +207,7 @@ JSON 结构：
         string outputPath,
         string posterName,
         string? configFile,
+        PosterRenameRequest request,
         CancellationToken cancellationToken)
     {
         var renderInputPath = await PrepareRenderableInputAsync(inputPath, cancellationToken);
@@ -190,12 +219,13 @@ JSON 结构：
             }
 
             var layout = await DetectPosterLayoutAsync(configFile, renderInputPath, posterName, cancellationToken);
-            await TryGeneratePosterWithAiAsync(
+            await TryGeneratePosterWithVerificationAsync(
                 configFile,
                 renderInputPath,
                 outputPath,
                 posterName,
                 layout,
+                request,
                 cancellationToken);
 
             _logger.LogInformation("AI 海报图片生成成功: {Output}", outputPath);

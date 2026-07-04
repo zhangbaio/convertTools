@@ -45,6 +45,7 @@ public static class ClientSettingsWorkflowConfigWriter
             ["PosterNameUserPrompt"] = settings.PosterNameUserPrompt,
             ["PosterTitleVerifyEnabled"] = settings.PosterTitleVerifyEnabled,
             ["PosterTitleVerifyMode"] = settings.PosterTitleVerifyMode,
+            ["FrameCoverPrompt"] = settings.FrameCoverPrompt,
         };
         PosterImageConfigHelper.ApplyPosterRuntimeConfig(payload, settings);
 

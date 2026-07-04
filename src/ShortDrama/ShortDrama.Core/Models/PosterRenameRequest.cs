@@ -7,4 +7,5 @@ public sealed record PosterRenameRequest(
     string? ConfigFile = null,
     string? NameTemplate = null,
     bool UseAi = false,
-    bool Overwrite = false);
+    bool Overwrite = false,
+    Action<string>? Log = null);
