@@ -46,6 +46,7 @@ public static class ClientSettingsWorkflowConfigWriter
             ["PosterTitleVerifyEnabled"] = settings.PosterTitleVerifyEnabled,
             ["PosterTitleVerifyMode"] = settings.PosterTitleVerifyMode,
         };
+        PosterImageConfigHelper.ApplyPosterRuntimeConfig(payload, settings);
 
         File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions
         {

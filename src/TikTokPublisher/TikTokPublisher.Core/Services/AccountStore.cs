@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -179,6 +180,7 @@ public sealed class AccountStore
             ProfileDir = AppPaths.ProfileDirFor(id),
             TiktokStorageStatePath = AppPaths.DefaultStorageStatePath(id),
             TiktokSeriesUrl = TikTokUrls.DefaultSeriesDraftUrl,
+            TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
         };
     }
 

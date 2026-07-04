@@ -65,7 +65,7 @@ public partial class TikTokQueueView : UserControl
     private void RefreshQueueRunButtons()
     {
         var running = _vm?.IsQueueRunning == true;
-        if (StartQueueButton is not null) StartQueueButton.IsEnabled = !(_vm?.IsCurrentWorkspaceQueueRunning() ?? false);
+        if (StartQueueButton is not null) StartQueueButton.IsEnabled = !running;
         if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !running;
         if (StopQueueButton is not null) StopQueueButton.IsEnabled = running;
     }

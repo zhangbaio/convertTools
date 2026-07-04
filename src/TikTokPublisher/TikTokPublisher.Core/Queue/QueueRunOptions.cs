@@ -83,7 +83,8 @@ public sealed class QueueRunOptions
     {
         payload ??= new Dictionary<string, object?>();
         var enabled = new List<string>();
-        if (payload.TryGetValue("enabled_steps", out var raw) && raw is IEnumerable<object?> list)
+        var hasEnabledSteps = payload.TryGetValue("enabled_steps", out var raw);
+        if (hasEnabledSteps && raw is IEnumerable<object?> list)
         {
             foreach (var item in list)
             {
@@ -92,7 +93,7 @@ public sealed class QueueRunOptions
                     enabled.Add(key);
             }
         }
-        if (enabled.Count == 0)
+        if (!hasEnabledSteps)
             enabled = QueueStepRegistry.DefaultEnabledSteps.ToList();
 
         return new QueueRunOptions

@@ -30,6 +30,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly WorkspaceQueueOrchestrator _queueOrchestrator = new();
     private CancellationTokenSource? _queueCts;
     private string? _manualInterventionWorkspaceRoot;
+    private bool _applyingQueueStepToggles;
+    private bool _queueRunActive;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
     public ObservableCollection<AccountItemViewModel> FilteredAccounts { get; } = new();
@@ -205,7 +207,7 @@ public sealed partial class MainViewModel : ViewModelBase
         RunningWorkspacesSummary = running.Count == 0
             ? ""
             : $"并行队列：{string.Join(" | ", running.Select(item => item.DisplayLabel))}";
-        IsQueueRunning = _queueOrchestrator.AnyRunning;
+        IsQueueRunning = _queueRunActive || _queueOrchestrator.AnyRunning;
     }
 
     public void AppendLog(string text)
@@ -284,8 +286,10 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void UpdateQueueRunOptionsFromUi()
     {
+        if (_applyingQueueStepToggles) return;
         SyncEnabledStepsFromUi();
         PersistQueueRunOptions();
+        PersistAccountQueueEnabledSteps();
     }
 
     [RelayCommand]
@@ -404,30 +408,46 @@ public sealed partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void SelectAllQueueSteps()
     {
-        QueueDownloadEnabled = true;
-        QueueRewriteEnabled = true;
-        QueueGeneratePosterEnabled = true;
-        QueueDeleteSourceVideosEnabled = true;
-        QueueSmallVideoRepairEnabled = true;
-        QueueSilenceDetectEnabled = true;
-        QueueSilenceRepairEnabled = true;
-        QueueMaterialValidateEnabled = true;
-        QueueUploadEnabled = true;
+        _applyingQueueStepToggles = true;
+        try
+        {
+            QueueDownloadEnabled = true;
+            QueueRewriteEnabled = true;
+            QueueGeneratePosterEnabled = true;
+            QueueDeleteSourceVideosEnabled = true;
+            QueueSmallVideoRepairEnabled = true;
+            QueueSilenceDetectEnabled = true;
+            QueueSilenceRepairEnabled = true;
+            QueueMaterialValidateEnabled = true;
+            QueueUploadEnabled = true;
+        }
+        finally
+        {
+            _applyingQueueStepToggles = false;
+        }
         UpdateQueueRunOptionsFromUi();
     }
 
     [RelayCommand]
     private void ClearAllQueueSteps()
     {
-        QueueDownloadEnabled = false;
-        QueueRewriteEnabled = false;
-        QueueGeneratePosterEnabled = false;
-        QueueDeleteSourceVideosEnabled = false;
-        QueueSmallVideoRepairEnabled = false;
-        QueueSilenceDetectEnabled = false;
-        QueueSilenceRepairEnabled = false;
-        QueueMaterialValidateEnabled = false;
-        QueueUploadEnabled = false;
+        _applyingQueueStepToggles = true;
+        try
+        {
+            QueueDownloadEnabled = false;
+            QueueRewriteEnabled = false;
+            QueueGeneratePosterEnabled = false;
+            QueueDeleteSourceVideosEnabled = false;
+            QueueSmallVideoRepairEnabled = false;
+            QueueSilenceDetectEnabled = false;
+            QueueSilenceRepairEnabled = false;
+            QueueMaterialValidateEnabled = false;
+            QueueUploadEnabled = false;
+        }
+        finally
+        {
+            _applyingQueueStepToggles = false;
+        }
         UpdateQueueRunOptionsFromUi();
     }
 
@@ -520,6 +540,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         _queueItems = WorkspaceQueueService.ScanProjects(root).ToList();
         _queueRunOptions = WorkspaceQueueService.LoadRunOptions(root);
+        ApplyAccountQueueEnabledSteps(root);
         ForceRerunCompletedSteps = _queueRunOptions.ForceRerunCompletedSteps;
         AutoArchiveAfterUpload = _queueRunOptions.AutoArchiveAfterUpload;
         PreferUploadWhenReady = _queueRunOptions.PreferUploadWhenReady;
@@ -758,6 +779,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         SyncEnabledStepsFromUi();
         PersistQueueRunOptions();
+        PersistAccountQueueEnabledSteps();
         RefreshRunningWorkspacesSummary();
         _currentQueueBatchId = TikTokExecutionHistoryService.NewBatchId();
         foreach (var target in targets)
@@ -782,9 +804,11 @@ public sealed partial class MainViewModel : ViewModelBase
                 finalAction,
                 target =>
                 {
-                    if (string.Equals(Path.GetFullPath(target.WorkspaceRoot), Path.GetFullPath(WorkspacePath), StringComparison.OrdinalIgnoreCase))
+                    var account = FindAccount(target.AccountProfileId ?? "")?.Model;
+                    if (account?.Id == SelectedAccount?.Id &&
+                        string.Equals(Path.GetFullPath(target.WorkspaceRoot), Path.GetFullPath(WorkspacePath), StringComparison.OrdinalIgnoreCase))
                         return BuildQueueRunOptionsFromUi();
-                    return WorkspaceQueueService.LoadRunOptions(target.WorkspaceRoot);
+                    return LoadQueueRunOptionsForAccountWorkspace(target.WorkspaceRoot, account);
                 },
                 progress =>
                 {
@@ -860,6 +884,8 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         _queueCts?.Dispose();
         _queueCts = new CancellationTokenSource();
+        _queueRunActive = true;
+        RefreshRunningWorkspacesSummary();
         return _queueCts.Token;
     }
 
@@ -867,6 +893,8 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         _queueCts?.Dispose();
         _queueCts = null;
+        _queueRunActive = false;
+        RefreshRunningWorkspacesSummary();
     }
 
     public void HandleQueueWorkerProgress(QueueWorkerProgress progress)
@@ -934,15 +962,23 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void ApplyQueueStepTogglesFromOptions()
     {
-        QueueDownloadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.Download);
-        QueueRewriteEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RewriteInfo);
-        QueueGeneratePosterEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GeneratePoster);
-        QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
-        QueueSmallVideoRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SmallVideoRepair);
-        QueueSilenceDetectEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceDetect);
-        QueueSilenceRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceRepair);
-        QueueMaterialValidateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.MaterialValidate);
-        QueueUploadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.UploadSeries);
+        _applyingQueueStepToggles = true;
+        try
+        {
+            QueueDownloadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.Download);
+            QueueRewriteEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RewriteInfo);
+            QueueGeneratePosterEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GeneratePoster);
+            QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
+            QueueSmallVideoRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SmallVideoRepair);
+            QueueSilenceDetectEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceDetect);
+            QueueSilenceRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceRepair);
+            QueueMaterialValidateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.MaterialValidate);
+            QueueUploadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.UploadSeries);
+        }
+        finally
+        {
+            _applyingQueueStepToggles = false;
+        }
     }
 
     private void SyncEnabledStepsFromUi()
@@ -957,15 +993,67 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueSilenceRepairEnabled) steps.Add(QueueStepRegistry.SilenceRepair);
         if (QueueMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);
         if (QueueUploadEnabled) steps.Add(QueueStepRegistry.UploadSeries);
-        _queueRunOptions.EnabledSteps = steps.Count > 0
-            ? QueueStepRegistry.OrderEnabledSteps(steps).ToList()
-            : QueueStepRegistry.DefaultEnabledSteps.ToList();
+        _queueRunOptions.EnabledSteps = QueueStepRegistry.OrderEnabledSteps(steps).ToList();
         _queueRunOptions.ForceRerunCompletedSteps = ForceRerunCompletedSteps;
         _queueRunOptions.AutoArchiveAfterUpload = AutoArchiveAfterUpload;
         _queueRunOptions.PreferUploadWhenReady = PreferUploadWhenReady;
         _queueRunOptions.SyncManagementAfterUpload = SyncManagementAfterUpload;
         var concurrency = SelectedAccount?.Model.TiktokProjectConcurrency ?? _queueRunOptions.ProjectConcurrency;
         _queueRunOptions.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
+    }
+
+    private void ApplyAccountQueueEnabledSteps(string workspaceRoot)
+    {
+        _queueRunOptions = LoadQueueRunOptionsForAccountWorkspace(workspaceRoot, SelectedAccount?.Model);
+    }
+
+    private QueueRunOptions LoadQueueRunOptionsForAccountWorkspace(string workspaceRoot, TikTokAccountProfile? account)
+    {
+        var options = WorkspaceQueueService.LoadRunOptions(workspaceRoot);
+        var hasAccountSteps = account?.TiktokQueueEnabledSteps is not null;
+        var enabledSteps = hasAccountSteps
+            ? NormalizeQueueEnabledSteps(account?.TiktokQueueEnabledSteps)
+            : new List<string>();
+        if (!hasAccountSteps)
+        {
+            enabledSteps = NormalizeQueueEnabledSteps(options.EnabledSteps);
+            if (account is not null)
+            {
+                account.TiktokQueueEnabledSteps = enabledSteps.ToList();
+                _context.NotifyProfileUpdated(account);
+            }
+        }
+
+        options.EnabledSteps = enabledSteps.ToList();
+        var concurrency = account?.TiktokProjectConcurrency ?? options.ProjectConcurrency;
+        options.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
+        return options;
+    }
+
+    private void PersistAccountQueueEnabledSteps()
+    {
+        var account = SelectedAccount?.Model;
+        if (account is null) return;
+
+        var enabledSteps = NormalizeQueueEnabledSteps(_queueRunOptions.EnabledSteps);
+
+        if (NormalizeQueueEnabledSteps(account.TiktokQueueEnabledSteps).SequenceEqual(enabledSteps))
+            return;
+
+        account.TiktokQueueEnabledSteps = enabledSteps.ToList();
+        _context.NotifyProfileUpdated(account);
+    }
+
+    private static List<string> NormalizeQueueEnabledSteps(IEnumerable<string>? steps)
+    {
+        if (steps is null) return new List<string>();
+
+        var known = QueueStepRegistry.All.Select(step => step.Key).ToHashSet(StringComparer.Ordinal);
+        return QueueStepRegistry.OrderEnabledSteps(
+                steps.Select(step => (step ?? "").Trim())
+                    .Where(step => known.Contains(step))
+                    .Distinct(StringComparer.Ordinal))
+            .ToList();
     }
 
     private void RefreshWorkspaceFromActiveAccount()

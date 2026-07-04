@@ -181,6 +181,9 @@ public static class QueueMaterialStepService
             try
             {
                 log("开始 AI 海报改字…");
+                if (IsHeicLike(inputPath))
+                    log($"海报源图为 {Path.GetExtension(inputPath)}，将先转换为 PNG 再调用 AI。");
+                log("正在检测海报标题区域…");
                 await QueueInfrastructureServices.Poster.RenameAsync(
                     new PosterRenameRequest(
                         ProjectDir: workflowDir,
@@ -765,6 +768,13 @@ public static class QueueMaterialStepService
     {
         var mode = (posterMode ?? "original").Trim().ToLowerInvariant();
         return mode is "original" or "ai" or "poster_ai_erase_pil_title" or "poster_ai_edit";
+    }
+
+    private static bool IsHeicLike(string path)
+    {
+        var ext = Path.GetExtension(path);
+        return ext.Equals(".heic", StringComparison.OrdinalIgnoreCase)
+               || ext.Equals(".heif", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool HasImageModelConfig(ClientSettings settings)

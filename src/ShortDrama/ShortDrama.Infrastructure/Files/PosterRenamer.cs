@@ -76,6 +76,23 @@ JSON 结构：
 新剧名必须是清晰可读的中文，风格保持短剧海报标题样式，大号黄色粗体，黑色粗描边，位置与原剧名区域一致。
 这是局部文字替换任务，不是重新生成整张海报。
 """;
+    private const string PosterTextGuardrails = """
+标题文字必须满足以下硬性要求：
+1. 只能使用标准简体中文。
+2. 不允许繁体字、异体字、错别字。
+3. 优先使用普通、清晰、审核友好的中文标题字，接近黑体、微软雅黑或常见无衬线粗体更好，但不是硬性要求完全一致。
+4. 不允许手写体、书法体、草书、篆书、花体字、艺术字、空心字、立体字、金属字、火焰字、变形字。
+5. 不允许夸张描边、夸张装饰、纹理字、裂纹字、毛笔飞白、故意残缺笔画。
+6. 文字应当清晰、规整、易识别，不要出现明显电影特效字或过度设计字。
+7. 可以有轻微描边，但必须克制、整齐、易读，不能为了设计感牺牲识别度。
+8. 优先保证标题清晰、端正、易识别，即使风格略普通也可以。
+9. 如果模型无法稳定复现海报风格，请退回到最普通、最清晰、最易识别的中文粗体字。
+10. 最终标题必须与目标标题“{title}”逐字一致，不能增删改任何一个字。
+11. 禁止使用相似字冒充目标字，禁止缺笔、粘连、断裂、夸张变形、装饰笔画。
+12. 如果“海报风格”和“清晰易读、审核友好”冲突，必须优先选择清晰易读、审核友好的写法。
+13. 高风险字如“继、媳、鬓、馨、骤、瓷、赢、寡、赘”等，必须使用常见、标准、易识别的简体印刷字写法。
+14. 不能为了保持原海报字体风格而牺牲某个字的标准写法。
+""";
     private const string DefaultPosterGenerationSafeRetryPrompt = """
 参考输入海报，执行一次安全合规的局部标题替换。
 只把现有主标题替换为“{title}”，其余画面保持不变。
@@ -241,30 +258,66 @@ JSON 结构：
 
     private async Task<string> PrepareRenderableInputAsync(string inputPath, CancellationToken cancellationToken)
     {
+        if (await CanIdentifyImageAsync(inputPath, cancellationToken))
+            return inputPath;
+
+        var tempPngPath = Path.Combine(
+            Path.GetTempPath(),
+            $"{Path.GetFileNameWithoutExtension(inputPath)}.{Guid.NewGuid():N}.png");
+        await ConvertImageToPngWithFfmpegAsync(inputPath, tempPngPath, cancellationToken);
+        return tempPngPath;
+    }
+
+    private static async Task<bool> CanIdentifyImageAsync(string inputPath, CancellationToken cancellationToken)
+    {
         try
         {
-            await Image.IdentifyAsync(inputPath, cancellationToken);
-            return inputPath;
+            var info = await Image.IdentifyAsync(inputPath, cancellationToken);
+            return info is not null;
         }
-        catch when (OperatingSystem.IsMacOS())
+        catch
         {
-            var tempPngPath = Path.Combine(
-                Path.GetTempPath(),
-                $"{Path.GetFileNameWithoutExtension(inputPath)}.{Guid.NewGuid():N}.png");
-
-            var result = await _processRunner.RunAsync(
-                "/usr/bin/sips",
-                ["-s", "format", "png", inputPath, "--out", tempPngPath],
-                Path.GetDirectoryName(inputPath),
-                cancellationToken);
-
-            if (result.ExitCode != 0 || !File.Exists(tempPngPath))
-            {
-                throw new InvalidOperationException($"海报图片格式转换失败。stderr: {result.StandardError}");
-            }
-
-            return tempPngPath;
+            return false;
         }
+    }
+
+    private async Task ConvertImageToPngWithFfmpegAsync(
+        string inputPath,
+        string outputPath,
+        CancellationToken cancellationToken)
+    {
+        var ffmpeg = ResolveFfmpegBinary();
+        var result = await _processRunner.RunAsync(
+            ffmpeg,
+            ["-y", "-hide_banner", "-loglevel", "error", "-i", inputPath, outputPath],
+            Path.GetDirectoryName(inputPath),
+            cancellationToken);
+
+        if (result.ExitCode != 0 || !File.Exists(outputPath) || new FileInfo(outputPath).Length <= 0)
+        {
+            throw new InvalidOperationException(
+                $"海报图片格式转换失败: {Path.GetFileName(inputPath)}（{result.StandardError.Trim()}）");
+        }
+    }
+
+    private static string ResolveFfmpegBinary()
+    {
+        var pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (!string.IsNullOrWhiteSpace(pathEnv))
+        {
+            foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var fullPath = Path.Combine(dir, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
+                if (File.Exists(fullPath))
+                    return fullPath;
+            }
+        }
+
+        var bundled = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
+        if (File.Exists(bundled))
+            return bundled;
+
+        throw new InvalidOperationException("海报图片格式转换失败: 未找到可用的 ffmpeg，无法转换 HEIC/HEIF 图片");
     }
 
     private async Task<PosterLayout> DetectPosterLayoutAsync(
@@ -284,13 +337,7 @@ JSON 结构：
         var apiKey = GetRequired(config, "ChatModelApiKey");
         var imageBase64 = Convert.ToBase64String(await File.ReadAllBytesAsync(imagePath, cancellationToken));
         var extension = Path.GetExtension(imagePath).TrimStart('.').ToLowerInvariant();
-        var mediaType = extension switch
-        {
-            "jpg" or "jpeg" => "image/jpeg",
-            "png" => "image/png",
-            "webp" => "image/webp",
-            _ => "image/png"
-        };
+        var mediaType = GuessMediaType(extension);
 
         var prompt = RenderPromptTemplate(
             GetOptional(config, "PosterLayoutDetectPrompt") ?? DefaultPosterLayoutDetectPrompt,
@@ -383,30 +430,31 @@ JSON 结构：
         CancellationToken cancellationToken)
     {
         var config = KeyValueConfigReader.Read(configFile);
+        var provider = NormalizeImageProvider(GetOptional(config, "ImageProvider"));
         var endpoint = GetOptional(config, "ImageEditEndpoint") ?? GetRequired(config, "ImageModelEndpoint");
         var apiPath = GetOptional(config, "ImageEditPath") ?? GetDefaultImageEditPath(endpoint);
         var requestUrl = BuildApiUrl(endpoint, apiPath);
         var modelId = GetOptional(config, "ImageEditModelId") ?? GetRequired(config, "ImageModelId");
         var apiKey = GetOptional(config, "ImageEditApiKey") ?? GetRequired(config, "ImageModelApiKey");
+        var imageSize = NormalizeImageSize(GetOptional(config, "ImageSize"), provider);
+        var imageQuality = NormalizeImageQuality(GetOptional(config, "ImageQuality"));
         var extension = Path.GetExtension(inputPath).TrimStart('.').ToLowerInvariant();
-        var mediaType = extension switch
-        {
-            "jpg" or "jpeg" => "image/jpeg",
-            "png" => "image/png",
-            "webp" => "image/webp",
-            _ => "image/png"
-        };
+        var mediaType = GuessMediaType(extension);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(90));
 
         var useGenerationApi = apiPath.EndsWith("/images/generations", StringComparison.OrdinalIgnoreCase);
         var promptVariables = CreatePosterPromptVariables(title, title, null, null);
-        var primaryPrompt = useGenerationApi
-            ? RenderPromptTemplate(GetOptional(config, "PosterGenerationPrompt") ?? DefaultPosterGenerationPrompt, promptVariables)
-            : RenderPromptTemplate(GetOptional(config, "PosterInpaintPrompt") ?? DefaultPosterInpaintPrompt, promptVariables);
-        var safeRetryPrompt = useGenerationApi
-            ? RenderPromptTemplate(GetOptional(config, "PosterGenerationSafeRetryPrompt") ?? DefaultPosterGenerationSafeRetryPrompt, promptVariables)
-            : RenderPromptTemplate(GetOptional(config, "PosterInpaintSafeRetryPrompt") ?? DefaultPosterInpaintSafeRetryPrompt, promptVariables);
+        var primaryPrompt = MergePromptWithGuardrails(
+            useGenerationApi
+                ? RenderPromptTemplate(GetOptional(config, "PosterGenerationPrompt") ?? DefaultPosterGenerationPrompt, promptVariables)
+                : RenderPromptTemplate(GetOptional(config, "PosterInpaintPrompt") ?? DefaultPosterInpaintPrompt, promptVariables),
+            title);
+        var safeRetryPrompt = MergePromptWithGuardrails(
+            useGenerationApi
+                ? RenderPromptTemplate(GetOptional(config, "PosterGenerationSafeRetryPrompt") ?? DefaultPosterGenerationSafeRetryPrompt, promptVariables)
+                : RenderPromptTemplate(GetOptional(config, "PosterInpaintSafeRetryPrompt") ?? DefaultPosterInpaintSafeRetryPrompt, promptVariables),
+            title);
 
         byte[] bytes;
         try
@@ -420,6 +468,9 @@ JSON 结构：
                 mediaType,
                 layout,
                 primaryPrompt,
+                provider,
+                imageQuality,
+                imageSize,
                 timeoutCts.Token);
         }
         catch (PosterSensitiveContentException ex)
@@ -439,6 +490,9 @@ JSON 结构：
                     mediaType,
                     layout,
                     safeRetryPrompt,
+                    provider,
+                    imageQuality,
+                    imageSize,
                     timeoutCts.Token);
             }
             catch (PosterSensitiveContentException retryEx)
@@ -467,6 +521,9 @@ JSON 结构：
                     mediaType,
                     layout,
                     sanitizedSafeRetryPrompt,
+                    provider,
+                    imageQuality,
+                    imageSize,
                     timeoutCts.Token);
             }
         }
@@ -492,6 +549,9 @@ JSON 结构：
         string mediaType,
         PosterLayout layout,
         string prompt,
+        string provider,
+        string imageQuality,
+        string imageSize,
         CancellationToken cancellationToken)
     {
         if (apiPath.EndsWith("/images/generations", StringComparison.OrdinalIgnoreCase))
@@ -503,6 +563,9 @@ JSON 结构：
                 inputPath,
                 mediaType,
                 prompt,
+                provider,
+                imageQuality,
+                imageSize,
                 cancellationToken);
         }
 
@@ -514,6 +577,9 @@ JSON 结构：
             mediaType,
             prompt,
             layout,
+            provider,
+            imageQuality,
+            imageSize,
             cancellationToken);
     }
 
@@ -524,17 +590,30 @@ JSON 结构：
         string inputPath,
         string mediaType,
         string prompt,
+        string provider,
+        string imageQuality,
+        string imageSize,
         CancellationToken cancellationToken)
     {
         var imageBase64 = Convert.ToBase64String(await File.ReadAllBytesAsync(inputPath, cancellationToken));
-        var payload = new
+        var payload = new Dictionary<string, object?>
         {
-            model = modelId,
-            prompt,
-            image = $"data:{mediaType};base64,{imageBase64}",
-            response_format = "b64_json",
-            watermark = false
+            ["model"] = modelId,
+            ["prompt"] = prompt,
+            ["image"] = $"data:{mediaType};base64,{imageBase64}",
         };
+        if (!string.IsNullOrWhiteSpace(imageSize))
+            payload["size"] = imageSize;
+        if (IsOpenAiImageProvider(provider))
+        {
+            if (!string.IsNullOrWhiteSpace(imageQuality))
+                payload["quality"] = imageQuality;
+        }
+        else
+        {
+            payload["response_format"] = "b64_json";
+            payload["watermark"] = false;
+        }
 
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, requestUrl);
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
@@ -563,6 +642,9 @@ JSON 结构：
         string mediaType,
         string prompt,
         PosterLayout layout,
+        string provider,
+        string imageQuality,
+        string imageSize,
         CancellationToken cancellationToken)
     {
         // Create mask: black opaque everywhere, transparent in the title region (allows AI to edit only there).
@@ -575,8 +657,12 @@ JSON 结构：
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent(modelId), "model");
         form.Add(new StringContent(prompt, Encoding.UTF8), "prompt");
-        form.Add(new StringContent("b64_json"), "response_format");
-        form.Add(new StringContent("1024x1536"), "size");
+        if (!IsOpenAiImageProvider(provider))
+            form.Add(new StringContent("b64_json"), "response_format");
+        if (!string.IsNullOrWhiteSpace(imageSize))
+            form.Add(new StringContent(imageSize), "size");
+        if (IsOpenAiImageProvider(provider) && !string.IsNullOrWhiteSpace(imageQuality))
+            form.Add(new StringContent(imageQuality), "quality");
 
         using var imageStream = File.OpenRead(inputPath);
         var imageContent = new StreamContent(imageStream);
@@ -673,16 +759,18 @@ JSON 结构：
             // Fill entire mask with black opaque (preserve everything).
             mask.Mutate(ctx => ctx.Fill(new Rgba32(0, 0, 0, 255)));
 
-            // Compute title rect with 10% padding on each side.
-            var padX = (int)Math.Round(w * layout.Width * 0.10f);
-            var padY = (int)Math.Round(h * layout.Height * 0.10f);
-            var rx = Math.Max(0, (int)Math.Round(w * layout.X) - padX);
-            var ry = Math.Max(0, (int)Math.Round(h * layout.Y) - padY);
-            var rw = Math.Min(w - rx, (int)Math.Round(w * layout.Width) + padX * 2);
-            var rh = Math.Min(h - ry, (int)Math.Round(h * layout.Height) + padY * 2);
-
-            // Clear title region to transparent (alpha=0 means "allow edits here").
-            var titleRect = new Rectangle(rx, ry, rw, rh);
+            // Compute title rect with padding aligned to Python poster_generation_service.create_title_mask.
+            var rx = Math.Max(0, (int)Math.Round(w * layout.X));
+            var ry = Math.Max(0, (int)Math.Round(h * layout.Y));
+            var rw = Math.Min(w - rx, (int)Math.Round(w * layout.Width));
+            var rh = Math.Min(h - ry, (int)Math.Round(h * layout.Height));
+            var padX = Math.Max(18, (int)Math.Round(rw * 0.08f));
+            var padY = Math.Max(18, (int)Math.Round(rh * 0.45f));
+            var left = Math.Max(0, rx - padX);
+            var top = Math.Max(0, ry - padY);
+            var right = Math.Min(w, rx + rw + padX);
+            var bottom = Math.Min(h, ry + rh + padY);
+            var titleRect = new Rectangle(left, top, right - left, bottom - top);
             mask.Mutate(ctx => ctx.Fill(new Rgba32(0, 0, 0, 0), titleRect));
 
             await using var ms = new MemoryStream();
@@ -720,6 +808,50 @@ JSON 结构：
         }
 
         return rendered;
+    }
+
+    private static string MergePromptWithGuardrails(string prompt, string title) =>
+        $"{prompt.Trim()}\n\n{RenderPromptTemplate(PosterTextGuardrails, CreatePosterPromptVariables(title, title, null, null))}".Trim();
+
+    private static string GuessMediaType(string extension) => extension switch
+    {
+        "jpg" or "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "heic" => "image/heic",
+        "heif" => "image/heif",
+        _ => "image/png",
+    };
+
+    private static string NormalizeImageProvider(string? value)
+    {
+        var provider = (value ?? "doubao").Trim().ToLowerInvariant();
+        return provider switch
+        {
+            "openai_image2" => "ofox_image2",
+            "gemini" => "doubao",
+            "ofox_image2" => "ofox_image2",
+            _ => "doubao",
+        };
+    }
+
+    private static bool IsOpenAiImageProvider(string provider) =>
+        NormalizeImageProvider(provider) == "ofox_image2";
+
+    private static string NormalizeImageQuality(string? value)
+    {
+        var quality = (value ?? "").Trim().ToLowerInvariant();
+        return quality is "low" or "medium" or "high" or "auto" ? quality : "";
+    }
+
+    private static string NormalizeImageSize(string? value, string provider)
+    {
+        var size = (value ?? "").Trim();
+        if (IsOpenAiImageProvider(provider))
+            return string.IsNullOrWhiteSpace(size) ? "auto" : size.ToLowerInvariant();
+
+        var normalized = size.ToUpperInvariant();
+        return normalized is "2K" or "4K" ? normalized : size;
     }
 
     private static string SanitizePosterTitleForSafety(string title)
