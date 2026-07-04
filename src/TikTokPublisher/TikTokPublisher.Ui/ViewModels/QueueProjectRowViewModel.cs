@@ -1,5 +1,6 @@
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace TikTokPublisher.Ui.ViewModels;
@@ -51,6 +52,16 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public string UploadStatus => StepOf(QueueStepKeys.UploadSeries);
 
     public string StatusText => Item.StatusText;
+    public IBrush DownloadStatusBrush => BrushOf(DownloadStatus);
+    public IBrush RewriteStatusBrush => BrushOf(RewriteStatus);
+    public IBrush PosterStatusBrush => BrushOf(PosterStatus);
+    public IBrush RepairStatusBrush => BrushOf(RepairStatus);
+    public IBrush SilenceDetectStatusBrush => BrushOf(SilenceDetectStatus);
+    public IBrush SilenceRepairStatusBrush => BrushOf(SilenceRepairStatus);
+    public IBrush ValidateStatusBrush => BrushOf(ValidateStatus);
+    public IBrush DeleteSourceStatusBrush => BrushOf(DeleteSourceStatus);
+    public IBrush UploadStatusBrush => BrushOf(UploadStatus);
+    public IBrush StatusTextBrush => BrushOf(StatusText);
     public string LastError => Item.LastError;
     public bool IsPendingUpload => Item.IsPendingUpload;
 
@@ -66,6 +77,25 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
 
     private string StepOf(string key) =>
         Item.StepStates.GetValueOrDefault(key, QueueStepStatus.Pending);
+
+    private static IBrush BrushOf(string status) => status switch
+    {
+        QueueStepStatus.Completed => CompletedBrush,
+        QueueStepStatus.Pending => PendingBrush,
+        QueueStepStatus.Running => RunningBrush,
+        QueueStepStatus.Failed => FailedBrush,
+        QueueStepStatus.Stopped => StoppedBrush,
+        QueueStepStatus.WaitingUploadSlot => PendingBrush,
+        QueueStepStatus.ManualIntervention => PendingBrush,
+        _ => DefaultBrush,
+    };
+
+    private static readonly IBrush CompletedBrush = new SolidColorBrush(Color.Parse("#087443"));
+    private static readonly IBrush PendingBrush = new SolidColorBrush(Color.Parse("#8A5A00"));
+    private static readonly IBrush RunningBrush = new SolidColorBrush(Color.Parse("#0F7AE5"));
+    private static readonly IBrush FailedBrush = new SolidColorBrush(Color.Parse("#8F2F25"));
+    private static readonly IBrush StoppedBrush = new SolidColorBrush(Color.Parse("#6D5A48"));
+    private static readonly IBrush DefaultBrush = new SolidColorBrush(Color.Parse("#231F1A"));
 
     private static string ResolveWorkflowProjectDir(string projectDir)
     {

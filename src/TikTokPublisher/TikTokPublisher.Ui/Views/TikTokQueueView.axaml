@@ -119,8 +119,8 @@
             </StackPanel>
         </Border>
 
-        <!-- 手动发布区：Dock=Bottom 先声明，让表格成为最后一个 fill 子项 -->
-        <Border DockPanel.Dock="Bottom" Classes="controlsFrame" MaxHeight="220" Margin="0,10,0,0">
+        <!-- 手动发布区暂时隐藏：保留代码，后续需要时移除 IsVisible 即可恢复 -->
+        <Border DockPanel.Dock="Bottom" Classes="controlsFrame" MaxHeight="220" Margin="0,10,0,0" IsVisible="False">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="手动发布（多账号并发）" FontWeight="SemiBold" Margin="0,0,0,8" />
                 <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
@@ -168,9 +168,9 @@
 
         <!-- 队列表格：作为 DockPanel 最后一个未指定 Dock 的子项，自动填充剩余空间 -->
         <Border BorderBrush="#DFD1C0" BorderThickness="1" CornerRadius="6">
-            <DockPanel>
-                <ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                    <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <Grid RowDefinitions="Auto,*" Width="1620">
+                    <Grid Grid.Row="0" ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
@@ -189,17 +189,16 @@
                         <TextBlock Grid.Column="15" Text="上传" Classes="tableHeader" />
                         <TextBlock Grid.Column="16" Text="状态" Classes="tableHeader" />
                     </Grid>
-                </ScrollViewer>
 
-                <ListBox x:Name="QueueProjectList"
-                         ItemsSource="{Binding FilteredQueueProjectRows}"
-                         Background="{StaticResource PythonInputBg}"
-                         SelectionMode="Multiple"
-                         ScrollViewer.HorizontalScrollBarVisibility="Auto">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
-                                <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" MinHeight="36">
+                    <ListBox x:Name="QueueProjectList"
+                             Grid.Row="1"
+                             ItemsSource="{Binding FilteredQueueProjectRows}"
+                             Background="{StaticResource PythonInputBg}"
+                             SelectionMode="Multiple"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
+                                <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" MinHeight="36" Width="1620">
                                     <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
                                     <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled}" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                     <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -223,22 +222,22 @@
                                     </Button>
                                     <TextBlock Grid.Column="5" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
                                     <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="7" Text="{Binding DownloadStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" Classes="pageSummary" />
-                                    <TextBlock Grid.Column="8" Text="{Binding RewriteStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" Classes="pageSummary" />
-                                    <TextBlock Grid.Column="9" Text="{Binding PosterStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" Classes="pageSummary" />
-                                    <TextBlock Grid.Column="10" Text="{Binding RepairStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="11" Text="{Binding SilenceDetectStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="12" Text="{Binding SilenceRepairStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="13" Text="{Binding ValidateStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="14" Text="{Binding DeleteSourceStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" Classes="pageSummary" />
-                                    <TextBlock Grid.Column="15" Text="{Binding UploadStatus}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="16" Text="{Binding StatusText}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="7" Text="{Binding DownloadStatus}" Foreground="{Binding DownloadStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="8" Text="{Binding RewriteStatus}" Foreground="{Binding RewriteStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="9" Text="{Binding PosterStatus}" Foreground="{Binding PosterStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="10" Text="{Binding RepairStatus}" Foreground="{Binding RepairStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="11" Text="{Binding SilenceDetectStatus}" Foreground="{Binding SilenceDetectStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="12" Text="{Binding SilenceRepairStatus}" Foreground="{Binding SilenceRepairStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="13" Text="{Binding ValidateStatus}" Foreground="{Binding ValidateStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="14" Text="{Binding DeleteSourceStatus}" Foreground="{Binding DeleteSourceStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="15" Text="{Binding UploadStatus}" Foreground="{Binding UploadStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="16" Text="{Binding StatusText}" Foreground="{Binding StatusTextBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                 </Grid>
-                            </ScrollViewer>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </ScrollViewer>
         </Border>
     </DockPanel>
 </UserControl>
