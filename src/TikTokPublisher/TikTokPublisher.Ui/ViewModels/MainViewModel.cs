@@ -105,6 +105,9 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly Dictionary<string, string> _queueSearchTextByAccount =
         new(StringComparer.OrdinalIgnoreCase);
     private const string DefaultQueueSearchAccountKey = "__default__";
+    private static readonly TimeSpan UploadStatusPriorityGrace = TimeSpan.FromSeconds(3);
+    private bool _uploadStatusPriorityActive;
+    private DateTime _lastUploadStatusUtc = DateTime.MinValue;
 
     public event Action<AccountItemViewModel, string>? NavigateRequested;
     public event Action<TikTokAccountProfile>? AccountProfileNetworkChanged;
@@ -1379,7 +1382,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (progress.Item is not null)
             RefreshQueueRowFor(progress.Item);
 
-        StatusMessage = progress.Message;
+        UpdateStatusMessageFromQueueProgress(progress);
 
         if (!ShouldAppendProgressLog(progress))
             return;
@@ -1461,6 +1464,44 @@ public sealed partial class MainViewModel : ViewModelBase
         _lastProgressMessageByKey[key] = message;
         return true;
     }
+
+    private void UpdateStatusMessageFromQueueProgress(QueueWorkerProgress progress)
+    {
+        if (IsUploadSeriesProgress(progress))
+        {
+            _uploadStatusPriorityActive = true;
+            _lastUploadStatusUtc = DateTime.UtcNow;
+            StatusMessage = progress.Message;
+            return;
+        }
+
+        if (progress.Item is null)
+        {
+            _uploadStatusPriorityActive = false;
+            StatusMessage = progress.Message;
+            return;
+        }
+
+        if (_uploadStatusPriorityActive &&
+            (HasRunningUploadInCurrentWorkspace() || DateTime.UtcNow - _lastUploadStatusUtc < UploadStatusPriorityGrace))
+        {
+            return;
+        }
+
+        _uploadStatusPriorityActive = false;
+        StatusMessage = progress.Message;
+    }
+
+    private bool HasRunningUploadInCurrentWorkspace() =>
+        _queueItems.Any(item =>
+            string.Equals(item.CurrentStep, QueueStepRegistry.UploadSeries, StringComparison.Ordinal) ||
+            string.Equals(
+                item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries),
+                QueueStepStatus.Running,
+                StringComparison.Ordinal));
+
+    private static bool IsUploadSeriesProgress(QueueWorkerProgress progress) =>
+        string.Equals(progress.StepKey, QueueStepRegistry.UploadSeries, StringComparison.Ordinal);
 
     public void ApplyPersistedQueueItems(IReadOnlyList<QueueProjectItem> items)
     {

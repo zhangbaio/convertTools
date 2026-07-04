@@ -144,7 +144,8 @@ public sealed class LogService
 
         if (AutoFollowActiveProject)
         {
-            var active = list.FirstOrDefault(r => r.StatusText == QueueStepStatus.Running)
+            var active = list.FirstOrDefault(IsUploadRunning)
+                         ?? list.FirstOrDefault(r => r.StatusText == QueueStepStatus.Running)
                          ?? list.FirstOrDefault(r => r.IsPendingUpload);
             if (active is not null)
                 SelectedProjectPath = active.Item.ProjectDir;
@@ -360,4 +361,8 @@ public sealed class LogService
         _ when row.IsPendingUpload => "waiting",
         _ => "none",
     };
+
+    private static bool IsUploadRunning(QueueProjectRowViewModel row) =>
+        string.Equals(row.Item.CurrentStep, QueueStepRegistry.UploadSeries, StringComparison.Ordinal)
+        || string.Equals(row.UploadStatus, QueueStepStatus.Running, StringComparison.Ordinal);
 }
