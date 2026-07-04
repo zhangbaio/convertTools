@@ -615,6 +615,10 @@ public sealed partial class MainViewModel : ViewModelBase
                 ClearWorkspaceProjectCollections();
                 _queueItems.Clear();
                 _queueRowByDir.Clear();
+                _displayedWorkspaceRoot = "";
+                UpdateWorkspaceBindingSummary("");
+                UpdateQueueSummaryText();
+                RefreshLogSnapshot(force: true);
             });
             return;
         }
@@ -1711,11 +1715,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private void RefreshWorkspaceFromActiveAccount()
     {
         var workspace = SelectedAccount?.Model.ResolveWorkspacePath() ?? "";
-        if (!string.IsNullOrWhiteSpace(workspace))
-        {
-            WorkspacePath = workspace;
-            RefreshWorkspaceProjects(workspace);
-        }
+        WorkspacePath = workspace;
+        RefreshWorkspaceProjects(workspace);
 
         SystemSettings.UpdateWorkspacePath(WorkspacePath);
         ArchivedProjects.SetWorkspace(WorkspacePath, refresh: false);

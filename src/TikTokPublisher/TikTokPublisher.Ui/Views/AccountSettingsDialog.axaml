@@ -35,14 +35,14 @@
                               RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="合同 ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="ContractIdBox" Watermark="合同 ID" />
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ContractModeCombo" HorizontalAlignment="Stretch">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="ContractModeCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="manual">指定合同 ID</ComboBoxItem>
                                 <ComboBoxItem Tag="first_available">使用第一个可用合同</ComboBoxItem>
                             </ComboBox>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="合同 ID" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="ContractIdBox" Watermark="合同 ID" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="提交动作" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="2" Grid.Column="1" x:Name="SubmitActionCombo" HorizontalAlignment="Stretch">

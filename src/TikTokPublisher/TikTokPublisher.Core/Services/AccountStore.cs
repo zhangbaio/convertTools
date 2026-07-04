@@ -185,6 +185,9 @@ public sealed class AccountStore
             ProfileDir = AppPaths.ProfileDirFor(id),
             TiktokStorageStatePath = AppPaths.DefaultStorageStatePath(id),
             TiktokSeriesUrl = TikTokUrls.DefaultSeriesDraftUrl,
+            TiktokContractIdMode = TikTokPublishConstants.ContractIdModeFirstAvailable,
+            TiktokPaidRatioEnabled = true,
+            TiktokExpectedFullPriceMode = "option_index",
             TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
         };
     }
