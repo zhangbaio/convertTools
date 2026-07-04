@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using TikTokPublisher.Core.Models;
@@ -24,10 +25,35 @@ public partial class TikTokBrowserView : UserControl
         _browserHost = browserHost;
         _vm = vm;
         DataContext = vm;
-        if (BrowserArea is not null && EmptyHint is not null)
-            _browserHost.Attach(BrowserArea, EmptyHint);
+        if (EmptyHint is not null)
+            _browserHost.SetEmptyHint(EmptyHint);
         vm.NavigateRequested += OnNavigateRequested;
         BindViewModel();
+    }
+
+    public Rect? GetBrowserAreaBoundsIn(Visual relativeTo)
+    {
+        if (BrowserArea is null)
+            return null;
+
+        try
+        {
+            var topLeft = BrowserArea.TranslatePoint(new Point(0, 0), relativeTo);
+            if (topLeft is null)
+                return null;
+
+            var bottomRight = BrowserArea.TranslatePoint(
+                new Point(BrowserArea.Bounds.Width, BrowserArea.Bounds.Height),
+                relativeTo);
+            if (bottomRight is null)
+                return null;
+
+            return new Rect(topLeft.Value, bottomRight.Value);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void OnLoaded(object? sender, RoutedEventArgs e) =>

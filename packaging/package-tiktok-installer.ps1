@@ -18,6 +18,7 @@ $InstallerDir = Join-Path $ArtifactsRoot "INSTALL"
 $DependenciesDir = Join-Path $Root "packaging\dependencies"
 $ProjectPath = Join-Path $Root "src\TikTokPublisher\TikTokPublisher.Desktop\TikTokPublisher.Desktop.csproj"
 $InnoScript = Join-Path $Root "packaging\tiktok-publisher.iss"
+$AppIconPath = Join-Path $Root "src\TikTokPublisher\TikTokPublisher.Desktop\Assets\tiktok-shortdrama-logo.ico"
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = "1.0.$(Get-Date -Format 'yyyyMMdd').0"
@@ -234,6 +235,9 @@ $isccArgs = @(
     "/DPublishDir=$PublishDir",
     "/DOutputDir=$InstallerDir"
 )
+if (Test-Path -LiteralPath $AppIconPath) {
+    $isccArgs += "/DAppIconFile=$AppIconPath"
+}
 if (Test-Path -LiteralPath $webView2Installer) {
     $isccArgs += "/DWebView2Installer=$webView2Installer"
 }

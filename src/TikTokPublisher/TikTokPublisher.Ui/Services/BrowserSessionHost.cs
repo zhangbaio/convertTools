@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Threading;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Controls;
@@ -22,11 +23,13 @@ public sealed class BrowserSessionHost
     private Panel? _container;
     private TextBlock? _emptyHint;
 
-    public void Attach(Panel container, TextBlock emptyHint)
+    public void Attach(Panel container, TextBlock? emptyHint = null)
     {
         _container = container;
         _emptyHint = emptyHint;
     }
+
+    public void SetEmptyHint(TextBlock? emptyHint) => _emptyHint = emptyHint;
 
     public IReadOnlyDictionary<string, WebView2Host> Hosts => _hosts;
 
@@ -34,35 +37,65 @@ public sealed class BrowserSessionHost
     public event Action<string>? AuthStatusChanged;
     public event Action<string>? AuthSaveFailed;
 
+    private readonly Dictionary<string, string> _proxyFingerprints = new(StringComparer.OrdinalIgnoreCase);
+    private bool _presentationVisible = true;
+
+    /// <summary>非浏览器页时隐藏 WebView2 展示（保持会话与 CDP），避免原生 HWND 叠在队列页上。</summary>
+    public void SetPresentationVisible(bool visible)
+    {
+        _presentationVisible = visible;
+        foreach (var host in _hosts.Values)
+        {
+            host.IsVisible = true;
+            host.SetRenderedVisible(false);
+        }
+
+        if (_emptyHint is not null)
+            _emptyHint.IsVisible = visible && _hosts.Count == 0;
+    }
+
+    private void ApplyHostVisibility(WebView2Host host, bool rendered)
+    {
+        host.IsVisible = true;
+        host.SetRenderedVisible(rendered);
+    }
+
     public void ShowAccount(AccountItemViewModel? account, bool createIfMissing = true)
     {
         if (_container is null || _emptyHint is null) return;
 
         foreach (var host in _hosts.Values)
-            host.IsVisible = false;
+            ApplyHostVisibility(host, rendered: false);
 
         if (account is null)
         {
-            _emptyHint.IsVisible = _hosts.Count == 0;
+            _emptyHint.IsVisible = _presentationVisible && _hosts.Count == 0;
             return;
         }
 
         if (_hosts.TryGetValue(account.Id, out var existing))
         {
-            existing.IsVisible = true;
-            _emptyHint.IsVisible = false;
+            if (_presentationVisible)
+            {
+                ApplyHostVisibility(existing, rendered: true);
+                _emptyHint.IsVisible = false;
+            }
+
             return;
         }
 
         if (!createIfMissing)
         {
-            _emptyHint.IsVisible = true;
+            _emptyHint.IsVisible = _presentationVisible;
             return;
         }
 
         var target = GetOrCreateHost(account);
-        target.IsVisible = true;
-        _emptyHint.IsVisible = false;
+        if (_presentationVisible)
+        {
+            ApplyHostVisibility(target, rendered: true);
+            _emptyHint.IsVisible = false;
+        }
     }
 
     public void BeginLogin(AccountItemViewModel account, bool forceRelogin = false)
@@ -111,14 +144,17 @@ public sealed class BrowserSessionHost
         {
             UserDataFolder = account.Model.ProfileDir,
             RemoteDebuggingPort = AccountBrowserPortAllocator.Allocate(account.Id),
-            IsVisible = false,
+            IsVisible = true,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
         };
         ApplyProxySettings(host, account.Model);
 
         host.NavigationCompleted += url => _ = OnNavigationCompletedAsync(account, url);
         _hosts[account.Id] = host;
         _container.Children.Add(host);
-        host.Navigate(MainViewModel.TikTokLoginUrl);
+        ApplyHostVisibility(host, rendered: _presentationVisible);
+        host.Navigate(TikTokUrls.DefaultSeriesListUrl);
         return host;
     }
 
@@ -140,8 +176,6 @@ public sealed class BrowserSessionHost
         AccountBrowserPortAllocator.Release(account.Id);
         _proxyFingerprints.Remove(account.Id);
     }
-
-    private readonly Dictionary<string, string> _proxyFingerprints = new(StringComparer.OrdinalIgnoreCase);
 
     private void ApplyProxySettings(WebView2Host host, TikTokAccountProfile account)
     {
@@ -201,10 +235,13 @@ public sealed class BrowserSessionHost
         var host = TryGetHost(account.Id);
         if (host is null) return false;
 
-        for (var attempt = 0; attempt < 120; attempt++)
+        for (var attempt = 0; attempt < 240; attempt++)
         {
             ct.ThrowIfCancellationRequested();
-            if (host.CdpEndpoint is not null) return true;
+            var endpoint = await ReadCdpEndpointOnUiThreadAsync(host).ConfigureAwait(false);
+            if (!string.IsNullOrEmpty(endpoint)
+                && await IsHostCdpUsableAsync(host, endpoint, ct).ConfigureAwait(false))
+                return true;
             await Task.Delay(500, ct).ConfigureAwait(false);
         }
 
@@ -215,37 +252,82 @@ public sealed class BrowserSessionHost
     public async Task<EmbeddedPublishPrepareResult> PrepareForPublishAsync(
         AccountItemViewModel account,
         bool bringToFront = false,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Action<string>? log = null)
     {
         account.Model.TiktokLoginBrowserMode = "embedded";
-        var host = TryGetHost(account.Id) ?? GetOrCreateHost(account);
         if (bringToFront)
             ShowAccount(account);
 
-        for (var attempt = 0; attempt < 120; attempt++)
+        var host = TryGetHost(account.Id) ?? GetOrCreateHost(account);
+
+        for (var attempt = 0; attempt < 240; attempt++)
         {
             ct.ThrowIfCancellationRequested();
-            if (host.CdpEndpoint is { } endpoint)
+            var snapshot = await ReadHostSnapshotOnUiThreadAsync(host).ConfigureAwait(false);
+            var initError = await ReadInitErrorOnUiThreadAsync(host).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(initError) && !snapshot.IsEngineReady && attempt >= 3)
             {
-                account.Model.TiktokFingerprintBrowserCdpEndpoint = endpoint;
-                if (EmbeddedBrowserLoginHelper.IsLoginUrl(host.CurrentUrl))
+                return new EmbeddedPublishPrepareResult(
+                    false,
+                    null,
+                    $"内置浏览器初始化失败：{initError}（详见 %TEMP%\\webview2-host.log）");
+            }
+
+            if (!string.IsNullOrEmpty(snapshot.CdpEndpoint)
+                && await IsHostCdpUsableAsync(host, snapshot.CdpEndpoint, ct).ConfigureAwait(false))
+            {
+                account.Model.TiktokFingerprintBrowserCdpEndpoint = snapshot.CdpEndpoint;
+                if (EmbeddedBrowserLoginHelper.IsLoginUrl(snapshot.CurrentUrl))
                 {
                     return new EmbeddedPublishPrepareResult(
                         false,
-                        endpoint,
+                        snapshot.CdpEndpoint,
                         "账号未登录，请在内置浏览器完成 TikTok 登录后重试");
                 }
 
-                return new EmbeddedPublishPrepareResult(true, endpoint, "");
+                return new EmbeddedPublishPrepareResult(true, snapshot.CdpEndpoint, "");
             }
+
+            if (attempt == 0)
+                log?.Invoke("正在初始化内置浏览器会话…");
+            else if (attempt % 10 == 0)
+                log?.Invoke($"等待内置浏览器 CDP 就绪…（{attempt / 2} 秒）");
 
             await Task.Delay(500, ct).ConfigureAwait(false);
         }
 
+        var lastError = await ReadInitErrorOnUiThreadAsync(host).ConfigureAwait(false);
+        var suffix = string.IsNullOrWhiteSpace(lastError) ? "" : $" 初始化错误：{lastError}";
         return new EmbeddedPublishPrepareResult(
             false,
             null,
-            "内置浏览器 CDP 未就绪，请打开「浏览器」页等待加载完成");
+            $"内置浏览器 CDP 未就绪（已等待约 120 秒），请打开「浏览器」页完成登录并等待页面加载完成。{suffix}");
+    }
+
+    private static Task<string?> ReadInitErrorOnUiThreadAsync(WebView2Host host) =>
+        Dispatcher.UIThread.InvokeAsync(() => host.LastInitError).GetTask();
+
+    private static Task<string?> ReadCdpEndpointOnUiThreadAsync(WebView2Host host) =>
+        Dispatcher.UIThread.InvokeAsync(() => host.CdpEndpoint).GetTask();
+
+    private static Task<HostSnapshot> ReadHostSnapshotOnUiThreadAsync(WebView2Host host) =>
+        Dispatcher.UIThread.InvokeAsync(() =>
+            new HostSnapshot(host.CdpEndpoint, host.CurrentUrl, host.IsEngineReady)).GetTask();
+
+    private sealed record HostSnapshot(string? CdpEndpoint, string? CurrentUrl, bool IsEngineReady);
+
+    private static async Task<bool> IsHostCdpUsableAsync(WebView2Host host, string? endpoint, CancellationToken ct)
+    {
+        var snapshot = await ReadHostSnapshotOnUiThreadAsync(host).ConfigureAwait(false);
+        if (!snapshot.IsEngineReady || string.IsNullOrEmpty(endpoint))
+            return false;
+
+        if (await EmbeddedBrowserCdpProbe.IsReachableAsync(endpoint, ct).ConfigureAwait(false))
+            return true;
+
+        // 探测失败时仍以 WebView2 引擎就绪为准（系统代理可能拦截 localhost HTTP）。
+        return snapshot.IsEngineReady;
     }
 
     public Task<EmbeddedPublishPrepareResult> PrepareForPublishAsync(

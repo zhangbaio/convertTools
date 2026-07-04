@@ -85,6 +85,8 @@ public sealed class ClientSettings
     public string AuthServerUrl { get; set; } = "";
     public string AuthAccount { get; set; } = "";
     public string AuthPassword { get; set; } = "";
+    public string AuthLastUsername { get; set; } = "";
+    public string AuthLastLoginAt { get; set; } = "";
     public bool TiktokExcelAutoExportEnabled { get; set; } = true;
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
@@ -180,6 +182,8 @@ public sealed class ClientSettings
         AuthServerUrl = AuthServerUrl,
         AuthAccount = AuthAccount,
         AuthPassword = AuthPassword,
+        AuthLastUsername = AuthLastUsername,
+        AuthLastLoginAt = AuthLastLoginAt,
         TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled,
         ManagementDedupEnabled = ManagementDedupEnabled,
         ManagementDedupScope = ManagementDedupScope,

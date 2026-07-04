@@ -20,7 +20,7 @@ public class LicenseRejectedException : LicenseServiceException
 
 public static class LicenseAuthService
 {
-    public const string AppName = "TikTok短剧上传助手";
+    public const string AppName = "TikTok 短剧上传助手";
     public const string AppVersion = "0.1.0";
     public const string DeviceName = "TikTok Uploader Desktop";
     public const int VerifyIntervalHours = 1;
@@ -57,18 +57,24 @@ public static class LicenseAuthService
         return DateTimeOffset.Now < verified.AddHours(OfflineGraceHours);
     }
 
-    public static LicenseState? LoadUsableState(string? serverUrl, bool verifyIfDue = true, bool allowOfflineGrace = true)
+    public static LicenseState? LoadUsableState(
+        string? serverUrl,
+        bool verifyIfDue = true,
+        bool allowOfflineGrace = true,
+        bool forceVerify = false,
+        string? account = null,
+        string? password = null)
     {
         var state = LicenseStore.Load();
         if (!state.IsActivated() || !IsAllowedOnThisMachine(state) || state.IsExpired())
             return null;
 
-        if (!verifyIfDue || !ShouldVerify(state))
+        if (!forceVerify && (!verifyIfDue || !ShouldVerify(state)))
             return state;
 
         try
         {
-            return VerifyState(state, serverUrl);
+            return VerifyStateWithCredentials(state, serverUrl, account, password);
         }
         catch (LicenseNetworkException)
         {
@@ -80,17 +86,92 @@ public static class LicenseAuthService
         }
     }
 
-    public static async Task<LicenseState> LoginAsync(string serverUrl, string account, string password, CancellationToken ct = default)
+    public static async Task<LicenseState> LoginAsync(
+        string serverUrl,
+        string account,
+        string password,
+        CancellationToken ct = default)
     {
         var baseUrl = CleanBaseUrl(serverUrl);
+        var machineId = MachineFingerprintHelper.GetMachineFingerprint();
+        var state = await LoginCoreAsync(baseUrl, account, password, machineId, ct);
+        LicenseStore.Save(state);
+        return state;
+    }
+
+    public static LicenseState VerifyState(LicenseState state, string? serverUrl, CancellationToken ct = default) =>
+        VerifyStateWithCredentials(state, serverUrl, account: null, password: null, ct);
+
+    public static LicenseState VerifyStateWithCredentials(
+        LicenseState state,
+        string? serverUrl,
+        string? account,
+        string? password,
+        CancellationToken ct = default)
+    {
+        var baseUrl = CleanBaseUrl(serverUrl ?? state.ServerUrl);
+        if (baseUrl.Length == 0)
+            throw new LicenseServiceException("未配置授权服务地址");
+        if (!state.IsActivated())
+            throw new LicenseServiceException("当前没有可校验的登录信息");
+
+        var machineId = string.IsNullOrWhiteSpace(state.MachineId)
+            ? MachineFingerprintHelper.GetMachineFingerprint()
+            : state.MachineId.Trim();
+        var loginAccount = FirstNonEmpty(account, state.AccountUsername, state.Email, state.LicenseKey);
+
+        if (!string.IsNullOrWhiteSpace(loginAccount) && !string.IsNullOrEmpty(password))
+        {
+            try
+            {
+                var loginState = LoginCoreAsync(baseUrl, loginAccount, password!, machineId, ct)
+                    .GetAwaiter()
+                    .GetResult();
+                LicenseStore.Save(loginState);
+                return loginState;
+            }
+            catch (LicenseNetworkException)
+            {
+                throw;
+            }
+            catch (LicenseServiceException)
+            {
+                // Python 逻辑：保存态已激活时，账号密码登录失败后降级为 token 校验。
+            }
+        }
+
+        try
+        {
+            var verified = VerifyByToken(state, baseUrl, machineId, ct);
+            LicenseStore.Save(verified);
+            return verified;
+        }
+        catch (LicenseRejectedException)
+        {
+            LicenseStore.Clear();
+            throw;
+        }
+    }
+
+    public static void Logout()
+    {
+        LicenseStore.Clear();
+    }
+
+    private static async Task<LicenseState> LoginCoreAsync(
+        string baseUrl,
+        string account,
+        string password,
+        string machineId,
+        CancellationToken ct)
+    {
         if (baseUrl.Length == 0)
             throw new LicenseServiceException("请先填写授权服务地址");
         if (string.IsNullOrWhiteSpace(account))
             throw new LicenseServiceException("请输入用户名或邮箱");
-        if (string.IsNullOrWhiteSpace(password))
+        if (string.IsNullOrEmpty(password))
             throw new LicenseServiceException("请输入密码");
 
-        var machineId = MachineFingerprintHelper.GetMachineFingerprint();
         var payload = await PostJsonAsync(
             $"{baseUrl}/tt/account/login",
             new Dictionary<string, object?>
@@ -106,26 +187,25 @@ public static class LicenseAuthService
 
         var result = EnsureSuccess(payload);
         var username = ReadString(result, "account_username", "username") ?? account.Trim();
-        var state = BuildState(result, username, machineId, baseUrl);
-        LicenseStore.Save(state);
-        return state;
+        return BuildState(result, username, machineId, baseUrl);
     }
 
-    public static LicenseState VerifyState(LicenseState state, string? serverUrl, CancellationToken ct = default)
+    private static LicenseState VerifyByToken(
+        LicenseState state,
+        string baseUrl,
+        string machineId,
+        CancellationToken ct)
     {
-        var baseUrl = CleanBaseUrl(serverUrl ?? state.ServerUrl);
-        if (baseUrl.Length == 0)
-            throw new LicenseServiceException("未配置授权服务地址");
-        if (!state.IsActivated())
+        var account = FirstNonEmpty(state.AccountUsername, state.LicenseKey);
+        if (string.IsNullOrWhiteSpace(account))
             throw new LicenseServiceException("当前没有可校验的登录信息");
 
-        var account = (state.AccountUsername ?? state.LicenseKey ?? "").Trim();
         var payload = PostJsonAsync(
             $"{baseUrl}/tt/account/verify",
             new Dictionary<string, object?>
             {
                 ["account"] = account,
-                ["machine_id"] = state.MachineId,
+                ["machine_id"] = machineId,
                 ["token"] = state.Token,
                 ["device_name"] = DeviceName,
                 ["app_name"] = AppName,
@@ -135,14 +215,7 @@ public static class LicenseAuthService
 
         var result = EnsureSuccess(payload);
         var username = ReadString(result, "account_username", "username") ?? account;
-        var verified = BuildState(result, username, state.MachineId, baseUrl, state);
-        LicenseStore.Save(verified);
-        return verified;
-    }
-
-    public static void Logout()
-    {
-        LicenseStore.Clear();
+        return BuildState(result, username, machineId, baseUrl, state);
     }
 
     private static LicenseState BuildState(
@@ -211,6 +284,10 @@ public static class LicenseAuthService
         {
             throw new LicenseServiceException($"授权服务返回了无法解析的 JSON：{ex.Message}");
         }
+        catch (Exception ex) when (ex is UriFormatException or InvalidOperationException)
+        {
+            throw new LicenseNetworkException($"连接授权服务异常：{ex.Message}");
+        }
     }
 
     private static Dictionary<string, JsonElement> EnsureSuccess(Dictionary<string, JsonElement> data)
@@ -243,6 +320,29 @@ public static class LicenseAuthService
             }
         }
 
+        if (raw is string text)
+        {
+            var trimmed = text.Trim();
+            if (trimmed.Length == 0)
+                return trimmed;
+            try
+            {
+                using var doc = JsonDocument.Parse(trimmed);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    var parsed = doc.RootElement.EnumerateObject()
+                        .ToDictionary(p => p.Name, p => p.Value.Clone(), StringComparer.Ordinal);
+                    return StringifyError(parsed);
+                }
+            }
+            catch
+            {
+                // Raw service text is still useful to show.
+            }
+
+            return trimmed;
+        }
+
         return raw.ToString() ?? "授权服务返回错误";
     }
 
@@ -260,6 +360,10 @@ public static class LicenseAuthService
 
         return null;
     }
+
+    private static string FirstNonEmpty(params string?[] values) =>
+        values.Select(value => value?.Trim() ?? "")
+            .FirstOrDefault(value => value.Length > 0) ?? "";
 
     private static string CleanBaseUrl(string? serverUrl) =>
         (serverUrl ?? "").Trim().TrimEnd('/');

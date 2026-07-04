@@ -23,6 +23,7 @@ public partial class TikTokQueueView : UserControl
 {
     private MainViewModel? _vm;
     private BrowserSessionHost? _browserHost;
+    private Action? _ensureBrowserMounted;
     private readonly EmbeddedBrowserPublishAutomation _automation = new();
     private EmbeddedBrowserProvider? _browserProvider;
     private PublishScheduler? _scheduler;
@@ -45,10 +46,11 @@ public partial class TikTokQueueView : UserControl
         Loaded += OnLoaded;
     }
 
-    public void Initialize(MainViewModel vm, BrowserSessionHost browserHost)
+    public void Initialize(MainViewModel vm, BrowserSessionHost browserHost, Action? ensureBrowserMounted = null)
     {
         _vm = vm;
         _browserHost = browserHost;
+        _ensureBrowserMounted = ensureBrowserMounted;
         DataContext = vm;
         _queueProgressSink = new QueueUiProgressSink(vm.HandleQueueWorkerProgress);
         vm.NavigateRequested += OnNavigateRequested;
@@ -1014,18 +1016,22 @@ public partial class TikTokQueueView : UserControl
         return _browserProvider ??= new EmbeddedBrowserProvider(
             _browserHost,
             account => _vm.FindAccount(account.Id) ?? _vm.Accounts.FirstOrDefault(a => a.Id == account.Id),
-            vm => PublishBrowserFocusRequested?.Invoke(vm));
+            vm => PublishBrowserFocusRequested?.Invoke(vm),
+            () => _ensureBrowserMounted?.Invoke());
     }
 
     private PublishScheduler RequireScheduler() =>
         _scheduler ??= new PublishScheduler(_automation, RequireBrowserProvider());
 
-    private async Task<bool> EnsureAccountBrowserReadyAsync(TikTokAccountProfile account, CancellationToken ct)
+    private async Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
+        TikTokAccountProfile account,
+        Action<string>? log,
+        CancellationToken ct)
     {
-        var browser = await RequireBrowserProvider()
-            .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Interactive)
+        var provider = RequireBrowserProvider();
+        return await provider
+            .EnsureBrowserReadyAsync(account, ct, EmbeddedBrowserAccessOptions.Background, log)
             .ConfigureAwait(false);
-        return browser is not null;
     }
 
     private async Task<PublishResult> PublishQueueProjectAsync(
@@ -1037,7 +1043,7 @@ public partial class TikTokQueueView : UserControl
         CancellationToken ct)
     {
         var browser = await RequireBrowserProvider()
-            .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Interactive)
+            .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Background)
             .ConfigureAwait(false);
         if (browser is null)
             return PublishResult.Fail("内置浏览器未就绪或未登录，请先在「浏览器」页完成登录");
@@ -1209,7 +1215,7 @@ public partial class TikTokQueueView : UserControl
         {
             var acctVm = group.First().Account;
             if (await RequireBrowserProvider()
-                    .GetBrowserAsync(acctVm.Model, CancellationToken.None, EmbeddedBrowserAccessOptions.Interactive)
+                    .GetBrowserAsync(acctVm.Model, CancellationToken.None, EmbeddedBrowserAccessOptions.Background)
                     .ConfigureAwait(true) is null)
             {
                 foreach (var t in group) { t.Status = PublishTaskStatus.Failed; t.Message = "内置浏览器未就绪"; }

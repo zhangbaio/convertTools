@@ -8,40 +8,52 @@
     <ScrollViewer Margin="16,14,16,16">
         <StackPanel Spacing="12">
             <TextBlock Text="系统服务" Classes="pageTitle" />
-            <TextBlock Text="授权、飞书命令和远程命令配置会写入与 Python 兼容的 client_settings。"
+            <TextBlock Text="{Binding ServiceSummaryText}"
                        Classes="pageSummary"
                        TextWrapping="Wrap" />
 
             <TabControl>
                 <TabItem Header="软件授权">
-                    <StackPanel Spacing="12" Margin="12">
-                        <TextBlock Text="账号授权登录（与 Python 客户端共享 account_state.bin）。"
-                                   Classes="pageSummary"
-                                   TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                    <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
+                        <Grid ColumnDefinitions="120,*"
+                              RowDefinitions="Auto,Auto,Auto"
                               RowSpacing="10"
-                              ColumnSpacing="10"
-                              MaxWidth="980">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="授权服务地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AuthServerUrl}" Watermark="https://auth.example.com" />
+                              ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="授权状态" VerticalAlignment="Top" Margin="0,6,0,0" />
+                            <TextBox Grid.Row="0"
+                                     Grid.Column="1"
+                                     Text="{Binding LicenseSummary}"
+                                     IsReadOnly="True"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     Height="120" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="当前状态" VerticalAlignment="Center" />
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LicenseSummary}" TextWrapping="Wrap" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="服务器地址" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1"
+                                     Grid.Column="1"
+                                     Text="{Binding AuthServerUrl}"
+                                     Watermark="例如：https://shortdrama.momotools.top" />
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="账号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding LoginAccount}" />
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="密码" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding LoginPassword}" PasswordChar="●" RevealPassword="False" />
-
-                            <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                <Button Content="保存地址" Command="{Binding SaveAuthServerUrlCommand}" />
-                                <Button Content="登录" Command="{Binding LoginCommand}" Classes="primaryAction" />
-                                <Button Content="退出登录" Command="{Binding LogoutCommand}" />
-                            </StackPanel>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="联网校验间隔" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="2"
+                                           Grid.Column="1"
+                                           Value="{Binding LicenseVerifyIntervalHours, Mode=OneWay}"
+                                           Minimum="1"
+                                           Maximum="1"
+                                           IsEnabled="False"
+                                           Width="170"
+                                           HorizontalAlignment="Left"
+                                           FormatString="0 小时（系统固定）" />
                         </Grid>
 
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="登录 / 更换账号" Click="OnLicenseLoginClick" Classes="primaryAction" />
+                            <Button Content="退出登录 / 清除本机登录" Click="OnLicenseLogoutClick" />
+                        </StackPanel>
+
+                        <TextBlock Text="软件每次启动都会联网校验账号和设备授权；未登录或校验失败时会先进入账号登录窗口。登录信息保存在 ~/.tiktok_uploader_client/account_state.bin。"
+                                   Classes="compactHint"
+                                   TextWrapping="Wrap" />
                         <TextBlock Text="{Binding LoginStatus}" Classes="pageSummary" TextWrapping="Wrap" />
                     </StackPanel>
                 </TabItem>
@@ -60,7 +72,7 @@
                             <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding FeishuCommandAppId}" Watermark="cli_xxx" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="App Secret" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding FeishuCommandAppSecret}" PasswordChar="●" RevealPassword="False" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding FeishuCommandAppSecret}" PasswordChar="*" RevealPassword="False" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="机器人名称" VerticalAlignment="Center" />
                             <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding FeishuCommandBotName}" Watermark="群里 @ 的机器人名称" />
@@ -129,10 +141,6 @@
                                 </StackPanel>
                             </StackPanel>
                         </Border>
-
-                        <TextBlock Text="当前版本接入 TikTok 远程命令：上传剧名、执行队列、停止队列、查询状态、帮助。"
-                                   Classes="compactHint"
-                                   TextWrapping="Wrap" />
                     </StackPanel>
                 </TabItem>
 

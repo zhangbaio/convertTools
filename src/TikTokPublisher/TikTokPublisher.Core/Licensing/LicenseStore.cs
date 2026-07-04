@@ -16,10 +16,12 @@ public static class LicenseStore
         WriteIndented = false,
     };
 
-    public static string StateDirectory => AppPaths.DataRoot;
+    public static string StateDirectory => AppPaths.LegacyUploaderDataRoot;
 
     public static string StatePath => Path.Combine(StateDirectory, "account_state.bin");
     public static string LegacyStatePath => Path.Combine(StateDirectory, "license.json");
+    public static string PublisherStatePath => Path.Combine(AppPaths.DataRoot, "account_state.bin");
+    public static string PublisherLegacyStatePath => Path.Combine(AppPaths.DataRoot, "license.json");
 
     public static LicenseState Load()
     {
@@ -48,6 +50,31 @@ public static class LicenseStore
             }
         }
 
+        if (File.Exists(PublisherStatePath))
+        {
+            try
+            {
+                return ReadEncrypted(File.ReadAllBytes(PublisherStatePath));
+            }
+            catch
+            {
+                return new LicenseState();
+            }
+        }
+
+        if (File.Exists(PublisherLegacyStatePath))
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<LicenseState>(File.ReadAllText(PublisherLegacyStatePath), JsonOptions)
+                       ?? new LicenseState();
+            }
+            catch
+            {
+                return new LicenseState();
+            }
+        }
+
         return new LicenseState();
     }
 
@@ -63,7 +90,14 @@ public static class LicenseStore
         File.WriteAllBytes(StatePath, stream.ToArray());
     }
 
-    public static void Clear() => File.Delete(StatePath);
+    public static void Clear()
+    {
+        foreach (var path in new[] { StatePath, LegacyStatePath, PublisherStatePath, PublisherLegacyStatePath })
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
 
     public static string MaskLicenseKey(string licenseKey)
     {

@@ -7,19 +7,22 @@ namespace TikTokPublisher.Ui.Services;
 
 public sealed class QueuePublishHost : IQueuePublishHost
 {
-    private readonly Func<TikTokAccountProfile, CancellationToken, Task<bool>> _ensureBrowser;
+    private readonly Func<TikTokAccountProfile, Action<string>?, CancellationToken, Task<QueueBrowserReadyResult>> _ensureBrowser;
     private readonly Func<TikTokAccountProfile, QueueProjectItem, FinalAction, QueueRunOptions, Action<string>, CancellationToken, Task<PublishResult>> _publish;
 
     public QueuePublishHost(
-        Func<TikTokAccountProfile, CancellationToken, Task<bool>> ensureBrowser,
+        Func<TikTokAccountProfile, Action<string>?, CancellationToken, Task<QueueBrowserReadyResult>> ensureBrowser,
         Func<TikTokAccountProfile, QueueProjectItem, FinalAction, QueueRunOptions, Action<string>, CancellationToken, Task<PublishResult>> publish)
     {
         _ensureBrowser = ensureBrowser;
         _publish = publish;
     }
 
-    public Task<bool> EnsureAccountBrowserReadyAsync(TikTokAccountProfile account, CancellationToken ct) =>
-        _ensureBrowser(account, ct);
+    public Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
+        TikTokAccountProfile account,
+        Action<string>? log,
+        CancellationToken ct) =>
+        _ensureBrowser(account, log, ct);
 
     public Task<PublishResult> PublishProjectAsync(
         TikTokAccountProfile account,

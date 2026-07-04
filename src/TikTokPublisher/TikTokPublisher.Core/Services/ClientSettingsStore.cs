@@ -237,6 +237,11 @@ public static class ClientSettingsStore
         settings.PosterGenerationSafeRetryPrompt = DefaultIfBlank(settings.PosterGenerationSafeRetryPrompt, ClientSettingsDefaults.PosterGenerationSafeRetryPrompt);
         settings.PosterNameSystemPrompt = DefaultIfBlank(settings.PosterNameSystemPrompt, ClientSettingsDefaults.PosterNameSystemPrompt);
         settings.PosterNameUserPrompt = DefaultIfBlank(settings.PosterNameUserPrompt, ClientSettingsDefaults.PosterNameUserPrompt);
+        settings.AuthServerUrl = (settings.AuthServerUrl ?? "").Trim().TrimEnd('/');
+        settings.AuthAccount = (settings.AuthAccount ?? "").Trim();
+        settings.AuthPassword ??= "";
+        settings.AuthLastUsername = (settings.AuthLastUsername ?? "").Trim();
+        settings.AuthLastLoginAt = (settings.AuthLastLoginAt ?? "").Trim();
         settings.ManagementDedupScope = NormalizeManagementDedupScope(settings.ManagementDedupScope);
         settings.FeishuCommandAppId = (settings.FeishuCommandAppId ?? "").Trim();
         settings.FeishuCommandAppSecret = settings.FeishuCommandAppSecret ?? "";

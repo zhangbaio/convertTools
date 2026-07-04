@@ -4,14 +4,34 @@
         x:Class="TikTokPublisher.Desktop.Views.MainWindow"
         Width="1360" Height="860"
         Title="TikTok 短剧上传助手"
+        Icon="/Assets/tiktok-shortdrama-logo.ico"
         Background="{StaticResource PythonPageBgBrush}">
 
     <Grid RowDefinitions="Auto,*,Auto">
         <!-- 顶部：品牌 + 水平一级 TAB -->
         <Border Grid.Row="0" Classes="topNavFrame">
-            <Grid ColumnDefinitions="220,*">
-                <Border Grid.Column="0" BorderBrush="#E5E7EB" BorderThickness="0,0,1,0" Padding="20,0,12,0">
-                    <TextBlock Text="TikTok 短剧助手" Classes="topBrandLabel" VerticalAlignment="Center" />
+            <Grid x:Name="TopLayout">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border x:Name="BrandPane" Grid.Column="0" BorderBrush="#E5E7EB" BorderThickness="0,0,1,0" Padding="12,0,10,0">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock x:Name="BrandLabel" Grid.Column="0" Text="TikTok 短剧助手" Classes="topBrandLabel" VerticalAlignment="Center" />
+                        <Button x:Name="SidebarToggleButton"
+                                Grid.Column="1"
+                                Content="‹"
+                                Width="30"
+                                Height="30"
+                                MinHeight="30"
+                                Padding="0"
+                                FontSize="16"
+                                FontWeight="Bold"
+                                VerticalAlignment="Center"
+                                ToolTip.Tip="收起左侧面板"
+                                Click="OnSidebarToggleClick" />
+                    </Grid>
                 </Border>
                 <StackPanel Grid.Column="1" x:Name="ModuleNav" Orientation="Horizontal"
                             VerticalAlignment="Center" Margin="8,0,0,0">
@@ -28,9 +48,38 @@
         </Border>
 
         <!-- 中部：左侧账号 + 右侧内容 -->
-        <Grid Grid.Row="1" ColumnDefinitions="220,*" Background="{StaticResource PythonPageBgBrush}">
+        <Grid x:Name="MainLayout" Grid.Row="1" Background="{StaticResource PythonPageBgBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
             <views:AccountSidebarView x:Name="AccountSidebar" Grid.Column="0" />
-            <Panel Grid.Column="1">
+            <Border x:Name="CollapsedSidebarRail"
+                    Grid.Column="0"
+                    Classes="accountSidebarFrame"
+                    Padding="6,10"
+                    IsVisible="False">
+                <Button Content="›"
+                        Width="30"
+                        Height="30"
+                        MinHeight="30"
+                        Padding="0"
+                        FontSize="16"
+                        FontWeight="Bold"
+                        ToolTip.Tip="展开左侧面板"
+                        Click="OnSidebarToggleClick" />
+            </Border>
+            <Panel x:Name="ContentHostPanel" Grid.Column="1">
+                <Panel x:Name="BrowserHostMount"
+                       IsHitTestVisible="False"
+                       ClipToBounds="True"
+                       Width="1"
+                       Height="1"
+                       HorizontalAlignment="Left"
+                       VerticalAlignment="Top"
+                       ZIndex="5" />
+                <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" ZIndex="10" />
                 <views:DramaDownloadView x:Name="DownloadView" IsVisible="False" />
                 <views:TikTokQueueView x:Name="QueueView" IsVisible="True" />
                 <views:AccountProfilesView x:Name="AccountsView" IsVisible="False" />
@@ -38,7 +87,6 @@
                 <views:SystemSettingsView x:Name="SettingsView" IsVisible="False" />
                 <views:SystemServicesView x:Name="ServicesView" IsVisible="False" />
                 <views:ArchivedProjectsView x:Name="ArchivedView" IsVisible="False" />
-                <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" />
             </Panel>
         </Grid>
 

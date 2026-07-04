@@ -32,6 +32,9 @@ MinVersion=10.0
 CloseApplications=yes
 SetupLogging=yes
 UninstallDisplayIcon={app}\TikTokPublisher.Desktop.exe
+#ifdef AppIconFile
+SetupIconFile={#AppIconFile}
+#endif
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式:"; Flags: unchecked

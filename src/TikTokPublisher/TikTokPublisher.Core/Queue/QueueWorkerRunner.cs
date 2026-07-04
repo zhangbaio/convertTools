@@ -24,7 +24,10 @@ public sealed class QueueWorkerSummary
 /// <summary>由 UI 层提供内置浏览器 CDP 与剧集发布能力。</summary>
 public interface IQueuePublishHost
 {
-    Task<bool> EnsureAccountBrowserReadyAsync(TikTokAccountProfile account, CancellationToken ct);
+    Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
+        TikTokAccountProfile account,
+        Action<string>? log,
+        CancellationToken ct);
     Task<PublishResult> PublishProjectAsync(
         TikTokAccountProfile account,
         QueueProjectItem project,
@@ -500,9 +503,13 @@ public sealed class QueueWorkerRunner
         var stopQueue = false;
         try
         {
-            if (!await host.EnsureAccountBrowserReadyAsync(account, ct).ConfigureAwait(false))
+            Action<string> browserLog = msg =>
+                Report(onProgress, workspace, item, msg, QueueStepRegistry.UploadSeries);
+            var browserReady = await host.EnsureAccountBrowserReadyAsync(account, browserLog, ct).ConfigureAwait(false);
+            if (!browserReady.Ok)
             {
-                failureMessage = "内置浏览器未就绪或未登录，请先在「浏览器」页完成登录";
+                failureMessage = browserReady.Message;
+                Report(onProgress, workspace, item, $"上传失败：{failureMessage}", QueueStepRegistry.UploadSeries);
             }
             else
             {

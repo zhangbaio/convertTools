@@ -25,6 +25,10 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     private CoreWebView2Controller? _controller;
     private string? _pendingUrl;
+    private string? _lastInitError;
+    private bool _renderedVisible;
+
+    public string? LastInitError => _lastInitError;
 
     public string UserDataFolder { get; set; } = "";
     public int RemoteDebuggingPort { get; set; }
@@ -44,16 +48,39 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     public string? CdpEndpoint =>
         _controller != null && RemoteDebuggingPort > 0 ? $"http://127.0.0.1:{RemoteDebuggingPort}" : null;
 
+    public bool IsEngineReady
+    {
+        get
+        {
+            try { return _controller?.CoreWebView2 is not null && RemoteDebuggingPort > 0; }
+            catch { return false; }
+        }
+    }
+
     public event Action? Ready;
     public event Action<string>? NavigationCompleted;
 
     public WebView2Host()
     {
-        this.GetObservable(IsVisibleProperty).Subscribe(new AnonymousObserver<bool>(v =>
-        {
-            if (_controller != null) _controller.IsVisible = v;
-        }));
         SizeChanged += (_, _) => UpdateBounds();
+    }
+
+    /// <summary>控制 WebView2 是否绘制到屏幕；与 Avalonia <see cref="IsVisible"/> 解耦以支持后台 CDP。</summary>
+    public void SetRenderedVisible(bool visible)
+    {
+        _renderedVisible = visible;
+        try
+        {
+            if (_controller is null)
+                return;
+
+            _controller.IsVisible = visible;
+            if (visible)
+                UpdateBounds();
+            else
+                _controller.Bounds = new Rectangle(0, 0, 0, 0);
+        }
+        catch { /* ignore */ }
     }
 
     public Task NavigateAsync(string url) => NavigateOnUiThreadAsync(url);
@@ -133,14 +160,27 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
     {
         var handle = base.CreateNativeControlCore(parent);
-        if (OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsWindows())
+            return handle;
+
+        if (_controller is null)
             _ = InitAsync(handle.Handle);
+        else
+            UpdateBounds();
+
         return handle;
     }
 
     protected override void DestroyNativeControlCore(IPlatformHandle control)
     {
-        CloseBrowser();
+        // 切页时 Avalonia 可能销毁原生 HWND；保留 WebView2 进程与 CDP，避免上传前反复冷启动。
+        try
+        {
+            if (_controller is not null)
+                _controller.IsVisible = false;
+        }
+        catch { /* ignore */ }
+
         base.DestroyNativeControlCore(control);
     }
 
@@ -148,6 +188,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     {
         try
         {
+            _lastInitError = null;
             var options = new CoreWebView2EnvironmentOptions();
             var browserArgs = new List<string>();
             if (RemoteDebuggingPort > 0)
@@ -160,7 +201,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             var udf = string.IsNullOrWhiteSpace(UserDataFolder) ? null : UserDataFolder;
             var env = await CoreWebView2Environment.CreateAsync(null, udf, options);
             _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
-            _controller.IsVisible = IsVisible;
+            _controller.IsVisible = false;
             UpdateBounds();
 
             if (_controller.CoreWebView2 is not null)
@@ -192,7 +233,8 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         }
         catch (Exception ex)
         {
-            Log($"FAILED udf={UserDataFolder} port={RemoteDebuggingPort} :: {ex.GetType().Name}: {ex.Message}");
+            _lastInitError = $"{ex.GetType().Name}: {ex.Message}";
+            Log($"FAILED udf={UserDataFolder} port={RemoteDebuggingPort} :: {_lastInitError}");
         }
     }
 
@@ -228,7 +270,15 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     private void UpdateBounds()
     {
-        if (_controller == null) return;
+        if (_controller is null)
+            return;
+
+        if (!_renderedVisible)
+        {
+            _controller.Bounds = new Rectangle(0, 0, 0, 0);
+            return;
+        }
+
         var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
         var w = Math.Max(0, (int)(Bounds.Width * scaling));
         var h = Math.Max(0, (int)(Bounds.Height * scaling));

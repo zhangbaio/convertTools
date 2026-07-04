@@ -569,8 +569,18 @@ public sealed partial class MainViewModel : ViewModelBase
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (generation != _workspaceRefreshGeneration) return;
+            if (IsWorkspaceQueueRunning(root))
+                return;
             ApplyWorkspaceScanResult(root, scanResult.Items, scanResult.Options);
         });
+    }
+
+    private bool IsWorkspaceQueueRunning(string workspaceRoot)
+    {
+        var normalized = Path.GetFullPath(workspaceRoot);
+        return _queueOrchestrator.Snapshot().Any(item =>
+            item.IsRunning &&
+            string.Equals(Path.GetFullPath(item.WorkspaceRoot), normalized, StringComparison.OrdinalIgnoreCase));
     }
 
     private void ClearWorkspaceProjectCollections()
@@ -745,6 +755,24 @@ public sealed partial class MainViewModel : ViewModelBase
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root) || _queueItems.Count == 0)
             return null;
+
+        var selected = SelectedAccount;
+        if (selected is not null)
+        {
+            if (string.IsNullOrWhiteSpace(WorkspaceBindingService.ResolveAccountProfileId(root)))
+            {
+                WorkspaceBindingService.Bind(root, selected.Id, selected.DisplayName);
+                UpdateWorkspaceBindingSummary(root);
+            }
+
+            foreach (var item in _queueItems.Where(i => i.Enabled && string.IsNullOrWhiteSpace(i.AccountProfileId)))
+            {
+                item.AccountProfileId = selected.Id;
+                item.AccountProfileName = selected.DisplayName;
+            }
+
+            PersistQueueItems();
+        }
 
         var runOptions = optionsOverride ?? BuildQueueRunOptionsFromUi();
         if (optionsOverride is null)
@@ -924,16 +952,21 @@ public sealed partial class MainViewModel : ViewModelBase
             string.Equals(Path.GetFullPath(item.WorkspaceRoot), normalized, StringComparison.OrdinalIgnoreCase));
     }
 
-    public void RequestStopQueue()
+    public void RequestStopQueue(string? workspaceRoot = null)
     {
-        _queueCts?.Cancel();
-        if (_queueOrchestrator.AnyRunning)
+        var root = (workspaceRoot ?? WorkspacePath).Trim();
+        if (!string.IsNullOrEmpty(root))
         {
-            if (!string.IsNullOrWhiteSpace(WorkspacePath))
-                _queueOrchestrator.StopWorkspace(WorkspacePath);
-            else
-                _queueOrchestrator.StopAll();
+            _queueOrchestrator.StopWorkspace(root);
         }
+        else
+        {
+            _queueOrchestrator.StopAll();
+            _queueCts?.Cancel();
+        }
+
+        if (!_queueOrchestrator.AnyRunning)
+            EndQueueRun();
     }
 
     public async Task<TikTokRemoteCommandResult> ExecuteRemoteCommandAsync(TikTokRemoteCommand command)
@@ -1262,6 +1295,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrEmpty(root)) return;
         _queueItems = items.ToList();
         _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
+        RefreshQueueRowViewModels();
     }
 
     private void PersistQueueItems(IReadOnlyList<QueueProjectItem> items)
@@ -1565,14 +1599,14 @@ public sealed partial class MainViewModel : ViewModelBase
             AppendLog,
             ct);
 
-        ApplyUploadTitleImportResult(result);
+        await ApplyUploadTitleImportResultAsync(result).ConfigureAwait(false);
         StatusMessage =
             $"上传短剧导入完成：加入 {result.QueuedCount} 个，失败 {result.FailedCount} 个，重复 {result.Duplicates.Count} 个";
         AppendLog(StatusMessage);
         return result;
     }
 
-    public void ApplyUploadTitleImportResult(UploadTitleImportResult result)
+    public async Task ApplyUploadTitleImportResultAsync(UploadTitleImportResult result)
     {
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root))
@@ -1602,7 +1636,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return;
         }
 
-        RefreshWorkspaceProjects(root);
+        await RefreshWorkspaceProjectsAsync(root).ConfigureAwait(false);
         foreach (var item in _queueItems)
         {
             var isImported = importedKeys.Contains(Path.GetFullPath(item.ProjectDir));
@@ -1613,7 +1647,11 @@ public sealed partial class MainViewModel : ViewModelBase
 
         PersistQueueItems();
         RefreshQueueRowViewModels();
+        UpdateQueueSummaryText();
     }
+
+    public void ApplyUploadTitleImportResult(UploadTitleImportResult result) =>
+        ApplyUploadTitleImportResultAsync(result).GetAwaiter().GetResult();
 
     public bool ShouldAutoStartQueueAfterUploadTitleImport(UploadTitleImportResult result) =>
         result.QueuedCount > 0 && !IsCurrentWorkspaceQueueRunning();
