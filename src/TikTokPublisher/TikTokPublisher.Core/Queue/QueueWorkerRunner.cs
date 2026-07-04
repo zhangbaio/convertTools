@@ -116,7 +116,8 @@ public sealed class QueueWorkerRunner
         var activeUploadAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         Report(onProgress, workspace, null,
-            $"开始执行队列，共 {candidates.Count} 个项目（启用步骤：{string.Join(", ", orderedSteps)}，项目并发 {projectConcurrency}）");
+            $"开始执行队列，共 {candidates.Count} 个项目（启用步骤：{string.Join(", ", orderedSteps)}，" +
+            $"强制重跑已完成步骤：{(options.ForceRerunCompletedSteps ? "开" : "关")}，项目并发 {projectConcurrency}）");
 
         void Mutate(Action action)
         {
@@ -543,6 +544,9 @@ public sealed class QueueWorkerRunner
         catch (OperationCanceledException)
         {
             mutate(() => MarkStopped(item, QueueStepRegistry.UploadSeries));
+            Report(onProgress, workspace, item,
+                "上传中断：队列收到停止信号（手动停止或程序退出），重新执行时将自动续传已有草稿",
+                QueueStepRegistry.UploadSeries);
             throw;
         }
         catch (Exception ex)

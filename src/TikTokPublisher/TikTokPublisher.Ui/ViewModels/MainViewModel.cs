@@ -34,6 +34,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private string? _manualInterventionWorkspaceRoot;
     private bool _applyingQueueStepToggles;
     private bool _queueRunActive;
+    private int _activeQueueRunCount;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
     public ObservableCollection<AccountItemViewModel> FilteredAccounts { get; } = new();
@@ -610,6 +611,7 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             WorkspaceProjects.Add(new WorkspaceProjectItemViewModel(project));
             var row = new QueueProjectRowViewModel(project) { RowIndex = rowIndex++ };
+            row.EnabledChangedByUser += OnQueueRowEnabledChangedByUser;
             QueueProjectRows.Add(row);
             _queueRowByDir[NormalizeProjectDir(project.ProjectDir)] = row;
         }
@@ -965,8 +967,8 @@ public sealed partial class MainViewModel : ViewModelBase
             _queueCts?.Cancel();
         }
 
-        if (!_queueOrchestrator.AnyRunning)
-            EndQueueRun();
+        // 各次运行的 finally 会调用 EndQueueRun 做引用计数清理，这里只需刷新状态展示。
+        RefreshRunningWorkspacesSummary();
     }
 
     public async Task<TikTokRemoteCommandResult> ExecuteRemoteCommandAsync(TikTokRemoteCommand command)
@@ -1197,8 +1199,14 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public CancellationToken BeginQueueRun()
     {
-        _queueCts?.Dispose();
-        _queueCts = new CancellationTokenSource();
+        // 支持多账号/多工作目录并行：已有运行中的队列时复用同一 CTS，不得 Dispose（会破坏前一个队列的停止）。
+        if (_queueCts is null || _queueCts.IsCancellationRequested)
+        {
+            _queueCts?.Dispose();
+            _queueCts = new CancellationTokenSource();
+        }
+
+        _activeQueueRunCount++;
         _queueRunActive = true;
         RefreshRunningWorkspacesSummary();
         return _queueCts.Token;
@@ -1206,9 +1214,14 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void EndQueueRun()
     {
-        _queueCts?.Dispose();
-        _queueCts = null;
-        _queueRunActive = false;
+        _activeQueueRunCount = Math.Max(0, _activeQueueRunCount - 1);
+        if (_activeQueueRunCount == 0)
+        {
+            _queueCts?.Dispose();
+            _queueCts = null;
+            _queueRunActive = false;
+        }
+
         RefreshRunningWorkspacesSummary();
     }
 
@@ -1308,6 +1321,15 @@ public sealed partial class MainViewModel : ViewModelBase
     }
 
     private void PersistQueueItems() => PersistQueueItems(_queueItems);
+
+    private void OnQueueRowEnabledChangedByUser(QueueProjectRowViewModel row)
+    {
+        PersistQueueItems();
+        UpdateQueueSummaryText();
+        StatusMessage = row.IsEnabled
+            ? $"已勾选「{row.NewTitle}」"
+            : $"已取消勾选「{row.NewTitle}」";
+    }
 
     private void RefreshQueueRowFor(QueueProjectItem item)
     {

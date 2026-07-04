@@ -93,6 +93,32 @@ public static class TikTokUploadStateStore
                value.ValueKind is JsonValueKind.True;
     }
 
+    /// <summary>
+    /// 是否应在发布前搜索平台已有草稿。仅在上传曾真正进入表单、或已有平台草稿缓存时搜索；
+    /// 避免「浏览器未打开就失败」的脏状态反复触发无效搜索。
+    /// </summary>
+    public static bool ShouldSearchPlatformForExistingDraft(string workflowProjectDir)
+    {
+        if (!string.IsNullOrWhiteSpace(LoadCachedEditDetailUrl(workflowProjectDir)))
+            return true;
+
+        var state = LoadState(workflowProjectDir);
+        if (state.TryGetValue("platform_series_lookup", out var lookup) &&
+            lookup.ValueKind == JsonValueKind.Object &&
+            lookup.TryGetProperty("status", out var statusEl))
+        {
+            var status = statusEl.GetString() ?? "";
+            if (string.Equals(status, "found", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (string.Equals(status, "not_found", StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+
+        return state.TryGetValue("last_upload_step_started_at", out var started) &&
+               started.ValueKind == JsonValueKind.String &&
+               !string.IsNullOrWhiteSpace(started.GetString());
+    }
+
     public static string LoadCachedEditDetailUrl(string workflowProjectDir)
     {
         var state = LoadState(workflowProjectDir);

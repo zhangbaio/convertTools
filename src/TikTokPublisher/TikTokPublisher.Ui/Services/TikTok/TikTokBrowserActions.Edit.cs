@@ -105,18 +105,20 @@ public static partial class TikTokBrowserActions
             }
             else
             {
-                missingPaths = uploadPaths.Skip(rows.Count).ToList();
-                Log(log, $"TikTok 草稿已对齐 {rows.Count}/{expectedCount}，补传剩余 {missingPaths.Count} 集。");
+                // 按真实集数索引精确比对，本地有文件的缺失集全部补传；
+                // 仅对本地也没有源文件的集数给出警告（不能因本地少一集就整体放弃补传）。
+                missingPaths = ResolveMissingUploadPathsByIndexes(
+                    uploadPaths, rows.Select(r => r.Real).ToList());
+                Log(log, missingPaths.Count > 0
+                    ? $"TikTok 草稿已上传 {rows.Count}/{expectedCount}，缺失集数：" +
+                      $"{string.Join(", ", ExtractEpisodeIndexesFromPaths(missingPaths))}，开始补传。"
+                    : $"TikTok 草稿已上传 {rows.Count}/{expectedCount}。");
             }
 
-            if (missingPaths.Count == 0) return;
-            if (uploadPaths.Count < expectedCount)
-            {
-                Log(log,
-                    $"TikTok 本地视频 {uploadPaths.Count} 个，短剧总集数 {expectedCount}，" +
-                    $"无法补传剩余 {missingPaths.Count} 集，跳过补传继续填表。");
+            WarnLocallyUnavailableEpisodes(
+                rows.Select(r => r.Real), missingPaths, uploadPaths, expectedCount, log);
+            if (missingPaths.Count == 0)
                 return;
-            }
 
             await UploadEditFlowMissingVideosAsync(
                 page, missingPaths, expectedCount, payload, options, log, ct);
@@ -164,16 +166,39 @@ public static partial class TikTokBrowserActions
                 $"TikTok 草稿当前已上传 {detected.UploadedCount}/{expectedCount} 个视频，继续补传剩余 {pathsToUpload.Count} 个。");
         }
 
-        if (pathsToUpload.Count > 0 && uploadPaths.Count < expectedCount)
-        {
-            Log(log,
-                $"TikTok 本地视频 {uploadPaths.Count} 个，短剧总集数 {expectedCount}，" +
-                $"无法补传缺失的 {pathsToUpload.Count} 集，跳过补传继续填表。");
+        WarnLocallyUnavailableEpisodes(
+            detected.UploadedIndexes, pathsToUpload, uploadPaths, expectedCount, log);
+        if (pathsToUpload.Count == 0)
             return;
-        }
 
         await UploadEditFlowMissingVideosAsync(
             page, pathsToUpload, expectedCount, payload, options, log, ct);
+    }
+
+    /// <summary>总集数大于「平台已传 + 本地可补传」时，提示哪些集连本地源文件都缺失。</summary>
+    private static void WarnLocallyUnavailableEpisodes(
+        IEnumerable<int> uploadedEpisodes,
+        IReadOnlyList<string> pathsToUpload,
+        IReadOnlyList<string> localPaths,
+        int expectedCount,
+        Action<string>? log)
+    {
+        if (localPaths.Count >= expectedCount)
+            return;
+
+        var covered = uploadedEpisodes.Where(i => i > 0).ToHashSet();
+        foreach (var episode in ExtractEpisodeIndexesFromPaths(pathsToUpload))
+            covered.Add(episode);
+        foreach (var episode in ExtractEpisodeIndexesFromPaths(localPaths))
+            covered.Add(episode);
+
+        var unavailable = Enumerable.Range(1, expectedCount).Where(i => !covered.Contains(i)).ToList();
+        if (unavailable.Count == 0)
+            return;
+
+        Log(log,
+            $"⚠️ 短剧总集数 {expectedCount}，本地仅 {localPaths.Count} 个视频文件，" +
+            $"第 {string.Join("、", unavailable)} 集缺少本地源文件无法补传，请补齐后重新执行上传。");
     }
 
     private static async Task EnsureEditContentUploadTabAsync(IPage page, CancellationToken ct)

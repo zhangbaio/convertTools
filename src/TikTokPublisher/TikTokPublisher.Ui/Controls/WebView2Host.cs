@@ -69,13 +69,24 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     public void SetRenderedVisible(bool visible)
     {
         _renderedVisible = visible;
+        ApplyRenderedState();
+    }
+
+    public void RefreshBounds()
+    {
+        if (_renderedVisible)
+            ApplyRenderedState();
+    }
+
+    private void ApplyRenderedState()
+    {
         try
         {
             if (_controller is null)
                 return;
 
-            _controller.IsVisible = visible;
-            if (visible)
+            _controller.IsVisible = _renderedVisible;
+            if (_renderedVisible)
                 UpdateBounds();
             else
                 _controller.Bounds = new Rectangle(0, 0, 0, 0);
@@ -201,8 +212,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             var udf = string.IsNullOrWhiteSpace(UserDataFolder) ? null : UserDataFolder;
             var env = await CoreWebView2Environment.CreateAsync(null, udf, options);
             _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
-            _controller.IsVisible = false;
-            UpdateBounds();
+            ApplyRenderedState();
 
             if (_controller.CoreWebView2 is not null)
             {

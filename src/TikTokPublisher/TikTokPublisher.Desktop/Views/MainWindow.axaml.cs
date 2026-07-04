@@ -33,9 +33,18 @@ public partial class MainWindow : Window
         DataContext = _viewModel;
 
         _browserHost.Attach(BrowserHostMount);
+        _browserHost.PresentationLayoutChanged += () =>
+        {
+            if (_activeNavTag == "browser")
+                ScheduleBrowserHostMountLayout();
+        };
         QueueView.Initialize(_viewModel, _browserHost, EnsureBrowserHostMounted);
         BrowserView.Initialize(_browserHost, _viewModel);
-        BrowserView.LayoutUpdated += (_, _) => SyncBrowserHostMountLayout();
+        BrowserView.LayoutUpdated += (_, _) =>
+        {
+            if (_activeNavTag == "browser")
+                SyncBrowserHostMountLayout();
+        };
         AccountSidebar.DataContext = _viewModel;
         AccountsView.Bind(_viewModel);
         LogView.Bind(_viewModel, _viewModel.Logs);
@@ -64,6 +73,7 @@ public partial class MainWindow : Window
         _viewModel.RemoteQueueRunRequested += QueueView.StartQueueRunFromRemoteAsync;
         _viewModel.AccountProfileNetworkChanged += profile => _browserHost.InvalidateHostIfNetworkChanged(profile);
         AccountSidebar.NavigatePageRequested += (_, _) => NavigateTo("accounts");
+        _viewModel.AccountSwitchRequested += OnAccountSwitchRequested;
 
         SetSidebarCollapsed(false);
         NavigateTo("queue");
@@ -271,6 +281,12 @@ public partial class MainWindow : Window
         _browserHost.BeginLogin(account, forceRelogin);
     }
 
+    private void OnAccountSwitchRequested(AccountItemViewModel account)
+    {
+        if (_activeNavTag == "browser")
+            ScheduleBrowserHostMountLayout();
+    }
+
     private void EnsureBrowserHostMounted()
     {
         // 后台上传：WebView2 挂在 1×1 隐藏层，零尺寸绘制，避免原生 HWND 盖住队列页。
@@ -301,12 +317,39 @@ public partial class MainWindow : Window
             return;
 
         var rect = bounds.Value;
+        // 仅在几何真正变化时更新，避免 LayoutUpdated → 改布局 → LayoutUpdated 死循环。
+        var current = BrowserHostMount.Margin;
+        var unchanged =
+            Math.Abs(current.Left - rect.X) < 0.5 &&
+            Math.Abs(current.Top - rect.Y) < 0.5 &&
+            Math.Abs(BrowserHostMount.Width - rect.Width) < 0.5 &&
+            Math.Abs(BrowserHostMount.Height - rect.Height) < 0.5;
+        if (unchanged)
+            return;
+
         BrowserHostMount.Margin = new Thickness(rect.X, rect.Y, 0, 0);
         BrowserHostMount.Width = rect.Width;
         BrowserHostMount.Height = rect.Height;
         BrowserHostMount.HorizontalAlignment = HorizontalAlignment.Left;
         BrowserHostMount.VerticalAlignment = VerticalAlignment.Top;
         BrowserHostMount.ZIndex = 11;
+        _browserHost.RefreshPresentationBounds();
+    }
+
+    private bool _mountLayoutSyncPending;
+
+    private void ScheduleBrowserHostMountLayout()
+    {
+        // 合并多次调度；回调内不得调用 ShowAccount（会再触发 PresentationLayoutChanged 造成死循环）。
+        if (_mountLayoutSyncPending)
+            return;
+
+        _mountLayoutSyncPending = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _mountLayoutSyncPending = false;
+            SyncBrowserHostMountLayout();
+        }, DispatcherPriority.Background);
     }
 
     private void NavigateTo(string tag)
@@ -357,6 +400,7 @@ public partial class MainWindow : Window
             _browserHost.SetPresentationVisible(true);
             _browserHost.ShowAccount(_viewModel.SelectedAccount);
             SyncBrowserHostMountLayout();
+            ScheduleBrowserHostMountLayout();
         }
         else
         {

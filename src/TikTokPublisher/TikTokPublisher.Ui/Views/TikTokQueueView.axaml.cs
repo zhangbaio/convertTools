@@ -62,16 +62,21 @@ public partial class TikTokQueueView : UserControl
 
     private void OnQueueRunningPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(MainViewModel.IsQueueRunning))
+        // 并行队列下 IsQueueRunning 不足以反映按钮状态：切工作目录 / 任一队列启停都要刷新。
+        if (e.PropertyName is nameof(MainViewModel.IsQueueRunning)
+            or nameof(MainViewModel.RunningWorkspacesSummary)
+            or nameof(MainViewModel.WorkspacePath))
             Dispatcher.UIThread.Post(RefreshQueueRunButtons);
     }
 
     private void RefreshQueueRunButtons()
     {
-        var running = _vm?.IsQueueRunning == true;
-        if (StartQueueButton is not null) StartQueueButton.IsEnabled = !running;
-        if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !running;
-        if (StopQueueButton is not null) StopQueueButton.IsEnabled = running;
+        var anyRunning = _vm?.IsQueueRunning == true;
+        var currentRunning = _vm?.IsCurrentWorkspaceQueueRunning() == true;
+        // 仅当前工作目录在跑时才禁用「执行勾选队列」；其他账号的队列不影响本工作目录启动。
+        if (StartQueueButton is not null) StartQueueButton.IsEnabled = !currentRunning;
+        if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !anyRunning;
+        if (StopQueueButton is not null) StopQueueButton.IsEnabled = anyRunning;
     }
 
     private void OnManualInterventionDialogRequested(ManualInterventionDialogRequest request)
@@ -731,10 +736,16 @@ public partial class TikTokQueueView : UserControl
     {
         var vm = _vm;
         if (vm is null) return;
-        var dirs = GetSelectedProjectDirs();
+        // 优先取「启用」勾选的项目；没有勾选时回退到表格选中行。
+        var dirs = GetCheckedOrSelectedQueueRows()
+            .Select(row => row.Item.ProjectDir)
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         if (dirs.Count == 0)
         {
-            vm.StatusMessage = "请先选中要编辑的剧集";
+            vm.StatusMessage = "请先勾选要编辑的剧集";
             return;
         }
 
@@ -881,7 +892,8 @@ public partial class TikTokQueueView : UserControl
         if (vm is null) return;
         if (vm.IsCurrentWorkspaceQueueRunning())
         {
-            vm.StatusMessage = "当前工作目录队列已在运行中";
+            vm.StatusMessage = "当前工作目录队列已在运行中，本次点击未生效；如需按新的步骤勾选重跑，请先点「停止」等待队列结束后再执行";
+            vm.AppendLog(vm.StatusMessage);
             return;
         }
 
@@ -1054,8 +1066,27 @@ public partial class TikTokQueueView : UserControl
             return PublishResult.Fail("项目没有可用视频");
 
         ApplyConfigDefaults(item);
-        return await _automation.PublishAsync(account, item, browser, finalAction, log, ct).ConfigureAwait(false);
+        // 队列上传按账号配置的「提交动作」决定最终动作（对齐 Python submit_action 行为）。
+        var effectiveAction = ResolveAccountFinalAction(account, finalAction);
+        log($"最终动作：{FinalActionLabel(effectiveAction)}（来自账号「{account.DisplayName}」的提交动作配置）");
+        return await _automation.PublishAsync(account, item, browser, effectiveAction, log, ct).ConfigureAwait(false);
     }
+
+    private static FinalAction ResolveAccountFinalAction(TikTokAccountProfile account, FinalAction fallback) =>
+        (account.TiktokSubmitAction ?? "").Trim().ToLowerInvariant() switch
+        {
+            "submit" => FinalAction.Publish,
+            "save" or "draft" => FinalAction.Draft,
+            "none" => FinalAction.None,
+            _ => fallback,
+        };
+
+    private static string FinalActionLabel(FinalAction action) => action switch
+    {
+        FinalAction.Publish => "提交",
+        FinalAction.Draft => "保存草稿",
+        _ => "只填不发",
+    };
 
     private async void OnPublishClick(object? sender, RoutedEventArgs e)
     {

@@ -39,6 +39,9 @@ public sealed class BrowserSessionHost
 
     private readonly Dictionary<string, string> _proxyFingerprints = new(StringComparer.OrdinalIgnoreCase);
     private bool _presentationVisible = true;
+    private string? _activeAccountId;
+
+    public event Action? PresentationLayoutChanged;
 
     /// <summary>非浏览器页时隐藏 WebView2 展示（保持会话与 CDP），避免原生 HWND 叠在队列页上。</summary>
     public void SetPresentationVisible(bool visible)
@@ -56,20 +59,74 @@ public sealed class BrowserSessionHost
 
     private void ApplyHostVisibility(WebView2Host host, bool rendered)
     {
-        host.IsVisible = true;
-        host.SetRenderedVisible(rendered);
+        if (rendered)
+        {
+            host.Width = double.NaN;
+            host.Height = double.NaN;
+            host.IsVisible = true;
+            BringHostToFront(host);
+            host.SetRenderedVisible(true);
+            host.RefreshBounds();
+            Dispatcher.UIThread.Post(host.RefreshBounds, DispatcherPriority.Render);
+        }
+        else
+        {
+            host.SetRenderedVisible(false);
+        }
+    }
+
+    private void BringHostToFront(WebView2Host host)
+    {
+        if (_container is null || !_container.Children.Contains(host))
+            return;
+
+        if (_container.Children.IndexOf(host) == _container.Children.Count - 1)
+            return;
+
+        _container.Children.Remove(host);
+        _container.Children.Add(host);
+    }
+
+    private void OnHostReady(string accountId, WebView2Host host)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_presentationVisible)
+            {
+                host.SetRenderedVisible(false);
+                return;
+            }
+
+            if (!string.Equals(_activeAccountId, accountId, StringComparison.Ordinal))
+            {
+                host.SetRenderedVisible(false);
+                return;
+            }
+
+            ApplyHostVisibility(host, rendered: true);
+            PresentationLayoutChanged?.Invoke();
+        }, DispatcherPriority.Loaded);
+    }
+
+    public void RefreshPresentationBounds()
+    {
+        foreach (var host in _hosts.Values)
+            host.RefreshBounds();
     }
 
     public void ShowAccount(AccountItemViewModel? account, bool createIfMissing = true)
     {
-        if (_container is null || _emptyHint is null) return;
+        if (_container is null) return;
+
+        _activeAccountId = account?.Id;
 
         foreach (var host in _hosts.Values)
             ApplyHostVisibility(host, rendered: false);
 
         if (account is null)
         {
-            _emptyHint.IsVisible = _presentationVisible && _hosts.Count == 0;
+            if (_emptyHint is not null)
+                _emptyHint.IsVisible = _presentationVisible && _hosts.Count == 0;
             return;
         }
 
@@ -78,15 +135,30 @@ public sealed class BrowserSessionHost
             if (_presentationVisible)
             {
                 ApplyHostVisibility(existing, rendered: true);
-                _emptyHint.IsVisible = false;
+                if (_emptyHint is not null)
+                    _emptyHint.IsVisible = false;
+
+                if (!string.IsNullOrWhiteSpace(existing.LastInitError))
+                {
+                    AuthStatusChanged?.Invoke(
+                        $"内置浏览器初始化异常：{existing.LastInitError}，请点「重新登录」或「刷新」");
+                }
+                else if (existing.IsEngineReady
+                         && (string.IsNullOrWhiteSpace(existing.CurrentUrl)
+                             || EmbeddedBrowserLoginHelper.IsLoginUrl(existing.CurrentUrl)))
+                {
+                    existing.Navigate(EmbeddedBrowserLoginHelper.ResolveHomeUrl(account.Model));
+                }
             }
 
+            PresentationLayoutChanged?.Invoke();
             return;
         }
 
         if (!createIfMissing)
         {
-            _emptyHint.IsVisible = _presentationVisible;
+            if (_emptyHint is not null)
+                _emptyHint.IsVisible = _presentationVisible;
             return;
         }
 
@@ -94,8 +166,11 @@ public sealed class BrowserSessionHost
         if (_presentationVisible)
         {
             ApplyHostVisibility(target, rendered: true);
-            _emptyHint.IsVisible = false;
+            if (_emptyHint is not null)
+                _emptyHint.IsVisible = false;
         }
+
+        PresentationLayoutChanged?.Invoke();
     }
 
     public void BeginLogin(AccountItemViewModel account, bool forceRelogin = false)
@@ -150,6 +225,7 @@ public sealed class BrowserSessionHost
         };
         ApplyProxySettings(host, account.Model);
 
+        host.Ready += () => OnHostReady(account.Id, host);
         host.NavigationCompleted += url => _ = OnNavigationCompletedAsync(account, url);
         _hosts[account.Id] = host;
         _container.Children.Add(host);

@@ -99,6 +99,7 @@ public static class TikTokEditFlowService
         if (string.IsNullOrWhiteSpace(detailUrl))
         {
             TikTokUploadStateStore.RecordPlatformSeriesNotFound(workflowProjectDir, "pre_upload_search", titleCandidates);
+            log?.Invoke("TikTok 平台未找到同名草稿，改走新建剧集上传流程");
             return false;
         }
 

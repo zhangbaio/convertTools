@@ -116,12 +116,15 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                     coverPath,
                     L,
                     ct,
-                    allowPlatformSearch: TikTokUploadStateStore.HasUploadStepAttempted(workflowDir))
+                    allowPlatformSearch: TikTokUploadStateStore.ShouldSearchPlatformForExistingDraft(workflowDir))
                     .ConfigureAwait(false);
             }
 
             if (!enteredEditFlow)
             {
+                await NavigateToCreateDraftPageAsync(page, targetUrl, L, ct).ConfigureAwait(false);
+                ThrowIfLoginRedirect(page);
+
                 await TikTokBrowserActions.FillCreateInitialFieldsAsync(page, payload, options, L, ct)
                     .ConfigureAwait(false);
                 ThrowIfLoginRedirect(page);
@@ -212,6 +215,24 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
     {
         if (IsLoginPage(page.Url))
             throw new InvalidOperationException("账号未登录（TikTok 跳转到登录页）");
+    }
+
+    private static async Task NavigateToCreateDraftPageAsync(
+        IPage page,
+        string targetUrl,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        log?.Invoke("正在打开 TikTok 新建剧集页…");
+        await page.GotoAsync(targetUrl, new PageGotoOptions
+        {
+            WaitUntil = WaitUntilState.DOMContentLoaded,
+            Timeout = 90000,
+        }).ConfigureAwait(false);
+        try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 }).ConfigureAwait(false); }
+        catch { /* SPA */ }
+        await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log).ConfigureAwait(false);
     }
 
     private static string ResolveCoverPath(PublishItem item, Action<string>? log = null)

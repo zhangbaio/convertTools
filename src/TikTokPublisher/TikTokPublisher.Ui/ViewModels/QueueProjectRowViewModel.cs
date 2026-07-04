@@ -12,6 +12,9 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
 
     public QueueProjectItem Item { get; private set; }
 
+    /// <summary>用户点击「启用」勾选框改变状态后触发（用于持久化与汇总刷新）。</summary>
+    public event Action<QueueProjectRowViewModel>? EnabledChangedByUser;
+
     public QueueProjectRowViewModel(QueueProjectItem item) => Item = item;
 
     public void RefreshFrom(QueueProjectItem item)
@@ -26,7 +29,17 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         set => SetProperty(ref _rowIndex, value);
     }
 
-    public bool IsEnabled => Item.Enabled;
+    public bool IsEnabled
+    {
+        get => Item.Enabled;
+        set
+        {
+            if (Item.Enabled == value) return;
+            Item.Enabled = value;
+            OnPropertyChanged();
+            EnabledChangedByUser?.Invoke(this);
+        }
+    }
     public string Title => Item.Title;
     public string OriginalTitle => string.IsNullOrWhiteSpace(Item.OriginalTitle) ? Item.DisplayName : Item.OriginalTitle;
     public string NewTitle => FirstNonEmpty(
