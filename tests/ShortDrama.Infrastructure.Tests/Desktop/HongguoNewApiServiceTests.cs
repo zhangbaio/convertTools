@@ -1,6 +1,6 @@
 using FluentAssertions;
-using ShortDrama.Desktop.Models;
-using ShortDrama.Desktop.Services;
+using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.Automation;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -142,6 +142,50 @@ public sealed class HongguoNewApiServiceTests
     }
 
     [Fact]
+    public async Task GetEpisodesAsync_Should_Relogin_When_Response_Data_Says_Token_Invalid()
+    {
+        var handler = new RecordingHandler();
+        handler.EnqueueJson(EncryptOuter(new
+        {
+            state = "y",
+            token = "token-1"
+        }));
+        handler.EnqueueJson(EncryptOuter(new
+        {
+            code = 200,
+            data = "Token不存在或已失效，请重启软件",
+            message = "ok"
+        }));
+        handler.EnqueueJson(EncryptOuter(new
+        {
+            state = "y",
+            token = "token-2"
+        }));
+        handler.EnqueueJson(EncryptOuter(new
+        {
+            code = 200,
+            data = new object[]
+            {
+                new { title = "第1集", video_id = "video-1" }
+            },
+            message = "ok"
+        }));
+
+        var service = new HongguoNewApiService(new HttpClient(handler));
+        var settings = CreateSettings();
+
+        var episodes = await service.GetEpisodesAsync(settings, "book-1", CancellationToken.None);
+
+        episodes.Should().HaveCount(1);
+        episodes[0].VideoId.Should().Be("video-1");
+        handler.Requests.Should().HaveCount(4);
+        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/cloudFunction");
+        handler.Requests[1].Headers.Authorization?.Parameter.Should().Be("token-1");
+        handler.Requests[3].RequestUri!.AbsolutePath.Should().EndWith("/cloudFunction");
+        handler.Requests[3].Headers.Authorization?.Parameter.Should().Be("token-2");
+    }
+
+    [Fact]
     public async Task GetVideoPlaybackAsync_Should_Return_Url_And_Size()
     {
         var handler = new RecordingHandler();
@@ -181,57 +225,74 @@ public sealed class HongguoNewApiServiceTests
         handler.Requests[2].RequestUri!.AbsolutePath.Should().EndWith("/cloudFunction");
     }
 
-    private static GlobalConfigSnapshot CreateSettings()
+    [Fact]
+    public async Task GetVideoPlaybackAsync_Should_Relogin_When_Info_Says_Token_Invalid()
     {
-        return CreateSnapshot(new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        var handler = new RecordingHandler();
+        handler.EnqueueJson(EncryptOuter(new
         {
-            ["SettingsFilePath"] = "C:\\temp\\global-settings.json",
-            ["DramaSourceChain"] = "hgnew",
-            ["DramaServiceOrderSearch"] = "hgnew,hglocal,pikachu",
-            ["DramaServiceOrderDownload"] = "hgnew,hglocal,pikachu",
-            ["DramaServiceOrderNewRelease"] = "hgnew,hglocal",
-            ["DramaServiceOrderRanking"] = "hglocal,pikachu",
-            ["XingeEnabled"] = false,
-            ["XingeWsEnabled"] = true,
-            ["XingePollIntervalSeconds"] = "3",
-            ["XingeUploadLoginQr"] = true,
-            ["HgnewAccount"] = "test@example.com",
-            ["HgnewPassword"] = "secret",
-            ["HgnewUdid"] = "64437E32-40BB-440C-8300-99232D63E8F7",
-            ["HgnewClientVersion"] = "1.3.6",
-            ["PikachuDramaType"] = "short",
-            ["FeishuReceiveIdType"] = "chat_id",
-            ["FeishuNotifyOnStepSuccess"] = true,
-            ["FeishuNotifyOnStepFailure"] = true,
-            ["FeishuNotifyOnQueueSummary"] = true,
-            ["FeishuNotifyOnLoginQr"] = true,
-        });
+            state = "y",
+            token = "token-1"
+        }));
+        handler.EnqueueJson(EncryptOuter(new
+        {
+            code = 46,
+            message = "Token不存在或已失效，请重启软件"
+        }));
+        handler.EnqueueJson(EncryptOuter(new
+        {
+            state = "y",
+            token = "token-2"
+        }));
+        handler.EnqueueJson(EncryptOuter(new
+        {
+            code = 0,
+            data = new { pong = true }
+        }));
+        handler.EnqueueJson(EncryptOuter(new
+        {
+            code = 200,
+            data = new
+            {
+                url = "https://example.com/video.mp4",
+                info = new
+                {
+                    size = 123456789
+                }
+            },
+            message = "ok"
+        }));
+
+        var service = new HongguoNewApiService(new HttpClient(handler));
+        var settings = CreateSettings();
+
+        var detail = await service.GetVideoPlaybackAsync(settings, "video-1", "1080P+", CancellationToken.None);
+
+        detail.Url.Should().Be("https://example.com/video.mp4");
+        handler.Requests.Should().HaveCount(5);
+        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/info");
+        handler.Requests[1].Headers.Authorization?.Parameter.Should().Be("token-1");
+        handler.Requests[3].RequestUri!.AbsolutePath.Should().EndWith("/info");
+        handler.Requests[3].Headers.Authorization?.Parameter.Should().Be("token-2");
+        handler.Requests[4].RequestUri!.AbsolutePath.Should().EndWith("/cloudFunction");
+        handler.Requests[4].Headers.Authorization?.Parameter.Should().Be("token-2");
     }
 
-    private static GlobalConfigSnapshot CreateSnapshot(IReadOnlyDictionary<string, object?> values)
+    private static DramaSourceSettings CreateSettings()
     {
-        var ctor = typeof(GlobalConfigSnapshot).GetConstructors().Single();
-        var args = ctor.GetParameters()
-            .Select(parameter => values.TryGetValue(parameter.Name ?? string.Empty, out var value)
-                ? value
-                : GetDefaultValue(parameter.ParameterType))
-            .ToArray();
-        return (GlobalConfigSnapshot)ctor.Invoke(args);
-    }
-
-    private static object? GetDefaultValue(Type type)
-    {
-        if (type == typeof(string))
+        return new DramaSourceSettings
         {
-            return string.Empty;
-        }
-
-        if (type == typeof(bool))
-        {
-            return false;
-        }
-
-        return type.IsValueType ? Activator.CreateInstance(type) : null;
+            DramaSourceChain = "hgnew",
+            DramaServiceOrderSearch = "hgnew,hglocal,pikachu",
+            DramaServiceOrderDownload = "hgnew,hglocal,pikachu",
+            DramaServiceOrderNewRelease = "hgnew,hglocal",
+            DramaServiceOrderRanking = "hglocal,pikachu",
+            HgnewAccount = "test@example.com",
+            HgnewPassword = "secret",
+            HgnewUdid = "64437E32-40BB-440C-8300-99232D63E8F7",
+            HgnewClientVersion = "1.3.6",
+            PikachuDramaType = "short",
+        };
     }
 
     private static string EncryptOuter(object innerData)

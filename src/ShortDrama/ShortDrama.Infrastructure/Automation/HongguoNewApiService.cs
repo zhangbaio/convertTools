@@ -292,38 +292,25 @@ public sealed class HongguoNewApiService
         string? param,
         CancellationToken cancellationToken)
     {
-        var outer = await CloudFunctionCallWithRetryAsync(
-            functionName,
+        return await RunWithTokenRefreshRetryAsync(
             credentials,
-            timeoutSeconds,
-            param,
-            cancellationToken);
-        var businessObject = UnwrapCloudResponse(outer);
+            async () =>
+            {
+                var outer = await CloudFunctionCallOnceAsync(
+                    functionName,
+                    credentials,
+                    timeoutSeconds,
+                    param,
+                    cancellationToken);
+                var businessObject = UnwrapCloudResponse(outer);
 
-        if (!businessObject.TryGetValue("data", out var dataValue) || dataValue is not List<object?> list)
-        {
-            throw new HongguoNewApiException("Cloud response inner data is not an array.", payload: outer);
-        }
+                if (!businessObject.TryGetValue("data", out var dataValue) || dataValue is not List<object?> list)
+                {
+                    throw new HongguoNewApiException("Cloud response inner data is not an array.", payload: outer);
+                }
 
-        return list.OfType<Dictionary<string, object?>>().ToArray();
-    }
-
-    private async Task<Dictionary<string, object?>> CloudFunctionCallWithRetryAsync(
-        string functionName,
-        HongguoCredentials credentials,
-        int timeoutSeconds,
-        string? param,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await CloudFunctionCallOnceAsync(functionName, credentials, timeoutSeconds, param, cancellationToken);
-        }
-        catch (HongguoNewApiException ex) when (ShouldRetryLogin(ex))
-        {
-            InvalidateToken(credentials);
-            return await CloudFunctionCallOnceAsync(functionName, credentials, timeoutSeconds, param, cancellationToken);
-        }
+                return list.OfType<Dictionary<string, object?>>().ToArray();
+            });
     }
 
     private async Task<HongguoVideoPlayback> GetVideoPlaybackWithRetryAsync(
@@ -332,14 +319,23 @@ public sealed class HongguoNewApiService
         string quality,
         CancellationToken cancellationToken)
     {
+        return await RunWithTokenRefreshRetryAsync(
+            credentials,
+            () => GetVideoPlaybackOnceAsync(credentials, videoId, quality, cancellationToken));
+    }
+
+    private async Task<T> RunWithTokenRefreshRetryAsync<T>(
+        HongguoCredentials credentials,
+        Func<Task<T>> action)
+    {
         try
         {
-            return await GetVideoPlaybackOnceAsync(credentials, videoId, quality, cancellationToken);
+            return await action();
         }
         catch (HongguoNewApiException ex) when (ShouldRetryLogin(ex))
         {
             InvalidateToken(credentials);
-            return await GetVideoPlaybackOnceAsync(credentials, videoId, quality, cancellationToken);
+            return await action();
         }
     }
 
@@ -569,13 +565,19 @@ public sealed class HongguoNewApiService
         CancellationToken cancellationToken)
     {
         var url = BuildBaseUrl(credentials.ClientVersion) + "/info";
-        await PostEncryptedFormAsync(
+        var response = await PostEncryptedFormAsync(
             url,
             credentials,
             timeoutSeconds,
             new Dictionary<string, string?>(),
             token,
             cancellationToken);
+
+        var code = GetIntValue(response, "code") ?? 0;
+        if (code != 0 || ContainsLoginRetryHint(response))
+        {
+            throw new HongguoNewApiException(ReadMessageDeep(response, $"Info failed (code={code})"), code, response);
+        }
     }
 
     private void InvalidateToken(HongguoCredentials credentials)
@@ -857,8 +859,26 @@ public sealed class HongguoNewApiService
             return true;
         }
 
-        var message = (exception.Message ?? string.Empty).Trim().ToLowerInvariant();
-        return LoginRetryHints.Any(hint => message.Contains(hint, StringComparison.OrdinalIgnoreCase));
+        return ContainsLoginRetryHint(exception.Message)
+               || ContainsLoginRetryHint(exception.InnerException?.Message)
+               || ContainsLoginRetryHint(exception.Payload);
+    }
+
+    private static bool ContainsLoginRetryHint(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                return false;
+            case string text:
+                return LoginRetryHints.Any(hint => text.Contains(hint, StringComparison.OrdinalIgnoreCase));
+            case IReadOnlyDictionary<string, object?> dictionary:
+                return dictionary.Values.Any(ContainsLoginRetryHint);
+            case IEnumerable<object?> values:
+                return values.Any(ContainsLoginRetryHint);
+            default:
+                return ContainsLoginRetryHint(value.ToString());
+        }
     }
 
     private static IReadOnlyList<Dictionary<string, object?>> SortByPublishTime(IEnumerable<Dictionary<string, object?>> items)
@@ -1100,6 +1120,41 @@ public sealed class HongguoNewApiService
             GetStringValue(values, "msg"),
             GetStringValue(values, "message"),
             fallback);
+    }
+
+    private static string ReadMessageDeep(object? value, string fallback)
+    {
+        switch (value)
+        {
+            case IReadOnlyDictionary<string, object?> dictionary:
+            {
+                var direct = FirstNonEmpty(
+                    GetStringValue(dictionary, "msg"),
+                    GetStringValue(dictionary, "message"),
+                    GetStringValue(dictionary, "error"),
+                    GetStringValue(dictionary, "errmsg"));
+                if (!string.IsNullOrWhiteSpace(direct) &&
+                    !string.Equals(direct, "ok", StringComparison.OrdinalIgnoreCase))
+                {
+                    return direct;
+                }
+
+                if (dictionary.TryGetValue("data", out var data))
+                {
+                    var nested = ReadMessageDeep(data, string.Empty);
+                    if (!string.IsNullOrWhiteSpace(nested))
+                    {
+                        return nested;
+                    }
+                }
+
+                return string.IsNullOrWhiteSpace(direct) ? fallback : direct;
+            }
+            case string text:
+                return string.IsNullOrWhiteSpace(text) ? fallback : text.Trim();
+            default:
+                return fallback;
+        }
     }
 
     private static string FirstNonEmpty(params string?[] values)

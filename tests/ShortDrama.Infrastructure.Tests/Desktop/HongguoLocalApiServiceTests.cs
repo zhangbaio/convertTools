@@ -1,7 +1,6 @@
 using FluentAssertions;
 using ShortDrama.Core.Models;
-using ShortDrama.Desktop.Models;
-using ShortDrama.Desktop.Services;
+using ShortDrama.Infrastructure.Automation;
 using System.Globalization;
 using System.Net;
 using System.Text;
@@ -158,56 +157,20 @@ public sealed class HongguoLocalApiServiceTests
         handler.Requests.Single().RequestUri!.Query.Should().Contain("source=hglocal");
     }
 
-    private static GlobalConfigSnapshot CreateSettings()
+    private static DramaSourceSettings CreateSettings()
     {
-        return CreateSnapshot(new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        return new DramaSourceSettings
         {
-            ["SettingsFilePath"] = "C:\\temp\\global-settings.json",
-            ["DramaSourceChain"] = "hglocal",
-            ["DramaServiceOrderSearch"] = "hglocal,hgnew,pikachu",
-            ["DramaServiceOrderDownload"] = "hglocal,hgnew,pikachu",
-            ["DramaServiceOrderNewRelease"] = "hglocal,hgnew",
-            ["DramaServiceOrderRanking"] = "hglocal",
-            ["XingeEnabled"] = false,
-            ["XingeWsEnabled"] = true,
-            ["XingePollIntervalSeconds"] = "3",
-            ["XingeUploadLoginQr"] = true,
-            ["HgnewClientVersion"] = "1.3.6",
-            ["HongguoLocalBaseUrl"] = "https://local.example.com",
-            ["HongguoLocalApiKey"] = "local-key",
-            ["PikachuDramaType"] = "short",
-            ["FeishuReceiveIdType"] = "chat_id",
-            ["FeishuNotifyOnStepSuccess"] = true,
-            ["FeishuNotifyOnStepFailure"] = true,
-            ["FeishuNotifyOnQueueSummary"] = true,
-            ["FeishuNotifyOnLoginQr"] = true,
-        });
-    }
-
-    private static GlobalConfigSnapshot CreateSnapshot(IReadOnlyDictionary<string, object?> values)
-    {
-        var ctor = typeof(GlobalConfigSnapshot).GetConstructors().Single();
-        var args = ctor.GetParameters()
-            .Select(parameter => values.TryGetValue(parameter.Name ?? string.Empty, out var value)
-                ? value
-                : GetDefaultValue(parameter.ParameterType))
-            .ToArray();
-        return (GlobalConfigSnapshot)ctor.Invoke(args);
-    }
-
-    private static object? GetDefaultValue(Type type)
-    {
-        if (type == typeof(string))
-        {
-            return string.Empty;
-        }
-
-        if (type == typeof(bool))
-        {
-            return false;
-        }
-
-        return type.IsValueType ? Activator.CreateInstance(type) : null;
+            DramaSourceChain = "hglocal",
+            DramaServiceOrderSearch = "hglocal,hgnew,pikachu",
+            DramaServiceOrderDownload = "hglocal,hgnew,pikachu",
+            DramaServiceOrderNewRelease = "hglocal,hgnew",
+            DramaServiceOrderRanking = "hglocal",
+            HgnewClientVersion = "1.3.6",
+            HongguoLocalBaseUrl = "https://local.example.com",
+            HongguoLocalApiKey = "local-key",
+            PikachuDramaType = "short",
+        };
     }
 
     private sealed class RecordingHandler : HttpMessageHandler
