@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
@@ -39,6 +40,11 @@ public static class TikTokArchivedProjectService
     {
         ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm",
         ".aria2", ".part", ".partial", ".download", ".crdownload", ".tmp",
+    };
+
+    private static readonly HashSet<string> PreservableVideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm",
     };
 
     private static readonly string[] WorkflowVideoDirs = { "videos", "tiktok_upload_videos" };
@@ -83,6 +89,11 @@ public static class TikTokArchivedProjectService
         string workspaceRoot,
         string projectDir,
         string? archiveRootDir = null,
+        IEnumerable<int>? preserveWorkflowEpisodes = null,
+        bool deleteSourceVideos = true,
+        bool deleteWorkflowVideos = true,
+        bool deleteMaterialVideos = true,
+        string source = "tiktok",
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(workspaceRoot) || !Directory.Exists(workspaceRoot))
@@ -104,26 +115,89 @@ public static class TikTokArchivedProjectService
         var projectKey = Path.GetFileName(sourceProjectDir);
         string archivedSourceDir = "";
         string archivedWorkflowDir = "";
+        var preserveEpisodes = (preserveWorkflowEpisodes ?? Array.Empty<int>())
+            .Where(value => value > 0)
+            .ToHashSet();
         var deletedSourceVideoCount = 0;
         var deletedWorkflowVideoCount = 0;
         var deletedMaterialVideoCount = 0;
+        var deletedMaterialClipVideoCount = 0;
+        var preservedVideoCount = 0;
+        var sourceVideosPrunedBeforeMove = false;
+        var sourceMaterialPrunedBeforeMove = false;
+        var workflowVideosPrunedBeforeMove = false;
+        var workflowMaterialPrunedBeforeMove = false;
 
         if (Directory.Exists(sourceProjectDir))
         {
             archivedSourceDir = BuildArchiveTargetDir(sourceRoot, Path.GetFileName(sourceProjectDir));
+            var sourceCrossVolume = IsCrossVolumeMove(sourceProjectDir, archivedSourceDir);
+            if (sourceCrossVolume && deleteSourceVideos)
+            {
+                deletedSourceVideoCount = DeleteVideoFilesRecursive(sourceProjectDir);
+                sourceVideosPrunedBeforeMove = true;
+            }
+
+            if (sourceCrossVolume && deleteMaterialVideos)
+            {
+                deletedMaterialClipVideoCount += DeleteMaterialClipVideoFiles(sourceProjectDir);
+                sourceMaterialPrunedBeforeMove = true;
+            }
+
             MoveDirectory(sourceProjectDir, archivedSourceDir);
-            deletedSourceVideoCount = DeleteVideoFilesRecursive(archivedSourceDir);
-            deletedMaterialVideoCount += DeleteMaterialClipVideoFiles(archivedSourceDir);
         }
 
         if (Directory.Exists(workflowProjectDir) &&
             !string.Equals(workflowProjectDir, sourceProjectDir, StringComparison.OrdinalIgnoreCase))
         {
             archivedWorkflowDir = BuildArchiveTargetDir(workflowRoot, Path.GetFileName(workflowProjectDir));
+            var workflowCrossVolume = IsCrossVolumeMove(workflowProjectDir, archivedWorkflowDir);
+            if (workflowCrossVolume && deleteWorkflowVideos)
+            {
+                (deletedWorkflowVideoCount, preservedVideoCount) =
+                    DeleteWorkflowVideoFiles(workflowProjectDir, preserveEpisodes);
+                workflowVideosPrunedBeforeMove = true;
+            }
+
+            if (workflowCrossVolume && deleteMaterialVideos)
+            {
+                deletedMaterialVideoCount = DeleteMaterialVideoFiles(workflowProjectDir);
+                deletedMaterialClipVideoCount += DeleteMaterialClipVideoFiles(workflowProjectDir);
+                workflowMaterialPrunedBeforeMove = true;
+            }
+
             MoveDirectory(workflowProjectDir, archivedWorkflowDir);
-            deletedWorkflowVideoCount = DeleteWorkflowVideoFiles(archivedWorkflowDir);
-            deletedMaterialVideoCount += DeleteMaterialVideoFiles(archivedWorkflowDir);
-            deletedMaterialVideoCount += DeleteMaterialClipVideoFiles(archivedWorkflowDir);
+        }
+
+        if (deleteSourceVideos &&
+            !sourceVideosPrunedBeforeMove &&
+            !string.IsNullOrWhiteSpace(archivedSourceDir) &&
+            Directory.Exists(archivedSourceDir))
+        {
+            deletedSourceVideoCount = DeleteVideoFilesRecursive(archivedSourceDir);
+        }
+
+        if (!string.IsNullOrWhiteSpace(archivedWorkflowDir) && Directory.Exists(archivedWorkflowDir))
+        {
+            if (deleteWorkflowVideos && !workflowVideosPrunedBeforeMove)
+            {
+                (deletedWorkflowVideoCount, preservedVideoCount) =
+                    DeleteWorkflowVideoFiles(archivedWorkflowDir, preserveEpisodes);
+            }
+
+            if (deleteMaterialVideos && !workflowMaterialPrunedBeforeMove)
+            {
+                deletedMaterialVideoCount = DeleteMaterialVideoFiles(archivedWorkflowDir);
+                deletedMaterialClipVideoCount += DeleteMaterialClipVideoFiles(archivedWorkflowDir);
+            }
+        }
+
+        if (deleteMaterialVideos &&
+            !sourceMaterialPrunedBeforeMove &&
+            !string.IsNullOrWhiteSpace(archivedSourceDir) &&
+            Directory.Exists(archivedSourceDir))
+        {
+            deletedMaterialClipVideoCount += DeleteMaterialClipVideoFiles(archivedSourceDir);
         }
 
         ct.ThrowIfCancellationRequested();
@@ -145,19 +219,22 @@ public static class TikTokArchivedProjectService
             ["displayName"] = projectKey,
             ["originalTitle"] = originalTitle,
             ["newTitle"] = newTitle,
-            ["archiveSource"] = "tiktok",
+            ["archiveSource"] = source.Trim(),
             ["archivedAt"] = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
             ["sourceProjectDir"] = sourceProjectDir,
             ["workflowProjectDir"] = workflowProjectDir,
             ["archivedSourceDir"] = archivedSourceDir,
             ["archivedWorkflowDir"] = archivedWorkflowDir,
-            ["deleteSourceVideos"] = true,
-            ["deleteWorkflowVideos"] = true,
-            ["deleteMaterialVideos"] = true,
-            ["deletedVideoFileCount"] = deletedSourceVideoCount + deletedWorkflowVideoCount + deletedMaterialVideoCount,
+            ["deleteSourceVideos"] = deleteSourceVideos,
+            ["deleteWorkflowVideos"] = deleteWorkflowVideos,
+            ["deleteMaterialVideos"] = deleteMaterialVideos,
+            ["deletedVideoFileCount"] =
+                deletedSourceVideoCount + deletedWorkflowVideoCount + deletedMaterialVideoCount + deletedMaterialClipVideoCount,
+            ["preservedVideoFileCount"] = preservedVideoCount,
             ["deletedSourceVideoFileCount"] = deletedSourceVideoCount,
             ["deletedWorkflowVideoFileCount"] = deletedWorkflowVideoCount,
             ["deletedMaterialVideoFileCount"] = deletedMaterialVideoCount,
+            ["deletedMaterialClipVideoFileCount"] = deletedMaterialClipVideoCount,
         };
         await File.WriteAllTextAsync(
             metadataPath,
@@ -477,20 +554,58 @@ public static class TikTokArchivedProjectService
         if (string.IsNullOrWhiteSpace(restoredSourceDir) || !Directory.Exists(restoredSourceDir))
             return;
 
-        var items = WorkspaceQueueService.ScanProjects(workspaceRoot).ToList();
+        var state = WorkspaceQueueDatabase.Load(workspaceRoot);
+        var items = state.Items.ToList();
+        var options = QueueRunOptions.FromDictionary(state.Options);
         var normalized = Path.GetFullPath(restoredSourceDir);
-        var item = items.FirstOrDefault(i =>
-            string.Equals(Path.GetFullPath(i.ProjectDir), normalized, StringComparison.OrdinalIgnoreCase));
-        if (item is not null)
+        var timestamp = DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        QueueProjectItem? restoredItem = null;
+        var remaining = new List<QueueProjectItem>();
+
+        foreach (var item in items)
         {
-            item.Archived = false;
-            item.Enabled = false;
-            item.QueuedAt = string.IsNullOrWhiteSpace(item.QueuedAt)
-                ? DateTimeOffset.Now.ToString("o")
-                : item.QueuedAt;
+            var projectDir = item.ProjectDir;
+            var itemPath = string.IsNullOrWhiteSpace(projectDir) ? "" : Path.GetFullPath(projectDir);
+            if (restoredItem is null &&
+                string.Equals(itemPath, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                item.Archived = false;
+                item.QueuedAt = timestamp;
+                restoredItem = item;
+                continue;
+            }
+
+            remaining.Add(item);
         }
 
-        WorkspaceQueueService.SaveRunOptions(workspaceRoot, items, WorkspaceQueueService.LoadRunOptions(workspaceRoot));
+        if (restoredItem is null)
+        {
+            var scanned = WorkspaceProjectScanner.BuildProject(normalized);
+            restoredItem = new QueueProjectItem
+            {
+                ProjectDir = scanned.ProjectDir,
+                DisplayName = scanned.DisplayName,
+                OriginalTitle = scanned.OriginalTitle,
+                NewTitle = scanned.NewTitle,
+                Description = scanned.Description,
+                GenreCategory = scanned.GenreCategory,
+                EpisodeCount = scanned.EpisodeCount,
+                PrimaryVideoPath = scanned.PrimaryVideoPath,
+                CoverPath = scanned.CoverPath,
+                Archived = false,
+                Enabled = false,
+                QueuedAt = timestamp,
+            };
+        }
+        else
+        {
+            restoredItem.Archived = false;
+            restoredItem.QueuedAt = timestamp;
+        }
+
+        remaining.Add(restoredItem);
+
+        WorkspaceQueueService.SaveRunOptions(workspaceRoot, remaining, options);
     }
 
     private static void UpdateRestoredMetadata(string? restoredSourceDir, string? restoredWorkflowDir)
@@ -648,18 +763,33 @@ public static class TikTokArchivedProjectService
         return deleted;
     }
 
-    private static int DeleteWorkflowVideoFiles(string dir)
+    private static (int Deleted, int Preserved) DeleteWorkflowVideoFiles(string dir, IReadOnlySet<int> preserveWorkflowEpisodes)
     {
         var deleted = 0;
+        var preserved = 0;
         foreach (var relative in WorkflowVideoDirs)
         {
             var videoDir = Path.Combine(dir, relative);
             if (!Directory.Exists(videoDir)) continue;
-            deleted += DeleteVideoFilesRecursive(videoDir);
+            foreach (var file in Directory.EnumerateFiles(videoDir, "*", SearchOption.AllDirectories))
+            {
+                var extension = Path.GetExtension(file);
+                if (!VideoExtensions.Contains(extension)) continue;
+                if (preserveWorkflowEpisodes.Count > 0 &&
+                    PreservableVideoExtensions.Contains(extension) &&
+                    preserveWorkflowEpisodes.Contains(ExtractEpisodeNumber(Path.GetFileNameWithoutExtension(file))))
+                {
+                    preserved++;
+                    continue;
+                }
+
+                File.Delete(file);
+                deleted++;
+            }
             PruneEmptyDirectories(videoDir);
         }
 
-        return deleted;
+        return (deleted, preserved);
     }
 
     private static int DeleteMaterialVideoFiles(string dir)
@@ -671,7 +801,55 @@ public static class TikTokArchivedProjectService
     private static int DeleteMaterialClipVideoFiles(string dir)
     {
         var clipDir = Path.Combine(dir, "material-clip-output");
-        return Directory.Exists(clipDir) ? DeleteVideoFilesRecursive(clipDir) : 0;
+        if (!Directory.Exists(clipDir)) return 0;
+
+        var deleted = 0;
+        foreach (var file in Directory.EnumerateFiles(clipDir, "*", SearchOption.AllDirectories))
+        {
+            if (IsUnderSubtitlesDirectory(clipDir, file)) continue;
+            if (!VideoExtensions.Contains(Path.GetExtension(file))) continue;
+            File.Delete(file);
+            deleted++;
+        }
+
+        return deleted;
+    }
+
+    private static bool IsUnderSubtitlesDirectory(string rootDir, string filePath)
+    {
+        var relative = Path.GetRelativePath(rootDir, filePath);
+        var parts = relative.Split(
+            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+            StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length > 1 &&
+               parts.Take(parts.Length - 1)
+                   .Any(part => string.Equals(part, "subtitles", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static int ExtractEpisodeNumber(string text)
+    {
+        var match = Regex.Match(text, @"\u7b2c\s*0*(\d+)\s*\u96c6");
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var episode))
+            return episode;
+
+        var digits = new string(text.Where(char.IsDigit).ToArray());
+        return int.TryParse(digits, out episode) ? episode : 0;
+    }
+
+    private static bool IsCrossVolumeMove(string sourceDir, string destinationDir)
+    {
+        try
+        {
+            var sourceRoot = Path.GetPathRoot(Path.GetFullPath(sourceDir));
+            var destinationRoot = Path.GetPathRoot(Path.GetFullPath(destinationDir));
+            return !string.IsNullOrWhiteSpace(sourceRoot) &&
+                   !string.IsNullOrWhiteSpace(destinationRoot) &&
+                   !string.Equals(sourceRoot, destinationRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void PruneEmptyDirectories(string dir)

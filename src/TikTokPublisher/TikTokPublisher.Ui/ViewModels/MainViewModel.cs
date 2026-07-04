@@ -1124,16 +1124,43 @@ public sealed partial class MainViewModel : ViewModelBase
             return;
         }
 
-        foreach (var row in rows)
+        if (IsCurrentWorkspaceQueueRunning())
         {
-            await TikTokArchivedProjectService.ArchiveQueueProjectAsync(root, row.Item.ProjectDir);
-            row.Item.Archived = true;
+            StatusMessage = "队列运行中，请先等待当前 TikTok 队列停止后再归档项目。";
+            AppendLog(StatusMessage);
+            return;
         }
 
-        PersistQueueItems();
-        RefreshWorkspaceProjects(root);
-        ArchivedProjects.SetWorkspace(root);
-        StatusMessage = $"已归档 {rows.Length} 个项目";
+        var successCount = 0;
+        var failures = new List<string>();
+        foreach (var row in rows)
+        {
+            try
+            {
+                await TikTokArchivedProjectService.ArchiveQueueProjectAsync(root, row.Item.ProjectDir);
+                row.Item.Archived = true;
+                successCount++;
+            }
+            catch (Exception ex)
+            {
+                var name = string.IsNullOrWhiteSpace(row.Item.Title) ? row.Item.DisplayName : row.Item.Title;
+                failures.Add($"{name}: {ex.Message}");
+                AppendLog($"归档失败 [{name}]：{ex.Message}");
+            }
+        }
+
+        if (successCount > 0)
+        {
+            PersistQueueItems();
+            RefreshWorkspaceProjects(root);
+            ArchivedProjects.SetWorkspace(root);
+        }
+
+        StatusMessage = failures.Count == 0
+            ? $"已归档 {successCount} 个项目"
+            : successCount > 0
+                ? $"已归档 {successCount} 个项目，失败 {failures.Count} 个：{string.Join("；", failures.Take(3))}"
+                : $"归档失败：{string.Join("；", failures.Take(3))}";
         AppendLog(StatusMessage);
     }
 

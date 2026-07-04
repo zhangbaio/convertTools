@@ -175,6 +175,8 @@ public static class WorkspaceQueueService
             };
 
         item.ProjectDir = scanned.ProjectDir;
+        if (item.Archived && Directory.Exists(scanned.ProjectDir))
+            item.Archived = false;
         if (string.IsNullOrWhiteSpace(item.DisplayName))
             item.DisplayName = scanned.DisplayName;
         item.OriginalTitle = scanned.OriginalTitle;
