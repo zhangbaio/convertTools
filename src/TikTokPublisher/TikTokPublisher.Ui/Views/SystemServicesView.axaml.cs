@@ -6,12 +6,28 @@ namespace TikTokPublisher.Ui.Views;
 
 public partial class SystemServicesView : UserControl
 {
+    private SystemServicesViewModel? _vm;
+
     public SystemServicesView() => InitializeComponent();
 
     public void Bind(SystemServicesViewModel vm)
     {
+        if (_vm is not null)
+            _vm.StatusRequested -= OnStatusRequested;
+
+        _vm = vm;
         DataContext = vm;
+        vm.StatusRequested += OnStatusRequested;
         vm.RefreshLicenseSummaryDisplay();
+    }
+
+    private async void OnStatusRequested(string message)
+    {
+        if (!message.Contains("系统服务配置已保存", StringComparison.Ordinal))
+            return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        await InfoDialog.ShowSaveSuccessAsync(owner, "系统服务配置已保存成功。");
     }
 
     private async void OnLicenseLoginClick(object? sender, RoutedEventArgs e)

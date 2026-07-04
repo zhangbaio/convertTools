@@ -4,8 +4,11 @@ param(
     [string]$Runtime = "win-x64",
     [string]$Version,
     [switch]$InstallPlaywrightChromium,
+    [switch]$NoBundleDependencies,
     [switch]$SkipInstallerCompile,
-    [string]$InnoSetupCompiler
+    [string]$InnoSetupCompiler,
+    [string]$FfmpegDownloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+    [string]$WebView2DownloadUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 )
 
 Set-StrictMode -Version Latest
@@ -19,6 +22,8 @@ $DependenciesDir = Join-Path $Root "packaging\dependencies"
 $ProjectPath = Join-Path $Root "src\TikTokPublisher\TikTokPublisher.Desktop\TikTokPublisher.Desktop.csproj"
 $InnoScript = Join-Path $Root "packaging\tiktok-publisher.iss"
 $AppIconPath = Join-Path $Root "src\TikTokPublisher\TikTokPublisher.Desktop\Assets\tiktok-shortdrama-logo.ico"
+$DependencyCacheDir = Join-Path $DependenciesDir "cache"
+$BundleDependencies = -not $NoBundleDependencies
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = "1.0.$(Get-Date -Format 'yyyyMMdd').0"
@@ -46,6 +51,15 @@ function Remove-DirectorySafe {
     }
 }
 
+function Remove-DependencyCacheDirectorySafe {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    Assert-UnderDirectory -Path $Path -Parent $DependencyCacheDir
+    if (Test-Path -LiteralPath $Path) {
+        Remove-Item -LiteralPath $Path -Recurse -Force
+    }
+}
+
 function Copy-DirectoryContents {
     param(
         [Parameter(Mandatory = $true)][string]$Source,
@@ -59,6 +73,73 @@ function Copy-DirectoryContents {
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force
+    }
+}
+
+function Invoke-DownloadFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Url,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
+    Write-Host "Downloading $Url"
+    Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
+}
+
+function Ensure-WebView2RuntimeInstaller {
+    if (-not $BundleDependencies) {
+        return
+    }
+
+    $installer = Join-Path $DependenciesDir "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+    if (Test-Path -LiteralPath $installer) {
+        return
+    }
+
+    Invoke-DownloadFile -Url $WebView2DownloadUrl -Destination $installer
+}
+
+function Ensure-FfmpegDependency {
+    if (-not $BundleDependencies) {
+        return
+    }
+
+    $targetDir = Join-Path $DependenciesDir "tools\$Runtime\ffmpeg"
+    $ffmpeg = Join-Path $targetDir "ffmpeg.exe"
+    $ffprobe = Join-Path $targetDir "ffprobe.exe"
+    if ((Test-Path -LiteralPath $ffmpeg) -and (Test-Path -LiteralPath $ffprobe)) {
+        return
+    }
+
+    $zipPath = Join-Path $DependencyCacheDir "ffmpeg-release-essentials.zip"
+    $extractDir = Join-Path $DependencyCacheDir "ffmpeg-release-essentials"
+    if (-not (Test-Path -LiteralPath $zipPath)) {
+        Invoke-DownloadFile -Url $FfmpegDownloadUrl -Destination $zipPath
+    }
+
+    Remove-DependencyCacheDirectorySafe -Path $extractDir
+    New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+    Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
+
+    $extractedFfmpeg = Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter "ffmpeg.exe" |
+        Select-Object -First 1
+    $extractedFfprobe = Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter "ffprobe.exe" |
+        Select-Object -First 1
+
+    if (-not $extractedFfmpeg -or -not $extractedFfprobe) {
+        throw "Downloaded ffmpeg archive did not contain ffmpeg.exe and ffprobe.exe: $zipPath"
+    }
+
+    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+    Copy-Item -LiteralPath $extractedFfmpeg.FullName -Destination $ffmpeg -Force
+    Copy-Item -LiteralPath $extractedFfprobe.FullName -Destination $ffprobe -Force
+
+    $license = Get-ChildItem -LiteralPath $extractDir -Recurse -File |
+        Where-Object { $_.Name -match '^(LICENSE|COPYING|README)' } |
+        Select-Object -First 1
+    if ($license) {
+        Copy-Item -LiteralPath $license.FullName -Destination (Join-Path $targetDir $license.Name) -Force
     }
 }
 
@@ -121,6 +202,17 @@ function Test-AnyPath {
     return $false
 }
 
+function Assert-AnyPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string[]]$Candidates
+    )
+
+    if (-not (Test-AnyPath -Candidates $Candidates)) {
+        throw "$Name is not bundled. Expected one of: $($Candidates -join ', ')"
+    }
+}
+
 function Invoke-Checked {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
@@ -133,9 +225,49 @@ function Invoke-Checked {
     }
 }
 
+function Install-PlaywrightChromium {
+    param([Parameter(Mandatory = $true)][string]$BrowserRoot)
+
+    $playwrightScript = Join-Path $PublishDir "playwright.ps1"
+    if (-not (Test-Path -LiteralPath $playwrightScript)) {
+        throw "playwright.ps1 was not found in the publish directory; Chromium cannot be bundled."
+    }
+
+    New-Item -ItemType Directory -Force -Path $BrowserRoot | Out-Null
+    $oldBrowserPath = $env:PLAYWRIGHT_BROWSERS_PATH
+    try {
+        $env:PLAYWRIGHT_BROWSERS_PATH = $BrowserRoot
+        $runnerCommand = Get-Command pwsh -ErrorAction SilentlyContinue
+        if (-not $runnerCommand) {
+            $runnerCommand = Get-Command powershell.exe -ErrorAction Stop
+        }
+        $runner = $runnerCommand.Source
+
+        if ([System.IO.Path]::GetFileName($runner).Equals("powershell.exe", [System.StringComparison]::OrdinalIgnoreCase)) {
+            Invoke-Checked -FilePath $runner -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $playwrightScript, "install", "chromium")
+        }
+        else {
+            Invoke-Checked -FilePath $runner -Arguments @("-NoProfile", "-File", $playwrightScript, "install", "chromium")
+        }
+    }
+    finally {
+        $env:PLAYWRIGHT_BROWSERS_PATH = $oldBrowserPath
+    }
+}
+
 Write-Host "Packaging TikTokPublisher $Version ($Runtime, $Configuration)"
+if ($BundleDependencies) {
+    Write-Host "Bundling runtime dependencies: .NET self-contained, Python/tools, ffmpeg, Playwright Chromium, WebView2 Runtime"
+}
+else {
+    Write-Warning "Dependency bundling is disabled. The installer may require target machines to install dependencies separately."
+}
 
 New-Item -ItemType Directory -Force -Path $ArtifactsRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $DependenciesDir | Out-Null
+New-Item -ItemType Directory -Force -Path $DependencyCacheDir | Out-Null
+Ensure-WebView2RuntimeInstaller
+Ensure-FfmpegDependency
 Remove-DirectorySafe -Path $PublishDir
 Remove-DirectorySafe -Path $InstallerDir
 New-Item -ItemType Directory -Force -Path $PublishDir | Out-Null
@@ -161,38 +293,11 @@ $extraTools = Join-Path $DependenciesDir "tools"
 Copy-DirectoryContents -Source $extraTools -Destination $publishTools
 
 $cachedPlaywright = Join-Path $DependenciesDir "ms-playwright"
+if ($BundleDependencies -or $InstallPlaywrightChromium) {
+    Install-PlaywrightChromium -BrowserRoot $cachedPlaywright
+}
 if (Test-Path -LiteralPath $cachedPlaywright) {
     Copy-DirectoryContents -Source $cachedPlaywright -Destination (Join-Path $PublishDir "ms-playwright")
-}
-
-if ($InstallPlaywrightChromium) {
-    $playwrightScript = Join-Path $PublishDir "playwright.ps1"
-    if (-not (Test-Path -LiteralPath $playwrightScript)) {
-        Write-Warning "playwright.ps1 was not found in the publish directory; Chromium was not downloaded."
-    }
-    else {
-        $browserRoot = Join-Path $PublishDir "ms-playwright"
-        New-Item -ItemType Directory -Force -Path $browserRoot | Out-Null
-        $oldBrowserPath = $env:PLAYWRIGHT_BROWSERS_PATH
-        try {
-            $env:PLAYWRIGHT_BROWSERS_PATH = $browserRoot
-            $runnerCommand = Get-Command pwsh -ErrorAction SilentlyContinue
-            if (-not $runnerCommand) {
-                $runnerCommand = Get-Command powershell.exe -ErrorAction Stop
-            }
-            $runner = $runnerCommand.Source
-
-            if ([System.IO.Path]::GetFileName($runner).Equals("powershell.exe", [System.StringComparison]::OrdinalIgnoreCase)) {
-                Invoke-Checked -FilePath $runner -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $playwrightScript, "install", "chromium")
-            }
-            else {
-                Invoke-Checked -FilePath $runner -Arguments @("-NoProfile", "-File", $playwrightScript, "install", "chromium")
-            }
-        }
-        finally {
-            $env:PLAYWRIGHT_BROWSERS_PATH = $oldBrowserPath
-        }
-    }
 }
 
 $ffmpegCandidates = @(
@@ -202,7 +307,18 @@ $ffmpegCandidates = @(
     (Join-Path $PublishDir "tools\ffmpeg\bin\ffmpeg.exe"),
     (Join-Path $PublishDir "ffmpeg.exe")
 )
-if (-not (Test-AnyPath -Candidates $ffmpegCandidates)) {
+$ffprobeCandidates = @(
+    (Join-Path $PublishDir "tools\$Runtime\ffmpeg\ffprobe.exe"),
+    (Join-Path $PublishDir "tools\$Runtime\ffmpeg\bin\ffprobe.exe"),
+    (Join-Path $PublishDir "tools\ffmpeg\ffprobe.exe"),
+    (Join-Path $PublishDir "tools\ffmpeg\bin\ffprobe.exe"),
+    (Join-Path $PublishDir "ffprobe.exe")
+)
+if ($BundleDependencies) {
+    Assert-AnyPath -Name "ffmpeg.exe" -Candidates $ffmpegCandidates
+    Assert-AnyPath -Name "ffprobe.exe" -Candidates $ffprobeCandidates
+}
+elseif (-not (Test-AnyPath -Candidates $ffmpegCandidates)) {
     Write-Warning "ffmpeg.exe is not bundled. Put ffmpeg/ffprobe under packaging\dependencies\tools\$Runtime\ffmpeg before building a fully offline installer."
 }
 
@@ -211,12 +327,18 @@ $chromiumDirs = @()
 if (Test-Path -LiteralPath $playwrightRoot) {
     $chromiumDirs = @(Get-ChildItem -LiteralPath $playwrightRoot -Directory -Filter "chromium-*" -ErrorAction SilentlyContinue)
 }
-if ($chromiumDirs.Count -eq 0) {
+if ($BundleDependencies -and $chromiumDirs.Count -eq 0) {
+    throw "Playwright Chromium is not bundled. The installer would require a browser download on the target machine."
+}
+elseif ($chromiumDirs.Count -eq 0) {
     Write-Warning "Playwright Chromium is not bundled. Use -InstallPlaywrightChromium, or prefill packaging\dependencies\ms-playwright."
 }
 
 $webView2Installer = Join-Path $DependenciesDir "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
-if (-not (Test-Path -LiteralPath $webView2Installer)) {
+if ($BundleDependencies -and -not (Test-Path -LiteralPath $webView2Installer)) {
+    throw "WebView2 Runtime installer is not bundled. The installer would require WebView2 on the target machine."
+}
+elseif (-not (Test-Path -LiteralPath $webView2Installer)) {
     Write-Warning "WebView2 Runtime installer is not bundled. Put MicrosoftEdgeWebView2RuntimeInstallerX64.exe under packaging\dependencies for new Windows machines without WebView2."
 }
 

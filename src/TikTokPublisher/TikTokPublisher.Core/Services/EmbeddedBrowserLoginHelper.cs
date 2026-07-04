@@ -47,7 +47,19 @@ public static class EmbeddedBrowserLoginHelper
   }
 
   public static string ResolveAccountKey(TikTokAccountProfile profile) =>
-    (profile.TiktokLoginEmail ?? profile.TiktokLastLoginEmail ?? profile.DisplayName ?? profile.Id).Trim();
+    FirstNonEmpty(profile.ResolveTikTokAccountName(), profile.DisplayName, profile.Id);
+
+  private static string FirstNonEmpty(params string?[] values)
+  {
+    foreach (var value in values)
+    {
+      var text = (value ?? "").Trim();
+      if (!string.IsNullOrWhiteSpace(text))
+        return text;
+    }
+
+    return "";
+  }
 }
 
 public sealed record EmbeddedBrowserCookie(

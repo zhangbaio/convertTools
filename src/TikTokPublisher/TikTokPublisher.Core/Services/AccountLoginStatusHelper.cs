@@ -10,7 +10,7 @@ public static class AccountLoginStatusHelper
         var authExists = !string.IsNullOrWhiteSpace(authPath) && File.Exists(authPath);
         var text = authExists ? "授权文件存在（可能已登录）" : "尚未登录";
 
-        var lastEmail = (profile.TiktokLastLoginEmail ?? profile.TiktokLoginEmail ?? "").Trim();
+        var lastEmail = profile.ResolveTikTokAccountName();
         if (!string.IsNullOrEmpty(lastEmail))
             text += $" | {lastEmail}";
 

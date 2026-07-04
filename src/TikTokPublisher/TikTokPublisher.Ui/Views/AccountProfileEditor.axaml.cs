@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -25,14 +26,31 @@ public partial class AccountProfileEditor : UserControl
 
     public void Bind(MainViewModel vm)
     {
+        if (_vm is not null)
+        {
+            _vm.PropertyChanged -= OnViewModelPropertyChanged;
+            _vm.AccountProfileNetworkChanged -= OnAccountProfileChanged;
+        }
+
         _vm = vm;
         DataContext = vm;
         ReloadFromSelectedAccount();
-        vm.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(MainViewModel.SelectedAccount))
-                ReloadFromSelectedAccount();
-        };
+        vm.PropertyChanged += OnViewModelPropertyChanged;
+        vm.AccountProfileNetworkChanged += OnAccountProfileChanged;
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.SelectedAccount))
+            ReloadFromSelectedAccount();
+        else if (e.PropertyName == nameof(MainViewModel.WorkspacePath))
+            SyncWorkspaceBoxFromSelectedAccount();
+    }
+
+    private void OnAccountProfileChanged(TikTokAccountProfile profile)
+    {
+        if (_vm?.SelectedAccount?.Id == profile.Id)
+            SyncWorkspaceBoxFromSelectedAccount();
     }
 
     private void ReloadFromSelectedAccount()
@@ -106,6 +124,19 @@ public partial class AccountProfileEditor : UserControl
         ProxyPasswordBox.Text = profile.TiktokProxyPassword;
         ProxyLabelBox.Text = profile.TiktokProxyLabel;
         StaticIpNoteBox.Text = profile.TiktokStaticIpNote;
+    }
+
+    private void SyncWorkspaceBoxFromSelectedAccount()
+    {
+        var profile = _vm?.SelectedAccount?.Model;
+        var workspace = profile is null
+            ? ""
+            : !string.IsNullOrWhiteSpace(profile.TiktokUploadProfilePath)
+                ? profile.TiktokUploadProfilePath
+                : profile.LastWorkspace;
+
+        if (!string.Equals(WorkspaceBox.Text ?? "", workspace, StringComparison.Ordinal))
+            WorkspaceBox.Text = workspace;
     }
 
     private bool SaveToProfile()
@@ -194,10 +225,13 @@ public partial class AccountProfileEditor : UserControl
         }
     }
 
-    private void OnSaveClick(object? sender, RoutedEventArgs e)
+    private async void OnSaveClick(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        SaveToProfile();
+        if (!SaveToProfile()) return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        await InfoDialog.ShowSaveSuccessAsync(owner, "账号配置已保存成功。");
     }
 
     private void OnLoginClick(object? sender, RoutedEventArgs e)

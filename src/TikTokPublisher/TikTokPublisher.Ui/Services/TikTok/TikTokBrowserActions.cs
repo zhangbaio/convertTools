@@ -781,6 +781,39 @@ public static partial class TikTokBrowserActions
         catch { /* ignore */ }
     }
 
+    /// <summary>上传/编辑开始前重置残留页面：上一轮失败可能停留在半填的表单，
+    /// 且页面上挂着「是否离开网站」确认弹窗；此处选择「离开」丢弃残留更改，让流程从干净页面开始。</summary>
+    public static async Task ResetLeftoverPageStateAsync(IPage page, Action<string>? log, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            string bodyText;
+            try { bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 2000 }); }
+            catch { bodyText = ""; }
+
+            if (!bodyText.Contains("是否离开网站", StringComparison.Ordinal) &&
+                !bodyText.Contains("更改可能未保存", StringComparison.Ordinal))
+                return;
+
+            foreach (var text in new[] { "离开", "确定" })
+            {
+                var button = page.GetByRole(AriaRole.Button, new() { Name = text }).First;
+                if (await button.CountAsync() > 0 && await button.IsVisibleAsync())
+                {
+                    await button.ClickAsync(new() { Timeout = 3000 });
+                    Log(log, "检测到上次残留的「是否离开网站」弹窗，已选择离开并重置页面。");
+                    await page.WaitForTimeoutAsync(800);
+                    return;
+                }
+            }
+        }
+        catch
+        {
+            // 弹窗消失或页面切换中，忽略
+        }
+    }
+
     private static async Task<bool> DismissLeavePageDialogIfPresentAsync(IPage page, Action<string>? log)
     {
         var buttons = new[] { "留在此页", "留在当前页", "取消", "关闭" };

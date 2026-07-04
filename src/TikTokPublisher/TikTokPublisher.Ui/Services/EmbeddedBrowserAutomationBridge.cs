@@ -34,6 +34,15 @@ public static class EmbeddedBrowserAutomationBridge
         var page = context.Pages.FirstOrDefault()
             ?? throw new InvalidOperationException("内置浏览器页面不可用");
 
+        // 上一轮失败可能遗留未保存的表单；导航会触发 beforeunload（“是否离开网站”）。
+        // Playwright 默认丢弃对话框（等于留在旧页面），必须显式接受才能重置页面。
+        page.Dialog += (_, dialog) =>
+        {
+            _ = string.Equals(dialog.Type, "beforeunload", StringComparison.OrdinalIgnoreCase)
+                ? dialog.AcceptAsync()
+                : dialog.DismissAsync();
+        };
+
         if (!string.IsNullOrWhiteSpace(navigateUrl)
             && !string.Equals(page.Url, navigateUrl, StringComparison.OrdinalIgnoreCase)
             && !page.Url.Contains("/series/", StringComparison.OrdinalIgnoreCase))

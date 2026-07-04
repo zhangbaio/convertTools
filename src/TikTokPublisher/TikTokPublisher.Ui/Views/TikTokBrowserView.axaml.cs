@@ -12,6 +12,7 @@ public partial class TikTokBrowserView : UserControl
 {
     private BrowserSessionHost? _browserHost;
     private MainViewModel? _vm;
+    private bool _manualAuthSavePromptPending;
 
     public TikTokBrowserView()
     {
@@ -25,6 +26,10 @@ public partial class TikTokBrowserView : UserControl
         _browserHost = browserHost;
         _vm = vm;
         DataContext = vm;
+        _browserHost.AuthSaved -= OnAuthSaved;
+        _browserHost.AuthSaved += OnAuthSaved;
+        _browserHost.AuthSaveFailed -= OnAuthSaveFailed;
+        _browserHost.AuthSaveFailed += OnAuthSaveFailed;
         if (EmptyHint is not null)
             _browserHost.SetEmptyHint(EmptyHint);
         vm.NavigateRequested += OnNavigateRequested;
@@ -120,6 +125,19 @@ public partial class TikTokBrowserView : UserControl
             return;
         }
 
+        _manualAuthSavePromptPending = true;
         await _browserHost.SaveAuthAsync(account);
     }
+
+    private async void OnAuthSaved(EmbeddedAuthSavedEventArgs args)
+    {
+        if (!_manualAuthSavePromptPending)
+            return;
+
+        _manualAuthSavePromptPending = false;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        await InfoDialog.ShowSaveSuccessAsync(owner, "授权已保存成功。");
+    }
+
+    private void OnAuthSaveFailed(string message) => _manualAuthSavePromptPending = false;
 }

@@ -57,12 +57,28 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
 
         IPlaywright? pw = null;
         IBrowser? chromium = null;
+        CancellationTokenSource? limitCts = null;
+        var outerCt = ct;
+        string? dailyLimitHit = null;
         try
         {
             (pw, chromium, var page) = await EmbeddedBrowserAutomationBridge
                 .ConnectPageAsync(browser, targetUrl, L, ct)
                 .ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
+
+            // 对齐 Python _watch_daily_episode_limit：上限提示是出现时机不固定的短暂 toast，
+            // 单点检测容易错过，需全程后台轮询；命中后立即取消主流程。
+            limitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            ct = limitCts.Token;
+            _ = WatchDailyEpisodeLimitAsync(page, limitCts, text =>
+            {
+                dailyLimitHit = text;
+                L($"TikTok 检测到单日创建剧集上限提示：{text}");
+            });
+
+            // 清理上一轮失败遗留的「是否离开网站」弹窗/半填表单，确保从干净页面开始。
+            await TikTokBrowserActions.ResetLeftoverPageStateAsync(page, L, ct).ConfigureAwait(false);
 
             if (IsLoginPage(page.Url))
             {
@@ -192,6 +208,15 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 TikTokUploadStateStore.MarkUploadStepCompleted(workflowDir, payload.Title);
             return result;
         }
+        catch (Exception ex) when (dailyLimitHit is not null && !outerCt.IsCancellationRequested)
+        {
+            // 后台监视命中上限后取消主流程会抛出取消/操作异常；据 dailyLimitHit 还原为上限结果。
+            _ = ex;
+            var limitMsg = $"检测到 TikTok 单日创建剧集上限：{dailyLimitHit}（任务队列已停止，请明天再试）";
+            if (hasWorkflow)
+                TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, limitMsg, payload.Title);
+            return PublishResult.FailAndStopQueue(limitMsg);
+        }
         catch (OperationCanceledException)
         {
             throw;
@@ -205,9 +230,45 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         }
         finally
         {
+            try { limitCts?.Cancel(); } catch { /* ignore */ }
+            limitCts?.Dispose();
             try { await (chromium?.DisposeAsync() ?? ValueTask.CompletedTask).ConfigureAwait(false); }
             catch { /* disconnect CDP only */ }
             pw?.Dispose();
+        }
+    }
+
+    /// <summary>全程后台轮询「单日创建剧集已达上限」toast；命中后回调并取消主流程（对齐 Python 行为）。</summary>
+    private static async Task WatchDailyEpisodeLimitAsync(
+        IPage page,
+        CancellationTokenSource limitCts,
+        Action<string> onHit)
+    {
+        try
+        {
+            while (!limitCts.IsCancellationRequested)
+            {
+                string? text = null;
+                try { text = await TikTokBrowserActions.DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false); }
+                catch { /* 页面繁忙/已释放时忽略本轮 */ }
+
+                if (text is not null)
+                {
+                    onHit(text);
+                    limitCts.Cancel();
+                    return;
+                }
+
+                await Task.Delay(500, limitCts.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 主流程结束时正常退出
+        }
+        catch (ObjectDisposedException)
+        {
+            // limitCts 已随主流程释放
         }
     }
 

@@ -193,7 +193,7 @@ public sealed class BrowserSessionHost
             _wasOnLoginPage.Remove(account.Id);
         }
 
-        var email = (account.Model.TiktokLoginEmail ?? account.Model.TiktokLastLoginEmail ?? "").Trim();
+        var email = account.Model.ResolveTikTokAccountName();
         var pwd = account.Model.TiktokLoginPassword ?? "";
         if (!string.IsNullOrEmpty(email) || !string.IsNullOrEmpty(pwd))
         {

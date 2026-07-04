@@ -87,10 +87,10 @@ public sealed class TikTokAccountProfile
     public AccountStatus Status { get; set; } = AccountStatus.Offline;
 
     public string DisplayName =>
-        !string.IsNullOrWhiteSpace(TiktokAccountNickname) ? TiktokAccountNickname.Trim()
-        : !string.IsNullOrWhiteSpace(TiktokLoginEmail) ? TiktokLoginEmail.Trim()
-        : !string.IsNullOrWhiteSpace(Name) ? Name.Trim()
-        : Id;
+        FirstNonEmpty(TiktokAccountNickname, ResolveTikTokAccountName(), Name, Id);
+
+    public string ResolveTikTokAccountName() =>
+        FirstNonEmpty(TiktokLoginEmail, TiktokLastLoginEmail);
 
     public string ResolveWorkspacePath()
     {
@@ -108,6 +108,17 @@ public sealed class TikTokAccountProfile
                 // 忽略非法路径
             }
         }
+        return "";
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            var text = (value ?? "").Trim();
+            if (!string.IsNullOrWhiteSpace(text)) return text;
+        }
+
         return "";
     }
 }

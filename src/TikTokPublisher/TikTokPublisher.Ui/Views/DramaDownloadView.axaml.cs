@@ -66,5 +66,10 @@ public partial class DramaDownloadView : UserControl
         _vm.SaveState();
     }
 
-    private void OnSaveSettingsClick(object? sender, RoutedEventArgs e) => _vm?.SaveState();
+    private async void OnSaveSettingsClick(object? sender, RoutedEventArgs e)
+    {
+        _vm?.SaveState();
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        await InfoDialog.ShowSaveSuccessAsync(owner, "当前页面配置已保存成功。");
+    }
 }

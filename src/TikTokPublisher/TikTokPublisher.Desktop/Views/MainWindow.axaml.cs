@@ -74,6 +74,11 @@ public partial class MainWindow : Window
         _viewModel.AccountProfileNetworkChanged += profile => _browserHost.InvalidateHostIfNetworkChanged(profile);
         AccountSidebar.NavigatePageRequested += (_, _) => NavigateTo("accounts");
         _viewModel.AccountSwitchRequested += OnAccountSwitchRequested;
+        _viewModel.DailyLimitReached += message =>
+            _ = ConfirmDialog.ShowAsync(
+                this,
+                "单日创建剧集已达上限",
+                $"{message}\n\n任务队列已自动停止，请明天再继续上传。");
 
         SetSidebarCollapsed(false);
         NavigateTo("queue");

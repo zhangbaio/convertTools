@@ -580,10 +580,23 @@ public sealed class QueueWorkerRunner
 
         if (stopQueue)
         {
-            mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, failureMessage));
-            Report(onProgress, workspace, item,
-                $"上传失败，已停止后续队列：{failureMessage}",
-                QueueStepRegistry.UploadSeries);
+            // 单日创建剧集上限：对齐 Python，项目标记为「已停止」而非失败（明天重跑即可），并输出专用提示。
+            var isDailyLimit = failureMessage.Contains("单日创建剧集上限", StringComparison.Ordinal);
+            if (isDailyLimit)
+            {
+                mutate(() => MarkStopped(item, QueueStepRegistry.UploadSeries));
+                Report(onProgress, workspace, item,
+                    $"已达单日创建剧集上限，任务队列已停止，请明天再继续上传：{failureMessage}",
+                    QueueStepRegistry.UploadSeries);
+            }
+            else
+            {
+                mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, failureMessage));
+                Report(onProgress, workspace, item,
+                    $"上传失败，已停止后续队列：{failureMessage}",
+                    QueueStepRegistry.UploadSeries);
+            }
+
             throw new QueueStopRequestedException(failureMessage);
         }
 

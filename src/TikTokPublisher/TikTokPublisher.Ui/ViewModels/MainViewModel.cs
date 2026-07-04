@@ -45,6 +45,10 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public event Action<ManualInterventionDialogRequest>? ManualInterventionDialogRequested;
 
+    /// <summary>检测到 TikTok 单日创建剧集上限、队列已停止时触发（用于弹窗提示，对齐 Python）。</summary>
+    public event Action<string>? DailyLimitReached;
+    private bool _dailyLimitNotified;
+
     public IReadOnlyList<FinalActionChoice> FinalActionChoices { get; } = new[]
     {
         new FinalActionChoice("只填不发（安全）", FinalAction.None),
@@ -588,16 +592,35 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void SetWorkspacePath(string path)
     {
-        WorkspacePath = path;
+        var workspace = NormalizeWorkspacePath(path);
         var active = SelectedAccount?.Model;
-        if (active is null || string.IsNullOrWhiteSpace(path)) return;
+        if (active is null || string.IsNullOrWhiteSpace(workspace))
+        {
+            WorkspacePath = workspace;
+            RefreshWorkspaceProjects(workspace);
+            return;
+        }
 
-        active.LastWorkspace = path;
-        active.TiktokUploadProfilePath = path;
-        _context.NotifyProfileUpdated(active);
-        WorkspaceBindingService.Bind(path, active.Id, active.DisplayName);
-        RefreshWorkspaceProjects(path);
-        StatusMessage = $"工作目录已绑定到「{active.DisplayName}」：{path}";
+        active.LastWorkspace = workspace;
+        active.TiktokUploadProfilePath = workspace;
+        WorkspaceBindingService.Bind(workspace, active.Id, active.DisplayName);
+        SaveAccountProfile(active);
+        StatusMessage = $"工作目录已同步到「{active.DisplayName}」基础设置并自动保存：{workspace}";
+    }
+
+    private static string NormalizeWorkspacePath(string path)
+    {
+        var workspace = (path ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(workspace)) return "";
+
+        try
+        {
+            return Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspace));
+        }
+        catch
+        {
+            return workspace;
+        }
     }
 
     public void RefreshWorkspaceProjects(string? workspaceRoot = null) =>
@@ -1339,6 +1362,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         _activeQueueRunCount++;
         _queueRunActive = true;
+        _dailyLimitNotified = false;
         RefreshRunningWorkspacesSummary();
         return _queueCts.Token;
     }
@@ -1358,6 +1382,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void HandleQueueWorkerProgress(QueueWorkerProgress progress)
     {
+        NotifyDailyLimitIfPresent(progress.Message);
         var isActiveWorkspace = IsActiveWorkspace(progress.WorkspaceRoot);
         if (!isActiveWorkspace)
         {
@@ -1436,6 +1461,20 @@ public sealed partial class MainViewModel : ViewModelBase
             NormalizePathCached(workspaceRoot),
             NormalizePathCached(root),
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void NotifyDailyLimitIfPresent(string? message)
+    {
+        if (_dailyLimitNotified)
+            return;
+        var text = message ?? "";
+        if (!text.Contains("单日创建剧集上限", StringComparison.Ordinal) ||
+            !text.Contains("已停止", StringComparison.Ordinal))
+            return;
+
+        _dailyLimitNotified = true;
+        StatusMessage = "已达单日创建剧集上限，队列已停止";
+        DailyLimitReached?.Invoke(text);
     }
 
     private readonly Dictionary<string, DateTime> _lastProgressLogTimeByKey = new(StringComparer.OrdinalIgnoreCase);

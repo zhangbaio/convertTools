@@ -21,7 +21,7 @@ public sealed partial class AccountItemViewModel : ViewModelBase
     public string DisplayName => Model.DisplayName;
 
     public string LoginEmail =>
-        (Model.TiktokLastLoginEmail ?? Model.TiktokLoginEmail ?? "").Trim();
+        Model.ResolveTikTokAccountName();
 
     public string Subtitle =>
         !string.IsNullOrWhiteSpace(LoginEmail) ? LoginEmail : Id;

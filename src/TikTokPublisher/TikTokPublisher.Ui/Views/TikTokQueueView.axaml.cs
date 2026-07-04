@@ -266,8 +266,6 @@ public partial class TikTokQueueView : UserControl
         if (folder is null) return;
 
         var path = folder.Path.LocalPath;
-        _vm.SetWorkspacePath(path);
-
         var boundId = WorkspaceBindingService.ResolveAccountProfileId(path);
         if (!string.IsNullOrWhiteSpace(boundId))
         {
@@ -278,6 +276,8 @@ public partial class TikTokQueueView : UserControl
                 _vm.StatusMessage = $"工作目录已绑定账号「{bound.DisplayName}」，已自动切换";
             }
         }
+
+        _vm.SetWorkspacePath(path);
     }
 
     private async Task ShowAccountSettingsDialogAsync()
@@ -298,6 +298,7 @@ public partial class TikTokQueueView : UserControl
 
         vm.SaveAccountProfile(account.Model);
         vm.StatusMessage = $"已保存账号「{account.DisplayName}」的设置";
+        await InfoDialog.ShowSaveSuccessAsync(owner, "账号设置已保存成功。");
     }
 
     private void OnScanWorkspaceClick(object? sender, RoutedEventArgs e)
@@ -1210,6 +1211,7 @@ public partial class TikTokQueueView : UserControl
             _publishConfig = TikTokPublishConfig.Load();
             ApplyConfigToVm();
             if (_vm != null) _vm.StatusMessage = "发布配置已保存";
+            await InfoDialog.ShowSaveSuccessAsync(owner, "发布配置已保存成功。");
         }
     }
 

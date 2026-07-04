@@ -120,7 +120,7 @@ public static class TikTokPaidRatioService
         if (!string.IsNullOrEmpty(profileId))
             return profileId;
 
-        var email = (account.TiktokLoginEmail ?? account.TiktokLastLoginEmail ?? "").Trim();
+        var email = account.ResolveTikTokAccountName();
         return string.IsNullOrEmpty(email) ? "default" : email.ToLowerInvariant();
     }
 

@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace TikTokPublisher.Ui.Views;
@@ -14,8 +15,12 @@ public partial class SystemSettingsView : UserControl
 
     public void Bind(SystemSettingsViewModel vm)
     {
+        if (_vm is not null)
+            _vm.SettingsSaved -= OnSettingsSaved;
+
         _vm = vm;
         DataContext = vm;
+        vm.SettingsSaved += OnSettingsSaved;
         InitializeComboBoxes();
         SyncCombosFromVm();
         vm.PropertyChanged += (_, args) =>
@@ -33,6 +38,12 @@ public partial class SystemSettingsView : UserControl
                 SyncCombosFromVm();
             }
         };
+    }
+
+    private async void OnSettingsSaved(ClientSettings settings)
+    {
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        await InfoDialog.ShowSaveSuccessAsync(owner, "系统设置已保存成功。");
     }
 
     private void InitializeComboBoxes()
