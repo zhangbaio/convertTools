@@ -79,8 +79,10 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             ApplyRenderedState();
     }
 
-    /// <summary>后台隐藏时保持的虚拟视口：视口为 0 会让页面布局塌缩，Playwright 点击等可操作性检查全部超时。</summary>
-    private static readonly Rectangle HiddenViewportBounds = new(0, 0, 1280, 860);
+    /// <summary>后台隐藏时的虚拟视口：移到父窗口可视区外但保持 IsVisible=true。
+    /// 若用 IsVisible=false 隐藏，WebView2 会暂停渲染帧（rAF），Playwright 的
+    /// 「元素稳定」检查依赖连续渲染帧，后台自动化的点击会全部超时失败。</summary>
+    private static readonly Rectangle HiddenViewportBounds = new(-20000, 0, 1280, 860);
 
     private void ApplyRenderedState()
     {
@@ -90,7 +92,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             if (_controller is null || !_nativeHandleAlive)
                 return;
 
-            _controller.IsVisible = _renderedVisible;
+            _controller.IsVisible = true;
             if (_renderedVisible)
                 UpdateBounds();
             else
@@ -208,7 +210,13 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         {
             _lastInitError = null;
             var options = new CoreWebView2EnvironmentOptions();
-            var browserArgs = new List<string>();
+            var browserArgs = new List<string>
+            {
+                // 后台上传依赖持续的定时器与渲染帧；禁用 Chromium 的后台/遮挡节流。
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+            };
             if (RemoteDebuggingPort > 0)
                 browserArgs.Add($"--remote-debugging-port={RemoteDebuggingPort}");
             if (!string.IsNullOrWhiteSpace(ProxyServer))

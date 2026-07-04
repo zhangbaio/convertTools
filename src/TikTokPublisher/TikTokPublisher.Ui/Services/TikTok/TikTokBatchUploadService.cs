@@ -177,6 +177,11 @@ public static class TikTokBatchUploadService
         return null;
     }
 
+    private static readonly string[] UploadingMarkers =
+    {
+        "上传中", "正在上传", "处理中", "等待中", "Uploading", "Transcoding", "Processing",
+    };
+
     private static async Task<BatchWaitOutcome> WaitBatchAsync(
         IPage page,
         int targetReady,
@@ -186,9 +191,10 @@ public static class TikTokBatchUploadService
         CancellationToken ct,
         double pollSeconds = 3.0)
     {
-        (int Ready, int Percent)? lastSig = null;
+        (int? Ready, int Percent, int RowCount, bool Uploading)? lastSig = null;
         var lastChange = DateTime.UtcNow;
         var lastLog = "";
+        var doneStreak = 0;
 
         while (true)
         {
@@ -201,12 +207,29 @@ public static class TikTokBatchUploadService
                 bodyText.Contains("Upload failed", StringComparison.OrdinalIgnoreCase))
                 return BatchWaitOutcome.Stuck;
 
-            var ready = TikTokBrowserActions.ExtractReadyUploadedVideoCount(bodyText, titleCandidates) ?? 0;
+            // 编辑页正片表格是虚拟化列表，可见文本只包含视口内的行；
+            // 就绪计数必须结合 aria-rowcount（全量行数）与上传中标记判断，不能只数可见行。
+            var ready = TikTokBrowserActions.ExtractReadyUploadedVideoCount(bodyText, titleCandidates);
             var percent = TikTokBrowserActions.ExtractTotalUploadPercent(bodyText);
-            if (ready >= targetReady)
+            var rowCount = await ReadUploadTableRowCountAsync(page);
+            var uploading = UploadingMarkers.Any(m => bodyText.Contains(m, StringComparison.OrdinalIgnoreCase));
+
+            if (ready is not null && ready.Value >= targetReady)
                 return BatchWaitOutcome.Done;
 
-            var sig = (ready, percent);
+            if (rowCount >= targetReady && !uploading)
+            {
+                // 全量行数已达标且页面无上传中标记；连续确认多轮，防止虚拟化把正在上传的行滚出视口造成误判。
+                doneStreak++;
+                if (doneStreak >= 3)
+                    return BatchWaitOutcome.Done;
+            }
+            else
+            {
+                doneStreak = 0;
+            }
+
+            var sig = (ready, percent, rowCount, uploading);
             if (lastSig != sig)
             {
                 lastSig = sig;
@@ -217,7 +240,10 @@ public static class TikTokBatchUploadService
                 return BatchWaitOutcome.Stuck;
             }
 
-            var msg = $"⏳ 等待本批上传：已就绪 {ready}/{targetReady}（页面进度信号 {percent}）。";
+            var readyLabel = ready?.ToString() ?? "识别中";
+            var msg =
+                $"⏳ 等待本批上传：已就绪 {readyLabel}/{targetReady}（表格 {rowCount} 行，" +
+                $"{(uploading ? "仍有上传中" : "无上传中标记")}）。";
             if (msg != lastLog)
             {
                 log?.Invoke(msg);
@@ -225,6 +251,26 @@ public static class TikTokBatchUploadService
             }
 
             await page.WaitForTimeoutAsync((int)(pollSeconds * 1000));
+        }
+    }
+
+    /// <summary>读取正片表格全量行数（aria-rowcount 覆盖虚拟化未渲染的行）；非编辑页返回 0。</summary>
+    private static async Task<int> ReadUploadTableRowCountAsync(IPage page)
+    {
+        try
+        {
+            return await page.EvaluateAsync<int>(
+                """
+                () => {
+                  const t = document.querySelector('.semi-table-body table');
+                  if (t && t.getAttribute('aria-rowcount')) return +t.getAttribute('aria-rowcount');
+                  return document.querySelectorAll('.semi-table-body tr.semi-table-row').length;
+                }
+                """);
+        }
+        catch
+        {
+            return 0;
         }
     }
 
