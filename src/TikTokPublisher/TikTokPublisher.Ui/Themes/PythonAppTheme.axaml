@@ -99,8 +99,9 @@
     </Style>
 
     <Style Selector="TextBlock.formLabel">
-        <Setter Property="Foreground" Value="#374151" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="#1F2937" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
@@ -270,7 +271,7 @@
         <Setter Property="CornerRadius" Value="0" />
         <Setter Property="Padding" Value="18,12,18,10" />
         <Setter Property="Margin" Value="0,0,4,0" />
-        <Setter Property="FontSize" Value="24" />
+        <Setter Property="FontSize" Value="22" />
         <Setter Property="Foreground" Value="#111827" />
     </Style>
 
