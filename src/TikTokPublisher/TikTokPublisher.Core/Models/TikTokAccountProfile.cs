@@ -78,6 +78,8 @@ public sealed class TikTokAccountProfile
     public double TiktokSilenceThresholdDb { get; set; } = -45.0;
     public string TiktokExcelReportPath { get; set; } = "";
     public List<string>? TiktokQueueEnabledSteps { get; set; }
+    public bool ManagementDedupEnabled { get; set; }
+    public string ManagementDedupScope { get; set; } = "tiktok_username";
 
     /// <summary>WebView2 UserDataFolder（每账号独立浏览器会话）。</summary>
     public string ProfileDir { get; set; } = "";

@@ -210,6 +210,7 @@ public sealed class AccountStore
         if (account.TiktokProfilePreviewEpisodes <= 0) account.TiktokProfilePreviewEpisodes = 3;
         if (account.TiktokFreePreviewEpisodes <= 0) account.TiktokFreePreviewEpisodes = 3;
         if (account.TiktokProjectConcurrency <= 0) account.TiktokProjectConcurrency = 4;
+        account.ManagementDedupScope = NormalizeManagementDedupScope(account.ManagementDedupScope);
     }
 
     private static string NormalizeSubmitAction(string? value, bool? legacyEnabled = null)
@@ -230,6 +231,18 @@ public sealed class AccountStore
         return normalized is "female" or "male" or "ai_recommend"
             ? normalized
             : "ai_recommend";
+    }
+
+    private static string NormalizeManagementDedupScope(string? value)
+    {
+        var normalized = (value ?? "tiktok_username").Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "tiktok" or "tiktok_account" or "tiktok_account_username" or "tt_account" or "account_username" => "tiktok_username",
+            "software" or "login_user" or "owner" or "owner_user" => "software_user",
+            "tiktok_username" or "software_user" => normalized,
+            _ => "tiktok_username"
+        };
     }
 
     private sealed class ActiveAccountPointer

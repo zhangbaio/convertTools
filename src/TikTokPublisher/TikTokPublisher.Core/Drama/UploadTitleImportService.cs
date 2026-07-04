@@ -49,11 +49,15 @@ public static class UploadTitleImportService
         result.RequestedTitles.AddRange(requests.Select(FormatRequestLabel));
         result.Failures.AddRange(parseFailures);
 
-        if (settings.ManagementDedupEnabled && requests.Count > 0)
+        var managementDedupEnabled = account?.ManagementDedupEnabled ?? settings.ManagementDedupEnabled;
+        var managementDedupScope = string.IsNullOrWhiteSpace(account?.ManagementDedupScope)
+            ? settings.ManagementDedupScope
+            : account.ManagementDedupScope;
+        if (managementDedupEnabled && requests.Count > 0)
         {
             var check = await TikTokManagementUploadRecordSyncService.CheckDuplicateOriginalNamesAsync(
                 requests.Select(r => r.Title),
-                settings.ManagementDedupScope,
+                managementDedupScope,
                 account,
                 ct).ConfigureAwait(false);
             if (!check.Ok)

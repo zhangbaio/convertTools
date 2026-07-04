@@ -87,6 +87,8 @@ public static class TikTokUploadManifestService
             ["silence_validation_enabled"] = account?.TiktokSilenceValidationEnabled ?? true,
             ["max_continuous_silence_seconds"] = account?.TiktokMaxContinuousSilenceSeconds ?? 20,
             ["silence_threshold_db"] = account?.TiktokSilenceThresholdDb ?? -45.0,
+            ["management_dedup_enabled"] = account?.ManagementDedupEnabled ?? false,
+            ["management_dedup_scope"] = account?.ManagementDedupScope ?? "tiktok_username",
             ["paid_enabled"] = options.PaidEnabled,
             ["profile_preview_episodes"] = options.ProfilePreviewEpisodes,
         };
