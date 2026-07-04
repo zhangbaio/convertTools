@@ -54,9 +54,9 @@
         </Border>
 
         <Border BorderBrush="#DFD1C0" BorderThickness="1" CornerRadius="6">
-            <DockPanel>
-                <ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                    <Grid ColumnDefinitions="56,56,220,220,90,160,280,220,220">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <Grid RowDefinitions="Auto,*" Width="1522">
+                    <Grid Grid.Row="0" ColumnDefinitions="56,56,220,220,90,160,280,220,220">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="选择" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="原剧名" Classes="tableHeader" />
@@ -67,17 +67,17 @@
                         <TextBlock Grid.Column="7" Text="Source" Classes="tableHeader" />
                         <TextBlock Grid.Column="8" Text="Workflow" Classes="tableHeader" />
                     </Grid>
-                </ScrollViewer>
 
-                <ListBox x:Name="ArchivedList"
-                         ItemsSource="{Binding FilteredRows}"
-                         SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
-                         Background="{StaticResource PythonInputBg}"
-                         ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                    <ListBox x:Name="ArchivedList"
+                             Grid.Row="1"
+                             ItemsSource="{Binding FilteredRows}"
+                             SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+                             Background="{StaticResource PythonInputBg}"
+                             Margin="0,0,0,22"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:ArchivedProjectRowViewModel">
-                            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
-                                <Grid ColumnDefinitions="56,56,220,220,90,160,280,220,220" MinHeight="36">
+                                <Grid ColumnDefinitions="56,56,220,220,90,160,280,220,220" MinHeight="36" Width="1522" ClipToBounds="True">
                                     <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
                                     <CheckBox Grid.Column="1" IsChecked="{Binding Selected, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     <Button Grid.Column="2"
@@ -102,11 +102,11 @@
                                     <TextBlock Grid.Column="7" Text="{Binding SourceDir}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Grid.Column="8" Text="{Binding WorkflowDir}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                 </Grid>
-                            </ScrollViewer>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
+                    </ListBox>
+                </Grid>
+            </ScrollViewer>
         </Border>
     </DockPanel>
 </UserControl>

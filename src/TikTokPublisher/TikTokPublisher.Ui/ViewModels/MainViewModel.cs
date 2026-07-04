@@ -137,7 +137,7 @@ public sealed partial class MainViewModel : ViewModelBase
         SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
-        ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath);
+        ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
         DramaDownload.UploadWorkspaceRequested += () => WorkspacePath;
         WireQueueOrchestrator();
@@ -174,7 +174,7 @@ public sealed partial class MainViewModel : ViewModelBase
         SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
-        ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath);
+        ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
         DramaDownload.UploadWorkspaceRequested += () => WorkspacePath;
         WireQueueOrchestrator();
@@ -623,10 +623,10 @@ public sealed partial class MainViewModel : ViewModelBase
         }
     }
 
-    public void RefreshWorkspaceProjects(string? workspaceRoot = null) =>
-        _ = RefreshWorkspaceProjectsAsync(workspaceRoot);
+    public void RefreshWorkspaceProjects(string? workspaceRoot = null, bool force = false) =>
+        _ = RefreshWorkspaceProjectsAsync(workspaceRoot, force);
 
-    private async Task RefreshWorkspaceProjectsAsync(string? workspaceRoot = null)
+    private async Task RefreshWorkspaceProjectsAsync(string? workspaceRoot = null, bool force = false)
     {
         var generation = Interlocked.Increment(ref _workspaceRefreshGeneration);
         var root = (workspaceRoot ?? WorkspacePath).Trim();
@@ -659,7 +659,8 @@ public sealed partial class MainViewModel : ViewModelBase
             if (generation != _workspaceRefreshGeneration) return;
             // 同一工作目录运行中时不重扫（避免把 Running 状态回收为已停止）；
             // 但切账号切到「另一个正在运行的工作目录」必须应用扫描结果，否则队列/日志面板停留在旧账号。
-            if (IsWorkspaceQueueRunning(root) &&
+            if (!force &&
+                IsWorkspaceQueueRunning(root) &&
                 string.Equals(_displayedWorkspaceRoot, SafeFullPath(root), StringComparison.OrdinalIgnoreCase))
                 return;
             ApplyWorkspaceScanResult(root, scanResult.Items, scanResult.Options);
@@ -690,6 +691,9 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void ApplyWorkspaceScanResult(string root, List<QueueProjectItem> items, QueueRunOptions options)
     {
+        if (IsWorkspaceQueueRunning(root))
+            items = PreserveDisplayedRuntimeState(items);
+
         ClearWorkspaceProjectCollections();
         _queueRowByDir.Clear();
         _displayedWorkspaceRoot = SafeFullPath(root);
@@ -721,6 +725,49 @@ public sealed partial class MainViewModel : ViewModelBase
 
         var pending = WorkspaceQueueService.FilterPendingUpload(_queueItems).Count();
         StatusMessage = $"已扫描工作目录：{_queueItems.Count} 个项目，{pending} 个待上传";
+    }
+
+    private List<QueueProjectItem> PreserveDisplayedRuntimeState(List<QueueProjectItem> scannedItems)
+    {
+        if (_queueItems.Count == 0 || scannedItems.Count == 0)
+            return scannedItems;
+
+        var displayedByDir = _queueItems
+            .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
+            .GroupBy(item => NormalizeProjectDir(item.ProjectDir), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in scannedItems)
+        {
+            if (!displayedByDir.TryGetValue(NormalizeProjectDir(item.ProjectDir), out var displayed) ||
+                !HasRuntimeState(displayed))
+            {
+                continue;
+            }
+
+            item.Enabled = displayed.Enabled;
+            item.CurrentStep = displayed.CurrentStep;
+            item.StatusText = displayed.StatusText;
+            item.LastError = displayed.LastError;
+            item.StepStates = new Dictionary<string, string>(displayed.StepStates);
+            item.UploadCompletedAt = displayed.UploadCompletedAt;
+            item.AccountProfileId = displayed.AccountProfileId;
+            item.AccountProfileName = displayed.AccountProfileName;
+            item.QueueEntryDramaType = displayed.QueueEntryDramaType;
+        }
+
+        return scannedItems;
+    }
+
+    private static bool HasRuntimeState(QueueProjectItem item)
+    {
+        if (!string.IsNullOrWhiteSpace(item.CurrentStep))
+            return true;
+
+        return item.StepStates.Values.Any(status =>
+            string.Equals(status, QueueStepStatus.Running, StringComparison.Ordinal) ||
+            string.Equals(status, QueueStepStatus.WaitingUploadSlot, StringComparison.Ordinal) ||
+            string.Equals(status, QueueStepStatus.ManualIntervention, StringComparison.Ordinal));
     }
 
     partial void OnShowOnlyPendingUploadChanged(bool value)
