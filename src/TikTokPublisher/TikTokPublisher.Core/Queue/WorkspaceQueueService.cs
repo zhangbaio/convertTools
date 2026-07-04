@@ -16,6 +16,7 @@ public static class WorkspaceQueueService
         var root = Path.GetFullPath(workspaceRoot);
         if (!Directory.Exists(root)) return Array.Empty<QueueProjectItem>();
 
+        var binding = WorkspaceBindingService.Load(root);
         var state = WorkspaceQueueDatabase.Load(root);
         var persistedEntries = state.Items
             .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
@@ -30,7 +31,7 @@ public static class WorkspaceQueueService
         {
             var normalized = Path.GetFullPath(scanned.ProjectDir);
             persistedByDir.TryGetValue(normalized, out var persisted);
-            discovered[normalized] = MergeScanned(scanned, persisted);
+            discovered[normalized] = MergeScanned(scanned, persisted, binding);
         }
 
         var results = new List<QueueProjectItem>();
@@ -42,7 +43,7 @@ public static class WorkspaceQueueService
             {
                 if (!IsWithinWorkspace(normalized, root)) continue;
                 if (!WorkspaceProjectScanner.IsValidProjectDirectory(normalized)) continue;
-                item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), persisted);
+                item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), persisted, binding);
             }
             results.Add(item);
             seen.Add(normalized);
@@ -79,6 +80,7 @@ public static class WorkspaceQueueService
         string? accountProfileName = null)
     {
         var normalized = Path.GetFullPath(projectDir);
+        var binding = WorkspaceBindingService.Load(workspaceRoot);
         var items = ScanProjects(workspaceRoot).ToList();
         var item = items.FirstOrDefault(i =>
             string.Equals(Path.GetFullPath(i.ProjectDir), normalized, StringComparison.OrdinalIgnoreCase));
@@ -87,7 +89,7 @@ public static class WorkspaceQueueService
         {
             if (!WorkspaceProjectScanner.IsValidProjectDirectory(normalized))
                 return;
-            item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), null);
+            item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), null, binding);
             items.Add(item);
         }
 
@@ -107,6 +109,7 @@ public static class WorkspaceQueueService
     public static IReadOnlyList<QueueProjectItem> AddProjectsToQueue(string workspaceRoot, IEnumerable<string> projectDirs)
     {
         var root = Path.GetFullPath(workspaceRoot);
+        var binding = WorkspaceBindingService.Load(root);
         var items = ScanProjects(root).ToList();
         var options = LoadRunOptions(root);
         var existing = items.ToDictionary(i => Path.GetFullPath(i.ProjectDir), StringComparer.OrdinalIgnoreCase);
@@ -130,7 +133,7 @@ public static class WorkspaceQueueService
                 continue;
             }
 
-            var item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), null);
+            var item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), null, binding);
             item.Enabled = true;
             item.QueuedAt = NextQueuedAt(ref lastQueuedAt);
             items.Add(item);
@@ -155,7 +158,8 @@ public static class WorkspaceQueueService
 
     private static QueueProjectItem MergeScanned(
         WorkspaceProjectScanner.WorkspaceProject scanned,
-        QueueProjectItem? persisted)
+        QueueProjectItem? persisted,
+        WorkspaceBindingService.WorkspaceBinding? binding = null)
     {
         var item = persisted is null
             ? new QueueProjectItem()
@@ -187,6 +191,7 @@ public static class WorkspaceQueueService
         item.EpisodeCount = scanned.EpisodeCount;
         item.PrimaryVideoPath = scanned.PrimaryVideoPath;
         item.CoverPath = scanned.CoverPath;
+        ApplyWorkspaceBinding(item, binding);
 
         if (string.IsNullOrWhiteSpace(item.QueuedAt))
             item.QueuedAt = ResolveInitialQueuedAt(scanned);
@@ -196,6 +201,29 @@ public static class WorkspaceQueueService
         RecoverQueueItemExecutionState(item);
         item.NormalizeStepStates();
         return item;
+    }
+
+    private static void ApplyWorkspaceBinding(
+        QueueProjectItem item,
+        WorkspaceBindingService.WorkspaceBinding? binding)
+    {
+        var accountProfileId = (binding?.AccountProfileId ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(accountProfileId))
+            return;
+
+        var accountProfileName = (binding?.AccountProfileName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(item.AccountProfileId))
+        {
+            item.AccountProfileId = accountProfileId;
+            item.AccountProfileName = accountProfileName;
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(item.AccountProfileName) &&
+            string.Equals(item.AccountProfileId.Trim(), accountProfileId, StringComparison.Ordinal))
+        {
+            item.AccountProfileName = accountProfileName;
+        }
     }
 
     private static void RecoverLocalStepExecutionState(QueueProjectItem item)

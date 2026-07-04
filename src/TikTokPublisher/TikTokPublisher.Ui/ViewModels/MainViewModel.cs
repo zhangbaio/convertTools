@@ -649,6 +649,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return;
         }
 
+        BindWorkspaceToSelectedAccountIfMissing(root);
         var scanResult = await Task.Run(() =>
         {
             _queueStatePersist.Flush(root, TimeSpan.FromMilliseconds(400));
@@ -2053,6 +2054,18 @@ public sealed partial class MainViewModel : ViewModelBase
 
         SystemSettings.UpdateWorkspacePath(WorkspacePath);
         ArchivedProjects.SetWorkspace(WorkspacePath, refresh: false);
+    }
+
+    private void BindWorkspaceToSelectedAccountIfMissing(string workspace)
+    {
+        var account = SelectedAccount?.Model;
+        if (account is null || string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
+            return;
+
+        if (!string.IsNullOrWhiteSpace(WorkspaceBindingService.ResolveAccountProfileId(workspace)))
+            return;
+
+        WorkspaceBindingService.Bind(workspace, account.Id, account.DisplayName);
     }
 
     public void ReloadAccounts()
