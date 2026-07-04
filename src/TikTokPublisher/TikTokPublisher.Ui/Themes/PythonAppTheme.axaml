@@ -3,22 +3,22 @@
 
     <Styles.Resources>
     <!-- 对齐 Python tiktok_uploader_client/theme.py -->
-    <Color x:Key="PythonBg">#F5F6F8</Color>
-    <Color x:Key="PythonPageBg">#F5F6F8</Color>
-    <Color x:Key="PythonPanelBg">#FFF9F2</Color>
-    <Color x:Key="PythonPanelBorder">#E0D4C6</Color>
-    <Color x:Key="PythonText">#231F1A</Color>
-    <Color x:Key="PythonMuted">#6D5A48</Color>
-    <Color x:Key="PythonPrimary">#0F7AE5</Color>
-    <Color x:Key="PythonPrimaryHover">#0C6FD3</Color>
-    <Color x:Key="PythonSecondary">#55A9EE</Color>
-    <Color x:Key="PythonDangerText">#8F2F25</Color>
-    <Color x:Key="PythonDangerBg">#FFF1EF</Color>
-    <Color x:Key="PythonTableHeader">#EFE4D6</Color>
-    <Color x:Key="PythonTableRowAlt">#FBF6EF</Color>
-    <Color x:Key="PythonInputBg">#FFFDFA</Color>
-    <Color x:Key="PythonInputBorder">#D9CAB7</Color>
-    <Color x:Key="PythonStatusBar">#ECE2D6</Color>
+    <Color x:Key="PythonBg">#F6F7F9</Color>
+    <Color x:Key="PythonPageBg">#F6F7F9</Color>
+    <Color x:Key="PythonPanelBg">#FFFFFF</Color>
+    <Color x:Key="PythonPanelBorder">#E5E7EB</Color>
+    <Color x:Key="PythonText">#111827</Color>
+    <Color x:Key="PythonMuted">#6B7280</Color>
+    <Color x:Key="PythonPrimary">#1677E8</Color>
+    <Color x:Key="PythonPrimaryHover">#0F67D8</Color>
+    <Color x:Key="PythonSecondary">#3B82D6</Color>
+    <Color x:Key="PythonDangerText">#D92D20</Color>
+    <Color x:Key="PythonDangerBg">#FFF1F0</Color>
+    <Color x:Key="PythonTableHeader">#F3F4F6</Color>
+    <Color x:Key="PythonTableRowAlt">#F9FAFB</Color>
+    <Color x:Key="PythonInputBg">#FFFFFF</Color>
+    <Color x:Key="PythonInputBorder">#D1D5DB</Color>
+    <Color x:Key="PythonStatusBar">#F3F0EA</Color>
     <Color x:Key="PythonNavSelectedBg">#EDF5FF</Color>
     <Color x:Key="PythonSuccessText">#087443</Color>
     <Color x:Key="PythonPendingText">#8A5A00</Color>
@@ -89,6 +89,18 @@
         <Setter Property="FontSize" Value="12" />
     </Style>
 
+    <Style Selector="TextBlock.formLabel">
+        <Setter Property="Foreground" Value="#374151" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style Selector="TextBlock.pageTitle">
+        <Setter Property="Foreground" Value="{StaticResource PythonTextBrush}" />
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
     <Style Selector="TextBlock.tableHeader">
         <Setter Property="Foreground" Value="#4F4134" />
         <Setter Property="FontSize" Value="12" />
@@ -99,16 +111,17 @@
 
     <Style Selector="Button">
         <Setter Property="Background" Value="{StaticResource PythonInputBg}" />
-        <Setter Property="BorderBrush" Value="#D8C7B3" />
+        <Setter Property="BorderBrush" Value="#D1D5DB" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource PythonButtonRadius}" />
-        <Setter Property="Padding" Value="10,8" />
-        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="Foreground" Value="{StaticResource PythonTextBrush}" />
     </Style>
 
     <Style Selector="Button:pointerover">
-        <Setter Property="Background" Value="#FFF3E6" />
-        <Setter Property="BorderBrush" Value="#CDB79D" />
+        <Setter Property="Background" Value="#F8FAFC" />
+        <Setter Property="BorderBrush" Value="#B8C2CC" />
     </Style>
 
     <Style Selector="Button.primaryAction">
@@ -123,6 +136,17 @@
     </Style>
 
     <Style Selector="Button.secondaryAction">
+        <Setter Property="Background" Value="#EAF3FF" />
+        <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="#B8D8FF" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="Button.secondaryAction:pointerover">
+        <Setter Property="Background" Value="#DCEBFF" />
+    </Style>
+
+    <Style Selector="Button.secondaryAction.primaryFill">
         <Setter Property="Background" Value="{StaticResource PythonSecondary}" />
         <Setter Property="Foreground" Value="White" />
         <Setter Property="BorderBrush" Value="#3B94DC" />
@@ -147,12 +171,17 @@
         <Setter Property="Background" Value="{StaticResource PythonInputBg}" />
         <Setter Property="BorderBrush" Value="{StaticResource PythonInputBorder}" />
         <Setter Property="CornerRadius" Value="{StaticResource PythonButtonRadius}" />
-        <Setter Property="MinHeight" Value="34" />
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <Style Selector="TextBox:focus, ComboBox:focus, NumericUpDown:focus">
+        <Setter Property="BorderBrush" Value="{StaticResource PythonPrimaryBrush}" />
     </Style>
 
     <Style Selector="ListBox">
         <Setter Property="Background" Value="{StaticResource PythonInputBg}" />
-        <Setter Property="BorderBrush" Value="#DFD1C0" />
+        <Setter Property="BorderBrush" Value="{StaticResource PythonPanelBorderBrush}" />
         <Setter Property="CornerRadius" Value="6" />
     </Style>
 
@@ -182,10 +211,11 @@
     </Style>
 
     <Style Selector="ListBox#TopModuleNav ListBoxItem">
-        <Setter Property="Padding" Value="14,12,14,10" />
+        <Setter Property="Padding" Value="16,11,16,9" />
         <Setter Property="Margin" Value="0,0,3,0" />
         <Setter Property="BorderThickness" Value="0,0,0,3" />
         <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="#374151" />
     </Style>
 
     <Style Selector="ListBox#TopModuleNav ListBoxItem:selected">

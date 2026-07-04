@@ -3,21 +3,77 @@
              x:Class="TikTokPublisher.Ui.Views.AccountProfileEditor"
              Background="{StaticResource PythonPageBgBrush}">
 
+    <UserControl.Styles>
+        <Style Selector="Border.accountConfigPanel">
+            <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource PythonPanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14,12" />
+        </Style>
+
+        <Style Selector="Border.accountActionBar">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#E5E7EB" />
+            <Setter Property="BorderThickness" Value="1,1,1,0" />
+            <Setter Property="CornerRadius" Value="8,8,0,0" />
+            <Setter Property="Padding" Value="14,10" />
+        </Style>
+
+        <Style Selector="Grid.profileForm TextBlock">
+            <Setter Property="Foreground" Value="#374151" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+
+        <Style Selector="Grid.profileForm TextBox">
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+
+        <Style Selector="Grid.profileForm ComboBox">
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+
+        <Style Selector="Grid.profileForm NumericUpDown">
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+
+        <Style Selector="TabControl.accountTabs">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+
+        <Style Selector="TabControl.accountTabs TabItem">
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#6B7280" />
+            <Setter Property="Padding" Value="0,0,0,6" />
+            <Setter Property="Margin" Value="0,0,22,8" />
+        </Style>
+
+        <Style Selector="TabControl.accountTabs TabItem:selected">
+            <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
+        </Style>
+    </UserControl.Styles>
+
     <DockPanel Margin="16,14,16,16">
-        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
-            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                <Button Content="登录账号" Click="OnLoginClick" Classes="secondaryAction" />
-                <Button Content="重新登录账号" Click="OnReloginClick" Classes="secondaryAction" />
-            </StackPanel>
-            <Button Grid.Column="1" Content="保存账号配置" Click="OnSaveClick" Classes="primaryAction" MinWidth="140" />
-        </Grid>
+        <Border DockPanel.Dock="Bottom" Classes="accountActionBar" Margin="0,12,0,0">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                    <Button Content="登录账号" Click="OnLoginClick" Classes="secondaryAction" />
+                    <Button Content="重新登录账号" Click="OnReloginClick" Classes="secondaryAction" />
+                </StackPanel>
+                <Button Grid.Column="1" Content="保存账号配置" Click="OnSaveClick" Classes="primaryAction" MinWidth="140" />
+            </Grid>
+        </Border>
 
-        <TextBlock DockPanel.Dock="Top" Text="账号配置" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" />
+        <TextBlock DockPanel.Dock="Top" Text="账号配置" Classes="pageTitle" Margin="0,0,0,10" />
 
-        <TabControl>
-            <TabItem Header="登录设置">
-                <ScrollViewer>
-                    <Grid Margin="4" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="100,*" RowSpacing="10" ColumnSpacing="10">
+        <Border Classes="accountConfigPanel">
+            <TabControl Classes="accountTabs">
+                <TabItem Header="登录设置">
+                    <ScrollViewer>
+                        <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="登录状态" VerticalAlignment="Top" Margin="0,4,0,0" />
                         <TextBlock Grid.Row="0" Grid.Column="1" x:Name="LoginStatusText" Classes="pageSummary" TextWrapping="Wrap" Text="尚未登录" />
 
@@ -35,13 +91,13 @@
                             <TextBox Grid.Column="0" x:Name="StorageStateBox" Watermark="留空时使用 ~/.tiktok_publisher/profiles/{id}/tiktok_auth_state.json" />
                             <Button Grid.Column="1" Content="浏览" Click="OnBrowseAuthPathClick" Margin="8,0,0,0" />
                         </Grid>
-                    </Grid>
-                </ScrollViewer>
-            </TabItem>
+                        </Grid>
+                    </ScrollViewer>
+                </TabItem>
 
             <TabItem Header="网络 / IP">
                 <ScrollViewer>
-                    <Grid Margin="4" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="100,*" RowSpacing="10" ColumnSpacing="10">
+                    <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="登录浏览器" VerticalAlignment="Center" />
                         <ComboBox Grid.Row="0" Grid.Column="1" x:Name="LoginBrowserModeCombo" HorizontalAlignment="Stretch">
                             <ComboBoxItem Tag="embedded">内置浏览器</ComboBoxItem>
@@ -87,8 +143,8 @@
 
             <TabItem Header="发布配置">
                 <ScrollViewer>
-                    <StackPanel Spacing="8" Margin="4">
-                        <Grid ColumnDefinitions="140,*"
+                    <StackPanel Spacing="10" Margin="2,4,2,2">
+                        <Grid Classes="profileForm" ColumnDefinitions="140,*"
                               RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
@@ -160,7 +216,7 @@
                             <CheckBox Grid.Row="14" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
                         </Grid>
 
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="10">
+                        <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="预期价格模式" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="0" Grid.Column="1" x:Name="ExpectedPriceModeCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="manual">手动价格</ComboBoxItem>
@@ -192,7 +248,7 @@
                             <TextBlock Grid.Row="11" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="11" Grid.Column="1" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
                         </Grid>
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="6" ColumnSpacing="10">
+                        <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="静音阈值 dB" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="0" Grid.Column="1" x:Name="SilenceThresholdBox" Minimum="-80" Maximum="0" Value="-45" Width="160" HorizontalAlignment="Left" />
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="最大连续静音秒数" VerticalAlignment="Center" />
@@ -204,7 +260,7 @@
 
             <TabItem Header="基础设置">
                 <ScrollViewer>
-                    <StackPanel Spacing="8" Margin="4">
+                    <StackPanel Spacing="10" Margin="2,4,2,2">
                         <TextBox x:Name="SeriesUrlBox" Watermark="短剧中心 URL" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBox x:Name="WorkspaceBox" Watermark="上传工作目录" MinWidth="420" />
@@ -222,5 +278,6 @@
                 </ScrollViewer>
             </TabItem>
         </TabControl>
+        </Border>
     </DockPanel>
 </UserControl>

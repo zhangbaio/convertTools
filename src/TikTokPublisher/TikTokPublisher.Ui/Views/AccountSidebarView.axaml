@@ -4,9 +4,29 @@
              x:Class="TikTokPublisher.Ui.Views.AccountSidebarView"
              x:DataType="vm:MainViewModel">
 
-    <Border Classes="accountSidebarFrame" Padding="8">
+    <UserControl.Styles>
+        <Style Selector="ListBox#AccountList ListBoxItem">
+            <Setter Property="Padding" Value="10,9" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Margin" Value="0,2" />
+        </Style>
+
+        <Style Selector="ListBox#AccountList ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#F3F8FF" />
+        </Style>
+
+        <Style Selector="ListBox#AccountList ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="#EAF3FF" />
+        </Style>
+
+        <Style Selector="ListBox#AccountList ListBoxItem:selected TextBlock">
+            <Setter Property="Foreground" Value="#0F63C7" />
+        </Style>
+    </UserControl.Styles>
+
+    <Border Classes="accountSidebarFrame" Padding="8,10">
         <DockPanel>
-            <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,8">
+            <StackPanel DockPanel.Dock="Top" Spacing="7" Margin="0,0,0,10">
                 <TextBlock Text="账号" Classes="pageSummary" />
 
                 <Grid ColumnDefinitions="*,*">
@@ -34,14 +54,14 @@
             </StackPanel>
 
             <TextBox DockPanel.Dock="Top"
-                     Margin="0,0,0,8"
+                     Margin="0,0,0,10"
                      Watermark="昵称/ID/邮箱"
                      Text="{Binding AccountSearchText, Mode=TwoWay}" />
 
             <TextBlock DockPanel.Dock="Bottom"
                        Classes="pageSummary"
                        TextWrapping="Wrap"
-                       Margin="0,8,0,0"
+                       Margin="0,10,0,0"
                        Text="{Binding SelectedAccount.DisplayName, TargetNullValue='未选择账号', StringFormat='当前：{0}'}" />
 
             <ListBox x:Name="AccountList"
