@@ -24,7 +24,9 @@ public static class QueueMaterialStepService
             throw new InvalidOperationException("项目缺少 bookId，无法执行下载步骤。");
 
         var concurrent = Math.Clamp(settings.DramaDownloadConcurrent, 1, 10);
-        log($"下载并发: {concurrent}");
+        var timeoutSeconds = Math.Clamp(settings.HongguoDownloadTimeoutSeconds, 10, 600);
+        var attempts = Math.Clamp(settings.HongguoEpisodeDownloadAttempts, 1, 20);
+        log($"下载并发: {concurrent}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
 
         var request = new DramaDownloadRequest(
             ProjectDir: context.SourceProjectDir,

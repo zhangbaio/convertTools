@@ -1,5 +1,6 @@
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using System.Diagnostics;
 using ShortDrama.Infrastructure.Automation;
 using System.Globalization;
 using System.Net.Http.Headers;
@@ -20,6 +21,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private static readonly string[] RankingDefaults = ["hglocal", "pikachu"];
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
     private const string EpisodeNumberModeContinuous = "continuous";
+    private const int DownloadBufferSize = 128 * 1024;
+    private static readonly TimeSpan DownloadProgressInterval = TimeSpan.FromSeconds(5);
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif"];
     private static readonly ProductInfoHeaderValue UserAgentProduct = new("ShortDramaDesktop", "1.0");
@@ -485,8 +488,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 try
                 {
                     var detail = await resolveVideo(task.VideoId, quality, cancellationToken);
-                    await DownloadVideoFileOnceAsync(detail.Url, tempPath, finalPath, downloadTimeoutSeconds, cancellationToken);
-                    progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成");
+                    var stats = await DownloadVideoFileOnceAsync(
+                        detail.Url,
+                        tempPath,
+                        finalPath,
+                        downloadTimeoutSeconds,
+                        cancellationToken,
+                        downloadProgress => ReportEpisodeDownloadProgress(progress, task, totalCount, downloadProgress));
+                    progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
                     return;
                 }
                 catch (Exception ex) when (ShouldRetryDownload(ex))
@@ -500,23 +509,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             try
             {
                 var detail = await resolveVideo(task.VideoId, quality, cancellationToken);
-                using var request = new HttpRequestMessage(HttpMethod.Get, detail.Url);
-                request.Headers.TryAddWithoutValidation("User-Agent", MobileUserAgent);
-                request.Headers.UserAgent.Add(UserAgentProduct);
-
-                using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-                response.EnsureSuccessStatusCode();
-
-                await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken))
-                await using (var file = File.Create(tempPath))
-                {
-                    await source.CopyToAsync(file, cancellationToken);
-                    await file.FlushAsync(cancellationToken);
-                }
-
-                await DownloadFileOperations.DelayAfterWriteAsync(cancellationToken);
-                await DownloadFileOperations.SafeReplaceAsync(tempPath, finalPath, cancellationToken);
-                progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成");
+                var stats = await DownloadVideoFileOnceAsync(
+                    detail.Url,
+                    tempPath,
+                    finalPath,
+                    downloadTimeoutSeconds,
+                    cancellationToken,
+                    downloadProgress => ReportEpisodeDownloadProgress(progress, task, totalCount, downloadProgress));
+                progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -540,26 +544,110 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string finalPath,
         int timeoutSeconds,
         CancellationToken cancellationToken)
+        => await DownloadVideoFileOnceAsync(url, tempPath, finalPath, timeoutSeconds, cancellationToken, progress: null);
+
+    private async Task<DownloadFileStats> DownloadVideoFileOnceAsync(
+        string url,
+        string tempPath,
+        string finalPath,
+        int timeoutSeconds,
+        CancellationToken cancellationToken,
+        Action<DownloadFileProgress>? progress)
     {
+        var clampedTimeoutSeconds = Math.Clamp(timeoutSeconds, 10, 600);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 10, 600)));
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(clampedTimeoutSeconds));
+        var token = timeoutCts.Token;
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.TryAddWithoutValidation("User-Agent", MobileUserAgent);
-        request.Headers.UserAgent.Add(UserAgentProduct);
-
-        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
-        response.EnsureSuccessStatusCode();
-
-        await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken))
-        await using (var file = File.Create(tempPath))
+        try
         {
-            await source.CopyToAsync(file, cancellationToken);
-            await file.FlushAsync(cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("User-Agent", MobileUserAgent);
+            request.Headers.UserAgent.Add(UserAgentProduct);
+
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+            response.EnsureSuccessStatusCode();
+
+            var contentLength = response.Content.Headers.ContentLength;
+            var downloadedBytes = 0L;
+            var stopwatch = Stopwatch.StartNew();
+            var nextPercentToReport = 10d;
+            var lastProgressAt = DateTime.UtcNow;
+
+            await using (var source = await response.Content.ReadAsStreamAsync(token))
+            await using (var file = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, DownloadBufferSize, useAsync: true))
+            {
+                var buffer = new byte[DownloadBufferSize];
+                while (true)
+                {
+                    var read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), token);
+                    if (read <= 0)
+                        break;
+
+                    await file.WriteAsync(buffer.AsMemory(0, read), token);
+                    downloadedBytes += read;
+
+                    var now = DateTime.UtcNow;
+                    var percent = contentLength is > 0 ? downloadedBytes * 100d / contentLength.Value : (double?)null;
+                    if (now - lastProgressAt >= DownloadProgressInterval ||
+                        (percent is not null && percent >= nextPercentToReport))
+                    {
+                        var speed = downloadedBytes / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001d);
+                        progress?.Invoke(new DownloadFileProgress(downloadedBytes, contentLength, stopwatch.Elapsed, speed));
+                        if (percent is not null)
+                            nextPercentToReport = Math.Floor(percent.Value / 10d) * 10d + 10d;
+                        lastProgressAt = now;
+                    }
+                }
+
+                await file.FlushAsync(token);
+            }
+
+            await DownloadFileOperations.DelayAfterWriteAsync(token);
+            await DownloadFileOperations.SafeReplaceAsync(tempPath, finalPath, token);
+
+            stopwatch.Stop();
+            return new DownloadFileStats(
+                downloadedBytes,
+                stopwatch.Elapsed,
+                downloadedBytes / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001d));
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
+        {
+            throw new TimeoutException($"下载超过 {clampedTimeoutSeconds} 秒未完成，已中止并准备重试。", ex);
+        }
+    }
+
+    private static void ReportEpisodeDownloadProgress(
+        IProgress<string>? progress,
+        EpisodeTask task,
+        int totalCount,
+        DownloadFileProgress downloadProgress)
+    {
+        if (progress is null)
+            return;
+
+        var total = downloadProgress.TotalBytes is > 0
+            ? $" / {FormatBytes(downloadProgress.TotalBytes.Value)}"
+            : "";
+        var percent = downloadProgress.TotalBytes is > 0
+            ? $"，{downloadProgress.Bytes * 100d / downloadProgress.TotalBytes.Value:0.#}%"
+            : "";
+        progress.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载中：{FormatBytes(downloadProgress.Bytes)}{total}{percent}，{FormatBytes(downloadProgress.BytesPerSecond)}/s");
+    }
+
+    private static string FormatBytes(double bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        var value = bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
         }
 
-        await DownloadFileOperations.DelayAfterWriteAsync(cancellationToken);
-        await DownloadFileOperations.SafeReplaceAsync(tempPath, finalPath, cancellationToken);
+        return unit == 0 ? $"{value:0} {units[unit]}" : $"{value:0.#} {units[unit]}";
     }
 
     private static bool ShouldRetryDownload(Exception exception)
@@ -1426,6 +1514,17 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string Title,
         string VideoId,
         string PosterUrl);
+
+    private sealed record DownloadFileProgress(
+        long Bytes,
+        long? TotalBytes,
+        TimeSpan Elapsed,
+        double BytesPerSecond);
+
+    private sealed record DownloadFileStats(
+        long Bytes,
+        TimeSpan Elapsed,
+        double BytesPerSecond);
 
     private const string HongguoLocalBookPrefix = "hglocal:";
     private const string HongguoLocalEpisodePrefix = "hglocal_ep:";
