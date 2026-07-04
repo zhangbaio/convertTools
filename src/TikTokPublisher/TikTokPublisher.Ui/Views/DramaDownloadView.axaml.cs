@@ -66,6 +66,13 @@ public partial class DramaDownloadView : UserControl
         _vm.SaveState();
     }
 
+    private void OnOpenQueueProjectFolderClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var row = (sender as Control)?.DataContext as DramaQueueRowViewModel;
+        _vm?.OpenQueueProjectFolder(row);
+    }
+
     private async void OnSaveSettingsClick(object? sender, RoutedEventArgs e)
     {
         _vm?.SaveState();

@@ -5,6 +5,44 @@
              x:DataType="vm:DramaDownloadViewModel"
              Background="{StaticResource PythonPageBgBrush}">
 
+    <UserControl.Styles>
+        <Style Selector="TabControl.downloadTabs TabItem">
+            <Setter Property="MinWidth" Value="92" />
+            <Setter Property="Padding" Value="18,9" />
+            <Setter Property="Margin" Value="0,0,8,10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#334155" />
+            <Setter Property="Background" Value="#F2F7FC" />
+            <Setter Property="BorderBrush" Value="#B7CCE7" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="TabControl.downloadTabs TabItem:pointerover">
+            <Setter Property="Background" Value="#EAF4FF" />
+            <Setter Property="Foreground" Value="#0F63C7" />
+        </Style>
+        <Style Selector="TabControl.downloadTabs TabItem:selected">
+            <Setter Property="Background" Value="{StaticResource PythonPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource PythonPrimaryBrush}" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Button.downloadQueueLink">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.downloadQueueLink:pointerover">
+            <Setter Property="Background" Value="#EAF4FF" />
+        </Style>
+        <Style Selector="Button.downloadQueueLink:pressed">
+            <Setter Property="Background" Value="#DCEBFF" />
+        </Style>
+    </UserControl.Styles>
+
     <DockPanel Margin="16,14,16,16">
         <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,10">
             <TextBlock Grid.Column="0" Text="下载目录" VerticalAlignment="Center" Margin="0,0,10,0" />
@@ -12,7 +50,7 @@
             <Button Grid.Column="2" Content="选择下载目录" Click="OnPickDownloadDirClick" Margin="10,0,0,0" />
         </Grid>
 
-        <TabControl>
+        <TabControl Classes="downloadTabs">
             <TabItem Header="搜索">
                 <DockPanel Margin="8">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
@@ -114,6 +152,7 @@
                         <Button Content="停止" Command="{Binding StopDownloadQueueCommand}" Classes="dangerAction" Margin="0,0,8,8" />
                         <Button Content="导入上传队列" Command="{Binding ImportCompletedToQueueCommand}" Margin="0,0,8,8" />
                         <Button Content="清空已完成" Command="{Binding ClearCompletedQueueCommand}" Margin="0,0,8,8" />
+                        <Button Content="今日文件夹" Command="{Binding OpenTodayDownloadFolderCommand}" Margin="0,0,8,8" />
                         <Button Content="删除全部" Command="{Binding ClearAllQueueCommand}" Classes="dangerAction" Margin="0,0,8,8" />
                         <TextBlock Text="并发数" VerticalAlignment="Center" Margin="0,0,4,8" />
                         <NumericUpDown Value="{Binding DownloadConcurrent}" Minimum="1" Maximum="10" Width="90" Margin="0,0,8,8" />
@@ -133,7 +172,14 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:DramaQueueRowViewModel">
                                 <Grid ColumnDefinitions="*,84,120,100,100,*" MinHeight="34">
-                                    <TextBlock Grid.Column="0" Text="{Binding Title}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" />
+                                    <Button Grid.Column="0"
+                                            Classes="downloadQueueLink"
+                                            Click="OnOpenQueueProjectFolderClick"
+                                            ToolTip.Tip="{Binding ProjectDir}">
+                                        <TextBlock Text="{Binding Title}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   Foreground="#0F63C7" />
+                                    </Button>
                                     <TextBlock Grid.Column="1" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
                                     <TextBlock Grid.Column="2" Text="{Binding Status}" VerticalAlignment="Center" Margin="8,0" />
                                     <TextBlock Grid.Column="3" Text="{Binding Progress}" VerticalAlignment="Center" Margin="8,0" />

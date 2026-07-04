@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TikTokPublisher.Core.Drama;
@@ -54,6 +56,7 @@ public sealed partial class DramaQueueRowViewModel : ViewModelBase
     public string Progress => Item.Progress;
     public string Speed => Item.Speed;
     public string Detail => string.IsNullOrWhiteSpace(Item.StatusDetail) ? Item.LastError : Item.StatusDetail;
+    public string ProjectDir => Item.ProjectDir;
 
     private static int ParseEpisodeCount(DramaDownloadQueueItem item)
     {
@@ -410,6 +413,34 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         RefreshQueueStats();
     }
 
+    [RelayCommand]
+    private void OpenTodayDownloadFolder()
+    {
+        var root = ResolveExistingFolder(DownloadWorkspace, "下载目录");
+        if (root is null) return;
+
+        var todayFolder = ResolveExistingTodayFolder(root);
+        if (todayFolder is not null)
+        {
+            OpenFolder(todayFolder, "今日文件夹");
+            return;
+        }
+
+        if (OpenFolder(root, "下载目录"))
+            LogRequested?.Invoke("未找到单独的今日文件夹，已打开下载目录");
+    }
+
+    public void OpenQueueProjectFolder(DramaQueueRowViewModel? row)
+    {
+        if (row is null)
+        {
+            LogRequested?.Invoke("请先点击下载队列里的剧名");
+            return;
+        }
+
+        OpenFolder(row.ProjectDir, "剧集目录");
+    }
+
     public void UpdateSelectedCount()
     {
         var n = SearchResults.Count(r => r.Selected);
@@ -703,6 +734,96 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         !string.IsNullOrWhiteSpace(value) &&
         !string.IsNullOrWhiteSpace(token) &&
         value.Contains(token, StringComparison.OrdinalIgnoreCase);
+
+    private string? ResolveExistingFolder(string? path, string label)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            LogRequested?.Invoke($"未找到{label}");
+            return null;
+        }
+
+        try
+        {
+            var folder = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path.Trim()));
+            if (File.Exists(folder))
+                folder = Path.GetDirectoryName(folder) ?? folder;
+
+            if (!Directory.Exists(folder))
+            {
+                LogRequested?.Invoke($"{label}不存在：{folder}");
+                return null;
+            }
+
+            return folder;
+        }
+        catch (Exception ex)
+        {
+            LogRequested?.Invoke($"解析{label}失败：{ex.Message}");
+            return null;
+        }
+    }
+
+    private bool OpenFolder(string? path, string label)
+    {
+        var folder = ResolveExistingFolder(path, label);
+        if (folder is null) return false;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = folder,
+                UseShellExecute = true,
+            });
+            LogRequested?.Invoke($"已打开{label}：{folder}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogRequested?.Invoke($"打开{label}失败：{ex.Message}");
+            return false;
+        }
+    }
+
+    private static string? ResolveExistingTodayFolder(string root)
+    {
+        var today = DateTime.Today;
+        var names = new[]
+        {
+            today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            today.ToString("yyyyMMdd", CultureInfo.InvariantCulture),
+            today.ToString("yyyy.MM.dd", CultureInfo.InvariantCulture),
+            today.ToString("yyyy_MM_dd", CultureInfo.InvariantCulture),
+            today.ToString("MM-dd", CultureInfo.InvariantCulture),
+            $"{today.Month}月{today.Day}日",
+            $"{today.Year}年{today.Month}月{today.Day}日",
+        };
+
+        foreach (var name in names)
+        {
+            var candidate = Path.Combine(root, name);
+            if (Directory.Exists(candidate))
+                return candidate;
+        }
+
+        try
+        {
+            var todayDirs = Directory.EnumerateDirectories(root, "*", SearchOption.TopDirectoryOnly)
+                .Where(dir => !string.Equals(Path.GetFileName(dir), "workflow", StringComparison.OrdinalIgnoreCase))
+                .Select(dir => new DirectoryInfo(dir))
+                .Where(info => info.Exists && (info.CreationTime.Date == today || info.LastWriteTime.Date == today))
+                .OrderByDescending(info => info.LastWriteTime)
+                .Take(2)
+                .ToArray();
+
+            return todayDirs.Length == 1 ? todayDirs[0].FullName : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private static void CopyQueueItem(DramaDownloadQueueItem source, DramaDownloadQueueItem target)
     {
