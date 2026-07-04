@@ -35,7 +35,9 @@ public static class TikTokBatchUploadService
             maxRetries: options.UploadBatchMaxRetries,
             titleCandidates: TikTokBrowserActions.PayloadTitleCandidates(payload),
             log,
-            ct);
+            ct,
+            baselineReadyCount: 0,
+            expectedTotal: payload.EpisodeCount);
 
         await TikTokBrowserActions.FillSharedPublishFieldsAsync(
             page, payload, options, recommendation, log, ct);
@@ -50,7 +52,8 @@ public static class TikTokBatchUploadService
         IReadOnlyList<string>? titleCandidates,
         Action<string>? log,
         CancellationToken ct,
-        int baselineReadyCount = 0)
+        int baselineReadyCount = 0,
+        int expectedTotal = 0)
     {
         await UploadInBatchesAsync(
             page,
@@ -61,7 +64,8 @@ public static class TikTokBatchUploadService
             titleCandidates,
             log,
             ct,
-            baselineReadyCount);
+            baselineReadyCount,
+            expectedTotal);
     }
 
     private static async Task UploadInBatchesAsync(
@@ -73,7 +77,8 @@ public static class TikTokBatchUploadService
         IReadOnlyList<string>? titleCandidates,
         Action<string>? log,
         CancellationToken ct,
-        int baselineReadyCount = 0)
+        int baselineReadyCount = 0,
+        int expectedTotal = 0)
     {
         var total = videoPaths.Count;
         if (total == 0)
@@ -83,13 +88,15 @@ public static class TikTokBatchUploadService
         maxRetries = Math.Clamp(maxRetries, 1, 10);
         stallSeconds = Math.Clamp(stallSeconds, 20, 600);
         baselineReadyCount = Math.Max(0, baselineReadyCount);
+        // 进度分母使用短剧总集数（补传时=已就绪 baseline + 本次补传数，通常等于总集数）。
+        var grandTotal = Math.Max(expectedTotal, baselineReadyCount + total);
 
         var batches = new List<List<string>>();
         for (var i = 0; i < total; i += batchSize)
             batches.Add(videoPaths.Skip(i).Take(batchSize).ToList());
 
         log?.Invoke(
-            $"分批上传：共 {total} 集，每批 {batchSize} 个，分 {batches.Count} 批顺序上传" +
+            $"分批上传：短剧总集数 {grandTotal}，本次补传 {total} 集，每批 {batchSize} 个，分 {batches.Count} 批顺序上传" +
             (baselineReadyCount > 0 ? $"（已有 {baselineReadyCount} 集就绪）。" : "。"));
 
         var readyDone = baselineReadyCount;
@@ -112,6 +119,7 @@ public static class TikTokBatchUploadService
                 var outcome = await WaitBatchAsync(
                     page,
                     targetReady,
+                    grandTotal,
                     titleCandidates,
                     batchStallSeconds,
                     log,
@@ -121,7 +129,7 @@ public static class TikTokBatchUploadService
                 {
                     readyDone = targetReady;
                     log?.Invoke(
-                        $"第 {batchIndex + 1}/{batches.Count} 批上传完成（已就绪 {readyDone}/{baselineReadyCount + total}）。");
+                        $"第 {batchIndex + 1}/{batches.Count} 批上传完成（已就绪 {readyDone}/{grandTotal}）。");
                     break;
                 }
 
@@ -185,6 +193,7 @@ public static class TikTokBatchUploadService
     private static async Task<BatchWaitOutcome> WaitBatchAsync(
         IPage page,
         int targetReady,
+        int grandTotal,
         IReadOnlyList<string>? titleCandidates,
         double stallSeconds,
         Action<string>? log,
@@ -242,7 +251,7 @@ public static class TikTokBatchUploadService
 
             var readyLabel = ready?.ToString() ?? "识别中";
             var msg =
-                $"⏳ 等待本批上传：已就绪 {readyLabel}/{targetReady}（表格 {rowCount} 行，" +
+                $"⏳ 等待本批上传：已就绪 {readyLabel}/{grandTotal} 集（本批目标 {targetReady}，表格 {rowCount} 行，" +
                 $"{(uploading ? "仍有上传中" : "无上传中标记")}）。";
             if (msg != lastLog)
             {

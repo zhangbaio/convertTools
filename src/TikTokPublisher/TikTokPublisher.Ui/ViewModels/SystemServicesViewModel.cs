@@ -316,23 +316,51 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     partial void OnSearchTextChanged(string value) => ApplySearchFilter();
 
+    private int _refreshGeneration;
+
     [RelayCommand]
-    private void Refresh()
+    private void Refresh() => _ = RefreshAsync();
+
+    /// <summary>归档清单读取涉及目录扫描与元数据解析，放后台线程执行，避免切账号/进入页面时卡 UI。</summary>
+    private async Task RefreshAsync()
     {
-        Rows.Clear();
-        FilteredRows.Clear();
+        var generation = Interlocked.Increment(ref _refreshGeneration);
         RootSummary = string.IsNullOrWhiteSpace(ArchiveRootDir)
             ? "归档根目录: 未选择工作目录"
             : $"归档根目录: {ArchiveRootDir}";
         var workspace = WorkspaceForAction();
         if (workspace is null || !Directory.Exists(workspace))
         {
+            Rows.Clear();
+            FilteredRows.Clear();
             StatusMessage = "请先绑定工作目录";
             return;
         }
 
-        foreach (var item in TikTokArchivedProjectService.List(workspace, ArchiveRootDir))
-            Rows.Add(new ArchivedProjectRowViewModel(item));
+        var archiveRoot = ArchiveRootDir;
+        List<ArchivedProjectRowViewModel> loaded;
+        try
+        {
+            loaded = await Task.Run(() =>
+                TikTokArchivedProjectService.List(workspace, archiveRoot)
+                    .Select(item => new ArchivedProjectRowViewModel(item))
+                    .ToList()).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            if (generation == _refreshGeneration)
+                StatusMessage = $"加载归档列表失败：{ex.Message}";
+            return;
+        }
+
+        // 期间又发生了刷新（快速切账号）则丢弃过期结果。
+        if (generation != _refreshGeneration)
+            return;
+
+        Rows.Clear();
+        FilteredRows.Clear();
+        foreach (var row in loaded)
+            Rows.Add(row);
         ApplySearchFilter();
     }
 

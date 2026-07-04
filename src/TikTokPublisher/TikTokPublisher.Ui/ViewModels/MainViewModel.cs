@@ -668,7 +668,8 @@ public sealed partial class MainViewModel : ViewModelBase
         _displayedWorkspaceRoot = SafeFullPath(root);
         _queueItems = items;
         _queueRunOptions = options;
-        ApplyAccountQueueEnabledSteps(root);
+        // 传入后台线程已加载的 options，避免在 UI 线程重复读工作目录运行配置。
+        ApplyAccountQueueEnabledSteps(root, options);
         ForceRerunCompletedSteps = _queueRunOptions.ForceRerunCompletedSteps;
         AutoArchiveAfterUpload = _queueRunOptions.AutoArchiveAfterUpload;
         PreferUploadWhenReady = _queueRunOptions.PreferUploadWhenReady;
@@ -1650,14 +1651,17 @@ public sealed partial class MainViewModel : ViewModelBase
         _queueRunOptions.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
     }
 
-    private void ApplyAccountQueueEnabledSteps(string workspaceRoot)
+    private void ApplyAccountQueueEnabledSteps(string workspaceRoot, QueueRunOptions? preloadedOptions = null)
     {
-        _queueRunOptions = LoadQueueRunOptionsForAccountWorkspace(workspaceRoot, SelectedAccount?.Model);
+        _queueRunOptions = LoadQueueRunOptionsForAccountWorkspace(workspaceRoot, SelectedAccount?.Model, preloadedOptions);
     }
 
-    private QueueRunOptions LoadQueueRunOptionsForAccountWorkspace(string workspaceRoot, TikTokAccountProfile? account)
+    private QueueRunOptions LoadQueueRunOptionsForAccountWorkspace(
+        string workspaceRoot,
+        TikTokAccountProfile? account,
+        QueueRunOptions? preloadedOptions = null)
     {
-        var options = WorkspaceQueueService.LoadRunOptions(workspaceRoot);
+        var options = preloadedOptions ?? WorkspaceQueueService.LoadRunOptions(workspaceRoot);
         var hasAccountSteps = account?.TiktokQueueEnabledSteps is not null;
         var enabledSteps = hasAccountSteps
             ? NormalizeQueueEnabledSteps(account?.TiktokQueueEnabledSteps)

@@ -261,7 +261,8 @@ public static partial class TikTokBrowserActions
             titleCandidates,
             log,
             ct,
-            baseline);
+            baseline,
+            expectedTotal: expectedCount);
 
         Log(log, "TikTok 编辑流程分批补传已提交，开始等待全部视频上传完成。");
         await WaitVideoUploadFinishedAsync(
