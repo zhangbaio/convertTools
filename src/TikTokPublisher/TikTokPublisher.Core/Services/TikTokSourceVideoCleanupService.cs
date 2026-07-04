@@ -32,7 +32,8 @@ public static class TikTokSourceVideoCleanupService
             originalTitle,
             rebuildStaging: false,
             repairSmallVideos: false,
-            log);
+            log,
+            ct);
 
         var uploadVideoPaths = payload.UploadPaths.ToList();
         var expectedCount = Math.Max(sourceVideoPaths.Count, payload.SourcePaths.Count);
@@ -46,7 +47,8 @@ public static class TikTokSourceVideoCleanupService
                 originalTitle,
                 rebuildStaging: true,
                 repairSmallVideos: false,
-                log);
+                log,
+                ct);
             uploadVideoPaths = payload.UploadPaths.ToList();
         }
 

@@ -17,9 +17,10 @@ public static class TikTokSilenceRepairService
         Action<string>? log,
         CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         var payload = TikTokUploadStagingService.BuildPayload(
             sourceProjectDir, title, originalTitle,
-            rebuildStaging: true, repairSmallVideos: true, log);
+            rebuildStaging: true, repairSmallVideos: true, log, ct);
         if (payload.UploadPaths.Count == 0)
         {
             log?.Invoke("跳过：未找到可修复的上传视频。");

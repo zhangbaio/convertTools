@@ -588,7 +588,7 @@ public sealed class QueueWorkerRunner
                 await QueueMaterialStepService.RunDeleteSourceVideosAsync(item, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.SmallVideoRepair:
-                TikTokSmallVideoRepairService.Repair(item.ProjectDir, item.Title, item.OriginalTitle, log);
+                TikTokSmallVideoRepairService.Repair(item.ProjectDir, item.Title, item.OriginalTitle, log, ct);
                 break;
             case QueueStepRegistry.SilenceDetect:
                 await TikTokSilenceDetectService.DetectAsync(

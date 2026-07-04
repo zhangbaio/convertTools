@@ -35,14 +35,15 @@ public static class TikTokMaterialValidationService
         CancellationToken ct,
         TikTokAccountProfile? account = null)
     {
+        ct.ThrowIfCancellationRequested();
         var payload = TikTokUploadStagingService.BuildPayload(
             sourceProjectDir, title, originalTitle,
-            rebuildStaging: false, repairSmallVideos: false, log);
+            rebuildStaging: false, repairSmallVideos: false, log, ct);
         if (payload.UploadPaths.Count == 0)
         {
             payload = TikTokUploadStagingService.BuildPayload(
                 sourceProjectDir, title, originalTitle,
-                rebuildStaging: true, repairSmallVideos: false, log);
+                rebuildStaging: true, repairSmallVideos: false, log, ct);
         }
 
         if (payload.UploadPaths.Count == 0)

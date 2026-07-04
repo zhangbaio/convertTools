@@ -6,11 +6,13 @@ public static class TikTokSmallVideoRepairService
         string sourceProjectDir,
         string title,
         string originalTitle,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         var preview = TikTokUploadStagingService.BuildPayload(
             sourceProjectDir, title, originalTitle,
-            rebuildStaging: false, repairSmallVideos: false, log);
+            rebuildStaging: false, repairSmallVideos: false, log, ct);
         var smallCount = preview.SourcePaths.Count(TikTokSmallVideoPaddingService.NeedsPadding);
         if (smallCount == 0)
         {
@@ -21,7 +23,7 @@ public static class TikTokSmallVideoRepairService
         log?.Invoke($"开始：检测到 {smallCount} 个小于 5MB 的视频，重建上传副本…");
         var rebuilt = TikTokUploadStagingService.BuildPayload(
             sourceProjectDir, title, originalTitle,
-            rebuildStaging: true, repairSmallVideos: true, log);
+            rebuildStaging: true, repairSmallVideos: true, log, ct);
 
         if (rebuilt.UploadPaths.Count != rebuilt.SourcePaths.Count)
             throw new InvalidOperationException("TikTok 上传副本数量异常，无法执行小文件修复");
@@ -29,6 +31,7 @@ public static class TikTokSmallVideoRepairService
         var issues = new List<string>();
         for (var index = 0; index < rebuilt.UploadPaths.Count; index++)
         {
+            ct.ThrowIfCancellationRequested();
             var uploadPath = rebuilt.UploadPaths[index];
             var sourcePath = rebuilt.SourcePaths[index];
             long size;

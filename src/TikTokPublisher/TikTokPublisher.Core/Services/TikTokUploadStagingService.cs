@@ -15,8 +15,10 @@ public static class TikTokUploadStagingService
         string? originalTitle,
         bool rebuildStaging,
         bool repairSmallVideos,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var source = Path.GetFullPath(sourceProjectDir);
         var workflow = TikTokUploadStateStore.ResolveWorkflowProjectDir(source);
         var sourceVideos = ProjectVideoResolver.ResolveSourceVideos(
@@ -32,7 +34,8 @@ public static class TikTokUploadStagingService
             sourceVideos,
             rebuildStaging,
             repairSmallVideos,
-            log);
+            log,
+            ct);
 
         return new StagingResult(sourceVideos, uploadPaths);
     }
@@ -43,8 +46,10 @@ public static class TikTokUploadStagingService
         IReadOnlyList<string> videoPaths,
         bool rebuildStaging,
         bool repairSmallVideos,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var workflow = Path.GetFullPath(workflowProjectDir);
         var stagingRoot = Path.Combine(workflow, StagingDirName);
 
@@ -65,6 +70,7 @@ public static class TikTokUploadStagingService
         var staged = new List<string>();
         for (var index = 0; index < videoPaths.Count; index++)
         {
+            ct.ThrowIfCancellationRequested();
             var sourcePath = Path.GetFullPath(videoPaths[index]);
             var suffix = Path.GetExtension(sourcePath);
             if (string.IsNullOrEmpty(suffix)) suffix = ".mp4";
@@ -75,7 +81,7 @@ public static class TikTokUploadStagingService
                 TikTokSmallVideoPaddingService.SupportsPadding(sourcePath))
             {
                 TikTokSmallVideoPaddingService.CopyForPadding(sourcePath, targetPath);
-                TikTokSmallVideoPaddingService.PadWithoutReencodeAsync(targetPath, log, CancellationToken.None)
+                TikTokSmallVideoPaddingService.PadWithoutReencodeAsync(targetPath, log, ct)
                     .GetAwaiter().GetResult();
             }
             else

@@ -39,7 +39,11 @@ public static class QueueMaterialStepService
         var progress = new Progress<string>(log);
         var result = await ShortDramaDramaServices.Downloader.DownloadAsync(request, progress, ct);
         if (!result.Ok)
+        {
+            if (ct.IsCancellationRequested)
+                throw new OperationCanceledException(ct);
             throw new InvalidOperationException(result.Message ?? "下载失败");
+        }
 
         log(result.Message ?? $"下载完成，共 {result.VideoCount} 集");
         ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
@@ -196,8 +200,19 @@ public static class QueueMaterialStepService
         else
         {
             Directory.CreateDirectory(workflowDir);
-            if (File.Exists(outputPath)) File.Delete(outputPath);
-            await ConvertPosterToPngAsync(inputPath, outputPath, ct).ConfigureAwait(false);
+            var tempOutputPath = Path.Combine(
+                workflowDir,
+                $".{Path.GetFileNameWithoutExtension(outputPath)}.{Guid.NewGuid():N}.tmp.png");
+            try
+            {
+                await ConvertPosterToPngAsync(inputPath, tempOutputPath, ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                File.Copy(tempOutputPath, outputPath, overwrite: true);
+            }
+            finally
+            {
+                TryDelete(tempOutputPath);
+            }
             log($"已复制原图海报：{Path.GetFileName(outputPath)}");
         }
 

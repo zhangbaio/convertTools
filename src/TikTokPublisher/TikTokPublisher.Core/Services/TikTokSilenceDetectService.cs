@@ -16,9 +16,10 @@ public static class TikTokSilenceDetectService
         Action<string>? log,
         CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         var payload = TikTokUploadStagingService.BuildPayload(
             sourceProjectDir, title, originalTitle,
-            rebuildStaging: false, repairSmallVideos: false, log);
+            rebuildStaging: false, repairSmallVideos: false, log, ct);
         if (payload.UploadPaths.Count == 0)
         {
             log?.Invoke("跳过：未找到可检测的上传视频。");
