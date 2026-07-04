@@ -71,7 +71,9 @@ public partial class AccountProfileEditor : UserControl
 
         PaidEnabledBox.IsChecked = profile.TiktokPaidEnabled;
         PaidRatioEnabledBox.IsChecked = profile.TiktokPaidRatioEnabled;
-        PaidRatioPercentBox.Value = (decimal)profile.TiktokPaidRatioPercent;
+        PaidRatioPercentBox.Value = (decimal)(profile.TiktokPaidRatioPercent > 0
+            ? profile.TiktokPaidRatioPercent
+            : 20);
         AiDramaBox.IsChecked = profile.TiktokIsAiDrama;
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         AnchorPromotionBox.IsChecked = profile.TiktokAnchorPromotionEnabled;

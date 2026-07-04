@@ -48,7 +48,7 @@ public sealed class TikTokAccountProfile
     public string TiktokContractIdMode { get; set; } = "manual";
     public bool TiktokPaidEnabled { get; set; }
     public bool TiktokPaidRatioEnabled { get; set; }
-    public double TiktokPaidRatioPercent { get; set; }
+    public double TiktokPaidRatioPercent { get; set; } = 20.0;
     public int TiktokProjectConcurrency { get; set; } = 4;
 
     // 发布表单扩展（对齐 Python account_profiles 字段）

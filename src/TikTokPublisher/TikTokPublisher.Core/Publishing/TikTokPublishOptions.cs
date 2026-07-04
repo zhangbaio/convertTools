@@ -111,8 +111,12 @@ public sealed class TikTokPublishOptions
         PublishMode = string.IsNullOrWhiteSpace(account.TiktokPublishMode) ? "auto_after_review" : account.TiktokPublishMode,
         ConsignmentEnabled = account.TiktokConsignmentEnabled,
         PaidEnabled = account.TiktokPaidEnabled,
-        ProfilePreviewEpisodes = Math.Max(1, account.TiktokProfilePreviewEpisodes),
-        FreePreviewEpisodes = Math.Max(0, account.TiktokFreePreviewEpisodes),
+        ProfilePreviewEpisodes = Math.Max(0, account.TiktokProfilePreviewEpisodes > 0
+            ? account.TiktokProfilePreviewEpisodes
+            : 3),
+        FreePreviewEpisodes = Math.Max(0, account.TiktokFreePreviewEpisodes > 0
+            ? account.TiktokFreePreviewEpisodes
+            : 3),
         ExpectedFullPriceMode = string.IsNullOrWhiteSpace(account.TiktokExpectedFullPriceMode) ? "manual" : account.TiktokExpectedFullPriceMode,
         ExpectedFullPriceOptionIndex = account.TiktokExpectedFullPriceOptionIndex > 0 ? account.TiktokExpectedFullPriceOptionIndex : 1,
         ExpectedFullPriceValue = account.TiktokExpectedFullPriceValue,

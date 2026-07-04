@@ -16,4 +16,7 @@
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Core\ShortDrama.Core.csproj" />
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="TikTokPublisher.Core.Tests" />
+  </ItemGroup>
 </Project>

@@ -1,10 +1,14 @@
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Publishing;
 
 public static class TikTokPublishOptionsBuilder
 {
-    public static TikTokPublishOptions FromAccount(TikTokAccountProfile? account)
+    public static TikTokPublishOptions FromAccount(
+        TikTokAccountProfile? account,
+        string? workflowProjectDir = null,
+        Action<string>? log = null)
     {
         if (account is null)
         {
@@ -17,6 +21,7 @@ public static class TikTokPublishOptionsBuilder
 
         var options = TikTokPublishOptions.FromAccount(account);
         options.TargetAudienceMode = NormalizeTargetAudienceMode(account.TiktokTargetAudienceMode);
+        options.PaidEnabled = TikTokPaidRatioService.DecidePaidForUpload(account, workflowProjectDir, log);
         return options;
     }
 

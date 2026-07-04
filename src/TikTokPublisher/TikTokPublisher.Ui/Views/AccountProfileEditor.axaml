@@ -198,7 +198,7 @@
                             <CheckBox Grid.Row="8" Grid.Column="1" x:Name="PaidRatioEnabledBox" Content="启用" />
 
                             <TextBlock Grid.Row="9" Grid.Column="0" Text="付费比例 %" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="PaidRatioPercentBox" Minimum="0" Maximum="100" Value="0" Width="160" HorizontalAlignment="Left" />
+                            <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="PaidRatioPercentBox" Minimum="0" Maximum="100" Value="20" Width="160" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="10" Grid.Column="0" Text="AI 短剧" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="10" Grid.Column="1" x:Name="AiDramaBox" Content="是" IsChecked="True" />

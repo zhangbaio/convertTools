@@ -41,7 +41,9 @@ public partial class AccountSettingsDialog : Window
 
         PaidEnabledBox.IsChecked = p.TiktokPaidEnabled;
         PaidRatioEnabledBox.IsChecked = p.TiktokPaidRatioEnabled;
-        PaidRatioPercentBox.Value = (decimal)p.TiktokPaidRatioPercent;
+        PaidRatioPercentBox.Value = (decimal)(p.TiktokPaidRatioPercent > 0
+            ? p.TiktokPaidRatioPercent
+            : 20);
         AiDramaBox.IsChecked = p.TiktokIsAiDrama;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         AnchorPromotionBox.IsChecked = p.TiktokAnchorPromotionEnabled;

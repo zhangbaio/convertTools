@@ -25,11 +25,21 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         if (!File.Exists(item.VideoPath))
             return PublishResult.Fail($"视频不存在：{item.VideoPath}");
 
+        try
+        {
+            TikTokUploadPrerequisiteService.EnsureUploadPrerequisites(account, L);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return PublishResult.Fail(ex.Message);
+        }
+
         var targetUrl = string.IsNullOrWhiteSpace(account.TiktokSeriesUrl)
             ? TikTokUrls.DefaultSeriesDraftUrl
             : account.TiktokSeriesUrl.Trim();
 
-        var options = TikTokPublishOptionsBuilder.FromAccount(account);
+        var workflowDir = TikTokUploadStateStore.ResolveWorkflowProjectDir(item.ProjectDir);
+        var options = TikTokPublishOptionsBuilder.FromAccount(account, workflowDir, L);
         var projectPayload = TikTokProjectPayloadFactory.BuildFromPublishItem(item);
         var payload = TikTokPublishPayload.FromPublishItem(item);
         var settings = ClientSettingsStore.Load();
@@ -43,7 +53,6 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
           $"目标观众={TikTokPublishRecommendationService.TargetAudienceDisplayText(recommendation.TargetAudience)}，" +
           $"题材={string.Join("、", recommendation.Genres)}");
         var coverPath = ResolveCoverPath(item, L);
-        var workflowDir = TikTokUploadStateStore.ResolveWorkflowProjectDir(item.ProjectDir);
         var hasWorkflow = !string.IsNullOrWhiteSpace(workflowDir);
 
         IPlaywright? pw = null;

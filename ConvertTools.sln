@@ -57,6 +57,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TikTokPublisher.Ui", "src\T
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TikTokPublisher.Desktop", "src\TikTokPublisher\TikTokPublisher.Desktop\TikTokPublisher.Desktop.csproj", "{CC5F97AE-895A-41FE-AE6C-856C971DFB6A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TikTokPublisher.Core.Tests", "tests\TikTokPublisher.Core.Tests\TikTokPublisher.Core.Tests.csproj", "{F3E4D5C6-B7A8-9012-3456-789ABCDEF012}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -150,6 +152,10 @@ Global
 		{CC5F97AE-895A-41FE-AE6C-856C971DFB6A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CC5F97AE-895A-41FE-AE6C-856C971DFB6A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CC5F97AE-895A-41FE-AE6C-856C971DFB6A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F3E4D5C6-B7A8-9012-3456-789ABCDEF012}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F3E4D5C6-B7A8-9012-3456-789ABCDEF012}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F3E4D5C6-B7A8-9012-3456-789ABCDEF012}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F3E4D5C6-B7A8-9012-3456-789ABCDEF012}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{8E3335D2-1EB3-4188-85CB-67F6057886A0} = {10871E69-F49D-4411-B029-CE261D01D6D5}
@@ -176,5 +182,6 @@ Global
 		{9820B141-7528-411A-B9CE-0293285E9824} = {5CE18E1C-3EE1-4C32-91AC-58A89BD70C0C}
 		{24701DED-DB16-43CA-81AD-3C9A2A4C77C0} = {5CE18E1C-3EE1-4C32-91AC-58A89BD70C0C}
 		{CC5F97AE-895A-41FE-AE6C-856C971DFB6A} = {5CE18E1C-3EE1-4C32-91AC-58A89BD70C0C}
+		{F3E4D5C6-B7A8-9012-3456-789ABCDEF012} = {D5D117F1-7555-4720-BD22-2B6AEC8F491A}
 	EndGlobalSection
 EndGlobal

@@ -519,12 +519,7 @@ public static partial class TikTokBrowserActions
         await VerifyNumericFieldAsync(page, "#previewVideoNumOnProfile", options.ProfilePreviewEpisodes, "个人页剧集展示集数", log, ct);
         await PauseBetweenFieldsAsync(page);
 
-        var shouldFillPaidPreviewFields = options.PaidEnabled
-            || options.FreePreviewEpisodes > 0
-            || string.Equals(options.ExpectedFullPriceMode, "option_index", StringComparison.OrdinalIgnoreCase)
-            || !string.IsNullOrWhiteSpace(options.ExpectedFullPriceValue);
-
-        if (!shouldFillPaidPreviewFields)
+        if (!options.PaidEnabled)
         {
             Log(log, $"商业模式已按付费=否填写个人页剧集展示集数：{options.ProfilePreviewEpisodes}");
             return;

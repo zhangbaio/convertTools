@@ -48,7 +48,7 @@ public static class TikTokUploadManifestService
             ["video_paths"] = payload.SourcePaths.Select(Path.GetFullPath).ToList(),
             ["upload_video_paths"] = payload.UploadPaths.Select(Path.GetFullPath).ToList(),
             ["poster_path"] = string.IsNullOrWhiteSpace(posterPath) ? "" : Path.GetFullPath(posterPath),
-            ["publish_config"] = BuildPublishConfigSnapshot(account),
+            ["publish_config"] = BuildPublishConfigSnapshot(account, workflow),
             ["web_upload_pending"] = false,
             ["notes"] = "TikTok Web 上传会复用本地登录态，自动填写新建剧集表单并执行对应提交动作。",
         };
@@ -62,9 +62,11 @@ public static class TikTokUploadManifestService
         log?.Invoke("TikTok 上传清单已生成。");
     }
 
-    private static Dictionary<string, object?> BuildPublishConfigSnapshot(TikTokAccountProfile? account)
+    private static Dictionary<string, object?> BuildPublishConfigSnapshot(
+        TikTokAccountProfile? account,
+        string? workflowProjectDir = null)
     {
-        var options = TikTokPublishOptionsBuilder.FromAccount(account);
+        var options = TikTokPublishOptionsBuilder.FromAccount(account, workflowProjectDir);
         var submitAction = string.IsNullOrWhiteSpace(account?.TiktokSubmitAction)
             ? "draft"
             : account!.TiktokSubmitAction.Trim();
