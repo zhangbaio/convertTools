@@ -22,96 +22,147 @@
         <Style Selector="Button.queueLink:pressed">
             <Setter Property="Background" Value="#DCEBFF" />
         </Style>
+        <Style Selector="Button.compactAction">
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style Selector="Button.menuAction">
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="MinWidth" Value="150" />
+            <Setter Property="Padding" Value="10,6" />
+        </Style>
+        <Style Selector="Border.stepSummaryPill">
+            <Setter Property="Background" Value="#F3F7FC" />
+            <Setter Property="BorderBrush" Value="#D6E5F7" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,6" />
+        </Style>
     </UserControl.Styles>
 
     <DockPanel Margin="16,14,16,16">
-        <!-- 顶部控制区：对齐 Python controlsFrame -->
-        <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,10">
-            <StackPanel Spacing="10">
-                <Grid ColumnDefinitions="Auto,*,Auto">
+        <!-- 顶部控制区：紧凑保留高频操作，低频操作收进菜单 -->
+        <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,8" Padding="16,10">
+            <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="8">
                     <TextBlock Grid.Column="0" Text="工作目录" VerticalAlignment="Center" Margin="0,0,10,0" />
                     <TextBox Grid.Column="1" Text="{Binding WorkspacePath}" IsReadOnly="True" Watermark="选择工作目录" />
-                    <Button Grid.Column="2" Content="选择工作目录" Click="OnPickWorkspaceClick" Margin="10,0,0,0" />
+                    <Button Grid.Column="2" Content="选择工作目录" Click="OnPickWorkspaceClick" Classes="compactAction" />
+                    <Button Grid.Column="3" x:Name="StartQueueButton" Content="执行选中队列" Click="OnStartQueueClick" Classes="primaryAction compactAction" />
+                    <Button Grid.Column="4" x:Name="StartAllQueuesButton" Content="执行全部账号工作目录" Click="OnStartAllQueuesClick" Classes="primaryAction compactAction" />
+                    <Button Grid.Column="5" x:Name="StopQueueButton" Content="停止" Click="OnStopQueueClick" Classes="dangerAction compactAction" IsEnabled="False" />
                 </Grid>
 
-                <WrapPanel Orientation="Horizontal">
-                    <Button Content="刷新项目" Click="OnScanWorkspaceClick" Margin="0,0,8,8" />
-                    <Button Content="上传短剧" Click="OnUploadTitlesClick" Margin="0,0,8,8" />
-                    <Button Content="编辑剧集" Click="OnEditSelectedClick" Margin="0,0,8,8" />
-                    <Button Content="修复静音视频" Click="OnRepairSilenceClick" Margin="0,0,8,8" />
-                    <Button Content="绑定选中账号" Click="OnBindSelectedAccountClick" Margin="0,0,8,8" />
-                    <Button Content="绑定全部待上传" Click="OnBindAllPendingClick" Margin="0,0,8,8" />
-                    <Button Content="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Margin="0,0,8,8" />
-                    <Button Content="归档选中" Click="OnArchiveSelectedClick" Margin="0,0,8,8" />
-                    <Button Content="从队列移除" Click="OnRemoveSelectedClick" Margin="0,0,8,8" />
-                    <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerAction" Margin="0,0,8,8" />
-                    <CheckBox Content="仅待上传" IsChecked="{Binding ShowOnlyPendingUpload}" VerticalAlignment="Center" Margin="0,0,8,8" />
-                    <Button Content="全选" Click="OnSelectAllQueueClick" Margin="0,0,8,8" />
-                    <Button Content="取消全选" Click="OnClearQueueSelectionClick" Margin="0,0,8,8" />
-                </WrapPanel>
-
-                <WrapPanel Orientation="Horizontal">
-                    <Button Content="打开浏览器" Click="OnOpenBrowserClick" Classes="secondaryAction" Margin="0,0,8,8" />
-                    <Button Content="导出Excel" Click="OnExportExcelClick" Margin="0,0,8,8" />
-                    <Button Content="打开Excel" Click="OnOpenExcelClick" Margin="0,0,8,8" />
-                    <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Margin="0,0,8,8" />
-                    <Button Content="运行日志" Click="OnOpenLogsClick" Margin="0,0,8,8" />
-                    <Button x:Name="StartQueueButton" Content="执行选中队列" Click="OnStartQueueClick" Classes="primaryAction" Margin="0,0,8,8" />
-                    <Button x:Name="StartAllQueuesButton" Content="执行全部账号工作目录" Click="OnStartAllQueuesClick" Classes="primaryAction" Margin="0,0,8,8" />
-                    <Button x:Name="StopQueueButton" Content="停止" Click="OnStopQueueClick" Classes="dangerAction" IsEnabled="False" Margin="0,0,8,8" />
-                    <Button Content="发布配置" Click="OnPublishConfigClick" Margin="0,0,8,8" />
-                    <Button Content="手动发布测试" Click="OnPublishClick" Margin="0,0,8,8" />
-                </WrapPanel>
-                <TextBlock Text="{Binding RunningWorkspacesSummary}"
-                           Foreground="#1A5F8A"
-                           IsVisible="{Binding IsQueueRunning}"
-                           TextWrapping="Wrap" Margin="0,-2,0,4" />
-                <TextBlock x:Name="ManualInterventionHint"
-                           Text="{Binding ManualInterventionHint}"
-                           Foreground="#B94218"
-                           IsVisible="{Binding ManualInterventionPending}"
-                           TextWrapping="Wrap" Margin="0,-6,0,4" />
-
-                <Grid ColumnDefinitions="Auto,*">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                     <TextBlock Grid.Column="0" Text="搜索" VerticalAlignment="Center" Margin="0,0,10,0" />
                     <TextBox Grid.Column="1"
                              Watermark="搜索原剧名 / 新剧名 / 时间 / 状态 / 问题"
                              Text="{Binding QueueSearchText, Mode=TwoWay}" />
+                    <WrapPanel Grid.Column="2" Orientation="Horizontal">
+                        <CheckBox Content="仅待上传" IsChecked="{Binding ShowOnlyPendingUpload}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <Button Content="全选" Click="OnSelectAllQueueClick" Classes="compactAction" Margin="0,0,8,0" />
+                        <Button Content="取消" Click="OnClearQueueSelectionClick" Classes="compactAction" />
+                    </WrapPanel>
                 </Grid>
 
-                <Border Classes="taskStepFrame">
-                    <StackPanel Spacing="8">
-                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
-                            <TextBlock Grid.Column="0" Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                                <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" />
-                                <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" />
-                            </StackPanel>
-                        </Grid>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                    <Button Grid.Column="0" Content="步骤设置" Classes="secondaryAction compactAction">
+                        <Button.Flyout>
+                            <Flyout Placement="BottomEdgeAlignedLeft">
+                                <StackPanel MinWidth="520" Spacing="10" Margin="4">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Grid.Column="0" Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                            <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="compactAction" />
+                                            <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="compactAction" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <WrapPanel Orientation="Horizontal">
+                                        <CheckBox Content="下载剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,6" />
+                                        <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,6" />
+                                        <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,6" />
+                                        <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,6" />
+                                        <CheckBox Content="静音检测" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,6" />
+                                        <CheckBox Content="静音修复" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,6" />
+                                        <CheckBox Content="素材校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,6" />
+                                        <CheckBox Content="删除源视频" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,6" />
+                                        <CheckBox Content="上传剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,6" />
+                                    </WrapPanel>
+                                    <WrapPanel Orientation="Horizontal">
+                                        <CheckBox Content="上传完成后自动归档" IsChecked="{Binding AutoArchiveAfterUpload}" Margin="0,0,16,0" />
+                                        <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding ForceRerunCompletedSteps}" Margin="0,0,16,0" />
+                                        <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding PreferUploadWhenReady}" Margin="0,0,16,0" />
+                                        <CheckBox Content="同步管理系统" IsChecked="{Binding SyncManagementAfterUpload}" Margin="0,0,16,0" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
 
-                        <WrapPanel Orientation="Horizontal">
-                            <CheckBox Content="下载剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,4" />
-                            <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,4" />
-                            <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,4" />
-                            <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,4" />
-                            <CheckBox Content="静音检测" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,4" />
-                            <CheckBox Content="静音修复" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,4" />
-                            <CheckBox Content="素材校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,4" />
-                            <CheckBox Content="删除源视频" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,4" />
-                            <CheckBox Content="上传剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,4" />
-                        </WrapPanel>
+                    <Border Grid.Column="1" Classes="stepSummaryPill" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding QueueStepSummary}" TextTrimming="CharacterEllipsis" FontSize="12" Foreground="#335C81" />
+                    </Border>
 
-                        <WrapPanel Orientation="Horizontal">
-                            <CheckBox Content="上传完成后自动归档" IsChecked="{Binding AutoArchiveAfterUpload}" Margin="0,0,16,0" />
-                            <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding ForceRerunCompletedSteps}" Margin="0,0,16,0" />
-                            <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding PreferUploadWhenReady}" Margin="0,0,16,0" />
-                            <CheckBox Content="同步管理系统" IsChecked="{Binding SyncManagementAfterUpload}" Margin="0,0,16,0" />
-                        </WrapPanel>
-                    </StackPanel>
-                </Border>
+                    <WrapPanel Grid.Column="2" Orientation="Horizontal">
+                        <Button Content="打开浏览器" Click="OnOpenBrowserClick" Classes="secondaryAction compactAction" Margin="0,0,8,0" />
+                        <Button Content="运行日志" Click="OnOpenLogsClick" Classes="compactAction" Margin="0,0,8,0" />
+                        <Button Content="发布配置" Click="OnPublishConfigClick" Classes="compactAction" Margin="0,0,8,0" />
+                        <Button Content="项目操作 ▾" Classes="compactAction" Margin="0,0,8,0">
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedRight">
+                                    <StackPanel Spacing="6" Margin="4">
+                                        <Button Content="刷新项目" Click="OnScanWorkspaceClick" Classes="menuAction" />
+                                        <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="menuAction" />
+                                        <Button Content="编辑剧集" Click="OnEditSelectedClick" Classes="menuAction" />
+                                        <Button Content="修复静音视频" Click="OnRepairSilenceClick" Classes="menuAction" />
+                                        <Button Content="归档选中" Click="OnArchiveSelectedClick" Classes="menuAction" />
+                                        <Button Content="从队列移除" Click="OnRemoveSelectedClick" Classes="menuAction" />
+                                        <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerAction menuAction" />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Button Content="账号操作 ▾" Classes="compactAction" Margin="0,0,8,0">
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedRight">
+                                    <StackPanel Spacing="6" Margin="4">
+                                        <Button Content="绑定选中账号" Click="OnBindSelectedAccountClick" Classes="menuAction" />
+                                        <Button Content="绑定全部待上传" Click="OnBindAllPendingClick" Classes="menuAction" />
+                                        <Button Content="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Classes="menuAction" />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Button Content="工具 ▾" Classes="compactAction">
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedRight">
+                                    <StackPanel Spacing="6" Margin="4">
+                                        <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="menuAction" />
+                                        <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="menuAction" />
+                                        <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Classes="menuAction" />
+                                        <Button Content="手动发布测试" Click="OnPublishClick" Classes="menuAction" />
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                    </WrapPanel>
+                </Grid>
 
-                <TextBlock Classes="pageSummary" Text="{Binding WorkspaceBindingSummary}" />
-                <TextBlock Classes="pageSummary" Text="{Binding QueueSummaryText}" />
+                <TextBlock Text="{Binding RunningWorkspacesSummary}"
+                           Foreground="#1A5F8A"
+                           IsVisible="{Binding IsQueueRunning}"
+                           TextWrapping="Wrap" Margin="0,-2,0,0" />
+                <TextBlock x:Name="ManualInterventionHint"
+                           Text="{Binding ManualInterventionHint}"
+                           Foreground="#B94218"
+                           IsVisible="{Binding ManualInterventionPending}"
+                           TextWrapping="Wrap" Margin="0,-4,0,0" />
+
+                <WrapPanel Orientation="Horizontal">
+                    <TextBlock Classes="pageSummary" Text="{Binding WorkspaceBindingSummary}" Margin="0,0,12,0" />
+                    <TextBlock Classes="pageSummary" Text="{Binding QueueSummaryText}" />
+                </WrapPanel>
             </StackPanel>
         </Border>
 
