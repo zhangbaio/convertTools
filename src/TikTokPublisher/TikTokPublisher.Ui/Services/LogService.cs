@@ -17,9 +17,18 @@ public sealed class LogEntry
 
 public sealed class LogProjectItem
 {
+    private static readonly IBrush SuccessForeground = new SolidColorBrush(Color.Parse("#047857"));
+    private static readonly IBrush SuccessBackground = new SolidColorBrush(Color.Parse("#E8F7ED"));
+
     public string Title { get; init; } = "";
     public string ProjectPath { get; init; } = "";
     public string StatusTone { get; init; } = "none";
+    public IBrush Foreground => string.Equals(StatusTone, "ok", StringComparison.Ordinal)
+        ? SuccessForeground
+        : Brushes.Black;
+    public IBrush Background => string.Equals(StatusTone, "ok", StringComparison.Ordinal)
+        ? SuccessBackground
+        : Brushes.Transparent;
 }
 
 public sealed class LogService
@@ -352,15 +361,18 @@ public sealed class LogService
         return $"[{time}] {FormatLevel(level)}{projectPart} {rest}".TrimEnd();
     }
 
-    private static string ToneForRow(QueueProjectRowViewModel row) => row.StatusText switch
+    private static string ToneForRow(QueueProjectRowViewModel row)
     {
-        QueueStepStatus.Completed => "ok",
-        QueueStepStatus.Running => "running",
-        QueueStepStatus.Failed => "failed",
-        QueueStepStatus.WaitingUploadSlot => "waiting",
-        _ when row.IsPendingUpload => "waiting",
-        _ => "none",
-    };
+        if (row.UploadStatus == QueueStepStatus.Completed)
+            return "ok";
+        if (row.UploadStatus == QueueStepStatus.Failed || row.StatusText == QueueStepStatus.Failed)
+            return "failed";
+        if (row.StatusText == QueueStepStatus.Running)
+            return "running";
+        if (row.StatusText == QueueStepStatus.WaitingUploadSlot || row.IsPendingUpload)
+            return "waiting";
+        return "none";
+    }
 
     private static bool IsUploadRunning(QueueProjectRowViewModel row) =>
         string.Equals(row.Item.CurrentStep, QueueStepRegistry.UploadSeries, StringComparison.Ordinal)

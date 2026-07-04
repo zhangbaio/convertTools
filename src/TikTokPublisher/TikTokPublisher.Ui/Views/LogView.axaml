@@ -30,7 +30,13 @@
             <ListBox x:Name="ProjectList" Grid.Column="0" Margin="0,0,8,0" MinHeight="300">
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="services:LogProjectItem">
-                        <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                        <Border Background="{Binding Background}"
+                                CornerRadius="3"
+                                Padding="10,6">
+                            <TextBlock Text="{Binding Title}"
+                                       Foreground="{Binding Foreground}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </Border>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
