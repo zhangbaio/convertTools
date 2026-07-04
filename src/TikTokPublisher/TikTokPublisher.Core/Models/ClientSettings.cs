@@ -46,22 +46,22 @@ public sealed class ClientSettings
     public string TiktokSilenceAsrLanguage { get; set; } = "zh-CN";
     public bool TiktokManualInterventionOnSingleFailure { get; set; } = true;
 
-    public string AiTextEndpoint { get; set; } = "https://ark.cn-beijing.volces.com/api/v3";
+    public string AiTextEndpoint { get; set; } = ClientSettingsDefaults.AiTextEndpoint;
     public string AiTextApiKey { get; set; } = "";
-    public string AiTextModel { get; set; } = "doubao-seed-2-0-lite-260215";
+    public string AiTextModel { get; set; } = ClientSettingsDefaults.AiTextModel;
     public int AiTextTimeoutSeconds { get; set; } = 120;
     public int AiTextMaxBatchSize { get; set; } = 10;
-    public string AiTagSystemPrompt { get; set; } = "";
-    public string AiTagBatchPrompt { get; set; } = "";
-    public string AiFullInfoSystemPrompt { get; set; } = "";
-    public string AiFullInfoBatchPrompt { get; set; } = "";
-    public string AiFullInfoRetryPrompt { get; set; } = "";
+    public string AiTagSystemPrompt { get; set; } = ClientSettingsDefaults.AiTagSystemPrompt;
+    public string AiTagBatchPrompt { get; set; } = ClientSettingsDefaults.AiTagBatchPrompt;
+    public string AiFullInfoSystemPrompt { get; set; } = ClientSettingsDefaults.AiFullInfoSystemPrompt;
+    public string AiFullInfoBatchPrompt { get; set; } = ClientSettingsDefaults.AiFullInfoBatchPrompt;
+    public string AiFullInfoRetryPrompt { get; set; } = ClientSettingsDefaults.AiFullInfoRetryPrompt;
 
     public string PosterMode { get; set; } = "original";
     public string ImageProvider { get; set; } = "doubao";
-    public string ImageModelId { get; set; } = "doubao-seedream-5-0-lite-260128";
+    public string ImageModelId { get; set; } = ClientSettingsDefaults.ImageModelId;
     public string ImageModelApiKey { get; set; } = "";
-    public string ImageModelEndpoint { get; set; } = "";
+    public string ImageModelEndpoint { get; set; } = ClientSettingsDefaults.ImageModelEndpoint;
     public string DoubaoImageResolution { get; set; } = "2K";
     public string DoubaoImageRatio { get; set; } = "3:4";
     public string OfoxImage2ModelId { get; set; } = "openai/gpt-image-2";
@@ -71,14 +71,14 @@ public sealed class ClientSettings
     public string OfoxImage2Size { get; set; } = "auto";
     public bool PosterTitleVerifyEnabled { get; set; } = true;
     public string PosterTitleVerifyMode { get; set; } = "fallback_repaint";
-    public string FrameCoverPrompt { get; set; } = "";
-    public string PosterLayoutDetectPrompt { get; set; } = "";
-    public string PosterInpaintPrompt { get; set; } = "";
-    public string PosterInpaintSafeRetryPrompt { get; set; } = "";
-    public string PosterGenerationPrompt { get; set; } = "";
-    public string PosterGenerationSafeRetryPrompt { get; set; } = "";
-    public string PosterNameSystemPrompt { get; set; } = "";
-    public string PosterNameUserPrompt { get; set; } = "";
+    public string FrameCoverPrompt { get; set; } = ClientSettingsDefaults.FrameCoverPrompt;
+    public string PosterLayoutDetectPrompt { get; set; } = ClientSettingsDefaults.PosterLayoutDetectPrompt;
+    public string PosterInpaintPrompt { get; set; } = ClientSettingsDefaults.PosterInpaintPrompt;
+    public string PosterInpaintSafeRetryPrompt { get; set; } = ClientSettingsDefaults.PosterInpaintSafeRetryPrompt;
+    public string PosterGenerationPrompt { get; set; } = ClientSettingsDefaults.PosterGenerationPrompt;
+    public string PosterGenerationSafeRetryPrompt { get; set; } = ClientSettingsDefaults.PosterGenerationSafeRetryPrompt;
+    public string PosterNameSystemPrompt { get; set; } = ClientSettingsDefaults.PosterNameSystemPrompt;
+    public string PosterNameUserPrompt { get; set; } = ClientSettingsDefaults.PosterNameUserPrompt;
 
     public string LastDownloadWorkspace { get; set; } = "";
     public string ArchiveRootDir { get; set; } = "";

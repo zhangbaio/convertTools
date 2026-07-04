@@ -216,10 +216,34 @@ public static class ClientSettingsStore
         settings.TiktokSilenceAsrLanguage = string.IsNullOrWhiteSpace(settings.TiktokSilenceAsrLanguage)
             ? "zh-CN"
             : settings.TiktokSilenceAsrLanguage.Trim();
+        settings.AiTextEndpoint = DefaultIfBlank(settings.AiTextEndpoint, ClientSettingsDefaults.AiTextEndpoint);
+        settings.AiTextModel = DefaultIfBlank(settings.AiTextModel, ClientSettingsDefaults.AiTextModel);
+        settings.AiTagSystemPrompt = DefaultIfBlank(settings.AiTagSystemPrompt, ClientSettingsDefaults.AiTagSystemPrompt);
+        settings.AiTagBatchPrompt = DefaultIfBlank(settings.AiTagBatchPrompt, ClientSettingsDefaults.AiTagBatchPrompt);
+        settings.AiFullInfoSystemPrompt = DefaultIfBlank(settings.AiFullInfoSystemPrompt, ClientSettingsDefaults.AiFullInfoSystemPrompt);
+        settings.AiFullInfoBatchPrompt = DefaultIfBlank(settings.AiFullInfoBatchPrompt, ClientSettingsDefaults.AiFullInfoBatchPrompt);
+        settings.AiFullInfoRetryPrompt = DefaultIfBlank(settings.AiFullInfoRetryPrompt, ClientSettingsDefaults.AiFullInfoRetryPrompt);
         settings.PosterMode = NormalizePosterMode(settings.PosterMode);
+        settings.ImageModelId = DefaultIfBlank(settings.ImageModelId, ClientSettingsDefaults.ImageModelId);
+        settings.ImageModelEndpoint = DefaultIfBlank(settings.ImageModelEndpoint, ClientSettingsDefaults.ImageModelEndpoint);
+        settings.DoubaoImageResolution = DefaultIfBlank(settings.DoubaoImageResolution, "2K");
         settings.DoubaoImageRatio = NormalizeDoubaoImageRatio(settings.DoubaoImageRatio);
+        settings.FrameCoverPrompt = DefaultIfBlank(settings.FrameCoverPrompt, ClientSettingsDefaults.FrameCoverPrompt);
+        settings.PosterLayoutDetectPrompt = DefaultIfBlank(settings.PosterLayoutDetectPrompt, ClientSettingsDefaults.PosterLayoutDetectPrompt);
+        settings.PosterInpaintPrompt = DefaultIfBlank(settings.PosterInpaintPrompt, ClientSettingsDefaults.PosterInpaintPrompt);
+        settings.PosterInpaintSafeRetryPrompt = DefaultIfBlank(settings.PosterInpaintSafeRetryPrompt, ClientSettingsDefaults.PosterInpaintSafeRetryPrompt);
+        settings.PosterGenerationPrompt = DefaultIfBlank(settings.PosterGenerationPrompt, ClientSettingsDefaults.PosterGenerationPrompt);
+        settings.PosterGenerationSafeRetryPrompt = DefaultIfBlank(settings.PosterGenerationSafeRetryPrompt, ClientSettingsDefaults.PosterGenerationSafeRetryPrompt);
+        settings.PosterNameSystemPrompt = DefaultIfBlank(settings.PosterNameSystemPrompt, ClientSettingsDefaults.PosterNameSystemPrompt);
+        settings.PosterNameUserPrompt = DefaultIfBlank(settings.PosterNameUserPrompt, ClientSettingsDefaults.PosterNameUserPrompt);
         settings.ManagementDedupScope = NormalizeManagementDedupScope(settings.ManagementDedupScope);
         return settings;
+    }
+
+    private static string DefaultIfBlank(string? value, string fallback)
+    {
+        var text = value?.Trim() ?? "";
+        return string.IsNullOrWhiteSpace(text) ? fallback : text;
     }
 
     public static string NormalizeUdid(string? value)
