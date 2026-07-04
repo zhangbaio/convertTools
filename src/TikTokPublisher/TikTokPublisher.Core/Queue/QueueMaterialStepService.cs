@@ -508,16 +508,24 @@ public static class QueueMaterialStepService
         QueueProjectItem item,
         ProjectWorkspaceContext context)
     {
-        var originalTitle = NormalizeComparableTitle(FirstNonEmpty(
+        var rawOriginalTitle = FirstNonEmpty(
             info.GetValueOrDefault("原剧名"),
             item.OriginalTitle,
-            Path.GetFileName(context.SourceProjectDir)));
-        var title = NormalizeComparableTitle(FirstNonEmpty(
+            Path.GetFileName(context.SourceProjectDir));
+        var rawTitle = FirstNonEmpty(
             info.GetValueOrDefault("新剧名"),
             info.GetValueOrDefault("剧名"),
             item.NewTitle,
-            item.Title));
+            item.Title);
+        var originalTitle = NormalizeComparableTitle(rawOriginalTitle);
+        var title = NormalizeComparableTitle(rawTitle);
         var shortTitle = NormalizeComparableTitle(info.GetValueOrDefault("短标题"));
+        var tagline = FirstNonEmpty(info.GetValueOrDefault("推荐语"));
+        var synopsis = FirstNonEmpty(
+            info.GetValueOrDefault("简介"),
+            info.GetValueOrDefault("描述"),
+            info.GetValueOrDefault("剧情简介"));
+        var tags = FirstNonEmpty(info.GetValueOrDefault("标签"));
 
         if (string.IsNullOrWhiteSpace(title)) return false;
         if (!string.IsNullOrWhiteSpace(originalTitle) && string.Equals(title, originalTitle, StringComparison.OrdinalIgnoreCase))
@@ -528,8 +536,43 @@ public static class QueueMaterialStepService
         {
             return false;
         }
+        if (string.IsNullOrWhiteSpace(tagline)) return false;
+        if (IsDefaultSynopsis(synopsis, rawTitle, rawOriginalTitle, Path.GetFileName(context.SourceProjectDir))) return false;
+        if (IsDefaultTags(tags)) return false;
 
         return true;
+    }
+
+    private static bool IsDefaultSynopsis(string? value, params string?[] titleCandidates)
+    {
+        var text = (value ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        if (text.Contains("待补充", StringComparison.Ordinal) ||
+            text.Contains("暂无简介", StringComparison.Ordinal) ||
+            text.Contains("未填写", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var normalized = NormalizeComparableTitle(text);
+        return titleCandidates
+            .Where(static candidate => !string.IsNullOrWhiteSpace(candidate))
+            .Select(NormalizeComparableTitle)
+            .Any(candidate => !string.IsNullOrWhiteSpace(candidate) &&
+                              string.Equals(normalized, candidate, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsDefaultTags(string? value)
+    {
+        var text = (value ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(text)) return true;
+
+        var normalized = text.Replace("#", string.Empty, StringComparison.Ordinal)
+            .Replace("，", ",", StringComparison.Ordinal)
+            .Replace("、", ",", StringComparison.Ordinal)
+            .Trim();
+        return string.Equals(normalized, "短视频", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(normalized, "短剧", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveNewTitle(

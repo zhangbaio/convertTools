@@ -477,6 +477,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             }
 
             CleanupDownloadArtifacts(finalPath, keepVideo: false);
+            progress?.Report($"[{task.Order:00}/{totalCount:00}] 开始下载第{task.EpisodeNumber:00}集");
 
             var maxAttempts = Math.Clamp(downloadAttempts, 1, 20);
             for (var attempt = 1; attempt < maxAttempts; attempt++)
@@ -485,13 +486,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 {
                     var detail = await resolveVideo(task.VideoId, quality, cancellationToken);
                     await DownloadVideoFileOnceAsync(detail.Url, tempPath, finalPath, downloadTimeoutSeconds, cancellationToken);
-                    progress?.Report($"[{task.Order:00}/{totalCount:00}] episode {task.EpisodeNumber:00} downloaded");
+                    progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成");
                     return;
                 }
                 catch (Exception ex) when (ShouldRetryDownload(ex))
                 {
                     CleanupDownloadArtifacts(finalPath, keepVideo: false);
-                    progress?.Report($"[{task.Order:00}/{totalCount:00}] episode {task.EpisodeNumber:00} retry {attempt}/{maxAttempts}: {ex.Message}");
+                    progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载重试 {attempt}/{maxAttempts}: {ex.Message}");
                     await Task.Delay(TimeSpan.FromSeconds(Math.Min(10, attempt * 2)), cancellationToken);
                 }
             }

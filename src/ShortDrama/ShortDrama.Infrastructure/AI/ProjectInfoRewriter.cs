@@ -25,6 +25,71 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         "新版"
     ];
 
+    private static readonly string[] UnsafeTitleTerms =
+    [
+        "拜金",
+        "炫富",
+        "豪门阔太",
+        "富婆包养",
+        "陪睡",
+        "出轨成瘾",
+        "乱伦",
+        "禁忌之恋",
+        "玩弄儿媳",
+        "折磨孕妻",
+        "活埋",
+        "灭门",
+        "血洗",
+        "弄死",
+        "整死",
+        "杀疯",
+        "复仇到底",
+        "陪葬",
+        "撕烂",
+        "扒光",
+        "发骚",
+        "发情",
+        "小三上位",
+        "往死里整",
+        "报复到底",
+        "生不如死",
+        "血债血偿"
+    ];
+
+    private static readonly string[] UnsafeTaglineTerms =
+    [
+        "往死里",
+        "弄死",
+        "整死",
+        "血债血偿",
+        "活埋",
+        "灭门",
+        "杀疯",
+        "往死里整",
+        "报复到底",
+        "生不如死",
+        "陪睡",
+        "上床",
+        "出轨成瘾",
+        "金钱至上",
+        "拜金",
+        "炫富",
+        "低俗"
+    ];
+
+    private static readonly string[] OverlyColloquialTerms =
+    [
+        "太炸裂",
+        "太上头",
+        "笑不活了",
+        "离大谱",
+        "逆天改命爽麻了",
+        "家人们谁懂",
+        "我直接看傻了",
+        "气炸了",
+        "赢麻了"
+    ];
+
     private const string DefaultAiTextBatchPrompt = """
 请根据下面的多个短剧项目信息，逐个生成：
 1. title：适合短剧传播的新剧名，6-15 个字，要有宣发钩子感，必须与原剧名明显不同。
@@ -101,8 +166,10 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var endpoint = GetPreferred(config, "AiTextEndpoint", "ChatModelEndpoint").TrimEnd('/');
         var modelId = GetPreferred(config, "AiTextModel", "ChatModelId");
         var apiKey = GetPreferred(config, "AiTextApiKey", "ChatModelApiKey");
+        var systemPrompt = GetOptional(config, "AiTextSystemPrompt") ?? string.Empty;
         var batchPrompt = GetOptional(config, "AiTextBatchPrompt") ?? DefaultAiTextBatchPrompt;
         var retryPrompt = GetOptional(config, "AiTextRetryPrompt") ?? DefaultAiTextRetryPrompt;
+        var timeoutSeconds = GetOptionalInt(config, "AiTextTimeoutSeconds") ?? 120;
 
         if (File.Exists(request.OutputFilePath) && !request.Overwrite)
         {
@@ -119,8 +186,10 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             endpoint,
             modelId,
             apiKey,
+            systemPrompt,
             batchPrompt,
             retryPrompt,
+            timeoutSeconds,
             project,
             canonicalOriginalTitle,
             request,
@@ -141,6 +210,11 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var canonicalOriginalTitle = ResolveCanonicalOriginalTitle(project);
         var forbiddenTitles = UniqueTexts(request.ForbiddenTitles);
         var forbiddenSynopses = UniqueTexts(request.ForbiddenSynopses);
+        var projectName = FirstNonEmpty(Path.GetFileName(project.ProjectDir), project.Title, canonicalOriginalTitle) ?? canonicalOriginalTitle;
+        projectName = projectName.TrimStart('_');
+        var existingTitle = FirstNonEmpty(project.Title, canonicalOriginalTitle, projectName) ?? canonicalOriginalTitle;
+        var synopsis = FirstNonEmpty(project.Synopsis, $"{projectName}，待补充简介。") ?? string.Empty;
+        var tags = ProjectInfoTextNormalizer.NormalizeTags(project.Tags ?? string.Empty);
         var itemsJson = JsonSerializer.Serialize(new
         {
             items = new[]
@@ -148,17 +222,22 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                 new
                 {
                     id = "1",
+                    project_name = projectName,
                     title = canonicalOriginalTitle,
                     original_title = canonicalOriginalTitle,
+                    new_title = existingTitle,
                     tagline = project.Tagline ?? string.Empty,
-                    synopsis = project.Synopsis ?? string.Empty,
+                    existing_tagline = project.Tagline ?? string.Empty,
+                    synopsis,
                     short_title = project.ShortTitle ?? string.Empty,
-                    tags = ProjectInfoTextNormalizer.NormalizeTags(project.Tags ?? string.Empty),
+                    existing_tags = tags,
+                    tags,
                     forbidden_titles = forbiddenTitles,
                     forbidden_synopses = forbiddenSynopses,
                     target_synopsis_length = Math.Max(0, request.TargetSynopsisLength),
                     rewrite_variant_key = request.RewriteVariantKey ?? string.Empty,
                     episode_count = project.EpisodeCount,
+                    duration_minutes = project.TotalMinutes,
                     total_minutes = project.TotalMinutes
                 }
             }
@@ -196,8 +275,10 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string endpoint,
         string modelId,
         string apiKey,
+        string systemPrompt,
         string batchPrompt,
         string retryPromptTemplate,
+        int timeoutSeconds,
         ProjectInfo project,
         string canonicalOriginalTitle,
         ProjectInfoRewriteRequest request,
@@ -217,7 +298,9 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                 endpoint,
                 modelId,
                 apiKey,
+                systemPrompt,
                 prompt,
+                timeoutSeconds,
                 cancellationToken);
 
             NormalizedRewrite normalized;
@@ -227,20 +310,21 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             }
             catch (InvalidOperationException ex)
             {
-                previousBadTitle = FirstNonEmpty(rewrite.Title, rewrite.NewTitle, rewrite.新剧名, rewrite.剧名);
+                previousBadTitle = FirstNonEmpty(rewrite.Title, rewrite.NewTitle, rewrite.New_Title, rewrite.新剧名, rewrite.剧名);
                 previousBadShortTitle = FirstNonEmpty(rewrite.ShortTitle, rewrite.Short_Title, rewrite.短标题);
                 lastFailureMessage = ex.Message;
                 continue;
             }
 
-            if (IsRewriteQualityAcceptable(canonicalOriginalTitle, normalized, request))
+            var qualityIssues = GetRewriteQualityIssues(canonicalOriginalTitle, normalized, request);
+            if (qualityIssues.Count == 0)
             {
                 return normalized;
             }
 
             previousBadTitle = normalized.Title;
             previousBadShortTitle = normalized.ShortTitle;
-            lastFailureMessage = "生成结果未通过质量校验。";
+            lastFailureMessage = string.Join("；", qualityIssues);
         }
 
         throw new InvalidOperationException(
@@ -251,21 +335,32 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string endpoint,
         string modelId,
         string apiKey,
+        string systemPrompt,
         string prompt,
+        int timeoutSeconds,
         CancellationToken cancellationToken)
     {
+        var messages = new List<object>();
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
+        {
+            messages.Add(new
+            {
+                role = "system",
+                content = systemPrompt.Trim()
+            });
+        }
+
+        messages.Add(new
+        {
+            role = "user",
+            content = prompt
+        });
+
         var payload = new
         {
             model = modelId,
-            temperature = 0.8,
-            messages = new object[]
-            {
-                new
-                {
-                    role = "user",
-                    content = prompt
-                }
-            }
+            temperature = 0.75,
+            messages
         };
 
         using var httpRequest = new HttpRequestMessage(
@@ -277,8 +372,11 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             Encoding.UTF8,
             "application/json");
 
-        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-        var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 10, 600)));
+
+        using var response = await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
+        var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -294,15 +392,24 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             throw new InvalidOperationException("改写接口未返回内容。");
         }
 
-        var jsonText = ExtractJsonObject(content);
-        var payloadText = ExtractRewritePayloadJson(jsonText);
-        return JsonSerializer.Deserialize<RewritePayload>(payloadText, JsonOptions)
-            ?? throw new InvalidOperationException("无法解析改写结果 JSON。");
+        try
+        {
+            var jsonText = ExtractJsonValue(content);
+            var payloadText = ExtractRewritePayloadJson(jsonText);
+            return JsonSerializer.Deserialize<RewritePayload>(payloadText, JsonOptions)
+                ?? throw new InvalidOperationException("无法解析改写结果 JSON。");
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            throw new InvalidOperationException(
+                $"无法解析改写结果 JSON：{ex.Message}; AI原始返回内容:\n{FormatRawContentForLog(content)}",
+                ex);
+        }
     }
 
     private static NormalizedRewrite NormalizeRewrite(ProjectInfo project, string canonicalOriginalTitle, RewritePayload rewrite)
     {
-        var rawTitle = FirstNonEmpty(rewrite.Title, rewrite.NewTitle, rewrite.新剧名, rewrite.剧名)
+        var rawTitle = FirstNonEmpty(rewrite.Title, rewrite.NewTitle, rewrite.New_Title, rewrite.新剧名, rewrite.剧名)
             ?? throw new InvalidOperationException("改写结果缺少新剧名。");
         var title = NormalizeRewrittenTitle(rawTitle);
         var rawTagline = FirstNonEmpty(rewrite.Tagline, rewrite.Recommendation, rewrite.推荐语)
@@ -325,7 +432,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var shortTitle = NormalizeShortTitle(canonicalOriginalTitle, title, shortTitleSource);
         if (string.IsNullOrWhiteSpace(shortTitle))
         {
-            throw new InvalidOperationException("改写结果缺少短标题。");
+            shortTitle = BuildFallbackShortTitle(project, canonicalOriginalTitle, title, synopsis);
         }
 
         var rawTags = rewrite.Tags
@@ -349,28 +456,42 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string? previousBadTitle,
         string? previousBadShortTitle)
     {
-        var basePrompt = BuildPrompt(project, batchPrompt, request);
-        var retryHint = (string.IsNullOrWhiteSpace(retryPromptTemplate) ? DefaultAiTextRetryPrompt : retryPromptTemplate)
+        var retryTemplate = (string.IsNullOrWhiteSpace(retryPromptTemplate) ? DefaultAiTextRetryPrompt : retryPromptTemplate)
             .Replace("{previous_bad_title}", previousBadTitle ?? "无", StringComparison.Ordinal)
             .Replace("{previous_bad_short_title}", previousBadShortTitle ?? "无", StringComparison.Ordinal);
-        return basePrompt + retryHint;
+        return BuildPrompt(project, retryTemplate, request);
     }
 
-    private static bool IsRewriteQualityAcceptable(
+    private static IReadOnlyList<string> GetRewriteQualityIssues(
         string canonicalOriginalTitle,
         NormalizedRewrite rewrite,
         ProjectInfoRewriteRequest request)
     {
+        var issues = new List<string>();
         if (TitlesEqual(rewrite.Title, canonicalOriginalTitle) ||
-            TitlesTooSimilar(rewrite.Title, canonicalOriginalTitle) ||
-            IsLazyRetitle(rewrite.Title, canonicalOriginalTitle))
+            TitlesTooSimilar(rewrite.Title, canonicalOriginalTitle))
         {
-            return false;
+            issues.Add("新剧名与原剧名相同或过于相似");
+        }
+        else if (IsLazyRetitle(rewrite.Title, canonicalOriginalTitle))
+        {
+            issues.Add("新剧名疑似只是原标题加宣传后缀");
+        }
+
+        if (!IsReasonableTitleLength(rewrite.Title))
+        {
+            issues.Add("新剧名字数不在 6-15 字范围内");
+        }
+
+        var titleSafetyIssue = ValidateTitleSafety(rewrite.Title);
+        if (!string.IsNullOrWhiteSpace(titleSafetyIssue))
+        {
+            issues.Add($"新剧名{titleSafetyIssue}");
         }
 
         if (HasForbiddenTitle(rewrite.Title, request.ForbiddenTitles))
         {
-            return false;
+            issues.Add("新剧名与历史/禁用标题重复或过于相似");
         }
 
         if (TitlesEqual(rewrite.ShortTitle, rewrite.Title) ||
@@ -378,20 +499,50 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             TitlesEqual(rewrite.ShortTitle, canonicalOriginalTitle) ||
             IsWeakGenericShortTitle(rewrite.ShortTitle))
         {
-            return false;
+            issues.Add("短标题与新剧名/原剧名过于相似");
         }
+
+        if (!IsReasonableTaglineLength(rewrite.Tagline))
+        {
+            issues.Add("推荐语字数不在 8-20 字范围内");
+        }
+
+        var taglineSafetyIssue = ValidateTaglineSafety(rewrite.Tagline);
+        if (!string.IsNullOrWhiteSpace(taglineSafetyIssue))
+        {
+            issues.Add($"推荐语{taglineSafetyIssue}");
+        }
+
+        issues.AddRange(GetSynopsisIssues(rewrite.Synopsis, request));
 
         if (HasForbiddenSynopsis(rewrite.Synopsis, request.ForbiddenSynopses))
         {
-            return false;
+            issues.Add("简介与历史/原简介过于相似");
         }
 
-        if (ProjectInfoTextNormalizer.NormalizeTags(rewrite.Tags).Count < 2)
+        var tags = ProjectInfoTextNormalizer.NormalizeTags(rewrite.Tags);
+        if (tags.Count < 3)
         {
-            return false;
+            issues.Add("标签数量不足 3 个");
         }
 
-        return true;
+        foreach (var tag in tags)
+        {
+            if (TitlesEqual(tag, rewrite.Title) || HasForbiddenTitle(tag, request.ForbiddenTitles))
+            {
+                issues.Add("标签与新剧名或禁用标题相同");
+                break;
+            }
+
+            var tagSafetyIssue = ValidateTagSafety(tag);
+            if (!string.IsNullOrWhiteSpace(tagSafetyIssue))
+            {
+                issues.Add($"标签{tagSafetyIssue}");
+                break;
+            }
+        }
+
+        return issues;
     }
 
     private static string GetPreferred(IReadOnlyDictionary<string, string> config, params string[] keys)
@@ -414,28 +565,98 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             : null;
     }
 
-    private static string ExtractJsonObject(string value)
+    private static int? GetOptionalInt(IReadOnlyDictionary<string, string> config, string key)
     {
-        var trimmed = value.Trim();
+        return config.TryGetValue(key, out var value) && int.TryParse(value, out var parsed) && parsed > 0
+            ? parsed
+            : null;
+    }
 
-        if (trimmed.StartsWith("```", StringComparison.Ordinal))
+    private static string ExtractJsonValue(string value)
+    {
+        foreach (var candidate in BuildJsonCandidateStrings(value))
         {
-            var firstBrace = trimmed.IndexOf('{');
-            var lastBrace = trimmed.LastIndexOf('}');
-            if (firstBrace >= 0 && lastBrace > firstBrace)
+            if (TryParseFirstJsonValue(candidate, out var jsonText))
             {
-                return trimmed[firstBrace..(lastBrace + 1)];
+                return jsonText;
             }
         }
 
-        var start = trimmed.IndexOf('{');
-        var end = trimmed.LastIndexOf('}');
-        if (start >= 0 && end > start)
+        throw new InvalidOperationException("AI 返回内容不包含合法 JSON");
+    }
+
+    private static IEnumerable<string> BuildJsonCandidateStrings(string value)
+    {
+        var trimmed = value.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
         {
-            return trimmed[start..(end + 1)];
+            yield break;
         }
 
-        return trimmed;
+        yield return trimmed;
+
+        foreach (Match match in Regex.Matches(trimmed, @"```(?:json)?\s*([\s\S]*?)\s*```", RegexOptions.IgnoreCase))
+        {
+            var fenced = match.Groups[1].Value.Trim();
+            if (!string.IsNullOrWhiteSpace(fenced))
+            {
+                yield return fenced;
+            }
+        }
+
+        var objectStart = trimmed.IndexOf('{');
+        var arrayStart = trimmed.IndexOf('[');
+        var starts = new[] { objectStart, arrayStart }.Where(static index => index >= 0).ToArray();
+        if (starts.Length > 0)
+        {
+            yield return trimmed[starts.Min()..];
+        }
+    }
+
+    private static bool TryParseFirstJsonValue(string candidate, out string jsonText)
+    {
+        jsonText = string.Empty;
+        var trimmed = candidate.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return false;
+        }
+
+        var bytes = Encoding.UTF8.GetBytes(trimmed);
+        var reader = new Utf8JsonReader(bytes, new JsonReaderOptions
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip
+        });
+
+        try
+        {
+            using var document = JsonDocument.ParseValue(ref reader);
+            if (document.RootElement.ValueKind is not (JsonValueKind.Object or JsonValueKind.Array))
+            {
+                return false;
+            }
+
+            jsonText = document.RootElement.GetRawText();
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string FormatRawContentForLog(string value, int maxLength = 4000)
+    {
+        var text = (value ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "<empty>";
+        }
+
+        return text.Length <= maxLength
+            ? text
+            : $"{text[..maxLength]}\n...[truncated {text.Length - maxLength} chars]";
     }
 
     private static string ExtractRewritePayloadJson(string jsonText)
@@ -717,6 +938,90 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         }
 
         return builder.ToString();
+    }
+
+    private static bool IsReasonableTitleLength(string value)
+    {
+        var length = NormalizeTitle(value).Length;
+        return length is >= 6 and <= 15;
+    }
+
+    private static bool IsReasonableTaglineLength(string value)
+    {
+        var length = (value ?? string.Empty).Trim().Length;
+        return length is >= 8 and <= 20;
+    }
+
+    private static IReadOnlyList<string> GetSynopsisIssues(string synopsis, ProjectInfoRewriteRequest request)
+    {
+        var text = (synopsis ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return ["缺少简介"];
+        }
+
+        var target = Math.Max(0, request.TargetSynopsisLength);
+        var length = text.Length;
+        if (target > 0)
+        {
+            var lower = Math.Max(40, (int)Math.Floor(target * 0.75d));
+            var upper = Math.Min(220, Math.Max(lower, (int)Math.Floor(target * 1.25d) + 5));
+            if (length < lower || length > upper)
+            {
+                return [$"简介字数与原简介差距过大，目标约 {target} 字"];
+            }
+
+            return [];
+        }
+
+        return length is >= 40 and <= 220
+            ? []
+            : ["简介字数不在 40-220 字范围内"];
+    }
+
+    private static string ValidateTitleSafety(string value)
+    {
+        var normalized = NormalizeTitle(value ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        if (UnsafeTitleTerms.Any(term => normalized.Contains(term, StringComparison.Ordinal)))
+        {
+            return "包含违背伦理、炫富拜金、极端复仇或低俗表达";
+        }
+
+        return OverlyColloquialTerms.Any(term => normalized.Contains(term, StringComparison.Ordinal))
+            ? "过度口语化，不适合正式宣发"
+            : string.Empty;
+    }
+
+    private static string ValidateTaglineSafety(string value)
+    {
+        var normalized = NormalizeTitle(value ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        if (UnsafeTaglineTerms.Any(term => normalized.Contains(term, StringComparison.Ordinal)))
+        {
+            return "包含不良价值导向或极端表达";
+        }
+
+        return OverlyColloquialTerms.Any(term => normalized.Contains(term, StringComparison.Ordinal))
+            ? "过度口语化，不适合正式宣发"
+            : string.Empty;
+    }
+
+    private static string ValidateTagSafety(string value)
+    {
+        var normalized = NormalizeTitle(value ?? string.Empty);
+        return !string.IsNullOrWhiteSpace(normalized) &&
+               UnsafeTitleTerms.Any(term => normalized.Contains(term, StringComparison.Ordinal))
+            ? "包含不良价值导向表达"
+            : string.Empty;
     }
 
     private static bool SynopsesTooSimilar(string? left, string? right)
@@ -1093,6 +1398,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
     private sealed record RewritePayload(
         string? Title,
         string? NewTitle,
+        string? New_Title,
         string? Tagline,
         string? Synopsis,
         string? ShortTitle,

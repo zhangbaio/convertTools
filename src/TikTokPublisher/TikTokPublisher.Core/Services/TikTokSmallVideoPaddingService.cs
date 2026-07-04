@@ -38,6 +38,7 @@ public static class TikTokSmallVideoPaddingService
 
         await using (var handle = new FileStream(fullPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         {
+            handle.Seek(0, SeekOrigin.End);
             WriteMp4FreeBox(handle, paddingSize);
         }
 

@@ -237,8 +237,6 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
 
         try
         {
-            progressReporter.ReportStatus("准备", "等待获取链接");
-
             var existingVideo = FindExistingEpisodeVideo(outputDir, task);
             if (!string.IsNullOrWhiteSpace(existingVideo))
             {
@@ -249,16 +247,17 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
                     existingVideo = finalPath;
                 }
 
-                progressReporter.Report(100d, 0d, "已存在", "视频已存在，跳过");
+                progressReporter.ReportSimple("已存在，跳过");
                 return EpisodeDownloadResult.Success();
             }
 
             if (HasValidVideoFile(finalPath))
             {
-                progressReporter.Report(100d, 0d, "已存在", "视频已存在，跳过");
+                progressReporter.ReportSimple("已存在，跳过");
                 return EpisodeDownloadResult.Success();
             }
 
+            progressReporter.ReportSimple("开始下载");
             var detail = await client.GetVideoDetailAsync(task.VideoId, quality, cancellationToken);
             var videoUrl = ExtractVideoUrl(detail);
             if (string.IsNullOrWhiteSpace(videoUrl))
@@ -328,19 +327,19 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
 
             await DownloadFileOperations.SafeReplaceAsync(tempPath, finalPath, cancellationToken);
             CleanupDownloadArtifacts(finalPath, keepVideo: true);
-            progressReporter.Report(100d, 0d, "完成", "下载完成");
+            progressReporter.ReportSimple("下载完成");
             return EpisodeDownloadResult.Success();
         }
         catch (OperationCanceledException)
         {
             CleanupDownloadArtifacts(finalPath, keepVideo: false);
-            progressReporter.ReportStatus("已取消", "已取消");
+            progressReporter.ReportSimple("下载已取消");
             throw;
         }
         catch (Exception ex)
         {
             CleanupDownloadArtifacts(finalPath, keepVideo: false);
-            progressReporter.ReportStatus("失败", ex.Message);
+            progressReporter.ReportSimple($"下载失败：{ex.Message}");
             return EpisodeDownloadResult.Failure(ex.Message);
         }
     }
@@ -926,16 +925,18 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
             _progress?.Report(BuildLine(percent, speedBytesPerSecond, status, message));
         }
 
-        public void ReportStatus(string status, string? message)
+        public void ReportSimple(string message)
         {
-            _progress?.Report(BuildLine(0d, 0d, status, message));
+            _progress?.Report($"{Prefix} {message}");
         }
 
         private string BuildLine(double percent, double speedBytesPerSecond, string status, string? message)
         {
-            var text = $"[{_task.Order:00}/{_totalCount:00}] {_task.Label} {Math.Clamp(percent, 0d, 100d):0.0}% | {FormatSpeed(speedBytesPerSecond)} | {status}";
+            var text = $"{Prefix} {Math.Clamp(percent, 0d, 100d):0.0}% | {FormatSpeed(speedBytesPerSecond)} | {status}";
             return string.IsNullOrWhiteSpace(message) ? text : $"{text} - {message}";
         }
+
+        private string Prefix => $"[{_task.Order:00}/{_totalCount:00}] 第{_task.EpisodeNumber:00}集";
 
         private static string FormatSpeed(double bytesPerSecond)
         {

@@ -314,14 +314,20 @@ public sealed class QueueWorkerRunner
                 }
                 catch (Exception ex)
                 {
+                    var failedStep = string.IsNullOrWhiteSpace(preItem.CurrentStep)
+                        ? preUploadSteps.LastOrDefault() ?? QueueStepRegistry.UploadSeries
+                        : preItem.CurrentStep;
                     Mutate(() =>
                     {
-                        var step = string.IsNullOrWhiteSpace(preItem.CurrentStep)
-                            ? preUploadSteps.LastOrDefault() ?? QueueStepRegistry.UploadSeries
-                            : preItem.CurrentStep;
-                        MarkFailed(preItem, step, ex.Message);
+                        MarkFailed(preItem, failedStep, ex.Message);
                         failed++;
                     });
+                    Report(
+                        onProgress,
+                        workspace,
+                        preItem,
+                        $"{QueueStepRegistry.LabelOf(failedStep)} 失败：{ex.Message}",
+                        failedStep);
                 }
 
                 continue;

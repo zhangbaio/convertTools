@@ -23,7 +23,7 @@ public static class ProjectVideoResolver
         if (string.IsNullOrWhiteSpace(workflow))
             workflow = source;
 
-        var sourceVideos = ResolveSourceVideos(source, workflow);
+        var sourceVideos = ResolveSourceVideosFromRoots(source, workflow);
         var stagedVideos = ResolveStagedUploadVideos(workflow);
 
         var videoPaths = sourceVideos.Count > 0
@@ -39,7 +39,24 @@ public static class ProjectVideoResolver
         return videoPaths;
     }
 
-    private static List<string> ResolveSourceVideos(string sourceProjectDir, string workflowProjectDir)
+    public static IReadOnlyList<string> ResolveSourceVideos(string sourceProjectDir, bool allowStagedFallback = false)
+    {
+        var source = Path.GetFullPath(sourceProjectDir);
+        if (!Directory.Exists(source))
+            return Array.Empty<string>();
+
+        var workflow = ProjectWorkspaceService.ResolveWorkflowProjectDir(source);
+        if (string.IsNullOrWhiteSpace(workflow))
+            workflow = source;
+
+        var sourceVideos = ResolveSourceVideosFromRoots(source, workflow);
+        if (sourceVideos.Count > 0)
+            return sourceVideos;
+
+        return allowStagedFallback ? ResolveStagedUploadVideos(workflow) : Array.Empty<string>();
+    }
+
+    private static List<string> ResolveSourceVideosFromRoots(string sourceProjectDir, string workflowProjectDir)
     {
         var candidates = new List<string>();
         foreach (var root in new[] { sourceProjectDir, Path.Combine(sourceProjectDir, "videos"), Path.Combine(workflowProjectDir, "videos") })

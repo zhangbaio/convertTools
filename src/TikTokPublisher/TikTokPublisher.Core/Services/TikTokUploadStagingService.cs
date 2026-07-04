@@ -19,7 +19,9 @@ public static class TikTokUploadStagingService
     {
         var source = Path.GetFullPath(sourceProjectDir);
         var workflow = TikTokUploadStateStore.ResolveWorkflowProjectDir(source);
-        var sourceVideos = ProjectVideoResolver.ResolveUploadVideos(source).ToList();
+        var sourceVideos = ProjectVideoResolver.ResolveSourceVideos(
+            source,
+            allowStagedFallback: !rebuildStaging).ToList();
         if (sourceVideos.Count == 0)
             return new StagingResult(Array.Empty<string>(), Array.Empty<string>());
 
