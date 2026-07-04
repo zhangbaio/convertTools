@@ -21,6 +21,56 @@ public static class ProjectStateDocumentStore
         SaveDocument(workspaceRoot, projectDir, UploadStateDocumentType, payload, workflowProjectDir);
     }
 
+    public static Dictionary<string, JsonElement> LoadUploadState(string workspaceRoot, string projectDir) =>
+        LoadDocument(workspaceRoot, projectDir, UploadStateDocumentType);
+
+    public static Dictionary<string, JsonElement> LoadDocument(
+        string workspaceRoot,
+        string projectDir,
+        string documentType)
+    {
+        var databasePath = ClientSettingsStore.WorkspaceDatabasePath(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(databasePath) || !File.Exists(databasePath))
+            return new Dictionary<string, JsonElement>();
+
+        var docType = (documentType ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(docType))
+            return new Dictionary<string, JsonElement>();
+
+        try
+        {
+            using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT payload_json
+                FROM project_state_documents
+                WHERE workspace_path = $workspace_path
+                  AND project_dir = $project_dir
+                  AND document_type = $document_type
+                LIMIT 1
+                """;
+            command.Parameters.AddWithValue("$workspace_path", NormalizePath(workspaceRoot));
+            command.Parameters.AddWithValue("$project_dir", NormalizePath(projectDir));
+            command.Parameters.AddWithValue("$document_type", docType);
+
+            var json = command.ExecuteScalar()?.ToString();
+            if (string.IsNullOrWhiteSpace(json))
+                return new Dictionary<string, JsonElement>();
+
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return new Dictionary<string, JsonElement>();
+
+            return doc.RootElement.EnumerateObject()
+                .ToDictionary(p => p.Name, p => p.Value.Clone(), StringComparer.Ordinal);
+        }
+        catch
+        {
+            return new Dictionary<string, JsonElement>();
+        }
+    }
+
     public static void SaveDocument(
         string workspaceRoot,
         string projectDir,

@@ -15,6 +15,20 @@ public static class TikTokUploadStateStore
 
     public static Dictionary<string, JsonElement> LoadState(string workflowProjectDir)
     {
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(workflowProjectDir);
+            var databaseState = ProjectStateDocumentStore.LoadUploadState(
+                context.WorkspaceRoot,
+                context.SourceProjectDir);
+            if (databaseState.Count > 0)
+                return databaseState;
+        }
+        catch
+        {
+            // Fall back to the legacy json file below.
+        }
+
         var path = StateFilePath(workflowProjectDir);
         if (!File.Exists(path)) return new Dictionary<string, JsonElement>();
         try
@@ -37,21 +51,25 @@ public static class TikTokUploadStateStore
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
 
-        var projectDir = ResolveSourceProjectDir(workflowProjectDir);
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(workflowProjectDir);
+            ProjectStateDocumentStore.SaveUploadState(
+                context.WorkspaceRoot,
+                context.SourceProjectDir,
+                state,
+                context.WorkflowProjectDir);
+            return;
+        }
+        catch
+        {
+            // Fall back to locating an existing workspace database.
+        }
+
+        var projectDir = Path.GetFullPath(workflowProjectDir);
         var workspaceRoot = FindWorkspaceRoot(projectDir);
         if (!string.IsNullOrWhiteSpace(workspaceRoot))
-        {
             ProjectStateDocumentStore.SaveUploadState(workspaceRoot, projectDir, state, workflowProjectDir);
-        }
-    }
-
-    private static string ResolveSourceProjectDir(string workflowProjectDir)
-    {
-        var full = Path.GetFullPath(workflowProjectDir);
-        var parent = Directory.GetParent(full);
-        if (parent is not null && string.Equals(parent.Name, "workflow", StringComparison.OrdinalIgnoreCase))
-            return parent.FullName;
-        return full;
     }
 
     private static string FindWorkspaceRoot(string projectDir)
