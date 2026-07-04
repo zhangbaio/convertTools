@@ -70,7 +70,6 @@ public partial class MainWindow : Window
         if (state is null)
         {
             _viewModel.StatusMessage = "尚未登录授权账号，请前往「系统服务」登录。";
-            NavigateTo("services");
         }
     }
 

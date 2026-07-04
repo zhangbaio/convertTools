@@ -67,7 +67,7 @@ public partial class SystemSettingsView : UserControl
         SilenceRepairModeCombo.SelectionChanged += OnSilenceRepairModeChanged;
 
         PosterModeCombo.Items.Clear();
-        PosterModeCombo.Items.Add(CreateItem("原图", "original"));
+        PosterModeCombo.Items.Add(CreateItem("原始海报AI改标题", "original"));
         PosterModeCombo.Items.Add(CreateItem("AI去字+PIL重绘", "poster_ai_erase_pil_title"));
         PosterModeCombo.Items.Add(CreateItem("原图AI重绘", "poster_ai_edit"));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;

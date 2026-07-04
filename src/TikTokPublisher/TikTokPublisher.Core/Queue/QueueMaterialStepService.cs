@@ -180,14 +180,14 @@ public static class QueueMaterialStepService
             var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
             try
             {
-                log("开始 AI 海报生成…");
+                log("开始 AI 海报改字…");
                 await QueueInfrastructureServices.Poster.RenameAsync(
                     new PosterRenameRequest(
                         ProjectDir: workflowDir,
                         InputFilePath: inputPath,
                         OutputFilePath: outputPath,
                         ConfigFile: configPath,
-                        UseAi: true,
+                        UseAi: false,
                         Overwrite: true),
                     ct);
                 log($"海报已生成：{Path.GetFileName(outputPath)}");
@@ -764,7 +764,7 @@ public static class QueueMaterialStepService
     private static bool IsAiPosterMode(string? posterMode)
     {
         var mode = (posterMode ?? "original").Trim().ToLowerInvariant();
-        return mode is "ai" or "poster_ai_erase_pil_title" or "poster_ai_edit";
+        return mode is "original" or "ai" or "poster_ai_erase_pil_title" or "poster_ai_edit";
     }
 
     private static bool HasImageModelConfig(ClientSettings settings)

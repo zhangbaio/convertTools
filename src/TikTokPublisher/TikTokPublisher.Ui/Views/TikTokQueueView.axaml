@@ -241,11 +241,12 @@
                              Grid.Row="1"
                              ItemsSource="{Binding FilteredQueueProjectRows}"
                              Background="{StaticResource PythonInputBg}"
+                             Margin="0,0,0,18"
                              SelectionMode="Multiple"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" MinHeight="40" Width="1620">
+                                <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" MinHeight="40" Width="1620" ClipToBounds="True">
                                     <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
                                     <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled}" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                     <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -268,7 +269,7 @@
                                                    Foreground="#0F63C7" />
                                     </Button>
                                     <TextBlock Grid.Column="5" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
-                                    <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" ClipToBounds="True" ToolTip.Tip="{Binding QueuedAt}" />
                                     <Border Grid.Column="7" Classes="stepStatusBadge" Background="{Binding DownloadStatusBackgroundBrush}" BorderBrush="{Binding DownloadStatusBorderBrush}" ToolTip.Tip="{Binding DownloadStatus}">
                                         <TextBlock Text="{Binding DownloadStatus}" Foreground="{Binding DownloadStatusBrush}" Classes="stepStatusText" />
                                     </Border>
