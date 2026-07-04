@@ -291,6 +291,7 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
     public event Action<string>? StatusRequested;
     public event Action? Restored;
     public Func<TikTokAccountProfile?>? AccountProvider { get; set; }
+    public Func<QueueProjectItem, TikTokAccountProfile?>? AccountResolver { get; set; }
 
     public void SetWorkspace(string? workspacePath, bool refresh = true)
     {
@@ -502,8 +503,9 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
         foreach (var row in targets)
         {
             var item = TikTokArchivedProjectService.ToQueueItemForSync(row.Item);
+            var account = AccountResolver?.Invoke(item) ?? AccountProvider?.Invoke();
             var result = await TikTokManagementUploadRecordSyncService
-                .SyncUploadRecordAsync(item, AccountProvider?.Invoke(), CancellationToken.None);
+                .SyncUploadRecordAsync(item, account, CancellationToken.None);
             if (result.Ok) ok++; else failed++;
             StatusRequested?.Invoke($"同步归档项目：{row.DisplayName} - {result.Message}");
         }

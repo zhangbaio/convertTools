@@ -19,7 +19,9 @@ public sealed record ArchivedProjectItem(
     string ArchiveProjectDir,
     string ArchiveSource,
     string ArchivedSourceDir,
-    string ArchivedWorkflowDir);
+    string ArchivedWorkflowDir,
+    string AccountProfileId = "",
+    string AccountProfileName = "");
 
 public static class TikTokArchivedProjectService
 {
@@ -94,6 +96,7 @@ public static class TikTokArchivedProjectService
         bool deleteWorkflowVideos = true,
         bool deleteMaterialVideos = true,
         string source = "tiktok",
+        TikTokAccountProfile? account = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(workspaceRoot) || !Directory.Exists(workspaceRoot))
@@ -213,12 +216,18 @@ public static class TikTokArchivedProjectService
             Path.GetFileName(workflowProjectDir).TrimStart('_'),
             projectKey);
         var metadataPath = BuildArchiveMetadataPath(metaRoot, projectKey);
+        var accountProfileId = (account?.Id ?? "").Trim();
+        var accountProfileName = FirstNonEmpty(account?.DisplayName, account?.Name);
         var metadata = new Dictionary<string, object?>
         {
             ["projectKey"] = projectKey,
             ["displayName"] = projectKey,
             ["originalTitle"] = originalTitle,
             ["newTitle"] = newTitle,
+            ["accountProfileId"] = accountProfileId,
+            ["account_profile_id"] = accountProfileId,
+            ["accountProfileName"] = accountProfileName,
+            ["account_profile_name"] = accountProfileName,
             ["archiveSource"] = source.Trim(),
             ["archivedAt"] = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
             ["sourceProjectDir"] = sourceProjectDir,
@@ -325,6 +334,8 @@ public static class TikTokArchivedProjectService
             DisplayName = item.DisplayName,
             OriginalTitle = item.OriginalTitle,
             NewTitle = item.NewTitle,
+            AccountProfileId = item.AccountProfileId,
+            AccountProfileName = item.AccountProfileName,
             EpisodeCount = Math.Max(1, episodeCount),
             QueuedAt = NormalizeTime(item.ArchivedAt),
             StatusText = QueueStepStatus.Completed,
@@ -438,7 +449,13 @@ public static class TikTokArchivedProjectService
                 ReadString(payload, "archive_source"),
                 "tiktok"),
             ArchivedSourceDir: Directory.Exists(sourceDir) ? Path.GetFullPath(sourceDir) : sourceDir,
-            ArchivedWorkflowDir: Directory.Exists(workflowDir) ? Path.GetFullPath(workflowDir) : workflowDir);
+            ArchivedWorkflowDir: Directory.Exists(workflowDir) ? Path.GetFullPath(workflowDir) : workflowDir,
+            AccountProfileId: FirstNonEmpty(
+                ReadString(payload, "accountProfileId"),
+                ReadString(payload, "account_profile_id")),
+            AccountProfileName: FirstNonEmpty(
+                ReadString(payload, "accountProfileName"),
+                ReadString(payload, "account_profile_name")));
     }
 
     private static (Dictionary<string, object?> Payload, string MetadataPath, string ArchiveDir) LoadArchiveReference(
@@ -989,11 +1006,12 @@ public static class TikTokArchivedProjectService
                     archived_at, archived_source_dir, archived_workflow_dir, metadata_path,
                     payload_json, created_at, updated_at
                 ) VALUES (
-                    $archive_id, '', $original_title, $new_title, $archive_source,
+                    $archive_id, $account_profile_id, $original_title, $new_title, $archive_source,
                     $archived_at, $archived_source_dir, $archived_workflow_dir, $metadata_path,
                     $payload_json, $created_at, $updated_at
                 )
                 ON CONFLICT(archive_id) DO UPDATE SET
+                    account_profile_id = excluded.account_profile_id,
                     original_title = excluded.original_title,
                     new_title = excluded.new_title,
                     archive_source = excluded.archive_source,
@@ -1005,6 +1023,7 @@ public static class TikTokArchivedProjectService
                     updated_at = excluded.updated_at
                 """;
             cmd.Parameters.AddWithValue("$archive_id", archiveId);
+            cmd.Parameters.AddWithValue("$account_profile_id", item.AccountProfileId);
             cmd.Parameters.AddWithValue("$original_title", item.OriginalTitle);
             cmd.Parameters.AddWithValue("$new_title", item.NewTitle);
             cmd.Parameters.AddWithValue("$archive_source", item.ArchiveSource);
@@ -1099,6 +1118,8 @@ public static class TikTokArchivedProjectService
         ["display_name"] = item.DisplayName,
         ["original_title"] = item.OriginalTitle,
         ["new_title"] = item.NewTitle,
+        ["account_profile_id"] = item.AccountProfileId,
+        ["account_profile_name"] = item.AccountProfileName,
         ["archived_at"] = item.ArchivedAt,
         ["metadata_path"] = item.MetadataPath,
         ["archive_source"] = item.ArchiveSource,

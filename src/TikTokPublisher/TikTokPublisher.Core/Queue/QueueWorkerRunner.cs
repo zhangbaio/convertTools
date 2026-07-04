@@ -135,7 +135,7 @@ public sealed class QueueWorkerRunner
             candidates.Select((item, index) => (index + 1, item)));
         var readyForUpload = new Queue<QueueProjectItem>();
         var preUploadTasks = new Dictionary<Task, QueueProjectItem>();
-        var uploadTasks = new Dictionary<Task<bool>, (QueueProjectItem Item, string AccountKey)>();
+        var uploadTasks = new Dictionary<Task<bool>, (QueueProjectItem Item, string AccountKey, TikTokAccountProfile Account)>();
         var activeUploadAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         Report(onProgress, workspace, null,
@@ -244,7 +244,7 @@ public sealed class QueueWorkerRunner
                         ct,
                         Mutate,
                         manualInterventionAllowed ? ManualIntervention : null);
-                    uploadTasks[task] = (capturedItem, accountKey);
+                    uploadTasks[task] = (capturedItem, accountKey, capturedAccount);
                     started++;
                     rotations = readyForUpload.Count;
                 }
@@ -400,7 +400,7 @@ public sealed class QueueWorkerRunner
                             try
                             {
                                 await TikTokArchivedProjectService
-                                    .ArchiveQueueProjectAsync(workspace, uploadCtx.Item.ProjectDir, ct: ct)
+                                    .ArchiveQueueProjectAsync(workspace, uploadCtx.Item.ProjectDir, account: uploadCtx.Account, ct: ct)
                                     .ConfigureAwait(false);
                                 Mutate(() => uploadCtx.Item.Archived = true);
                                 Report(onProgress, workspace, uploadCtx.Item,

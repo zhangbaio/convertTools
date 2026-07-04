@@ -268,9 +268,9 @@
         <Setter Property="BorderThickness" Value="0,0,0,3" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="CornerRadius" Value="0" />
-        <Setter Property="Padding" Value="16,10,16,8" />
+        <Setter Property="Padding" Value="18,12,18,10" />
         <Setter Property="Margin" Value="0,0,4,0" />
-        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontSize" Value="24" />
         <Setter Property="Foreground" Value="#111827" />
     </Style>
 

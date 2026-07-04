@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
 using TikTokPublisher.Core.Archive;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Tests;
@@ -42,12 +43,20 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         WriteSmallFile(Path.Combine(workflowDir, "material-clip-output", "clip", "cut.mp4"));
         var subtitleVideo = Path.Combine(workflowDir, "material-clip-output", "clip", "subtitles", "caption.mp4");
         WriteSmallFile(subtitleVideo);
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-1dfecd83",
+            Name = "账号3",
+            TiktokAccountNickname = "账号3",
+            TiktokLoginEmail = "15327086817@163.com",
+        };
 
         await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
             _workspaceRoot,
             sourceDir,
             _archiveRoot,
-            preserveWorkflowEpisodes: new[] { 1 });
+            preserveWorkflowEpisodes: new[] { 1 },
+            account: account);
 
         var metadataPath = Directory.EnumerateFiles(Path.Combine(_archiveRoot, "meta"), "*.json").Single();
         using var doc = JsonDocument.Parse(File.ReadAllText(metadataPath));
@@ -65,6 +74,13 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         root.GetProperty("deletedWorkflowVideoFileCount").GetInt32().Should().Be(0);
         root.GetProperty("deletedMaterialVideoFileCount").GetInt32().Should().Be(1);
         root.GetProperty("deletedMaterialClipVideoFileCount").GetInt32().Should().Be(1);
+        root.GetProperty("accountProfileId").GetString().Should().Be("acct-1dfecd83");
+        root.GetProperty("accountProfileName").GetString().Should().Be("账号3");
+
+        var archivedItem = TikTokArchivedProjectService.List(_workspaceRoot, _archiveRoot).Single();
+        var syncItem = TikTokArchivedProjectService.ToQueueItemForSync(archivedItem);
+        syncItem.AccountProfileId.Should().Be("acct-1dfecd83");
+        syncItem.AccountProfileName.Should().Be("账号3");
     }
 
     [Fact]

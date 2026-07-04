@@ -47,7 +47,7 @@ public static class TikTokManagementUploadRecordSyncService
         if (string.IsNullOrWhiteSpace(machineId) || string.IsNullOrWhiteSpace(token))
             return new(false, "软件未登录或登录态不完整，请在 系统服务 登录 TT 账号后再同步");
 
-        var record = FinalizeRecord(BuildRecord(item, account), account);
+        var record = FinalizeRecord(BuildRecordForSync(item, account), account);
         var payload = JsonSerializer.Serialize(new Dictionary<string, object?>
         {
             ["records"] = new[] { record },
@@ -146,7 +146,7 @@ public static class TikTokManagementUploadRecordSyncService
         }
     }
 
-    private static Dictionary<string, object?> BuildRecord(QueueProjectItem item, TikTokAccountProfile? account)
+    internal static Dictionary<string, object?> BuildRecordForSync(QueueProjectItem item, TikTokAccountProfile? account)
     {
         var originalName = (item.OriginalTitle ?? "").Trim();
         var newName = FirstNonEmpty(item.NewTitle, originalName);
@@ -189,6 +189,7 @@ public static class TikTokManagementUploadRecordSyncService
             ["account_profile_name"] = profileName,
             ["tiktok_username"] = tiktokUsername,
             ["tiktok_account_username"] = tiktokUsername,
+            ["tiktok_login_email"] = tiktokUsername,
             ["tiktok_account"] = FirstNonEmpty(tiktokUsername, profileName),
             ["device_name"] = Dns.GetHostName(),
         };

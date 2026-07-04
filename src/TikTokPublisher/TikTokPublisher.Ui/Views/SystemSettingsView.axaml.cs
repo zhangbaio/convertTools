@@ -95,7 +95,7 @@ public partial class SystemSettingsView : UserControl
         PosterTitleVerifyModeCombo.SelectionChanged += OnPosterTitleVerifyModeChanged;
 
         ManagementDedupScopeCombo.Items.Clear();
-        ManagementDedupScopeCombo.Items.Add(CreateItem("按 TikTok 账号", "tiktok_username"));
+        ManagementDedupScopeCombo.Items.Add(CreateItem("按 TIKTOK用户名", "tiktok_username"));
         ManagementDedupScopeCombo.Items.Add(CreateItem("按软件账号", "software_user"));
         ManagementDedupScopeCombo.SelectionChanged += OnManagementDedupScopeChanged;
     }

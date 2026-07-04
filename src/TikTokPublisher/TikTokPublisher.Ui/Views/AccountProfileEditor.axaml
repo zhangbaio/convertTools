@@ -220,7 +220,7 @@
 
                             <TextBlock Grid.Row="16" Grid.Column="0" Text="管理系统去重粒度" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="16" Grid.Column="1" x:Name="ManagementDedupScopeCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="tiktok_username">TIKTOK账号用户名</ComboBoxItem>
+                                <ComboBoxItem Tag="tiktok_username">TIKTOK用户名</ComboBoxItem>
                                 <ComboBoxItem Tag="software_user">软件登录的用户</ComboBoxItem>
                             </ComboBox>
 
