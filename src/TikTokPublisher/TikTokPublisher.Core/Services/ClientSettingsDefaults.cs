@@ -7,6 +7,35 @@ public static class ClientSettingsDefaults
     public const string ImageModelEndpoint = "https://ark.cn-beijing.volces.com/api/v3";
     public const string ImageModelId = "doubao-seedream-5-0-lite-260128";
 
+    public const string FeishuCommandHelpText = """
+        【飞书 TikTok 上传命令教程】
+
+        群聊规则：默认必须先 @机器人，再写命令；普通群消息不会识别。
+        私聊规则：启用私聊后，可直接发送命令，也支持 @机器人 命令。
+        连接规则：一个飞书机器人建议只连接一台电脑，避免多设备同时处理同一条命令。
+
+        一、上传 TikTok 剧集
+        @机器人 上传剧集 剧名A
+        @机器人 上传TikTok
+        剧名A
+        剧名B
+
+        可选参数：
+        工作目录: E:\tiktok
+        账号: 默认
+        步骤: download,rewrite_info,generate_poster,upload_series
+        自动执行: 是
+
+        二、队列与状态
+        @机器人 执行队列
+        @机器人 停止队列
+        @机器人 状态
+
+        三、教程命令
+        @机器人 教程 / 帮助 / help：回复文本教程
+        @机器人 菜单：回复按钮菜单
+        """;
+
     public const string AiTagSystemPrompt =
         "你是短剧宣发标签助手。请根据提供的短剧信息，为每个项目生成适合视频号发表的多标签。" +
         "标签不得出现违背伦理道德、炫富拜金、极端复仇、色情低俗、羞辱挑衅等不良导向表达。" +

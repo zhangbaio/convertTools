@@ -77,18 +77,20 @@ public sealed class WorkspaceQueueOrchestrator
             runner.ManualIntervention.PendingChanged += (item, message) =>
                 ManualInterventionPending?.Invoke(item, message, root);
 
-            var task = ExecuteRunAsync(
-                runner,
-                root,
-                items,
-                options,
-                host,
-                store,
-                finalAction,
-                onProgress,
-                onPersist,
-                linkedCts.Token,
-                projectDirFilter);
+            var task = Task.Run(
+                () => ExecuteRunAsync(
+                    runner,
+                    root,
+                    items,
+                    options,
+                    host,
+                    store,
+                    finalAction,
+                    onProgress,
+                    onPersist,
+                    linkedCts.Token,
+                    projectDirFilter),
+                linkedCts.Token);
 
             run = new ActiveRun(root, displayLabel, runner, linkedCts, task);
             _runs[root] = run;

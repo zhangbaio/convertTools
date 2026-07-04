@@ -436,6 +436,7 @@ public sealed class QueueWorkerRunner
         {
             ct.ThrowIfCancellationRequested();
 
+            var wasCompletedBeforeRun = item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed;
             if (!ShouldRunStep(item, stepKey, options))
             {
                 Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 已完成，跳过", stepKey);
@@ -453,12 +454,17 @@ public sealed class QueueWorkerRunner
             Report(onProgress, workspace, item, $"开始 {QueueStepRegistry.LabelOf(stepKey)}…", stepKey);
 
             var stepAccount = ResolveAccount(accountStore, item);
+            var useSummaryLog = wasCompletedBeforeRun && options.ForceRerunCompletedSteps;
+            Action<string> stepLog = useSummaryLog
+                ? QueueStepLogFilters.SummaryOnly(msg => Report(onProgress, workspace, item, msg, stepKey))
+                : msg => Report(onProgress, workspace, item, msg, stepKey);
+
             await RunPreUploadStepAsync(
                 item,
                 stepKey,
                 options,
                 stepAccount,
-                msg => Report(onProgress, workspace, item, msg, stepKey),
+                stepLog,
                 ct).ConfigureAwait(false);
 
             mutate(() => MarkCompleted(item, stepKey));
@@ -478,6 +484,14 @@ public sealed class QueueWorkerRunner
         Action<Action> mutate,
         ManualInterventionCoordinator? manualIntervention)
     {
+        var wasCompletedBeforeRun =
+            item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Completed;
+        var useSummaryLog = wasCompletedBeforeRun && options.ForceRerunCompletedSteps;
+        Action<string> uploadLog = useSummaryLog
+            ? QueueStepLogFilters.SummaryOnly(msg =>
+                Report(onProgress, workspace, item, msg, QueueStepRegistry.UploadSeries))
+            : msg => Report(onProgress, workspace, item, msg, QueueStepRegistry.UploadSeries);
+
         mutate(() => MarkRunning(item, QueueStepRegistry.UploadSeries));
         Report(onProgress, workspace, item, $"[{account.DisplayName}] 准备内置浏览器…", QueueStepRegistry.UploadSeries);
 
@@ -498,7 +512,7 @@ public sealed class QueueWorkerRunner
                     item,
                     finalAction,
                     options,
-                    msg => Report(onProgress, workspace, item, msg, QueueStepRegistry.UploadSeries),
+                    uploadLog,
                     ct).ConfigureAwait(false);
 
                 if (result.Ok)

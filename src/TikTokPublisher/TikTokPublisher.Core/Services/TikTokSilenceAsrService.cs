@@ -110,7 +110,7 @@ public static class TikTokSilenceAsrService
                 await throttle.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
-                    results[index] = await AnalyzeAsync(path, index + 1, settings, log, ct).ConfigureAwait(false);
+                    results[index] = await AnalyzeAsync(path, index + 1, settings, log: null, ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {

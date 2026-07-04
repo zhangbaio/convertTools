@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services.TikTok;
 
@@ -102,9 +103,10 @@ public static partial class TikTokBrowserActions
             }
 
             var countLabel = uploadedCount?.ToString() ?? "识别中";
-            var displayPercent = uploadedCount is not null && expectedCount > 0
-                ? Math.Min(100, Math.Max(0, (int)Math.Round(uploadedCount.Value / (double)expectedCount * 100)))
-                : 0;
+            var displayPercent = TikTokUploadProgressParser.EstimateDisplayPercent(
+                uploadedCount,
+                expectedCount,
+                waitingCount);
             var status =
                 $"done={meetsDone}, uploaded={countLabel}/{expectedCount}, percent={percentTotal}, waiting={waitingCount}, uploading={uploading}, disabled={disabled}";
             if (status != lastStatus)
@@ -399,7 +401,10 @@ public static partial class TikTokBrowserActions
     public static int ExtractTotalUploadPercent(string bodyText) => ExtractTotalUploadPercentInternal(bodyText);
 
     public static int? ExtractReadyUploadedVideoCount(string bodyText, IReadOnlyList<string>? titleCandidates) =>
-        ExtractReadyUploadedVideoCountInternal(bodyText, titleCandidates);
+        TikTokUploadProgressParser.ExtractReadyUploadedVideoCount(bodyText, titleCandidates);
+
+    private static int? ExtractReadyUploadedVideoCountInternal(string bodyText, IReadOnlyList<string>? titleCandidates) =>
+        TikTokUploadProgressParser.ExtractReadyUploadedVideoCount(bodyText, titleCandidates);
 
     private static int ExtractTotalUploadPercentInternal(string bodyText)
     {
@@ -419,12 +424,6 @@ public static partial class TikTokBrowserActions
         if (match.Success && int.TryParse(match.Groups[1].Value, out var count))
             return count;
         return null;
-    }
-
-    private static int? ExtractReadyUploadedVideoCountInternal(string bodyText, IReadOnlyList<string>? titleCandidates)
-    {
-        _ = titleCandidates;
-        return ExtractUploadedVideoCount(bodyText);
     }
 
     private static bool UploadedCountMeetsExpected(int? uploadedCount, int expectedCount) =>

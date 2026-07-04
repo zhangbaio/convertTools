@@ -5,6 +5,8 @@ using CommunityToolkit.Mvvm.Input;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.ViewModels;
@@ -12,6 +14,7 @@ namespace TikTokPublisher.Ui.ViewModels;
 public sealed partial class SystemServicesViewModel : ViewModelBase
 {
     public event Action<string>? StatusRequested;
+    public event Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>>? RemoteCommandRequested;
 
     [ObservableProperty] private string _authServerUrl = "";
     [ObservableProperty] private string _licenseSummary = "未登录";
@@ -19,6 +22,34 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private string _loginPassword = "";
     [ObservableProperty] private string _loginStatus = "";
     [ObservableProperty] private bool _isBusy;
+    [ObservableProperty] private bool _feishuCommandEnabled;
+    [ObservableProperty] private string _feishuCommandAppId = "";
+    [ObservableProperty] private string _feishuCommandAppSecret = "";
+    [ObservableProperty] private string _feishuCommandBotName = "";
+    [ObservableProperty] private string _feishuCommandBotAliases = "";
+    [ObservableProperty] private bool _feishuCommandRequireBotMention = true;
+    [ObservableProperty] private string _feishuCommandAllowedChatIds = "";
+    [ObservableProperty] private bool _feishuCommandDirectMessageEnabled = true;
+    [ObservableProperty] private string _feishuCommandAllowedUserIds = "";
+    [ObservableProperty] private string _feishuCommandDefaultWorkspace = "";
+    [ObservableProperty] private bool _feishuCommandReplyEnabled = true;
+    [ObservableProperty] private int _feishuCommandCommandTtlSeconds = 60;
+    [ObservableProperty] private string _feishuCommandHelpText = ClientSettingsDefaults.FeishuCommandHelpText;
+    [ObservableProperty] private string _feishuCommandStatus = "未启用";
+    [ObservableProperty] private string _remoteCommandPreviewText = "";
+    [ObservableProperty] private string _remoteCommandPreviewResult = "";
+    [ObservableProperty] private bool _remoteDownloadEnabled;
+    [ObservableProperty] private bool _remoteRewriteEnabled;
+    [ObservableProperty] private bool _remoteGeneratePosterEnabled;
+    [ObservableProperty] private bool _remoteSmallVideoRepairEnabled;
+    [ObservableProperty] private bool _remoteSilenceDetectEnabled;
+    [ObservableProperty] private bool _remoteSilenceRepairEnabled;
+    [ObservableProperty] private bool _remoteMaterialValidateEnabled;
+    [ObservableProperty] private bool _remoteDeleteSourceVideosEnabled;
+    [ObservableProperty] private bool _remoteUploadEnabled;
+    [ObservableProperty] private bool _remoteAutoArchiveAfterUpload;
+    [ObservableProperty] private bool _remoteForceRerunCompletedSteps;
+    [ObservableProperty] private bool _remotePreferUploadWhenReady;
 
     public void Load()
     {
@@ -26,6 +57,26 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         AuthServerUrl = settings.AuthServerUrl ?? "";
         LoginAccount = settings.AuthAccount ?? "";
         LoginPassword = settings.AuthPassword ?? "";
+        FeishuCommandEnabled = settings.FeishuCommandEnabled;
+        FeishuCommandAppId = settings.FeishuCommandAppId ?? "";
+        FeishuCommandAppSecret = settings.FeishuCommandAppSecret ?? "";
+        FeishuCommandBotName = settings.FeishuCommandBotName ?? "";
+        FeishuCommandBotAliases = settings.FeishuCommandBotAliases ?? "";
+        FeishuCommandRequireBotMention = settings.FeishuCommandRequireBotMention;
+        FeishuCommandAllowedChatIds = settings.FeishuCommandAllowedChatIds ?? "";
+        FeishuCommandDirectMessageEnabled = settings.FeishuCommandDirectMessageEnabled;
+        FeishuCommandAllowedUserIds = settings.FeishuCommandAllowedUserIds ?? "";
+        FeishuCommandDefaultWorkspace = settings.FeishuCommandDefaultWorkspace ?? "";
+        FeishuCommandReplyEnabled = settings.FeishuCommandReplyEnabled;
+        FeishuCommandCommandTtlSeconds = Math.Clamp(settings.FeishuCommandCommandTtlSeconds, 10, 3600);
+        FeishuCommandHelpText = string.IsNullOrWhiteSpace(settings.FeishuCommandHelpText)
+            ? ClientSettingsDefaults.FeishuCommandHelpText
+            : settings.FeishuCommandHelpText;
+        RemoteAutoArchiveAfterUpload = settings.FeishuTiktokUploadAutoArchiveAfterUpload;
+        RemoteForceRerunCompletedSteps = settings.FeishuTiktokUploadForceRerunCompletedSteps;
+        RemotePreferUploadWhenReady = settings.FeishuTiktokUploadPreferUploadWhenReady;
+        ApplyRemoteSteps(TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings));
+        FeishuCommandStatus = FeishuCommandEnabled ? "已启用" : "未启用";
         RefreshLicenseSummary();
     }
 
@@ -55,9 +106,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         try
         {
             var settings = ClientSettingsStore.Load();
-            settings.AuthServerUrl = AuthServerUrl.Trim();
-            settings.AuthAccount = LoginAccount.Trim();
-            settings.AuthPassword = LoginPassword;
+            ApplyUiToSettings(settings);
             ClientSettingsStore.Save(settings);
 
             await LicenseAuthService.LoginAsync(settings.AuthServerUrl, LoginAccount, LoginPassword);
@@ -88,12 +137,113 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [RelayCommand]
     private void SaveAuthServerUrl()
     {
+        SaveSystemServices();
+    }
+
+    [RelayCommand]
+    private void SaveSystemServices()
+    {
         var settings = ClientSettingsStore.Load();
+        ApplyUiToSettings(settings);
+        ClientSettingsStore.Save(settings);
+        FeishuCommandStatus = settings.FeishuCommandEnabled ? "已启用" : "未启用";
+        StatusRequested?.Invoke("系统服务配置已保存");
+    }
+
+    [RelayCommand]
+    private void SelectAllRemoteSteps() => ApplyRemoteSteps(QueueStepRegistry.All.Select(step => step.Key));
+
+    [RelayCommand]
+    private void ResetRemoteSteps() => ApplyRemoteSteps(TikTokRemoteCommandStepDefaults.FullUploadDefaultEnabledSteps);
+
+    [RelayCommand]
+    private void ClearRemoteSteps() => ApplyRemoteSteps([]);
+
+    [RelayCommand]
+    private async Task RunRemoteCommandPreviewAsync()
+    {
+        var command = TikTokRemoteCommandParser.Parse(RemoteCommandPreviewText);
+        if (command is null)
+        {
+            RemoteCommandPreviewResult = "命令格式未识别";
+            StatusRequested?.Invoke(RemoteCommandPreviewResult);
+            return;
+        }
+
+        if (RemoteCommandRequested is null)
+        {
+            RemoteCommandPreviewResult = $"已识别命令：{command.Command}";
+            StatusRequested?.Invoke(RemoteCommandPreviewResult);
+            return;
+        }
+
+        var result = await RemoteCommandRequested.Invoke(command);
+        RemoteCommandPreviewResult = result.SummaryText;
+        StatusRequested?.Invoke(result.SummaryText);
+    }
+
+    public QueueRunOptions BuildRemoteUploadRunOptions(TikTokRemoteCommand? command = null)
+    {
+        var settings = ClientSettingsStore.Load();
+        ApplyUiToSettings(settings);
+        return TikTokRemoteRunOptions.BuildFeishuTikTokUploadRunOptions(settings, command);
+    }
+
+    private void ApplyUiToSettings(ClientSettings settings)
+    {
         settings.AuthServerUrl = AuthServerUrl.Trim();
         settings.AuthAccount = LoginAccount.Trim();
         settings.AuthPassword = LoginPassword;
-        ClientSettingsStore.Save(settings);
-        StatusRequested?.Invoke("授权服务地址已保存");
+        settings.FeishuCommandEnabled = FeishuCommandEnabled;
+        settings.FeishuCommandAppId = FeishuCommandAppId.Trim();
+        settings.FeishuCommandAppSecret = FeishuCommandAppSecret;
+        settings.FeishuCommandBotName = FeishuCommandBotName.Trim();
+        settings.FeishuCommandBotAliases = FeishuCommandBotAliases.Trim();
+        settings.FeishuCommandRequireBotMention = FeishuCommandRequireBotMention;
+        settings.FeishuCommandAllowedChatIds = FeishuCommandAllowedChatIds.Trim();
+        settings.FeishuCommandDirectMessageEnabled = FeishuCommandDirectMessageEnabled;
+        settings.FeishuCommandAllowedUserIds = FeishuCommandAllowedUserIds.Trim();
+        settings.FeishuCommandDefaultWorkspace = FeishuCommandDefaultWorkspace.Trim();
+        settings.FeishuCommandReplyEnabled = FeishuCommandReplyEnabled;
+        settings.FeishuCommandCommandTtlSeconds = Math.Clamp(FeishuCommandCommandTtlSeconds, 10, 3600);
+        settings.FeishuCommandHelpText = string.IsNullOrWhiteSpace(FeishuCommandHelpText)
+            ? ClientSettingsDefaults.FeishuCommandHelpText
+            : FeishuCommandHelpText.Trim();
+        settings.FeishuTiktokUploadEnabledStepsJson =
+            TikTokRemoteRunOptions.DumpFeishuTikTokUploadEnabledSteps(ReadRemoteSteps());
+        settings.FeishuTiktokUploadAutoArchiveAfterUpload = RemoteAutoArchiveAfterUpload;
+        settings.FeishuTiktokUploadForceRerunCompletedSteps = RemoteForceRerunCompletedSteps;
+        settings.FeishuTiktokUploadPreferUploadWhenReady = RemotePreferUploadWhenReady;
+    }
+
+    private IReadOnlyList<string> ReadRemoteSteps()
+    {
+        var steps = new List<string>();
+        if (RemoteDownloadEnabled) steps.Add(QueueStepRegistry.Download);
+        if (RemoteRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
+        if (RemoteGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
+        if (RemoteSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
+        if (RemoteSilenceDetectEnabled) steps.Add(QueueStepRegistry.SilenceDetect);
+        if (RemoteSilenceRepairEnabled) steps.Add(QueueStepRegistry.SilenceRepair);
+        if (RemoteMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);
+        if (RemoteDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);
+        if (RemoteUploadEnabled) steps.Add(QueueStepRegistry.UploadSeries);
+        return QueueStepRegistry.OrderEnabledSteps(steps).ToList();
+    }
+
+    private void ApplyRemoteSteps(IEnumerable<string> steps)
+    {
+        var normalized = TikTokRemoteCommandParser.NormalizeEnabledSteps(steps?.Cast<object?>() ?? []);
+        var selected = normalized.ToHashSet(StringComparer.Ordinal);
+        RemoteDownloadEnabled = selected.Contains(QueueStepRegistry.Download);
+        RemoteRewriteEnabled = selected.Contains(QueueStepRegistry.RewriteInfo);
+        RemoteGeneratePosterEnabled = selected.Contains(QueueStepRegistry.GeneratePoster);
+        RemoteSmallVideoRepairEnabled = selected.Contains(QueueStepRegistry.SmallVideoRepair);
+        RemoteSilenceDetectEnabled = selected.Contains(QueueStepRegistry.SilenceDetect);
+        RemoteSilenceRepairEnabled = selected.Contains(QueueStepRegistry.SilenceRepair);
+        RemoteMaterialValidateEnabled = selected.Contains(QueueStepRegistry.MaterialValidate);
+        RemoteDeleteSourceVideosEnabled = selected.Contains(QueueStepRegistry.DeleteSourceVideos);
+        RemoteUploadEnabled = selected.Contains(QueueStepRegistry.UploadSeries);
     }
 }
 

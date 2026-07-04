@@ -85,6 +85,7 @@ public static partial class TikTokBrowserActions
 
     public static async Task SubmitAsync(IPage page, Action<string>? log, CancellationToken ct)
     {
+        await WaitBeforeSubmitAsync(log, ct).ConfigureAwait(false);
         await DismissFloatingAssistantAsync(page, log);
         var button = page.Locator("button").Filter(new() { HasText = "提交" }).First;
         await WaitSubmitEnabledAsync(button, ct);
@@ -93,8 +94,25 @@ public static partial class TikTokBrowserActions
         Log(log, "TikTok 表单已提交。");
     }
 
+    public static async Task WaitBeforeSubmitAsync(Action<string>? log, CancellationToken ct, double seconds = 10)
+    {
+        var totalSeconds = Math.Max(0.1, seconds);
+        Log(log, $"点击提交前停留 {(int)totalSeconds} 秒，方便核对表单内容。");
+        var deadline = DateTime.UtcNow.AddSeconds(totalSeconds);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var remaining = deadline - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+                break;
+            await Task.Delay(remaining > TimeSpan.FromSeconds(1) ? TimeSpan.FromSeconds(1) : remaining, ct)
+                .ConfigureAwait(false);
+        }
+    }
+
     public static async Task SaveAsync(IPage page, Action<string>? log, CancellationToken ct)
     {
+        await WaitBeforeSubmitAsync(log, ct).ConfigureAwait(false);
         await DismissFloatingAssistantAsync(page, log);
         var button = page.Locator("button").Filter(new() { HasText = "保存" }).First;
         await button.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });

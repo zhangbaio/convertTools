@@ -88,6 +88,23 @@ public sealed class ClientSettings
     public bool TiktokExcelAutoExportEnabled { get; set; } = true;
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
+    public bool FeishuCommandEnabled { get; set; }
+    public string FeishuCommandAppId { get; set; } = "";
+    public string FeishuCommandAppSecret { get; set; } = "";
+    public string FeishuCommandBotName { get; set; } = "";
+    public string FeishuCommandBotAliases { get; set; } = "";
+    public bool FeishuCommandRequireBotMention { get; set; } = true;
+    public string FeishuCommandAllowedChatIds { get; set; } = "";
+    public bool FeishuCommandDirectMessageEnabled { get; set; } = true;
+    public string FeishuCommandAllowedUserIds { get; set; } = "";
+    public string FeishuCommandDefaultWorkspace { get; set; } = "";
+    public bool FeishuCommandReplyEnabled { get; set; } = true;
+    public int FeishuCommandCommandTtlSeconds { get; set; } = 60;
+    public string FeishuCommandHelpText { get; set; } = ClientSettingsDefaults.FeishuCommandHelpText;
+    public string FeishuTiktokUploadEnabledStepsJson { get; set; } = "";
+    public bool FeishuTiktokUploadAutoArchiveAfterUpload { get; set; }
+    public bool FeishuTiktokUploadForceRerunCompletedSteps { get; set; }
+    public bool FeishuTiktokUploadPreferUploadWhenReady { get; set; }
 
     public ClientSettings Clone() => new()
     {
@@ -166,5 +183,22 @@ public sealed class ClientSettings
         TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled,
         ManagementDedupEnabled = ManagementDedupEnabled,
         ManagementDedupScope = ManagementDedupScope,
+        FeishuCommandEnabled = FeishuCommandEnabled,
+        FeishuCommandAppId = FeishuCommandAppId,
+        FeishuCommandAppSecret = FeishuCommandAppSecret,
+        FeishuCommandBotName = FeishuCommandBotName,
+        FeishuCommandBotAliases = FeishuCommandBotAliases,
+        FeishuCommandRequireBotMention = FeishuCommandRequireBotMention,
+        FeishuCommandAllowedChatIds = FeishuCommandAllowedChatIds,
+        FeishuCommandDirectMessageEnabled = FeishuCommandDirectMessageEnabled,
+        FeishuCommandAllowedUserIds = FeishuCommandAllowedUserIds,
+        FeishuCommandDefaultWorkspace = FeishuCommandDefaultWorkspace,
+        FeishuCommandReplyEnabled = FeishuCommandReplyEnabled,
+        FeishuCommandCommandTtlSeconds = FeishuCommandCommandTtlSeconds,
+        FeishuCommandHelpText = FeishuCommandHelpText,
+        FeishuTiktokUploadEnabledStepsJson = FeishuTiktokUploadEnabledStepsJson,
+        FeishuTiktokUploadAutoArchiveAfterUpload = FeishuTiktokUploadAutoArchiveAfterUpload,
+        FeishuTiktokUploadForceRerunCompletedSteps = FeishuTiktokUploadForceRerunCompletedSteps,
+        FeishuTiktokUploadPreferUploadWhenReady = FeishuTiktokUploadPreferUploadWhenReady,
     };
 }

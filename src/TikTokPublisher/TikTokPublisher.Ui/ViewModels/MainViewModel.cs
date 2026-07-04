@@ -4,6 +4,7 @@ using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -28,6 +29,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly AccountStore _store;
     private readonly AccountContextService _context;
     private readonly WorkspaceQueueOrchestrator _queueOrchestrator = new();
+    private readonly QueueStatePersistService _queueStatePersist = new();
     private CancellationTokenSource? _queueCts;
     private string? _manualInterventionWorkspaceRoot;
     private bool _applyingQueueStepToggles;
@@ -97,6 +99,7 @@ public sealed partial class MainViewModel : ViewModelBase
     public event Action<TikTokAccountProfile>? AccountProfileNetworkChanged;
     public event Action<AccountItemViewModel>? AccountSwitchRequested;
     public event Action<AccountItemViewModel, bool>? EmbeddedLoginRequested;
+    public event Func<QueueRunOptions?, IReadOnlyCollection<string>?, Task>? RemoteQueueRunRequested;
 
     public MainViewModel(AccountStore store, AccountContextService context)
     {
@@ -112,6 +115,7 @@ public sealed partial class MainViewModel : ViewModelBase
         DramaDownload.LogRequested += AppendLog;
         WireSystemSettings();
         SystemServices.StatusRequested += message => StatusMessage = message;
+        SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath);
@@ -148,6 +152,7 @@ public sealed partial class MainViewModel : ViewModelBase
         DramaDownload.LogRequested += AppendLog;
         WireSystemSettings();
         SystemServices.StatusRequested += message => StatusMessage = message;
+        SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath);
@@ -159,6 +164,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private void WireQueueOrchestrator()
     {
         _queueOrchestrator.ManualInterventionPending += OnOrchestratorManualInterventionPending;
+        _queueStatePersist.SetOnPersisted(AutoExportQueueExcelForWorkspace);
     }
 
     private void OnOrchestratorManualInterventionPending(QueueProjectItem item, string errorMessage, string workspaceRoot)
@@ -538,6 +544,8 @@ public sealed partial class MainViewModel : ViewModelBase
             return;
         }
 
+        _queueStatePersist.Flush(root, TimeSpan.FromSeconds(2));
+
         _queueItems = WorkspaceQueueService.ScanProjects(root).ToList();
         _queueRunOptions = WorkspaceQueueService.LoadRunOptions(root);
         ApplyAccountQueueEnabledSteps(root);
@@ -698,26 +706,32 @@ public sealed partial class MainViewModel : ViewModelBase
 
         var runOptions = optionsOverride ?? BuildQueueRunOptionsFromUi();
         if (optionsOverride is null)
-            PersistQueueRunOptions();
+            _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
         RefreshRunningWorkspacesSummary();
         _currentQueueBatchId = TikTokExecutionHistoryService.NewBatchId();
-        TikTokExecutionHistoryService.AppendEvent(
+        var batchId = _currentQueueBatchId;
+        var totalCount = _queueItems.Count(i =>
+            i.Enabled &&
+            !i.Archived &&
+            (projectDirFilter is null || projectDirFilter.Contains(Path.GetFullPath(i.ProjectDir))));
+        var enabledSteps = runOptions.OrderedEnabledSteps();
+        var projectConcurrency = runOptions.ProjectConcurrency;
+        var uploadEntryMode = runOptions.UploadEntryMode;
+        var account = SelectedAccount?.Model;
+        _ = Task.Run(() => TikTokExecutionHistoryService.AppendEvent(
             "run_started",
             "running",
             root,
-            batchId: _currentQueueBatchId,
+            batchId: batchId,
             message: "队列开始执行",
             metadata: new Dictionary<string, object?>
             {
-                ["total_count"] = _queueItems.Count(i =>
-                    i.Enabled &&
-                    !i.Archived &&
-                    (projectDirFilter is null || projectDirFilter.Contains(Path.GetFullPath(i.ProjectDir)))),
-                ["enabled_steps"] = runOptions.OrderedEnabledSteps(),
-                ["project_concurrency"] = runOptions.ProjectConcurrency,
-                ["upload_entry_mode"] = runOptions.UploadEntryMode,
+                ["total_count"] = totalCount,
+                ["enabled_steps"] = enabledSteps,
+                ["project_concurrency"] = projectConcurrency,
+                ["upload_entry_mode"] = uploadEntryMode,
             },
-            account: SelectedAccount?.Model);
+            account: account));
         try
         {
             var finalAction = SelectedFinalAction?.Value ?? FinalAction.None;
@@ -778,7 +792,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return Array.Empty<QueueWorkerSummary?>();
 
         SyncEnabledStepsFromUi();
-        PersistQueueRunOptions();
+        _queueStatePersist.Enqueue(WorkspacePath, _queueItems, _queueRunOptions);
         PersistAccountQueueEnabledSteps();
         RefreshRunningWorkspacesSummary();
         _currentQueueBatchId = TikTokExecutionHistoryService.NewBatchId();
@@ -880,6 +894,232 @@ public sealed partial class MainViewModel : ViewModelBase
         }
     }
 
+    public async Task<TikTokRemoteCommandResult> ExecuteRemoteCommandAsync(TikTokRemoteCommand command)
+    {
+        try
+        {
+            return command.Command switch
+            {
+                TikTokRemoteCommandNames.ShowHelpText or TikTokRemoteCommandNames.ShowHelpCard =>
+                    TikTokRemoteCommandResult.Success(command.Command, ClientSettingsStore.Load().FeishuCommandHelpText),
+                TikTokRemoteCommandNames.QueryStatus =>
+                    TikTokRemoteCommandResult.Success(command.Command, BuildRemoteRuntimeStatusText()),
+                TikTokRemoteCommandNames.StopQueue => ExecuteRemoteStopQueue(command),
+                TikTokRemoteCommandNames.SwitchAccountProfile => ExecuteRemoteSwitchAccount(command),
+                TikTokRemoteCommandNames.StartQueue => await ExecuteRemoteStartQueueAsync(command),
+                TikTokRemoteCommandNames.UploadSeries => await ExecuteRemoteUploadSeriesAsync(command),
+                _ => TikTokRemoteCommandResult.Failed(command.Command, $"未支持的远程命令：{command.Command}"),
+            };
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"远程命令执行失败：{ex.Message}");
+            return TikTokRemoteCommandResult.Failed(command.Command, ex.Message);
+        }
+    }
+
+    private TikTokRemoteCommandResult ExecuteRemoteStopQueue(TikTokRemoteCommand command)
+    {
+        if (!IsQueueRunning)
+            return TikTokRemoteCommandResult.Success(command.Command, "当前没有运行中的 TikTok 队列。");
+
+        RequestStopQueue();
+        StatusMessage = "已接收远程停止队列命令，正在等待当前步骤安全结束。";
+        AppendLog(StatusMessage);
+        return TikTokRemoteCommandResult.Accepted(command.Command, StatusMessage);
+    }
+
+    private TikTokRemoteCommandResult ExecuteRemoteSwitchAccount(TikTokRemoteCommand command)
+    {
+        if (!TryApplyRemoteAccountSelection(command, "", out var error))
+            return TikTokRemoteCommandResult.Failed(command.Command, error);
+
+        var text = $"已切换账号「{SelectedAccount?.DisplayName ?? ""}」";
+        StatusMessage = text;
+        AppendLog(text);
+        return TikTokRemoteCommandResult.Success(command.Command, text);
+    }
+
+    private async Task<TikTokRemoteCommandResult> ExecuteRemoteStartQueueAsync(TikTokRemoteCommand command)
+    {
+        if (IsQueueRunning)
+            return TikTokRemoteCommandResult.Failed(command.Command, "当前已有 TikTok 队列在执行，请等待完成后再发起新任务。");
+        if (!TryResolveRemoteWorkspace(command, out var workspace, out var error))
+            return TikTokRemoteCommandResult.Failed(command.Command, error);
+        if (!TryApplyRemoteAccountSelection(command, workspace, out error))
+            return TikTokRemoteCommandResult.Failed(command.Command, error);
+        ActivateRemoteWorkspace(workspace);
+
+        QueueRunOptions? options = null;
+        if (command.EnabledSteps is { Count: > 0 })
+        {
+            options = CreateCurrentQueueRunOptionsSnapshot();
+            options.EnabledSteps = QueueStepRegistry.OrderEnabledSteps(command.EnabledSteps).ToList();
+            options.ProjectConcurrency = Math.Clamp(SelectedAccount?.Model.TiktokProjectConcurrency ?? options.ProjectConcurrency, 1, 20);
+        }
+
+        if (RemoteQueueRunRequested is null)
+            return TikTokRemoteCommandResult.Failed(command.Command, "队列视图尚未初始化，无法执行远程队列。");
+
+        await RemoteQueueRunRequested.Invoke(options, null);
+        return TikTokRemoteCommandResult.Accepted(command.Command, $"TikTok 队列已启动，工作目录：{workspace}");
+    }
+
+    private async Task<TikTokRemoteCommandResult> ExecuteRemoteUploadSeriesAsync(TikTokRemoteCommand command)
+    {
+        var titles = command.Titles?.Where(title => !string.IsNullOrWhiteSpace(title)).ToList() ?? [];
+        if (titles.Count == 0)
+            return TikTokRemoteCommandResult.Failed(command.Command, "未提供可上传的 TikTok 剧名。");
+        if (IsQueueRunning)
+            return TikTokRemoteCommandResult.Failed(command.Command, "当前已有 TikTok 队列在执行，请等待完成后再发起新任务。");
+        if (!TryResolveRemoteWorkspace(command, out var workspace, out var error))
+            return TikTokRemoteCommandResult.Failed(command.Command, error);
+        if (!TryApplyRemoteAccountSelection(command, workspace, out error))
+            return TikTokRemoteCommandResult.Failed(command.Command, error);
+        ActivateRemoteWorkspace(workspace);
+
+        var options = SystemServices.BuildRemoteUploadRunOptions(command);
+        options.ProjectConcurrency = Math.Clamp(SelectedAccount?.Model.TiktokProjectConcurrency ?? options.ProjectConcurrency, 1, 20);
+
+        var result = await ImportUploadTitlesAsync(
+            string.Join(Environment.NewLine, titles),
+            UploadTitleImportService.DefaultEpisodeMin,
+            UploadTitleImportService.DefaultEpisodeMax,
+            UploadTitleImportService.MatchModeTitle,
+            CancellationToken.None);
+
+        if (result is null)
+            return TikTokRemoteCommandResult.Failed(command.Command, "上传剧名导入失败。");
+        if (result.ProjectDirs.Count == 0)
+        {
+            var duplicateSuffix = result.Duplicates.Count > 0 ? $"，重复 {result.Duplicates.Count} 个" : "";
+            var failurePreview = result.Failures.Count > 0
+                ? string.Join("；", result.Failures.Take(3).Select(item => $"{item.Title}: {item.Reason}"))
+                : "没有匹配到可执行项目。";
+            return result.Duplicates.Count > 0 && result.Failures.Count == 0
+                ? TikTokRemoteCommandResult.Success(command.Command, $"没有需要上传的新剧（全部已存在）{duplicateSuffix}。")
+                : TikTokRemoteCommandResult.Failed(command.Command, $"TikTok 剧集导入失败：{failurePreview}{duplicateSuffix}");
+        }
+
+        if (!command.AutoRun)
+        {
+            var text = $"已导入 {result.QueuedCount} 个 TikTok 项目。"
+                       + (result.FailedCount > 0 ? $" 未导入 {result.FailedCount} 个。" : "")
+                       + (result.Duplicates.Count > 0 ? $" 重复 {result.Duplicates.Count} 个。" : "");
+            return TikTokRemoteCommandResult.Success(command.Command, text);
+        }
+
+        if (RemoteQueueRunRequested is null)
+            return TikTokRemoteCommandResult.Failed(command.Command, "剧集已导入，但队列视图尚未初始化，无法启动 TikTok 队列。");
+
+        await RemoteQueueRunRequested.Invoke(options, null);
+        return TikTokRemoteCommandResult.Accepted(
+            command.Command,
+            $"飞书上传任务已导入并启动队列：已加入执行 {result.ProjectDirs.Count} 个，未导入 {result.FailedCount} 个。");
+    }
+
+    private bool TryResolveRemoteWorkspace(TikTokRemoteCommand command, out string workspace, out string error)
+    {
+        var settings = ClientSettingsStore.Load();
+        var candidates = new[]
+        {
+            command.WorkspacePath,
+            settings.FeishuCommandDefaultWorkspace,
+            WorkspacePath,
+            SelectedAccount?.Model.ResolveWorkspacePath() ?? "",
+        };
+
+        foreach (var candidate in candidates)
+        {
+            var path = (candidate ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+            try
+            {
+                var full = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path));
+                if (Directory.Exists(full))
+                {
+                    workspace = full;
+                    error = "";
+                    return true;
+                }
+            }
+            catch
+            {
+                // ignore invalid path and keep looking, matching Python fallback behavior.
+            }
+        }
+
+        workspace = "";
+        error = "未找到可用工作目录，请先在系统服务中配置飞书默认工作目录，或在命令中指定工作目录。";
+        return false;
+    }
+
+    private bool TryApplyRemoteAccountSelection(TikTokRemoteCommand command, string workspace, out string error)
+    {
+        var profileId = (command.AccountProfileId ?? "").Trim();
+        var profileName = (command.AccountProfileName ?? "").Trim();
+        var selected = "";
+        if (!string.IsNullOrWhiteSpace(profileId))
+            selected = profileId;
+        else if (!string.IsNullOrWhiteSpace(profileName))
+            selected = profileName;
+        else if (!string.IsNullOrWhiteSpace(workspace))
+            selected = WorkspaceBindingService.ResolveAccountProfileId(workspace) ?? "";
+
+        if (string.IsNullOrWhiteSpace(selected))
+        {
+            error = "";
+            return true;
+        }
+
+        var account = FindAccount(selected);
+        if (account is null)
+        {
+            error = "未找到远程命令指定的 TikTok 账号。";
+            return false;
+        }
+
+        SelectedAccount = account;
+        error = "";
+        return true;
+    }
+
+    private void ActivateRemoteWorkspace(string workspace)
+    {
+        var full = Path.GetFullPath(workspace);
+        WorkspacePath = full;
+        RefreshWorkspaceProjects(full);
+        SystemSettings.UpdateWorkspacePath(full);
+        ArchivedProjects.SetWorkspace(full);
+    }
+
+    private string BuildRemoteRuntimeStatusText()
+    {
+        var checkedCount = _queueItems.Count(item => item.Enabled);
+        var active = _queueItems.FirstOrDefault(item =>
+            string.Equals(item.StatusText, QueueStepStatus.Running, StringComparison.Ordinal) ||
+            string.Equals(item.StatusText, QueueStepStatus.WaitingUploadSlot, StringComparison.Ordinal));
+        var lines = new List<string>
+        {
+            IsQueueRunning ? "TikTok 队列运行中" : "当前没有运行中的 TikTok 队列",
+            "",
+            $"工作目录：{(string.IsNullOrWhiteSpace(WorkspacePath) ? "未选择" : WorkspacePath)}",
+            $"项目总数：{_queueItems.Count}",
+            $"当前勾选：{checkedCount}",
+        };
+        if (SelectedAccount is not null)
+            lines.Add($"当前账号：{SelectedAccount.DisplayName}");
+        if (active is not null)
+        {
+            lines.Add($"当前项目：{active.Title}");
+            if (!string.IsNullOrWhiteSpace(active.CurrentStep))
+                lines.Add($"当前步骤：{QueueStepRegistry.LabelOf(active.CurrentStep)}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
     public CancellationToken BeginQueueRun()
     {
         _queueCts?.Dispose();
@@ -917,16 +1157,20 @@ public sealed partial class MainViewModel : ViewModelBase
             account: SelectedAccount?.Model);
     }
 
-    public void ApplyPersistedQueueItems(IReadOnlyList<QueueProjectItem> items) =>
-        PersistQueueItems(items);
+    public void ApplyPersistedQueueItems(IReadOnlyList<QueueProjectItem> items)
+    {
+        var root = WorkspacePath.Trim();
+        if (string.IsNullOrEmpty(root)) return;
+        _queueItems = items.ToList();
+        _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
+    }
 
     private void PersistQueueItems(IReadOnlyList<QueueProjectItem> items)
     {
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root)) return;
         _queueItems = items.ToList();
-        WorkspaceQueueService.SaveRunOptions(root, _queueItems, _queueRunOptions);
-        AutoExportQueueExcel();
+        _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
         RefreshQueueRowViewModels();
     }
 
@@ -957,7 +1201,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root)) return;
-        WorkspaceQueueService.SaveRunOptions(root, _queueItems, _queueRunOptions);
+        _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
     }
 
     private void ApplyQueueStepTogglesFromOptions()
@@ -1459,18 +1703,28 @@ public sealed partial class MainViewModel : ViewModelBase
         return TikTokExcelExportService.Export(root, _queueItems, SelectedAccount?.Model, settings);
     }
 
-    private void AutoExportQueueExcel()
+    private void AutoExportQueueExcelForWorkspace(string workspaceRoot)
     {
         try
         {
             var settings = ClientSettingsStore.Load();
             if (!settings.TiktokExcelAutoExportEnabled) return;
-            if (string.IsNullOrWhiteSpace(WorkspacePath) || _queueItems.Count == 0) return;
-            TikTokExcelExportService.Export(WorkspacePath, _queueItems, SelectedAccount?.Model, settings);
+            if (string.IsNullOrWhiteSpace(workspaceRoot) || _queueItems.Count == 0) return;
+            if (!string.Equals(
+                    Path.GetFullPath(workspaceRoot),
+                    Path.GetFullPath(WorkspacePath),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            TikTokExcelExportService.Export(workspaceRoot, _queueItems, SelectedAccount?.Model, settings);
         }
         catch (Exception ex)
         {
             AppendLog($"Excel 自动导出失败：{ex.Message}");
         }
     }
+
+    private void AutoExportQueueExcel() => AutoExportQueueExcelForWorkspace(WorkspacePath);
 }

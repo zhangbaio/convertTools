@@ -864,6 +864,11 @@ public partial class TikTokQueueView : UserControl
     private async void OnStartQueueClick(object? sender, RoutedEventArgs e)
         => await StartQueueRunAsync();
 
+    public Task StartQueueRunFromRemoteAsync(
+        QueueRunOptions? optionsOverride = null,
+        IReadOnlyCollection<string>? projectDirFilter = null)
+        => StartQueueRunAsync(optionsOverride, projectDirFilter);
+
     private async Task StartQueueRunAsync(
         QueueRunOptions? optionsOverride = null,
         IReadOnlyCollection<string>? projectDirFilter = null)
@@ -893,6 +898,8 @@ public partial class TikTokQueueView : UserControl
             vm.StatusMessage = "请先在队列表格中选择项目";
             return;
         }
+
+        await Task.Yield();
 
         var host = CreateQueuePublishHost();
         var ct = vm.BeginQueueRun();

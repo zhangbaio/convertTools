@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Remote;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -237,6 +238,17 @@ public static class ClientSettingsStore
         settings.PosterNameSystemPrompt = DefaultIfBlank(settings.PosterNameSystemPrompt, ClientSettingsDefaults.PosterNameSystemPrompt);
         settings.PosterNameUserPrompt = DefaultIfBlank(settings.PosterNameUserPrompt, ClientSettingsDefaults.PosterNameUserPrompt);
         settings.ManagementDedupScope = NormalizeManagementDedupScope(settings.ManagementDedupScope);
+        settings.FeishuCommandAppId = (settings.FeishuCommandAppId ?? "").Trim();
+        settings.FeishuCommandAppSecret = settings.FeishuCommandAppSecret ?? "";
+        settings.FeishuCommandBotName = (settings.FeishuCommandBotName ?? "").Trim();
+        settings.FeishuCommandBotAliases = (settings.FeishuCommandBotAliases ?? "").Trim();
+        settings.FeishuCommandAllowedChatIds = (settings.FeishuCommandAllowedChatIds ?? "").Trim();
+        settings.FeishuCommandAllowedUserIds = (settings.FeishuCommandAllowedUserIds ?? "").Trim();
+        settings.FeishuCommandDefaultWorkspace = (settings.FeishuCommandDefaultWorkspace ?? "").Trim();
+        settings.FeishuCommandCommandTtlSeconds = Math.Clamp(settings.FeishuCommandCommandTtlSeconds, 10, 3600);
+        settings.FeishuCommandHelpText = DefaultIfBlank(settings.FeishuCommandHelpText, ClientSettingsDefaults.FeishuCommandHelpText);
+        settings.FeishuTiktokUploadEnabledStepsJson = TikTokRemoteRunOptions.DumpFeishuTikTokUploadEnabledSteps(
+            TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings));
         return settings;
     }
 
