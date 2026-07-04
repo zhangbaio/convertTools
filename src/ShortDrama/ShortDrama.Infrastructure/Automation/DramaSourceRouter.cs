@@ -359,10 +359,36 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
         }
-        catch
+        catch (OperationCanceledException)
         {
+            throw;
+        }
+        catch (Exception)
+        {
+            var existingResult = TryBuildSuccessfulResultWhenVideosExist(request);
+            if (existingResult is not null)
+            {
+                progress?.Report(existingResult.Message ?? "已存在视频文件，跳过 legacy 红果重复下载。");
+                return existingResult;
+            }
+
             return await _hgnewDownloader.DownloadAsync(request, progress, cancellationToken);
         }
+    }
+
+    internal static DramaDownloadResult? TryBuildSuccessfulResultWhenVideosExist(DramaDownloadRequest request)
+    {
+        var videoCount = CountVideoFiles(request.OutputDir);
+        if (videoCount <= 0)
+        {
+            return null;
+        }
+
+        return new DramaDownloadResult(
+            Ok: true,
+            OutputDir: request.OutputDir,
+            VideoCount: videoCount,
+            Message: $"已存在 {videoCount} 个视频文件，跳过 legacy 红果下载重试。");
     }
 
     private async Task<DramaDownloadResult> DownloadWithProviderAsync(
