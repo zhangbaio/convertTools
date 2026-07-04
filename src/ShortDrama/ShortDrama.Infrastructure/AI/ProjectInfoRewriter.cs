@@ -287,6 +287,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string? previousBadTitle = null;
         string? previousBadShortTitle = null;
         string? lastFailureMessage = null;
+        NormalizedRewrite? lastNormalized = null;
 
         for (var attempt = 1; attempt <= MaxAiAttempts; attempt++)
         {
@@ -322,9 +323,21 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                 return normalized;
             }
 
+            lastNormalized = normalized;
             previousBadTitle = normalized.Title;
             previousBadShortTitle = normalized.ShortTitle;
             lastFailureMessage = string.Join("；", qualityIssues);
+        }
+
+        var fallback = TryBuildRecentTitleFallback(project, canonicalOriginalTitle, request, lastNormalized, previousBadTitle);
+        if (fallback is not null)
+        {
+            _logger.LogWarning(
+                "AI rewrite did not pass all validation after {Attempts} attempts, using recent generated title fallback. Last error: {Error}; title: {Title}",
+                MaxAiAttempts,
+                lastFailureMessage ?? "未知错误",
+                fallback.Title);
+            return fallback;
         }
 
         throw new InvalidOperationException(

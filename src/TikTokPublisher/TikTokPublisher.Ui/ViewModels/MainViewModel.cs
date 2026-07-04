@@ -1425,7 +1425,34 @@ public sealed partial class MainViewModel : ViewModelBase
 
         _queueItems = items.ToList();
         _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
-        RefreshQueueRowViewModels();
+        ScheduleQueueRowRefresh();
+    }
+
+    private bool _queueRowRefreshPending;
+    private DateTime _lastQueueRowRefreshUtc = DateTime.MinValue;
+
+    /// <summary>队列运行时持久化回调非常频繁；合并为最多每 500ms 一次全量行刷新，避免 UI 线程被打满。</summary>
+    private void ScheduleQueueRowRefresh()
+    {
+        if (_queueRowRefreshPending)
+            return;
+
+        var elapsed = DateTime.UtcNow - _lastQueueRowRefreshUtc;
+        if (elapsed >= TimeSpan.FromMilliseconds(500))
+        {
+            _lastQueueRowRefreshUtc = DateTime.UtcNow;
+            RefreshQueueRowViewModels();
+            return;
+        }
+
+        _queueRowRefreshPending = true;
+        var delay = TimeSpan.FromMilliseconds(500) - elapsed;
+        Avalonia.Threading.DispatcherTimer.RunOnce(() =>
+        {
+            _queueRowRefreshPending = false;
+            _lastQueueRowRefreshUtc = DateTime.UtcNow;
+            RefreshQueueRowViewModels();
+        }, delay);
     }
 
     private void PersistQueueItems(IReadOnlyList<QueueProjectItem> items)
@@ -1463,12 +1490,14 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void RefreshQueueRowViewModels()
     {
+        // 按归一化路径建索引，避免 O(行数×项目数) 的重复 Path.GetFullPath 比较拖慢 UI 线程。
+        var itemsByDir = new Dictionary<string, QueueProjectItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in _queueItems)
+            itemsByDir[NormalizeProjectDir(item.ProjectDir)] = item;
+
         foreach (var row in QueueProjectRows)
         {
-            var item = _queueItems.FirstOrDefault(i =>
-                string.Equals(Path.GetFullPath(i.ProjectDir), Path.GetFullPath(row.Item.ProjectDir),
-                    StringComparison.OrdinalIgnoreCase));
-            if (item is not null)
+            if (itemsByDir.TryGetValue(NormalizeProjectDir(row.Item.ProjectDir), out var item))
                 row.RefreshFrom(item);
         }
         ApplyQueueProjectFilter();
@@ -1654,17 +1683,22 @@ public sealed partial class MainViewModel : ViewModelBase
 
         var successCount = 0;
         var failures = new List<string>();
-        foreach (var row in rows)
+        for (var index = 0; index < rows.Length; index++)
         {
+            var row = rows[index];
+            var name = string.IsNullOrWhiteSpace(row.Item.Title) ? row.Item.DisplayName : row.Item.Title;
+            StatusMessage = $"正在归档（{index + 1}/{rows.Length}）：{name}…";
             try
             {
-                await TikTokArchivedProjectService.ArchiveQueueProjectAsync(root, row.Item.ProjectDir);
+                // 归档包含递归删视频与跨盘目录移动等重 IO，必须放到后台线程，避免 UI 卡顿。
+                var projectDir = row.Item.ProjectDir;
+                await Task.Run(() => TikTokArchivedProjectService.ArchiveQueueProjectAsync(root, projectDir))
+                    .ConfigureAwait(true);
                 row.Item.Archived = true;
                 successCount++;
             }
             catch (Exception ex)
             {
-                var name = string.IsNullOrWhiteSpace(row.Item.Title) ? row.Item.DisplayName : row.Item.Title;
                 failures.Add($"{name}: {ex.Message}");
                 AppendLog($"归档失败 [{name}]：{ex.Message}");
             }

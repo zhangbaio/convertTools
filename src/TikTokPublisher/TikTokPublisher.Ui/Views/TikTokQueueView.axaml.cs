@@ -1073,11 +1073,33 @@ public partial class TikTokQueueView : UserControl
     private PublishScheduler RequireScheduler() =>
         _scheduler ??= new PublishScheduler(_automation, RequireBrowserProvider());
 
+    private static bool UsesExternalUploadBrowser(TikTokAccountProfile account) =>
+        string.Equals((account.TiktokUploadBrowserMode ?? "").Trim(), "external", StringComparison.OrdinalIgnoreCase);
+
     private async Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
         TikTokAccountProfile account,
         Action<string>? log,
         CancellationToken ct)
     {
+        if (UsesExternalUploadBrowser(account))
+        {
+            var endpoint = (account.TiktokFingerprintBrowserCdpEndpoint ?? "").Trim();
+            if (string.IsNullOrEmpty(endpoint))
+            {
+                return QueueBrowserReadyResult.NotReady(
+                    "已选择外部浏览器上传，但未配置 CDP 端点（账号配置 → 登录设置 → CDP 端点）");
+            }
+
+            log?.Invoke($"使用外部浏览器上传（CDP：{endpoint}）");
+            if (!await EmbeddedBrowserCdpProbe.IsReachableAsync(endpoint, ct).ConfigureAwait(false))
+            {
+                return QueueBrowserReadyResult.NotReady(
+                    $"外部浏览器 CDP 不可达：{endpoint}，请确认外部浏览器已启动并开启远程调试端口");
+            }
+
+            return QueueBrowserReadyResult.Ready();
+        }
+
         var provider = RequireBrowserProvider();
         return await provider
             .EnsureBrowserReadyAsync(account, ct, EmbeddedBrowserAccessOptions.Background, log)
@@ -1092,9 +1114,21 @@ public partial class TikTokQueueView : UserControl
         Action<string> log,
         CancellationToken ct)
     {
-        var browser = await RequireBrowserProvider()
-            .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Background)
-            .ConfigureAwait(false);
+        IEmbeddedBrowser? browser;
+        if (UsesExternalUploadBrowser(account))
+        {
+            var external = new ExternalCdpBrowser(account);
+            if (string.IsNullOrWhiteSpace(external.CdpEndpoint))
+                return PublishResult.Fail("已选择外部浏览器上传，但未配置 CDP 端点");
+            browser = external;
+        }
+        else
+        {
+            browser = await RequireBrowserProvider()
+                .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Background)
+                .ConfigureAwait(false);
+        }
+
         if (browser is null)
             return PublishResult.Fail("内置浏览器未就绪或未登录，请先在「浏览器」页完成登录");
 

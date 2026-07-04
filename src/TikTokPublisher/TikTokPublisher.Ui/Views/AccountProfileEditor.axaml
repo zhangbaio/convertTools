@@ -145,7 +145,7 @@
                 <ScrollViewer>
                     <StackPanel Spacing="10" Margin="2,4,2,2">
                         <Grid Classes="profileForm" ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="合同 ID" VerticalAlignment="Center" />
@@ -214,6 +214,12 @@
 
                             <TextBlock Grid.Row="14" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="14" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
+
+                            <TextBlock Grid.Row="15" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="15" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
+                                <ComboBoxItem Tag="external">外部浏览器（登录设置中的 CDP 端点）</ComboBoxItem>
+                            </ComboBox>
                         </Grid>
 
                         <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">

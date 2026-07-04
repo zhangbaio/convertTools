@@ -32,7 +32,7 @@
                 <ScrollViewer>
                     <StackPanel Spacing="8" Margin="4">
                         <Grid ColumnDefinitions="130,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="合同 ID" VerticalAlignment="Center" />
@@ -143,6 +143,12 @@
 
                             <TextBlock Grid.Row="27" Grid.Column="0" Text="最大连续静音秒数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="27" Grid.Column="1" x:Name="MaxContinuousSilenceSecondsBox" Minimum="1" Maximum="300" Value="20" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="28" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="28" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
+                                <ComboBoxItem Tag="external">外部浏览器（CDP 端点）</ComboBoxItem>
+                            </ComboBox>
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

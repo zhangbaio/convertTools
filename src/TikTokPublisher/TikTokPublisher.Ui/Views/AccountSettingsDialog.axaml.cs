@@ -36,6 +36,7 @@ public partial class AccountSettingsDialog : Window
         var submitAction = NormalizeSubmitAction(p.TiktokSubmitAction, p.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
+        SelectByTag(UploadBrowserModeCombo, p.TiktokUploadBrowserMode, "embedded");
         SelectByTag(PublishModeCombo, p.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(SourceLanguageCombo, p.TiktokSourceLanguage, "zh");
@@ -91,6 +92,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
         p.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
         p.TiktokSubmitEnabled = string.Equals(p.TiktokSubmitAction, "submit", StringComparison.Ordinal);
+        p.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "embedded");
         p.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
         p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
         p.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");

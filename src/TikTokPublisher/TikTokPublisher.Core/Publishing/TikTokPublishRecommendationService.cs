@@ -76,25 +76,52 @@ public static class TikTokPublishRecommendationService
         }
 
         List<string> genres;
-        if (payload.Genres.Count > 0)
+        if (payload.Genres.Count >= maxCount)
         {
             genres = payload.Genres.Take(maxCount).ToList();
             log?.Invoke($"TikTok 题材类型使用短剧信息：{string.Join("、", genres)}");
         }
         else
         {
+            // 短剧信息里的题材不足配置数量（常见：片源只带 1 个分类）时，保留已有并用 AI/本地规则补足。
+            genres = payload.Genres
+                .Where(g => !string.IsNullOrWhiteSpace(g))
+                .Select(g => g.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
             JsonElement genreElement = default;
             recommendation?.TryGetValue("genres", out genreElement);
-            genres = recommendation is not null && genreElement.ValueKind != JsonValueKind.Undefined
+            var aiGenres = recommendation is not null && genreElement.ValueKind != JsonValueKind.Undefined
                 ? NormalizeGenres(genreElement, maxCount, TikTokPublishConstants.GenreOptions)
                 : new List<string>();
-            if (genres.Count == 0)
+            if (aiGenres.Count == 0 && genres.Count == 0)
             {
                 log?.Invoke(string.IsNullOrWhiteSpace(aiError)
                     ? "TikTok 题材类型 AI 推荐失败，使用本地规则：AI 返回为空或不在真实题材候选内"
                     : $"TikTok 题材类型 AI 推荐失败，使用本地规则: {aiError}");
-                genres = HeuristicGenres(payload, maxCount, TikTokPublishConstants.GenreOptions);
             }
+
+            foreach (var genre in aiGenres)
+            {
+                if (genres.Count >= maxCount) break;
+                if (!genres.Contains(genre, StringComparer.Ordinal))
+                    genres.Add(genre);
+            }
+
+            if (genres.Count < maxCount)
+            {
+                foreach (var genre in HeuristicGenres(
+                             payload, maxCount, TikTokPublishConstants.GenreOptions, reusePayloadGenres: false))
+                {
+                    if (genres.Count >= maxCount) break;
+                    if (!genres.Contains(genre, StringComparer.Ordinal))
+                        genres.Add(genre);
+                }
+            }
+
+            if (payload.Genres.Count > 0)
+                log?.Invoke($"TikTok 题材类型不足 {maxCount} 个，已按短剧信息补足：{string.Join("、", genres)}");
         }
 
         return new TikTokPublishRecommendation
@@ -286,9 +313,10 @@ public static class TikTokPublishRecommendationService
     private static List<string> HeuristicGenres(
         TikTokProjectPayload payload,
         int maxCount,
-        IReadOnlyList<string> genreOptions)
+        IReadOnlyList<string> genreOptions,
+        bool reusePayloadGenres = true)
     {
-        if (payload.Genres.Count > 0)
+        if (reusePayloadGenres && payload.Genres.Count > 0)
             return payload.Genres.Take(maxCount).ToList();
 
         var text = $"{payload.Title} {payload.Description} {string.Join(' ', payload.Genres)}";

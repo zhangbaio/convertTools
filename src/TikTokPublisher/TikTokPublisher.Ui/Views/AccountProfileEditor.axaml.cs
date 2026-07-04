@@ -66,6 +66,7 @@ public partial class AccountProfileEditor : UserControl
         var submitAction = NormalizeSubmitAction(profile.TiktokSubmitAction, profile.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
+        SelectByTag(UploadBrowserModeCombo, profile.TiktokUploadBrowserMode, "embedded");
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(SourceLanguageCombo, profile.TiktokSourceLanguage, "zh");
@@ -141,6 +142,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
             profile.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
             profile.TiktokSubmitEnabled = string.Equals(profile.TiktokSubmitAction, "submit", StringComparison.Ordinal);
+            profile.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "embedded");
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
             profile.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
