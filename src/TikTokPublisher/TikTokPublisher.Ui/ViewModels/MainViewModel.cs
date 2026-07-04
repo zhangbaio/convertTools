@@ -54,6 +54,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     [ObservableProperty] private AccountItemViewModel? _selectedAccount;
     [ObservableProperty] private string _statusMessage = "就绪";
+    [ObservableProperty] private string _otherRunningStatusMessage = "";
     [ObservableProperty] private string _accountSearchText = "";
     [ObservableProperty] private string _queueSearchText = "";
     [ObservableProperty] private string _workspacePath = "";
@@ -1479,9 +1480,11 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             _uploadStatusPriorityActive = false;
             StatusMessage = progress.Message;
+            OtherRunningStatusMessage = "";
             return;
         }
 
+        OtherRunningStatusMessage = progress.Message;
         if (_uploadStatusPriorityActive &&
             (HasRunningUploadInCurrentWorkspace() || DateTime.UtcNow - _lastUploadStatusUtc < UploadStatusPriorityGrace))
         {
@@ -1489,7 +1492,6 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         _uploadStatusPriorityActive = false;
-        StatusMessage = progress.Message;
     }
 
     private bool HasRunningUploadInCurrentWorkspace() =>
