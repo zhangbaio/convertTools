@@ -12,18 +12,20 @@
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="8,0" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="CornerRadius" Value="5" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Cursor" Value="Hand" />
         </Style>
         <Style Selector="Button.queueLink:pointerover">
-            <Setter Property="Background" Value="#EEF6FF" />
+            <Setter Property="Background" Value="#EAF4FF" />
         </Style>
         <Style Selector="Button.queueLink:pressed">
             <Setter Property="Background" Value="#DCEBFF" />
         </Style>
         <Style Selector="Button.compactAction">
-            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="Padding" Value="9,5" />
             <Setter Property="MinHeight" Value="32" />
             <Setter Property="FontSize" Value="13" />
         </Style>
@@ -33,8 +35,14 @@
             <Setter Property="Padding" Value="10,6" />
         </Style>
         <Style Selector="TextBlock.stepTableHeader">
-            <Setter Property="Background" Value="#EAF3FF" />
-            <Setter Property="Foreground" Value="#24527A" />
+            <Setter Property="Background" Value="{StaticResource PythonTableHeaderStep}" />
+            <Setter Property="Foreground" Value="#0F4F86" />
+        </Style>
+        <Style Selector="Border.queueTableFrame">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#C9D8EA" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
         </Style>
         <Style Selector="ListBox#QueueProjectList">
             <Setter Property="BorderThickness" Value="0" />
@@ -50,20 +58,20 @@
             <Setter Property="Background" Value="#FFFFFF" />
         </Style>
         <Style Selector="ListBox#QueueProjectList ListBoxItem:nth-child(even) /template/ ContentPresenter">
-            <Setter Property="Background" Value="#F7FAFE" />
+            <Setter Property="Background" Value="#F6FAFE" />
         </Style>
         <Style Selector="ListBox#QueueProjectList ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#EEF6FF" />
+            <Setter Property="Background" Value="#EAF4FF" />
         </Style>
         <Style Selector="ListBox#QueueProjectList ListBoxItem:selected /template/ ContentPresenter">
-            <Setter Property="Background" Value="#DCEBFF" />
+            <Setter Property="Background" Value="#DDEEFF" />
         </Style>
         <Style Selector="Border.stepStatusBadge">
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="Padding" Value="5,2" />
-            <Setter Property="MinWidth" Value="54" />
-            <Setter Property="MinHeight" Value="22" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="MinWidth" Value="56" />
+            <Setter Property="MinHeight" Value="24" />
             <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
@@ -214,7 +222,7 @@
         </Border>
 
         <!-- 队列表格：作为 DockPanel 最后一个未指定 Dock 的子项，自动填充剩余空间 -->
-        <Border BorderBrush="#C9D8EA" BorderThickness="1" CornerRadius="6" Background="#FFFFFF">
+        <Border Classes="queueTableFrame">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                 <Grid RowDefinitions="Auto,*" Width="1620">
                     <Grid Grid.Row="0" ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72">
@@ -241,12 +249,12 @@
                              Grid.Row="1"
                              ItemsSource="{Binding FilteredQueueProjectRows}"
                              Background="{StaticResource PythonInputBg}"
-                             Margin="0,0,0,18"
+                             Margin="0,0,0,22"
                              SelectionMode="Multiple"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" MinHeight="40" Width="1620" ClipToBounds="True">
+                                <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" MinHeight="42" Width="1620" ClipToBounds="True">
                                     <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
                                     <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled}" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                     <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" FontSize="12" />

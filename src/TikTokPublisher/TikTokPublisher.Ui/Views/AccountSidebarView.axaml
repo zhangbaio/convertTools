@@ -8,19 +8,20 @@
         <Style Selector="ListBox#AccountList ListBoxItem">
             <Setter Property="Padding" Value="10,9" />
             <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="Margin" Value="0,2" />
+            <Setter Property="Margin" Value="0,3" />
         </Style>
 
         <Style Selector="ListBox#AccountList ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#F3F8FF" />
+            <Setter Property="Background" Value="#F0F7FF" />
         </Style>
 
         <Style Selector="ListBox#AccountList ListBoxItem:selected /template/ ContentPresenter">
-            <Setter Property="Background" Value="#EAF3FF" />
+            <Setter Property="Background" Value="#DDEEFF" />
         </Style>
 
         <Style Selector="ListBox#AccountList ListBoxItem:selected TextBlock">
             <Setter Property="Foreground" Value="#0F63C7" />
+            <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
     </UserControl.Styles>
 
