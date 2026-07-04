@@ -62,29 +62,62 @@ public static class QueueMaterialStepService
         var infoPath = Path.Combine(workflowDir, "短剧信息.txt");
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         EnsureRewriteInputDefaults(infoPath, item, context, episodeCount);
+        var originalTitle = ResolveOriginalTitle(infoPath, item, context);
+        var sourceSynopsis = ResolveSynopsis(infoPath, item);
+        var rewriteHistory = AiRewriteHistoryService.LoadForOriginalTitle(originalTitle);
+        var otherHistory = rewriteHistory
+            .Where(record => !IsCurrentProjectHistory(record, context))
+            .ToList();
+        if (otherHistory.Count > 0)
+        {
+            log($"同原剧名历史记录：{otherHistory.Count} 条，AI 将避开已用新剧名/简介。");
+        }
 
         var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
         try
         {
             var outputPath = infoPath;
             var outputExists = File.Exists(outputPath);
-            var needsRewrite = outputExists && NeedsAiRewrite(item, context, outputPath);
+            var rewriteVariantKey = BuildRewriteVariantKey(context, account);
+            var duplicatesHistory = outputExists && ExistingInfoDuplicatesHistory(outputPath, item, otherHistory);
+            var needsRewrite = outputExists && (NeedsAiRewrite(item, context, outputPath) || duplicatesHistory);
             if (outputExists && !overwriteExisting && !needsRewrite)
             {
                 log("短剧信息已存在且新剧名有效，跳过 AI 改写。");
+                AppendCurrentRewriteHistory(item, settings, account, context, outputPath, originalTitle, sourceSynopsis, rewriteVariantKey);
             }
             else
             {
                 if (outputExists && !overwriteExisting && needsRewrite)
-                    log("短剧信息已存在但新剧名未改写，重新执行 AI 改写。");
+                {
+                    log(duplicatesHistory
+                        ? "短剧信息已存在但与其它账号历史重复，重新执行 AI 改写。"
+                        : "短剧信息已存在但新剧名未改写，重新执行 AI 改写。");
+                }
+
+                var forbiddenTitles = BuildForbiddenTitles(item, context, originalTitle, outputPath, otherHistory);
+                var forbiddenSynopses = BuildForbiddenSynopses(sourceSynopsis, otherHistory);
                 log("开始 AI 改写短剧信息…");
                 var result = await QueueInfrastructureServices.InfoRewriter.RewriteAsync(
                     new ProjectInfoRewriteRequest(
-                        workflowDir,
-                        configPath,
-                        outputPath,
-                        overwriteExisting || outputExists),
+                        ProjectDir: workflowDir,
+                        ConfigFile: configPath,
+                        OutputFilePath: outputPath,
+                        Overwrite: overwriteExisting || outputExists,
+                        ForbiddenTitles: forbiddenTitles,
+                        ForbiddenSynopses: forbiddenSynopses,
+                        TargetSynopsisLength: TargetSynopsisLength(sourceSynopsis),
+                        RewriteVariantKey: rewriteVariantKey),
                     ct);
+                AppendRewriteHistory(
+                    result,
+                    item,
+                    settings,
+                    account,
+                    context,
+                    originalTitle,
+                    sourceSynopsis,
+                    rewriteVariantKey);
                 log($"改写完成：{result.Title}");
             }
         }
@@ -256,6 +289,178 @@ public static class QueueMaterialStepService
         log($"TikTok 发布字段已生成：目标观众={TikTokPublishRecommendationService.TargetAudienceDisplayText(recommendation.TargetAudience)}，题材类型={string.Join("、", recommendation.Genres)}");
     }
 
+    private static string ResolveOriginalTitle(
+        string infoPath,
+        QueueProjectItem item,
+        ProjectWorkspaceContext context)
+    {
+        var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        return FirstNonEmpty(
+            info.GetValueOrDefault("原剧名"),
+            item.OriginalTitle,
+            item.DisplayName,
+            Path.GetFileName(context.SourceProjectDir));
+    }
+
+    private static string ResolveSynopsis(string infoPath, QueueProjectItem item)
+    {
+        var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        return FirstNonEmpty(
+            info.GetValueOrDefault("简介"),
+            info.GetValueOrDefault("描述"),
+            info.GetValueOrDefault("剧情简介"),
+            item.Description);
+    }
+
+    private static IReadOnlyList<string> BuildForbiddenTitles(
+        QueueProjectItem item,
+        ProjectWorkspaceContext context,
+        string originalTitle,
+        string infoPath,
+        IReadOnlyList<AiRewriteHistoryRecord> history)
+    {
+        var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        return UniqueTexts(
+        [
+            Path.GetFileName(context.SourceProjectDir),
+            Path.GetFileName(context.WorkflowProjectDir).TrimStart('_'),
+            originalTitle,
+            info.GetValueOrDefault("新剧名"),
+            info.GetValueOrDefault("剧名"),
+            item.NewTitle,
+            .. history.Select(record => record.NewTitle),
+        ]);
+    }
+
+    private static IReadOnlyList<string> BuildForbiddenSynopses(
+        string sourceSynopsis,
+        IReadOnlyList<AiRewriteHistoryRecord> history)
+    {
+        return UniqueTexts(
+        [
+            sourceSynopsis,
+            .. history.Select(record => record.NewSynopsis),
+        ]);
+    }
+
+    private static bool ExistingInfoDuplicatesHistory(
+        string infoPath,
+        QueueProjectItem item,
+        IReadOnlyList<AiRewriteHistoryRecord> history)
+    {
+        if (history.Count == 0) return false;
+
+        var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        var title = FirstNonEmpty(
+            info.GetValueOrDefault("新剧名"),
+            info.GetValueOrDefault("剧名"),
+            item.NewTitle,
+            item.Title);
+        var synopsis = FirstNonEmpty(
+            info.GetValueOrDefault("简介"),
+            info.GetValueOrDefault("描述"),
+            info.GetValueOrDefault("剧情简介"),
+            item.Description);
+
+        return (!string.IsNullOrWhiteSpace(title) &&
+                AiRewriteHistoryService.IsTitleDuplicate(title, history.Select(record => record.NewTitle))) ||
+               (!string.IsNullOrWhiteSpace(synopsis) &&
+                AiRewriteHistoryService.IsSynopsisDuplicate(synopsis, history.Select(record => record.NewSynopsis)));
+    }
+
+    private static bool IsCurrentProjectHistory(AiRewriteHistoryRecord record, ProjectWorkspaceContext context)
+    {
+        if (PathsEqual(record.ProjectDir, context.SourceProjectDir) ||
+            PathsEqual(record.ProjectDir, context.WorkflowProjectDir))
+        {
+            return true;
+        }
+
+        return PathStartsWith(record.VariantKey, context.SourceProjectDir) ||
+               PathStartsWith(record.VariantKey, context.WorkflowProjectDir);
+    }
+
+    private static void AppendRewriteHistory(
+        ProjectInfoRewriteResult result,
+        QueueProjectItem item,
+        ClientSettings settings,
+        TikTokAccountProfile? account,
+        ProjectWorkspaceContext context,
+        string originalTitle,
+        string sourceSynopsis,
+        string variantKey)
+    {
+        AiRewriteHistoryService.Append(new AiRewriteHistoryRecord(
+            OriginalTitle: originalTitle,
+            OriginalSynopsis: sourceSynopsis,
+            NewTitle: result.Title,
+            NewSynopsis: result.Synopsis,
+            ProjectName: Path.GetFileName(context.SourceProjectDir),
+            ProjectDir: context.SourceProjectDir,
+            WorkspacePath: context.WorkspaceRoot,
+            AccountProfileId: FirstNonEmpty(account?.Id, item.AccountProfileId),
+            AccountProfileName: FirstNonEmpty(account?.DisplayName, item.AccountProfileName),
+            VariantKey: variantKey,
+            ModelName: settings.AiTextModel,
+            CreatedAt: DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss")));
+    }
+
+    private static void AppendCurrentRewriteHistory(
+        QueueProjectItem item,
+        ClientSettings settings,
+        TikTokAccountProfile? account,
+        ProjectWorkspaceContext context,
+        string infoPath,
+        string originalTitle,
+        string sourceSynopsis,
+        string variantKey)
+    {
+        var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        var newTitle = FirstNonEmpty(
+            info.GetValueOrDefault("新剧名"),
+            info.GetValueOrDefault("剧名"),
+            item.NewTitle,
+            item.Title);
+        var synopsis = FirstNonEmpty(
+            info.GetValueOrDefault("简介"),
+            info.GetValueOrDefault("描述"),
+            info.GetValueOrDefault("剧情简介"),
+            item.Description);
+
+        if (string.IsNullOrWhiteSpace(newTitle) || string.IsNullOrWhiteSpace(originalTitle))
+        {
+            return;
+        }
+
+        AiRewriteHistoryService.Append(new AiRewriteHistoryRecord(
+            OriginalTitle: originalTitle,
+            OriginalSynopsis: sourceSynopsis,
+            NewTitle: newTitle,
+            NewSynopsis: synopsis,
+            ProjectName: Path.GetFileName(context.SourceProjectDir),
+            ProjectDir: context.SourceProjectDir,
+            WorkspacePath: context.WorkspaceRoot,
+            AccountProfileId: FirstNonEmpty(account?.Id, item.AccountProfileId),
+            AccountProfileName: FirstNonEmpty(account?.DisplayName, item.AccountProfileName),
+            VariantKey: variantKey,
+            ModelName: settings.AiTextModel,
+            CreatedAt: DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss")));
+    }
+
+    private static string BuildRewriteVariantKey(ProjectWorkspaceContext context, TikTokAccountProfile? account)
+    {
+        var accountKey = FirstNonEmpty(account?.Id, account?.DisplayName, "default");
+        return $"{Path.GetFullPath(context.SourceProjectDir)}#{accountKey}";
+    }
+
+    private static int TargetSynopsisLength(string sourceSynopsis)
+    {
+        var length = (sourceSynopsis ?? "").Trim().Length;
+        if (length <= 0) return 0;
+        if (length < 40) return 60;
+        return Math.Min(220, Math.Max(40, length));
+    }
+
     private static void EnsureRewriteInputDefaults(
         string infoPath,
         QueueProjectItem item,
@@ -356,6 +561,61 @@ public static class QueueMaterialStepService
         if (string.IsNullOrWhiteSpace(value)) return "";
         var text = value.Trim().Replace('：', ':');
         return string.Concat(text.Where(ch => !char.IsWhiteSpace(ch)));
+    }
+
+    private static IReadOnlyList<string> UniqueTexts(IEnumerable<string?> values)
+    {
+        var output = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var value in values)
+        {
+            var text = value?.Trim();
+            if (string.IsNullOrWhiteSpace(text)) continue;
+
+            var key = NormalizeComparableTitle(text);
+            if (string.IsNullOrWhiteSpace(key)) continue;
+            if (!seen.Add(key)) continue;
+
+            output.Add(text);
+        }
+
+        return output;
+    }
+
+    private static bool PathsEqual(string? left, string? right)
+    {
+        var leftKey = NormalizePathText(left);
+        var rightKey = NormalizePathText(right);
+        return !string.IsNullOrWhiteSpace(leftKey) &&
+               !string.IsNullOrWhiteSpace(rightKey) &&
+               string.Equals(leftKey, rightKey, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool PathStartsWith(string? value, string? path)
+    {
+        var valueKey = NormalizePathText(value);
+        var pathKey = NormalizePathText(path);
+        if (string.IsNullOrWhiteSpace(valueKey) || string.IsNullOrWhiteSpace(pathKey)) return false;
+
+        return string.Equals(valueKey, pathKey, StringComparison.OrdinalIgnoreCase) ||
+               valueKey.StartsWith(pathKey + "/", StringComparison.OrdinalIgnoreCase) ||
+               valueKey.StartsWith(pathKey + "#", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizePathText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        var text = value.Trim();
+        try
+        {
+            text = Path.GetFullPath(text);
+        }
+        catch
+        {
+            // Variant keys may append "#account"; keep textual normalization in that case.
+        }
+
+        return text.Replace('\\', '/').TrimEnd('/');
     }
 
     private static DownloadMetadata ReadDownloadMetadata(string sourceProjectDir)

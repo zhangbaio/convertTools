@@ -74,6 +74,49 @@ public sealed class ProjectInfoRewriterTests
     }
 
     [Fact]
+    public async Task RewriteAsync_Should_Retry_When_Title_Or_Synopsis_Matches_Forbidden_History()
+    {
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = WriteConfig(projectDir.FullName);
+        var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
+        await WriteProjectInfoAsync(projectDir.FullName, "亲戚别来我家");
+
+        var forbiddenTitle = "断亲之后我掀桌改命";
+        var forbiddenSynopsis = "结婚三年我处处忍让，直到极品亲戚登门霸占我家，我才当众掀桌断亲，逼得所有人低头求和。";
+        var handler = new RecordingHandler(
+        [
+            $$"""
+            {"title":"{{forbiddenTitle}}","tagline":"亲戚登门这次我不忍了","synopsis":"{{forbiddenSynopsis}}","short_title":"断亲掀桌","tags":["家庭","断亲","打脸"]}
+            """,
+            """
+            {"title":"恶亲登门我反手断供","tagline":"亲戚欺上门我绝地反击","synopsis":"多年忍让换来亲戚步步紧逼，女主终于撕开虚伪亲情，当众断供反击，把失控家庭重新握回手中。","short_title":"断供反击","tags":["家庭","断亲","打脸"]}
+            """
+        ]);
+
+        var rewriter = new ProjectInfoRewriter(
+            new TxtProjectInfoParser(),
+            new HttpClient(handler),
+            NullLogger<ProjectInfoRewriter>.Instance);
+
+        var result = await rewriter.RewriteAsync(
+            new ProjectInfoRewriteRequest(
+                projectDir.FullName,
+                configPath,
+                outputPath,
+                Overwrite: true,
+                ForbiddenTitles: [forbiddenTitle],
+                ForbiddenSynopses: [forbiddenSynopsis],
+                TargetSynopsisLength: forbiddenSynopsis.Length,
+                RewriteVariantKey: "account-a"),
+            CancellationToken.None);
+
+        result.Title.Should().Be("恶亲登门我反手断供");
+        handler.RequestBodies.Should().HaveCount(2);
+        ExtractPrompt(handler.RequestBodies[0]).Should().Contain("forbidden_titles").And.Contain(forbiddenTitle);
+        ExtractPrompt(handler.RequestBodies[0]).Should().Contain("forbidden_synopses").And.Contain(forbiddenSynopsis);
+    }
+
+    [Fact]
     public async Task RewriteAsync_Should_Fail_When_Rewrite_Remains_Invalid_After_Retries()
     {
         var projectDir = Directory.CreateTempSubdirectory();
@@ -124,6 +167,15 @@ public sealed class ProjectInfoRewriterTests
 }
 """);
         return configPath;
+    }
+
+    private static string ExtractPrompt(string requestBody)
+    {
+        using var document = JsonDocument.Parse(requestBody);
+        return document.RootElement
+            .GetProperty("messages")[0]
+            .GetProperty("content")
+            .GetString() ?? "";
     }
 
     private static HttpResponseMessage CreateChatCompletion(string content)

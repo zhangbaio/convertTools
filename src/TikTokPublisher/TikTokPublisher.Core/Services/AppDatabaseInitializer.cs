@@ -35,6 +35,26 @@ public static class AppDatabaseInitializer
             CREATE INDEX IF NOT EXISTS idx_upload_task_events_created_at
                 ON upload_task_events(created_at);
             """, tx);
+        conn.ExecuteNonQuery(
+            """
+            CREATE TABLE IF NOT EXISTS ai_rewrite_history (
+                rewrite_id TEXT PRIMARY KEY,
+                account_profile_id TEXT NOT NULL DEFAULT '',
+                original_title TEXT NOT NULL DEFAULT '',
+                original_synopsis TEXT NOT NULL DEFAULT '',
+                new_title TEXT NOT NULL DEFAULT '',
+                new_synopsis TEXT NOT NULL DEFAULT '',
+                variant_key TEXT NOT NULL DEFAULT '',
+                model_name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL DEFAULT '{}'
+            );
+            """, tx);
+        conn.ExecuteNonQuery(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ai_rewrite_history_title
+                ON ai_rewrite_history(original_title, account_profile_id, created_at);
+            """, tx);
         tx.Commit();
     }
 

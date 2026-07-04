@@ -51,6 +51,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 4. 新剧名禁止以下偷懒改法：原剧名原样返回；原剧名 + “热播版/新篇/完整版/逆袭版/高能版/爆款版”；只替换一两个字但整体几乎不变；保留原标题主要词序仅在首尾微调。
 5. short_title 必须比 title 更短、更利于传播，但要保持独立表达，不要只删几个字。
 6. tags 必须是题材词、情绪词、人物关系词、剧情卖点词，不要输出完整标题，也不要输出只比标题少几个字的近似词。
+7. 输入中的 forbidden_titles 是历史已用或禁用的新剧名，新的 title 不得与其中任意一项相同或近似。
+8. 输入中的 forbidden_synopses 是历史已用或原始简介，新的 synopsis 不得照抄或高度近似。
 
 输入项目：
 {items_json}
@@ -64,6 +66,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 4. 标签必须是传播词，不得与完整剧名相同或近似。
 5. 上次不合格的新剧名：{previous_bad_title}
 6. 上次不合格的短标题：{previous_bad_short_title}
+7. 必须继续避开输入中的 forbidden_titles 和 forbidden_synopses。
 """;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -71,6 +74,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         PropertyNameCaseInsensitive = true
     };
     private const int MaxAiAttempts = 2;
+    private const double SynopsisSimilarityThreshold = 0.86;
 
     private readonly IProjectInfoParser _projectInfoParser;
     private readonly HttpClient _httpClient;
@@ -119,6 +123,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             retryPrompt,
             project,
             canonicalOriginalTitle,
+            request,
             cancellationToken);
 
         await File.WriteAllTextAsync(
@@ -131,9 +136,11 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         return new ProjectInfoRewriteResult(request.OutputFilePath, normalized.Title, normalized.Tagline, normalized.Synopsis, normalized.ShortTitle, normalized.Tags);
     }
 
-    private static string BuildPrompt(ProjectInfo project, string batchPrompt)
+    private static string BuildPrompt(ProjectInfo project, string batchPrompt, ProjectInfoRewriteRequest request)
     {
         var canonicalOriginalTitle = ResolveCanonicalOriginalTitle(project);
+        var forbiddenTitles = UniqueTexts(request.ForbiddenTitles);
+        var forbiddenSynopses = UniqueTexts(request.ForbiddenSynopses);
         var itemsJson = JsonSerializer.Serialize(new
         {
             items = new[]
@@ -147,6 +154,10 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                     synopsis = project.Synopsis ?? string.Empty,
                     short_title = project.ShortTitle ?? string.Empty,
                     tags = ProjectInfoTextNormalizer.NormalizeTags(project.Tags ?? string.Empty),
+                    forbidden_titles = forbiddenTitles,
+                    forbidden_synopses = forbiddenSynopses,
+                    target_synopsis_length = Math.Max(0, request.TargetSynopsisLength),
+                    rewrite_variant_key = request.RewriteVariantKey ?? string.Empty,
                     episode_count = project.EpisodeCount,
                     total_minutes = project.TotalMinutes
                 }
@@ -189,6 +200,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string retryPromptTemplate,
         ProjectInfo project,
         string canonicalOriginalTitle,
+        ProjectInfoRewriteRequest request,
         CancellationToken cancellationToken)
     {
         string? previousBadTitle = null;
@@ -198,8 +210,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         for (var attempt = 1; attempt <= MaxAiAttempts; attempt++)
         {
             var prompt = attempt == 1
-                ? BuildPrompt(project, batchPrompt)
-                : BuildRetryPrompt(project, batchPrompt, retryPromptTemplate, previousBadTitle, previousBadShortTitle);
+                ? BuildPrompt(project, batchPrompt, request)
+                : BuildRetryPrompt(project, batchPrompt, retryPromptTemplate, request, previousBadTitle, previousBadShortTitle);
 
             var rewrite = await RequestRewritePayloadAsync(
                 endpoint,
@@ -221,7 +233,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                 continue;
             }
 
-            if (IsRewriteQualityAcceptable(canonicalOriginalTitle, normalized))
+            if (IsRewriteQualityAcceptable(canonicalOriginalTitle, normalized, request))
             {
                 return normalized;
             }
@@ -333,17 +345,21 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         ProjectInfo project,
         string batchPrompt,
         string retryPromptTemplate,
+        ProjectInfoRewriteRequest request,
         string? previousBadTitle,
         string? previousBadShortTitle)
     {
-        var basePrompt = BuildPrompt(project, batchPrompt);
+        var basePrompt = BuildPrompt(project, batchPrompt, request);
         var retryHint = (string.IsNullOrWhiteSpace(retryPromptTemplate) ? DefaultAiTextRetryPrompt : retryPromptTemplate)
             .Replace("{previous_bad_title}", previousBadTitle ?? "无", StringComparison.Ordinal)
             .Replace("{previous_bad_short_title}", previousBadShortTitle ?? "无", StringComparison.Ordinal);
         return basePrompt + retryHint;
     }
 
-    private static bool IsRewriteQualityAcceptable(string canonicalOriginalTitle, NormalizedRewrite rewrite)
+    private static bool IsRewriteQualityAcceptable(
+        string canonicalOriginalTitle,
+        NormalizedRewrite rewrite,
+        ProjectInfoRewriteRequest request)
     {
         if (TitlesEqual(rewrite.Title, canonicalOriginalTitle) ||
             TitlesTooSimilar(rewrite.Title, canonicalOriginalTitle) ||
@@ -352,10 +368,20 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             return false;
         }
 
+        if (HasForbiddenTitle(rewrite.Title, request.ForbiddenTitles))
+        {
+            return false;
+        }
+
         if (TitlesEqual(rewrite.ShortTitle, rewrite.Title) ||
             TitlesTooSimilar(rewrite.ShortTitle, rewrite.Title) ||
             TitlesEqual(rewrite.ShortTitle, canonicalOriginalTitle) ||
             IsWeakGenericShortTitle(rewrite.ShortTitle))
+        {
+            return false;
+        }
+
+        if (HasForbiddenSynopsis(rewrite.Synopsis, request.ForbiddenSynopses))
         {
             return false;
         }
@@ -545,6 +571,53 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                text.Contains(bareTitle, StringComparison.Ordinal);
     }
 
+    private static IReadOnlyList<string> UniqueTexts(IEnumerable<string>? values)
+    {
+        if (values is null) return [];
+
+        var output = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var value in values)
+        {
+            var text = value?.Trim();
+            if (string.IsNullOrWhiteSpace(text)) continue;
+
+            var key = NormalizeTitle(text);
+            if (string.IsNullOrWhiteSpace(key)) continue;
+            if (!seen.Add(key)) continue;
+
+            output.Add(text);
+        }
+
+        return output;
+    }
+
+    private static bool HasForbiddenTitle(string title, IEnumerable<string>? forbiddenTitles)
+    {
+        foreach (var forbidden in UniqueTexts(forbiddenTitles))
+        {
+            if (TitlesEqual(title, forbidden) || TitlesTooSimilar(title, forbidden))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasForbiddenSynopsis(string synopsis, IEnumerable<string>? forbiddenSynopses)
+    {
+        foreach (var forbidden in UniqueTexts(forbiddenSynopses))
+        {
+            if (SynopsesTooSimilar(synopsis, forbidden))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool TitlesEqual(string? left, string? right)
     {
         if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
@@ -629,10 +702,90 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 
     private static string NormalizeTitle(string value)
     {
-        return value
-            .Replace("《", string.Empty, StringComparison.Ordinal)
-            .Replace("》", string.Empty, StringComparison.Ordinal)
-            .Trim();
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+
+        var builder = new StringBuilder(value.Length);
+        foreach (var ch in value.Trim())
+        {
+            if (char.IsWhiteSpace(ch)) continue;
+            if (ch is '《' or '》' or '“' or '”' or '"' or '\'' or '-' or '_' or '：' or ':' or '，' or ',' or '。' or '.')
+            {
+                continue;
+            }
+
+            builder.Append(ch);
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool SynopsesTooSimilar(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+
+        var normalizedLeft = NormalizeSynopsis(left);
+        var normalizedRight = NormalizeSynopsis(right);
+        if (string.IsNullOrWhiteSpace(normalizedLeft) || string.IsNullOrWhiteSpace(normalizedRight))
+        {
+            return false;
+        }
+
+        if (string.Equals(normalizedLeft, normalizedRight, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (Math.Min(normalizedLeft.Length, normalizedRight.Length) < 24)
+        {
+            return false;
+        }
+
+        var lcs = LongestCommonSubsequenceLength(normalizedLeft, normalizedRight);
+        var ratio = (double)lcs / Math.Max(normalizedLeft.Length, normalizedRight.Length);
+        return ratio >= SynopsisSimilarityThreshold;
+    }
+
+    private static string NormalizeSynopsis(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+
+        var builder = new StringBuilder(value.Length);
+        foreach (var ch in value.Trim())
+        {
+            if (char.IsWhiteSpace(ch) || char.IsPunctuation(ch)) continue;
+            builder.Append(ch);
+        }
+
+        return builder.ToString();
+    }
+
+    private static int LongestCommonSubsequenceLength(string left, string right)
+    {
+        if (left.Length == 0 || right.Length == 0) return 0;
+        if (right.Length > left.Length)
+        {
+            (left, right) = (right, left);
+        }
+
+        var previous = new int[right.Length + 1];
+        var current = new int[right.Length + 1];
+        for (var i = 1; i <= left.Length; i++)
+        {
+            for (var j = 1; j <= right.Length; j++)
+            {
+                current[j] = left[i - 1] == right[j - 1]
+                    ? previous[j - 1] + 1
+                    : Math.Max(previous[j], current[j - 1]);
+            }
+
+            (previous, current) = (current, previous);
+            Array.Clear(current);
+        }
+
+        return previous[right.Length];
     }
 
     private static string BuildDistinctFallbackTitle(string originalTitle)
