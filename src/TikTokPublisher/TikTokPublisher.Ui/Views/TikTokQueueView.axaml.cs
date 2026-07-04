@@ -366,12 +366,14 @@ public partial class TikTokQueueView : UserControl
     {
         if (QueueProjectList is null) return;
         QueueProjectList.SelectAll();
+        _vm?.SetFilteredQueueRowsEnabled(true);
     }
 
     private void OnClearQueueSelectionClick(object? sender, RoutedEventArgs e)
     {
         if (QueueProjectList is null) return;
         QueueProjectList.SelectedItems.Clear();
+        _vm?.SetFilteredQueueRowsEnabled(false);
     }
 
     private void OnBindSelectedAccountClick(object? sender, RoutedEventArgs e)

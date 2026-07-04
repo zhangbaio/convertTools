@@ -580,6 +580,46 @@ public sealed partial class MainViewModel : ViewModelBase
     public IReadOnlyList<QueueProjectItem> GetPendingUploadProjects() =>
         WorkspaceQueueService.FilterPendingUpload(_queueItems).ToList();
 
+    public void SetFilteredQueueRowsEnabled(bool enabled)
+    {
+        var root = WorkspacePath.Trim();
+        if (string.IsNullOrEmpty(root)) return;
+
+        var visibleRows = FilteredQueueProjectRows.ToArray();
+        if (visibleRows.Length == 0)
+        {
+            StatusMessage = enabled ? "没有可勾选的项目" : "没有可取消的项目";
+            return;
+        }
+
+        var visibleDirs = visibleRows
+            .Select(row => Path.GetFullPath(row.Item.ProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var changed = 0;
+        foreach (var item in _queueItems)
+        {
+            if (!visibleDirs.Contains(Path.GetFullPath(item.ProjectDir))) continue;
+            if (item.Enabled == enabled) continue;
+
+            item.Enabled = enabled;
+            changed++;
+        }
+
+        if (changed > 0)
+        {
+            PersistQueueItems();
+        }
+        else
+        {
+            RefreshQueueRowViewModels();
+        }
+
+        UpdateQueueSummaryText();
+        StatusMessage = enabled
+            ? $"已勾选 {visibleRows.Length} 个项目"
+            : $"已取消勾选 {visibleRows.Length} 个项目";
+    }
+
     public bool BindAccountToProjects(AccountItemViewModel account, IEnumerable<QueueProjectItem> projects)
     {
         var root = WorkspacePath.Trim();
