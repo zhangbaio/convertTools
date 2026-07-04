@@ -53,7 +53,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private string _workspacePath = "";
     [ObservableProperty] private string _workspaceBindingSummary = "账号绑定：未绑定";
     [ObservableProperty] private string _queueSummaryText = "";
-    [ObservableProperty] private string _queueStepSummary = "步骤：上传剧集";
     [ObservableProperty] private FinalActionChoice _selectedFinalAction;
     [ObservableProperty] private int _maxParallel = 2;
     [ObservableProperty] private bool _showOnlyPendingUpload;
@@ -117,7 +116,6 @@ public sealed partial class MainViewModel : ViewModelBase
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
         DramaDownload.UploadWorkspaceRequested += () => WorkspacePath;
         WireQueueOrchestrator();
-        RefreshQueueStepSummary();
     }
 
     private void WireSystemSettings()
@@ -154,7 +152,6 @@ public sealed partial class MainViewModel : ViewModelBase
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
         DramaDownload.UploadWorkspaceRequested += () => WorkspacePath;
         WireQueueOrchestrator();
-        RefreshQueueStepSummary();
     }
 
     private void WireQueueOrchestrator()
@@ -233,21 +230,18 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         _queueRunOptions.AutoArchiveAfterUpload = value;
         PersistQueueRunOptions();
-        RefreshQueueStepSummary();
     }
 
     partial void OnPreferUploadWhenReadyChanged(bool value)
     {
         _queueRunOptions.PreferUploadWhenReady = value;
         PersistQueueRunOptions();
-        RefreshQueueStepSummary();
     }
 
     partial void OnSyncManagementAfterUploadChanged(bool value)
     {
         _queueRunOptions.SyncManagementAfterUpload = value;
         PersistQueueRunOptions();
-        RefreshQueueStepSummary();
     }
 
     public AccountItemViewModel? FindAccount(string nameOrId)
@@ -270,7 +264,6 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         _queueRunOptions.ForceRerunCompletedSteps = value;
         PersistQueueRunOptions();
-        RefreshQueueStepSummary();
     }
 
     partial void OnQueueDownloadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -287,7 +280,6 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         SyncEnabledStepsFromUi();
         PersistQueueRunOptions();
-        RefreshQueueStepSummary();
     }
 
     [RelayCommand]
@@ -905,7 +897,6 @@ public sealed partial class MainViewModel : ViewModelBase
         QueueSilenceRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceRepair);
         QueueMaterialValidateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.MaterialValidate);
         QueueUploadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.UploadSeries);
-        RefreshQueueStepSummary();
     }
 
     private void SyncEnabledStepsFromUi()
@@ -929,37 +920,6 @@ public sealed partial class MainViewModel : ViewModelBase
         _queueRunOptions.SyncManagementAfterUpload = SyncManagementAfterUpload;
         var concurrency = SelectedAccount?.Model.TiktokProjectConcurrency ?? _queueRunOptions.ProjectConcurrency;
         _queueRunOptions.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
-    }
-
-    private void RefreshQueueStepSummary()
-    {
-        var steps = new List<string>();
-        if (QueueDownloadEnabled) steps.Add("下载");
-        if (QueueRewriteEnabled) steps.Add("改写");
-        if (QueueGeneratePosterEnabled) steps.Add("海报");
-        if (QueueSmallVideoRepairEnabled) steps.Add("小文件修复");
-        if (QueueSilenceDetectEnabled) steps.Add("静音检测");
-        if (QueueSilenceRepairEnabled) steps.Add("静音修复");
-        if (QueueMaterialValidateEnabled) steps.Add("素材校验");
-        if (QueueDeleteSourceVideosEnabled) steps.Add("删源");
-        if (QueueUploadEnabled) steps.Add("上传");
-
-        var stepText = steps.Count switch
-        {
-            0 => "未选择",
-            <= 4 => string.Join("、", steps),
-            _ => $"{string.Join("、", steps.Take(4))} +{steps.Count - 4}",
-        };
-
-        var options = new List<string>();
-        if (AutoArchiveAfterUpload) options.Add("自动归档");
-        if (ForceRerunCompletedSteps) options.Add("强制重跑");
-        if (PreferUploadWhenReady) options.Add("优先上传");
-        if (SyncManagementAfterUpload) options.Add("同步管理");
-
-        QueueStepSummary = options.Count == 0
-            ? $"步骤：{stepText}"
-            : $"步骤：{stepText} · {string.Join("、", options)}";
     }
 
     private void RefreshWorkspaceFromActiveAccount()

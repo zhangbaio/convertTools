@@ -32,12 +32,47 @@
             <Setter Property="MinWidth" Value="150" />
             <Setter Property="Padding" Value="10,6" />
         </Style>
-        <Style Selector="Border.stepSummaryPill">
-            <Setter Property="Background" Value="#F3F7FC" />
-            <Setter Property="BorderBrush" Value="#D6E5F7" />
+        <Style Selector="TextBlock.stepTableHeader">
+            <Setter Property="Background" Value="#EAF3FF" />
+            <Setter Property="Foreground" Value="#24527A" />
+        </Style>
+        <Style Selector="ListBox#QueueProjectList">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Background" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="ListBox#QueueProjectList ListBoxItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="ListBox#QueueProjectList ListBoxItem:nth-child(odd) /template/ ContentPresenter">
+            <Setter Property="Background" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="ListBox#QueueProjectList ListBoxItem:nth-child(even) /template/ ContentPresenter">
+            <Setter Property="Background" Value="#F7FAFE" />
+        </Style>
+        <Style Selector="ListBox#QueueProjectList ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#EEF6FF" />
+        </Style>
+        <Style Selector="ListBox#QueueProjectList ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="#DCEBFF" />
+        </Style>
+        <Style Selector="Border.stepStatusBadge">
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Padding" Value="5,2" />
+            <Setter Property="MinWidth" Value="54" />
+            <Setter Property="MinHeight" Value="22" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.stepStatusText">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
     </UserControl.Styles>
 
@@ -66,45 +101,37 @@
                     </WrapPanel>
                 </Grid>
 
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                    <Button Grid.Column="0" Content="步骤设置" Classes="secondaryAction compactAction">
-                        <Button.Flyout>
-                            <Flyout Placement="BottomEdgeAlignedLeft">
-                                <StackPanel MinWidth="520" Spacing="10" Margin="4">
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <TextBlock Grid.Column="0" Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                            <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="compactAction" />
-                                            <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="compactAction" />
-                                        </StackPanel>
-                                    </Grid>
-                                    <WrapPanel Orientation="Horizontal">
-                                        <CheckBox Content="下载剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,6" />
-                                        <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,6" />
-                                        <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,6" />
-                                        <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,6" />
-                                        <CheckBox Content="静音检测" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,6" />
-                                        <CheckBox Content="静音修复" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,6" />
-                                        <CheckBox Content="素材校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,6" />
-                                        <CheckBox Content="删除源视频" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,6" />
-                                        <CheckBox Content="上传剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,6" />
-                                    </WrapPanel>
-                                    <WrapPanel Orientation="Horizontal">
-                                        <CheckBox Content="上传完成后自动归档" IsChecked="{Binding AutoArchiveAfterUpload}" Margin="0,0,16,0" />
-                                        <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding ForceRerunCompletedSteps}" Margin="0,0,16,0" />
-                                        <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding PreferUploadWhenReady}" Margin="0,0,16,0" />
-                                        <CheckBox Content="同步管理系统" IsChecked="{Binding SyncManagementAfterUpload}" Margin="0,0,16,0" />
-                                    </WrapPanel>
-                                </StackPanel>
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
+                <Border Classes="taskStepFrame" Padding="8,6">
+                    <StackPanel Spacing="5">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <WrapPanel Grid.Column="1" Orientation="Horizontal">
+                                <CheckBox Content="下载剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="静音检测" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="静音修复" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="素材校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="删除源视频" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="上传剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
+                            </WrapPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
+                                <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="compactAction" />
+                                <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="compactAction" />
+                            </StackPanel>
+                        </Grid>
 
-                    <Border Grid.Column="1" Classes="stepSummaryPill" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding QueueStepSummary}" TextTrimming="CharacterEllipsis" FontSize="12" Foreground="#335C81" />
-                    </Border>
+                        <WrapPanel Orientation="Horizontal" Margin="64,0,0,0">
+                            <CheckBox Content="上传完成后自动归档" IsChecked="{Binding AutoArchiveAfterUpload}" Margin="0,0,16,0" />
+                            <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding ForceRerunCompletedSteps}" Margin="0,0,16,0" />
+                            <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding PreferUploadWhenReady}" Margin="0,0,16,0" />
+                            <CheckBox Content="同步管理系统" IsChecked="{Binding SyncManagementAfterUpload}" Margin="0,0,16,0" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
 
-                    <WrapPanel Grid.Column="2" Orientation="Horizontal">
+                <WrapPanel Orientation="Horizontal" HorizontalAlignment="Right">
                         <Button Content="打开浏览器" Click="OnOpenBrowserClick" Classes="secondaryAction compactAction" Margin="0,0,8,0" />
                         <Button Content="运行日志" Click="OnOpenLogsClick" Classes="compactAction" Margin="0,0,8,0" />
                         <Button Content="发布配置" Click="OnPublishConfigClick" Classes="compactAction" Margin="0,0,8,0" />
@@ -146,8 +173,7 @@
                                 </Flyout>
                             </Button.Flyout>
                         </Button>
-                    </WrapPanel>
-                </Grid>
+                </WrapPanel>
 
                 <TextBlock Text="{Binding RunningWorkspacesSummary}"
                            Foreground="#1A5F8A"
@@ -214,7 +240,7 @@
         </Border>
 
         <!-- 队列表格：作为 DockPanel 最后一个未指定 Dock 的子项，自动填充剩余空间 -->
-        <Border BorderBrush="#DFD1C0" BorderThickness="1" CornerRadius="6">
+        <Border BorderBrush="#C9D8EA" BorderThickness="1" CornerRadius="6" Background="#FFFFFF">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                 <Grid RowDefinitions="Auto,*" Width="1620">
                     <Grid Grid.Row="0" ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72">
@@ -225,16 +251,16 @@
                         <TextBlock Grid.Column="4" Text="新剧名" Classes="tableHeader" />
                         <TextBlock Grid.Column="5" Text="集数" Classes="tableHeader" />
                         <TextBlock Grid.Column="6" Text="加入时间" Classes="tableHeader" />
-                        <TextBlock Grid.Column="7" Text="下载" Classes="tableHeader" />
-                        <TextBlock Grid.Column="8" Text="改写" Classes="tableHeader" />
-                        <TextBlock Grid.Column="9" Text="海报" Classes="tableHeader" />
-                        <TextBlock Grid.Column="10" Text="修复" Classes="tableHeader" />
-                        <TextBlock Grid.Column="11" Text="静音检测" Classes="tableHeader" />
-                        <TextBlock Grid.Column="12" Text="静音修复" Classes="tableHeader" />
-                        <TextBlock Grid.Column="13" Text="校验" Classes="tableHeader" />
-                        <TextBlock Grid.Column="14" Text="删源" Classes="tableHeader" />
-                        <TextBlock Grid.Column="15" Text="上传" Classes="tableHeader" />
-                        <TextBlock Grid.Column="16" Text="状态" Classes="tableHeader" />
+                        <TextBlock Grid.Column="7" Text="下载" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="8" Text="改写" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="9" Text="海报" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="10" Text="修复" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="11" Text="静音检测" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="12" Text="静音修复" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="13" Text="校验" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="14" Text="删源" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="15" Text="上传" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="16" Text="状态" Classes="tableHeader stepTableHeader" />
                     </Grid>
 
                     <ListBox x:Name="QueueProjectList"
@@ -245,7 +271,7 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" MinHeight="36" Width="1620">
+                                <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" MinHeight="40" Width="1620">
                                     <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
                                     <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled}" IsHitTestVisible="False" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                     <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -269,16 +295,36 @@
                                     </Button>
                                     <TextBlock Grid.Column="5" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
                                     <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="7" Text="{Binding DownloadStatus}" Foreground="{Binding DownloadStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="8" Text="{Binding RewriteStatus}" Foreground="{Binding RewriteStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="9" Text="{Binding PosterStatus}" Foreground="{Binding PosterStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="10" Text="{Binding RepairStatus}" Foreground="{Binding RepairStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="11" Text="{Binding SilenceDetectStatus}" Foreground="{Binding SilenceDetectStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="12" Text="{Binding SilenceRepairStatus}" Foreground="{Binding SilenceRepairStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="13" Text="{Binding ValidateStatus}" Foreground="{Binding ValidateStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="14" Text="{Binding DeleteSourceStatus}" Foreground="{Binding DeleteSourceStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="15" Text="{Binding UploadStatus}" Foreground="{Binding UploadStatusBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="16" Text="{Binding StatusText}" Foreground="{Binding StatusTextBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                    <Border Grid.Column="7" Classes="stepStatusBadge" Background="{Binding DownloadStatusBackgroundBrush}" BorderBrush="{Binding DownloadStatusBorderBrush}" ToolTip.Tip="{Binding DownloadStatus}">
+                                        <TextBlock Text="{Binding DownloadStatus}" Foreground="{Binding DownloadStatusBrush}" Classes="stepStatusText" />
+                                    </Border>
+                                    <Border Grid.Column="8" Classes="stepStatusBadge" Background="{Binding RewriteStatusBackgroundBrush}" BorderBrush="{Binding RewriteStatusBorderBrush}" ToolTip.Tip="{Binding RewriteStatus}">
+                                        <TextBlock Text="{Binding RewriteStatus}" Foreground="{Binding RewriteStatusBrush}" Classes="stepStatusText" />
+                                    </Border>
+                                    <Border Grid.Column="9" Classes="stepStatusBadge" Background="{Binding PosterStatusBackgroundBrush}" BorderBrush="{Binding PosterStatusBorderBrush}" ToolTip.Tip="{Binding PosterStatus}">
+                                        <TextBlock Text="{Binding PosterStatus}" Foreground="{Binding PosterStatusBrush}" Classes="stepStatusText" />
+                                    </Border>
+                                    <Border Grid.Column="10" Classes="stepStatusBadge" Background="{Binding RepairStatusBackgroundBrush}" BorderBrush="{Binding RepairStatusBorderBrush}" ToolTip.Tip="{Binding RepairStatus}">
+                                        <TextBlock Text="{Binding RepairStatus}" Foreground="{Binding RepairStatusBrush}" Classes="stepStatusText" />
+                                    </Border>
+                                    <Border Grid.Column="11" Classes="stepStatusBadge" Background="{Binding SilenceDetectStatusBackgroundBrush}" BorderBrush="{Binding SilenceDetectStatusBorderBrush}" ToolTip.Tip="{Binding SilenceDetectStatus}">
+                                        <TextBlock Text="{Binding SilenceDetectStatus}" Foreground="{Binding SilenceDetectStatusBrush}" Classes="stepStatusText" />
+                                    </Border>
+                                    <Border Grid.Column="12" Classes="stepStatusBadge" Background="{Binding SilenceRepairStatusBackgroundBrush}" BorderBrush="{Binding SilenceRepairStatusBorderBrush}" ToolTip.Tip="{Binding SilenceRepairStatus}">
+                                        <TextBlock Text="{Binding SilenceRepairStatus}" Foreground="{Binding SilenceRepairStatusBrush}" Classes="stepStatusText" />
+                                    </Border>
+                                    <Border Grid.Column="13" Classes="stepStatusBadge" Background="{Binding ValidateStatusBackgroundBrush}" BorderBrush="{Binding ValidateStatusBorderBrush}" ToolTip.Tip="{Binding ValidateStatus}">
+                                        <TextBlock Text="{Binding ValidateStatus}" Foreground="{Binding ValidateStatusBrush}" Classes="stepStatusText" />
+                                    </Border>
+                                    <Border Grid.Column="14" Classes="stepStatusBadge" Background="{Binding DeleteSourceStatusBackgroundBrush}" BorderBrush="{Binding DeleteSourceStatusBorderBrush}" ToolTip.Tip="{Binding DeleteSourceStatus}">
+                                        <TextBlock Text="{Binding DeleteSourceStatus}" Foreground="{Binding DeleteSourceStatusBrush}" Classes="stepStatusText" />
+                                    </Border>
+                                    <Border Grid.Column="15" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding UploadStatus}">
+                                        <TextBlock Text="{Binding UploadStatus}" Foreground="{Binding UploadStatusBrush}" Classes="stepStatusText" />
+                                    </Border>
+                                    <Border Grid.Column="16" Classes="stepStatusBadge" Background="{Binding StatusTextBackgroundBrush}" BorderBrush="{Binding StatusTextBorderBrush}" ToolTip.Tip="{Binding StatusText}">
+                                        <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusTextBrush}" Classes="stepStatusText" />
+                                    </Border>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>

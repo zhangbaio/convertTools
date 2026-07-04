@@ -62,6 +62,26 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush DeleteSourceStatusBrush => BrushOf(DeleteSourceStatus);
     public IBrush UploadStatusBrush => BrushOf(UploadStatus);
     public IBrush StatusTextBrush => BrushOf(StatusText);
+    public IBrush DownloadStatusBackgroundBrush => BackgroundOf(DownloadStatus);
+    public IBrush RewriteStatusBackgroundBrush => BackgroundOf(RewriteStatus);
+    public IBrush PosterStatusBackgroundBrush => BackgroundOf(PosterStatus);
+    public IBrush RepairStatusBackgroundBrush => BackgroundOf(RepairStatus);
+    public IBrush SilenceDetectStatusBackgroundBrush => BackgroundOf(SilenceDetectStatus);
+    public IBrush SilenceRepairStatusBackgroundBrush => BackgroundOf(SilenceRepairStatus);
+    public IBrush ValidateStatusBackgroundBrush => BackgroundOf(ValidateStatus);
+    public IBrush DeleteSourceStatusBackgroundBrush => BackgroundOf(DeleteSourceStatus);
+    public IBrush UploadStatusBackgroundBrush => BackgroundOf(UploadStatus);
+    public IBrush StatusTextBackgroundBrush => BackgroundOf(StatusText);
+    public IBrush DownloadStatusBorderBrush => BorderOf(DownloadStatus);
+    public IBrush RewriteStatusBorderBrush => BorderOf(RewriteStatus);
+    public IBrush PosterStatusBorderBrush => BorderOf(PosterStatus);
+    public IBrush RepairStatusBorderBrush => BorderOf(RepairStatus);
+    public IBrush SilenceDetectStatusBorderBrush => BorderOf(SilenceDetectStatus);
+    public IBrush SilenceRepairStatusBorderBrush => BorderOf(SilenceRepairStatus);
+    public IBrush ValidateStatusBorderBrush => BorderOf(ValidateStatus);
+    public IBrush DeleteSourceStatusBorderBrush => BorderOf(DeleteSourceStatus);
+    public IBrush UploadStatusBorderBrush => BorderOf(UploadStatus);
+    public IBrush StatusTextBorderBrush => BorderOf(StatusText);
     public string LastError => Item.LastError;
     public bool IsPendingUpload => Item.IsPendingUpload;
 
@@ -90,12 +110,52 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         _ => DefaultBrush,
     };
 
-    private static readonly IBrush CompletedBrush = new SolidColorBrush(Color.Parse("#087443"));
-    private static readonly IBrush PendingBrush = new SolidColorBrush(Color.Parse("#8A5A00"));
-    private static readonly IBrush RunningBrush = new SolidColorBrush(Color.Parse("#0F7AE5"));
-    private static readonly IBrush FailedBrush = new SolidColorBrush(Color.Parse("#8F2F25"));
+    private static IBrush BackgroundOf(string status) => status switch
+    {
+        QueueStepStatus.Completed => CompletedBackgroundBrush,
+        QueueStepStatus.Pending => PendingBackgroundBrush,
+        QueueStepStatus.Running => RunningBackgroundBrush,
+        QueueStepStatus.Failed => FailedBackgroundBrush,
+        QueueStepStatus.Stopped => StoppedBackgroundBrush,
+        QueueStepStatus.WaitingUploadSlot => UploadSlotBackgroundBrush,
+        QueueStepStatus.ManualIntervention => ManualInterventionBackgroundBrush,
+        _ => DefaultBackgroundBrush,
+    };
+
+    private static IBrush BorderOf(string status) => status switch
+    {
+        QueueStepStatus.Completed => CompletedBorderBrush,
+        QueueStepStatus.Pending => PendingBorderBrush,
+        QueueStepStatus.Running => RunningBorderBrush,
+        QueueStepStatus.Failed => FailedBorderBrush,
+        QueueStepStatus.Stopped => StoppedBorderBrush,
+        QueueStepStatus.WaitingUploadSlot => UploadSlotBorderBrush,
+        QueueStepStatus.ManualIntervention => ManualInterventionBorderBrush,
+        _ => DefaultBorderBrush,
+    };
+
+    private static readonly IBrush CompletedBrush = new SolidColorBrush(Color.Parse("#047857"));
+    private static readonly IBrush PendingBrush = new SolidColorBrush(Color.Parse("#B45309"));
+    private static readonly IBrush RunningBrush = new SolidColorBrush(Color.Parse("#0B63CE"));
+    private static readonly IBrush FailedBrush = new SolidColorBrush(Color.Parse("#B42318"));
     private static readonly IBrush StoppedBrush = new SolidColorBrush(Color.Parse("#6D5A48"));
     private static readonly IBrush DefaultBrush = new SolidColorBrush(Color.Parse("#231F1A"));
+    private static readonly IBrush CompletedBackgroundBrush = new SolidColorBrush(Color.Parse("#DCFCE7"));
+    private static readonly IBrush PendingBackgroundBrush = new SolidColorBrush(Color.Parse("#FFF4D6"));
+    private static readonly IBrush RunningBackgroundBrush = new SolidColorBrush(Color.Parse("#DBEAFE"));
+    private static readonly IBrush FailedBackgroundBrush = new SolidColorBrush(Color.Parse("#FEE2E2"));
+    private static readonly IBrush StoppedBackgroundBrush = new SolidColorBrush(Color.Parse("#EFE7DD"));
+    private static readonly IBrush UploadSlotBackgroundBrush = new SolidColorBrush(Color.Parse("#FEF3C7"));
+    private static readonly IBrush ManualInterventionBackgroundBrush = new SolidColorBrush(Color.Parse("#FFEDD5"));
+    private static readonly IBrush DefaultBackgroundBrush = new SolidColorBrush(Color.Parse("#F3F4F6"));
+    private static readonly IBrush CompletedBorderBrush = new SolidColorBrush(Color.Parse("#86EFAC"));
+    private static readonly IBrush PendingBorderBrush = new SolidColorBrush(Color.Parse("#FCD34D"));
+    private static readonly IBrush RunningBorderBrush = new SolidColorBrush(Color.Parse("#93C5FD"));
+    private static readonly IBrush FailedBorderBrush = new SolidColorBrush(Color.Parse("#FCA5A5"));
+    private static readonly IBrush StoppedBorderBrush = new SolidColorBrush(Color.Parse("#D7C2AA"));
+    private static readonly IBrush UploadSlotBorderBrush = new SolidColorBrush(Color.Parse("#FBBF24"));
+    private static readonly IBrush ManualInterventionBorderBrush = new SolidColorBrush(Color.Parse("#FDBA74"));
+    private static readonly IBrush DefaultBorderBrush = new SolidColorBrush(Color.Parse("#D1D5DB"));
 
     private static string ResolveWorkflowProjectDir(string projectDir)
     {
