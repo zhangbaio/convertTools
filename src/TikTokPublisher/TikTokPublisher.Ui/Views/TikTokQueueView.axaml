@@ -265,7 +265,7 @@
                                         <TextBlock Text="{Binding OriginalTitle}"
                                                    VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis"
-                                                   Foreground="#0F63C7" />
+                                                   Foreground="{Binding DramaTitleBrush}" />
                                     </Button>
                                     <Button Grid.Column="4"
                                             Classes="queueLink"
@@ -274,7 +274,7 @@
                                         <TextBlock Text="{Binding NewTitle}"
                                                    VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis"
-                                                   Foreground="#0F63C7" />
+                                                   Foreground="{Binding DramaTitleBrush}" />
                                     </Button>
                                     <TextBlock Grid.Column="5" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
                                     <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" ClipToBounds="True" ToolTip.Tip="{Binding QueuedAtTooltip}" />

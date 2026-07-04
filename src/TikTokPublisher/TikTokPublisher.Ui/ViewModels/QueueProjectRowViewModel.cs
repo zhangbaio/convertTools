@@ -77,6 +77,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush DeleteSourceStatusBrush => BrushOf(DeleteSourceStatus);
     public IBrush UploadStatusBrush => BrushOf(UploadStatus);
     public IBrush StatusTextBrush => BrushOf(StatusText);
+    public IBrush DramaTitleBrush => UploadStatus == QueueStepStatus.Completed ? CompletedBrush : LinkBrush;
     public IBrush DownloadStatusBackgroundBrush => BackgroundOf(DownloadStatus);
     public IBrush RewriteStatusBackgroundBrush => BackgroundOf(RewriteStatus);
     public IBrush PosterStatusBackgroundBrush => BackgroundOf(PosterStatus);
@@ -157,6 +158,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     private static readonly IBrush UploadSlotBrush = new SolidColorBrush(Color.Parse("#8A4B00"));
     private static readonly IBrush ManualInterventionBrush = new SolidColorBrush(Color.Parse("#C2410C"));
     private static readonly IBrush DefaultBrush = new SolidColorBrush(Color.Parse("#334155"));
+    private static readonly IBrush LinkBrush = new SolidColorBrush(Color.Parse("#0F63C7"));
     private static readonly IBrush CompletedBackgroundBrush = new SolidColorBrush(Color.Parse("#DDFBEA"));
     private static readonly IBrush PendingBackgroundBrush = new SolidColorBrush(Color.Parse("#FFF2CC"));
     private static readonly IBrush RunningBackgroundBrush = new SolidColorBrush(Color.Parse("#DDEBFF"));
