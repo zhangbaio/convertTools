@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="using:TikTokPublisher.Ui.Views"
         x:Class="TikTokPublisher.Desktop.Views.MainWindow"
-        Width="1360" Height="860"
+        Width="1496" Height="860"
         Title="TikTok 短剧上传助手"
         Icon="/Assets/tiktok-shortdrama-logo.ico"
         Background="{StaticResource PythonPageBgBrush}">

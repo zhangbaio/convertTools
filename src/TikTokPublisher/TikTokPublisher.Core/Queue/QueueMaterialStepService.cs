@@ -38,7 +38,11 @@ public static class QueueMaterialStepService
             Concurrent: concurrent,
             EpisodeNumberMode: FirstNonEmpty(metadata.EpisodeNumberMode, "source"));
 
-        var progress = new Progress<string>(log);
+        var progress = new Progress<string>(message =>
+        {
+            if (ShouldLogDownloadProgress(message))
+                log(message);
+        });
         var result = await ShortDramaDramaServices.Downloader.DownloadAsync(request, progress, ct);
         if (!result.Ok)
         {
@@ -51,6 +55,14 @@ public static class QueueMaterialStepService
         VerifyDownloadedEpisodesComplete(context.SourceProjectDir, item, log);
         ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
+    }
+
+    private static bool ShouldLogDownloadProgress(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        return !(message.Contains("下载中", StringComparison.Ordinal) && message.Contains('%'));
     }
 
     private static readonly System.Text.RegularExpressions.Regex EpisodeNumberInFileName =

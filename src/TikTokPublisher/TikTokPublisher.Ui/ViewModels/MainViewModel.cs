@@ -35,6 +35,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private bool _applyingQueueStepToggles;
     private bool _queueRunActive;
     private int _activeQueueRunCount;
+    private string _displayedWorkspaceRoot = "";
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
     public ObservableCollection<AccountItemViewModel> FilteredAccounts { get; } = new();
@@ -101,6 +102,9 @@ public sealed partial class MainViewModel : ViewModelBase
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _lastProgressMessageByKey =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _queueSearchTextByAccount =
+        new(StringComparer.OrdinalIgnoreCase);
+    private const string DefaultQueueSearchAccountKey = "__default__";
 
     public event Action<AccountItemViewModel, string>? NavigateRequested;
     public event Action<TikTokAccountProfile>? AccountProfileNetworkChanged;
@@ -247,7 +251,11 @@ public sealed partial class MainViewModel : ViewModelBase
 
     partial void OnAccountSearchTextChanged(string value) => RefreshFilteredAccounts();
 
-    partial void OnQueueSearchTextChanged(string value) => ApplyQueueProjectFilter();
+    partial void OnQueueSearchTextChanged(string value)
+    {
+        _queueSearchTextByAccount[GetQueueSearchAccountKey()] = value ?? "";
+        ApplyQueueProjectFilter();
+    }
 
     partial void OnAutoArchiveAfterUploadChanged(bool value)
     {
@@ -275,13 +283,40 @@ public sealed partial class MainViewModel : ViewModelBase
 
     partial void OnSelectedAccountChanged(AccountItemViewModel? value)
     {
-        if (value is null) return;
-        if (_store.ActiveAccountId == value.Id) return;
+        if (value is null)
+        {
+            RestoreQueueSearchTextForSelectedAccount();
+            return;
+        }
+
+        if (_store.ActiveAccountId == value.Id)
+        {
+            RestoreQueueSearchTextForSelectedAccount();
+            return;
+        }
+
         _context.SwitchTo(value.Id);
+        RestoreQueueSearchTextForSelectedAccount();
         RefreshWorkspaceFromActiveAccount();
         AccountSwitchRequested?.Invoke(value);
         RefreshTodayUploadCount();
         StatusMessage = $"已切换账号「{value.DisplayName}」";
+    }
+
+    private string GetQueueSearchAccountKey()
+    {
+        var accountId = SelectedAccount?.Id;
+        return string.IsNullOrWhiteSpace(accountId) ? DefaultQueueSearchAccountKey : accountId.Trim();
+    }
+
+    private void RestoreQueueSearchTextForSelectedAccount()
+    {
+        var key = GetQueueSearchAccountKey();
+        var text = _queueSearchTextByAccount.TryGetValue(key, out var stored) ? stored : "";
+        if (!string.Equals(QueueSearchText, text, StringComparison.Ordinal))
+            QueueSearchText = text;
+        else
+            ApplyQueueProjectFilter();
     }
 
     partial void OnForceRerunCompletedStepsChanged(bool value)
@@ -590,10 +625,19 @@ public sealed partial class MainViewModel : ViewModelBase
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (generation != _workspaceRefreshGeneration) return;
-            if (IsWorkspaceQueueRunning(root))
+            // 同一工作目录运行中时不重扫（避免把 Running 状态回收为已停止）；
+            // 但切账号切到「另一个正在运行的工作目录」必须应用扫描结果，否则队列/日志面板停留在旧账号。
+            if (IsWorkspaceQueueRunning(root) &&
+                string.Equals(_displayedWorkspaceRoot, SafeFullPath(root), StringComparison.OrdinalIgnoreCase))
                 return;
             ApplyWorkspaceScanResult(root, scanResult.Items, scanResult.Options);
         });
+    }
+
+    private static string SafeFullPath(string path)
+    {
+        try { return Path.GetFullPath(path); }
+        catch { return path.Trim(); }
     }
 
     private bool IsWorkspaceQueueRunning(string workspaceRoot)
@@ -616,6 +660,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         ClearWorkspaceProjectCollections();
         _queueRowByDir.Clear();
+        _displayedWorkspaceRoot = SafeFullPath(root);
         _queueItems = items;
         _queueRunOptions = options;
         ApplyAccountQueueEnabledSteps(root);
@@ -727,6 +772,39 @@ public sealed partial class MainViewModel : ViewModelBase
         StatusMessage = enabled
             ? $"已勾选 {visibleRows.Length} 个项目"
             : $"已取消勾选 {visibleRows.Length} 个项目";
+    }
+
+    public int SetQueueRowsEnabled(IEnumerable<QueueProjectRowViewModel> rows, bool enabled)
+    {
+        var root = WorkspacePath.Trim();
+        if (string.IsNullOrEmpty(root)) return 0;
+
+        var dirs = rows
+            .Select(row => row.Item.ProjectDir)
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .Select(NormalizeProjectDir)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (dirs.Count == 0) return 0;
+
+        var matched = 0;
+        var changed = 0;
+        foreach (var item in _queueItems)
+        {
+            if (!dirs.Contains(NormalizeProjectDir(item.ProjectDir))) continue;
+            matched++;
+            if (item.Enabled == enabled) continue;
+
+            item.Enabled = enabled;
+            changed++;
+        }
+
+        if (changed > 0)
+            PersistQueueItems();
+        else
+            RefreshQueueRowViewModels();
+
+        UpdateQueueSummaryText();
+        return matched;
     }
 
     public bool BindAccountToProjects(AccountItemViewModel account, IEnumerable<QueueProjectItem> projects)
@@ -1250,6 +1328,14 @@ public sealed partial class MainViewModel : ViewModelBase
         var isActiveWorkspace = IsActiveWorkspace(progress.WorkspaceRoot);
         if (!isActiveWorkspace)
         {
+            // 非当前账号的队列进度也写入全局日志（带项目名前缀），切换账号后可直接查看。
+            if (ShouldAppendProgressLog(progress))
+            {
+                var inactiveProject = progress.Item?.Title ?? progress.Item?.DisplayName ?? "";
+                var inactivePrefix = string.IsNullOrWhiteSpace(inactiveProject) ? "" : $"[{inactiveProject}] ";
+                AppendLog($"{inactivePrefix}{progress.Message}");
+            }
+
             var batchId = _currentQueueBatchId;
             _ = Task.Run(() => TikTokExecutionHistoryService.AppendEvent(
                 "queue_progress",
@@ -1326,6 +1412,17 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root)) return;
+
+        // 切账号后，旧工作目录队列的持久化回调仍会到达；项目不属于当前工作目录时忽略，防止跨目录覆盖状态。
+        if (items.Count > 0)
+        {
+            var rootPrefix = SafeFullPath(root)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var firstDir = SafeFullPath(items[0].ProjectDir);
+            if (!firstDir.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+
         _queueItems = items.ToList();
         _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
         RefreshQueueRowViewModels();

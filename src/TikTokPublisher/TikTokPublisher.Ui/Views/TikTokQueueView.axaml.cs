@@ -810,18 +810,29 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
-        QueueProjectList.SelectedItems.Clear();
-        var key = string.IsNullOrWhiteSpace(anchor.OriginalTitle) ? anchor.Title : anchor.OriginalTitle;
-        var matched = 0;
-        foreach (var row in vm.FilteredQueueProjectRows)
+        var visibleRows = vm.FilteredQueueProjectRows.ToArray();
+        var currentRow = Array.IndexOf(visibleRows, anchor);
+        if (currentRow < 0)
         {
-            var rowKey = string.IsNullOrWhiteSpace(row.OriginalTitle) ? row.Title : row.OriginalTitle;
-            if (!string.Equals(rowKey, key, StringComparison.OrdinalIgnoreCase)) continue;
-            QueueProjectList.SelectedItems.Add(row);
-            matched++;
+            vm.StatusMessage = "当前项目不在筛选结果中";
+            return;
         }
 
-        vm.StatusMessage = matched > 0 ? $"已选中当前项目相关记录：{matched} 个" : "没有匹配到当前项目";
+        var checkedRows = visibleRows
+            .Select((row, index) => new { row, index })
+            .Where(item => item.row.IsEnabled)
+            .Select(item => item.index)
+            .ToArray();
+        var anchorRow = checkedRows.Length == 0
+            ? currentRow
+            : checkedRows.OrderBy(index => Math.Abs(index - currentRow)).First();
+        var low = Math.Min(anchorRow, currentRow);
+        var high = Math.Max(anchorRow, currentRow);
+        var rowsToEnable = visibleRows.Skip(low).Take(high - low + 1).ToArray();
+        var matched = vm.SetQueueRowsEnabled(rowsToEnable, enabled: true);
+        vm.StatusMessage = matched > 0
+            ? $"已勾选到当前项目：{matched} 个"
+            : "没有匹配到当前项目";
     }
 
     private async void OnDeleteSelectedClick(object? sender, RoutedEventArgs e)

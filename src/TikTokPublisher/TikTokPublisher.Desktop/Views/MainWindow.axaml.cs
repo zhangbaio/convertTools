@@ -289,7 +289,11 @@ public partial class MainWindow : Window
 
     private void EnsureBrowserHostMounted()
     {
-        // 后台上传：WebView2 挂在 1×1 隐藏层，零尺寸绘制，避免原生 HWND 盖住队列页。
+        // 浏览器页正在展示时不得折叠挂载层/关闭渲染（否则页面变成不绘制的黑色原生窗口）。
+        if (_activeNavTag == "browser")
+            return;
+
+        // 后台上传：WebView2 挂在 1×1 隐藏层，避免原生 HWND 盖住队列页。
         CollapseBrowserHostMount();
         _browserHost.SetPresentationVisible(false);
     }
