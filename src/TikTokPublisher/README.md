@@ -36,7 +36,7 @@ dotnet run --project src\TikTokPublisher\TikTokPublisher.Desktop
 | `app.db` | 全局设置、执行历史、短剧下载队列状态 |
 | `profiles/<id>/` | 每账号 WebView2 UserDataFolder |
 | `profiles/<id>/tiktok_auth_state.json` | Playwright storage_state |
-| `account_state.bin` | 授权登录状态（系统服务） |
+| `license_state.bin` | 授权登录状态（系统服务，C# 客户端独立） |
 
 工作目录内：
 

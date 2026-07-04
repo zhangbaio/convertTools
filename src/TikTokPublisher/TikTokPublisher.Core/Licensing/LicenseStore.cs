@@ -16,12 +16,9 @@ public static class LicenseStore
         WriteIndented = false,
     };
 
-    public static string StateDirectory => AppPaths.LegacyUploaderDataRoot;
+    public static string StateDirectory => AppPaths.DataRoot;
 
-    public static string StatePath => Path.Combine(StateDirectory, "account_state.bin");
-    public static string LegacyStatePath => Path.Combine(StateDirectory, "license.json");
-    public static string PublisherStatePath => Path.Combine(AppPaths.DataRoot, "account_state.bin");
-    public static string PublisherLegacyStatePath => Path.Combine(AppPaths.DataRoot, "license.json");
+    public static string StatePath => Path.Combine(StateDirectory, "license_state.bin");
 
     public static LicenseState Load()
     {
@@ -30,44 +27,6 @@ public static class LicenseStore
             try
             {
                 return ReadEncrypted(File.ReadAllBytes(StatePath));
-            }
-            catch
-            {
-                return new LicenseState();
-            }
-        }
-
-        if (File.Exists(LegacyStatePath))
-        {
-            try
-            {
-                return JsonSerializer.Deserialize<LicenseState>(File.ReadAllText(LegacyStatePath), JsonOptions)
-                       ?? new LicenseState();
-            }
-            catch
-            {
-                return new LicenseState();
-            }
-        }
-
-        if (File.Exists(PublisherStatePath))
-        {
-            try
-            {
-                return ReadEncrypted(File.ReadAllBytes(PublisherStatePath));
-            }
-            catch
-            {
-                return new LicenseState();
-            }
-        }
-
-        if (File.Exists(PublisherLegacyStatePath))
-        {
-            try
-            {
-                return JsonSerializer.Deserialize<LicenseState>(File.ReadAllText(PublisherLegacyStatePath), JsonOptions)
-                       ?? new LicenseState();
             }
             catch
             {
@@ -92,11 +51,8 @@ public static class LicenseStore
 
     public static void Clear()
     {
-        foreach (var path in new[] { StatePath, LegacyStatePath, PublisherStatePath, PublisherLegacyStatePath })
-        {
-            if (File.Exists(path))
-                File.Delete(path);
-        }
+        if (File.Exists(StatePath))
+            File.Delete(StatePath);
     }
 
     public static string MaskLicenseKey(string licenseKey)

@@ -400,7 +400,12 @@ public sealed class QueueWorkerRunner
                             try
                             {
                                 await TikTokArchivedProjectService
-                                    .ArchiveQueueProjectAsync(workspace, uploadCtx.Item.ProjectDir, account: uploadCtx.Account, ct: ct)
+                                    .ArchiveQueueProjectAsync(
+                                        workspace,
+                                        uploadCtx.Item.ProjectDir,
+                                        account: uploadCtx.Account,
+                                        queuedAt: uploadCtx.Item.QueuedAt,
+                                        ct: ct)
                                     .ConfigureAwait(false);
                                 Mutate(() => uploadCtx.Item.Archived = true);
                                 Report(onProgress, workspace, uploadCtx.Item,

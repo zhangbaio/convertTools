@@ -41,7 +41,7 @@ public partial class SystemServicesView : UserControl
             vm.AuthServerUrl,
             vm.LoginAccount,
             vm.LoginPassword,
-            "请输入软件授权账号。登录成功后会保存到 Python 兼容的 account_state.bin，并用于启动和定时联网校验。");
+            "请输入软件授权账号。登录成功后会保存到 C# 客户端独立的 license_state.bin，并用于启动和定时联网校验。");
         if (result is null)
             return;
 

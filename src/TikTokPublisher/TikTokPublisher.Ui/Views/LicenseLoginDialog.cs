@@ -43,7 +43,7 @@ public sealed class LicenseLoginDialog : Window
         root.Children.Add(new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(message)
-                ? "请输入授权账号，登录成功后会保存到 Python 兼容的 account_state.bin。"
+                ? "请输入授权账号，登录成功后会保存到 C# 客户端独立的 license_state.bin。"
                 : message,
             TextWrapping = TextWrapping.Wrap,
         });

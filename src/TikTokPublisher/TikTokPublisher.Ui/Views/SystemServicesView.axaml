@@ -51,7 +51,7 @@
                             <Button Content="退出登录 / 清除本机登录" Click="OnLicenseLogoutClick" />
                         </StackPanel>
 
-                        <TextBlock Text="软件每次启动都会联网校验账号和设备授权；未登录或校验失败时会先进入账号登录窗口。登录信息保存在 ~/.tiktok_uploader_client/account_state.bin。"
+                        <TextBlock Text="软件每次启动都会联网校验账号和设备授权；未登录或校验失败时会先进入账号登录窗口。登录信息保存在 ~/.tiktok_publisher/license_state.bin。"
                                    Classes="compactHint"
                                    TextWrapping="Wrap" />
                         <TextBlock Text="{Binding LoginStatus}" Classes="pageSummary" TextWrapping="Wrap" />

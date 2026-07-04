@@ -15,20 +15,20 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = "1.0.$(Get-Date -Format 'yyyyMMdd').0"
 }
 
-$arguments = @(
-    "-Version", $Version
-)
+$arguments = @{
+    Version = $Version
+}
 
 if ($InstallPlaywrightChromium) {
-    $arguments += "-InstallPlaywrightChromium"
+    $arguments.InstallPlaywrightChromium = $true
 }
 
 if ($NoBundleDependencies) {
-    $arguments += "-NoBundleDependencies"
+    $arguments.NoBundleDependencies = $true
 }
 
 if ($SkipInstallerCompile) {
-    $arguments += "-SkipInstallerCompile"
+    $arguments.SkipInstallerCompile = $true
 }
 
 Write-Host "Building TikTok installer version $Version"

@@ -268,6 +268,8 @@ public sealed partial class ArchivedProjectRowViewModel : ViewModelBase
         _ => Item.ArchiveSource,
     };
     public string ArchivedAt => Item.ArchivedAt;
+    public string QueuedAt => QueueProjectRowViewModel.FormatQueuedAt(Item.QueuedAt, compact: true);
+    public string QueuedAtTooltip => QueueProjectRowViewModel.FormatQueuedAt(Item.QueuedAt, compact: false);
     public string MetadataPath => Item.MetadataPath;
     public string ArchiveDisplayPath => string.IsNullOrWhiteSpace(Item.MetadataPath)
         ? Item.ArchiveProjectDir

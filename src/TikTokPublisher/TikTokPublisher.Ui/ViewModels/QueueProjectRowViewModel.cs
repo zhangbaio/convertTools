@@ -243,7 +243,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         return "";
     }
 
-    private static string FormatQueuedAt(string value, bool compact)
+    internal static string FormatQueuedAt(string value, bool compact)
     {
         var text = (value ?? "").Trim();
         if (string.IsNullOrEmpty(text)) return "";

@@ -2141,7 +2141,11 @@ public sealed partial class MainViewModel : ViewModelBase
                 // 归档包含递归删视频与跨盘目录移动等重 IO，必须放到后台线程，避免 UI 卡顿。
                 var projectDir = row.Item.ProjectDir;
                 var account = ResolveAccountForQueueItem(row.Item);
-                await Task.Run(() => TikTokArchivedProjectService.ArchiveQueueProjectAsync(root, projectDir, account: account))
+                await Task.Run(() => TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+                        root,
+                        projectDir,
+                        account: account,
+                        queuedAt: row.Item.QueuedAt))
                     .ConfigureAwait(true);
                 row.Item.Archived = true;
                 successCount++;

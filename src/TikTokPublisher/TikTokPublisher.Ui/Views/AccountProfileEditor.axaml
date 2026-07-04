@@ -276,21 +276,33 @@
 
             <TabItem Header="基础设置">
                 <ScrollViewer>
-                    <StackPanel Spacing="10" Margin="2,4,2,2">
-                        <TextBox x:Name="SeriesUrlBox" Watermark="短剧中心 URL" />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBox x:Name="WorkspaceBox" Watermark="上传工作目录" MinWidth="420" />
-                            <Button Content="浏览…" Click="OnBrowseWorkspaceClick" />
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBox x:Name="DownloadWorkspaceBox" Watermark="下载工作目录" MinWidth="420" />
-                            <Button Content="浏览…" Click="OnBrowseDownloadWorkspaceClick" />
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBox x:Name="ExcelReportBox" Watermark="Excel 报表路径" MinWidth="420" />
-                            <Button Content="浏览…" Click="OnBrowseExcelReportClick" />
-                        </StackPanel>
-                    </StackPanel>
+                    <Grid Classes="profileForm"
+                          Margin="2,4,2,2"
+                          ColumnDefinitions="140,*"
+                          RowDefinitions="Auto,Auto,Auto,Auto"
+                          RowSpacing="10"
+                          ColumnSpacing="10">
+                        <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="短剧中心 URL" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="0" Grid.Column="1" x:Name="SeriesUrlBox" Watermark="短剧中心 URL" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="上传工作目录" VerticalAlignment="Center" />
+                        <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" x:Name="WorkspaceBox" Watermark="上传工作目录" />
+                            <Button Grid.Column="1" Content="浏览…" Click="OnBrowseWorkspaceClick" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="下载工作目录" VerticalAlignment="Center" />
+                        <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" x:Name="DownloadWorkspaceBox" Watermark="下载工作目录" />
+                            <Button Grid.Column="1" Content="浏览…" Click="OnBrowseDownloadWorkspaceClick" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="Excel 报表路径" VerticalAlignment="Center" />
+                        <Grid Grid.Row="3" Grid.Column="1" ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" x:Name="ExcelReportBox" Watermark="Excel 报表路径" />
+                            <Button Grid.Column="1" Content="浏览…" Click="OnBrowseExcelReportClick" Margin="8,0,0,0" />
+                        </Grid>
+                    </Grid>
                 </ScrollViewer>
             </TabItem>
         </TabControl>

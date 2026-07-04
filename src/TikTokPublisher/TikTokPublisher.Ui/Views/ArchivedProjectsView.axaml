@@ -55,17 +55,18 @@
 
         <Border BorderBrush="#DFD1C0" BorderThickness="1" CornerRadius="6">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                <Grid RowDefinitions="Auto,*" Width="1522">
-                    <Grid Grid.Row="0" ColumnDefinitions="56,56,220,220,90,160,280,220,220">
+                <Grid RowDefinitions="Auto,*" Width="1682">
+                    <Grid Grid.Row="0" ColumnDefinitions="56,56,220,220,90,160,160,280,220,220">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="选择" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="原剧名" Classes="tableHeader" />
                         <TextBlock Grid.Column="3" Text="新剧名" Classes="tableHeader" />
                         <TextBlock Grid.Column="4" Text="归档来源" Classes="tableHeader" />
-                        <TextBlock Grid.Column="5" Text="归档时间" Classes="tableHeader" />
-                        <TextBlock Grid.Column="6" Text="归档目录" Classes="tableHeader" />
-                        <TextBlock Grid.Column="7" Text="Source" Classes="tableHeader" />
-                        <TextBlock Grid.Column="8" Text="Workflow" Classes="tableHeader" />
+                        <TextBlock Grid.Column="5" Text="加入时间" Classes="tableHeader" />
+                        <TextBlock Grid.Column="6" Text="归档时间" Classes="tableHeader" />
+                        <TextBlock Grid.Column="7" Text="归档目录" Classes="tableHeader" />
+                        <TextBlock Grid.Column="8" Text="Source" Classes="tableHeader" />
+                        <TextBlock Grid.Column="9" Text="Workflow" Classes="tableHeader" />
                     </Grid>
 
                     <ListBox x:Name="ArchivedList"
@@ -77,7 +78,7 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:ArchivedProjectRowViewModel">
-                                <Grid ColumnDefinitions="56,56,220,220,90,160,280,220,220" MinHeight="36" Width="1522" ClipToBounds="True">
+                                <Grid ColumnDefinitions="56,56,220,220,90,160,160,280,220,220" MinHeight="36" Width="1682" ClipToBounds="True">
                                     <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
                                     <CheckBox Grid.Column="1" IsChecked="{Binding Selected, Mode=TwoWay}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     <Button Grid.Column="2"
@@ -97,10 +98,11 @@
                                                    TextTrimming="CharacterEllipsis" />
                                     </Button>
                                     <TextBlock Grid.Column="4" Text="{Binding ArchiveSource}" VerticalAlignment="Center" Margin="8,0" />
-                                    <TextBlock Grid.Column="5" Text="{Binding ArchivedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
-                                    <TextBlock Grid.Column="6" Text="{Binding ArchiveDisplayPath}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="7" Text="{Binding SourceDir}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="8" Text="{Binding WorkflowDir}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="5" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" ToolTip.Tip="{Binding QueuedAtTooltip}" />
+                                    <TextBlock Grid.Column="6" Text="{Binding ArchivedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" />
+                                    <TextBlock Grid.Column="7" Text="{Binding ArchiveDisplayPath}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="8" Text="{Binding SourceDir}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="9" Text="{Binding WorkflowDir}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                 </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>

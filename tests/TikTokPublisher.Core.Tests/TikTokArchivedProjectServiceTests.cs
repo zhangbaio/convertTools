@@ -43,6 +43,18 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         WriteSmallFile(Path.Combine(workflowDir, "material-clip-output", "clip", "cut.mp4"));
         var subtitleVideo = Path.Combine(workflowDir, "material-clip-output", "clip", "subtitles", "caption.mp4");
         WriteSmallFile(subtitleVideo);
+        const string queuedAt = "2026-06-28T14:42:13.4600000+08:00";
+        WorkspaceQueueDatabase.Save(
+            _workspaceRoot,
+            new[]
+            {
+                new QueueProjectItem
+                {
+                    ProjectDir = sourceDir,
+                    DisplayName = "demo",
+                    QueuedAt = queuedAt,
+                },
+            });
         var account = new TikTokAccountProfile
         {
             Id = "acct-1dfecd83",
@@ -74,13 +86,62 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         root.GetProperty("deletedWorkflowVideoFileCount").GetInt32().Should().Be(0);
         root.GetProperty("deletedMaterialVideoFileCount").GetInt32().Should().Be(1);
         root.GetProperty("deletedMaterialClipVideoFileCount").GetInt32().Should().Be(1);
+        root.GetProperty("queuedAt").GetString().Should().Be(queuedAt);
+        root.GetProperty("queued_at").GetString().Should().Be(queuedAt);
         root.GetProperty("accountProfileId").GetString().Should().Be("acct-1dfecd83");
         root.GetProperty("accountProfileName").GetString().Should().Be("账号3");
 
         var archivedItem = TikTokArchivedProjectService.List(_workspaceRoot, _archiveRoot).Single();
+        archivedItem.QueuedAt.Should().Be(queuedAt);
         var syncItem = TikTokArchivedProjectService.ToQueueItemForSync(archivedItem);
+        syncItem.QueuedAt.Should().Be(queuedAt);
         syncItem.AccountProfileId.Should().Be("acct-1dfecd83");
         syncItem.AccountProfileName.Should().Be("账号3");
+    }
+
+    [Fact]
+    public void List_backfills_missing_queued_time_from_queue_state()
+    {
+        var (sourceDir, workflowDir) = CreateProjectDirs("legacy-queued");
+        const string queuedAt = "2026-07-04T14:08:53.7400000+08:00";
+        WorkspaceQueueDatabase.Save(
+            _workspaceRoot,
+            new[]
+            {
+                new QueueProjectItem
+                {
+                    ProjectDir = sourceDir,
+                    DisplayName = "legacy-queued",
+                    QueuedAt = queuedAt,
+                    Archived = true,
+                },
+            });
+
+        var archivedSource = Path.Combine(_archiveRoot, "source", "legacy-queued");
+        var archivedWorkflow = Path.Combine(_archiveRoot, "workflow", "_legacy-queued");
+        Directory.CreateDirectory(archivedSource);
+        Directory.CreateDirectory(archivedWorkflow);
+        var metadataPath = Path.Combine(_archiveRoot, "meta", "legacy-queued.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(metadataPath)!);
+        File.WriteAllText(
+            metadataPath,
+            JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["projectKey"] = "legacy-queued",
+                ["displayName"] = "legacy-queued",
+                ["originalTitle"] = "legacy-queued",
+                ["newTitle"] = "legacy-queued",
+                ["archiveSource"] = "tiktok",
+                ["archivedAt"] = "2026-07-04T17:25:44",
+                ["sourceProjectDir"] = sourceDir,
+                ["workflowProjectDir"] = workflowDir,
+                ["archivedSourceDir"] = archivedSource,
+                ["archivedWorkflowDir"] = archivedWorkflow,
+            }));
+
+        var archivedItem = TikTokArchivedProjectService.List(_workspaceRoot, _archiveRoot).Single();
+
+        archivedItem.QueuedAt.Should().Be(queuedAt);
     }
 
     [Fact]
