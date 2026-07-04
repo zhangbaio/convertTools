@@ -34,7 +34,7 @@ public sealed class BrowserSessionHost
     public event Action<string>? AuthStatusChanged;
     public event Action<string>? AuthSaveFailed;
 
-    public void ShowAccount(AccountItemViewModel? account)
+    public void ShowAccount(AccountItemViewModel? account, bool createIfMissing = true)
     {
         if (_container is null || _emptyHint is null) return;
 
@@ -44,6 +44,19 @@ public sealed class BrowserSessionHost
         if (account is null)
         {
             _emptyHint.IsVisible = _hosts.Count == 0;
+            return;
+        }
+
+        if (_hosts.TryGetValue(account.Id, out var existing))
+        {
+            existing.IsVisible = true;
+            _emptyHint.IsVisible = false;
+            return;
+        }
+
+        if (!createIfMissing)
+        {
+            _emptyHint.IsVisible = true;
             return;
         }
 

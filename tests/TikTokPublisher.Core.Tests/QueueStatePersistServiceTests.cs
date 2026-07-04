@@ -23,13 +23,15 @@ public sealed class QueueStatePersistServiceTests
                 Enabled = true,
                 StatusText = QueueStepStatus.Pending,
             };
+            File.WriteAllText(Path.Combine(projectDir, "shortdrama-project.json"), "{}");
 
-            using (var service = new QueueStatePersistService(TimeSpan.Zero))
+            using (var service = new QueueStatePersistService(TimeSpan.FromMilliseconds(50)))
             {
                 service.Enqueue(workspace, [item], new QueueRunOptions { EnabledSteps = ["download"] });
                 service.Flush(workspace, TimeSpan.FromSeconds(5)).Should().BeTrue();
             }
 
+            Thread.Sleep(100);
             var loaded = WorkspaceQueueService.ScanProjects(workspace);
             loaded.Should().ContainSingle(project =>
                 string.Equals(Path.GetFullPath(project.ProjectDir), Path.GetFullPath(projectDir), StringComparison.OrdinalIgnoreCase));

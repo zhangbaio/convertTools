@@ -11,10 +11,10 @@ public sealed class QueueStatePersistService : IDisposable
     private readonly Thread _thread;
     private readonly TimeSpan _batchInterval;
     private volatile bool _disposed;
-    private volatile bool _busy;
     private Action<string>? _onPersisted;
 
     private readonly Dictionary<string, PendingWorkspace> _pending = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _activeWorkspaces = new(StringComparer.OrdinalIgnoreCase);
 
     public QueueStatePersistService(TimeSpan? batchInterval = null)
     {
@@ -60,7 +60,7 @@ public sealed class QueueStatePersistService : IDisposable
         {
             lock (_lock)
             {
-                if (!_pending.ContainsKey(workspaceKey) && !_busy)
+                if (!_pending.ContainsKey(workspaceKey) && !_activeWorkspaces.Contains(workspaceKey))
                     return true;
             }
 
@@ -74,7 +74,7 @@ public sealed class QueueStatePersistService : IDisposable
     {
         var workspaceKey = NormalizeWorkspace(workspaceRoot);
         lock (_lock)
-            return _pending.ContainsKey(workspaceKey) || _busy;
+            return _pending.ContainsKey(workspaceKey) || _activeWorkspaces.Contains(workspaceKey);
     }
 
     public void Dispose()
@@ -113,34 +113,40 @@ public sealed class QueueStatePersistService : IDisposable
 
                 batch = new Dictionary<string, PendingWorkspace>(_pending, StringComparer.OrdinalIgnoreCase);
                 _pending.Clear();
-                _busy = true;
+                foreach (var workspaceKey in batch.Keys)
+                    _activeWorkspaces.Add(workspaceKey);
             }
 
-            try
+            foreach (var (workspaceKey, pending) in batch)
             {
-                foreach (var (workspaceKey, pending) in batch)
+                try
                 {
-                    try
+                    if (pending.Items is null || pending.Items.Count == 0)
+                        continue;
+                    var options = pending.Options ?? WorkspaceQueueService.LoadRunOptions(workspaceKey);
+                    WorkspaceQueueService.SaveProjects(workspaceKey, pending.Items, options.ToDictionary());
+                    var callback = _onPersisted;
+                    if (callback is not null)
                     {
-                        if (pending.Items is null || pending.Items.Count == 0)
-                            continue;
-                        var options = pending.Options ?? WorkspaceQueueService.LoadRunOptions(workspaceKey);
-                        WorkspaceQueueService.SaveProjects(workspaceKey, pending.Items, options.ToDictionary());
-                        _onPersisted?.Invoke(workspaceKey);
+                        var capturedKey = workspaceKey;
+                        ThreadPool.QueueUserWorkItem(_ => callback(capturedKey));
                     }
-                    catch
-                    {
-                        // Persistence must not break queue execution.
-                    }
+                }
+                catch
+                {
+                    // Persistence must not break queue execution.
+                }
+                finally
+                {
+                    lock (_lock)
+                        _activeWorkspaces.Remove(workspaceKey);
                 }
             }
-            finally
+
+            lock (_lock)
             {
-                lock (_lock)
-                {
-                    _busy = false;
+                if (_pending.Count == 0)
                     _workAvailable.Reset();
-                }
             }
 
             if (_batchInterval > TimeSpan.Zero)

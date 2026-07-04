@@ -32,6 +32,7 @@ public partial class TikTokQueueView : UserControl
     private readonly PublishRunStateStore _runState = PublishRunStateStore.Load();
     private readonly Queue<ManualInterventionDialogRequest> _manualInterventionDialogs = new();
     private bool _manualInterventionDialogOpen;
+    private QueueUiProgressSink? _queueProgressSink;
 
     public event EventHandler? OpenBrowserRequested;
     public event EventHandler? OpenLogsRequested;
@@ -49,6 +50,7 @@ public partial class TikTokQueueView : UserControl
         _vm = vm;
         _browserHost = browserHost;
         DataContext = vm;
+        _queueProgressSink = new QueueUiProgressSink(vm.HandleQueueWorkerProgress);
         vm.NavigateRequested += OnNavigateRequested;
         vm.AccountSwitchRequested += OnAccountSwitchRequested;
         vm.ManualInterventionDialogRequested += OnManualInterventionDialogRequested;
@@ -234,7 +236,7 @@ public partial class TikTokQueueView : UserControl
     }
 
     private void OnAccountSwitchRequested(AccountItemViewModel account) =>
-        _browserHost?.ShowAccount(account);
+        _browserHost?.ShowAccount(account, createIfMissing: false);
 
     private void OnNavigateRequested(AccountItemViewModel account, string url)
     {
@@ -909,7 +911,7 @@ public partial class TikTokQueueView : UserControl
         {
             var summary = await vm.RunQueueWorkerAsync(
                 host,
-                p => Dispatcher.UIThread.Post(() => vm.HandleQueueWorkerProgress(p)),
+                p => _queueProgressSink?.Post(p),
                 items => Dispatcher.UIThread.Post(() => vm.ApplyPersistedQueueItems(items)),
                 ct,
                 optionsOverride,
@@ -957,7 +959,7 @@ public partial class TikTokQueueView : UserControl
         {
             var summaries = await vm.RunAllAccountWorkspaceQueuesAsync(
                 host,
-                p => Dispatcher.UIThread.Post(() => vm.HandleQueueWorkerProgress(p)),
+                p => _queueProgressSink?.Post(p),
                 (root, items) => Dispatcher.UIThread.Post(() =>
                 {
                     if (string.Equals(Path.GetFullPath(root), Path.GetFullPath(vm.WorkspacePath), StringComparison.OrdinalIgnoreCase))

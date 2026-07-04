@@ -30,6 +30,7 @@ public sealed class LogService
 
     private readonly List<LogEntry> _entries = new();
     private Dictionary<string, string> _nameIndex = new(StringComparer.OrdinalIgnoreCase);
+    private bool _changedScheduled;
 
     public ObservableCollection<LogProjectItem> Projects { get; } = new();
     public ObservableCollection<LogEntry> RenderedEntries { get; } = new();
@@ -61,8 +62,11 @@ public sealed class LogService
         _entries.Add(entry);
         if (_entries.Count > MaxEntries)
             _entries.RemoveRange(0, _entries.Count - MaxEntries);
-        RefreshRendered();
-        Changed?.Invoke();
+
+        if (EntryMatchesFilter(entry))
+            AppendRendered(entry);
+
+        ScheduleChanged();
     }
 
     public void UpdateSnapshot(IEnumerable<QueueProjectRowViewModel> rows, string? workspacePath, bool queueRunning)
@@ -107,7 +111,7 @@ public sealed class LogService
         }
 
         RefreshRendered();
-        Changed?.Invoke();
+        ScheduleChanged();
     }
 
     public string BuildCopyText()
@@ -116,11 +120,42 @@ public sealed class LogService
         return string.Join(Environment.NewLine, filtered.Select(e => e.Text));
     }
 
+    private void AppendRendered(LogEntry entry)
+    {
+        while (RenderedEntries.Count >= MaxRendered)
+            RenderedEntries.RemoveAt(0);
+        RenderedEntries.Add(entry);
+    }
+
     private void RefreshRendered()
     {
         RenderedEntries.Clear();
         foreach (var entry in FilterEntries().TakeLast(MaxRendered))
             RenderedEntries.Add(entry);
+    }
+
+    private bool EntryMatchesFilter(LogEntry entry)
+    {
+        if (ProblemsOnly)
+        {
+            if (!IsProblemLevel(entry.Level)
+                && !entry.Text.Contains("失败", StringComparison.Ordinal)
+                && !entry.Text.Contains("错误", StringComparison.Ordinal)
+                && !entry.Text.Contains("异常", StringComparison.Ordinal)
+                && !entry.Text.Contains("超时", StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(SelectedProjectPath))
+            return true;
+
+        return string.Equals(entry.ProjectPath, SelectedProjectPath, StringComparison.OrdinalIgnoreCase)
+               || (string.IsNullOrWhiteSpace(entry.ProjectPath)
+                   && !string.IsNullOrWhiteSpace(entry.ProjectName)
+                   && _nameIndex.TryGetValue(entry.ProjectName, out var path)
+                   && string.Equals(path, SelectedProjectPath, StringComparison.OrdinalIgnoreCase));
     }
 
     private IEnumerable<LogEntry> FilterEntries()
@@ -147,6 +182,17 @@ public sealed class LogService
         }
 
         return query;
+    }
+
+    private void ScheduleChanged()
+    {
+        if (_changedScheduled) return;
+        _changedScheduled = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            _changedScheduled = false;
+            Changed?.Invoke();
+        }, Avalonia.Threading.DispatcherPriority.Background);
     }
 
     private string ResolveProjectPath(string projectName)

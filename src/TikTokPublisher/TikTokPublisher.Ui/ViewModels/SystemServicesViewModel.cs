@@ -292,11 +292,12 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
     public event Action? Restored;
     public Func<TikTokAccountProfile?>? AccountProvider { get; set; }
 
-    public void SetWorkspace(string? workspacePath)
+    public void SetWorkspace(string? workspacePath, bool refresh = true)
     {
         WorkspacePath = workspacePath?.Trim() ?? "";
         SyncArchiveRootFromSettings();
-        Refresh();
+        if (refresh)
+            Refresh();
     }
 
     public void SetArchiveRootDir(string? archiveRootDir)

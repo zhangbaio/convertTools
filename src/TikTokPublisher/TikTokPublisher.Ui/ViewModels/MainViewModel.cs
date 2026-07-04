@@ -94,6 +94,12 @@ public sealed partial class MainViewModel : ViewModelBase
     private List<QueueProjectItem> _queueItems = new();
     private QueueRunOptions _queueRunOptions = new();
     private string _currentQueueBatchId = "";
+    private int _workspaceRefreshGeneration;
+    private DateTime _lastLogSnapshotUtc = DateTime.MinValue;
+    private readonly Dictionary<string, QueueProjectRowViewModel> _queueRowByDir =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _lastProgressMessageByKey =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public event Action<AccountItemViewModel, string>? NavigateRequested;
     public event Action<TikTokAccountProfile>? AccountProfileNetworkChanged;
@@ -226,11 +232,13 @@ public sealed partial class MainViewModel : ViewModelBase
 
         var timestamp = DateTime.Now.ToString("HH:mm:ss");
         Logs.Append($"[{timestamp}] INFO {text}");
-        RefreshLogSnapshot();
     }
 
-    public void RefreshLogSnapshot()
+    public void RefreshLogSnapshot(bool force = false)
     {
+        if (!force && (DateTime.UtcNow - _lastLogSnapshotUtc).TotalMilliseconds < 1500)
+            return;
+        _lastLogSnapshotUtc = DateTime.UtcNow;
         Logs.UpdateSnapshot(QueueProjectRows, WorkspacePath, IsQueueRunning);
     }
 
@@ -531,23 +539,54 @@ public sealed partial class MainViewModel : ViewModelBase
         StatusMessage = $"工作目录已绑定到「{active.DisplayName}」：{path}";
     }
 
-    public void RefreshWorkspaceProjects(string? workspaceRoot = null)
+    public void RefreshWorkspaceProjects(string? workspaceRoot = null) =>
+        _ = RefreshWorkspaceProjectsAsync(workspaceRoot);
+
+    private async Task RefreshWorkspaceProjectsAsync(string? workspaceRoot = null)
+    {
+        var generation = Interlocked.Increment(ref _workspaceRefreshGeneration);
+        var root = (workspaceRoot ?? WorkspacePath).Trim();
+        if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (generation != _workspaceRefreshGeneration) return;
+                ClearWorkspaceProjectCollections();
+                _queueItems.Clear();
+                _queueRowByDir.Clear();
+            });
+            return;
+        }
+
+        var scanResult = await Task.Run(() =>
+        {
+            _queueStatePersist.Flush(root, TimeSpan.FromMilliseconds(400));
+            return (
+                Items: WorkspaceQueueService.ScanProjects(root).ToList(),
+                Options: WorkspaceQueueService.LoadRunOptions(root));
+        }).ConfigureAwait(false);
+
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (generation != _workspaceRefreshGeneration) return;
+            ApplyWorkspaceScanResult(root, scanResult.Items, scanResult.Options);
+        });
+    }
+
+    private void ClearWorkspaceProjectCollections()
     {
         WorkspaceProjects.Clear();
         FilteredWorkspaceProjects.Clear();
         QueueProjectRows.Clear();
         FilteredQueueProjectRows.Clear();
-        var root = (workspaceRoot ?? WorkspacePath).Trim();
-        if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
-        {
-            _queueItems.Clear();
-            return;
-        }
+    }
 
-        _queueStatePersist.Flush(root, TimeSpan.FromSeconds(2));
-
-        _queueItems = WorkspaceQueueService.ScanProjects(root).ToList();
-        _queueRunOptions = WorkspaceQueueService.LoadRunOptions(root);
+    private void ApplyWorkspaceScanResult(string root, List<QueueProjectItem> items, QueueRunOptions options)
+    {
+        ClearWorkspaceProjectCollections();
+        _queueRowByDir.Clear();
+        _queueItems = items;
+        _queueRunOptions = options;
         ApplyAccountQueueEnabledSteps(root);
         ForceRerunCompletedSteps = _queueRunOptions.ForceRerunCompletedSteps;
         AutoArchiveAfterUpload = _queueRunOptions.AutoArchiveAfterUpload;
@@ -560,12 +599,15 @@ public sealed partial class MainViewModel : ViewModelBase
         foreach (var project in _queueItems)
         {
             WorkspaceProjects.Add(new WorkspaceProjectItemViewModel(project));
-            QueueProjectRows.Add(new QueueProjectRowViewModel(project) { RowIndex = rowIndex++ });
+            var row = new QueueProjectRowViewModel(project) { RowIndex = rowIndex++ };
+            QueueProjectRows.Add(row);
+            _queueRowByDir[NormalizeProjectDir(project.ProjectDir)] = row;
         }
+
         ApplyWorkspaceProjectFilter();
         ApplyQueueProjectFilter();
         UpdateQueueSummaryText();
-        RefreshLogSnapshot();
+        RefreshLogSnapshot(force: true);
 
         var pending = WorkspaceQueueService.FilterPendingUpload(_queueItems).Count();
         StatusMessage = $"已扫描工作目录：{_queueItems.Count} 个项目，{pending} 个待上传";
@@ -1139,13 +1181,39 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void HandleQueueWorkerProgress(QueueWorkerProgress progress)
     {
+        var isActiveWorkspace = IsActiveWorkspace(progress.WorkspaceRoot);
+        if (!isActiveWorkspace)
+        {
+            var batchId = _currentQueueBatchId;
+            _ = Task.Run(() => TikTokExecutionHistoryService.AppendEvent(
+                "queue_progress",
+                progress.Item?.StatusText ?? "info",
+                progress.WorkspaceRoot,
+                progress.Item,
+                progress.StepKey ?? "",
+                progress.Message,
+                progress.Item?.LastError ?? "",
+                batchId,
+                account: null));
+            return;
+        }
+
         if (progress.Item is not null)
             RefreshQueueRowFor(progress.Item);
+
         StatusMessage = progress.Message;
+
+        if (!ShouldAppendProgressLog(progress))
+            return;
+
         var project = progress.Item?.Title ?? progress.Item?.DisplayName ?? "";
         var prefix = string.IsNullOrWhiteSpace(project) ? "" : $"[{project}] ";
         AppendLog($"{prefix}{progress.Message}");
-        TikTokExecutionHistoryService.AppendEvent(
+        RefreshLogSnapshot();
+
+        var activeBatchId = _currentQueueBatchId;
+        var account = SelectedAccount?.Model;
+        _ = Task.Run(() => TikTokExecutionHistoryService.AppendEvent(
             "queue_progress",
             progress.Item?.StatusText ?? "info",
             progress.WorkspaceRoot,
@@ -1153,8 +1221,39 @@ public sealed partial class MainViewModel : ViewModelBase
             progress.StepKey ?? "",
             progress.Message,
             progress.Item?.LastError ?? "",
-            _currentQueueBatchId,
-            account: SelectedAccount?.Model);
+            activeBatchId,
+            account: account));
+    }
+
+    private bool IsActiveWorkspace(string? workspaceRoot)
+    {
+        var root = WorkspacePath.Trim();
+        if (string.IsNullOrEmpty(root) || string.IsNullOrWhiteSpace(workspaceRoot))
+            return true;
+        return string.Equals(
+            Path.GetFullPath(workspaceRoot),
+            Path.GetFullPath(root),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool ShouldAppendProgressLog(QueueWorkerProgress progress)
+    {
+        var message = progress.Message ?? "";
+        if (message.Contains("失败", StringComparison.Ordinal)
+            || message.Contains("完成", StringComparison.Ordinal)
+            || message.StartsWith("开始", StringComparison.Ordinal)
+            || message.Contains('⚠')
+            || message.Contains("队列", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var key = $"{progress.WorkspaceRoot}|{progress.Item?.ProjectDir}|{progress.StepKey}";
+        if (_lastProgressMessageByKey.TryGetValue(key, out var last) && string.Equals(last, message, StringComparison.Ordinal))
+            return false;
+
+        _lastProgressMessageByKey[key] = message;
+        return true;
     }
 
     public void ApplyPersistedQueueItems(IReadOnlyList<QueueProjectItem> items)
@@ -1178,10 +1277,15 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void RefreshQueueRowFor(QueueProjectItem item)
     {
-        var normalized = Path.GetFullPath(item.ProjectDir);
-        var row = QueueProjectRows.FirstOrDefault(r =>
-            string.Equals(Path.GetFullPath(r.Item.ProjectDir), normalized, StringComparison.OrdinalIgnoreCase));
-        row?.RefreshFrom(item);
+        var normalized = NormalizeProjectDir(item.ProjectDir);
+        if (_queueRowByDir.TryGetValue(normalized, out var row))
+            row.RefreshFrom(item);
+    }
+
+    private static string NormalizeProjectDir(string projectDir)
+    {
+        try { return Path.GetFullPath(projectDir); }
+        catch { return projectDir.Trim(); }
     }
 
     private void RefreshQueueRowViewModels()
@@ -1310,8 +1414,7 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         SystemSettings.UpdateWorkspacePath(WorkspacePath);
-        ArchivedProjects.SetWorkspace(WorkspacePath);
-        SystemServices.Load();
+        ArchivedProjects.SetWorkspace(WorkspacePath, refresh: false);
     }
 
     public void ReloadAccounts()

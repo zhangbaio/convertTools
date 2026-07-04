@@ -9,7 +9,15 @@ namespace TikTokPublisher.Ui.Views;
 
 public partial class ArchivedProjectsView : UserControl
 {
-    public ArchivedProjectsView() => InitializeComponent();
+    public ArchivedProjectsView()
+    {
+        InitializeComponent();
+        Loaded += (_, _) =>
+        {
+            if (Vm is { Rows.Count: 0 } vm && !string.IsNullOrWhiteSpace(vm.WorkspacePath))
+                vm.RefreshCommand.Execute(null);
+        };
+    }
 
     public void Bind(ArchivedProjectsViewModel vm) => DataContext = vm;
 
