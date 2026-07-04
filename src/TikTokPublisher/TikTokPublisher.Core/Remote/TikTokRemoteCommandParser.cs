@@ -13,7 +13,8 @@ public static class TikTokRemoteCommandParser
 
     private static readonly HashSet<string> CardHelpAliases = new(StringComparer.Ordinal)
     {
-        "菜单", "menu", "卡片教程", "教程卡片",
+        "菜单", "menu", "卡片", "命令卡片", "卡片教程", "教程卡片",
+        "help_card", "card_tutorial", "tutorial_card",
     };
 
     private static readonly HashSet<string> StatusAliases = new(StringComparer.Ordinal)
@@ -44,6 +45,16 @@ public static class TikTokRemoteCommandParser
     private static readonly HashSet<string> AccountKeys = new(StringComparer.Ordinal)
     {
         "账号", "account", "profile", "account_profile",
+    };
+
+    private static readonly HashSet<string> AccountListKeys = new(StringComparer.Ordinal)
+    {
+        "账号列表", "多账号", "accounts", "profiles", "account_profiles", "account_profile_ids",
+    };
+
+    private static readonly HashSet<string> AllAccountAliases = new(StringComparer.Ordinal)
+    {
+        "全部", "全部账号", "所有", "所有账号", "all", "*",
     };
 
     private static readonly HashSet<string> AutoRunTrue = new(StringComparer.Ordinal)
@@ -124,6 +135,33 @@ public static class TikTokRemoteCommandParser
     public static string NormalizeCommandAlias(object? value) =>
         Regex.Replace((value?.ToString() ?? "").Trim(), "\\s+", "").ToLowerInvariant();
 
+    public static IReadOnlyList<string> NormalizeAccountSelectors(object? value)
+    {
+        IEnumerable<object?> rawItems = value switch
+        {
+            null => Array.Empty<object?>(),
+            JsonElement element => AccountSelectorsFromJsonElement(element),
+            IEnumerable<string> strings => strings.Cast<object?>().ToArray(),
+            IEnumerable<object?> objects => objects.ToArray(),
+            _ => NormalizeListText(value).Cast<object?>().ToArray(),
+        };
+
+        var selectors = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in rawItems)
+        {
+            var selector = (item?.ToString() ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(selector) || !seen.Add(selector))
+                continue;
+            selectors.Add(selector);
+        }
+
+        return selectors;
+    }
+
+    public static bool IsAllAccountsSelector(object? value) =>
+        AllAccountAliases.Contains(NormalizeCommandAlias(value));
+
     private static TikTokRemoteCommand? ParseJsonCommand(string text)
     {
         if (!text.StartsWith('{'))
@@ -149,6 +187,12 @@ public static class TikTokRemoteCommandParser
             var workspacePath = FirstString(root, "workspace_path", "workspace");
             var accountProfileId = FirstString(root, "account_profile_id", "profile_id");
             var accountProfileName = FirstString(root, "account_profile_name", "account", "profile");
+            var accountSelectors = ReadJsonAccountSelectors(root, accountProfileId, accountProfileName);
+            var allAccounts = IsAllAccountsSelector(accountProfileId) ||
+                              IsAllAccountsSelector(accountProfileName) ||
+                              accountSelectors.Any(IsAllAccountsSelector) ||
+                              (TryGetProperty(root, "all_accounts", out var allAccountsElement) &&
+                               GetBool(allAccountsElement, false));
             var enabledSteps = TryGetProperty(root, "enabled_steps", out var enabledElement)
                 ? NormalizeEnabledSteps(enabledElement)
                 : null;
@@ -167,6 +211,8 @@ public static class TikTokRemoteCommandParser
                     WorkspacePath: workspacePath,
                     AccountProfileId: accountProfileId,
                     AccountProfileName: accountProfileName,
+                    AccountSelectors: EmptyToNull(accountSelectors),
+                    AllAccounts: allAccounts,
                     EnabledSteps: EmptyToNull(enabledSteps),
                     AutoRun: autoRun,
                     QueueOptions: queueOptions);
@@ -179,6 +225,8 @@ public static class TikTokRemoteCommandParser
                     WorkspacePath: workspacePath,
                     AccountProfileId: accountProfileId,
                     AccountProfileName: accountProfileName,
+                    AccountSelectors: EmptyToNull(accountSelectors),
+                    AllAccounts: allAccounts,
                     EnabledSteps: EmptyToNull(enabledSteps),
                     AutoRun: true,
                     QueueOptions: queueOptions);
@@ -189,11 +237,13 @@ public static class TikTokRemoteCommandParser
                 "tiktok_stop_queue" or "stop_tiktok_queue" => new TikTokRemoteCommand(TikTokRemoteCommandNames.StopQueue),
                 "tiktok_query_status" or "query_tiktok_status" => new TikTokRemoteCommand(TikTokRemoteCommandNames.QueryStatus),
                 "help" or "tutorial" or "show_help_text" => new TikTokRemoteCommand(TikTokRemoteCommandNames.ShowHelpText),
-                "menu" or "show_help_card" => new TikTokRemoteCommand(TikTokRemoteCommandNames.ShowHelpCard),
+                "menu" or "show_help_card" or "help_card" or "card_tutorial" or "tutorial_card" => new TikTokRemoteCommand(TikTokRemoteCommandNames.ShowHelpCard),
                 "switch_account_profile" => new TikTokRemoteCommand(
                     TikTokRemoteCommandNames.SwitchAccountProfile,
                     AccountProfileId: accountProfileId,
-                    AccountProfileName: accountProfileName),
+                    AccountProfileName: accountProfileName,
+                    AccountSelectors: EmptyToNull(accountSelectors),
+                    AllAccounts: allAccounts),
                 _ => null,
             };
         }
@@ -223,6 +273,8 @@ public static class TikTokRemoteCommandParser
                 WorkspacePath: common.WorkspacePath,
                 AccountProfileId: common.AccountProfileId,
                 AccountProfileName: common.AccountProfileName,
+                AccountSelectors: common.AccountSelectors,
+                AllAccounts: common.AllAccounts,
                 EnabledSteps: common.EnabledSteps);
         }
         if (StopQueueAliases.Contains(firstLine))
@@ -240,6 +292,8 @@ public static class TikTokRemoteCommandParser
             WorkspacePath: parsed.WorkspacePath,
             AccountProfileId: parsed.AccountProfileId,
             AccountProfileName: parsed.AccountProfileName,
+            AccountSelectors: parsed.AccountSelectors,
+            AllAccounts: parsed.AllAccounts,
             EnabledSteps: parsed.EnabledSteps,
             AutoRun: parsed.AutoRun);
     }
@@ -270,6 +324,8 @@ public static class TikTokRemoteCommandParser
         var workspacePath = "";
         var accountProfileId = "";
         var accountProfileName = "";
+        IReadOnlyList<string>? accountSelectors = null;
+        var allAccounts = false;
         IReadOnlyList<string>? enabledSteps = null;
         var autoRun = true;
         var titleLines = new List<string>();
@@ -283,11 +339,24 @@ public static class TikTokRemoteCommandParser
                 continue;
             }
 
-            if (!string.IsNullOrEmpty(key) && AccountKeys.Contains(key))
+            if (!string.IsNullOrEmpty(key) && (AccountKeys.Contains(key) || AccountListKeys.Contains(key)))
             {
-                if (Regex.IsMatch(value ?? "", "^[a-zA-Z0-9_-]+$"))
-                    accountProfileId = (value ?? "").Trim();
-                accountProfileName = (value ?? "").Trim();
+                var selectors = NormalizeAccountSelectors(value);
+                allAccounts = selectors.Any(IsAllAccountsSelector);
+                if (!allAccounts)
+                    accountSelectors = EmptyToNull(selectors);
+                if (selectors.Count == 1)
+                {
+                    var selector = selectors[0];
+                    if (Regex.IsMatch(selector, "^[a-zA-Z0-9_-]+$"))
+                        accountProfileId = selector;
+                    accountProfileName = selector;
+                }
+                else
+                {
+                    accountProfileId = "";
+                    accountProfileName = value.Trim();
+                }
                 continue;
             }
 
@@ -310,6 +379,8 @@ public static class TikTokRemoteCommandParser
             workspacePath,
             accountProfileId,
             accountProfileName,
+            accountSelectors,
+            allAccounts,
             enabledSteps,
             autoRun,
             titleLines);
@@ -423,6 +494,24 @@ public static class TikTokRemoteCommandParser
             ? NormalizeTitles(element.EnumerateArray().Select(JsonValueToObject))
             : NormalizeTitles([element.ValueKind == JsonValueKind.String ? element.GetString() : element.ToString()]);
 
+    private static IReadOnlyList<string> ReadJsonAccountSelectors(
+        JsonElement root,
+        params string[] fallbackValues)
+    {
+        foreach (var propertyName in new[] { "accounts", "account_profiles", "profiles", "account_profile_ids" })
+        {
+            if (TryGetProperty(root, propertyName, out var element))
+                return NormalizeAccountSelectors(element);
+        }
+
+        return NormalizeAccountSelectors(fallbackValues.Where(value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static object?[] AccountSelectorsFromJsonElement(JsonElement element) =>
+        element.ValueKind == JsonValueKind.Array
+            ? element.EnumerateArray().Select(JsonValueToObject).ToArray()
+            : NormalizeListText(element.ValueKind == JsonValueKind.String ? element.GetString() : element.ToString()).Cast<object?>().ToArray();
+
     private static IReadOnlyList<string> NormalizeListText(object? value)
     {
         var items = new List<string>();
@@ -445,6 +534,8 @@ public static class TikTokRemoteCommandParser
         string WorkspacePath,
         string AccountProfileId,
         string AccountProfileName,
+        IReadOnlyList<string>? AccountSelectors,
+        bool AllAccounts,
         IReadOnlyList<string>? EnabledSteps,
         bool AutoRun,
         IReadOnlyList<string> TitleLines);

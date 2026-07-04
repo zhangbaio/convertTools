@@ -8,6 +8,8 @@ public sealed record TikTokRemoteCommand(
     string WorkspacePath = "",
     string AccountProfileId = "",
     string AccountProfileName = "",
+    IReadOnlyList<string>? AccountSelectors = null,
+    bool AllAccounts = false,
     IReadOnlyList<string>? EnabledSteps = null,
     bool AutoRun = true,
     IReadOnlyDictionary<string, object?>? QueueOptions = null)
@@ -17,6 +19,15 @@ public sealed record TikTokRemoteCommand(
 
     public bool IsStartQueueCommand =>
         string.Equals(Command, TikTokRemoteCommandNames.StartQueue, StringComparison.Ordinal);
+
+    public bool HasExplicitAccountSelection =>
+        AllAccounts ||
+        !string.IsNullOrWhiteSpace(AccountProfileId) ||
+        !string.IsNullOrWhiteSpace(AccountProfileName) ||
+        AccountSelectors is { Count: > 0 };
+
+    public bool HasMultiAccountSelection =>
+        AllAccounts || AccountSelectors is { Count: > 1 };
 }
 
 public static class TikTokRemoteCommandNames
@@ -33,11 +44,27 @@ public static class TikTokRemoteCommandNames
 public sealed record TikTokRemoteCommandResult(
     string Status,
     string SummaryText,
-    string Command = "")
+    string Command = "",
+    string ReplyMessageType = TikTokRemoteReplyMessageTypes.Text,
+    string ReplyContent = "")
 {
-    public static TikTokRemoteCommandResult Accepted(string command, string summary) => new("accepted", summary, command);
-    public static TikTokRemoteCommandResult Success(string command, string summary) => new("success", summary, command);
-    public static TikTokRemoteCommandResult Failed(string command, string summary) => new("failed", summary, command);
+    public static TikTokRemoteCommandResult Accepted(string command, string summary) =>
+        new("accepted", summary, command, TikTokRemoteReplyMessageTypes.Text, summary);
+
+    public static TikTokRemoteCommandResult Success(string command, string summary) =>
+        new("success", summary, command, TikTokRemoteReplyMessageTypes.Text, summary);
+
+    public static TikTokRemoteCommandResult SuccessCard(string command, string summary, string cardJson) =>
+        new("success", summary, command, TikTokRemoteReplyMessageTypes.Interactive, cardJson);
+
+    public static TikTokRemoteCommandResult Failed(string command, string summary) =>
+        new("failed", summary, command, TikTokRemoteReplyMessageTypes.Text, summary);
+}
+
+public static class TikTokRemoteReplyMessageTypes
+{
+    public const string Text = "text";
+    public const string Interactive = "interactive";
 }
 
 public static class TikTokRemoteCommandStepDefaults

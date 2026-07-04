@@ -988,6 +988,16 @@ public partial class TikTokQueueView : UserControl
     }
 
     private async void OnStartAllQueuesClick(object? sender, RoutedEventArgs e)
+        => await StartAllQueueRunAsync();
+
+    public Task StartAllQueueRunFromRemoteAsync(
+        QueueRunOptions? optionsOverride,
+        IReadOnlyList<WorkspaceQueueTarget> targets)
+        => StartAllQueueRunAsync(optionsOverride, targets);
+
+    private async Task StartAllQueueRunAsync(
+        QueueRunOptions? optionsOverride = null,
+        IReadOnlyList<WorkspaceQueueTarget>? targetsOverride = null)
     {
         var vm = _vm;
         if (vm is null) return;
@@ -997,7 +1007,9 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
-        var targets = vm.BuildAccountWorkspaceTargets();
+        var targets = targetsOverride is { Count: > 0 }
+            ? targetsOverride
+            : vm.BuildAccountWorkspaceTargets();
         if (targets.Count == 0)
         {
             vm.StatusMessage = "没有可执行的工作目录（请为账号配置有效工作目录）";
@@ -1018,7 +1030,9 @@ public partial class TikTokQueueView : UserControl
                     if (string.Equals(Path.GetFullPath(root), Path.GetFullPath(vm.WorkspacePath), StringComparison.OrdinalIgnoreCase))
                         vm.ApplyPersistedQueueItems(items);
                 }),
-                ct);
+                ct,
+                targets,
+                optionsOverride);
 
             var success = summaries.Sum(s => s?.SuccessCount ?? 0);
             var failed = summaries.Sum(s => s?.FailedCount ?? 0);

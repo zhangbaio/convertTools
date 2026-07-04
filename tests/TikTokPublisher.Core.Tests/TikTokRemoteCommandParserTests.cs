@@ -47,6 +47,52 @@ public sealed class TikTokRemoteCommandParserTests
     }
 
     [Fact]
+    public void Parse_text_card_help_command()
+    {
+        var command = TikTokRemoteCommandParser.Parse("卡片教程");
+
+        command.Should().NotBeNull();
+        command!.Command.Should().Be(TikTokRemoteCommandNames.ShowHelpCard);
+    }
+
+    [Fact]
+    public void Parse_text_start_queue_supports_multiple_accounts()
+    {
+        var command = TikTokRemoteCommandParser.Parse("""
+            执行队列
+            账号: 账号A,账号B
+            """);
+
+        command.Should().NotBeNull();
+        command!.Command.Should().Be(TikTokRemoteCommandNames.StartQueue);
+        command.AccountSelectors.Should().Equal("账号A", "账号B");
+        command.HasMultiAccountSelection.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Parse_json_upload_command_supports_all_accounts()
+    {
+        var command = TikTokRemoteCommandParser.Parse("""
+            {"command":"upload_tiktok_series","titles":["剧名A"],"accounts":"全部"}
+            """);
+
+        command.Should().NotBeNull();
+        command!.Command.Should().Be(TikTokRemoteCommandNames.UploadSeries);
+        command.AllAccounts.Should().BeTrue();
+        command.HasMultiAccountSelection.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Help_card_builder_returns_interactive_card_json()
+    {
+        var cardJson = TikTokRemoteHelpCardBuilder.BuildCommandTutorialCardJson();
+
+        cardJson.Should().Contain("\"wide_screen_mode\":true");
+        cardJson.Should().Contain("TikTok 上传命令教程");
+        cardJson.Should().Contain("账号: 全部");
+    }
+
+    [Fact]
     public void Build_upload_run_options_uses_python_remote_defaults()
     {
         var options = TikTokRemoteRunOptions.BuildFeishuTikTokUploadRunOptions(new ClientSettings());

@@ -23,17 +23,23 @@ public static class ClientSettingsDefaults
         可选参数：
         工作目录: E:\tiktok
         账号: 默认
+        账号: 账号A,账号B
+        账号: 全部
         步骤: download,rewrite_info,generate_poster,upload_series
         自动执行: 是
 
+        多账号说明：多账号执行时使用每个账号「基础设置」中保存的工作目录。
+
         二、队列与状态
         @机器人 执行队列
+        @机器人 执行队列
+        账号: 全部
         @机器人 停止队列
         @机器人 状态
 
         三、教程命令
         @机器人 教程 / 帮助 / help：回复文本教程
-        @机器人 菜单：回复按钮菜单
+        @机器人 菜单 / 卡片教程：回复按钮卡片教程
         """;
 
     public const string AiTagSystemPrompt =
