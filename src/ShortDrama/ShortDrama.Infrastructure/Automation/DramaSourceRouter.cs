@@ -462,7 +462,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 if (!string.Equals(Path.GetFullPath(existingVideo), Path.GetFullPath(finalPath), StringComparison.OrdinalIgnoreCase) &&
                     !File.Exists(finalPath))
                 {
-                    File.Move(existingVideo, finalPath);
+                    await DownloadFileOperations.SafeReplaceAsync(existingVideo, finalPath, cancellationToken);
                     existingVideo = finalPath;
                 }
 
@@ -506,17 +506,15 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
                 response.EnsureSuccessStatusCode();
 
-                await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-                await using var file = File.Create(tempPath);
-                await source.CopyToAsync(file, cancellationToken);
-                await file.FlushAsync(cancellationToken);
-
-                if (File.Exists(finalPath))
+                await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken))
+                await using (var file = File.Create(tempPath))
                 {
-                    File.Delete(finalPath);
+                    await source.CopyToAsync(file, cancellationToken);
+                    await file.FlushAsync(cancellationToken);
                 }
 
-                File.Move(tempPath, finalPath);
+                await DownloadFileOperations.DelayAfterWriteAsync(cancellationToken);
+                await DownloadFileOperations.SafeReplaceAsync(tempPath, finalPath, cancellationToken);
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成");
             }
             catch (Exception ex)
@@ -552,17 +550,15 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
         response.EnsureSuccessStatusCode();
 
-        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-        await using var file = File.Create(tempPath);
-        await source.CopyToAsync(file, cancellationToken);
-        await file.FlushAsync(cancellationToken);
-
-        if (File.Exists(finalPath))
+        await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken))
+        await using (var file = File.Create(tempPath))
         {
-            File.Delete(finalPath);
+            await source.CopyToAsync(file, cancellationToken);
+            await file.FlushAsync(cancellationToken);
         }
 
-        File.Move(tempPath, finalPath);
+        await DownloadFileOperations.DelayAfterWriteAsync(cancellationToken);
+        await DownloadFileOperations.SafeReplaceAsync(tempPath, finalPath, cancellationToken);
     }
 
     private static bool ShouldRetryDownload(Exception exception)

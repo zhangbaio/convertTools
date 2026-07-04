@@ -245,7 +245,7 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
                 if (!string.Equals(Path.GetFullPath(existingVideo), Path.GetFullPath(finalPath), StringComparison.OrdinalIgnoreCase) &&
                     !File.Exists(finalPath))
                 {
-                    File.Move(existingVideo, finalPath);
+                    await DownloadFileOperations.SafeReplaceAsync(existingVideo, finalPath, cancellationToken);
                     existingVideo = finalPath;
                 }
 
@@ -283,51 +283,50 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
             var nextPercentToReport = 0d;
             var lastProgressAt = DateTime.MinValue;
 
-            await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using var target = File.Create(tempPath);
-            var buffer = new byte[ChunkSize];
-
-            while (true)
+            await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken))
+            await using (var target = File.Create(tempPath))
             {
-                var read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
-                if (read <= 0)
+                var buffer = new byte[ChunkSize];
+
+                while (true)
                 {
-                    break;
+                    var read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+                    if (read <= 0)
+                    {
+                        break;
+                    }
+
+                    await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                    downloadedBytes += read;
+
+                    if (totalBytes <= 0)
+                    {
+                        continue;
+                    }
+
+                    var percent = downloadedBytes * 100d / totalBytes;
+                    var elapsedSeconds = Math.Max((DateTime.UtcNow - startAt).TotalSeconds, 0.001d);
+                    var speedBytesPerSecond = downloadedBytes / elapsedSeconds;
+                    var nowUtc = DateTime.UtcNow;
+                    if (percent >= nextPercentToReport || nowUtc - lastProgressAt >= ProgressInterval)
+                    {
+                        progressReporter.Report(percent, speedBytesPerSecond, "直连", null);
+                        nextPercentToReport = Math.Floor(percent / 5d) * 5d + 5d;
+                        lastProgressAt = nowUtc;
+                    }
                 }
 
-                await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                downloadedBytes += read;
-
-                if (totalBytes <= 0)
-                {
-                    continue;
-                }
-
-                var percent = downloadedBytes * 100d / totalBytes;
-                var elapsedSeconds = Math.Max((DateTime.UtcNow - startAt).TotalSeconds, 0.001d);
-                var speedBytesPerSecond = downloadedBytes / elapsedSeconds;
-                var nowUtc = DateTime.UtcNow;
-                if (percent >= nextPercentToReport || nowUtc - lastProgressAt >= ProgressInterval)
-                {
-                    progressReporter.Report(percent, speedBytesPerSecond, "直连", null);
-                    nextPercentToReport = Math.Floor(percent / 5d) * 5d + 5d;
-                    lastProgressAt = nowUtc;
-                }
+                await target.FlushAsync(cancellationToken);
             }
 
-            await target.FlushAsync(cancellationToken);
+            await DownloadFileOperations.DelayAfterWriteAsync(cancellationToken);
 
             if (!HasValidVideoFile(tempPath))
             {
                 throw new InvalidOperationException("下载结果校验失败：未生成完整视频文件");
             }
 
-            if (File.Exists(finalPath))
-            {
-                File.Delete(finalPath);
-            }
-
-            File.Move(tempPath, finalPath);
+            await DownloadFileOperations.SafeReplaceAsync(tempPath, finalPath, cancellationToken);
             CleanupDownloadArtifacts(finalPath, keepVideo: true);
             progressReporter.Report(100d, 0d, "完成", "下载完成");
             return EpisodeDownloadResult.Success();
