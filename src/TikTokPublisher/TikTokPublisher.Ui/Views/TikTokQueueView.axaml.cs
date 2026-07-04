@@ -1014,7 +1014,7 @@ public partial class TikTokQueueView : UserControl
     private async Task<bool> EnsureAccountBrowserReadyAsync(TikTokAccountProfile account, CancellationToken ct)
     {
         var browser = await RequireBrowserProvider()
-            .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Background)
+            .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Interactive)
             .ConfigureAwait(false);
         return browser is not null;
     }
@@ -1028,7 +1028,7 @@ public partial class TikTokQueueView : UserControl
         CancellationToken ct)
     {
         var browser = await RequireBrowserProvider()
-            .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Background)
+            .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Interactive)
             .ConfigureAwait(false);
         if (browser is null)
             return PublishResult.Fail("内置浏览器未就绪或未登录，请先在「浏览器」页完成登录");

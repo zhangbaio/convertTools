@@ -15,6 +15,7 @@
                 </Border>
                 <StackPanel Grid.Column="1" x:Name="ModuleNav" Orientation="Horizontal"
                             VerticalAlignment="Center" Margin="8,0,0,0">
+                    <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnNavItemClick" />
                     <Button Content="短剧下载" Tag="download" Classes="topNavItem" Click="OnNavItemClick" />
                     <Button Content="TikTok 上传" Tag="queue" Classes="topNavItem" Click="OnNavItemClick" />
                     <Button Content="账号管理" Tag="accounts" Classes="topNavItem" Click="OnNavItemClick" />
@@ -22,7 +23,6 @@
                     <Button Content="系统设置" Tag="settings" Classes="topNavItem" Click="OnNavItemClick" />
                     <Button Content="系统服务" Tag="services" Classes="topNavItem" Click="OnNavItemClick" />
                     <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnNavItemClick" />
                 </StackPanel>
             </Grid>
         </Border>
