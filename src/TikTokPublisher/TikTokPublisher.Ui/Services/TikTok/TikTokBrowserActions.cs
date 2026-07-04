@@ -11,7 +11,6 @@ public static partial class TikTokBrowserActions
     {
         "当前创建剧集已达上限",
         "创建剧集已达上限",
-        "已达上限",
     };
 
     public static async Task FillCreatePublishFormAsync(
