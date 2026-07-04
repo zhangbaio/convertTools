@@ -31,6 +31,8 @@ public sealed class LogService
     private readonly List<LogEntry> _entries = new();
     private Dictionary<string, string> _nameIndex = new(StringComparer.OrdinalIgnoreCase);
     private bool _changedScheduled;
+    private string _selectedProjectPath = "";
+    private bool _problemsOnly;
 
     public ObservableCollection<LogProjectItem> Projects { get; } = new();
     public ObservableCollection<LogEntry> RenderedEntries { get; } = new();
@@ -40,9 +42,35 @@ public sealed class LogService
         "项目数：0 | 运行中：0 | 下载中：0 | 上传已完成：0 | 待后续：0 | 失败：0 | 已完成：0";
 
     public bool IsRunning { get; private set; }
-    public string SelectedProjectPath { get; set; } = "";
+    public string SelectedProjectPath
+    {
+        get => _selectedProjectPath;
+        set
+        {
+            var normalized = value ?? "";
+            if (string.Equals(_selectedProjectPath, normalized, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _selectedProjectPath = normalized;
+            RefreshRendered();
+            ScheduleChanged();
+        }
+    }
+
     public bool AutoFollowActiveProject { get; set; } = true;
-    public bool ProblemsOnly { get; set; }
+    public bool ProblemsOnly
+    {
+        get => _problemsOnly;
+        set
+        {
+            if (_problemsOnly == value)
+                return;
+
+            _problemsOnly = value;
+            RefreshRendered();
+            ScheduleChanged();
+        }
+    }
 
     public event Action? Changed;
 
