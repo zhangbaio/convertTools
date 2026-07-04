@@ -90,6 +90,8 @@ public sealed class ClientSettings
     public bool TiktokExcelAutoExportEnabled { get; set; } = true;
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
+    public bool TiktokAllowOverLimitUploadImport { get; set; }
+    public int TiktokOverLimitDownloadEpisodeCount { get; set; } = 120;
     public bool FeishuCommandEnabled { get; set; }
     public string FeishuCommandAppId { get; set; } = "";
     public string FeishuCommandAppSecret { get; set; } = "";
@@ -187,6 +189,8 @@ public sealed class ClientSettings
         TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled,
         ManagementDedupEnabled = ManagementDedupEnabled,
         ManagementDedupScope = ManagementDedupScope,
+        TiktokAllowOverLimitUploadImport = TiktokAllowOverLimitUploadImport,
+        TiktokOverLimitDownloadEpisodeCount = TiktokOverLimitDownloadEpisodeCount,
         FeishuCommandEnabled = FeishuCommandEnabled,
         FeishuCommandAppId = FeishuCommandAppId,
         FeishuCommandAppSecret = FeishuCommandAppSecret,

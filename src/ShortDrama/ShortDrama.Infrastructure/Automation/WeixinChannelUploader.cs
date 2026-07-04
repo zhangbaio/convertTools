@@ -430,7 +430,6 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             return new WeixinUploadResult(true, request.ProjectDir, resolvedConfigPath, "褰撳墠绛栫暐涓嬫病鏈夊彲鎵ц鐨勭礌鏉愯棰戙€");
         }
 
-        var description = WeixinMaterialPublishPage.BuildPublishDescription(projectInfo, config.VideoPublish);
         var shortTitle = WeixinMaterialPublishPage.BuildShortTitle(projectInfo, config.VideoPublish);
         progress?.Report($"寰俊绱犳潗涓婁紶锛氬噯澶囧彂琛?{selectedVideos.Count} 鏉¤棰戙€傜瓥鐣?{runStrategy}銆");
 
@@ -439,6 +438,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             cancellationToken.ThrowIfCancellationRequested();
             var publishItem = selectedVideos[index];
             var videoPath = publishItem.VideoPath;
+            var description = WeixinMaterialPublishPage.BuildPublishDescription(projectInfo, config.VideoPublish, publishItem);
             progress?.Report($"微信素材上传：开始处理 {index + 1}/{selectedVideos.Count} -> 第{publishItem.EpisodeIndex}集 {Path.GetFileName(videoPath)}");
             SaveMaterialPublishState(statePath, publishState with
             {

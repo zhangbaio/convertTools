@@ -152,6 +152,9 @@ public static class ProjectWorkspaceService
         }
 
         var metadata = ReadMetadata(context.SourceProjectDir);
+        if (TryReadPositiveInt(metadata, out var effectiveCount, "effectiveEpisodeCount", "effective_episode_count", "downloadEpisodeLimit", "download_episode_limit"))
+            return effectiveCount;
+
         if (metadata.TryGetValue("episodeCount", out var episodeRaw) &&
             int.TryParse(new string(episodeRaw.Where(char.IsDigit).ToArray()), out var metaCount) &&
             metaCount > 0)
@@ -162,6 +165,25 @@ public static class ProjectWorkspaceService
         var videoCount = CountVideoFiles(context.SourceProjectDir, context.WorkflowProjectDir);
         if (videoCount > 0) candidates.Add(videoCount);
         return candidates.Count > 0 ? candidates.Max() : 1;
+    }
+
+    private static bool TryReadPositiveInt(
+        Dictionary<string, string> metadata,
+        out int value,
+        params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (!metadata.TryGetValue(key, out var raw))
+                continue;
+
+            var digits = new string((raw ?? "").Where(char.IsDigit).ToArray());
+            if (int.TryParse(digits, out value) && value > 0)
+                return true;
+        }
+
+        value = 0;
+        return false;
     }
 
     public static void RefreshQueueItemMetadata(QueueProjectItem item)

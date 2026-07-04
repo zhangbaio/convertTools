@@ -243,6 +243,12 @@ public static class ClientSettingsStore
         settings.AuthLastUsername = (settings.AuthLastUsername ?? "").Trim();
         settings.AuthLastLoginAt = (settings.AuthLastLoginAt ?? "").Trim();
         settings.ManagementDedupScope = NormalizeManagementDedupScope(settings.ManagementDedupScope);
+        settings.TiktokOverLimitDownloadEpisodeCount = Math.Clamp(
+            settings.TiktokOverLimitDownloadEpisodeCount <= 0
+                ? 120
+                : settings.TiktokOverLimitDownloadEpisodeCount,
+            1,
+            120);
         settings.FeishuCommandAppId = (settings.FeishuCommandAppId ?? "").Trim();
         settings.FeishuCommandAppSecret = settings.FeishuCommandAppSecret ?? "";
         settings.FeishuCommandBotName = (settings.FeishuCommandBotName ?? "").Trim();

@@ -1370,6 +1370,7 @@ public partial class ProjectListItemViewModel : ViewModelBase
                 var mode = GetString(publish, "episode_selection_mode") ?? "range";
                 var start = GetInt(publish, "start_episode_index") ?? 2;
                 var count = GetInt(publish, "publish_count") ?? 4;
+                var sourceMode = GetString(publish, "publish_video_source_mode") ?? GetString(publish, "video_source_mode") ?? "project";
                 var explicitIndexes = publish.TryGetProperty("episode_indexes", out var indexes) && indexes.ValueKind == JsonValueKind.Array
                     ? string.Join(",", indexes.EnumerateArray().Select(item => item.ToString()))
                     : string.Empty;
@@ -1383,11 +1384,12 @@ public partial class ProjectListItemViewModel : ViewModelBase
 
                 var selectionLabel = mode switch
                 {
+                    "all" => "全集",
                     "explicit" when !string.IsNullOrWhiteSpace(explicitIndexes) => $"指定集数：{explicitIndexes}",
                     _ => $"连续 {count} 集，从第 {start} 集开始"
                 };
 
-                return (strategyLabel, selectionLabel);
+                return ($"{strategyLabel} / {ResolveMaterialPublishSourceLabel(sourceMode)}", selectionLabel);
             }
             catch
             {
@@ -1396,6 +1398,22 @@ public partial class ProjectListItemViewModel : ViewModelBase
         }
 
         return ("未配置", "未配置");
+    }
+
+    private static string ResolveMaterialPublishSourceLabel(string sourceMode)
+    {
+        return (sourceMode ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "material_clips" or "material_clip" => "剪辑成片",
+            "custom_files" or "custom" => "自选视频",
+            "downloaded_system_highlight" or "downloaded_highlight" => "下载系统高光",
+            "material_video_download" => "下载素材视频",
+            "system_highlight" => "系统高光",
+            "directory_publish" => "目录批量发表",
+            "project_materials" => "项目素材",
+            "source_videos" => "源视频",
+            _ => "项目视频"
+        };
     }
 
     private void RefreshMaterialPublishVideos()
@@ -1432,6 +1450,7 @@ public partial class ProjectListItemViewModel : ViewModelBase
             var stateFile = GetString(publish, "state_file") ?? ".weixin-channel-publish-state.json";
             var strategy = GetString(publish, "run_strategy") ?? "all";
             var mode = GetString(publish, "episode_selection_mode") ?? "range";
+            var sourceMode = GetString(publish, "publish_video_source_mode") ?? GetString(publish, "video_source_mode") ?? "project";
             var start = GetInt(publish, "start_episode_index") ?? 2;
             var count = GetInt(publish, "publish_count") ?? 4;
             var explicitIndexes = publish.TryGetProperty("episode_indexes", out var indexesElement) && indexesElement.ValueKind == JsonValueKind.Array
@@ -1442,30 +1461,19 @@ public partial class ProjectListItemViewModel : ViewModelBase
                     .ToArray()
                 : [];
 
-            var materialVideosDir = Path.Combine(WorkflowProjectDir, "material-videos");
-            var videosDir = Path.Combine(WorkflowProjectDir, "videos");
-            var baseDir = Directory.Exists(materialVideosDir) &&
-                          Directory.EnumerateFiles(materialVideosDir, "*.*", SearchOption.TopDirectoryOnly).Any(path => VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
-                ? materialVideosDir
-                : videosDir;
-            if (!Directory.Exists(baseDir))
-            {
-                return;
-            }
-
-            var files = Directory.EnumerateFiles(baseDir, "*.*", SearchOption.TopDirectoryOnly)
-                .Where(path => VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            var files = ResolveMaterialPublishSummaryFiles(WorkflowProjectDir, publish, sourceMode);
             if (files.Length == 0)
             {
                 NotifyMaterialPublishSummaryChanged();
                 return;
             }
 
-            var selectedIndexes = string.Equals(mode, "explicit", StringComparison.OrdinalIgnoreCase) && explicitIndexes.Length > 0
-                ? explicitIndexes
-                : Enumerable.Range(Math.Max(1, start), Math.Max(1, count)).Where(index => index <= files.Length).ToArray();
+            var selectedIndexes = mode switch
+            {
+                "all" => Enumerable.Range(1, files.Length).ToArray(),
+                "explicit" when explicitIndexes.Length > 0 => explicitIndexes,
+                _ => Enumerable.Range(Math.Max(1, start), Math.Max(1, count)).Where(index => index <= files.Length).ToArray()
+            };
 
             var statePath = Path.IsPathRooted(stateFile) ? stateFile : Path.Combine(WorkflowProjectDir, stateFile);
             var stateEntries = ReadMaterialPublishStateEntries(statePath);
@@ -1501,6 +1509,130 @@ public partial class ProjectListItemViewModel : ViewModelBase
         }
 
         NotifyMaterialPublishSummaryChanged();
+    }
+
+    private static string[] ResolveMaterialPublishSummaryFiles(
+        string workflowProjectDir,
+        JsonElement publish,
+        string sourceMode)
+    {
+        var normalized = (sourceMode ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalized is "custom_files" or "custom")
+        {
+            return ResolveMaterialPublishCustomFiles(workflowProjectDir, publish);
+        }
+
+        if (normalized is "material_clips" or "material_clip" or "material_highlights" or "highlight_clips" or "clip_highlights")
+        {
+            return ResolveMaterialPublishFilesFromCandidates(
+                [
+                    Path.Combine(workflowProjectDir, "素材剪辑输出"),
+                    Path.Combine(workflowProjectDir, "material-clip-output"),
+                    Path.Combine(workflowProjectDir, "material-clip-output", "renders", "clips"),
+                    Path.Combine(workflowProjectDir, "素材剪辑输出", "渲染输出", "片段")
+                ],
+                naturalSort: true);
+        }
+
+        if (normalized is "downloaded_system_highlight" or "material_video_download" or "directory_publish" or "source_videos")
+        {
+            return ResolveMaterialPublishFilesFromCandidates([workflowProjectDir], naturalSort: true);
+        }
+
+        if (normalized is "project_materials" or "project_material")
+        {
+            return ResolveMaterialPublishFilesFromCandidates([Path.Combine(workflowProjectDir, "material-videos")], naturalSort: false);
+        }
+
+        var materialVideosDir = Path.Combine(workflowProjectDir, "material-videos");
+        var videosDir = Path.Combine(workflowProjectDir, "videos");
+        var materialFiles = ResolveMaterialPublishFilesFromCandidates([materialVideosDir], naturalSort: false);
+        if (materialFiles.Length > 0)
+        {
+            return materialFiles;
+        }
+
+        return ResolveMaterialPublishFilesFromCandidates([videosDir, workflowProjectDir], naturalSort: false);
+    }
+
+    private static string[] ResolveMaterialPublishCustomFiles(string workflowProjectDir, JsonElement publish)
+    {
+        var values = ReadStringArray(publish, "publish_video_custom_files");
+        if (values.Length == 0)
+        {
+            values = ReadStringArray(publish, "custom_video_files");
+        }
+
+        return values
+            .Select(path => Path.IsPathRooted(path) ? path : Path.Combine(workflowProjectDir, path))
+            .Where(path => File.Exists(path) && VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string[] ResolveMaterialPublishFilesFromCandidates(IEnumerable<string> candidates, bool naturalSort)
+    {
+        var files = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(candidate) || !Directory.Exists(candidate))
+            {
+                continue;
+            }
+
+            foreach (var path in Directory.EnumerateFiles(candidate, "*.*", SearchOption.TopDirectoryOnly)
+                         .Where(path => VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)))
+            {
+                var fullPath = Path.GetFullPath(path);
+                if (seen.Add(fullPath))
+                {
+                    files.Add(fullPath);
+                }
+            }
+        }
+
+        return naturalSort
+            ? files.OrderBy(BuildMaterialPublishNaturalSortToken, StringComparer.OrdinalIgnoreCase).ThenBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray()
+            : files.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static string BuildMaterialPublishNaturalSortToken(string path)
+    {
+        var parts = Regex.Split(Path.GetFileNameWithoutExtension(path), @"(\d+)");
+        return string.Join("|", parts
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .Select(part => int.TryParse(part, out var number) ? number.ToString("D8") : part.ToLowerInvariant()));
+    }
+
+    private static string[] ReadStringArray(JsonElement element, string key)
+    {
+        if (!element.TryGetProperty(key, out var value))
+        {
+            return [];
+        }
+
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            return (value.GetString() ?? string.Empty)
+                .Replace(';', '\n')
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToArray();
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return value.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String)
+            .Select(item => item.GetString()?.Trim() ?? string.Empty)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToArray();
     }
 
     private static Dictionary<string, string> ReadMaterialPublishStateEntries(string statePath)

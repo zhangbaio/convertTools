@@ -59,13 +59,17 @@ public sealed class WeixinBrowserSessionLauncher : IWeixinBrowserSessionLauncher
                 [
                     "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
-                    "--start-maximized"
+                    "--start-maximized",
+                    "--window-position=0,0",
+                    "--window-size=1920,1080"
                 ]
             });
 
         var page = context.Pages.FirstOrDefault() ?? await context.NewPageAsync();
+        await MaximizeBrowserWindowAsync(page);
         await _homePage.OpenAsync(page, config.BaseUrl, cancellationToken);
         await page.BringToFrontAsync();
+        await MaximizeBrowserWindowAsync(page);
 
         if (!await _homePage.IsLoggedInAsync(page, cancellationToken))
         {
@@ -131,6 +135,33 @@ public sealed class WeixinBrowserSessionLauncher : IWeixinBrowserSessionLauncher
 
         var normalizedProjectDir = Path.GetFullPath(projectDir);
         return await _configLoader.LoadAsync(configPath, normalizedProjectDir, cancellationToken);
+    }
+
+    private static async Task MaximizeBrowserWindowAsync(IPage page)
+    {
+        try
+        {
+            var session = await page.Context.NewCDPSessionAsync(page).ConfigureAwait(false);
+            var windowInfo = await session.SendAsync("Browser.getWindowForTarget").ConfigureAwait(false);
+            if (windowInfo is null ||
+                !windowInfo.Value.TryGetProperty("windowId", out var windowIdElement))
+            {
+                return;
+            }
+
+            await session.SendAsync("Browser.setWindowBounds", new Dictionary<string, object>
+            {
+                ["windowId"] = windowIdElement.GetInt32(),
+                ["bounds"] = new Dictionary<string, object>
+                {
+                    ["windowState"] = "maximized"
+                }
+            }).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Chrome can restore persisted window bounds; CDP maximization is best effort.
+        }
     }
 
     private async Task TryNotifyLoginQrRequiredAsync(

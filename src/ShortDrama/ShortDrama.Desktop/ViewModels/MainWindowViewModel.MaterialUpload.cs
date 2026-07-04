@@ -107,7 +107,7 @@ public partial class MainWindowViewModel
     }
 
     public string MaterialUploadQueueButtonText =>
-        $"上传素材队列 ({MaterialUploadProjects.Count(item => item.IsChecked)})";
+        $"发表素材 ({MaterialUploadProjects.Count(item => item.IsChecked)})";
 
     public string MaterialUploadSummary =>
         $"项目数: {MaterialUploadProjects.Count} | 已勾选: {MaterialUploadProjects.Count(item => item.IsChecked)} | 当前项目: {SelectedProject?.DisplayName ?? "未选择"}";
@@ -302,6 +302,57 @@ public partial class MainWindowViewModel
         OnPropertyChanged(nameof(MaterialUploadSummary));
         StatusMessage = $"已绑定 {targets.Length} 个素材项目到账号：{account.DisplayName}";
         AppendLog(StatusMessage);
+    }
+
+    public void BindCurrentMaterialUploadProjectToSelectedAccount()
+    {
+        var target = ResolveMaterialUploadTargetProject(null);
+        if (target is null)
+        {
+            StatusMessage = "请先选择、勾选或扫描出一个素材项目。";
+            AppendLog(StatusMessage, string.Empty, string.Empty, "material-upload", "素材上传", isFailure: true);
+            return;
+        }
+
+        var account = SelectedMaterialUploadAccount ?? GetActiveMaterialUploadAccount();
+        if (account is null)
+        {
+            StatusMessage = "请先选择素材上传账号。";
+            AppendLog(StatusMessage, target.ProjectKey, target.DisplayName, "material-upload", "素材上传", isFailure: true);
+            return;
+        }
+
+        BindMaterialUploadProjectToAccount(target, account);
+        ActivateMaterialUploadProject(target);
+        OnPropertyChanged(nameof(MaterialUploadSummary));
+        StatusMessage = $"已绑定当前素材项目到账号：{target.DisplayName} -> {account.DisplayName}";
+        AppendLog(StatusMessage, target.ProjectKey, target.DisplayName, "material-upload", "素材上传");
+    }
+
+    public void ClearMaterialUploadProjectAccountBinding()
+    {
+        var targets = MaterialUploadProjects.Where(item => item.IsChecked).ToArray();
+        if (targets.Length == 0)
+        {
+            var target = ResolveMaterialUploadTargetProject(null);
+            targets = target is null ? [] : [target];
+        }
+
+        if (targets.Length == 0)
+        {
+            StatusMessage = "请先选择或勾选要清除绑定的素材项目。";
+            AppendLog(StatusMessage, string.Empty, string.Empty, "material-upload", "素材上传", isFailure: true);
+            return;
+        }
+
+        foreach (var project in targets)
+        {
+            ClearMaterialUploadProjectAccountBinding(project);
+        }
+
+        OnPropertyChanged(nameof(MaterialUploadSummary));
+        StatusMessage = $"已清除 {targets.Length} 个素材项目的账号绑定。";
+        AppendLog(StatusMessage, string.Empty, string.Empty, "material-upload", "素材上传");
     }
 
     public Task OpenSelectedMaterialUploadAccountBrowserAsync(bool relogin)
@@ -545,21 +596,92 @@ public partial class MainWindowViewModel
 
     public void OpenMaterialPublishConfig(ProjectListItemViewModel? project)
     {
-        project ??= SelectedProject;
-        if (project is null)
+        var target = ResolveMaterialPublishConfigTarget(project);
+        if (target is null)
         {
             return;
         }
 
-        var configPath = ResolveMaterialPublishConfigPath(project);
-        if (string.IsNullOrWhiteSpace(configPath))
+        _shellService.TryRevealPath(target.ConfigPath, out _);
+    }
+
+    public MaterialPublishConfigTarget? ResolveMaterialPublishConfigTarget(ProjectListItemViewModel? project)
+    {
+        var targetProject = ResolveMaterialPublishConfigProject(project);
+        if (targetProject is null)
         {
-            StatusMessage = $"未找到素材上传发表配置：{project.DisplayName}";
-            AppendLog(StatusMessage, project.ProjectKey, project.DisplayName, "material-upload", "素材上传", isFailure: true);
-            return;
+            StatusMessage = "请先选择或勾选已有 workflow 目录的素材项目。";
+            return null;
         }
 
-        _shellService.TryRevealPath(configPath, out _);
+        try
+        {
+            var configPath = EnsureMaterialPublishConfigPath(targetProject);
+            return new MaterialPublishConfigTarget(targetProject, configPath);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"打开素材发表配置失败：{ex.Message}";
+            return null;
+        }
+    }
+
+    private ProjectListItemViewModel? ResolveMaterialPublishConfigProject(ProjectListItemViewModel? project)
+    {
+        if (project is not null)
+        {
+            return HasMaterialPublishWorkflow(project) ? project : null;
+        }
+
+        if (SelectedProject is not null &&
+            MaterialUploadProjects.Contains(SelectedProject) &&
+            HasMaterialPublishWorkflow(SelectedProject))
+        {
+            return SelectedProject;
+        }
+
+        return MaterialUploadProjects.FirstOrDefault(item => item.IsChecked && HasMaterialPublishWorkflow(item))
+               ?? MaterialUploadProjects.FirstOrDefault(HasMaterialPublishWorkflow);
+    }
+
+    private static bool HasMaterialPublishWorkflow(ProjectListItemViewModel project) =>
+        !string.IsNullOrWhiteSpace(project.WorkflowProjectDir);
+
+    private ProjectListItemViewModel? ResolveMaterialUploadTargetProject(ProjectListItemViewModel? project)
+    {
+        if (project is not null)
+        {
+            return project;
+        }
+
+        if (SelectedProject is not null && MaterialUploadProjects.Contains(SelectedProject))
+        {
+            return SelectedProject;
+        }
+
+        return MaterialUploadProjects.FirstOrDefault(item => item.IsChecked)
+               ?? MaterialUploadProjects.FirstOrDefault();
+    }
+
+    private string EnsureMaterialPublishConfigPath(ProjectListItemViewModel project)
+    {
+        var existing = ResolveMaterialPublishConfigPath(project);
+        if (!string.IsNullOrWhiteSpace(existing))
+        {
+            return existing;
+        }
+
+        if (string.IsNullOrWhiteSpace(project.WorkflowProjectDir))
+        {
+            throw new InvalidOperationException($"项目没有 workflow 目录：{project.DisplayName}");
+        }
+
+        Directory.CreateDirectory(project.WorkflowProjectDir);
+        var configPath = Path.Combine(project.WorkflowProjectDir, "weixin-channel-publish.json");
+        File.WriteAllText(configPath, BuildDefaultMaterialPublishConfigJson(project));
+        StatusMessage = $"已创建素材发表配置：{project.DisplayName}";
+        AppendLog(StatusMessage, project.ProjectKey, project.DisplayName, "material-upload", "素材上传");
+        return configPath;
     }
 
     public void ShowMaterialUploadLogs(ProjectListItemViewModel? project)
@@ -898,6 +1020,37 @@ public partial class MainWindowViewModel
         }
     }
 
+    private void ClearMaterialUploadProjectAccountBinding(ProjectListItemViewModel project)
+    {
+        project.MaterialUploadAccountProfileId = string.Empty;
+        project.MaterialUploadAccountName = string.Empty;
+        foreach (var metadataPath in EnumerateProjectMetadataPaths(project))
+        {
+            try
+            {
+                if (!File.Exists(metadataPath))
+                {
+                    continue;
+                }
+
+                var root = JsonNode.Parse(File.ReadAllText(metadataPath)) as JsonObject ?? new JsonObject();
+                root.Remove("materialUploadAccountProfileId");
+                root.Remove("material_upload_account_profile_id");
+                File.WriteAllText(metadataPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch (Exception ex)
+            {
+                AppendLog(
+                    $"清除素材上传账号绑定失败：{ex.Message}",
+                    project.ProjectKey,
+                    project.DisplayName,
+                    "weixin-material-upload",
+                    "素材上传",
+                    isFailure: true);
+            }
+        }
+    }
+
     private IEnumerable<string> EnumerateProjectMetadataPaths(ProjectListItemViewModel project)
     {
         var dirs = new[]
@@ -1112,6 +1265,49 @@ public partial class MainWindowViewModel
         return string.IsNullOrWhiteSpace(safe) ? "account" : safe;
     }
 
+    private static string BuildDefaultMaterialPublishConfigJson(ProjectListItemViewModel project)
+    {
+        var root = new JsonObject
+        {
+            ["task_type"] = "publish_videos",
+            ["pause_on_error"] = true,
+            ["video_publish"] = new JsonObject
+            {
+                ["enabled"] = true,
+                ["run_strategy"] = "resume",
+                ["state_file"] = ".weixin-channel-publish-state.json",
+                ["allow_duplicate_publish"] = false,
+                ["publish_video_source_mode"] = "project",
+                ["video_source_mode"] = "project",
+                ["episode_selection_mode"] = "all",
+                ["start_episode_index"] = 1,
+                ["publish_count"] = Math.Max(1, project.VideoCount),
+                ["episode_indexes"] = new JsonArray(),
+                ["fill_description"] = true,
+                ["fill_short_title"] = false,
+                ["description_template"] = "{新剧名}",
+                ["prepend_hash_to_description"] = true,
+                ["location_option_text"] = "不显示",
+                ["link_option_text"] = "视频号剧集",
+                ["link_picker_button_text"] = "选择需要添加的剧集",
+                ["link_dialog_title"] = "选择需要关联的视频号剧集",
+                ["link_search_placeholder"] = "搜索内容",
+                ["activity_option_text"] = "不参与活动",
+                ["timing_option_text"] = "不定时",
+                ["short_title_max_length"] = 15,
+                ["final_action"] = "draft",
+                ["single_test_final_action"] = "draft",
+                ["pause_on_error"] = true,
+                ["video_upload_action"] = new JsonObject
+                {
+                    ["input_selector"] = "input[type='file'][accept*='video'], input[type='file']"
+                }
+            }
+        };
+
+        return root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+    }
+
     private static string ExpandMaterialUploadPath(string? path)
     {
         var text = (path ?? string.Empty).Trim();
@@ -1150,6 +1346,10 @@ public partial class MainWindowViewModel
         ProjectListItemViewModel Project,
         MaterialUploadAccountItemViewModel Account,
         int Index);
+
+    public sealed record MaterialPublishConfigTarget(
+        ProjectListItemViewModel Project,
+        string ConfigPath);
 
     private string? ResolveMaterialPublishConfigPath(ProjectListItemViewModel project)
     {

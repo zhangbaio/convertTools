@@ -1,6 +1,7 @@
 using Microsoft.Playwright;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.AI;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace ShortDrama.Infrastructure.Automation.Weixin.Pages;
@@ -9,6 +10,12 @@ public sealed class WeixinMaterialPublishPage
 {
     private const string PublishVideoSourceModeProject = "project";
     private const string PublishVideoSourceModeMaterialClips = "material_clips";
+    private const string PublishVideoSourceModeCustomFiles = "custom_files";
+    private const string PublishVideoSourceModeDownloadedSystemHighlight = "downloaded_system_highlight";
+    private const string PublishVideoSourceModeMaterialVideoDownload = "material_video_download";
+    private const string PublishVideoSourceModeDirectoryPublish = "directory_publish";
+    private const string PublishVideoSourceModeProjectMaterials = "project_materials";
+    private const string PublishVideoSourceModeSourceVideos = "source_videos";
     private static readonly Regex EpisodeIndexRegex = new(
         @"第\s*0*(\d+)\s*集|episode\s*0*(\d+)|ep\s*0*(\d+)|(^|[^\d])0*(\d+)(?=[^\d]*$)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -422,7 +429,8 @@ public sealed class WeixinMaterialPublishPage
 
     public static IReadOnlyList<PublishVideoItem> ResolvePublishVideoItems(string projectDir, WeixinVideoPublishOptions options)
     {
-        if (string.Equals(NormalizeVideoSourceMode(options.VideoSourceMode), PublishVideoSourceModeMaterialClips, StringComparison.Ordinal))
+        var sourceMode = NormalizeVideoSourceMode(options.VideoSourceMode);
+        if (string.Equals(sourceMode, PublishVideoSourceModeMaterialClips, StringComparison.Ordinal))
         {
             var clipFiles = ResolveMaterialClipVideoFiles(projectDir);
             if (clipFiles.Count == 0)
@@ -436,8 +444,29 @@ public sealed class WeixinMaterialPublishPage
                 .ToList();
         }
 
+        if (string.Equals(sourceMode, PublishVideoSourceModeCustomFiles, StringComparison.Ordinal))
+        {
+            return BuildPublishItemsFromFiles(options.CustomVideoFiles, options);
+        }
+
+        if (string.Equals(sourceMode, PublishVideoSourceModeDownloadedSystemHighlight, StringComparison.Ordinal) ||
+            string.Equals(sourceMode, PublishVideoSourceModeMaterialVideoDownload, StringComparison.Ordinal) ||
+            string.Equals(sourceMode, PublishVideoSourceModeDirectoryPublish, StringComparison.Ordinal) ||
+            string.Equals(sourceMode, PublishVideoSourceModeSourceVideos, StringComparison.Ordinal))
+        {
+            var sourceFiles = Directory.Exists(projectDir)
+                ? Directory.EnumerateFiles(projectDir, "*.*", SearchOption.TopDirectoryOnly)
+                    .Where(IsVideoFile)
+                    .OrderBy(BuildNaturalSortToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+                    .ToArray()
+                : [];
+            return BuildPublishItemsFromFiles(sourceFiles, options);
+        }
+
         var materialVideosDir = Path.Combine(projectDir, "material-videos");
         var videosDir = Path.Combine(projectDir, "videos");
+        var preferProjectMaterials = string.Equals(sourceMode, PublishVideoSourceModeProjectMaterials, StringComparison.Ordinal);
         var materialVideoCount = Directory.Exists(materialVideosDir)
             ? Directory.EnumerateFiles(materialVideosDir, "*.*", SearchOption.TopDirectoryOnly).Count(IsVideoFile)
             : 0;
@@ -445,7 +474,7 @@ public sealed class WeixinMaterialPublishPage
             ? Directory.EnumerateFiles(videosDir, "*.*", SearchOption.TopDirectoryOnly).Count(IsVideoFile)
             : 0;
 
-        var baseDir = materialVideoCount > 0 &&
+        var baseDir = (preferProjectMaterials || materialVideoCount > 0) &&
                       (videoCount == 0 || materialVideoCount >= videoCount)
             ? materialVideosDir
             : videoCount > 0
@@ -461,9 +490,30 @@ public sealed class WeixinMaterialPublishPage
             return [];
         }
 
-        var selectedIndexes = ResolveEpisodeIndexes(options, files.Count);
+        return BuildPublishItemsFromFiles(files, options);
+    }
+
+    private static IReadOnlyList<PublishVideoItem> BuildPublishItemsFromFiles(
+        IEnumerable<string> paths,
+        WeixinVideoPublishOptions options)
+    {
+        var files = paths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => Path.GetFullPath(path))
+            .Where(path => File.Exists(path) && IsVideoFile(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(BuildNaturalSortToken, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (files.Length == 0)
+        {
+            return [];
+        }
+
+        var selectedIndexes = ResolveEpisodeIndexes(options, files.Length);
         return selectedIndexes
-            .Where(index => index >= 1 && index <= files.Count)
+            .Where(index => index >= 1 && index <= files.Length)
             .Select(index => new PublishVideoItem(index, files[index - 1]))
             .GroupBy(item => item.VideoPath, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
@@ -483,6 +533,11 @@ public sealed class WeixinMaterialPublishPage
 
     private static IReadOnlyList<int> ResolveEpisodeIndexes(WeixinVideoPublishOptions options, int fileCount)
     {
+        if (string.Equals(options.EpisodeSelectionMode, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            return Enumerable.Range(1, fileCount).ToArray();
+        }
+
         if (string.Equals(options.EpisodeSelectionMode, "explicit", StringComparison.OrdinalIgnoreCase) &&
             options.EpisodeIndexes.Count > 0)
         {
@@ -506,6 +561,12 @@ public sealed class WeixinMaterialPublishPage
         return normalized switch
         {
             "material_clips" or "material_clip" or "material_highlights" or "highlight_clips" or "clip_highlights" => PublishVideoSourceModeMaterialClips,
+            "custom_files" or "custom" or "files" => PublishVideoSourceModeCustomFiles,
+            "downloaded_system_highlight" or "downloaded_system_highlights" or "downloaded_highlight" or "downloaded_highlights" => PublishVideoSourceModeDownloadedSystemHighlight,
+            "material_video_download" or "material_download" or "downloaded_material_video" => PublishVideoSourceModeMaterialVideoDownload,
+            "directory_publish" or "dir_publish" => PublishVideoSourceModeDirectoryPublish,
+            "project_materials" or "project_material" => PublishVideoSourceModeProjectMaterials,
+            "source_videos" or "source" => PublishVideoSourceModeSourceVideos,
             _ => PublishVideoSourceModeProject
         };
     }
@@ -624,15 +685,22 @@ public sealed class WeixinMaterialPublishPage
         }
     }
 
-    public static string BuildPublishDescription(ProjectInfo projectInfo, WeixinVideoPublishOptions options)
+    public static string BuildPublishDescription(
+        ProjectInfo projectInfo,
+        WeixinVideoPublishOptions options,
+        PublishVideoItem? publishItem = null)
     {
-        var description = !string.IsNullOrWhiteSpace(projectInfo.Tags)
+        var description = ResolvePerVideoDescription(options, publishItem?.VideoPath);
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            description = !string.IsNullOrWhiteSpace(projectInfo.Tags)
             ? projectInfo.Tags.Trim()
             : (string.IsNullOrWhiteSpace(options.DescriptionTemplate)
                 ? "{新剧名}"
                 : options.DescriptionTemplate)
                 .Replace("{新剧名}", projectInfo.Title, StringComparison.Ordinal)
                 .Replace("{原剧名}", projectInfo.OriginalTitle, StringComparison.Ordinal);
+        }
 
         if (options.PrependHashToDescription &&
             !string.IsNullOrWhiteSpace(description) &&
@@ -642,6 +710,75 @@ public sealed class WeixinMaterialPublishPage
         }
 
         return description;
+    }
+
+    private static string ResolvePerVideoDescription(WeixinVideoPublishOptions options, string? videoPath)
+    {
+        if (string.IsNullOrWhiteSpace(videoPath))
+        {
+            return string.Empty;
+        }
+
+        var fileName = Path.GetFileName(videoPath);
+        foreach (var key in BuildDescriptionLookupKeys(videoPath))
+        {
+            if (options.VideoDescriptionMap.TryGetValue(key, out var mapped) &&
+                !string.IsNullOrWhiteSpace(mapped))
+            {
+                return mapped.Trim();
+            }
+        }
+
+        var sidecar = Path.Combine(
+            Path.GetDirectoryName(videoPath) ?? ".",
+            Path.GetFileNameWithoutExtension(videoPath) + ".publish.json");
+        if (!File.Exists(sidecar))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(sidecar));
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return string.Empty;
+            }
+
+            foreach (var key in new[] { "description", "caption" })
+            {
+                if (document.RootElement.TryGetProperty(key, out var value) &&
+                    value.ValueKind == JsonValueKind.String)
+                {
+                    var text = value.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        return text;
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return string.Empty;
+    }
+
+    private static IEnumerable<string> BuildDescriptionLookupKeys(string videoPath)
+    {
+        var fileName = Path.GetFileName(videoPath);
+        var stem = Path.GetFileNameWithoutExtension(videoPath);
+        yield return videoPath;
+        yield return fileName;
+        yield return stem;
+
+        var unprefixed = Regex.Replace(fileName, @"^\d{1,6}[-_ ]+", string.Empty);
+        if (!string.Equals(unprefixed, fileName, StringComparison.OrdinalIgnoreCase))
+        {
+            yield return unprefixed;
+            yield return Path.GetFileNameWithoutExtension(unprefixed);
+        }
     }
 
     public static string BuildShortTitle(ProjectInfo projectInfo, WeixinVideoPublishOptions options)

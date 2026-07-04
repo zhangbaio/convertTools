@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
@@ -7,6 +9,7 @@ namespace TikTokPublisher.Core.Drama;
 
 public sealed record UploadTitleImportRequest(string Title, int ExpectedEpisodeTotal = 0, string RawText = "");
 public sealed record UploadTitleImportFailure(string Title, string Reason);
+public sealed record UploadTitleImportDownloadPlan(string Episodes, int EffectiveEpisodeCount, bool Truncated);
 
 public sealed class UploadTitleImportResult
 {
@@ -24,6 +27,11 @@ public static class UploadTitleImportService
     public const string MatchModeTitleEpisode = "title_episode";
     public const int DefaultEpisodeMin = 10;
     public const int DefaultEpisodeMax = 120;
+
+    private static readonly JsonSerializerOptions MetadataJsonOptions = new()
+    {
+        WriteIndented = true,
+    };
 
     private static readonly Regex TitleEpisodePattern = new(
         @"^(?<title>.+?)[\s　]+(?<count>\d{1,5})\s*集?\s*$",
@@ -117,7 +125,7 @@ public static class UploadTitleImportService
                     continue;
                 }
 
-                var episodeError = MatchEpisodeLimitError(matched, episodeMin, episodeMax);
+                var episodeError = ResolveEpisodeLimitError(matched, settings, episodeMin, episodeMax);
                 if (!string.IsNullOrWhiteSpace(episodeError))
                 {
                     result.Failures.Add(new UploadTitleImportFailure(label, episodeError));
@@ -125,15 +133,22 @@ public static class UploadTitleImportService
                     continue;
                 }
 
+                var downloadPlan = ResolveDownloadPlan(matched, settings, episodeMax);
                 var projectDir = await ShortDramaDramaServices.BootstrapAsync(
                     workspace,
                     matched,
-                    "all",
+                    downloadPlan.Episodes,
                     quality,
                     concurrent,
                     episodeSelection,
                     ResolveQueueEntryDramaType(matched),
                     ct).ConfigureAwait(false);
+                if (downloadPlan.Truncated)
+                {
+                    UpdateTruncatedProjectMetadata(projectDir, matched.EpisodeTotal, downloadPlan);
+                    log?.Invoke($"超长剧已加入队列：{matched.Title} 原 {matched.EpisodeTotal} 集，仅下载前 {downloadPlan.EffectiveEpisodeCount} 集");
+                }
+
                 result.ProjectDirs.Add(projectDir);
                 log?.Invoke($"已创建/更新项目：{matched.Title}（{matched.EpisodeTotal} 集）");
             }
@@ -222,13 +237,59 @@ public static class UploadTitleImportService
             : $"找到同名短剧，但候选集数缺失，无法按 {expectedEpisodeTotal} 集匹配");
     }
 
-    private static string MatchEpisodeLimitError(DramaSearchItem item, int episodeMin, int episodeMax)
+    public static string ResolveEpisodeLimitError(
+        DramaSearchItem item,
+        ClientSettings settings,
+        int episodeMin = DefaultEpisodeMin,
+        int episodeMax = DefaultEpisodeMax)
     {
         if (episodeMin > 0 && item.EpisodeTotal < episodeMin)
             return $"集数 {item.EpisodeTotal}，小于最小限制 {episodeMin}";
-        if (episodeMax > 0 && item.EpisodeTotal > episodeMax)
+        if (episodeMax > 0 &&
+            item.EpisodeTotal > episodeMax &&
+            !settings.TiktokAllowOverLimitUploadImport)
             return $"集数 {item.EpisodeTotal}，大于最大限制 {episodeMax}";
         return "";
+    }
+
+    public static UploadTitleImportDownloadPlan ResolveDownloadPlan(
+        DramaSearchItem item,
+        ClientSettings settings,
+        int episodeMax = DefaultEpisodeMax)
+    {
+        var max = episodeMax > 0 ? episodeMax : DefaultEpisodeMax;
+        if (!settings.TiktokAllowOverLimitUploadImport || item.EpisodeTotal <= max)
+            return new UploadTitleImportDownloadPlan("all", Math.Max(1, item.EpisodeTotal), Truncated: false);
+
+        var limit = settings.TiktokOverLimitDownloadEpisodeCount <= 0
+            ? max
+            : settings.TiktokOverLimitDownloadEpisodeCount;
+        limit = Math.Clamp(limit, 1, max);
+        return new UploadTitleImportDownloadPlan($"1-{limit}", limit, Truncated: true);
+    }
+
+    private static void UpdateTruncatedProjectMetadata(
+        string projectDir,
+        int originalEpisodeCount,
+        UploadTitleImportDownloadPlan plan)
+    {
+        var path = Path.Combine(projectDir, "shortdrama-project.json");
+        if (!File.Exists(path))
+            return;
+
+        var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? new JsonObject();
+        root["originalEpisodeCount"] = Math.Max(originalEpisodeCount, plan.EffectiveEpisodeCount);
+        root["original_episode_count"] = Math.Max(originalEpisodeCount, plan.EffectiveEpisodeCount);
+        root["episodeCount"] = plan.EffectiveEpisodeCount;
+        root["episode_count"] = plan.EffectiveEpisodeCount;
+        root["effectiveEpisodeCount"] = plan.EffectiveEpisodeCount;
+        root["effective_episode_count"] = plan.EffectiveEpisodeCount;
+        root["downloadEpisodeLimit"] = plan.EffectiveEpisodeCount;
+        root["download_episode_limit"] = plan.EffectiveEpisodeCount;
+        root["episodes"] = plan.Episodes;
+        root["truncatedForTikTokUpload"] = true;
+        root["truncated_for_tiktok_upload"] = true;
+        File.WriteAllText(path, root.ToJsonString(MetadataJsonOptions));
     }
 
     private static IEnumerable<DramaSearchItem> Dedupe(IEnumerable<DramaSearchItem> items)

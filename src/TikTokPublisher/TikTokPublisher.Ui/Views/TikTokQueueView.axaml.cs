@@ -534,6 +534,10 @@ public partial class TikTokQueueView : UserControl
                 ?? UploadTitleImportService.MatchModeTitle;
             dialog.Close(new UploadTitlesDialogResult(titleBox.Text ?? "", mode));
         }, primary: true);
+        var settings = ClientSettingsStore.Load();
+        var episodeLimitText = settings.TiktokAllowOverLimitUploadImport
+            ? $"当前导入集数限制：最小 {UploadTitleImportService.DefaultEpisodeMin} 集；超过 {UploadTitleImportService.DefaultEpisodeMax} 集也会加入队列，并只下载前 {settings.TiktokOverLimitDownloadEpisodeCount} 集。"
+            : $"当前导入集数限制：最小 {UploadTitleImportService.DefaultEpisodeMin} 集，最大 {UploadTitleImportService.DefaultEpisodeMax} 集。超出范围的短剧会自动过滤，不加入队列。";
 
         dialog.Content = new StackPanel
         {
@@ -548,8 +552,8 @@ public partial class TikTokQueueView : UserControl
                 },
                 new TextBlock
                 {
-                    Text = $"当前导入集数限制：最小 {UploadTitleImportService.DefaultEpisodeMin} 集，最大 {UploadTitleImportService.DefaultEpisodeMax} 集。"
-                           + "超出范围的短剧会自动过滤，不加入队列。确定后会自动执行下载、改写、海报、修复、校验、上传默认步骤，删除源视频默认不会自动启用。",
+                    Text = episodeLimitText
+                           + "确定后会自动执行下载、改写、海报、修复、校验、上传默认步骤，删除源视频默认不会自动启用。",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                 },
                 new TextBlock

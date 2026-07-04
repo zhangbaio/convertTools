@@ -337,7 +337,7 @@
                         </StackPanel>
 
                         <TextBlock Text="TikTok 队列与管理系统" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Excel 自动导出" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="0" Grid.Column="1" IsChecked="{Binding TiktokExcelAutoExportEnabled}" Content="队列状态变化后自动导出 Excel" />
 
@@ -346,6 +346,12 @@
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="去重范围" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ManagementDedupScopeCombo" Width="220" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="超长剧入队" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokAllowOverLimitUploadImport}" Content="超过 120 集仍加入队列，并只下载前 N 集" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="超长剧下载集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding TiktokOverLimitDownloadEpisodeCount}" Minimum="1" Maximum="120" Width="120" HorizontalAlignment="Left" />
                         </Grid>
 
                         <TextBlock Text="数据统计" FontWeight="Bold" />

@@ -155,7 +155,20 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
                 StartEpisodeIndex: ResolveInt(videoPublishElement, "start_episode_index") ?? 2,
                 PublishCount: ResolveInt(videoPublishElement, "publish_count") ?? 4,
                 EpisodeIndexes: ResolveIntArray(videoPublishElement, "episode_indexes"),
-                VideoUploadSelector: ResolveString(videoUploadActionElement, "input_selector") ?? "input[type='file'][accept*='video'], input[type='file']"));
+                VideoUploadSelector: ResolveString(videoUploadActionElement, "input_selector") ?? "input[type='file'][accept*='video'], input[type='file']")
+            {
+                CustomVideoFiles = ResolvePathArray(
+                    configDirectory,
+                    videoPublishElement,
+                    "publish_video_custom_files",
+                    "custom_video_files"),
+                VideoDescriptionMap = ResolveStringMap(videoPublishElement, "publish_video_description_map"),
+                MergePublishEnabled = ResolveBool(videoPublishElement, "merge_publish_enabled") ?? false,
+                MergePublishGroupSize = ResolveInt(videoPublishElement, "merge_publish_group_size") ?? 0,
+                DeclareOriginal = ResolveBool(videoPublishElement, "declare_original") ?? false,
+                ReplaceCoverWithLocalImage = ResolveBool(videoPublishElement, "replace_cover_with_local_image") ?? false,
+                CoverImagePath = ResolveOptionalPath(configDirectory, ResolveString(videoPublishElement, "cover_image_path"))
+            });
 
         return config;
     }
@@ -566,8 +579,17 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
     private static IReadOnlyList<string> ResolveStringArray(JsonElement element, string propertyName)
     {
         if (element.ValueKind != JsonValueKind.Object ||
-            !element.TryGetProperty(propertyName, out var value) ||
-            value.ValueKind != JsonValueKind.Array)
+            !element.TryGetProperty(propertyName, out var value))
+        {
+            return [];
+        }
+
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            return SplitStringList(value.GetString());
+        }
+
+        if (value.ValueKind != JsonValueKind.Array)
         {
             return [];
         }
@@ -582,6 +604,70 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
                 {
                     results.Add(text);
                 }
+            }
+        }
+
+        return results;
+    }
+
+    private static IReadOnlyList<string> SplitStringList(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return [];
+        }
+
+        return value
+            .Replace(';', '\n')
+            .Replace(',', '\n')
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<string> ResolvePathArray(
+        string baseDirectory,
+        JsonElement element,
+        params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            var values = ResolveStringArray(element, propertyName);
+            if (values.Count == 0)
+            {
+                continue;
+            }
+
+            return values
+                .Select(path => ResolveOptionalPath(baseDirectory, path))
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .ToArray();
+        }
+
+        return [];
+    }
+
+    private static IReadOnlyDictionary<string, string> ResolveStringMap(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object ||
+            !element.TryGetProperty(propertyName, out var value) ||
+            value.ValueKind != JsonValueKind.Object)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var results = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in value.EnumerateObject())
+        {
+            if (property.Value.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var text = property.Value.GetString()?.Trim();
+            if (!string.IsNullOrWhiteSpace(property.Name) && !string.IsNullOrWhiteSpace(text))
+            {
+                results[property.Name.Trim()] = text;
             }
         }
 
@@ -663,8 +749,27 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
         {
             "material_clips" or "material_clip" or "material_highlights" or "highlight_clips" or "clip_highlights" => "material_clips",
             "custom_files" or "custom" or "files" => "custom_files",
+            "downloaded_system_highlight" or "downloaded_system_highlights" or "downloaded_highlight" or "downloaded_highlights" => "downloaded_system_highlight",
+            "material_video_download" or "material_download" or "downloaded_material_video" => "material_video_download",
+            "system_highlight" or "system_highlights" or "highlight_system" or "generated_highlight" or "generated_highlights" => "system_highlight",
+            "directory_publish" or "dir_publish" => "directory_publish",
+            "source_videos" or "source" => "source_videos",
+            "project_materials" or "project_material" => "project_materials",
             _ => "project"
         };
+    }
+
+    private static string ResolveOptionalPath(string baseDirectory, string? configuredPath)
+    {
+        if (string.IsNullOrWhiteSpace(configuredPath))
+        {
+            return string.Empty;
+        }
+
+        return Path.GetFullPath(
+            Path.IsPathRooted(configuredPath)
+                ? configuredPath
+                : Path.Combine(baseDirectory, configuredPath));
     }
 
     private static string ResolvePath(string baseDirectory, string? configuredPath, string fallbackPath)

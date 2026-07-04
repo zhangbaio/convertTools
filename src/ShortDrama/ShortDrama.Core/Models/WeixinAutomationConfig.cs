@@ -140,4 +140,14 @@ public sealed record WeixinVideoPublishOptions(
     int StartEpisodeIndex,
     int PublishCount,
     IReadOnlyList<int> EpisodeIndexes,
-    string VideoUploadSelector);
+    string VideoUploadSelector)
+{
+    public IReadOnlyList<string> CustomVideoFiles { get; init; } = [];
+    public IReadOnlyDictionary<string, string> VideoDescriptionMap { get; init; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    public bool MergePublishEnabled { get; init; }
+    public int MergePublishGroupSize { get; init; }
+    public bool DeclareOriginal { get; init; }
+    public bool ReplaceCoverWithLocalImage { get; init; }
+    public string CoverImagePath { get; init; } = string.Empty;
+}

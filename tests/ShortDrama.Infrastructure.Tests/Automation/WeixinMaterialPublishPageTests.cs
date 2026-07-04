@@ -55,6 +55,60 @@ public sealed class WeixinMaterialPublishPageTests
         items.Select(item => item.EpisodeIndex).Should().Equal([1, 2]);
     }
 
+    [Fact]
+    public void ResolvePublishVideoItems_Should_Select_All_ProjectVideos()
+    {
+        var projectDir = Directory.CreateTempSubdirectory().FullName;
+        var videosDir = Directory.CreateDirectory(Path.Combine(projectDir, "videos")).FullName;
+
+        File.WriteAllBytes(Path.Combine(videosDir, "剧名-第1集.mp4"), [1]);
+        File.WriteAllBytes(Path.Combine(videosDir, "剧名-第2集.mp4"), [1]);
+        File.WriteAllBytes(Path.Combine(videosDir, "剧名-第3集.mp4"), [1]);
+
+        var items = WeixinMaterialPublishPage.ResolvePublishVideoItems(
+            projectDir,
+            BuildOptions() with { EpisodeSelectionMode = "all", PublishCount = 1 });
+
+        items.Select(item => item.EpisodeIndex).Should().Equal([1, 2, 3]);
+    }
+
+    [Fact]
+    public void ResolvePublishVideoItems_Should_Use_CustomVideoFiles()
+    {
+        var projectDir = Directory.CreateTempSubdirectory().FullName;
+        var sourceDir = Directory.CreateTempSubdirectory().FullName;
+        var first = Path.Combine(sourceDir, "b-第2集.mp4");
+        var second = Path.Combine(sourceDir, "a-第1集.mp4");
+        File.WriteAllBytes(first, [1]);
+        File.WriteAllBytes(second, [1]);
+
+        var items = WeixinMaterialPublishPage.ResolvePublishVideoItems(
+            projectDir,
+            BuildOptions(videoSourceMode: "custom_files") with
+            {
+                EpisodeSelectionMode = "all",
+                CustomVideoFiles = [first, second]
+            });
+
+        items.Select(item => Path.GetFileName(item.VideoPath)).Should().Equal(["a-第1集.mp4", "b-第2集.mp4"]);
+    }
+
+    [Fact]
+    public void BuildPublishDescription_Should_Use_PerVideoSidecarDescription()
+    {
+        var projectDir = Directory.CreateTempSubdirectory().FullName;
+        var videoPath = Path.Combine(projectDir, "素材.mp4");
+        File.WriteAllBytes(videoPath, [1]);
+        File.WriteAllText(Path.Combine(projectDir, "素材.publish.json"), """{"description":"#旁车描述"}""");
+
+        var description = WeixinMaterialPublishPage.BuildPublishDescription(
+            new ProjectInfo("原剧", "新剧", null, null, null, null, 1, 1, 1, "公司", projectDir, ""),
+            BuildOptions(),
+            new WeixinMaterialPublishPage.PublishVideoItem(1, videoPath));
+
+        description.Should().Be("#旁车描述");
+    }
+
     private static WeixinVideoPublishOptions BuildOptions(string videoSourceMode = "project")
     {
         return new WeixinVideoPublishOptions(

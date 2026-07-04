@@ -124,11 +124,12 @@ public sealed class DesktopStateService
     {
         var state = LoadState();
         var saved = state?.MaterialUploadAccounts;
+        var legacyAccountNames = LoadLegacyMaterialUploadAccountNames();
         if (saved?.Profiles is { Length: > 0 })
         {
             var profiles = saved.Profiles
                 .Where(item => !string.IsNullOrWhiteSpace(item.Id))
-                .Select(NormalizeAccountState)
+                .Select(item => NormalizeAccountState(item, legacyAccountNames))
                 .GroupBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
                 .Select(group => group.First())
                 .ToArray();
@@ -138,15 +139,16 @@ public sealed class DesktopStateService
             return new MaterialUploadAccountsState(activeId, profiles);
         }
 
-        var discovered = DiscoverMaterialUploadAccounts().ToArray();
+        var discovered = DiscoverMaterialUploadAccounts(legacyAccountNames).ToArray();
         return new MaterialUploadAccountsState(discovered.FirstOrDefault()?.Id ?? string.Empty, discovered);
     }
 
     public void SaveMaterialUploadAccountsState(MaterialUploadAccountsState accountsState)
     {
+        var legacyAccountNames = LoadLegacyMaterialUploadAccountNames();
         var profiles = (accountsState.Profiles ?? [])
             .Where(item => !string.IsNullOrWhiteSpace(item.Id))
-            .Select(NormalizeAccountState)
+            .Select(item => NormalizeAccountState(item, legacyAccountNames))
             .GroupBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .ToArray();
@@ -263,7 +265,8 @@ public sealed class DesktopStateService
 
     private static int NormalizeParallelAccounts(int value) => Math.Clamp(value <= 0 ? 2 : value, 1, 8);
 
-    private static IEnumerable<MaterialUploadAccountState> DiscoverMaterialUploadAccounts()
+    private static IEnumerable<MaterialUploadAccountState> DiscoverMaterialUploadAccounts(
+        IReadOnlyDictionary<string, string>? legacyAccountNames)
     {
         var profilesRoot = MaterialUploadProfilesRoot();
         if (!Directory.Exists(profilesRoot))
@@ -288,13 +291,15 @@ public sealed class DesktopStateService
 
             yield return new MaterialUploadAccountState(
                 id,
-                id,
+                ResolveMaterialUploadAccountName(id, id, legacyAccountNames),
                 authFile,
                 Path.Combine(profileDir, "chromium-profile"));
         }
     }
 
-    private static MaterialUploadAccountState NormalizeAccountState(MaterialUploadAccountState state)
+    private static MaterialUploadAccountState NormalizeAccountState(
+        MaterialUploadAccountState state,
+        IReadOnlyDictionary<string, string>? legacyAccountNames = null)
     {
         var id = NormalizeAccountProfileId(state.Id, "profile");
         var root = MaterialUploadAccountRoot(id);
@@ -307,10 +312,109 @@ public sealed class DesktopStateService
         return state with
         {
             Id = id,
-            Name = string.IsNullOrWhiteSpace(state.Name) ? id : state.Name.Trim(),
+            Name = ResolveMaterialUploadAccountName(id, state.Name, legacyAccountNames),
             AuthFile = authFile,
             BrowserProfileDir = browserProfileDir
         };
+    }
+
+    private static string ResolveMaterialUploadAccountName(
+        string id,
+        string? name,
+        IReadOnlyDictionary<string, string>? legacyAccountNames)
+    {
+        var trimmedName = name?.Trim();
+        if (!string.IsNullOrWhiteSpace(trimmedName) &&
+            !string.Equals(trimmedName, id, StringComparison.OrdinalIgnoreCase))
+        {
+            return trimmedName;
+        }
+
+        if (legacyAccountNames is not null &&
+            legacyAccountNames.TryGetValue(id, out var legacyName) &&
+            !string.IsNullOrWhiteSpace(legacyName))
+        {
+            return legacyName.Trim();
+        }
+
+        return string.IsNullOrWhiteSpace(trimmedName) ? id : trimmedName;
+    }
+
+    private static IReadOnlyDictionary<string, string> LoadLegacyMaterialUploadAccountNames()
+    {
+        var settingsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".weixin_channel_tool",
+            "settings.json");
+        if (!File.Exists(settingsPath))
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            using var settingsDoc = JsonDocument.Parse(File.ReadAllText(settingsPath));
+            if (!settingsDoc.RootElement.TryGetProperty("account_profiles_json", out var profilesElement))
+            {
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            return profilesElement.ValueKind switch
+            {
+                JsonValueKind.String => ParseLegacyAccountProfilesJson(profilesElement.GetString()),
+                JsonValueKind.Array => ParseLegacyAccountProfilesArray(profilesElement),
+                _ => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            };
+        }
+        catch
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static IReadOnlyDictionary<string, string> ParseLegacyAccountProfilesJson(string? profilesJson)
+    {
+        if (string.IsNullOrWhiteSpace(profilesJson))
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            using var profilesDoc = JsonDocument.Parse(profilesJson);
+            return profilesDoc.RootElement.ValueKind == JsonValueKind.Array
+                ? ParseLegacyAccountProfilesArray(profilesDoc.RootElement)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static IReadOnlyDictionary<string, string> ParseLegacyAccountProfilesArray(JsonElement profilesElement)
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in profilesElement.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object ||
+                !item.TryGetProperty("id", out var idElement) ||
+                !item.TryGetProperty("name", out var nameElement))
+            {
+                continue;
+            }
+
+            var id = NormalizeAccountProfileId(idElement.GetString(), string.Empty);
+            var name = nameElement.GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            names.TryAdd(id, name);
+        }
+
+        return names;
     }
 
     private static string CreateAccountProfileId(string name, IEnumerable<string> existingIds)

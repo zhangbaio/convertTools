@@ -116,8 +116,17 @@ public static class WorkspaceProjectScanner
             metadata?["category"]?.GetValue<string>()) ?? "";
 
         var episodeCount = videos.Count;
-        if (metadata?["episodeCount"] is JsonValue ev && ev.TryGetValue<int>(out var ec) && ec > 0)
+        if ((metadata?["effectiveEpisodeCount"] is JsonValue effective && effective.TryGetValue<int>(out var effectiveCount) && effectiveCount > 0) ||
+            (metadata?["effective_episode_count"] is JsonValue effectiveSnake && effectiveSnake.TryGetValue<int>(out effectiveCount) && effectiveCount > 0) ||
+            (metadata?["downloadEpisodeLimit"] is JsonValue limit && limit.TryGetValue<int>(out effectiveCount) && effectiveCount > 0) ||
+            (metadata?["download_episode_limit"] is JsonValue limitSnake && limitSnake.TryGetValue<int>(out effectiveCount) && effectiveCount > 0))
+        {
+            episodeCount = effectiveCount;
+        }
+        else if (metadata?["episodeCount"] is JsonValue ev && ev.TryGetValue<int>(out var ec) && ec > 0)
+        {
             episodeCount = Math.Max(episodeCount, ec);
+        }
 
         return new WorkspaceProject
         {

@@ -19,7 +19,14 @@ public partial class MaterialUploadView : UserControl
         RunMaterialUploadQueueButton.Click += RunMaterialUploadQueueButton_Click;
         CheckAllVisibleButton.Click += (_, _) => ViewModel?.SetAllMaterialUploadProjectsChecked(true);
         UncheckAllVisibleButton.Click += (_, _) => ViewModel?.SetAllMaterialUploadProjectsChecked(false);
-        OpenPublishConfigButton.Click += (_, _) => ViewModel?.OpenMaterialPublishConfig(null);
+        OpenPublishConfigButton.Click += OpenPublishConfigButton_Click;
+        OpenMaterialUploadToolbarBrowserButton.Click += async (_, _) => await OpenSelectedMaterialUploadAccountBrowserAsync(relogin: false);
+        OpenMaterialRuntimeControlsButton.Click += OpenMaterialRuntimeControlsButton_Click;
+        PublishSystemHighlightButton.Click += async (_, _) => await OpenPublishConfigWithSourceAsync("system_highlight");
+        DownloadSystemHighlightButton.Click += async (_, _) => await OpenPublishConfigWithSourceAsync("downloaded_system_highlight");
+        DownloadMaterialVideoButton.Click += async (_, _) => await OpenPublishConfigWithSourceAsync("material_video_download");
+        DirectoryBatchPublishButton.Click += DirectoryBatchPublishButton_Click;
+        OpenSystemHighlightScheduleButton.Click += async (_, _) => await OpenPublishConfigWithSourceAsync("system_highlight");
         ShowMaterialLogsButton.Click += ShowMaterialLogsButton_Click;
         CreateManualMaterialProjectButton.Click += CreateManualMaterialProjectButton_Click;
         DeleteChannelMaterialsButton.Click += DeleteChannelMaterialsButton_Click;
@@ -33,6 +40,8 @@ public partial class MaterialUploadView : UserControl
         ReloginMaterialUploadAccountButton.Click += async (_, _) => await OpenSelectedMaterialUploadAccountBrowserAsync(relogin: true);
         OpenMaterialUploadAccountBrowserButton.Click += async (_, _) => await OpenSelectedMaterialUploadAccountBrowserAsync(relogin: false);
         BindCheckedMaterialUploadAccountButton.Click += (_, _) => ViewModel?.BindCheckedMaterialUploadProjectsToSelectedAccount();
+        BindCurrentMaterialUploadAccountButton.Click += (_, _) => ViewModel?.BindCurrentMaterialUploadProjectToSelectedAccount();
+        ClearMaterialUploadAccountBindingButton.Click += (_, _) => ViewModel?.ClearMaterialUploadProjectAccountBinding();
         SaveMaterialUploadAccountButton.Click += (_, _) => ViewModel?.SaveSelectedMaterialUploadAccountConfig();
         BrowseMaterialUploadAuthFileButton.Click += BrowseMaterialUploadAuthFileButton_Click;
         MaterialUploadProjectsListBox.SelectionChanged += MaterialUploadProjectsListBox_SelectionChanged;
@@ -72,6 +81,74 @@ public partial class MaterialUploadView : UserControl
         await ViewModel.RunCheckedMaterialUploadQueueFromPageAsync();
     }
 
+    private async void OpenPublishConfigButton_Click(object? sender, RoutedEventArgs e)
+    {
+        await OpenPublishConfigWithSourceAsync(null);
+    }
+
+    private async Task OpenPublishConfigWithSourceAsync(string? preferredSourceMode)
+    {
+        if (ViewModel is null || OwnerWindow is null)
+        {
+            return;
+        }
+
+        var target = ViewModel.ResolveMaterialPublishConfigTarget(null);
+        if (target is null)
+        {
+            return;
+        }
+
+        bool accepted;
+        try
+        {
+            var window = new MaterialPublishConfigWindow(
+                target.ConfigPath,
+                target.Project.DisplayName,
+                preferredSourceMode);
+            accepted = await window.ShowDialog<bool>(OwnerWindow);
+        }
+        catch (Exception ex)
+        {
+            ViewModel.AppendExternalLog(
+                $"打开素材发表配置失败：{ex.Message}",
+                target.Project.ProjectKey,
+                target.Project.DisplayName,
+                "material-upload",
+                "素材上传",
+                isFailure: true);
+            ViewModel.StatusMessage = $"打开素材发表配置失败：{ex.Message}";
+            return;
+        }
+
+        if (!accepted)
+        {
+            return;
+        }
+
+        ViewModel.AppendExternalLog(
+            $"已保存素材发表配置：{target.Project.DisplayName}",
+            target.Project.ProjectKey,
+            target.Project.DisplayName,
+            "material-upload",
+            "素材上传");
+        ViewModel.StatusMessage = $"已保存素材发表配置：{target.Project.DisplayName}";
+        await ViewModel.ScanCommand.ExecuteAsync(null);
+    }
+
+    private void OpenMaterialRuntimeControlsButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        ViewModel.ShowMaterialUploadLogs(ViewModel.SelectedProject);
+        ViewModel.StatusMessage = ViewModel.HasInteractionRequest
+            ? "素材流程等待人工处理，可在日志页使用接管、继续、跳过或停止。"
+            : "当前没有等待人工处理的素材流程；运行中任务可使用停止。";
+    }
+
     private async Task OpenSelectedMaterialUploadAccountBrowserAsync(bool relogin)
     {
         if (ViewModel is null)
@@ -80,6 +157,76 @@ public partial class MaterialUploadView : UserControl
         }
 
         await ViewModel.OpenSelectedMaterialUploadAccountBrowserAsync(relogin);
+    }
+
+    private async void DirectoryBatchPublishButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null || OwnerWindow?.StorageProvider is null || Application.Current is not App app)
+        {
+            return;
+        }
+
+        var folders = await OwnerWindow.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "选择目录批量发表工作目录（一级子目录内放视频）",
+            AllowMultiple = false
+        });
+        var root = folders.FirstOrDefault()?.Path.LocalPath;
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+        {
+            return;
+        }
+
+        var service = app.Services.GetRequiredService<ManualMaterialProjectService>();
+        var subdirs = Directory.EnumerateDirectories(root)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Where(path => service.ListVideoFiles(path).Count > 0)
+            .ToArray();
+        if (subdirs.Length == 0)
+        {
+            ViewModel.StatusMessage = "目录批量发表：未找到包含视频的一级子目录。";
+            ViewModel.AppendExternalLog(ViewModel.StatusMessage, stepKey: "material-upload", stepLabel: "素材上传", isFailure: true);
+            return;
+        }
+
+        var created = new List<ManualMaterialProjectResult>();
+        var failed = 0;
+        foreach (var subdir in subdirs)
+        {
+            var title = Path.GetFileName(subdir);
+            try
+            {
+                var result = service.CreateProject(new ManualMaterialProjectRequest(
+                    ViewModel.RootDir,
+                    subdir,
+                    title,
+                    title,
+                    null));
+                created.Add(result);
+                ViewModel.AppendExternalLog(result.Message, stepKey: "material-upload", stepLabel: "素材上传");
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                ViewModel.AppendExternalLog(
+                    $"目录批量发表创建项目失败：{title}，{ex.Message}",
+                    stepKey: "material-upload",
+                    stepLabel: "素材上传",
+                    isFailure: true);
+            }
+        }
+
+        await ViewModel.ScanCommand.ExecuteAsync(null);
+        var createdWorkflowDirs = created
+            .Select(item => item.WorkflowProjectDirectory)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var project in ViewModel.MaterialUploadProjects)
+        {
+            project.IsChecked = createdWorkflowDirs.Contains(project.WorkflowProjectDir ?? string.Empty);
+        }
+
+        ViewModel.StatusMessage = $"目录批量发表已创建 {created.Count} 个素材项目" + (failed > 0 ? $"，失败 {failed} 个" : string.Empty);
+        ViewModel.AppendExternalLog(ViewModel.StatusMessage, stepKey: "material-upload", stepLabel: "素材上传");
     }
 
     private async void BrowseMaterialUploadAuthFileButton_Click(object? sender, RoutedEventArgs e)

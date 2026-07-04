@@ -105,6 +105,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _tiktokExcelAutoExportEnabled = true;
     [ObservableProperty] private bool _managementDedupEnabled;
     [ObservableProperty] private string _managementDedupScope = "tiktok_username";
+    [ObservableProperty] private bool _tiktokAllowOverLimitUploadImport;
+    [ObservableProperty] private int _tiktokOverLimitDownloadEpisodeCount = 120;
 
     public IReadOnlyList<string> DramaSourceOptions { get; } =
     [
@@ -204,6 +206,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled,
         ManagementDedupEnabled = ManagementDedupEnabled,
         ManagementDedupScope = ManagementDedupScope,
+        TiktokAllowOverLimitUploadImport = TiktokAllowOverLimitUploadImport,
+        TiktokOverLimitDownloadEpisodeCount = TiktokOverLimitDownloadEpisodeCount,
     };
 
     [RelayCommand]
@@ -627,6 +631,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokExcelAutoExportEnabled = settings.TiktokExcelAutoExportEnabled;
         ManagementDedupEnabled = settings.ManagementDedupEnabled;
         ManagementDedupScope = settings.ManagementDedupScope;
+        TiktokAllowOverLimitUploadImport = settings.TiktokAllowOverLimitUploadImport;
+        TiktokOverLimitDownloadEpisodeCount = settings.TiktokOverLimitDownloadEpisodeCount;
     }
 
     private static void AppendDatabaseStats(List<string> lines, string label, string path)
