@@ -52,6 +52,7 @@ public sealed class ProjectScannerTests
 
         var project = result.Projects[0];
         project.SourceName.Should().Be("婆婆");
+        project.OriginalTitle.Should().Be("婆婆");
         project.DisplayName.Should().Be("假面婆婆不好惹");
         project.Status.Should().Be("处理中");
         project.VideoCount.Should().Be(1);
@@ -59,6 +60,43 @@ public sealed class ProjectScannerTests
         project.ResumeFrom.Should().Be("workflow");
         project.WorkflowProjectDir.Should().Be(workflowDir);
         project.BackupProjectDir.Should().Be(backupDir);
+    }
+
+    [Fact]
+    public async Task ScanAsync_Should_Keep_OriginalTitle_When_SourceDirectory_Uses_NewTitle()
+    {
+        var root = Directory.CreateTempSubdirectory().FullName;
+        var workflowRoot = Directory.CreateDirectory(Path.Combine(root, "workflow")).FullName;
+        Directory.CreateDirectory(Path.Combine(root, "config"));
+
+        var sourceDir = Directory.CreateDirectory(Path.Combine(root, "系统高光下载")).FullName;
+        var workflowDir = Directory.CreateDirectory(Path.Combine(workflowRoot, "系统高光下载")).FullName;
+
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "shortdrama-project.json"), """
+{
+  "projectKey": "系统高光下载",
+  "sourceName": "旧剧原名",
+  "displayName": "系统高光下载"
+}
+""");
+        await File.WriteAllTextAsync(Path.Combine(workflowDir, "短剧信息.txt"), """
+原剧名: 旧剧原名
+新剧名: 系统高光下载
+时长: 6 分钟
+集数: 1
+成本: 1 万元
+制作公司: 湖北云漫科技有限公司
+""");
+
+        var scanner = new ProjectScanner(new TxtProjectInfoParser());
+
+        var result = await scanner.ScanAsync(root, backupRootDir: null, CancellationToken.None);
+
+        result.Projects.Should().ContainSingle();
+        var project = result.Projects[0];
+        project.SourceName.Should().Be("系统高光下载");
+        project.OriginalTitle.Should().Be("旧剧原名");
+        project.DisplayName.Should().Be("系统高光下载");
     }
 
     [Fact]
@@ -194,5 +232,63 @@ public sealed class ProjectScannerTests
 
         result.Projects.Should().ContainSingle();
         result.Projects[0].WorkflowProjectDir.Should().Be(actualWorkflowDir);
+    }
+
+    [Fact]
+    public async Task ScanAsync_Should_Use_Workflow_Dir_Name_When_Source_Metadata_Title_Is_Original()
+    {
+        var root = Directory.CreateTempSubdirectory().FullName;
+        Directory.CreateDirectory(Path.Combine(root, "config"));
+        var workflowRoot = Directory.CreateDirectory(Path.Combine(root, "workflow")).FullName;
+        var sourceDir = Directory.CreateDirectory(Path.Combine(root, "Original Title")).FullName;
+        var workflowDir = Directory.CreateDirectory(Path.Combine(workflowRoot, "_Rewritten Title")).FullName;
+
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "shortdrama-project.json"), $$"""
+{
+  "projectKey": "Original Title",
+  "sourceName": "Original Title",
+  "originalTitle": "Original Title",
+  "displayName": "Original Title",
+  "title": "Original Title",
+  "workflowDirName": "_Rewritten Title",
+  "workflowProjectDir": "{{workflowDir.Replace("\\", "\\\\")}}"
+}
+""");
+
+        var scanner = new ProjectScanner(new TxtProjectInfoParser());
+
+        var result = await scanner.ScanAsync(root, backupRootDir: null, CancellationToken.None);
+
+        result.Projects.Should().ContainSingle();
+        result.Projects[0].OriginalTitle.Should().Be("Original Title");
+        result.Projects[0].DisplayName.Should().Be("Rewritten Title");
+        result.Projects[0].WorkflowProjectDir.Should().Be(workflowDir);
+    }
+
+    [Fact]
+    public async Task ScanAsync_Should_Use_Metadata_NewTitle_When_DisplayName_Is_Original()
+    {
+        var root = Directory.CreateTempSubdirectory().FullName;
+        Directory.CreateDirectory(Path.Combine(root, "config"));
+        var sourceDir = Directory.CreateDirectory(Path.Combine(root, "Original Title")).FullName;
+
+        await File.WriteAllTextAsync(Path.Combine(sourceDir, "shortdrama-project.json"), """
+{
+  "projectKey": "Original Title",
+  "sourceName": "Original Title",
+  "originalTitle": "Original Title",
+  "displayName": "Original Title",
+  "title": "Original Title",
+  "newTitle": "Metadata New Title"
+}
+""");
+
+        var scanner = new ProjectScanner(new TxtProjectInfoParser());
+
+        var result = await scanner.ScanAsync(root, backupRootDir: null, CancellationToken.None);
+
+        result.Projects.Should().ContainSingle();
+        result.Projects[0].OriginalTitle.Should().Be("Original Title");
+        result.Projects[0].DisplayName.Should().Be("Metadata New Title");
     }
 }

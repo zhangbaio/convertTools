@@ -7,6 +7,8 @@ internal sealed record ProjectAutomationMetadata(
     string? SourceName,
     string? DisplayName,
     string? Title,
+    string? OriginalTitle,
+    string? NewTitle,
     DateTimeOffset? CreatedAt,
     string? Intro,
     string? BookId,
@@ -25,6 +27,8 @@ internal sealed record ProjectAutomationMetadata(
             SourceName: null,
             DisplayName: null,
             Title: null,
+            OriginalTitle: null,
+            NewTitle: null,
             CreatedAt: null,
             Intro: null,
             BookId: null,
@@ -87,7 +91,14 @@ internal sealed record ProjectAutomationMetadata(
                     ProjectKey = GetString(root, "projectKey") ?? GetString(root, "project_key"),
                     SourceName = GetString(root, "sourceName") ?? GetString(root, "source_name"),
                     DisplayName = GetString(root, "displayName") ?? GetString(root, "display_name"),
-                    Title = GetString(root, "title") ?? GetString(root, "originalTitle") ?? GetString(root, "name"),
+                    Title = GetString(root, "title") ??
+                            GetString(root, "newTitle") ??
+                            GetString(root, "new_title") ??
+                            GetString(root, "originalTitle") ??
+                            GetString(root, "original_title") ??
+                            GetString(root, "name"),
+                    OriginalTitle = GetString(root, "originalTitle") ?? GetString(root, "original_title"),
+                    NewTitle = GetString(root, "newTitle") ?? GetString(root, "new_title"),
                     CreatedAt = GetDateTimeOffset(root, "createdAt") ?? GetDateTimeOffset(root, "created_at"),
                     Intro = GetString(root, "intro") ?? GetString(root, "description") ?? GetString(root, "desc"),
                     BookId = GetString(root, "bookId") ?? GetString(root, "book_id"),

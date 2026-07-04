@@ -10,6 +10,7 @@ public sealed record ProjectScanResult(
 public sealed record ScannedProject(
     string ProjectKey,
     string SourceName,
+    string OriginalTitle,
     string DisplayName,
     string SourceProjectDir,
     string? WorkflowProjectDir,

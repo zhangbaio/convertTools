@@ -47,7 +47,9 @@ public partial class ProjectListItemViewModel : ViewModelBase
     {
         ProjectKey = project.ProjectKey;
         SourceProjectDir = project.SourceProjectDir;
-        OriginalTitle = project.SourceName;
+        OriginalTitle = string.IsNullOrWhiteSpace(project.OriginalTitle)
+            ? project.SourceName
+            : project.OriginalTitle;
         Refresh(project);
     }
 

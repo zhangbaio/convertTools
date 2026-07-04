@@ -64,7 +64,9 @@ public sealed class ProjectScanner : IProjectScanner
             var projectInfo = await TryParseProjectInfoAsync(sourceDir, cancellationToken)
                 ?? await TryParseProjectInfoAsync(backupDir, cancellationToken);
 
+            var originalTitle = FirstNonEmpty(projectInfo?.OriginalTitle, sourceMetadata.OriginalTitle, sourceMetadata.SourceName, sourceName);
             var displayName = sourceMetadata.DisplayName
+                ?? sourceMetadata.NewTitle
                 ?? sourceMetadata.Title
                 ?? projectInfo?.Title
                 ?? sourceName;
@@ -80,8 +82,9 @@ public sealed class ProjectScanner : IProjectScanner
             if (workflowInfo is not null)
             {
                 projectInfo = workflowInfo;
-                displayName = workflowInfo.Title;
+                originalTitle = FirstNonEmpty(workflowInfo.OriginalTitle, originalTitle);
             }
+            displayName = ResolveDisplayName(displayName, workflowInfo?.Title, workflowDir, sourceMetadata, originalTitle, sourceName);
 
             var state = ResolveState(sourceDir, workflowDir, backupDir);
             var videoCount = CountVideoFiles(sourceDir);
@@ -90,6 +93,7 @@ public sealed class ProjectScanner : IProjectScanner
             projects.Add(new ScannedProject(
                 ProjectKey: sourceName,
                 SourceName: sourceName,
+                OriginalTitle: originalTitle,
                 DisplayName: displayName,
                 SourceProjectDir: sourceDir,
                 WorkflowProjectDir: workflowDir,
@@ -119,6 +123,150 @@ public sealed class ProjectScanner : IProjectScanner
             string.Equals(name, "workflow", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(name, "archive", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(name, "config", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveDisplayName(
+        string currentDisplayName,
+        string? workflowInfoTitle,
+        string? workflowDir,
+        ProjectAutomationMetadata sourceMetadata,
+        string originalTitle,
+        string sourceName)
+    {
+        var materialConfigTitle = ResolveMaterialConfigTitle(workflowDir);
+        if (!string.IsNullOrWhiteSpace(materialConfigTitle))
+        {
+            return materialConfigTitle;
+        }
+
+        if (IsDistinctTitle(workflowInfoTitle, originalTitle, sourceName))
+        {
+            return workflowInfoTitle!.Trim();
+        }
+
+        if (IsDistinctTitle(sourceMetadata.NewTitle, originalTitle, sourceName))
+        {
+            return sourceMetadata.NewTitle!.Trim();
+        }
+
+        var workflowTitle = ResolveWorkflowTitle(workflowDir, sourceMetadata);
+        if (IsDistinctTitle(workflowTitle, originalTitle, sourceName) &&
+            !IsDistinctTitle(currentDisplayName, originalTitle, sourceName))
+        {
+            return workflowTitle;
+        }
+
+        return FirstNonEmpty(workflowInfoTitle, currentDisplayName, workflowTitle, originalTitle, sourceName);
+    }
+
+    private static string ResolveWorkflowTitle(string? workflowDir, ProjectAutomationMetadata sourceMetadata)
+        => FirstNonEmpty(
+            CleanWorkflowTitle(workflowDir),
+            CleanWorkflowTitle(sourceMetadata.WorkflowDirName),
+            CleanWorkflowTitle(sourceMetadata.WorkflowProjectDir));
+
+    private static string CleanWorkflowTitle(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return Path.GetFileName(value.Trim()).TrimStart('_').Trim();
+    }
+
+    private static bool IsDistinctTitle(string? title, params string?[] blockedTitles)
+    {
+        var normalized = NormalizeTitle(title);
+        return normalized.Length > 0 && blockedTitles
+            .Select(NormalizeTitle)
+            .Where(value => value.Length > 0)
+            .All(value => !string.Equals(value, normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeTitle(string? value)
+        => (value ?? string.Empty).Trim().TrimStart('_').Trim();
+
+    private static string ResolveMaterialConfigTitle(string? workflowDir)
+    {
+        if (string.IsNullOrWhiteSpace(workflowDir) || !Directory.Exists(workflowDir))
+        {
+            return string.Empty;
+        }
+
+        var configPath = Path.Combine(workflowDir, "weixin-channel-material.json");
+        if (!File.Exists(configPath))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(configPath));
+            return ResolveMaterialConfigTitle(document.RootElement);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string ResolveMaterialConfigTitle(JsonElement root)
+    {
+        foreach (var section in EnumerateMaterialConfigTitleSections(root))
+        {
+            var title = FirstNonEmpty(
+                GetString(section, "displayName"),
+                GetString(section, "display_name"),
+                GetString(section, "title"),
+                GetString(section, "newTitle"),
+                GetString(section, "new_title"),
+                GetString(section, "name"),
+                GetString(section, "新剧名"),
+                GetString(section, "剧集名称"),
+                GetString(section, "剧名"));
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                return title;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static IEnumerable<JsonElement> EnumerateMaterialConfigTitleSections(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            yield break;
+        }
+
+        yield return root;
+
+        if (root.TryGetProperty("video_publish", out var videoPublish) &&
+            videoPublish.ValueKind == JsonValueKind.Object)
+        {
+            yield return videoPublish;
+        }
+
+        if (root.TryGetProperty("project", out var project) &&
+            project.ValueKind == JsonValueKind.Object)
+        {
+            yield return project;
+        }
     }
 
     private static string? ResolveBackupRoot(string rootDir, string? backupRootDir)
