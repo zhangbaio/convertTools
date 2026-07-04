@@ -7,13 +7,12 @@ public static class MediaBinaryResolver
 
     private static string Resolve(string name)
     {
-        var exe = OperatingSystem.IsWindows() ? $"{name}.exe" : name;
-        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
-        foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        var bundled = ShortDrama.Infrastructure.BundledToolResolver.TryResolveBinary(name);
+        if (bundled is not null)
         {
-            var candidate = Path.Combine(dir.Trim(), exe);
-            if (File.Exists(candidate)) return candidate;
+            return bundled;
         }
-        return exe;
+
+        return OperatingSystem.IsWindows() ? $"{name}.exe" : name;
     }
 }

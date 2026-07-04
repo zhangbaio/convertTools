@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure;
 using ShortDrama.Infrastructure.Config;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
@@ -1695,6 +1696,12 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                     }
                 }
             }
+        }
+
+        var packaged = BundledToolResolver.TryResolveBinary(name);
+        if (packaged is not null)
+        {
+            return packaged;
         }
 
         throw new InvalidOperationException($"未找到 {name}，请先将 {name} 加入系统 PATH。");

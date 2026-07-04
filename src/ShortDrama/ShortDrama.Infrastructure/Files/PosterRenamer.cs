@@ -6,6 +6,7 @@ using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure;
 using ShortDrama.Infrastructure.Config;
 using System.Globalization;
 using System.Net.Http.Headers;
@@ -346,6 +347,10 @@ JSON 结构：
         var bundled = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
         if (File.Exists(bundled))
             return bundled;
+
+        var packaged = BundledToolResolver.TryResolveBinary("ffmpeg");
+        if (packaged is not null)
+            return packaged;
 
         throw new InvalidOperationException("海报图片格式转换失败: 未找到可用的 ffmpeg，无法转换 HEIC/HEIF 图片");
     }

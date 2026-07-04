@@ -1,4 +1,5 @@
 using ShortDrama.Core.Interfaces;
+using ShortDrama.Infrastructure;
 
 namespace ShortDrama.Infrastructure.Automation;
 
@@ -13,18 +14,23 @@ public sealed class PythonToolResolver
 
     public async Task<PythonCommand> ResolvePythonCommandAsync(CancellationToken cancellationToken)
     {
-        var candidates = OperatingSystem.IsWindows()
-            ? new[]
-            {
+        var candidates = new List<PythonCommand>();
+        var bundledPython = BundledToolResolver.TryResolvePython();
+        if (!string.IsNullOrWhiteSpace(bundledPython))
+        {
+            candidates.Add(new PythonCommand(bundledPython, []));
+        }
+
+        candidates.AddRange(OperatingSystem.IsWindows()
+            ? [
                 new PythonCommand("py", ["-3"]),
                 new PythonCommand("python", []),
                 new PythonCommand("python3", [])
-            }
-            : new[]
-            {
+            ]
+            : [
                 new PythonCommand("python3", []),
                 new PythonCommand("python", [])
-            };
+            ]);
 
         foreach (var candidate in candidates)
         {

@@ -25,6 +25,8 @@ public static class TikTokLoginService
         CancellationToken ct,
         int timeoutSeconds = 90)
     {
+        ConfigureBundledPlaywrightBrowsers();
+
         var email = (account.TiktokLoginEmail ?? "").Trim();
         if (string.IsNullOrEmpty(email))
             throw new InvalidOperationException("请先填写 TikTok 登录邮箱。");
@@ -117,6 +119,50 @@ public static class TikTokLoginService
         finally
         {
             playwright.Dispose();
+        }
+    }
+
+    private static void ConfigureBundledPlaywrightBrowsers()
+    {
+        var configured = Environment.GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH");
+        if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured))
+        {
+            return;
+        }
+
+        foreach (var root in EnumerateSearchRoots())
+        {
+            var candidate = Path.Combine(root, "ms-playwright");
+            if (Directory.Exists(candidate))
+            {
+                Environment.SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", candidate);
+                return;
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateSearchRoots()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+        {
+            if (string.IsNullOrWhiteSpace(start))
+            {
+                continue;
+            }
+
+            var current = Path.GetFullPath(start);
+            while (!string.IsNullOrWhiteSpace(current) && seen.Add(current))
+            {
+                yield return current;
+                var parent = Directory.GetParent(current);
+                if (parent is null)
+                {
+                    break;
+                }
+
+                current = parent.FullName;
+            }
         }
     }
 

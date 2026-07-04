@@ -4,6 +4,12 @@ public static class FfmpegLocator
 {
     public static string ResolveFfmpeg()
     {
+        var packaged = ShortDrama.Infrastructure.BundledToolResolver.TryResolveBinary("ffmpeg");
+        if (packaged is not null)
+        {
+            return packaged;
+        }
+
         var pathEnv = Environment.GetEnvironmentVariable("PATH");
         if (!string.IsNullOrWhiteSpace(pathEnv))
         {

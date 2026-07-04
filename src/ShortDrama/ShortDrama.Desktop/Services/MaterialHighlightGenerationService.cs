@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Desktop.Models;
+using ShortDrama.Infrastructure;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -495,6 +496,12 @@ public sealed class MaterialHighlightGenerationService
                     }
                 }
             }
+        }
+
+        var packaged = BundledToolResolver.TryResolveBinary(name);
+        if (packaged is not null)
+        {
+            return packaged;
         }
 
         throw new InvalidOperationException($"未找到 {name}。请先安装 ffmpeg，并确保 {name} 在 PATH 中。");

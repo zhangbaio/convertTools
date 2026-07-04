@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure;
 using ShortDrama.Infrastructure.Config;
 using System.Diagnostics;
 using System.Globalization;
@@ -849,6 +850,12 @@ public sealed class FfmpegVideoTranscoder : IVideoTranscoder
 
     private static string? TryResolveBinary(string name)
     {
+        var packaged = BundledToolResolver.TryResolveBinary(name);
+        if (packaged is not null)
+        {
+            return packaged;
+        }
+
         var pathEnv = Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrWhiteSpace(pathEnv))
         {

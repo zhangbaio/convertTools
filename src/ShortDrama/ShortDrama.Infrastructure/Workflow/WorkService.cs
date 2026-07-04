@@ -1,5 +1,6 @@
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure;
 using ShortDrama.Infrastructure.Automation;
 using ShortDrama.Infrastructure.Automation.Weixin;
 using ShortDrama.Infrastructure.Config;
@@ -1041,6 +1042,12 @@ public sealed class WorkService : IWorkService
 
     private static string ResolveFfprobeBinary()
     {
+        var packaged = BundledToolResolver.TryResolveBinary("ffprobe");
+        if (packaged is not null)
+        {
+            return packaged;
+        }
+
         var pathEnv = Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrWhiteSpace(pathEnv))
         {
@@ -1061,6 +1068,12 @@ public sealed class WorkService : IWorkService
 
     private static string ResolveFfmpegBinary()
     {
+        var packaged = BundledToolResolver.TryResolveBinary("ffmpeg");
+        if (packaged is not null)
+        {
+            return packaged;
+        }
+
         var pathEnv = Environment.GetEnvironmentVariable("PATH");
         if (string.IsNullOrWhiteSpace(pathEnv))
         {
