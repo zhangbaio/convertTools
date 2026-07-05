@@ -2646,7 +2646,11 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrEmpty(root))
             throw new InvalidOperationException("请先选择工作目录");
         var settings = ClientSettingsStore.Load();
-        return TikTokExcelExportService.Export(root, _queueItems, SelectedAccount?.Model, settings);
+        var snapshot = BuildExcelExportSnapshot(root);
+        if (snapshot.Items.Count == 0)
+            throw new InvalidOperationException("没有可导出的队列项目");
+
+        return TikTokExcelExportService.Export(root, snapshot.Items, account: null, settings, snapshot.WorkspaceByProject);
     }
 
     private void AutoExportQueueExcelForWorkspace(string workspaceRoot)
@@ -2655,22 +2659,76 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             var settings = ClientSettingsStore.Load();
             if (!settings.TiktokExcelAutoExportEnabled) return;
-            if (string.IsNullOrWhiteSpace(workspaceRoot) || _queueItems.Count == 0) return;
-            if (!string.Equals(
-                    Path.GetFullPath(workspaceRoot),
-                    Path.GetFullPath(WorkspacePath),
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
+            if (string.IsNullOrWhiteSpace(workspaceRoot)) return;
 
-            TikTokExcelExportService.Export(workspaceRoot, _queueItems, SelectedAccount?.Model, settings);
+            var snapshot = BuildExcelExportSnapshot(workspaceRoot);
+            if (snapshot.Items.Count == 0) return;
+
+            TikTokExcelExportService.Export(workspaceRoot, snapshot.Items, account: null, settings, snapshot.WorkspaceByProject);
         }
         catch (Exception ex)
         {
             AppendLog($"Excel 自动导出失败：{ex.Message}");
         }
     }
+
+    private (IReadOnlyList<QueueProjectItem> Items, IReadOnlyDictionary<string, string> WorkspaceByProject) BuildExcelExportSnapshot(string activeWorkspace)
+    {
+        var activeRoot = Path.GetFullPath(activeWorkspace);
+        var displayedRoot = string.IsNullOrWhiteSpace(WorkspacePath) ? "" : Path.GetFullPath(WorkspacePath);
+        var workspaces = new Dictionary<string, TikTokAccountProfile?>(StringComparer.OrdinalIgnoreCase);
+
+        void AddWorkspace(string? workspace, TikTokAccountProfile? account)
+        {
+            if (string.IsNullOrWhiteSpace(workspace)) return;
+            var normalized = Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspace.Trim()));
+            if (!Directory.Exists(normalized)) return;
+
+            if (!workspaces.TryGetValue(normalized, out var existing) || (existing is null && account is not null))
+                workspaces[normalized] = account;
+        }
+
+        foreach (var target in BuildAccountWorkspaceTargets())
+            AddWorkspace(target.WorkspaceRoot, FindAccount(target.AccountProfileId ?? "")?.Model);
+
+        AddWorkspace(activeRoot, SelectedAccount?.Model);
+
+        var items = new List<QueueProjectItem>();
+        var workspaceByProject = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var seenProjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (workspaceRoot, account) in workspaces)
+        {
+            var sourceItems = !string.IsNullOrWhiteSpace(displayedRoot) &&
+                              string.Equals(workspaceRoot, displayedRoot, StringComparison.OrdinalIgnoreCase)
+                ? _queueItems
+                : WorkspaceQueueService.ScanProjects(workspaceRoot);
+
+            foreach (var source in sourceItems)
+            {
+                if (string.IsNullOrWhiteSpace(source.ProjectDir)) continue;
+                var projectKey = Path.GetFullPath(source.ProjectDir);
+                if (!seenProjects.Add(projectKey)) continue;
+
+                var item = QueueProjectItem.FromPayload(source.ToPayload());
+                if (account is not null)
+                {
+                    if (string.IsNullOrWhiteSpace(item.AccountProfileId))
+                        item.AccountProfileId = account.Id;
+                    if (string.IsNullOrWhiteSpace(item.AccountProfileName))
+                        item.AccountProfileName = account.DisplayName;
+                }
+
+                items.Add(item);
+                workspaceByProject[ExcelProjectKey(item.ProjectDir)] = workspaceRoot;
+            }
+        }
+
+        return (items, workspaceByProject);
+    }
+
+    private static string ExcelProjectKey(string? projectDir) =>
+        (projectDir ?? "").Trim().Replace('\\', '/').ToLowerInvariant();
 
     private void AutoExportQueueExcel() => AutoExportQueueExcelForWorkspace(WorkspacePath);
 }

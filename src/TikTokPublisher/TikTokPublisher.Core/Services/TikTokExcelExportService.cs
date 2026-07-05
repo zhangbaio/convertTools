@@ -9,7 +9,6 @@ namespace TikTokPublisher.Core.Services;
 public static class TikTokExcelExportService
 {
     private const string SummarySheet = "汇总";
-    private const string EventsSheet = "执行流水";
     private const int MaxSheetNameLength = 31;
 
     public static string ResolveReportPath(TikTokAccountProfile? account, ClientSettings? settings = null)
@@ -27,7 +26,8 @@ public static class TikTokExcelExportService
         string workspace,
         IReadOnlyList<QueueProjectItem> items,
         TikTokAccountProfile? account,
-        ClientSettings? settings = null)
+        ClientSettings? settings = null,
+        IReadOnlyDictionary<string, string>? workspaceByProject = null)
     {
         settings ??= ClientSettingsStore.Load();
         var outputPath = ResolveReportPath(account, settings);
@@ -45,15 +45,14 @@ public static class TikTokExcelExportService
         var usedSheetNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var sheetId = 1U;
 
-        AppendSheet(workbookPart, sheets, ReserveSheetName(SummarySheet, usedSheetNames), sheetId++, BuildCurrentQueueRows(workspace, items, manualValues));
+        AppendSheet(workbookPart, sheets, ReserveSheetName(SummarySheet, usedSheetNames), sheetId++, BuildCurrentQueueRows(workspace, items, manualValues, workspaceByProject));
 
         foreach (var group in BuildAccountGroups(items))
         {
             var sheetName = ReserveSheetName(group.SheetName, usedSheetNames);
-            AppendSheet(workbookPart, sheets, sheetName, sheetId++, BuildCurrentQueueRows(workspace, group.Items, manualValues));
+            AppendSheet(workbookPart, sheets, sheetName, sheetId++, BuildCurrentQueueRows(workspace, group.Items, manualValues, workspaceByProject));
         }
 
-        AppendSheet(workbookPart, sheets, ReserveSheetName(EventsSheet, usedSheetNames), sheetId++, BuildEventRows(TikTokExecutionHistoryService.LoadEvents()));
         workbookPart.Workbook.Save();
         return outputPath;
     }
@@ -117,7 +116,8 @@ public static class TikTokExcelExportService
     private static IReadOnlyList<IReadOnlyList<object?>> BuildCurrentQueueRows(
         string workspace,
         IReadOnlyList<QueueProjectItem> items,
-        IReadOnlyDictionary<string, ManualReviewValue> manualValues)
+        IReadOnlyDictionary<string, ManualReviewValue> manualValues,
+        IReadOnlyDictionary<string, string>? workspaceByProject)
     {
         var rows = new List<IReadOnlyList<object?>>
         {
@@ -136,7 +136,7 @@ public static class TikTokExcelExportService
             var manual = manualValues.GetValueOrDefault(ProjectKey(item.ProjectDir));
             rows.Add(new object?[]
             {
-                workspace,
+                ResolveWorkspaceForItem(workspace, item, workspaceByProject),
                 item.ProjectDir,
                 item.DisplayName,
                 item.OriginalTitle,
@@ -163,41 +163,6 @@ public static class TikTokExcelExportService
                 item.StepStates.GetValueOrDefault(QueueStepKeys.MaterialValidate, ""),
                 item.StepStates.GetValueOrDefault(QueueStepKeys.DeleteSourceVideos, ""),
                 item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries, ""),
-            });
-        }
-
-        return rows;
-    }
-
-    private static IReadOnlyList<IReadOnlyList<object?>> BuildEventRows(IReadOnlyList<Dictionary<string, object?>> events)
-    {
-        var rows = new List<IReadOnlyList<object?>>
-        {
-            new object?[]
-            {
-                "时间", "批次ID", "事件类型", "状态", "工作目录", "项目目录", "显示名",
-                "原剧名", "新剧名", "步骤", "消息", "错误", "账号", "机器"
-            }
-        };
-
-        foreach (var e in events)
-        {
-            rows.Add(new object?[]
-            {
-                Text(e, "timestamp"),
-                Text(e, "batch_id"),
-                Text(e, "event_type"),
-                Text(e, "status"),
-                Text(e, "workspace"),
-                Text(e, "project_dir"),
-                Text(e, "display_name"),
-                Text(e, "original_title"),
-                Text(e, "new_title"),
-                Text(e, "step_label"),
-                Text(e, "message"),
-                Text(e, "error"),
-                Text(e, "account_profile_name"),
-                Text(e, "machine_name"),
             });
         }
 
@@ -301,8 +266,7 @@ public static class TikTokExcelExportService
         Sheet sheet,
         IDictionary<string, ManualReviewValue> values)
     {
-        if (sheet.Id?.Value is null ||
-            string.Equals(sheet.Name, EventsSheet, StringComparison.Ordinal))
+        if (sheet.Id?.Value is null)
         {
             return;
         }
@@ -352,8 +316,20 @@ public static class TikTokExcelExportService
     private static string ProjectKey(string? projectDir) =>
         (projectDir ?? "").Trim().Replace('\\', '/').ToLowerInvariant();
 
-    private static string Text(IReadOnlyDictionary<string, object?> payload, string key) =>
-        payload.TryGetValue(key, out var value) ? value?.ToString() ?? "" : "";
+    private static string ResolveWorkspaceForItem(
+        string fallbackWorkspace,
+        QueueProjectItem item,
+        IReadOnlyDictionary<string, string>? workspaceByProject)
+    {
+        if (workspaceByProject is not null &&
+            workspaceByProject.TryGetValue(ProjectKey(item.ProjectDir), out var workspace) &&
+            !string.IsNullOrWhiteSpace(workspace))
+        {
+            return workspace;
+        }
+
+        return fallbackWorkspace;
+    }
 
     private static string FirstNonEmpty(params string?[] values)
     {

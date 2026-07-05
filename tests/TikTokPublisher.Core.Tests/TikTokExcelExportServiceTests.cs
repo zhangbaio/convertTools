@@ -25,8 +25,12 @@ public sealed class TikTokExcelExportServiceTests
                 BuildItem(tempDir, "project-b", "剧二", "acct-2", "账号二"),
                 BuildItem(tempDir, "project-c", "剧三", "acct-1", "账号/一"),
             };
+            var accountTwoWorkspace = Path.Combine(tempDir, "account-two-workspace");
+            var workspaceByProject = items.ToDictionary(
+                item => item.ProjectDir.Replace('\\', '/').ToLowerInvariant(),
+                item => item.AccountProfileId == "acct-2" ? accountTwoWorkspace : tempDir);
 
-            var exported = TikTokExcelExportService.Export(tempDir, items, account, new ClientSettings());
+            var exported = TikTokExcelExportService.Export(tempDir, items, account, new ClientSettings(), workspaceByProject);
 
             exported.Should().Be(outputPath);
             using var document = SpreadsheetDocument.Open(exported, false);
@@ -35,8 +39,9 @@ public sealed class TikTokExcelExportServiceTests
                 .Select(sheet => sheet.Name?.Value)
                 .ToList();
 
-            sheetNames.Should().Equal("汇总", "账号_一", "账号二", "执行流水");
+            sheetNames.Should().Equal("汇总", "账号_一", "账号二");
             ReadColumn(workbookPart, "汇总", "原剧名").Should().Equal("剧一", "剧二", "剧三");
+            ReadColumn(workbookPart, "汇总", "工作目录").Should().Equal(tempDir, accountTwoWorkspace, tempDir);
             ReadColumn(workbookPart, "账号_一", "原剧名").Should().Equal("剧一", "剧三");
             ReadColumn(workbookPart, "账号二", "原剧名").Should().Equal("剧二");
         }
