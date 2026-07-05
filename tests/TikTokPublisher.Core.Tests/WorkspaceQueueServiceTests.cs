@@ -139,6 +139,48 @@ public sealed class WorkspaceQueueServiceTests
         }
     }
 
+    [Fact]
+    public void ScanProjects_Preserves_Remark_And_Applies_Manual_Upload_Status()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "first");
+
+        try
+        {
+            CreateProject(project);
+            WorkspaceQueueService.SaveProjects(
+                workspace,
+                [
+                    new QueueProjectItem
+                    {
+                        ProjectDir = project,
+                        DisplayName = "first",
+                        Remark = "needs review",
+                        ManualUploadStatus = QueueStepStatus.Failed,
+                        StatusText = QueueStepStatus.Completed,
+                        UploadCompletedAt = DateTimeOffset.Now.ToString("o"),
+                        StepStates = new Dictionary<string, string>
+                        {
+                            [QueueStepKeys.UploadSeries] = QueueStepStatus.Completed,
+                        },
+                    },
+                ]);
+
+            var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+
+            item.Remark.Should().Be("needs review");
+            item.ManualUploadStatus.Should().Be(QueueStepStatus.Failed);
+            item.StatusText.Should().Be(QueueStepStatus.Failed);
+            item.StepStates[QueueStepKeys.UploadSeries].Should().Be(QueueStepStatus.Failed);
+            item.UploadCompletedAt.Should().BeEmpty();
+            item.LastError.Should().NotBeEmpty();
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
     private static void CreateProject(string projectDir)
     {
         Directory.CreateDirectory(projectDir);

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -34,6 +35,19 @@ public partial class TikTokQueueView : UserControl
     private readonly Queue<ManualInterventionDialogRequest> _manualInterventionDialogs = new();
     private bool _manualInterventionDialogOpen;
     private QueueUiProgressSink? _queueProgressSink;
+    private static readonly double[] QueueTableDefaultColumnWidths =
+    {
+        48, 56, 104, 210, 210, 60, 128, 68, 68, 68, 68, 68, 68, 68, 68, 68, 180,
+    };
+    private static readonly double[] QueueTableMinColumnWidths =
+    {
+        42, 48, 72, 120, 120, 48, 92, 56, 56, 56, 56, 62, 62, 56, 56, 56, 120,
+    };
+    private readonly double[] _queueTableColumnWidths = QueueTableDefaultColumnWidths.ToArray();
+    private readonly List<WeakReference<Grid>> _queueTableRowGrids = new();
+    private int _queueResizeColumnIndex = -1;
+    private double _queueResizeStartX;
+    private double _queueResizeStartWidth;
 
     public event EventHandler? OpenBrowserRequested;
     public event EventHandler? OpenLogsRequested;
@@ -125,7 +139,7 @@ public partial class TikTokQueueView : UserControl
                 : WindowStartupLocation.CenterOwner,
         };
 
-        var openBrowserButton = BuildDialogButton("打开浏览器", () => OpenBrowserRequested?.Invoke(this, EventArgs.Empty));
+        var openBrowserButton = BuildDialogButton("打开外部浏览器", () => OpenSelectedAccountExternalBrowser());
         var skipButton = BuildDialogButton("跳过此项目", () =>
         {
             tcs.TrySetResult("failed");
@@ -192,6 +206,7 @@ public partial class TikTokQueueView : UserControl
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         _ready = true;
+        ApplyQueueTableColumnWidths();
         ApplyConfigToVm();
         if (!string.IsNullOrWhiteSpace(_vm?.WorkspacePath))
             _vm.RefreshWorkspaceProjects();
@@ -317,14 +332,38 @@ public partial class TikTokQueueView : UserControl
 
     private void OnOpenBrowserClick(object? sender, RoutedEventArgs e)
     {
-        if (_vm?.SelectedAccount is null)
+        OpenSelectedAccountExternalBrowser();
+    }
+
+    private void OpenSelectedAccountExternalBrowser()
+    {
+        var vm = _vm;
+        if (vm?.SelectedAccount is null)
         {
-            if (_vm is not null) _vm.StatusMessage = "请先选择账号";
+            if (vm is not null) vm.StatusMessage = "请先选择账号";
             return;
         }
 
-        _vm.BeginAccountLogin(forceRelogin: false);
-        OpenBrowserRequested?.Invoke(this, EventArgs.Empty);
+        var account = vm.SelectedAccount.Model;
+        var url = string.IsNullOrWhiteSpace(account.TiktokSeriesUrl)
+            ? TikTokUrls.DefaultSeriesDraftUrl
+            : account.TiktokSeriesUrl.Trim();
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+            });
+
+            vm.StatusMessage = $"[{vm.SelectedAccount.DisplayName}] 已打开外部浏览器：{url}";
+            vm.AppendLog(vm.StatusMessage);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"打开外部浏览器失败：{ex.Message}";
+        }
     }
 
     private void OnOpenLogsClick(object? sender, RoutedEventArgs e) => OpenLogsRequested?.Invoke(this, EventArgs.Empty);
@@ -373,6 +412,89 @@ public partial class TikTokQueueView : UserControl
         {
             if (vm is not null) vm.StatusMessage = $"打开{label}目录失败：{ex.Message}";
         }
+    }
+
+    private void OnQueueTableRowLoaded(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Border)?.Child is not Grid grid)
+            return;
+
+        _queueTableRowGrids.Add(new WeakReference<Grid>(grid));
+        ApplyColumnWidths(grid);
+    }
+
+    private void OnQueueColumnResizerPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Control control ||
+            !int.TryParse(control.Tag?.ToString(), out var columnIndex) ||
+            columnIndex < 0 ||
+            columnIndex >= _queueTableColumnWidths.Length)
+        {
+            return;
+        }
+
+        _queueResizeColumnIndex = columnIndex;
+        _queueResizeStartX = e.GetPosition(QueueTableHeaderGrid).X;
+        _queueResizeStartWidth = _queueTableColumnWidths[columnIndex];
+        e.Pointer.Capture(control);
+        e.Handled = true;
+    }
+
+    private void OnQueueColumnResizerPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_queueResizeColumnIndex < 0)
+            return;
+
+        var delta = e.GetPosition(QueueTableHeaderGrid).X - _queueResizeStartX;
+        var minWidth = QueueTableMinColumnWidths[_queueResizeColumnIndex];
+        var width = Math.Max(minWidth, _queueResizeStartWidth + delta);
+        if (Math.Abs(width - _queueTableColumnWidths[_queueResizeColumnIndex]) < 0.5)
+            return;
+
+        _queueTableColumnWidths[_queueResizeColumnIndex] = width;
+        ApplyQueueTableColumnWidths();
+        e.Handled = true;
+    }
+
+    private void OnQueueColumnResizerPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_queueResizeColumnIndex < 0)
+            return;
+
+        e.Pointer.Capture(null);
+        _queueResizeColumnIndex = -1;
+        e.Handled = true;
+    }
+
+    private void ApplyQueueTableColumnWidths()
+    {
+        var totalWidth = _queueTableColumnWidths.Sum();
+        if (QueueTableRootGrid is not null)
+            QueueTableRootGrid.Width = totalWidth;
+        if (QueueTableHeaderGrid is not null)
+            ApplyColumnWidths(QueueTableHeaderGrid);
+
+        for (var i = _queueTableRowGrids.Count - 1; i >= 0; i--)
+        {
+            if (_queueTableRowGrids[i].TryGetTarget(out var grid))
+                ApplyColumnWidths(grid);
+            else
+                _queueTableRowGrids.RemoveAt(i);
+        }
+    }
+
+    private void ApplyColumnWidths(Grid grid)
+    {
+        if (grid.ColumnDefinitions.Count != _queueTableColumnWidths.Length)
+            return;
+
+        var totalWidth = _queueTableColumnWidths.Sum();
+        grid.Width = totalWidth;
+        if (grid.Parent is Border border)
+            border.Width = totalWidth;
+
+        for (var i = 0; i < _queueTableColumnWidths.Length; i++)
+            grid.ColumnDefinitions[i].Width = new GridLength(_queueTableColumnWidths[i]);
     }
 
     private void OnSelectAllQueueClick(object? sender, RoutedEventArgs e)
@@ -476,6 +598,55 @@ public partial class TikTokQueueView : UserControl
     {
         var checkedRows = GetCheckedQueueRows().ToArray();
         return checkedRows.Length > 0 ? checkedRows : GetSelectedQueueRows().ToArray();
+    }
+
+    private QueueProjectRowViewModel? ResolveQueueRowFromSender(object? sender)
+    {
+        if ((sender as Control)?.DataContext is QueueProjectRowViewModel row)
+            return row;
+
+        var rows = GetCheckedOrSelectedQueueRows();
+        return rows.Count == 1 ? rows[0] : null;
+    }
+
+    private void OnMarkUploadCompletedClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var row = ResolveQueueRowFromSender(sender);
+        MarkUploadStatus(row is null ? Array.Empty<QueueProjectRowViewModel>() : new[] { row }, completed: true);
+    }
+
+    private void OnMarkUploadFailedClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var row = ResolveQueueRowFromSender(sender);
+        MarkUploadStatus(row is null ? Array.Empty<QueueProjectRowViewModel>() : new[] { row }, completed: false);
+    }
+
+    private void OnMarkSelectedUploadCompletedClick(object? sender, RoutedEventArgs e) =>
+        MarkUploadStatus(GetCheckedOrSelectedQueueRows(), completed: true);
+
+    private void OnMarkSelectedUploadFailedClick(object? sender, RoutedEventArgs e) =>
+        MarkUploadStatus(GetCheckedOrSelectedQueueRows(), completed: false);
+
+    private void MarkUploadStatus(IReadOnlyList<QueueProjectRowViewModel> rows, bool completed)
+    {
+        var vm = _vm;
+        if (vm is null) return;
+        if (rows.Count == 0)
+        {
+            vm.StatusMessage = "请先勾选或选中要修改上传状态的项目";
+            return;
+        }
+
+        try
+        {
+            vm.SetQueueProjectsUploadStatus(rows.Distinct().ToArray(), completed);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"修改上传状态失败：{ex.Message}";
+        }
     }
 
     private IReadOnlyList<string> GetSelectedProjectDirs() =>

@@ -144,7 +144,7 @@ public static class TikTokExcelExportService
                 item.EpisodeCount,
                 item.GenreCategory,
                 manual?.ReviewStatus ?? "",
-                manual?.Notes ?? "",
+                FirstNonEmpty(item.Remark, manual?.Notes),
                 item.Description,
                 item.QueuedAt,
                 item.UploadCompletedAt,

@@ -84,7 +84,7 @@ public partial class AccountProfileEditor : UserControl
         var submitAction = NormalizeSubmitAction(profile.TiktokSubmitAction, profile.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
-        SelectByTag(UploadBrowserModeCombo, profile.TiktokUploadBrowserMode, "embedded");
+        SelectByTag(UploadBrowserModeCombo, profile.TiktokUploadBrowserMode, "external");
         PlaywrightHeadlessBox.IsChecked = profile.TiktokPlaywrightUploadHeadless;
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
@@ -174,7 +174,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
             profile.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
             profile.TiktokSubmitEnabled = string.Equals(profile.TiktokSubmitAction, "submit", StringComparison.Ordinal);
-            profile.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "embedded");
+            profile.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "external");
             profile.TiktokPlaywrightUploadHeadless = PlaywrightHeadlessBox.IsChecked == true;
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");

@@ -14,6 +14,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
 
     /// <summary>用户点击「启用」勾选框改变状态后触发（用于持久化与汇总刷新）。</summary>
     public event Action<QueueProjectRowViewModel>? EnabledChangedByUser;
+    public event Action<QueueProjectRowViewModel>? RemarkChangedByUser;
 
     private string _lastRefreshFingerprint = "";
 
@@ -42,6 +43,8 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
           .Append(item.StatusText).Append('|')
           .Append(item.CurrentStep).Append('|')
           .Append(item.LastError).Append('|')
+          .Append(item.Remark).Append('|')
+          .Append(item.ManualUploadStatus).Append('|')
           .Append(item.UploadCompletedAt).Append('|')
           .Append(item.Title).Append('|')
           .Append(item.NewTitle).Append('|')
@@ -71,6 +74,19 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         }
     }
     public string Title => Item.Title;
+    public string Remark
+    {
+        get => Item.Remark;
+        set
+        {
+            value ??= "";
+            if (string.Equals(Item.Remark, value, StringComparison.Ordinal))
+                return;
+            Item.Remark = value;
+            OnPropertyChanged();
+            RemarkChangedByUser?.Invoke(this);
+        }
+    }
     public string OriginalTitle => string.IsNullOrWhiteSpace(Item.OriginalTitle) ? Item.DisplayName : Item.OriginalTitle;
     public string NewTitle => FirstNonEmpty(
         Item.NewTitle,

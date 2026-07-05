@@ -717,6 +717,7 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             var row = new QueueProjectRowViewModel(project) { RowIndex = rowIndex++ };
             row.EnabledChangedByUser += OnQueueRowEnabledChangedByUser;
+            row.RemarkChangedByUser += OnQueueRowRemarkChangedByUser;
             QueueProjectRows.Add(row);
             _queueRowByDir[NormalizeProjectDir(project.ProjectDir)] = row;
         }
@@ -749,6 +750,8 @@ public sealed partial class MainViewModel : ViewModelBase
             item.CurrentStep = displayed.CurrentStep;
             item.StatusText = displayed.StatusText;
             item.LastError = displayed.LastError;
+            item.Remark = displayed.Remark;
+            item.ManualUploadStatus = displayed.ManualUploadStatus;
             item.StepStates = new Dictionary<string, string>(displayed.StepStates);
             item.UploadCompletedAt = displayed.UploadCompletedAt;
             item.AccountProfileId = displayed.AccountProfileId;
@@ -788,6 +791,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 || p.OriginalTitle.Contains(query, StringComparison.OrdinalIgnoreCase)
                 || p.NewTitle.Contains(query, StringComparison.OrdinalIgnoreCase)
                 || p.AccountName.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || p.Remark.Contains(query, StringComparison.OrdinalIgnoreCase)
                 || p.StatusText.Contains(query, StringComparison.OrdinalIgnoreCase)
                 || p.LastError.Contains(query, StringComparison.OrdinalIgnoreCase));
         }
@@ -985,6 +989,61 @@ public sealed partial class MainViewModel : ViewModelBase
             SelectedAccount?.Id,
             SelectedAccount?.DisplayName);
         RefreshWorkspaceProjects(root);
+    }
+
+    public void SetQueueProjectUploadStatus(QueueProjectRowViewModel row, bool completed) =>
+        SetQueueProjectsUploadStatus(new[] { row }, completed);
+
+    public int SetQueueProjectsUploadStatus(IEnumerable<QueueProjectRowViewModel> rows, bool completed)
+    {
+        var root = WorkspacePath.Trim();
+        if (string.IsNullOrWhiteSpace(root))
+            throw new InvalidOperationException("请先选择工作目录。");
+        if (IsCurrentWorkspaceQueueRunning())
+            throw new InvalidOperationException("当前工作目录队列正在运行，请停止后再修改上传状态。");
+
+        var targetDirs = rows
+            .Where(row => row is not null && !string.IsNullOrWhiteSpace(row.Item.ProjectDir))
+            .Select(row => NormalizeProjectDir(row.Item.ProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (targetDirs.Count == 0)
+            throw new InvalidOperationException("请先选择要修改的项目。");
+
+        var changed = 0;
+        foreach (var item in _queueItems)
+        {
+            if (!targetDirs.Contains(NormalizeProjectDir(item.ProjectDir)))
+                continue;
+
+            item.ManualUploadStatus = completed ? QueueStepStatus.Completed : QueueStepStatus.Failed;
+            if (!completed)
+                item.LastError = "手动标记上传失败";
+            else if (SelectedAccount is not null)
+            {
+                if (string.IsNullOrWhiteSpace(item.AccountProfileId))
+                    item.AccountProfileId = SelectedAccount.Id;
+                if (string.IsNullOrWhiteSpace(item.AccountProfileName))
+                    item.AccountProfileName = SelectedAccount.DisplayName;
+            }
+
+            WorkspaceQueueService.ApplyManualUploadStatus(item);
+            item.NormalizeStepStates();
+            changed++;
+        }
+
+        if (changed == 0)
+            throw new InvalidOperationException("未找到要修改的队列项目。");
+
+        PersistQueueItems();
+        UpdateQueueSummaryText();
+        AutoExportQueueExcel();
+
+        var status = completed ? QueueStepStatus.Completed : QueueStepStatus.Failed;
+        StatusMessage = changed == 1
+            ? $"已将 1 个项目上传状态标记为{status}"
+            : $"已将 {changed} 个项目上传状态标记为{status}";
+        AppendLog(StatusMessage);
+        return changed;
     }
 
     public async Task<QueueWorkerSummary?> RunQueueWorkerAsync(
@@ -1957,6 +2016,14 @@ public sealed partial class MainViewModel : ViewModelBase
         StatusMessage = row.IsEnabled
             ? $"已勾选「{row.NewTitle}」"
             : $"已取消勾选「{row.NewTitle}」";
+    }
+
+    private void OnQueueRowRemarkChangedByUser(QueueProjectRowViewModel row)
+    {
+        PersistQueueItems();
+        StatusMessage = string.IsNullOrWhiteSpace(row.Remark)
+            ? $"已清空「{row.NewTitle}」备注"
+            : $"已保存「{row.NewTitle}」备注";
     }
 
     public async Task<QueueProjectTitleRenameResult> RenameQueueProjectNewTitleAsync(

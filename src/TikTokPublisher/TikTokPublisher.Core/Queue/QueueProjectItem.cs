@@ -42,6 +42,8 @@ public sealed class QueueProjectItem
     public string CurrentStep { get; set; } = "";
     public string StatusText { get; set; } = QueueStepStatus.Pending;
     public string LastError { get; set; } = "";
+    public string Remark { get; set; } = "";
+    public string ManualUploadStatus { get; set; } = "";
     public Dictionary<string, string> StepStates { get; set; } = new();
     public bool Archived { get; set; }
 
@@ -107,6 +109,8 @@ public sealed class QueueProjectItem
             ["current_step"] = CurrentStep,
             ["status_text"] = StatusText,
             ["last_error"] = LastError,
+            ["remark"] = Remark,
+            ["manual_upload_status"] = ManualUploadStatus,
             ["step_states"] = new Dictionary<string, string>(StepStates),
             ["archived"] = Archived,
         };
@@ -132,6 +136,8 @@ public sealed class QueueProjectItem
             CurrentStep = GetString(payload, "current_step"),
             StatusText = GetString(payload, "status_text", QueueStepStatus.Pending),
             LastError = GetString(payload, "last_error"),
+            Remark = GetString(payload, "remark"),
+            ManualUploadStatus = GetString(payload, "manual_upload_status"),
             Archived = GetBool(payload, "archived"),
             StepStates = GetStepStates(payload),
         };

@@ -183,6 +183,17 @@
             <Setter Property="TextAlignment" Value="Center" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
+        <Style Selector="Border.queueColumnResizer">
+            <Setter Property="Width" Value="7" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="Cursor" Value="SizeWestEast" />
+        </Style>
+        <Style Selector="TextBox.queueRemarkBox">
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
     </UserControl.Styles>
 
     <DockPanel Margin="16,14,16,16">
@@ -212,8 +223,10 @@
                 <WrapPanel Orientation="Horizontal">
                     <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="打开浏览器" Click="OnOpenBrowserClick" Classes="browserAction compactAction" Margin="0,0,8,0" />
+                    <Button Content="打开外部浏览器" Click="OnOpenBrowserClick" Classes="browserAction compactAction" Margin="0,0,8,0" />
                     <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Classes="repairAction compactAction" Margin="0,0,8,0" />
+                    <Button Content="标记上传成功" Click="OnMarkSelectedUploadCompletedClick" Classes="contentAction compactAction" Margin="0,0,8,0" />
+                    <Button Content="标记上传失败" Click="OnMarkSelectedUploadFailedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,0" />
                     <Button Content="运行日志" Click="OnOpenLogsClick" Classes="logAction compactAction" Margin="0,0,8,0" />
                     <Button x:Name="StartQueueButton" Content="执行勾选队列" Click="OnStartQueueClick" Classes="primaryAction compactAction" Margin="0,0,8,0" />
                     <Button x:Name="StopQueueButton" Content="停止" Click="OnStopQueueClick" Classes="stopAction compactAction" IsEnabled="False" Margin="0,0,8,0" />
@@ -327,8 +340,8 @@
         <!-- 队列表格：作为 DockPanel 最后一个未指定 Dock 的子项，自动填充剩余空间 -->
         <Border Classes="queueTableFrame">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                <Grid RowDefinitions="Auto,*" Width="1496">
-                    <Grid Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,68,68,68">
+                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1608">
+                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,68,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
@@ -345,7 +358,24 @@
                         <TextBlock Grid.Column="13" Text="校验" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="14" Text="删源" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="15" Text="上传" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="16" Text="状态" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="16" Text="备注" Classes="tableHeader" />
+                        <Border Grid.Column="0" Classes="queueColumnResizer" Tag="0" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="1" Classes="queueColumnResizer" Tag="1" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="2" Classes="queueColumnResizer" Tag="2" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="3" Classes="queueColumnResizer" Tag="3" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="4" Classes="queueColumnResizer" Tag="4" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="5" Classes="queueColumnResizer" Tag="5" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="6" Classes="queueColumnResizer" Tag="6" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="7" Classes="queueColumnResizer" Tag="7" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="8" Classes="queueColumnResizer" Tag="8" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="9" Classes="queueColumnResizer" Tag="9" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="10" Classes="queueColumnResizer" Tag="10" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="11" Classes="queueColumnResizer" Tag="11" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="12" Classes="queueColumnResizer" Tag="12" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="13" Classes="queueColumnResizer" Tag="13" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="14" Classes="queueColumnResizer" Tag="14" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="15" Classes="queueColumnResizer" Tag="15" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="16" Classes="queueColumnResizer" Tag="16" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                     </Grid>
 
                     <ListBox x:Name="QueueProjectList"
@@ -357,8 +387,8 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Border Classes="queueTableRow" Width="1496" Height="42">
-                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,68,68,68" ClipToBounds="True">
+                                <Border Classes="queueTableRow" Width="1608" Height="42" Loaded="OnQueueTableRowLoaded">
+                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,68,68,180" ClipToBounds="True">
                                         <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="4,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -413,11 +443,22 @@
                                             <TextBlock Text="{Binding DeleteSourceStatus}" Foreground="{Binding DeleteSourceStatusBrush}" Classes="stepStatusText" />
                                         </Border>
                                         <Border Grid.Column="15" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding DetailText}">
+                                            <Border.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="标记上传成功" Click="OnMarkUploadCompletedClick" />
+                                                    <MenuItem Header="标记上传失败" Click="OnMarkUploadFailedClick" />
+                                                </ContextMenu>
+                                            </Border.ContextMenu>
                                             <TextBlock Text="{Binding UploadStatus}" Foreground="{Binding UploadStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="16" Classes="stepStatusBadge" Background="{Binding StatusTextBackgroundBrush}" BorderBrush="{Binding StatusTextBorderBrush}" ToolTip.Tip="{Binding DetailText}">
+                                        <Border Grid.Column="16" IsVisible="False" Classes="stepStatusBadge" Background="{Binding StatusTextBackgroundBrush}" BorderBrush="{Binding StatusTextBorderBrush}" ToolTip.Tip="{Binding DetailText}">
                                             <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusTextBrush}" Classes="stepStatusText" />
                                         </Border>
+                                        <TextBox Grid.Column="16"
+                                                 Classes="queueRemarkBox"
+                                                 Text="{Binding Remark, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
+                                                 Watermark="备注"
+                                                 Margin="6,5" />
                                     </Grid>
                                 </Border>
                             </DataTemplate>

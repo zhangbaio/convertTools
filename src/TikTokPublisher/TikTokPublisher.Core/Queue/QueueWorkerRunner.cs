@@ -769,6 +769,8 @@ public sealed class QueueWorkerRunner
 
     private static void MarkRunning(QueueProjectItem item, string stepKey)
     {
+        if (stepKey == QueueStepRegistry.UploadSeries)
+            item.ManualUploadStatus = "";
         item.CurrentStep = stepKey;
         item.StatusText = QueueStepStatus.Running;
         item.StepStates[stepKey] = QueueStepStatus.Running;
@@ -777,6 +779,8 @@ public sealed class QueueWorkerRunner
 
     private static void MarkCompleted(QueueProjectItem item, string stepKey)
     {
+        if (stepKey == QueueStepRegistry.UploadSeries)
+            item.ManualUploadStatus = "";
         item.CurrentStep = "";
         item.StatusText = QueueStepStatus.Completed;
         item.StepStates[stepKey] = QueueStepStatus.Completed;
@@ -794,6 +798,8 @@ public sealed class QueueWorkerRunner
 
     private static void MarkFailed(QueueProjectItem item, string stepKey, string error)
     {
+        if (stepKey == QueueStepRegistry.UploadSeries)
+            item.ManualUploadStatus = "";
         item.CurrentStep = "";
         item.StatusText = QueueStepStatus.Failed;
         item.StepStates[stepKey] = QueueStepStatus.Failed;
@@ -802,6 +808,8 @@ public sealed class QueueWorkerRunner
 
     private static void MarkStopped(QueueProjectItem item, string stepKey)
     {
+        if (stepKey == QueueStepRegistry.UploadSeries)
+            item.ManualUploadStatus = "";
         item.CurrentStep = "";
         item.StatusText = QueueStepStatus.Stopped;
         if (!string.IsNullOrWhiteSpace(stepKey))
@@ -810,12 +818,14 @@ public sealed class QueueWorkerRunner
 
     private static void MarkWaitingSlot(QueueProjectItem item)
     {
+        item.ManualUploadStatus = "";
         item.StatusText = QueueStepStatus.WaitingUploadSlot;
         item.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.WaitingUploadSlot;
     }
 
     private static void MarkManualIntervention(QueueProjectItem item, string error)
     {
+        item.ManualUploadStatus = "";
         item.CurrentStep = "";
         item.StatusText = QueueStepStatus.ManualIntervention;
         item.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.ManualIntervention;

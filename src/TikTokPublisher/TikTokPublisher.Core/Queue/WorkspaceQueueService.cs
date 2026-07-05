@@ -97,6 +97,7 @@ public static class WorkspaceQueueService
         item.StatusText = QueueStepStatus.Completed;
         item.CurrentStep = "";
         item.LastError = "";
+        item.ManualUploadStatus = "";
         item.UploadCompletedAt = DateTimeOffset.Now.ToString("o");
         if (!string.IsNullOrWhiteSpace(accountProfileId))
             item.AccountProfileId = accountProfileId.Trim();
@@ -171,6 +172,8 @@ public static class WorkspaceQueueService
                 CurrentStep = persisted.CurrentStep,
                 StatusText = persisted.StatusText,
                 LastError = persisted.LastError,
+                Remark = persisted.Remark,
+                ManualUploadStatus = persisted.ManualUploadStatus,
                 StepStates = new Dictionary<string, string>(persisted.StepStates),
                 Archived = persisted.Archived,
                 AccountProfileId = persisted.AccountProfileId,
@@ -199,8 +202,34 @@ public static class WorkspaceQueueService
         item.NormalizeStepStates();
         RecoverLocalStepExecutionState(item);
         RecoverQueueItemExecutionState(item);
+        ApplyManualUploadStatus(item);
         item.NormalizeStepStates();
         return item;
+    }
+
+    public static void ApplyManualUploadStatus(QueueProjectItem item)
+    {
+        var status = (item.ManualUploadStatus ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(status))
+            return;
+
+        item.CurrentStep = "";
+        item.StepStates[QueueStepKeys.UploadSeries] = status;
+
+        if (string.Equals(status, QueueStepStatus.Completed, StringComparison.Ordinal))
+        {
+            item.StatusText = QueueStepStatus.Completed;
+            item.LastError = "";
+            if (string.IsNullOrWhiteSpace(item.UploadCompletedAt))
+                item.UploadCompletedAt = DateTimeOffset.Now.ToString("o");
+        }
+        else if (string.Equals(status, QueueStepStatus.Failed, StringComparison.Ordinal))
+        {
+            item.StatusText = QueueStepStatus.Failed;
+            item.UploadCompletedAt = "";
+            if (string.IsNullOrWhiteSpace(item.LastError))
+                item.LastError = "手动标记上传失败";
+        }
     }
 
     private static void ApplyWorkspaceBinding(
