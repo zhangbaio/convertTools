@@ -16,10 +16,6 @@ public sealed class ClientSettings
     public string HgnewUdid { get; set; } = "";
     public string HgnewClientVersion { get; set; } = DefaultHongguoClientVersion;
 
-    public string Hongguo52ApiKey { get; set; } = "";
-    public string Hongguo52ApiBaseUrl { get; set; } = "https://www.52api.cn/api/hg_duanju";
-    public string Hongguo52ApiSearchType { get; set; } = "search";
-
     public string HongguoLocalBaseUrl { get; set; } = "";
     public string HongguoLocalApiKey { get; set; } = "";
 
@@ -49,28 +45,28 @@ public sealed class ClientSettings
     public string AiTextEndpoint { get; set; } = ClientSettingsDefaults.AiTextEndpoint;
     public string AiTextApiKey { get; set; } = "";
     public string AiTextModel { get; set; } = ClientSettingsDefaults.AiTextModel;
-    public int AiTextTimeoutSeconds { get; set; } = 120;
-    public int AiTextMaxBatchSize { get; set; } = 10;
+    public int AiTextTimeoutSeconds { get; set; } = ClientSettingsDefaults.AiTextTimeoutSeconds;
+    public int AiTextMaxBatchSize { get; set; } = ClientSettingsDefaults.AiTextMaxBatchSize;
     public string AiTagSystemPrompt { get; set; } = ClientSettingsDefaults.AiTagSystemPrompt;
     public string AiTagBatchPrompt { get; set; } = ClientSettingsDefaults.AiTagBatchPrompt;
     public string AiFullInfoSystemPrompt { get; set; } = ClientSettingsDefaults.AiFullInfoSystemPrompt;
     public string AiFullInfoBatchPrompt { get; set; } = ClientSettingsDefaults.AiFullInfoBatchPrompt;
     public string AiFullInfoRetryPrompt { get; set; } = ClientSettingsDefaults.AiFullInfoRetryPrompt;
 
-    public string PosterMode { get; set; } = "original";
-    public string ImageProvider { get; set; } = "doubao";
+    public string PosterMode { get; set; } = ClientSettingsDefaults.PosterMode;
+    public string ImageProvider { get; set; } = ClientSettingsDefaults.ImageProvider;
     public string ImageModelId { get; set; } = ClientSettingsDefaults.ImageModelId;
     public string ImageModelApiKey { get; set; } = "";
     public string ImageModelEndpoint { get; set; } = ClientSettingsDefaults.ImageModelEndpoint;
-    public string DoubaoImageResolution { get; set; } = "2K";
-    public string DoubaoImageRatio { get; set; } = "3:4";
-    public string OfoxImage2ModelId { get; set; } = "openai/gpt-image-2";
+    public string DoubaoImageResolution { get; set; } = ClientSettingsDefaults.DoubaoImageResolution;
+    public string DoubaoImageRatio { get; set; } = ClientSettingsDefaults.DoubaoImageRatio;
+    public string OfoxImage2ModelId { get; set; } = ClientSettingsDefaults.OfoxImage2ModelId;
     public string OfoxImage2ApiKey { get; set; } = "";
-    public string OfoxImage2Endpoint { get; set; } = "https://api.ofox.ai/v1";
-    public string OfoxImage2Quality { get; set; } = "medium";
-    public string OfoxImage2Size { get; set; } = "auto";
-    public bool PosterTitleVerifyEnabled { get; set; } = true;
-    public string PosterTitleVerifyMode { get; set; } = "fallback_repaint";
+    public string OfoxImage2Endpoint { get; set; } = ClientSettingsDefaults.OfoxImage2Endpoint;
+    public string OfoxImage2Quality { get; set; } = ClientSettingsDefaults.OfoxImage2Quality;
+    public string OfoxImage2Size { get; set; } = ClientSettingsDefaults.OfoxImage2Size;
+    public bool PosterTitleVerifyEnabled { get; set; } = ClientSettingsDefaults.PosterTitleVerifyEnabled;
+    public string PosterTitleVerifyMode { get; set; } = ClientSettingsDefaults.PosterTitleVerifyMode;
     public string FrameCoverPrompt { get; set; } = ClientSettingsDefaults.FrameCoverPrompt;
     public string PosterLayoutDetectPrompt { get; set; } = ClientSettingsDefaults.PosterLayoutDetectPrompt;
     public string PosterInpaintPrompt { get; set; } = ClientSettingsDefaults.PosterInpaintPrompt;
@@ -90,8 +86,8 @@ public sealed class ClientSettings
     public bool TiktokExcelAutoExportEnabled { get; set; } = true;
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
-    public bool TiktokAllowOverLimitUploadImport { get; set; }
-    public int TiktokOverLimitDownloadEpisodeCount { get; set; } = 120;
+    public bool TiktokAllowOverLimitUploadImport { get; set; } = ClientSettingsDefaults.TiktokAllowOverLimitUploadImport;
+    public int TiktokOverLimitDownloadEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount;
     public bool FeishuCommandEnabled { get; set; }
     public string FeishuCommandAppId { get; set; } = "";
     public string FeishuCommandAppSecret { get; set; } = "";
@@ -121,9 +117,6 @@ public sealed class ClientSettings
         HgnewPassword = HgnewPassword,
         HgnewUdid = HgnewUdid,
         HgnewClientVersion = HgnewClientVersion,
-        Hongguo52ApiKey = Hongguo52ApiKey,
-        Hongguo52ApiBaseUrl = Hongguo52ApiBaseUrl,
-        Hongguo52ApiSearchType = Hongguo52ApiSearchType,
         HongguoLocalBaseUrl = HongguoLocalBaseUrl,
         HongguoLocalApiKey = HongguoLocalApiKey,
         PikachuServerUrl = PikachuServerUrl,

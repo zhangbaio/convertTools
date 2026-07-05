@@ -67,20 +67,6 @@
 
                         <Separator Margin="0,4" />
 
-                        <TextBlock Text="52API 红果短剧链路" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="52API 密钥" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Hongguo52ApiKey}" />
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="52API 接口地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Hongguo52ApiBaseUrl}" />
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="52API 搜索类型" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="Api52SearchTypeCombo" HorizontalAlignment="Stretch" />
-                        </Grid>
-
-                        <Separator Margin="0,4" />
-
                         <TextBlock Text="本地直连链路（自建红果 API 服务）" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本地链路地址" VerticalAlignment="Center" />

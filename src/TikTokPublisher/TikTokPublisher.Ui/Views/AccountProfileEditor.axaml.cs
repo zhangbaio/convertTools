@@ -21,7 +21,6 @@ public partial class AccountProfileEditor : UserControl
     {
         InitializeComponent();
         ExpectedPriceModeCombo.SelectionChanged += (_, _) => UpdateExpectedPriceModeVisibility();
-        ManagementDedupBox.IsCheckedChanged += (_, _) => RefreshManagementDedupState();
         DataContextChanged += (_, _) => ReloadFromSelectedAccount();
     }
 
@@ -86,6 +85,7 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
         SelectByTag(UploadBrowserModeCombo, profile.TiktokUploadBrowserMode, "embedded");
+        PlaywrightHeadlessBox.IsChecked = profile.TiktokPlaywrightUploadHeadless;
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(SourceLanguageCombo, profile.TiktokSourceLanguage, "zh");
@@ -100,9 +100,6 @@ public partial class AccountProfileEditor : UserControl
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         AnchorPromotionBox.IsChecked = profile.TiktokAnchorPromotionEnabled;
         SilenceValidationBox.IsChecked = profile.TiktokSilenceValidationEnabled;
-        ManagementDedupBox.IsChecked = profile.ManagementDedupEnabled;
-        SelectByTag(ManagementDedupScopeCombo, profile.ManagementDedupScope, "tiktok_username");
-        RefreshManagementDedupState();
         ProfilePreviewBox.Value = profile.TiktokProfilePreviewEpisodes > 0 ? profile.TiktokProfilePreviewEpisodes : 3;
         FreePreviewBox.Value = profile.TiktokFreePreviewEpisodes > 0 ? profile.TiktokFreePreviewEpisodes : 3;
         GenreCountBox.Value = TikTokPublishOptions.NormalizeGenreCount(profile.TiktokGenreCount);
@@ -178,6 +175,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
             profile.TiktokSubmitEnabled = string.Equals(profile.TiktokSubmitAction, "submit", StringComparison.Ordinal);
             profile.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "embedded");
+            profile.TiktokPlaywrightUploadHeadless = PlaywrightHeadlessBox.IsChecked == true;
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
             profile.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
@@ -189,8 +187,6 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
             profile.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
             profile.TiktokSilenceValidationEnabled = SilenceValidationBox.IsChecked == true;
-            profile.ManagementDedupEnabled = ManagementDedupBox.IsChecked == true;
-            profile.ManagementDedupScope = TagOf(ManagementDedupScopeCombo, "tiktok_username");
             profile.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
             profile.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);
             profile.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount((int)(GenreCountBox.Value ?? TikTokPublishOptions.DefaultGenreCount));
@@ -272,9 +268,6 @@ public partial class AccountProfileEditor : UserControl
         FingerprintStartCommandBox.Text = "";
         ContractIdBox.Text = "";
         SubmitEnabledBox.IsChecked = true;
-        ManagementDedupBox.IsChecked = false;
-        SelectByTag(ManagementDedupScopeCombo, "tiktok_username", "tiktok_username");
-        RefreshManagementDedupState();
         MaxContinuousSilenceSecondsBox.Value = 20;
         ExpectedPriceValueBox.Text = "";
         ExpectedPriceOptionsCombo.Items.Clear();
@@ -354,11 +347,6 @@ public partial class AccountProfileEditor : UserControl
         ExpectedPriceValueBox.IsVisible = mode == "manual";
         ExpectedPriceOptionsCombo.IsVisible = mode == "manual";
         ExpectedPriceOptionIndexBox.IsVisible = mode == "option_index";
-    }
-
-    private void RefreshManagementDedupState()
-    {
-        ManagementDedupScopeCombo.IsEnabled = ManagementDedupBox.IsChecked == true;
     }
 
     private static string BuildExpectedPriceInputText(TikTokAccountProfile profile) =>

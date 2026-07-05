@@ -8,6 +8,7 @@ using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using TikTokPublisher.Ui.Common;
 
 using TikTokPublisher.Ui.Services;
 using TikTokPublisher.Ui.Services.TikTok;
@@ -41,7 +42,7 @@ public sealed partial class MainViewModel : ViewModelBase
     public ObservableCollection<AccountItemViewModel> FilteredAccounts { get; } = new();
     public ObservableCollection<PublishTaskItemViewModel> Tasks { get; } = new();
     public ObservableCollection<QueueProjectRowViewModel> QueueProjectRows { get; } = new();
-    public ObservableCollection<QueueProjectRowViewModel> FilteredQueueProjectRows { get; } = new();
+    public RangeObservableCollection<QueueProjectRowViewModel> FilteredQueueProjectRows { get; } = new();
 
     public event Action<ManualInterventionDialogRequest>? ManualInterventionDialogRequested;
 
@@ -687,8 +688,6 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void ClearWorkspaceProjectCollections()
     {
-        WorkspaceProjects.Clear();
-        FilteredWorkspaceProjects.Clear();
         QueueProjectRows.Clear();
         FilteredQueueProjectRows.Clear();
     }
@@ -712,17 +711,16 @@ public sealed partial class MainViewModel : ViewModelBase
         ApplyQueueStepTogglesFromOptions();
         UpdateWorkspaceBindingSummary(root);
 
+        // WorkspaceProjects/FilteredWorkspaceProjects 无 UI 绑定，切账号时不再构建（省去大量 VM 分配）。
         var rowIndex = 1;
         foreach (var project in _queueItems)
         {
-            WorkspaceProjects.Add(new WorkspaceProjectItemViewModel(project));
             var row = new QueueProjectRowViewModel(project) { RowIndex = rowIndex++ };
             row.EnabledChangedByUser += OnQueueRowEnabledChangedByUser;
             QueueProjectRows.Add(row);
             _queueRowByDir[NormalizeProjectDir(project.ProjectDir)] = row;
         }
 
-        ApplyWorkspaceProjectFilter();
         ApplyQueueProjectFilter();
         UpdateQueueSummaryText();
         RefreshLogSnapshot(force: true);
@@ -776,17 +774,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     partial void OnShowOnlyPendingUploadChanged(bool value)
     {
-        ApplyWorkspaceProjectFilter();
         ApplyQueueProjectFilter();
-    }
-
-    private void ApplyWorkspaceProjectFilter()
-    {
-        FilteredWorkspaceProjects.Clear();
-        foreach (var vm in ShowOnlyPendingUpload
-                     ? WorkspaceProjects.Where(p => p.IsPendingUpload)
-                     : WorkspaceProjects)
-            FilteredWorkspaceProjects.Add(vm);
     }
 
     private void ApplyQueueProjectFilter()
@@ -829,13 +817,11 @@ public sealed partial class MainViewModel : ViewModelBase
             }
         }
 
-        FilteredQueueProjectRows.Clear();
         var index = 1;
         foreach (var vm in target)
-        {
             vm.RowIndex = index++;
-            FilteredQueueProjectRows.Add(vm);
-        }
+        // 一次性 Reset：切账号整表刷新时 ListBox 只重建一次，而非逐项 Clear+Add。
+        FilteredQueueProjectRows.ReplaceAll(target);
     }
 
     public IReadOnlyList<QueueProjectItem> GetPendingUploadProjects() =>
@@ -879,6 +865,58 @@ public sealed partial class MainViewModel : ViewModelBase
         StatusMessage = enabled
             ? $"已勾选 {visibleRows.Length} 个项目"
             : $"已取消勾选 {visibleRows.Length} 个项目";
+    }
+
+    public IReadOnlyList<QueueProjectRowViewModel> SetFilteredCompletedQueueRowsEnabled()
+    {
+        var root = WorkspacePath.Trim();
+        if (string.IsNullOrEmpty(root)) return Array.Empty<QueueProjectRowViewModel>();
+
+        var visibleRows = FilteredQueueProjectRows.ToArray();
+        if (visibleRows.Length == 0)
+        {
+            StatusMessage = "没有可勾选的项目";
+            return Array.Empty<QueueProjectRowViewModel>();
+        }
+
+        var visibleDirs = visibleRows
+            .Select(row => NormalizeProjectDir(row.Item.ProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var completedDirs = visibleRows
+            .Where(row => row.Item.IsUploadCompleted)
+            .Select(row => NormalizeProjectDir(row.Item.ProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var changed = 0;
+        foreach (var item in _queueItems)
+        {
+            var normalized = NormalizeProjectDir(item.ProjectDir);
+            if (!visibleDirs.Contains(normalized)) continue;
+
+            var enabled = completedDirs.Contains(normalized);
+            if (item.Enabled == enabled) continue;
+
+            item.Enabled = enabled;
+            changed++;
+        }
+
+        if (changed > 0)
+        {
+            PersistQueueItems();
+        }
+        else
+        {
+            RefreshQueueRowViewModels();
+        }
+
+        UpdateQueueSummaryText();
+        StatusMessage = completedDirs.Count == 0
+            ? "当前筛选结果中没有已完成项目"
+            : $"已勾选 {completedDirs.Count} 个已完成项目";
+
+        return FilteredQueueProjectRows
+            .Where(row => completedDirs.Contains(NormalizeProjectDir(row.Item.ProjectDir)))
+            .ToArray();
     }
 
     public int SetQueueRowsEnabled(IEnumerable<QueueProjectRowViewModel> rows, bool enabled)
@@ -963,19 +1001,23 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrEmpty(root) || _queueItems.Count == 0)
             return null;
 
-        var selected = SelectedAccount;
-        if (selected is not null)
+        // 并行多账号时 SelectedAccount 会随 UI 切换，故填充账号优先用「工作目录绑定的账号」，
+        // 仅在工作目录未绑定时回退到当前选中账号，避免把项目绑到错误账号。
+        var boundId = WorkspaceBindingService.ResolveAccountProfileId(root);
+        var boundAccount = string.IsNullOrWhiteSpace(boundId) ? null : FindAccount(boundId);
+        var effectiveAccount = boundAccount ?? SelectedAccount;
+        if (effectiveAccount is not null)
         {
-            if (string.IsNullOrWhiteSpace(WorkspaceBindingService.ResolveAccountProfileId(root)))
+            if (string.IsNullOrWhiteSpace(boundId))
             {
-                WorkspaceBindingService.Bind(root, selected.Id, selected.DisplayName);
+                WorkspaceBindingService.Bind(root, effectiveAccount.Id, effectiveAccount.DisplayName);
                 UpdateWorkspaceBindingSummary(root);
             }
 
             foreach (var item in _queueItems.Where(i => i.Enabled && string.IsNullOrWhiteSpace(i.AccountProfileId)))
             {
-                item.AccountProfileId = selected.Id;
-                item.AccountProfileName = selected.DisplayName;
+                item.AccountProfileId = effectiveAccount.Id;
+                item.AccountProfileName = effectiveAccount.DisplayName;
             }
 
             PersistQueueItems();
@@ -1317,18 +1359,20 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             var duplicateSuffix = result.Duplicates.Count > 0 ? $"，重复 {result.Duplicates.Count} 个" : "";
             var failurePreview = result.Failures.Count > 0
-                ? string.Join("；", result.Failures.Take(3).Select(item => $"{item.Title}: {item.Reason}"))
+                ? UploadTitleImportService.BuildFailurePreview(result.Failures)
                 : "没有匹配到可执行项目。";
             return result.Duplicates.Count > 0 && result.Failures.Count == 0
                 ? TikTokRemoteCommandResult.Success(command.Command, $"没有需要上传的新剧（全部已存在）{duplicateSuffix}。")
                 : TikTokRemoteCommandResult.Failed(command.Command, $"TikTok 剧集导入失败：{failurePreview}{duplicateSuffix}");
         }
 
+        var authorExcludeNotice = UploadTitleImportService.BuildAuthorExcludeNotice(result.Failures);
         if (!command.AutoRun)
         {
             var text = $"已导入 {result.QueuedCount} 个 TikTok 项目。"
                        + (result.FailedCount > 0 ? $" 未导入 {result.FailedCount} 个。" : "")
-                       + (result.Duplicates.Count > 0 ? $" 重复 {result.Duplicates.Count} 个。" : "");
+                       + (result.Duplicates.Count > 0 ? $" 重复 {result.Duplicates.Count} 个。" : "")
+                       + (string.IsNullOrWhiteSpace(authorExcludeNotice) ? "" : $" {authorExcludeNotice}");
             return TikTokRemoteCommandResult.Success(command.Command, text);
         }
 
@@ -1338,7 +1382,8 @@ public sealed partial class MainViewModel : ViewModelBase
         await RemoteQueueRunRequested.Invoke(options, null);
         return TikTokRemoteCommandResult.Accepted(
             command.Command,
-            $"飞书上传任务已导入并启动队列：已加入执行 {result.ProjectDirs.Count} 个，未导入 {result.FailedCount} 个。");
+            $"飞书上传任务已导入并启动队列：已加入执行 {result.ProjectDirs.Count} 个，未导入 {result.FailedCount} 个。"
+            + (string.IsNullOrWhiteSpace(authorExcludeNotice) ? "" : $" {authorExcludeNotice}"));
     }
 
     private async Task<TikTokRemoteCommandResult> ExecuteRemoteStartMultiAccountQueueAsync(TikTokRemoteCommand command)
@@ -1367,14 +1412,14 @@ public sealed partial class MainViewModel : ViewModelBase
         var totalFailed = 0;
         var totalDuplicates = 0;
         var runTargets = new List<WorkspaceQueueTarget>();
-        var failures = new List<string>();
+        var failures = new List<UploadTitleImportFailure>();
 
         foreach (var target in targets)
         {
             var account = FindAccount(target.AccountProfileId ?? "");
             if (account is null)
             {
-                failures.Add($"{target.DisplayLabel}: 未找到账号");
+                failures.Add(new UploadTitleImportFailure(target.DisplayLabel, "未找到账号"));
                 continue;
             }
 
@@ -1390,7 +1435,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
             if (result is null)
             {
-                failures.Add($"{account.DisplayName}: 导入失败");
+                failures.Add(new UploadTitleImportFailure(account.DisplayName, "导入失败"));
                 continue;
             }
 
@@ -1398,7 +1443,7 @@ public sealed partial class MainViewModel : ViewModelBase
             totalFailed += result.FailedCount;
             totalDuplicates += result.Duplicates.Count;
             if (result.Failures.Count > 0)
-                failures.AddRange(result.Failures.Take(3).Select(item => $"{account.DisplayName}/{item.Title}: {item.Reason}"));
+                failures.AddRange(result.Failures.Select(item => item with { Title = $"{account.DisplayName}/{item.Title}" }));
             if (result.ProjectDirs.Count > 0)
                 runTargets.Add(target);
         }
@@ -1408,15 +1453,19 @@ public sealed partial class MainViewModel : ViewModelBase
             var duplicateSuffix = totalDuplicates > 0 ? $"，重复 {totalDuplicates} 个" : "";
             if (failures.Count == 0 && totalDuplicates > 0)
                 return TikTokRemoteCommandResult.Success(command.Command, $"没有需要上传的新剧（全部已存在）{duplicateSuffix}。");
-            var failurePreview = failures.Count > 0 ? string.Join("；", failures.Take(5)) : "没有匹配到可执行项目。";
+            var failurePreview = failures.Count > 0
+                ? UploadTitleImportService.BuildFailurePreview(failures, 5)
+                : "没有匹配到可执行项目。";
             return TikTokRemoteCommandResult.Failed(command.Command, $"TikTok 多账号剧集导入失败：{failurePreview}{duplicateSuffix}");
         }
 
+        var multiAuthorExcludeNotice = UploadTitleImportService.BuildAuthorExcludeNotice(failures, 5);
         if (!command.AutoRun)
         {
             var text = $"已为 {runTargets.Count} 个账号工作目录导入 {totalQueued} 个 TikTok 项目。"
                        + (totalFailed > 0 ? $" 未导入 {totalFailed} 个。" : "")
-                       + (totalDuplicates > 0 ? $" 重复 {totalDuplicates} 个。" : "");
+                       + (totalDuplicates > 0 ? $" 重复 {totalDuplicates} 个。" : "")
+                       + (string.IsNullOrWhiteSpace(multiAuthorExcludeNotice) ? "" : $" {multiAuthorExcludeNotice}");
             return TikTokRemoteCommandResult.Success(command.Command, text);
         }
 
@@ -1427,7 +1476,8 @@ public sealed partial class MainViewModel : ViewModelBase
         await RemoteAllQueueRunRequested.Invoke(options, runTargets);
         return TikTokRemoteCommandResult.Accepted(
             command.Command,
-            $"飞书多账号上传任务已导入并启动队列：{runTargets.Count} 个工作目录，加入执行 {totalQueued} 个，未导入 {totalFailed} 个。");
+            $"飞书多账号上传任务已导入并启动队列：{runTargets.Count} 个工作目录，加入执行 {totalQueued} 个，未导入 {totalFailed} 个。"
+            + (string.IsNullOrWhiteSpace(multiAuthorExcludeNotice) ? "" : $" {multiAuthorExcludeNotice}"));
     }
 
     private QueueRunOptions? BuildRemoteEnabledStepOptions(TikTokRemoteCommand command)
@@ -2227,8 +2277,10 @@ public sealed partial class MainViewModel : ViewModelBase
             ct);
 
         await ApplyUploadTitleImportResultAsync(result).ConfigureAwait(false);
+        var authorExcludedCount = result.Failures.Count(UploadTitleImportService.IsAuthorExcludedFailure);
         StatusMessage =
-            $"上传短剧导入完成：加入 {result.QueuedCount} 个，失败 {result.FailedCount} 个，重复 {result.Duplicates.Count} 个";
+            $"上传短剧导入完成：加入 {result.QueuedCount} 个，失败 {result.FailedCount} 个，重复 {result.Duplicates.Count} 个"
+            + (authorExcludedCount > 0 ? $"，作者排除 {authorExcludedCount} 个" : "");
         AppendLog(StatusMessage);
         return result;
     }
@@ -2248,6 +2300,12 @@ public sealed partial class MainViewModel : ViewModelBase
         PreferUploadWhenReady = false;
         OnPropertyChanged(nameof(ForceRerunCompletedSteps));
         OnPropertyChanged(nameof(PreferUploadWhenReady));
+
+        // 导入短剧是明确的“用当前账号处理这批短剧”操作：强制把工作目录与导入项目绑定到当前账号，
+        // 覆盖此前用其它账号跑过留下的残留绑定，避免账号槽错乱、上传到错误账号。
+        var importAccount = SelectedAccount?.Model;
+        if (importAccount is not null)
+            WorkspaceBindingService.Bind(root, importAccount.Id, importAccount.DisplayName);
 
         if (queueRunning)
         {
@@ -2269,11 +2327,19 @@ public sealed partial class MainViewModel : ViewModelBase
             var isImported = importedKeys.Contains(Path.GetFullPath(item.ProjectDir));
             item.Enabled = isImported;
             if (isImported)
+            {
                 ResetQueueItemToPending(item);
+                if (importAccount is not null)
+                {
+                    item.AccountProfileId = importAccount.Id;
+                    item.AccountProfileName = importAccount.DisplayName;
+                }
+            }
         }
 
         PersistQueueItems();
         RefreshQueueRowViewModels();
+        UpdateWorkspaceBindingSummary(root);
         UpdateQueueSummaryText();
     }
 
@@ -2298,6 +2364,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var scanned = WorkspaceQueueService.ScanProjects(root)
             .ToDictionary(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase);
         var appended = new List<QueueProjectItem>();
+        var importAccount = SelectedAccount?.Model;
 
         foreach (var key in importedKeys)
         {
@@ -2308,6 +2375,11 @@ public sealed partial class MainViewModel : ViewModelBase
 
             item.Enabled = true;
             ResetQueueItemToPending(item);
+            if (importAccount is not null)
+            {
+                item.AccountProfileId = importAccount.Id;
+                item.AccountProfileName = importAccount.DisplayName;
+            }
             _queueItems.Add(item);
             existingKeys.Add(key);
             appended.Add(item);

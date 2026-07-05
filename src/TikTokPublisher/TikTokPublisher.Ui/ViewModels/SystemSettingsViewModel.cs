@@ -34,10 +34,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _hgnewUdid = "";
     [ObservableProperty] private string _hgnewClientVersion = ClientSettings.DefaultHongguoClientVersion;
 
-    [ObservableProperty] private string _hongguo52ApiKey = "";
-    [ObservableProperty] private string _hongguo52ApiBaseUrl = "https://www.52api.cn/api/hg_duanju";
-    [ObservableProperty] private string _hongguo52ApiSearchType = "search";
-
     [ObservableProperty] private string _hongguoLocalBaseUrl = "";
     [ObservableProperty] private string _hongguoLocalApiKey = "";
 
@@ -69,31 +65,31 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _tiktokManualInterventionOnSingleFailure = true;
     [ObservableProperty] private string _asrProbeStatus = "";
 
-    [ObservableProperty] private string _aiTextEndpoint = "https://ark.cn-beijing.volces.com/api/v3";
+    [ObservableProperty] private string _aiTextEndpoint = ClientSettingsDefaults.AiTextEndpoint;
     [ObservableProperty] private string _aiTextApiKey = "";
-    [ObservableProperty] private string _aiTextModel = "doubao-seed-2-0-lite-260215";
-    [ObservableProperty] private int _aiTextTimeoutSeconds = 120;
-    [ObservableProperty] private int _aiTextMaxBatchSize = 10;
+    [ObservableProperty] private string _aiTextModel = ClientSettingsDefaults.AiTextModel;
+    [ObservableProperty] private int _aiTextTimeoutSeconds = ClientSettingsDefaults.AiTextTimeoutSeconds;
+    [ObservableProperty] private int _aiTextMaxBatchSize = ClientSettingsDefaults.AiTextMaxBatchSize;
     [ObservableProperty] private string _aiTagSystemPrompt = "";
     [ObservableProperty] private string _aiTagBatchPrompt = "";
     [ObservableProperty] private string _aiFullInfoSystemPrompt = "";
     [ObservableProperty] private string _aiFullInfoBatchPrompt = "";
     [ObservableProperty] private string _aiFullInfoRetryPrompt = "";
 
-    [ObservableProperty] private string _posterMode = "original";
-    [ObservableProperty] private string _imageProvider = "doubao";
-    [ObservableProperty] private string _imageModelId = "doubao-seedream-5-0-lite-260128";
+    [ObservableProperty] private string _posterMode = ClientSettingsDefaults.PosterMode;
+    [ObservableProperty] private string _imageProvider = ClientSettingsDefaults.ImageProvider;
+    [ObservableProperty] private string _imageModelId = ClientSettingsDefaults.ImageModelId;
     [ObservableProperty] private string _imageModelApiKey = "";
-    [ObservableProperty] private string _imageModelEndpoint = "";
-    [ObservableProperty] private string _doubaoImageResolution = "2K";
-    [ObservableProperty] private string _doubaoImageRatio = "3:4";
-    [ObservableProperty] private string _ofoxImage2ModelId = "openai/gpt-image-2";
+    [ObservableProperty] private string _imageModelEndpoint = ClientSettingsDefaults.ImageModelEndpoint;
+    [ObservableProperty] private string _doubaoImageResolution = ClientSettingsDefaults.DoubaoImageResolution;
+    [ObservableProperty] private string _doubaoImageRatio = ClientSettingsDefaults.DoubaoImageRatio;
+    [ObservableProperty] private string _ofoxImage2ModelId = ClientSettingsDefaults.OfoxImage2ModelId;
     [ObservableProperty] private string _ofoxImage2ApiKey = "";
-    [ObservableProperty] private string _ofoxImage2Endpoint = "https://api.ofox.ai/v1";
-    [ObservableProperty] private string _ofoxImage2Quality = "medium";
-    [ObservableProperty] private string _ofoxImage2Size = "auto";
-    [ObservableProperty] private bool _posterTitleVerifyEnabled = true;
-    [ObservableProperty] private string _posterTitleVerifyMode = "fallback_repaint";
+    [ObservableProperty] private string _ofoxImage2Endpoint = ClientSettingsDefaults.OfoxImage2Endpoint;
+    [ObservableProperty] private string _ofoxImage2Quality = ClientSettingsDefaults.OfoxImage2Quality;
+    [ObservableProperty] private string _ofoxImage2Size = ClientSettingsDefaults.OfoxImage2Size;
+    [ObservableProperty] private bool _posterTitleVerifyEnabled = ClientSettingsDefaults.PosterTitleVerifyEnabled;
+    [ObservableProperty] private string _posterTitleVerifyMode = ClientSettingsDefaults.PosterTitleVerifyMode;
     [ObservableProperty] private string _frameCoverPrompt = "";
     [ObservableProperty] private string _posterLayoutDetectPrompt = "";
     [ObservableProperty] private string _posterInpaintPrompt = "";
@@ -105,13 +101,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _tiktokExcelAutoExportEnabled = true;
     [ObservableProperty] private bool _managementDedupEnabled;
     [ObservableProperty] private string _managementDedupScope = "tiktok_username";
-    [ObservableProperty] private bool _tiktokAllowOverLimitUploadImport;
-    [ObservableProperty] private int _tiktokOverLimitDownloadEpisodeCount = 120;
+    [ObservableProperty] private bool _tiktokAllowOverLimitUploadImport = ClientSettingsDefaults.TiktokAllowOverLimitUploadImport;
+    [ObservableProperty] private int _tiktokOverLimitDownloadEpisodeCount = ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount;
 
     public IReadOnlyList<string> DramaSourceOptions { get; } =
     [
         "hgnew",
-        "hg52api",
         "hglocal",
         "pikachu"
     ];
@@ -145,9 +140,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewClientVersion = string.IsNullOrWhiteSpace(HgnewClientVersion)
             ? ClientSettings.DefaultHongguoClientVersion
             : HgnewClientVersion.Trim(),
-        Hongguo52ApiKey = Hongguo52ApiKey.Trim(),
-        Hongguo52ApiBaseUrl = Hongguo52ApiBaseUrl.Trim(),
-        Hongguo52ApiSearchType = Hongguo52ApiSearchType,
         HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
         HongguoLocalApiKey = HongguoLocalApiKey.Trim(),
         PikachuServerUrl = PikachuServerUrl.Trim(),
@@ -570,9 +562,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewPassword = settings.HgnewPassword;
         HgnewUdid = settings.HgnewUdid;
         HgnewClientVersion = settings.HgnewClientVersion;
-        Hongguo52ApiKey = settings.Hongguo52ApiKey;
-        Hongguo52ApiBaseUrl = settings.Hongguo52ApiBaseUrl;
-        Hongguo52ApiSearchType = settings.Hongguo52ApiSearchType;
         HongguoLocalBaseUrl = settings.HongguoLocalBaseUrl;
         HongguoLocalApiKey = settings.HongguoLocalApiKey;
         PikachuServerUrl = settings.PikachuServerUrl;

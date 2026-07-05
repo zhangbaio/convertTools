@@ -1,11 +1,102 @@
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokPublishDefaultsTests
 {
+    [Fact]
+    public void Client_settings_ai_defaults_include_non_key_values_only()
+    {
+        var settings = new ClientSettings();
+
+        settings.AiTextEndpoint.Should().Be(ClientSettingsDefaults.AiTextEndpoint);
+        settings.AiTextModel.Should().Be(ClientSettingsDefaults.AiTextModel);
+        settings.AiTextTimeoutSeconds.Should().Be(ClientSettingsDefaults.AiTextTimeoutSeconds);
+        settings.AiTextMaxBatchSize.Should().Be(ClientSettingsDefaults.AiTextMaxBatchSize);
+        settings.AiTextApiKey.Should().BeEmpty();
+
+        settings.ImageProvider.Should().Be(ClientSettingsDefaults.ImageProvider);
+        settings.ImageModelId.Should().Be(ClientSettingsDefaults.ImageModelId);
+        settings.ImageModelEndpoint.Should().Be(ClientSettingsDefaults.ImageModelEndpoint);
+        settings.ImageModelApiKey.Should().BeEmpty();
+        settings.OfoxImage2ModelId.Should().Be(ClientSettingsDefaults.OfoxImage2ModelId);
+        settings.OfoxImage2Endpoint.Should().Be(ClientSettingsDefaults.OfoxImage2Endpoint);
+        settings.OfoxImage2Quality.Should().Be(ClientSettingsDefaults.OfoxImage2Quality);
+        settings.OfoxImage2Size.Should().Be(ClientSettingsDefaults.OfoxImage2Size);
+        settings.OfoxImage2ApiKey.Should().BeEmpty();
+        settings.PosterTitleVerifyEnabled.Should().Be(ClientSettingsDefaults.PosterTitleVerifyEnabled);
+        settings.PosterTitleVerifyMode.Should().Be(ClientSettingsDefaults.PosterTitleVerifyMode);
+        settings.TiktokAllowOverLimitUploadImport.Should().Be(ClientSettingsDefaults.TiktokAllowOverLimitUploadImport);
+        settings.TiktokOverLimitDownloadEpisodeCount.Should().Be(ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
+    }
+
+    [Fact]
+    public void Client_settings_store_normalizes_blank_ai_non_key_values_to_defaults()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-{Guid.NewGuid():N}.db");
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                AiTextEndpoint = "",
+                AiTextApiKey = "",
+                AiTextModel = "",
+                AiTextTimeoutSeconds = 0,
+                AiTextMaxBatchSize = 0,
+                PosterMode = "",
+                ImageProvider = "",
+                ImageModelId = "",
+                ImageModelApiKey = "",
+                ImageModelEndpoint = "",
+                DoubaoImageResolution = "",
+                DoubaoImageRatio = "",
+                OfoxImage2ModelId = "",
+                OfoxImage2ApiKey = "",
+                OfoxImage2Endpoint = "",
+                OfoxImage2Quality = "",
+                OfoxImage2Size = "",
+                PosterTitleVerifyMode = "",
+                TiktokOverLimitDownloadEpisodeCount = 0,
+            }, databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+
+            loaded.AiTextEndpoint.Should().Be(ClientSettingsDefaults.AiTextEndpoint);
+            loaded.AiTextApiKey.Should().BeEmpty();
+            loaded.AiTextModel.Should().Be(ClientSettingsDefaults.AiTextModel);
+            loaded.AiTextTimeoutSeconds.Should().Be(ClientSettingsDefaults.AiTextTimeoutSeconds);
+            loaded.AiTextMaxBatchSize.Should().Be(ClientSettingsDefaults.AiTextMaxBatchSize);
+            loaded.PosterMode.Should().Be(ClientSettingsDefaults.PosterMode);
+            loaded.ImageProvider.Should().Be(ClientSettingsDefaults.ImageProvider);
+            loaded.ImageModelId.Should().Be(ClientSettingsDefaults.ImageModelId);
+            loaded.ImageModelApiKey.Should().BeEmpty();
+            loaded.ImageModelEndpoint.Should().Be(ClientSettingsDefaults.ImageModelEndpoint);
+            loaded.DoubaoImageResolution.Should().Be(ClientSettingsDefaults.DoubaoImageResolution);
+            loaded.DoubaoImageRatio.Should().Be(ClientSettingsDefaults.DoubaoImageRatio);
+            loaded.OfoxImage2ModelId.Should().Be(ClientSettingsDefaults.OfoxImage2ModelId);
+            loaded.OfoxImage2ApiKey.Should().BeEmpty();
+            loaded.OfoxImage2Endpoint.Should().Be(ClientSettingsDefaults.OfoxImage2Endpoint);
+            loaded.OfoxImage2Quality.Should().Be(ClientSettingsDefaults.OfoxImage2Quality);
+            loaded.OfoxImage2Size.Should().Be(ClientSettingsDefaults.OfoxImage2Size);
+            loaded.PosterTitleVerifyMode.Should().Be(ClientSettingsDefaults.PosterTitleVerifyMode);
+            loaded.TiktokAllowOverLimitUploadImport.Should().Be(ClientSettingsDefaults.TiktokAllowOverLimitUploadImport);
+            loaded.TiktokOverLimitDownloadEpisodeCount.Should().Be(ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(databasePath);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     [Fact]
     public void Account_profile_publish_defaults_match_python_settings()
     {

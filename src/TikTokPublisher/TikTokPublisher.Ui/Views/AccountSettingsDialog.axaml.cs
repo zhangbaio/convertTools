@@ -15,7 +15,6 @@ public partial class AccountSettingsDialog : Window
     {
         InitializeComponent();
         _profile = profile;
-        ManagementDedupBox.IsCheckedChanged += (_, _) => RefreshManagementDedupState();
         LoadToUi();
     }
 
@@ -38,6 +37,7 @@ public partial class AccountSettingsDialog : Window
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
         SelectByTag(UploadBrowserModeCombo, p.TiktokUploadBrowserMode, "embedded");
+        PlaywrightHeadlessBox.IsChecked = p.TiktokPlaywrightUploadHeadless;
         SelectByTag(PublishModeCombo, p.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(SourceLanguageCombo, p.TiktokSourceLanguage, "zh");
@@ -67,10 +67,6 @@ public partial class AccountSettingsDialog : Window
         SilenceValidationBox.IsChecked = p.TiktokSilenceValidationEnabled;
         SilenceThresholdBox.Value = (decimal)p.TiktokSilenceThresholdDb;
         MaxContinuousSilenceSecondsBox.Value = p.TiktokMaxContinuousSilenceSeconds;
-        ManagementDedupBox.IsChecked = p.ManagementDedupEnabled;
-        SelectByTag(ManagementDedupScopeCombo, p.ManagementDedupScope, "tiktok_username");
-        RefreshManagementDedupState();
-
         ProxyEnabledBox.IsChecked = p.TiktokProxyEnabled;
         SelectByTag(ProxyTypeCombo, p.TiktokProxyType, "http");
         ProxyHostBox.Text = p.TiktokProxyHost;
@@ -97,6 +93,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
         p.TiktokSubmitEnabled = string.Equals(p.TiktokSubmitAction, "submit", StringComparison.Ordinal);
         p.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "embedded");
+        p.TiktokPlaywrightUploadHeadless = PlaywrightHeadlessBox.IsChecked == true;
         p.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
         p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
         p.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
@@ -123,9 +120,6 @@ public partial class AccountSettingsDialog : Window
         p.TiktokSilenceValidationEnabled = SilenceValidationBox.IsChecked == true;
         p.TiktokSilenceThresholdDb = (double)(SilenceThresholdBox.Value ?? -45);
         p.TiktokMaxContinuousSilenceSeconds = (int)(MaxContinuousSilenceSecondsBox.Value ?? 20);
-        p.ManagementDedupEnabled = ManagementDedupBox.IsChecked == true;
-        p.ManagementDedupScope = TagOf(ManagementDedupScopeCombo, "tiktok_username");
-
         p.TiktokProxyEnabled = ProxyEnabledBox.IsChecked == true;
         p.TiktokProxyType = TagOf(ProxyTypeCombo, "http");
         p.TiktokProxyHost = ProxyHostBox.Text?.Trim() ?? "";
@@ -171,11 +165,6 @@ public partial class AccountSettingsDialog : Window
 
     private static string TagOf(ComboBox combo, string fallback)
         => (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? fallback;
-
-    private void RefreshManagementDedupState()
-    {
-        ManagementDedupScopeCombo.IsEnabled = ManagementDedupBox.IsChecked == true;
-    }
 
     private static string NormalizeSubmitAction(string? value, bool? legacyEnabled = null)
     {

@@ -44,8 +44,10 @@ public sealed class TikTokAccountProfile
     // 发布默认
     public bool TiktokSubmitEnabled { get; set; } = true;
     public string TiktokSubmitAction { get; set; } = "submit"; // none | submit | save
-    /// <summary>上传剧集使用的浏览器：embedded=内置 WebView2；external=外部浏览器（经 CDP 端点接入）。</summary>
-    public string TiktokUploadBrowserMode { get; set; } = "embedded"; // embedded | external
+    /// <summary>上传剧集使用的浏览器：embedded=内置 WebView2；external=外部浏览器（经 CDP 端点接入）；playwright=程序用 Playwright 独立启动的浏览器。</summary>
+    public string TiktokUploadBrowserMode { get; set; } = "embedded"; // embedded | external | playwright
+    /// <summary>playwright 模式：独立浏览器是否无头运行（false=有头可见窗口）。</summary>
+    public bool TiktokPlaywrightUploadHeadless { get; set; }
     public string TiktokContractId { get; set; } = "";
     public string TiktokContractIdMode { get; set; } = "manual";
     public bool TiktokPaidEnabled { get; set; }

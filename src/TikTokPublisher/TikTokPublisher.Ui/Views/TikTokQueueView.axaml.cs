@@ -242,8 +242,11 @@ public partial class TikTokQueueView : UserControl
             item.CoverPath = c.CoverImagePath.Trim();
     }
 
-    private void OnAccountSwitchRequested(AccountItemViewModel account) =>
-        _browserHost?.ShowAccount(account, createIfMissing: false);
+    private void OnAccountSwitchRequested(AccountItemViewModel account)
+    {
+        // 浏览器可见性由 TikTokBrowserView 统一处理；上传页切账号不再重复遍历 WebView2 host
+        // 做 COM 可见性调用（多账号并行时这是切账号卡顿的主因之一）。
+    }
 
     private void OnNavigateRequested(AccountItemViewModel account, string url)
     {
@@ -382,8 +385,24 @@ public partial class TikTokQueueView : UserControl
     private void OnClearQueueSelectionClick(object? sender, RoutedEventArgs e)
     {
         if (QueueProjectList is null) return;
-        QueueProjectList.SelectedItems.Clear();
+        QueueProjectList.SelectedItems?.Clear();
         _vm?.SetFilteredQueueRowsEnabled(false);
+    }
+
+    private void OnSelectCompletedQueueClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null) return;
+
+        var completedRows = vm.SetFilteredCompletedQueueRowsEnabled();
+        if (QueueProjectList is null) return;
+
+        var selectedItems = QueueProjectList.SelectedItems;
+        if (selectedItems is null) return;
+
+        selectedItems.Clear();
+        foreach (var row in completedRows)
+            selectedItems.Add(row);
     }
 
     private void OnBindSelectedAccountClick(object? sender, RoutedEventArgs e)
@@ -1095,29 +1114,57 @@ public partial class TikTokQueueView : UserControl
     private static bool UsesExternalUploadBrowser(TikTokAccountProfile account) =>
         string.Equals((account.TiktokUploadBrowserMode ?? "").Trim(), "external", StringComparison.OrdinalIgnoreCase);
 
+    private static bool UsesPlaywrightUploadBrowser(TikTokAccountProfile account) =>
+        string.Equals((account.TiktokUploadBrowserMode ?? "").Trim(), "playwright", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>账号选了外部浏览器且其 CDP 端点确实可达时返回 true；否则（含未配置/不可达）返回 false，交由调用方回退内置浏览器。</summary>
+    private static async Task<bool> IsExternalUploadBrowserReadyAsync(
+        TikTokAccountProfile account,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (!UsesExternalUploadBrowser(account))
+            return false;
+
+        var endpoint = (account.TiktokFingerprintBrowserCdpEndpoint ?? "").Trim();
+        if (string.IsNullOrEmpty(endpoint))
+        {
+            log?.Invoke("已选择外部浏览器上传，但未配置 CDP 端点，自动回退到内置浏览器。");
+            return false;
+        }
+
+        if (!await EmbeddedBrowserCdpProbe.IsReachableAsync(endpoint, ct).ConfigureAwait(false))
+        {
+            log?.Invoke($"外部浏览器 CDP 不可达（{endpoint}），自动回退到内置浏览器上传。");
+            return false;
+        }
+
+        log?.Invoke($"使用外部浏览器上传（CDP：{endpoint}）");
+        return true;
+    }
+
     private async Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
         TikTokAccountProfile account,
         Action<string>? log,
         CancellationToken ct)
     {
-        if (UsesExternalUploadBrowser(account))
+        // 独立 Playwright 浏览器：只需存在授权文件（发布时 launch 独立浏览器并复用登录态）。
+        if (UsesPlaywrightUploadBrowser(account))
         {
-            var endpoint = (account.TiktokFingerprintBrowserCdpEndpoint ?? "").Trim();
-            if (string.IsNullOrEmpty(endpoint))
+            var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
+            if (!File.Exists(authPath))
             {
                 return QueueBrowserReadyResult.NotReady(
-                    "已选择外部浏览器上传，但未配置 CDP 端点（账号配置 → 登录设置 → CDP 端点）");
+                    "独立浏览器上传需要先在「浏览器」页用内置浏览器登录一次以生成授权文件。");
             }
 
-            log?.Invoke($"使用外部浏览器上传（CDP：{endpoint}）");
-            if (!await EmbeddedBrowserCdpProbe.IsReachableAsync(endpoint, ct).ConfigureAwait(false))
-            {
-                return QueueBrowserReadyResult.NotReady(
-                    $"外部浏览器 CDP 不可达：{endpoint}，请确认外部浏览器已启动并开启远程调试端口");
-            }
-
+            log?.Invoke($"上传浏览器：独立浏览器（{(account.TiktokPlaywrightUploadHeadless ? "无头" : "有头")}）");
             return QueueBrowserReadyResult.Ready();
         }
+
+        // 外部浏览器可用则用外部；不可用（未配置/不可达）自动回退内置浏览器。
+        if (await IsExternalUploadBrowserReadyAsync(account, log, ct).ConfigureAwait(false))
+            return QueueBrowserReadyResult.Ready();
 
         var provider = RequireBrowserProvider();
         return await provider
@@ -1133,13 +1180,16 @@ public partial class TikTokQueueView : UserControl
         Action<string> log,
         CancellationToken ct)
     {
+        // 与 EnsureAccountBrowserReadyAsync 保持一致：独立浏览器 > 外部浏览器(可达) > 内置浏览器。
         IEmbeddedBrowser? browser;
-        if (UsesExternalUploadBrowser(account))
+        if (UsesPlaywrightUploadBrowser(account))
         {
-            var external = new ExternalCdpBrowser(account);
-            if (string.IsNullOrWhiteSpace(external.CdpEndpoint))
-                return PublishResult.Fail("已选择外部浏览器上传，但未配置 CDP 端点");
-            browser = external;
+            // 独立浏览器由发布自动化内部 launch，这里只传标记载体。
+            browser = new PlaywrightLaunchBrowser(account);
+        }
+        else if (await IsExternalUploadBrowserReadyAsync(account, log, ct).ConfigureAwait(false))
+        {
+            browser = new ExternalCdpBrowser(account);
         }
         else
         {

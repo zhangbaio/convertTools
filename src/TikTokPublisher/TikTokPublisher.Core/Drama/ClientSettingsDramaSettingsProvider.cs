@@ -32,7 +32,7 @@ public static class DramaSourceSettingsMapping
     private static string NormalizeChain(string? chain)
     {
         var normalized = (chain ?? "hgnew").Trim().ToLowerInvariant();
-        return normalized is "hgnew" or "pikachu" or "hg52api" or "hglocal" ? normalized : "hgnew";
+        return normalized is "hgnew" or "pikachu" or "hglocal" ? normalized : "hgnew";
     }
 }
 

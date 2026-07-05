@@ -55,6 +55,9 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         var coverPath = ResolveCoverPath(item, L);
         var hasWorkflow = !string.IsNullOrWhiteSpace(workflowDir);
 
+        var useLaunch = string.Equals(
+            (account.TiktokUploadBrowserMode ?? "").Trim(), "playwright", StringComparison.OrdinalIgnoreCase);
+
         IPlaywright? pw = null;
         IBrowser? chromium = null;
         CancellationTokenSource? limitCts = null;
@@ -62,9 +65,20 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         string? dailyLimitHit = null;
         try
         {
-            (pw, chromium, var page) = await EmbeddedBrowserAutomationBridge
-                .ConnectPageAsync(browser, targetUrl, L, ct)
-                .ConfigureAwait(false);
+            IPage page;
+            if (useLaunch)
+            {
+                var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
+                (pw, chromium, page) = await EmbeddedBrowserAutomationBridge
+                    .LaunchPageAsync(account, targetUrl, authPath, account.TiktokPlaywrightUploadHeadless, L, ct)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                (pw, chromium, page) = await EmbeddedBrowserAutomationBridge
+                    .ConnectPageAsync(browser, targetUrl, L, ct)
+                    .ConfigureAwait(false);
+            }
             ct.ThrowIfCancellationRequested();
 
             // 对齐 Python _watch_daily_episode_limit：上限提示是出现时机不固定的短暂 toast，
@@ -80,7 +94,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             // 清理上一轮失败遗留的「是否离开网站」弹窗/半填表单，确保从干净页面开始。
             await TikTokBrowserActions.ResetLeftoverPageStateAsync(page, L, ct).ConfigureAwait(false);
 
-            if (IsLoginPage(page.Url))
+            if (IsLoginPage(page.Url) && !useLaunch)
             {
                 var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
                 if (await EmbeddedStorageStateImporter.TryImportAsync(page.Context, page, authPath, L, ct)
@@ -97,7 +111,9 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             }
 
             if (IsLoginPage(page.Url))
-                return PublishResult.Fail("账号未登录（请先在内置浏览器完成 TikTok 登录）");
+                return PublishResult.Fail(useLaunch
+                    ? "独立浏览器登录态失效，请在「浏览器」页用内置浏览器重新登录以刷新授权文件"
+                    : "账号未登录（请先在内置浏览器完成 TikTok 登录）");
 
             // 注意：此处不检测单日上限。刚连接时页面可能停留在上一个项目的残留页
             // （含旧的“已达上限”提示），会误判停队列。上限检测仅在导航到新建/编辑页后进行。

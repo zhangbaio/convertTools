@@ -193,7 +193,7 @@ public static class ClientSettingsStore
         var chain = (settings.DramaSourceChain ?? "hgnew").Trim().ToLowerInvariant();
         settings.DramaSourceChain = chain switch
         {
-            "hgnew" or "hg52api" or "hglocal" or "pikachu" => chain,
+            "hgnew" or "hglocal" or "pikachu" => chain,
             _ => "hgnew"
         };
 
@@ -218,17 +218,38 @@ public static class ClientSettingsStore
             ? "zh-CN"
             : settings.TiktokSilenceAsrLanguage.Trim();
         settings.AiTextEndpoint = DefaultIfBlank(settings.AiTextEndpoint, ClientSettingsDefaults.AiTextEndpoint);
+        settings.AiTextApiKey ??= "";
         settings.AiTextModel = DefaultIfBlank(settings.AiTextModel, ClientSettingsDefaults.AiTextModel);
+        settings.AiTextTimeoutSeconds = Math.Clamp(
+            settings.AiTextTimeoutSeconds <= 0
+                ? ClientSettingsDefaults.AiTextTimeoutSeconds
+                : settings.AiTextTimeoutSeconds,
+            10,
+            600);
+        settings.AiTextMaxBatchSize = Math.Clamp(
+            settings.AiTextMaxBatchSize <= 0
+                ? ClientSettingsDefaults.AiTextMaxBatchSize
+                : settings.AiTextMaxBatchSize,
+            1,
+            50);
         settings.AiTagSystemPrompt = DefaultIfBlank(settings.AiTagSystemPrompt, ClientSettingsDefaults.AiTagSystemPrompt);
         settings.AiTagBatchPrompt = DefaultIfBlank(settings.AiTagBatchPrompt, ClientSettingsDefaults.AiTagBatchPrompt);
         settings.AiFullInfoSystemPrompt = DefaultIfBlank(settings.AiFullInfoSystemPrompt, ClientSettingsDefaults.AiFullInfoSystemPrompt);
         settings.AiFullInfoBatchPrompt = DefaultIfBlank(settings.AiFullInfoBatchPrompt, ClientSettingsDefaults.AiFullInfoBatchPrompt);
         settings.AiFullInfoRetryPrompt = DefaultIfBlank(settings.AiFullInfoRetryPrompt, ClientSettingsDefaults.AiFullInfoRetryPrompt);
         settings.PosterMode = NormalizePosterMode(settings.PosterMode);
+        settings.ImageProvider = NormalizeImageProvider(settings.ImageProvider);
         settings.ImageModelId = DefaultIfBlank(settings.ImageModelId, ClientSettingsDefaults.ImageModelId);
+        settings.ImageModelApiKey ??= "";
         settings.ImageModelEndpoint = DefaultIfBlank(settings.ImageModelEndpoint, ClientSettingsDefaults.ImageModelEndpoint);
-        settings.DoubaoImageResolution = DefaultIfBlank(settings.DoubaoImageResolution, "2K");
+        settings.DoubaoImageResolution = DefaultIfBlank(settings.DoubaoImageResolution, ClientSettingsDefaults.DoubaoImageResolution);
         settings.DoubaoImageRatio = NormalizeDoubaoImageRatio(settings.DoubaoImageRatio);
+        settings.OfoxImage2ModelId = DefaultIfBlank(settings.OfoxImage2ModelId, ClientSettingsDefaults.OfoxImage2ModelId);
+        settings.OfoxImage2ApiKey ??= "";
+        settings.OfoxImage2Endpoint = DefaultIfBlank(settings.OfoxImage2Endpoint, ClientSettingsDefaults.OfoxImage2Endpoint);
+        settings.OfoxImage2Quality = DefaultIfBlank(settings.OfoxImage2Quality, ClientSettingsDefaults.OfoxImage2Quality);
+        settings.OfoxImage2Size = DefaultIfBlank(settings.OfoxImage2Size, ClientSettingsDefaults.OfoxImage2Size);
+        settings.PosterTitleVerifyMode = NormalizePosterTitleVerifyMode(settings.PosterTitleVerifyMode);
         settings.FrameCoverPrompt = DefaultIfBlank(settings.FrameCoverPrompt, ClientSettingsDefaults.FrameCoverPrompt);
         settings.PosterLayoutDetectPrompt = DefaultIfBlank(settings.PosterLayoutDetectPrompt, ClientSettingsDefaults.PosterLayoutDetectPrompt);
         settings.PosterInpaintPrompt = DefaultIfBlank(settings.PosterInpaintPrompt, ClientSettingsDefaults.PosterInpaintPrompt);
@@ -245,10 +266,10 @@ public static class ClientSettingsStore
         settings.ManagementDedupScope = NormalizeManagementDedupScope(settings.ManagementDedupScope);
         settings.TiktokOverLimitDownloadEpisodeCount = Math.Clamp(
             settings.TiktokOverLimitDownloadEpisodeCount <= 0
-                ? 120
+                ? ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount
                 : settings.TiktokOverLimitDownloadEpisodeCount,
             1,
-            120);
+            ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
         settings.FeishuCommandAppId = (settings.FeishuCommandAppId ?? "").Trim();
         settings.FeishuCommandAppSecret = settings.FeishuCommandAppSecret ?? "";
         settings.FeishuCommandBotName = (settings.FeishuCommandBotName ?? "").Trim();
@@ -290,18 +311,32 @@ public static class ClientSettingsStore
         };
 
     private static string NormalizePosterMode(string? value) =>
-        (value ?? "original").Trim().ToLowerInvariant() switch
+        (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant() switch
         {
-            "original" or "poster_ai_erase_pil_title" or "poster_ai_edit" => (value ?? "original").Trim().ToLowerInvariant(),
+            "original" or "poster_ai_erase_pil_title" or "poster_ai_edit" => (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant(),
             "ai" => "poster_ai_edit",
-            _ => "original"
+            _ => ClientSettingsDefaults.PosterMode
+        };
+
+    private static string NormalizeImageProvider(string? value) =>
+        (value ?? ClientSettingsDefaults.ImageProvider).Trim().ToLowerInvariant() switch
+        {
+            "doubao" or "ofox_image2" => (value ?? ClientSettingsDefaults.ImageProvider).Trim().ToLowerInvariant(),
+            _ => ClientSettingsDefaults.ImageProvider
+        };
+
+    private static string NormalizePosterTitleVerifyMode(string? value) =>
+        (value ?? ClientSettingsDefaults.PosterTitleVerifyMode).Trim().ToLowerInvariant() switch
+        {
+            "fallback_repaint" or "warn" or "blocking" => (value ?? ClientSettingsDefaults.PosterTitleVerifyMode).Trim().ToLowerInvariant(),
+            _ => ClientSettingsDefaults.PosterTitleVerifyMode
         };
 
     private static string NormalizeDoubaoImageRatio(string? value) =>
-        (value ?? "3:4").Trim() switch
+        (value ?? ClientSettingsDefaults.DoubaoImageRatio).Trim() switch
         {
-            "3:4" => "3:4",
-            _ => "3:4"
+            "3:4" => ClientSettingsDefaults.DoubaoImageRatio,
+            _ => ClientSettingsDefaults.DoubaoImageRatio
         };
 
     private static string NormalizeManagementDedupScope(string? value)

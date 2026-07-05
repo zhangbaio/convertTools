@@ -26,7 +26,6 @@ public partial class SystemSettingsView : UserControl
         vm.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(SystemSettingsViewModel.DramaSourceChain)
-                or nameof(SystemSettingsViewModel.Hongguo52ApiSearchType)
                 or nameof(SystemSettingsViewModel.PikachuDramaType)
                 or nameof(SystemSettingsViewModel.TiktokSilenceAsrEngine)
                 or nameof(SystemSettingsViewModel.TiktokSilenceRepairMode)
@@ -50,15 +49,9 @@ public partial class SystemSettingsView : UserControl
     {
         DramaSourceCombo.Items.Clear();
         DramaSourceCombo.Items.Add(CreateItem("红果新接口", "hgnew"));
-        DramaSourceCombo.Items.Add(CreateItem("52API", "hg52api"));
         DramaSourceCombo.Items.Add(CreateItem("本地直连", "hglocal"));
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
-
-        Api52SearchTypeCombo.Items.Clear();
-        Api52SearchTypeCombo.Items.Add(CreateItem("综合搜索 (search)", "search"));
-        Api52SearchTypeCombo.Items.Add(CreateItem("漫画搜索 (mj_search)", "mj_search"));
-        Api52SearchTypeCombo.SelectionChanged += OnApi52SearchTypeChanged;
 
         PikachuTypeCombo.Items.Clear();
         PikachuTypeCombo.Items.Add(CreateItem("红果短剧 (search_tab_id=10)", "short"));
@@ -107,7 +100,6 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null) return;
         SelectComboItem(DramaSourceCombo, _vm.DramaSourceChain);
-        SelectComboItem(Api52SearchTypeCombo, _vm.Hongguo52ApiSearchType);
         SelectComboItem(PikachuTypeCombo, _vm.PikachuDramaType);
         SelectComboItem(AsrEngineCombo, _vm.TiktokSilenceAsrEngine);
         SelectComboItem(SilenceRepairModeCombo, _vm.TiktokSilenceRepairMode);
@@ -133,12 +125,6 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || DramaSourceCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.DramaSourceChain = item.Tag as string ?? "hgnew";
-    }
-
-    private void OnApi52SearchTypeChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_vm is null || Api52SearchTypeCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.Hongguo52ApiSearchType = item.Tag as string ?? "search";
     }
 
     private void OnPikachuTypeChanged(object? sender, SelectionChangedEventArgs e)

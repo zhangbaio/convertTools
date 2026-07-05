@@ -67,6 +67,7 @@ public static class TikTokUploadManifestService
         string? workflowProjectDir = null)
     {
         var options = TikTokPublishOptionsBuilder.FromAccount(account, workflowProjectDir);
+        var settings = ClientSettingsStore.Load();
         var submitAction = NormalizeSubmitAction(account?.TiktokSubmitAction, account?.TiktokSubmitEnabled);
         var snapshot = new Dictionary<string, object?>
         {
@@ -87,8 +88,8 @@ public static class TikTokUploadManifestService
             ["silence_validation_enabled"] = account?.TiktokSilenceValidationEnabled ?? true,
             ["max_continuous_silence_seconds"] = account?.TiktokMaxContinuousSilenceSeconds ?? 20,
             ["silence_threshold_db"] = account?.TiktokSilenceThresholdDb ?? -45.0,
-            ["management_dedup_enabled"] = account?.ManagementDedupEnabled ?? false,
-            ["management_dedup_scope"] = account?.ManagementDedupScope ?? "tiktok_username",
+            ["management_dedup_enabled"] = settings.ManagementDedupEnabled,
+            ["management_dedup_scope"] = settings.ManagementDedupScope,
             ["paid_enabled"] = options.PaidEnabled,
             ["profile_preview_episodes"] = options.ProfilePreviewEpisodes,
         };

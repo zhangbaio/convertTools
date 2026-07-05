@@ -25,6 +25,7 @@ public static class UploadTitleImportService
 {
     public const string MatchModeTitle = "title";
     public const string MatchModeTitleEpisode = "title_episode";
+    public const string AuthorExcludedFailurePrefix = "命中作者排除：";
     public const int DefaultEpisodeMin = 10;
     public const int DefaultEpisodeMax = 120;
 
@@ -57,15 +58,11 @@ public static class UploadTitleImportService
         result.RequestedTitles.AddRange(requests.Select(FormatRequestLabel));
         result.Failures.AddRange(parseFailures);
 
-        var managementDedupEnabled = account?.ManagementDedupEnabled ?? settings.ManagementDedupEnabled;
-        var managementDedupScope = string.IsNullOrWhiteSpace(account?.ManagementDedupScope)
-            ? settings.ManagementDedupScope
-            : account.ManagementDedupScope;
-        if (managementDedupEnabled && requests.Count > 0)
+        if (settings.ManagementDedupEnabled && requests.Count > 0)
         {
             var check = await TikTokManagementUploadRecordSyncService.CheckDuplicateOriginalNamesAsync(
                 requests.Select(r => r.Title),
-                managementDedupScope,
+                settings.ManagementDedupScope,
                 account,
                 ct).ConfigureAwait(false);
             if (!check.Ok)
@@ -119,7 +116,7 @@ public static class UploadTitleImportService
                 if (!string.IsNullOrWhiteSpace(authorHit))
                 {
                     var author = string.IsNullOrWhiteSpace(matched.Author) ? authorHit : $"{matched.Author}（包含 {authorHit}）";
-                    var failure = $"命中作者排除：{author}";
+                    var failure = $"{AuthorExcludedFailurePrefix}{author}";
                     result.Failures.Add(new UploadTitleImportFailure(label, failure));
                     log?.Invoke($"未加入：{label}，{failure}");
                     continue;
@@ -195,6 +192,34 @@ public static class UploadTitleImportService
         }
 
         return (requests, failures);
+    }
+
+    public static bool IsAuthorExcludedFailure(UploadTitleImportFailure failure) =>
+        failure.Reason.StartsWith(AuthorExcludedFailurePrefix, StringComparison.Ordinal);
+
+    public static string BuildFailurePreview(IEnumerable<UploadTitleImportFailure> failures, int maxItems = 3)
+    {
+        var items = failures.ToList();
+        if (items.Count == 0) return "";
+
+        var preferred = items.Where(IsAuthorExcludedFailure).ToList();
+        if (preferred.Count == 0)
+            preferred = items;
+
+        var preview = string.Join("；", preferred.Take(maxItems).Select(FormatFailureLabel));
+        return preferred.Count > maxItems
+            ? $"{preview}；等共 {preferred.Count} 个"
+            : preview;
+    }
+
+    public static string BuildAuthorExcludeNotice(IEnumerable<UploadTitleImportFailure> failures, int maxItems = 3)
+    {
+        var items = failures.Where(IsAuthorExcludedFailure).ToList();
+        if (items.Count == 0) return "";
+
+        var preview = string.Join("；", items.Take(maxItems).Select(FormatFailureLabel));
+        var suffix = items.Count > maxItems ? $"；等共 {items.Count} 个" : "";
+        return $"作者排除原因：{preview}{suffix}。";
     }
 
     public static (DramaSearchItem? Item, string Reason) PickPreferredSearchMatch(
@@ -332,6 +357,9 @@ public static class UploadTitleImportService
 
     private static string FormatRequestLabel(UploadTitleImportRequest request) =>
         request.ExpectedEpisodeTotal > 0 ? $"{request.Title}（{request.ExpectedEpisodeTotal}集）" : request.Title;
+
+    private static string FormatFailureLabel(UploadTitleImportFailure failure) =>
+        $"{failure.Title}: {failure.Reason}";
 
     private static IReadOnlyList<string> SplitKeywords(string? value) =>
         (value ?? "").Split(['\r', '\n', ',', '，', ';', '；', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

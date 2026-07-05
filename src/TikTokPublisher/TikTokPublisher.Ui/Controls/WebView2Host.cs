@@ -66,10 +66,16 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         SizeChanged += (_, _) => UpdateBounds();
     }
 
+    private bool _renderedStateApplied;
+
     /// <summary>控制 WebView2 是否绘制到屏幕；与 Avalonia <see cref="IsVisible"/> 解耦以支持后台 CDP。</summary>
     public void SetRenderedVisible(bool visible)
     {
+        // 幂等：状态未变时跳过 COM 调用（切账号时会对多个 host 重复设置，累积开销明显）。
+        if (_renderedStateApplied && _renderedVisible == visible)
+            return;
         _renderedVisible = visible;
+        _renderedStateApplied = true;
         ApplyRenderedState();
     }
 

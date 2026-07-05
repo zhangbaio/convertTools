@@ -25,7 +25,8 @@ public static class DramaDownloadQueueStore
 
     public static void Normalize(DramaDownloadQueueState state)
     {
-        state.Version = 3;
+        var previousVersion = state.Version;
+        state.Version = DramaDownloadQueueState.CurrentVersion;
         state.QueueItems = state.QueueItems
             .Select(NormalizeItem)
             .Where(i => !string.IsNullOrWhiteSpace(i.Title) || !string.IsNullOrWhiteSpace(i.BookId))
@@ -37,7 +38,12 @@ public static class DramaDownloadQueueStore
             state.DownloadEpisodeNumberMode = "source";
         state.CategoryInclude ??= "";
         state.CategoryExclude ??= "";
-        state.AuthorExclude ??= "";
+        if (state.AuthorExclude is null ||
+            (previousVersion < DramaDownloadQueueState.CurrentVersion &&
+             string.IsNullOrWhiteSpace(state.AuthorExclude)))
+        {
+            state.AuthorExclude = DramaDownloadQueueState.DefaultAuthorExclude;
+        }
     }
 
     private static DramaDownloadQueueItem NormalizeItem(DramaDownloadQueueItem item)

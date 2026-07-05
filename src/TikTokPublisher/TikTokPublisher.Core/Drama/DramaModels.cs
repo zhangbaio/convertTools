@@ -45,8 +45,15 @@ public sealed class DramaDownloadQueueItem
 public sealed class DramaDownloadQueueState
 {
     public const string SettingKey = "drama_download_queue_state";
+    public const int CurrentVersion = 4;
+    public const string DefaultAuthorExclude =
+        "掌玩,九州,河马,红果,快创,麦芽,花生,点众,天桥,中文在线,阅文,起点,红袖,17K,七猫,橙光," +
+        "FlickReels,ShortTV,云起剧场,甜柚剧场,听花岛,星辰短剧推荐,星芒剧场,晚风微剧,青禾短剧,桃喜微剧,南栀剧场," +
+        "云禾剧场,清欢微剧,遇见好剧,点点甜剧,泡面短剧,微剧吧官方,彩虹影院,月光短剧,青山剧院,双星剧场,倩儿剧场," +
+        "荔香短剧,云樱小剧场,等闲剧场,玄境漫剧场,星途微剧,墨染古风剧场,漫云剧场,黑糖短剧,摩卡微剧,燕麦微剧," +
+        "芝士短剧,生椰短剧,白桃短剧,锡兰剧场,山楂小剧场,布丁微剧,冻柠微剧,拿铁短剧,红桃小剧场,漫故事";
 
-    public int Version { get; set; } = 3;
+    public int Version { get; set; } = CurrentVersion;
     public string WorkspacePath { get; set; } = "";
     public List<DramaDownloadQueueItem> QueueItems { get; set; } = new();
     public bool AutoGenerateMaterials { get; set; } = true;
@@ -55,5 +62,5 @@ public sealed class DramaDownloadQueueState
     public string DefaultQuality { get; set; } = "1080P";
     public string CategoryInclude { get; set; } = "";
     public string CategoryExclude { get; set; } = "";
-    public string AuthorExclude { get; set; } = "";
+    public string AuthorExclude { get; set; } = DefaultAuthorExclude;
 }

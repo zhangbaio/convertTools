@@ -36,7 +36,7 @@ public sealed class LoginSettingsTab : UserControl
             Margin = new Thickness(16)
         };
 
-        panel.Children.Add(Hint("登录设置只保留 hgnew / hglocal / pikachu 三条链路，不再接入 52API。"));
+        panel.Children.Add(Hint("登录设置支持 hgnew / hglocal / pikachu 三条链路。"));
         panel.Children.Add(BuildSourceRow());
         panel.Children.Add(Row("搜索服务顺序", BindText(nameof(ConfigWindowViewModel.DramaServiceOrderSearch))));
         panel.Children.Add(Row("下载服务顺序", BindText(nameof(ConfigWindowViewModel.DramaServiceOrderDownload))));

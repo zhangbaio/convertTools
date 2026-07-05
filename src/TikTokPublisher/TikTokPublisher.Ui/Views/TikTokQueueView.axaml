@@ -44,6 +44,10 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
         </Style>
+        <Style Selector="Border.queueTableRow">
+            <Setter Property="BorderBrush" Value="#DCE7F3" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+        </Style>
         <Style Selector="ListBox#QueueProjectList">
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
@@ -54,12 +58,7 @@
             <Setter Property="Margin" Value="0" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         </Style>
-        <Style Selector="ListBox#QueueProjectList ListBoxItem:nth-child(odd) /template/ ContentPresenter">
-            <Setter Property="Background" Value="#FFFFFF" />
-        </Style>
-        <Style Selector="ListBox#QueueProjectList ListBoxItem:nth-child(even) /template/ ContentPresenter">
-            <Setter Property="Background" Value="#F6FAFE" />
-        </Style>
+        <!-- 斑马纹改用行 VM 绑定（Border.queueTableRow.Background），避免 nth-child 选择器在虚拟化滚动时反复重算导致卡顿 -->
         <Style Selector="ListBox#QueueProjectList ListBoxItem:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="#EAF4FF" />
         </Style>
@@ -104,6 +103,7 @@
                     <Button Content="取消全选" Click="OnClearQueueSelectionClick" Classes="compactAction" Margin="0,0,8,8" />
                     <Button Content="归档勾选" Click="OnArchiveSelectedClick" Classes="compactAction" Margin="0,0,8,8" />
                     <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="全选已完成" Click="OnSelectCompletedQueueClick" Classes="compactAction" Margin="0,0,8,8" />
                 </WrapPanel>
 
                 <WrapPanel Orientation="Horizontal">
@@ -254,61 +254,63 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" MinHeight="42" Width="1620" ClipToBounds="True">
-                                    <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
-                                    <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                                    <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" FontSize="12" />
-                                    <Button Grid.Column="3"
-                                            Classes="queueLink"
-                                            Click="OnOpenOriginalProjectFolderClick"
-                                            ToolTip.Tip="{Binding OriginalProjectDir}">
-                                        <TextBlock Text="{Binding OriginalTitle}"
-                                                   VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   Foreground="{Binding DramaTitleBrush}" />
-                                    </Button>
-                                    <Button Grid.Column="4"
-                                            Classes="queueLink"
-                                            Click="OnOpenNewProjectFolderClick"
-                                            ToolTip.Tip="{Binding NewProjectDir}">
-                                        <TextBlock Text="{Binding NewTitle}"
-                                                   VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   Foreground="{Binding DramaTitleBrush}" />
-                                    </Button>
-                                    <TextBlock Grid.Column="5" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
-                                    <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" ClipToBounds="True" ToolTip.Tip="{Binding QueuedAtTooltip}" />
-                                    <Border Grid.Column="7" Classes="stepStatusBadge" Background="{Binding DownloadStatusBackgroundBrush}" BorderBrush="{Binding DownloadStatusBorderBrush}" ToolTip.Tip="{Binding DownloadStatus}">
-                                        <TextBlock Text="{Binding DownloadStatus}" Foreground="{Binding DownloadStatusBrush}" Classes="stepStatusText" />
-                                    </Border>
-                                    <Border Grid.Column="8" Classes="stepStatusBadge" Background="{Binding RewriteStatusBackgroundBrush}" BorderBrush="{Binding RewriteStatusBorderBrush}" ToolTip.Tip="{Binding RewriteStatus}">
-                                        <TextBlock Text="{Binding RewriteStatus}" Foreground="{Binding RewriteStatusBrush}" Classes="stepStatusText" />
-                                    </Border>
-                                    <Border Grid.Column="9" Classes="stepStatusBadge" Background="{Binding PosterStatusBackgroundBrush}" BorderBrush="{Binding PosterStatusBorderBrush}" ToolTip.Tip="{Binding PosterStatus}">
-                                        <TextBlock Text="{Binding PosterStatus}" Foreground="{Binding PosterStatusBrush}" Classes="stepStatusText" />
-                                    </Border>
-                                    <Border Grid.Column="10" Classes="stepStatusBadge" Background="{Binding RepairStatusBackgroundBrush}" BorderBrush="{Binding RepairStatusBorderBrush}" ToolTip.Tip="{Binding RepairStatus}">
-                                        <TextBlock Text="{Binding RepairStatus}" Foreground="{Binding RepairStatusBrush}" Classes="stepStatusText" />
-                                    </Border>
-                                    <Border Grid.Column="11" Classes="stepStatusBadge" Background="{Binding SilenceDetectStatusBackgroundBrush}" BorderBrush="{Binding SilenceDetectStatusBorderBrush}" ToolTip.Tip="{Binding SilenceDetectStatus}">
-                                        <TextBlock Text="{Binding SilenceDetectStatus}" Foreground="{Binding SilenceDetectStatusBrush}" Classes="stepStatusText" />
-                                    </Border>
-                                    <Border Grid.Column="12" Classes="stepStatusBadge" Background="{Binding SilenceRepairStatusBackgroundBrush}" BorderBrush="{Binding SilenceRepairStatusBorderBrush}" ToolTip.Tip="{Binding SilenceRepairStatus}">
-                                        <TextBlock Text="{Binding SilenceRepairStatus}" Foreground="{Binding SilenceRepairStatusBrush}" Classes="stepStatusText" />
-                                    </Border>
-                                    <Border Grid.Column="13" Classes="stepStatusBadge" Background="{Binding ValidateStatusBackgroundBrush}" BorderBrush="{Binding ValidateStatusBorderBrush}" ToolTip.Tip="{Binding ValidateStatus}">
-                                        <TextBlock Text="{Binding ValidateStatus}" Foreground="{Binding ValidateStatusBrush}" Classes="stepStatusText" />
-                                    </Border>
-                                    <Border Grid.Column="14" Classes="stepStatusBadge" Background="{Binding DeleteSourceStatusBackgroundBrush}" BorderBrush="{Binding DeleteSourceStatusBorderBrush}" ToolTip.Tip="{Binding DeleteSourceStatus}">
-                                        <TextBlock Text="{Binding DeleteSourceStatus}" Foreground="{Binding DeleteSourceStatusBrush}" Classes="stepStatusText" />
-                                    </Border>
-                                    <Border Grid.Column="15" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding UploadStatus}">
-                                        <TextBlock Text="{Binding UploadStatus}" Foreground="{Binding UploadStatusBrush}" Classes="stepStatusText" />
-                                    </Border>
-                                    <Border Grid.Column="16" Classes="stepStatusBadge" Background="{Binding StatusTextBackgroundBrush}" BorderBrush="{Binding StatusTextBorderBrush}" ToolTip.Tip="{Binding StatusText}">
-                                        <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusTextBrush}" Classes="stepStatusText" />
-                                    </Border>
-                                </Grid>
+                                <Border Classes="queueTableRow" Width="1620" Height="42">
+                                    <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" ClipToBounds="True">
+                                        <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
+                                        <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" FontSize="12" />
+                                        <Button Grid.Column="3"
+                                                Classes="queueLink"
+                                                Click="OnOpenOriginalProjectFolderClick"
+                                                ToolTip.Tip="{Binding OriginalProjectDir}">
+                                            <TextBlock Text="{Binding OriginalTitle}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{Binding DramaTitleBrush}" />
+                                        </Button>
+                                        <Button Grid.Column="4"
+                                                Classes="queueLink"
+                                                Click="OnOpenNewProjectFolderClick"
+                                                ToolTip.Tip="{Binding NewProjectDir}">
+                                            <TextBlock Text="{Binding NewTitle}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{Binding DramaTitleBrush}" />
+                                        </Button>
+                                        <TextBlock Grid.Column="5" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
+                                        <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" ClipToBounds="True" ToolTip.Tip="{Binding QueuedAtTooltip}" />
+                                        <Border Grid.Column="7" Classes="stepStatusBadge" Background="{Binding DownloadStatusBackgroundBrush}" BorderBrush="{Binding DownloadStatusBorderBrush}" ToolTip.Tip="{Binding DownloadStatus}">
+                                            <TextBlock Text="{Binding DownloadStatus}" Foreground="{Binding DownloadStatusBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                        <Border Grid.Column="8" Classes="stepStatusBadge" Background="{Binding RewriteStatusBackgroundBrush}" BorderBrush="{Binding RewriteStatusBorderBrush}" ToolTip.Tip="{Binding RewriteStatus}">
+                                            <TextBlock Text="{Binding RewriteStatus}" Foreground="{Binding RewriteStatusBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                        <Border Grid.Column="9" Classes="stepStatusBadge" Background="{Binding PosterStatusBackgroundBrush}" BorderBrush="{Binding PosterStatusBorderBrush}" ToolTip.Tip="{Binding PosterStatus}">
+                                            <TextBlock Text="{Binding PosterStatus}" Foreground="{Binding PosterStatusBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                        <Border Grid.Column="10" Classes="stepStatusBadge" Background="{Binding RepairStatusBackgroundBrush}" BorderBrush="{Binding RepairStatusBorderBrush}" ToolTip.Tip="{Binding RepairStatus}">
+                                            <TextBlock Text="{Binding RepairStatus}" Foreground="{Binding RepairStatusBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                        <Border Grid.Column="11" Classes="stepStatusBadge" Background="{Binding SilenceDetectStatusBackgroundBrush}" BorderBrush="{Binding SilenceDetectStatusBorderBrush}" ToolTip.Tip="{Binding SilenceDetectStatus}">
+                                            <TextBlock Text="{Binding SilenceDetectStatus}" Foreground="{Binding SilenceDetectStatusBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                        <Border Grid.Column="12" Classes="stepStatusBadge" Background="{Binding SilenceRepairStatusBackgroundBrush}" BorderBrush="{Binding SilenceRepairStatusBorderBrush}" ToolTip.Tip="{Binding SilenceRepairStatus}">
+                                            <TextBlock Text="{Binding SilenceRepairStatus}" Foreground="{Binding SilenceRepairStatusBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                        <Border Grid.Column="13" Classes="stepStatusBadge" Background="{Binding ValidateStatusBackgroundBrush}" BorderBrush="{Binding ValidateStatusBorderBrush}" ToolTip.Tip="{Binding ValidateStatus}">
+                                            <TextBlock Text="{Binding ValidateStatus}" Foreground="{Binding ValidateStatusBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                        <Border Grid.Column="14" Classes="stepStatusBadge" Background="{Binding DeleteSourceStatusBackgroundBrush}" BorderBrush="{Binding DeleteSourceStatusBorderBrush}" ToolTip.Tip="{Binding DeleteSourceStatus}">
+                                            <TextBlock Text="{Binding DeleteSourceStatus}" Foreground="{Binding DeleteSourceStatusBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                        <Border Grid.Column="15" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding UploadStatus}">
+                                            <TextBlock Text="{Binding UploadStatus}" Foreground="{Binding UploadStatusBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                        <Border Grid.Column="16" Classes="stepStatusBadge" Background="{Binding StatusTextBackgroundBrush}" BorderBrush="{Binding StatusTextBorderBrush}" ToolTip.Tip="{Binding StatusText}">
+                                            <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusTextBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                    </Grid>
+                                </Border>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>

@@ -4,8 +4,22 @@ public static class ClientSettingsDefaults
 {
     public const string AiTextEndpoint = "https://ark.cn-beijing.volces.com/api/v3";
     public const string AiTextModel = "doubao-seed-2-0-lite-260215";
+    public const int AiTextTimeoutSeconds = 120;
+    public const int AiTextMaxBatchSize = 10;
+    public const string PosterMode = "original";
+    public const string ImageProvider = "doubao";
     public const string ImageModelEndpoint = "https://ark.cn-beijing.volces.com/api/v3";
     public const string ImageModelId = "doubao-seedream-5-0-lite-260128";
+    public const string DoubaoImageResolution = "2K";
+    public const string DoubaoImageRatio = "3:4";
+    public const string OfoxImage2ModelId = "openai/gpt-image-2";
+    public const string OfoxImage2Endpoint = "https://api.ofox.ai/v1";
+    public const string OfoxImage2Quality = "medium";
+    public const string OfoxImage2Size = "auto";
+    public const bool PosterTitleVerifyEnabled = true;
+    public const string PosterTitleVerifyMode = "fallback_repaint";
+    public const bool TiktokAllowOverLimitUploadImport = true;
+    public const int TiktokOverLimitDownloadEpisodeCount = 120;
 
     public const string FeishuCommandHelpText = """
         【飞书 TikTok 上传命令教程】

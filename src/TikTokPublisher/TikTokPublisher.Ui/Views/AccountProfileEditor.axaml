@@ -146,7 +146,7 @@
                 <ScrollViewer>
                     <StackPanel Spacing="10" Margin="2,4,2,2">
                         <Grid Classes="profileForm" ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
                             <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
@@ -216,20 +216,15 @@
                             <TextBlock Classes="formLabel" Grid.Row="14" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="14" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
 
-                            <TextBlock Classes="formLabel" Grid.Row="15" Grid.Column="0" Text="使用管理系统去重" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="15" Grid.Column="1" x:Name="ManagementDedupBox" Content="启用" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="16" Grid.Column="0" Text="管理系统去重粒度" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="16" Grid.Column="1" x:Name="ManagementDedupScopeCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="tiktok_username">TIKTOK用户名</ComboBoxItem>
-                                <ComboBoxItem Tag="software_user">软件登录的用户</ComboBoxItem>
-                            </ComboBox>
-
-                            <TextBlock Classes="formLabel" Grid.Row="17" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="17" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
+                            <TextBlock Classes="formLabel" Grid.Row="15" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="15" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
                                 <ComboBoxItem Tag="external">外部浏览器（登录设置中的 CDP 端点）</ComboBoxItem>
+                                <ComboBoxItem Tag="playwright">独立浏览器（程序自动打开，复用登录态）</ComboBoxItem>
                             </ComboBox>
+
+                            <TextBlock Classes="formLabel" Grid.Row="16" Grid.Column="0" Text="独立浏览器无头" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="16" Grid.Column="1" x:Name="PlaywrightHeadlessBox" Content="无头模式（不显示窗口，仅独立浏览器模式生效）" />
                         </Grid>
 
                         <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">

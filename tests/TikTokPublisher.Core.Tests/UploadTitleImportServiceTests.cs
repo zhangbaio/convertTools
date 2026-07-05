@@ -47,4 +47,32 @@ public sealed class UploadTitleImportServiceTests
         plan.Episodes.Should().Be("1-120");
         plan.EffectiveEpisodeCount.Should().Be(120);
     }
+
+    [Fact]
+    public void BuildFailurePreview_prefers_author_excluded_failures()
+    {
+        var failures = new[]
+        {
+            new UploadTitleImportFailure("剧A", "未找到精确匹配结果"),
+            new UploadTitleImportFailure("剧B", $"{UploadTitleImportService.AuthorExcludedFailurePrefix}河马剧场（包含 河马）"),
+        };
+
+        var preview = UploadTitleImportService.BuildFailurePreview(failures);
+
+        preview.Should().Be("剧B: 命中作者排除：河马剧场（包含 河马）");
+    }
+
+    [Fact]
+    public void BuildAuthorExcludeNotice_includes_filtered_reason()
+    {
+        var failures = new[]
+        {
+            new UploadTitleImportFailure("剧A", $"{UploadTitleImportService.AuthorExcludedFailurePrefix}掌玩短剧（包含 掌玩）"),
+            new UploadTitleImportFailure("剧B", "集数 8，小于最小限制 10"),
+        };
+
+        var notice = UploadTitleImportService.BuildAuthorExcludeNotice(failures);
+
+        notice.Should().Be("作者排除原因：剧A: 命中作者排除：掌玩短剧（包含 掌玩）。");
+    }
 }
