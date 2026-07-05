@@ -12,19 +12,6 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        // 素材发布常驻覆盖层：仅在选中「素材发布」Tab 时显示（切走保活，不 detach WebView2）
-        SidebarTabs.SelectionChanged += (_, _) => UpdatePublishHost();
-        Loaded += (_, _) => UpdatePublishHost();
-    }
-
-    private void UpdatePublishHost()
-    {
-        if (PublishHost is null) return;
-        bool isPublish = (SidebarTabs.SelectedItem as TabItem)?.Header as string == "素材发布";
-        PublishHost.IsVisible = isPublish;
-        // 顶部留白按实际 TAB 条高度对齐（避免露缝/压住标签）；测不到时保留 XAML 默认值
-        if (isPublish && SidebarTabs.ContainerFromIndex(0) is Control firstTab && firstTab.Bounds.Height > 0)
-            PublishHost.Margin = new Thickness(0, firstTab.Bounds.Bottom + 6, 0, 0);
     }
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;

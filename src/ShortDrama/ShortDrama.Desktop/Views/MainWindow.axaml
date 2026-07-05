@@ -2,7 +2,6 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:localviews="using:ShortDrama.Desktop.Views"
         xmlns:taskqueue="using:ShortDrama.Desktop.Views.TaskQueue"
-        xmlns:pub="using:ChannelsPublisher.Desktop.Views"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
@@ -324,11 +323,6 @@
                 <localviews:MaterialUploadView />
             </TabItem>
 
-            <!-- 素材发布：内容为空占位；真实视图在下方常驻覆盖层 PublishHost（切走保活，WebView2 不销毁） -->
-            <TabItem Header="素材发布">
-                <Panel />
-            </TabItem>
-
             <TabItem Header="任务队列">
                 <taskqueue:TaskQueueView />
             </TabItem>
@@ -439,15 +433,5 @@
             </TabItem>
 
         </TabControl>
-
-        <!-- 素材发布常驻覆盖层：始终在可视树，选中「素材发布」时才可见（切走保活，
-             WebView2 靠 IsVisible 隐藏而非 detach，会话/登录态不销毁）。
-             顶部留出 TAB 条高度，避免遮住上方菜单。 -->
-        <Border x:Name="PublishHost"
-                IsVisible="False"
-                Margin="0,52,0,0"
-                Background="{DynamicResource DesktopSurfaceBrush}">
-            <pub:MaterialPublishView />
-        </Border>
     </Grid>
 </Window>
