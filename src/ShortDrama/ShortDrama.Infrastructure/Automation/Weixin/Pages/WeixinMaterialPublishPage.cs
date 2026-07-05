@@ -8,6 +8,7 @@ namespace ShortDrama.Infrastructure.Automation.Weixin.Pages;
 
 public sealed class WeixinMaterialPublishPage
 {
+    private const string PostCreateUrl = "https://channels.weixin.qq.com/platform/post/create";
     private const string PublishVideoSourceModeProject = "project";
     private const string PublishVideoSourceModeMaterialClips = "material_clips";
     private const string PublishVideoSourceModeCustomFiles = "custom_files";
@@ -34,6 +35,11 @@ public sealed class WeixinMaterialPublishPage
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (await TryOpenVerifiedPublishPageAsync(page, cancellationToken))
+        {
+            return;
+        }
+
         if (await TryClickEntryAsync(page, navigation.EntryButton))
         {
             return;
@@ -114,15 +120,14 @@ public sealed class WeixinMaterialPublishPage
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var input = page.Locator(options.VideoUploadSelector).First;
-        await input.WaitForAsync(new LocatorWaitForOptions
-        {
-            State = WaitForSelectorState.Attached,
-            Timeout = 10_000
-        });
+        var input = await FindFirstAttachedFromSelectorListAsync(
+            selector => page.Locator(selector),
+            $"input[type=file][accept*='video'], {options.VideoUploadSelector}",
+            15_000);
 
         await input.SetInputFilesAsync(videoPaths.ToArray());
         progress?.Report($"微信素材上传：已选择 {videoPaths.Count} 个视频文件。");
+        await WaitForVideoUploadAcceptedAsync(page, progress, cancellationToken);
         if (options.WaitAfterUploadSeconds > 0)
         {
             await Task.Delay(TimeSpan.FromSeconds(options.WaitAfterUploadSeconds), cancellationToken);
@@ -139,7 +144,7 @@ public sealed class WeixinMaterialPublishPage
         var field = await FindEditableFieldAsync(
             page,
             "视频描述",
-            "textarea[placeholder*='添加描述'], textarea, [contenteditable='true']",
+            "div.input-editor, [contenteditable='true'], textarea[placeholder*='添加描述']",
             10_000);
         await FillLocatorAsync(field, description);
         progress?.Report("微信素材上传：已填写视频描述。");
@@ -155,7 +160,7 @@ public sealed class WeixinMaterialPublishPage
         var field = await FindEditableFieldAsync(
             page,
             "视频描述",
-            "textarea[placeholder*='添加描述'], textarea, [contenteditable='true']",
+            "div.input-editor, [contenteditable='true'], textarea[placeholder*='添加描述']",
             10_000);
         var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
         while (DateTimeOffset.UtcNow < deadline)
@@ -186,34 +191,49 @@ public sealed class WeixinMaterialPublishPage
 
         if (!string.IsNullOrWhiteSpace(options.LocationOptionText))
         {
-            await ChooseOptionAsync(page, "位置", options.LocationOptionText);
-            progress?.Report($"微信素材上传：已选择位置 -> {options.LocationOptionText}");
+            await TryOptionalStepAsync(
+                progress,
+                "位置",
+                async () =>
+                {
+                    await ChooseOptionAsync(page, "位置", options.LocationOptionText);
+                    progress?.Report($"微信素材上传：已选择位置 -> {options.LocationOptionText}");
+                });
         }
 
         if (!string.IsNullOrWhiteSpace(options.LinkOptionText))
         {
-            await ChooseOptionAsync(page, "链接", options.LinkOptionText);
-            await OpenSeriesPickerAsync(page, options);
-            await SearchAndSelectSeriesAsync(page, options, seriesTitle);
+            await MountDramaSeriesAsync(page, options, seriesTitle, cancellationToken);
             progress?.Report($"微信素材上传：已关联剧集 -> {seriesTitle}");
         }
 
         if (!string.IsNullOrWhiteSpace(options.ActivityOptionText))
         {
-            await ChooseOptionAsync(page, "活动", options.ActivityOptionText);
-            progress?.Report($"微信素材上传：已选择活动 -> {options.ActivityOptionText}");
+            await TryOptionalStepAsync(
+                progress,
+                "活动",
+                async () =>
+                {
+                    await ChooseOptionAsync(page, "活动", options.ActivityOptionText);
+                    progress?.Report($"微信素材上传：已选择活动 -> {options.ActivityOptionText}");
+                });
         }
 
         if (!string.IsNullOrWhiteSpace(options.TimingOptionText))
         {
-            await ChooseOptionAsync(page, "定时发表", options.TimingOptionText);
-            progress?.Report($"微信素材上传：已选择定时发表 -> {options.TimingOptionText}");
+            await TryOptionalStepAsync(
+                progress,
+                "定时发表",
+                async () =>
+                {
+                    await ChooseOptionAsync(page, "定时发表", options.TimingOptionText);
+                    progress?.Report($"微信素材上传：已选择定时发表 -> {options.TimingOptionText}");
+                });
         }
 
         if (options.DeclareOriginal)
         {
-            await SetCheckedByLabelAsync(page, "声明原创", enabled: true, cancellationToken);
-            await HandleOriginalDeclarationDialogAsync(page, cancellationToken);
+            await DeclareOriginalAsync(page, cancellationToken);
             progress?.Report("微信素材上传：已勾选声明原创。");
         }
     }
@@ -225,9 +245,57 @@ public sealed class WeixinMaterialPublishPage
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var field = await FindEditableFieldAsync(page, "短标题", "input[placeholder*='短标题'], input", 10_000);
+        var field = await FindEditableFieldAsync(page, "短标题", "input[placeholder*='填写短标题'], input[placeholder*='短标题'], input", 10_000);
         await field.FillAsync(shortTitle);
         progress?.Report($"微信素材上传：已填写短标题 -> {shortTitle}");
+    }
+
+    public async Task ReplaceCoverAsync(
+        IPage page,
+        string coverPath,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(coverPath) || !File.Exists(coverPath))
+        {
+            throw new FileNotFoundException("封面图片不存在。", coverPath);
+        }
+
+        try
+        {
+            await page.Locator(".cover-preview-wrap .edit-btn").First.ClickAsync(new LocatorClickOptions
+            {
+                Force = true,
+                Timeout = 5_000
+            });
+        }
+        catch
+        {
+            await ClickFirstOrThrowAsync(page, "text=编辑", "button:has-text('编辑')");
+        }
+
+        await Task.Delay(1_200, cancellationToken);
+        await ClickFirstOrThrowAsync(page, "text=上传封面", "text=本地上传", "text=上传图片", "text=更换封面");
+        await Task.Delay(600, cancellationToken);
+
+        var imageInput = page.Locator("input[type=file][accept*='image']").Last;
+        await imageInput.WaitForAsync(new LocatorWaitForOptions
+        {
+            State = WaitForSelectorState.Attached,
+            Timeout = 10_000
+        });
+        await imageInput.SetInputFilesAsync(coverPath);
+        await Task.Delay(2_000, cancellationToken);
+
+        await ClickFirstOrThrowAsync(
+            page,
+            "button:has-text('确认')",
+            "button:has-text('确定')",
+            "button:has-text('完成')",
+            "button:has-text('保存')");
+        await Task.Delay(1_500, cancellationToken);
+        progress?.Report($"微信素材上传：已替换封面 -> {coverPath}");
     }
 
     public async Task FinalizeAsync(
@@ -237,9 +305,23 @@ public sealed class WeixinMaterialPublishPage
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var button = await FindVisibleTextAsync(page, options.FinalActionText, 10_000);
-        await button.ClickAsync();
-        progress?.Report($"微信素材上传：已点击 {options.FinalActionText}");
+        var normalizedAction = (options.FinalAction ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalizedAction is "none" or "noop" or "skip" or "只填不发")
+        {
+            progress?.Report("微信素材上传：已按配置只填不发，未点击发表或保存草稿。");
+            return;
+        }
+
+        if (normalizedAction is "draft" or "save_draft" or "保存草稿")
+        {
+            await ClickFirstOrThrowAsync(page, "button:has-text('保存草稿')");
+            progress?.Report("微信素材上传：已点击 保存草稿");
+        }
+        else
+        {
+            await ClickFirstOrThrowAsync(page, "button.weui-desktop-btn_primary:has-text('发表')", "button:has-text('发表')");
+            progress?.Report("微信素材上传：已点击 发表");
+        }
 
         if (options.WaitAfterFinalActionSeconds > 0)
         {
@@ -275,6 +357,192 @@ public sealed class WeixinMaterialPublishPage
         }
     }
 
+    private static async Task<bool> TryOpenVerifiedPublishPageAsync(IPage page, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await page.GotoAsync(PostCreateUrl, new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 60_000
+            });
+            try
+            {
+                await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions { Timeout = 20_000 });
+            }
+            catch
+            {
+            }
+
+            await Task.Delay(6_000, cancellationToken);
+            if (page.Url.Contains("/login", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("账号未登录，请先在视频号助手扫码登录。");
+            }
+
+            return await IsPublishPageReadyAsync(page, 3_000);
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<bool> IsPublishPageReadyAsync(IPage page, int timeoutMs)
+    {
+        if (await IsVisibleTextAsync(page, "你还不能发表视频"))
+        {
+            throw new InvalidOperationException("当前账号暂不能发表视频，请在视频号后台确认账号权限、实名认证或发表入口状态。");
+        }
+
+        var deadline = DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            try
+            {
+                if (await page.Locator("input[type=file][accept*='video']").First.CountAsync() > 0)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            if (await IsVisibleTextAsync(page, "发表视频"))
+            {
+                return true;
+            }
+
+            await Task.Delay(200);
+        }
+
+        return false;
+    }
+
+    private static async Task WaitForVideoUploadAcceptedAsync(
+        IPage page,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            await page.GetByText("删除", new PageGetByTextOptions { Exact = false }).First.WaitForAsync(
+                new LocatorWaitForOptions
+                {
+                    State = WaitForSelectorState.Visible,
+                    Timeout = 180_000
+                });
+            progress?.Report("微信素材上传：视频已进入编辑表单。");
+        }
+        catch (Exception ex)
+        {
+            progress?.Report($"微信素材上传：未等到“删除”按钮，继续尝试填表。{ex.Message}");
+        }
+
+        await Task.Delay(1_500, cancellationToken);
+    }
+
+    private static async Task TryOptionalStepAsync(IProgress<string>? progress, string name, Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            progress?.Report($"微信素材上传：{name}未完成，已继续后续流程。{ex.Message}");
+        }
+    }
+
+    private static async Task MountDramaSeriesAsync(
+        IPage page,
+        WeixinVideoPublishOptions options,
+        string seriesTitle,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await ClickFirstOrThrowAsync(page, ".post-with-link", ".link-placeholder", "text=选择链接");
+        await Task.Delay(1_000, cancellationToken);
+
+        await ClickFirstOrThrowAsync(page, TextSelector(options.LinkOptionText), "text=视频号剧集");
+        await Task.Delay(1_000, cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(options.LinkPickerSelector) &&
+            await ClickFirstAsync(page, options.LinkPickerSelector))
+        {
+            await Task.Delay(1_000, cancellationToken);
+        }
+        else
+        {
+            await ClickFirstOrThrowAsync(
+                page,
+                TextSelector(options.LinkPickerButtonText),
+                "text=选择需要关联的剧集",
+                "text=选择需要添加的剧集",
+                "text=选择剧集",
+                "text=选择需要关联",
+                "text=选择需要添加");
+            await Task.Delay(1_000, cancellationToken);
+        }
+
+        var searchPlaceholder = string.IsNullOrWhiteSpace(options.LinkSearchPlaceholder)
+            ? "搜索内容"
+            : options.LinkSearchPlaceholder.Trim();
+        var search = await FindFirstVisibleFromSelectorListAsync(
+            selector => page.Locator(selector),
+            $"input[placeholder*='{EscapeCssString(searchPlaceholder)}']:visible, input[placeholder*='搜索内容']:visible",
+            10_000);
+        await search.FillAsync(seriesTitle);
+        await Task.Delay(3_500, cancellationToken);
+
+        var matches = await page.GetByText(seriesTitle, new PageGetByTextOptions { Exact = false }).AllAsync();
+        foreach (var match in matches)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!await IsLocatorVisibleAsync(match))
+            {
+                continue;
+            }
+
+            await match.ScrollIntoViewIfNeededAsync();
+            await match.ClickAsync(new LocatorClickOptions { Timeout = 5_000 });
+            await Task.Delay(800, cancellationToken);
+            await ClickFirstOrThrowAsync(
+                page,
+                "button:has-text('确定')",
+                "button:has-text('确认')",
+                "button:has-text('完成')",
+                "button:has-text('添加')");
+            await WaitBrieflyForLoadAsync(page);
+            return;
+        }
+
+        throw new InvalidOperationException($"未搜到剧集“{seriesTitle}”。");
+    }
+
+    private static async Task DeclareOriginalAsync(IPage page, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await ClickFirstOrThrowAsync(page, ".declare-original-checkbox label", ".declare-original-checkbox");
+        await Task.Delay(1_200, cancellationToken);
+
+        if (await ClickFirstAsync(page, ".weui-desktop-dialog .ant-checkbox", ".weui-desktop-dialog__bd .ant-checkbox-input", "text=我已阅读并同意"))
+        {
+            await Task.Delay(500, cancellationToken);
+            await ClickFirstOrThrowAsync(page, ".weui-desktop-dialog button:has-text('声明原创')", "button:has-text('声明原创')");
+        }
+        else
+        {
+            await HandleOriginalDeclarationDialogAsync(page, cancellationToken);
+        }
+    }
+
     private static async Task<bool> TryClickEntryAsync(IPage page, string entryText)
     {
         if (await MaybeClickTextAsync(page, entryText, 3_000))
@@ -298,6 +566,37 @@ public sealed class WeixinMaterialPublishPage
         {
             return false;
         }
+    }
+
+    private static async Task ClickFirstOrThrowAsync(IPage page, params string[] selectors)
+    {
+        if (await ClickFirstAsync(page, selectors))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("未找到可点击项: " + string.Join(" | ", selectors));
+    }
+
+    private static async Task<bool> ClickFirstAsync(IPage page, params string[] selectors)
+    {
+        foreach (var selector in selectors.Where(item => !string.IsNullOrWhiteSpace(item)))
+        {
+            try
+            {
+                var locator = page.Locator(selector).First;
+                if (await locator.CountAsync() > 0 && await IsLocatorVisibleAsync(locator))
+                {
+                    await locator.ClickAsync(new LocatorClickOptions { Timeout = 5_000 });
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return false;
     }
 
     private static async Task<ILocator> FindVisibleTextAsync(IPage page, string text, int timeoutMs)
@@ -365,6 +664,18 @@ public sealed class WeixinMaterialPublishPage
         }
 
         return false;
+    }
+
+    private static async Task<bool> IsLocatorVisibleAsync(ILocator locator)
+    {
+        try
+        {
+            return await locator.IsVisibleAsync();
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static async Task WaitBrieflyForLoadAsync(IPage page)
@@ -734,24 +1045,122 @@ public sealed class WeixinMaterialPublishPage
         try
         {
             var group = await FindGroupByLabelAsync(page, label, timeoutMs);
-            var field = group.Locator("textarea, input, [contenteditable='true']").First;
-            await field.WaitForAsync(new LocatorWaitForOptions
-            {
-                State = WaitForSelectorState.Visible,
-                Timeout = timeoutMs
-            });
-            return field;
+            return await FindFirstVisibleFromSelectorListAsync(
+                selector => group.Locator(selector),
+                "div.input-editor, [contenteditable='true'], textarea, input",
+                timeoutMs);
         }
         catch
         {
-            var fallback = page.Locator(fallbackSelector).First;
-            await fallback.WaitForAsync(new LocatorWaitForOptions
-            {
-                State = WaitForSelectorState.Visible,
-                Timeout = timeoutMs
-            });
-            return fallback;
+            return await FindFirstVisibleFromSelectorListAsync(
+                selector => page.Locator(selector),
+                fallbackSelector,
+                timeoutMs);
         }
+    }
+
+    private static async Task<ILocator> FindFirstVisibleFromSelectorListAsync(
+        Func<string, ILocator> locate,
+        string selectorList,
+        int timeoutMs)
+    {
+        var selectors = selectorList
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(selector => !string.IsNullOrWhiteSpace(selector))
+            .ToArray();
+        var timeoutAt = DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs);
+
+        while (DateTimeOffset.UtcNow < timeoutAt)
+        {
+            foreach (var selector in selectors)
+            {
+                ILocator locator;
+                try
+                {
+                    locator = locate(selector);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                var count = 0;
+                try
+                {
+                    count = await locator.CountAsync();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                for (var index = 0; index < count; index++)
+                {
+                    var candidate = locator.Nth(index);
+                    try
+                    {
+                        if (await candidate.IsVisibleAsync())
+                        {
+                            return candidate;
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            await Task.Delay(200);
+        }
+
+        throw new InvalidOperationException($"未找到可见输入框: {selectorList}");
+    }
+
+    private static async Task<ILocator> FindFirstAttachedFromSelectorListAsync(
+        Func<string, ILocator> locate,
+        string selectorList,
+        int timeoutMs)
+    {
+        var selectors = selectorList
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(selector => !string.IsNullOrWhiteSpace(selector))
+            .ToArray();
+        var timeoutAt = DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs);
+
+        while (DateTimeOffset.UtcNow < timeoutAt)
+        {
+            foreach (var selector in selectors)
+            {
+                ILocator locator;
+                try
+                {
+                    locator = locate(selector);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                var count = 0;
+                try
+                {
+                    count = await locator.CountAsync();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (count > 0)
+                {
+                    return locator.First;
+                }
+            }
+
+            await Task.Delay(200);
+        }
+
+        throw new InvalidOperationException($"未找到可用文件输入框: {selectorList}");
     }
 
     private static async Task<ILocator> FindGroupByLabelAsync(IPage page, string label, int timeoutMs)
@@ -824,6 +1233,17 @@ public sealed class WeixinMaterialPublishPage
     {
         return value.Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("\"", "\\\"", StringComparison.Ordinal);
+    }
+
+    private static string EscapeCssString(string value)
+    {
+        return value.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("'", "\\'", StringComparison.Ordinal);
+    }
+
+    private static string TextSelector(string value)
+    {
+        return "text=" + (string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim());
     }
 
     public static IReadOnlyList<string> ResolvePublishVideoPaths(string projectDir, WeixinVideoPublishOptions options)
@@ -1145,6 +1565,48 @@ public sealed class WeixinMaterialPublishPage
         {
             targets.Add(fullPath);
         }
+    }
+
+    public static string ResolvePublishCoverPath(string projectDir, WeixinVideoPublishOptions options, string? videoPath = null)
+    {
+        if (!options.ReplaceCoverWithLocalImage)
+        {
+            return string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.CoverImagePath))
+        {
+            var configured = Path.GetFullPath(options.CoverImagePath);
+            return File.Exists(configured) ? configured : string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(videoPath))
+        {
+            var directory = Path.GetDirectoryName(videoPath);
+            var stem = Path.GetFileNameWithoutExtension(videoPath);
+            if (!string.IsNullOrWhiteSpace(directory) && !string.IsNullOrWhiteSpace(stem))
+            {
+                foreach (var ext in new[] { ".cover.jpg", ".cover.jpeg", ".cover.png", ".jpg", ".jpeg", ".png", ".webp" })
+                {
+                    var candidate = Path.Combine(directory, stem + ext);
+                    if (File.Exists(candidate))
+                    {
+                        return Path.GetFullPath(candidate);
+                    }
+                }
+            }
+        }
+
+        foreach (var fileName in new[] { "海报图片.jpg", "海报图片.jpeg", "海报图片.png", "海报图片.webp", "poster.jpg", "poster.png", "cover.jpg", "cover.png" })
+        {
+            var candidate = Path.Combine(projectDir, fileName);
+            if (File.Exists(candidate))
+            {
+                return Path.GetFullPath(candidate);
+            }
+        }
+
+        return string.Empty;
     }
 
     public static string BuildPublishDescription(

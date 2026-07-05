@@ -49,6 +49,7 @@ public sealed class WeixinBrowserSessionLauncher : IWeixinBrowserSessionLauncher
         await using var browser = await playwright.Chromium.LaunchAsync(
             new BrowserTypeLaunchOptions
             {
+                ExecutablePath = runtimeStatus.BrowserExecutablePath,
                 Headless = false,
                 SlowMo = config.Browser.SlowMoMs,
                 Args =

@@ -737,6 +737,7 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
         {
             "" or "publish" or "发表" => "发表",
             "draft" or "save_draft" or "保存草稿" => "保存草稿",
+            "none" or "noop" or "skip" or "只填不发" => "只填不发",
             _ => string.IsNullOrWhiteSpace(finalAction) ? "发表" : finalAction.Trim()
         };
     }

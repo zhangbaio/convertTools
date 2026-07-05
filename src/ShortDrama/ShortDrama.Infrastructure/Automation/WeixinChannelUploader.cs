@@ -106,6 +106,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         await using var browser = await playwright.Chromium.LaunchAsync(
             new BrowserTypeLaunchOptions
             {
+                ExecutablePath = runtimeStatus.BrowserExecutablePath,
                 Headless = config.Browser.Headless,
                 SlowMo = config.Browser.SlowMoMs,
                 Args =
@@ -525,11 +526,24 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 {
                     await _materialPublishPage.FillDescriptionAsync(page, description, progress, cancellationToken);
                 }
-                await _materialPublishPage.ChooseOptionsAsync(page, config.VideoPublish, projectInfo.Title, progress, cancellationToken);
                 if (config.VideoPublish.FillShortTitle)
                 {
                     await _materialPublishPage.FillShortTitleAsync(page, shortTitle, progress, cancellationToken);
                 }
+                var coverPath = WeixinMaterialPublishPage.ResolvePublishCoverPath(
+                    request.ProjectDir,
+                    config.VideoPublish,
+                    videoPath);
+                if (!string.IsNullOrWhiteSpace(coverPath))
+                {
+                    await _materialPublishPage.ReplaceCoverAsync(page, coverPath, progress, cancellationToken);
+                }
+                else if (config.VideoPublish.ReplaceCoverWithLocalImage)
+                {
+                    progress?.Report("微信素材上传：已启用封面替换，但未找到可用封面图片，继续后续流程。");
+                }
+
+                await _materialPublishPage.ChooseOptionsAsync(page, config.VideoPublish, projectInfo.Title, progress, cancellationToken);
 
                 var decision = await RequestDecisionAsync(
                     request,
@@ -684,11 +698,24 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 }
 
                 await _systemHighlightPublishPage.WaitForCoverPreviewReadyAsync(publishPage, progress, cancellationToken);
-                await _materialPublishPage.ChooseOptionsAsync(publishPage, config.VideoPublish, projectInfo.Title, progress, cancellationToken);
                 if (config.VideoPublish.FillShortTitle)
                 {
                     await _materialPublishPage.FillShortTitleAsync(publishPage, shortTitle, progress, cancellationToken);
                 }
+                var coverPath = WeixinMaterialPublishPage.ResolvePublishCoverPath(
+                    request.ProjectDir,
+                    config.VideoPublish,
+                    videoPath);
+                if (!string.IsNullOrWhiteSpace(coverPath))
+                {
+                    await _materialPublishPage.ReplaceCoverAsync(publishPage, coverPath, progress, cancellationToken);
+                }
+                else if (config.VideoPublish.ReplaceCoverWithLocalImage)
+                {
+                    progress?.Report("系统高光发布：已启用封面替换，但未找到可用封面图片，继续后续流程。");
+                }
+
+                await _materialPublishPage.ChooseOptionsAsync(publishPage, config.VideoPublish, projectInfo.Title, progress, cancellationToken);
 
                 var decision = await RequestDecisionAsync(
                     request,

@@ -53,6 +53,7 @@ public sealed class WeixinMaterialChannelVideoDeleteService
         using var playwright = await _browserRuntimeService.CreatePlaywrightAsync(cancellationToken);
         await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
         {
+            ExecutablePath = runtimeStatus.BrowserExecutablePath,
             Headless = false,
             Args =
             [

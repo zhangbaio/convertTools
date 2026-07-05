@@ -10,6 +10,18 @@ public sealed class WeixinBrowserRuntimeService : IWeixinBrowserRuntimeService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        var localBrowser = ResolveLocalBrowserExecutable();
+        if (localBrowser is not null)
+        {
+            return Task.FromResult(new WeixinBrowserRuntimeStatus(
+                IsReady: true,
+                BrowserType: localBrowser.Type,
+                BrowserRootDirectory: null,
+                BrowserExecutablePath: localBrowser.Path,
+                Message: $"已检测到本机浏览器({localBrowser.DisplayName})：{localBrowser.Path}",
+                NeedsInstall: false));
+        }
+
         var browserRoot = ResolveBrowserRoot();
         if (browserRoot is null)
         {
@@ -36,6 +48,12 @@ public sealed class WeixinBrowserRuntimeService : IWeixinBrowserRuntimeService
 
     public void ConfigureEnvironment(WeixinBrowserRuntimeStatus status)
     {
+        if (string.IsNullOrWhiteSpace(status.BrowserRootDirectory) &&
+            !string.IsNullOrWhiteSpace(status.BrowserExecutablePath))
+        {
+            return;
+        }
+
         var browserRoot = !string.IsNullOrWhiteSpace(status.BrowserRootDirectory)
             ? status.BrowserRootDirectory
             : WeixinRuntimePaths.ResolveExistingPlaywrightBrowserDirectory() ?? WeixinRuntimePaths.DefaultPlaywrightBrowserDirectory;
@@ -80,4 +98,51 @@ public sealed class WeixinBrowserRuntimeService : IWeixinBrowserRuntimeService
 
         return null;
     }
+
+    private static LocalBrowserExecutable? ResolveLocalBrowserExecutable()
+    {
+        foreach (var candidate in EnumerateLocalBrowserCandidates())
+        {
+            if (!string.IsNullOrWhiteSpace(candidate.Path) && File.Exists(candidate.Path))
+            {
+                return candidate with { Path = Path.GetFullPath(candidate.Path) };
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<LocalBrowserExecutable> EnumerateLocalBrowserCandidates()
+    {
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
+        yield return new LocalBrowserExecutable(
+            "msedge",
+            "Edge",
+            Path.Combine(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"));
+        yield return new LocalBrowserExecutable(
+            "msedge",
+            "Edge",
+            Path.Combine(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"));
+        yield return new LocalBrowserExecutable(
+            "msedge",
+            "Edge",
+            Path.Combine(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"));
+        yield return new LocalBrowserExecutable(
+            "chrome",
+            "Chrome",
+            Path.Combine(programFiles, "Google", "Chrome", "Application", "chrome.exe"));
+        yield return new LocalBrowserExecutable(
+            "chrome",
+            "Chrome",
+            Path.Combine(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"));
+        yield return new LocalBrowserExecutable(
+            "chrome",
+            "Chrome",
+            Path.Combine(localAppData, "Google", "Chrome", "Application", "chrome.exe"));
+    }
+
+    private sealed record LocalBrowserExecutable(string Type, string DisplayName, string Path);
 }
