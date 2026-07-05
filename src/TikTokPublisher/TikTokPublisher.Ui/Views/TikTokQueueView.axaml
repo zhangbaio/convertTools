@@ -29,6 +29,108 @@
             <Setter Property="MinHeight" Value="32" />
             <Setter Property="FontSize" Value="13" />
         </Style>
+        <Style Selector="Button.neutralAction">
+            <Setter Property="Background" Value="#F8FAFC" />
+            <Setter Property="Foreground" Value="#334155" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+        </Style>
+        <Style Selector="Button.neutralAction:pointerover">
+            <Setter Property="Background" Value="#EEF2F6" />
+        </Style>
+        <Style Selector="Button.contentAction">
+            <Setter Property="Background" Value="#EAF4FF" />
+            <Setter Property="Foreground" Value="#0F63C7" />
+            <Setter Property="BorderBrush" Value="#9CCBFF" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.contentAction:pointerover">
+            <Setter Property="Background" Value="#DCEBFF" />
+        </Style>
+        <Style Selector="Button.browserAction">
+            <Setter Property="Background" Value="#EEF6FF" />
+            <Setter Property="Foreground" Value="#0B5CAD" />
+            <Setter Property="BorderBrush" Value="#B8D8FF" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.browserAction:pointerover">
+            <Setter Property="Background" Value="#DCEBFF" />
+        </Style>
+        <Style Selector="Button.repairAction">
+            <Setter Property="Background" Value="#FFF7E6" />
+            <Setter Property="Foreground" Value="#B45309" />
+            <Setter Property="BorderBrush" Value="#FBBF24" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.repairAction:pointerover">
+            <Setter Property="Background" Value="#FFEFC2" />
+        </Style>
+        <Style Selector="Button.selectionAction">
+            <Setter Property="Background" Value="#F2F5FF" />
+            <Setter Property="Foreground" Value="#3730A3" />
+            <Setter Property="BorderBrush" Value="#C7D2FE" />
+        </Style>
+        <Style Selector="Button.selectionAction:pointerover">
+            <Setter Property="Background" Value="#E7ECFF" />
+        </Style>
+        <Style Selector="Button.fileAction">
+            <Setter Property="Background" Value="#EAF8F0" />
+            <Setter Property="Foreground" Value="#047857" />
+            <Setter Property="BorderBrush" Value="#86D9A8" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.fileAction:pointerover">
+            <Setter Property="Background" Value="#DDFBEA" />
+        </Style>
+        <Style Selector="Button.logAction">
+            <Setter Property="Background" Value="#F1F5F9" />
+            <Setter Property="Foreground" Value="#334155" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+        </Style>
+        <Style Selector="Button.logAction:pointerover">
+            <Setter Property="Background" Value="#E2E8F0" />
+        </Style>
+        <Style Selector="Button.toolAction">
+            <Setter Property="Background" Value="#F1F5F9" />
+            <Setter Property="Foreground" Value="#0F4F86" />
+            <Setter Property="BorderBrush" Value="#BFD3E8" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.toolAction:pointerover">
+            <Setter Property="Background" Value="#E6EEF8" />
+        </Style>
+        <Style Selector="Button.archiveAction">
+            <Setter Property="Background" Value="#EEF2F6" />
+            <Setter Property="Foreground" Value="#475569" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.archiveAction:pointerover">
+            <Setter Property="Background" Value="#E2E8F0" />
+        </Style>
+        <Style Selector="Button.dangerSoftAction">
+            <Setter Property="Background" Value="#FFE3E3" />
+            <Setter Property="Foreground" Value="#B42318" />
+            <Setter Property="BorderBrush" Value="#F97066" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.dangerSoftAction:pointerover">
+            <Setter Property="Background" Value="#FFD4D4" />
+        </Style>
+        <Style Selector="Button.stopAction">
+            <Setter Property="Background" Value="#DC2626" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#DC2626" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="Button.stopAction:pointerover">
+            <Setter Property="Background" Value="#B91C1C" />
+            <Setter Property="BorderBrush" Value="#B91C1C" />
+        </Style>
+        <Style Selector="Button.stopAction:disabled">
+            <Setter Property="Background" Value="#D1D5DB" />
+            <Setter Property="Foreground" Value="#6B7280" />
+            <Setter Property="BorderBrush" Value="#D1D5DB" />
+        </Style>
         <Style Selector="Button.menuAction">
             <Setter Property="HorizontalContentAlignment" Value="Left" />
             <Setter Property="MinWidth" Value="150" />
@@ -90,31 +192,31 @@
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                     <TextBlock Grid.Column="0" Text="工作目录" VerticalAlignment="Center" Margin="0,0,10,0" />
                     <TextBox Grid.Column="1" Text="{Binding WorkspacePath}" IsReadOnly="True" Watermark="选择工作目录" />
-                    <Button Grid.Column="2" Content="选择工作目录" Click="OnPickWorkspaceClick" Classes="compactAction" />
+                    <Button Grid.Column="2" Content="选择工作目录" Click="OnPickWorkspaceClick" Classes="toolAction compactAction" />
                 </Grid>
 
                 <WrapPanel Orientation="Horizontal">
-                    <Button Content="刷新项目" Click="OnScanWorkspaceClick" Classes="compactAction" Margin="0,0,8,8" />
-                    <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="compactAction" Margin="0,0,8,8" />
-                    <Button Content="编辑剧集" Click="OnEditSelectedClick" Classes="compactAction" Margin="0,0,8,8" />
-                    <Button Content="改新剧名" Click="OnRenameNewTitleClick" Classes="compactAction" Margin="0,0,8,8" />
-                    <Button Content="修复静音视频" Click="OnRepairSilenceClick" Classes="compactAction" Margin="0,0,8,8" />
-                    <Button Content="全选" Click="OnSelectAllQueueClick" Classes="compactAction" Margin="0,0,8,8" />
-                    <Button Content="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Classes="compactAction" Margin="0,0,8,8" />
-                    <Button Content="取消全选" Click="OnClearQueueSelectionClick" Classes="compactAction" Margin="0,0,8,8" />
-                    <Button Content="归档勾选" Click="OnArchiveSelectedClick" Classes="compactAction" Margin="0,0,8,8" />
-                    <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerAction compactAction" Margin="0,0,8,8" />
-                    <Button Content="全选已完成" Click="OnSelectCompletedQueueClick" Classes="compactAction" Margin="0,0,8,8" />
+                    <Button Content="刷新项目" Click="OnScanWorkspaceClick" Classes="neutralAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="编辑剧集" Click="OnEditSelectedClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="改新剧名" Click="OnRenameNewTitleClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="修复静音视频" Click="OnRepairSilenceClick" Classes="repairAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="全选" Click="OnSelectAllQueueClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="取消全选" Click="OnClearQueueSelectionClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="归档勾选" Click="OnArchiveSelectedClick" Classes="archiveAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="全选已完成" Click="OnSelectCompletedQueueClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                 </WrapPanel>
 
                 <WrapPanel Orientation="Horizontal">
-                    <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="compactAction" Margin="0,0,8,0" />
-                    <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="compactAction" Margin="0,0,8,0" />
-                    <Button Content="打开浏览器" Click="OnOpenBrowserClick" Classes="secondaryAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Classes="compactAction" Margin="0,0,8,0" />
-                    <Button Content="运行日志" Click="OnOpenLogsClick" Classes="compactAction" Margin="0,0,8,0" />
+                    <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
+                    <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
+                    <Button Content="打开浏览器" Click="OnOpenBrowserClick" Classes="browserAction compactAction" Margin="0,0,8,0" />
+                    <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Classes="repairAction compactAction" Margin="0,0,8,0" />
+                    <Button Content="运行日志" Click="OnOpenLogsClick" Classes="logAction compactAction" Margin="0,0,8,0" />
                     <Button x:Name="StartQueueButton" Content="执行勾选队列" Click="OnStartQueueClick" Classes="primaryAction compactAction" Margin="0,0,8,0" />
-                    <Button x:Name="StopQueueButton" Content="停止" Click="OnStopQueueClick" Classes="dangerAction compactAction" IsEnabled="False" Margin="0,0,8,0" />
+                    <Button x:Name="StopQueueButton" Content="停止" Click="OnStopQueueClick" Classes="stopAction compactAction" IsEnabled="False" Margin="0,0,8,0" />
                     <Button x:Name="StartAllQueuesButton" Content="执行全部账号工作目录" Click="OnStartAllQueuesClick" Classes="primaryAction compactAction" IsVisible="False" />
                 </WrapPanel>
 
@@ -144,8 +246,8 @@
                                 <CheckBox Content="上传剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
                             </WrapPanel>
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                                <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="compactAction" />
-                                <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="compactAction" />
+                                <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="selectionAction compactAction" />
+                                <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="selectionAction compactAction" />
                             </StackPanel>
                         </Grid>
 
