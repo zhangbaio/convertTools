@@ -79,6 +79,34 @@ public sealed class WorkspaceQueueServiceTests
     }
 
     [Fact]
+    public void ScanProjects_Keeps_Queued_Project_Outside_Workspace()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");
+        var downloadRoot = Path.Combine(Path.GetTempPath(), $"workspace-download-{Guid.NewGuid():N}");
+        var externalProject = Path.Combine(downloadRoot, "downloaded-project");
+
+        try
+        {
+            Directory.CreateDirectory(workspace);
+            CreateProject(externalProject);
+            WorkspaceBindingService.Bind(workspace, "acct-current", "Current Account");
+
+            var added = WorkspaceQueueService.AddProjectsToQueue(workspace, [externalProject]);
+            added.Should().ContainSingle(item => item.ProjectDir == externalProject);
+
+            var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+            item.ProjectDir.Should().Be(externalProject);
+            item.AccountProfileId.Should().Be("acct-current");
+            item.AccountProfileName.Should().Be("Current Account");
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+            DeleteWorkspaceBestEffort(downloadRoot);
+        }
+    }
+
+    [Fact]
     public void ScanProjects_Applies_Workspace_Binding_To_Unbound_Items()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");

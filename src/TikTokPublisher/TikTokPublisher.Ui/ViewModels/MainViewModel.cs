@@ -149,7 +149,7 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.AccountResolver = ResolveAccountForQueueItem;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
-        DramaDownload.UploadWorkspaceRequested += () => WorkspacePath;
+        DramaDownload.UploadWorkspaceRequested += ResolveSelectedAccountWorkspacePath;
         WireQueueOrchestrator();
     }
 
@@ -187,7 +187,7 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.AccountResolver = ResolveAccountForQueueItem;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
-        DramaDownload.UploadWorkspaceRequested += () => WorkspacePath;
+        DramaDownload.UploadWorkspaceRequested += ResolveSelectedAccountWorkspacePath;
         WireQueueOrchestrator();
     }
 
@@ -2389,6 +2389,22 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.SetWorkspace(WorkspacePath, refresh: false);
     }
 
+    private string ResolveSelectedAccountWorkspacePath()
+    {
+        var account = SelectedAccount?.Model;
+        if (account is not null)
+        {
+            foreach (var candidate in new[] { account.TiktokUploadProfilePath, account.LastWorkspace })
+            {
+                var workspace = NormalizeWorkspacePath(candidate);
+                if (!string.IsNullOrWhiteSpace(workspace))
+                    return workspace;
+            }
+        }
+
+        return NormalizeWorkspacePath(WorkspacePath);
+    }
+
     private void BindWorkspaceToSelectedAccountIfMissing(string workspace)
     {
         var account = SelectedAccount?.Model;
@@ -2426,16 +2442,28 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void ImportDramaProjectsToQueue(IReadOnlyList<string> projectDirs)
     {
-        var root = WorkspacePath.Trim();
+        var root = ResolveSelectedAccountWorkspacePath();
         if (string.IsNullOrEmpty(root))
         {
-            StatusMessage = "请先选择工作目录";
+            StatusMessage = "请先为左侧选择账号配置上传工作目录";
             return;
         }
 
+        var account = SelectedAccount?.Model;
+        if (account is not null)
+            WorkspaceBindingService.Bind(root, account.Id, account.DisplayName);
+
+        if (!string.Equals(NormalizeWorkspacePath(WorkspacePath), root, StringComparison.OrdinalIgnoreCase))
+        {
+            WorkspacePath = root;
+            SystemSettings.UpdateWorkspacePath(root);
+            ArchivedProjects.SetWorkspace(root, refresh: false);
+        }
+
         var added = WorkspaceQueueService.AddProjectsToQueue(root, projectDirs);
-        RefreshWorkspaceProjects(root);
-        StatusMessage = added.Count > 0 ? $"已导入 {added.Count} 个项目到上传队列" : "没有可导入的项目";
+        RefreshWorkspaceProjects(root, force: true);
+        var accountName = account?.DisplayName ?? "当前账号";
+        StatusMessage = added.Count > 0 ? $"已导入 {added.Count} 个项目到「{accountName}」上传队列" : "没有可导入的项目";
         AppendLog(StatusMessage);
     }
 

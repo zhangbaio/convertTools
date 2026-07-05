@@ -41,7 +41,6 @@ public static class WorkspaceQueueService
         {
             if (!discovered.TryGetValue(normalized, out var item))
             {
-                if (!IsWithinWorkspace(normalized, root)) continue;
                 if (!WorkspaceProjectScanner.IsValidProjectDirectory(normalized)) continue;
                 item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), persisted, binding);
             }
@@ -597,14 +596,6 @@ public static class WorkspaceQueueService
 
     private static string NormalizeTitleForCompare(string? value) =>
         string.Concat((value ?? "").Trim().TrimStart('_').Where(ch => !char.IsWhiteSpace(ch)));
-
-    private static bool IsWithinWorkspace(string projectDir, string workspaceRoot)
-    {
-        var project = Path.GetFullPath(projectDir);
-        var workspace = Path.GetFullPath(workspaceRoot);
-        return project.StartsWith(workspace.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-               || string.Equals(project, workspace, StringComparison.OrdinalIgnoreCase);
-    }
 
     private static List<QueueProjectItem> OrderByQueuedAt(IEnumerable<QueueProjectItem> items) =>
         items
