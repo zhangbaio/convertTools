@@ -1,4 +1,5 @@
 using Avalonia.Threading;
+using ChannelsPublisher.Core.Config;
 using CommunityToolkit.Mvvm.ComponentModel;
 using ShortDrama.Desktop.Services;
 using ShortDrama.Desktop.Views;
@@ -1348,6 +1349,7 @@ public partial class MainWindowViewModel
             var videoPublish = root["video_publish"] as JsonObject ?? new JsonObject();
             root["video_publish"] = videoPublish;
             videoPublish["_runtime_allow_duplicate_material_publish"] = MaterialUploadAllowDuplicatePublish;
+            ApplyGlobalMaterialClipPublishOptions(videoPublish);
             if (account is not null)
             {
                 root["auth_file"] = account.AuthFile;
@@ -1592,6 +1594,25 @@ public partial class MainWindowViewModel
             : null;
     }
 
+    private static void ApplyGlobalMaterialClipPublishOptions(JsonObject videoPublish)
+    {
+        var clip = ClipConfig.Load();
+        videoPublish["publish_originality_enabled"] = clip.OrigEnabled;
+        videoPublish["publish_originality_reuse_across_runs"] = true;
+        videoPublish["publish_originality_zoom"] = clip.OrigZoom;
+        videoPublish["publish_originality_color"] = clip.OrigColor;
+        videoPublish["publish_originality_speed"] = clip.OrigSpeed;
+        videoPublish["publish_originality_fade"] = clip.OrigFade;
+        videoPublish["publish_originality_sticker_dir"] = clip.OrigStickerDir ?? string.Empty;
+
+        videoPublish["material_clip_originality_enabled"] = clip.OrigEnabled;
+        videoPublish["material_clip_originality_zoom"] = clip.OrigZoom;
+        videoPublish["material_clip_originality_color"] = clip.OrigColor;
+        videoPublish["material_clip_originality_speed"] = clip.OrigSpeed;
+        videoPublish["material_clip_originality_fade"] = clip.OrigFade;
+        videoPublish["material_clip_originality_sticker_dir"] = clip.OrigStickerDir ?? string.Empty;
+    }
+
     private void SaveMaterialUploadAccounts()
     {
         var activeId = GetActiveMaterialUploadAccount()?.Id
@@ -1759,6 +1780,11 @@ public partial class MainWindowViewModel
                 }
             }
         };
+
+        if (root["video_publish"] is JsonObject videoPublish)
+        {
+            ApplyGlobalMaterialClipPublishOptions(videoPublish);
+        }
 
         return root.ToJsonString(MaterialUploadJsonOptions);
     }

@@ -10,6 +10,7 @@ namespace ShortDrama.Desktop.Services;
 
 public sealed class MaterialHighlightGenerationService
 {
+    private const long MinReusableClipBytes = 16 * 1024;
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private static readonly Regex EpisodeIndexRegex = new(
         @"(?:第\s*0*(\d+)\s*集|episode\s*0*(\d+)|ep\s*0*(\d+)|^0*(\d+)$)",
@@ -104,7 +105,7 @@ public sealed class MaterialHighlightGenerationService
                 var outputPath = BuildOutputPath(outputDir, episodeIndex, segmentIndex + 1, segments.Count);
                 totalOutputCount++;
 
-                if (File.Exists(outputPath) && new FileInfo(outputPath).Length > 0)
+                if (await IsReusableClipAsync(ffprobe, outputPath, segments[segmentIndex].DurationSeconds, progress, cancellationToken))
                 {
                     existingCountForProject++;
                     progress?.Report($"素材高光：跳过已存在文件 {Path.GetFileName(outputPath)}");
@@ -417,33 +418,87 @@ public sealed class MaterialHighlightGenerationService
         double durationSeconds,
         CancellationToken cancellationToken)
     {
-        if (File.Exists(outputPath))
-        {
-            File.Delete(outputPath);
-        }
-
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        var result = await _processRunner.RunAsync(
-            ffmpeg,
-            BuildArguments(inputPath, outputPath, startSeconds, durationSeconds),
-            Path.GetDirectoryName(outputPath),
-            cancellationToken);
-
-        if (result.ExitCode != 0)
+        var tempPath = BuildTempOutputPath(outputPath);
+        try
         {
-            _logger.LogError(
-                "Failed to export material highlight clip: {Input} -> {Output}; stderr={Stderr}",
-                inputPath,
-                outputPath,
-                result.StandardError);
-            throw new InvalidOperationException(
-                $"素材高光导出失败：{Path.GetFileName(outputPath)}，{TrimProcessError(result.StandardError)}");
+            var result = await _processRunner.RunAsync(
+                ffmpeg,
+                BuildArguments(inputPath, tempPath, startSeconds, durationSeconds),
+                Path.GetDirectoryName(outputPath),
+                cancellationToken);
+
+            if (result.ExitCode != 0)
+            {
+                _logger.LogError(
+                    "Failed to export material highlight clip: {Input} -> {Output}; stderr={Stderr}",
+                    inputPath,
+                    outputPath,
+                    result.StandardError);
+                throw new InvalidOperationException(
+                    $"素材高光导出失败：{Path.GetFileName(outputPath)}，{TrimProcessError(result.StandardError)}");
+            }
+
+            if (!File.Exists(tempPath) || new FileInfo(tempPath).Length <= 0)
+            {
+                throw new InvalidOperationException($"素材高光导出失败：未生成输出文件 -> {Path.GetFileName(outputPath)}");
+            }
+
+            File.Move(tempPath, outputPath, overwrite: true);
+        }
+        finally
+        {
+            TryDelete(tempPath);
+        }
+    }
+
+    private async Task<bool> IsReusableClipAsync(
+        string ffprobe,
+        string outputPath,
+        double expectedDurationSeconds,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(outputPath))
+        {
+            return false;
         }
 
-        if (!File.Exists(outputPath) || new FileInfo(outputPath).Length <= 0)
+        var info = new FileInfo(outputPath);
+        if (info.Length < MinReusableClipBytes)
         {
-            throw new InvalidOperationException($"素材高光导出失败：未生成输出文件 -> {Path.GetFileName(outputPath)}");
+            progress?.Report($"素材高光：已有文件过小，将重新生成 {Path.GetFileName(outputPath)}");
+            TryDelete(outputPath);
+            return false;
         }
+
+        try
+        {
+            var duration = await ProbeDurationSecondsAsync(ffprobe, outputPath, cancellationToken);
+            var minDuration = Math.Max(0.5d, expectedDurationSeconds - Math.Max(1.5d, expectedDurationSeconds * 0.25d));
+            if (duration < minDuration)
+            {
+                progress?.Report($"素材高光：已有文件时长异常，将重新生成 {Path.GetFileName(outputPath)}");
+                TryDelete(outputPath);
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            progress?.Report($"素材高光：已有文件无法校验，将重新生成 {Path.GetFileName(outputPath)}");
+            TryDelete(outputPath);
+            return false;
+        }
+    }
+
+    private static string BuildTempOutputPath(string outputPath)
+    {
+        var directory = Path.GetDirectoryName(outputPath) ?? ".";
+        var fileName = Path.GetFileNameWithoutExtension(outputPath);
+        var extension = Path.GetExtension(outputPath);
+        return Path.Combine(directory, $"{fileName}.tmp-{Guid.NewGuid():N}{extension}");
     }
 
     private static IReadOnlyList<string> BuildArguments(
@@ -516,6 +571,20 @@ public sealed class MaterialHighlightGenerationService
         }
 
         return message[..180] + "...";
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
     }
 
     private static int ParseInt(string? value, int fallback)
