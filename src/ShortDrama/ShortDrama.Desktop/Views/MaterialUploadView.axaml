@@ -2,12 +2,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:ShortDrama.Desktop.ViewModels"
              x:Class="ShortDrama.Desktop.Views.MaterialUploadView">
-    <Grid ColumnDefinitions="0,*"
-          ColumnSpacing="0">
-        <!-- Keep the account-management controls in the visual tree for existing code-behind wiring.
-             The reference app manages accounts from the sidebar, so this panel is intentionally hidden here. -->
-        <Border Classes="page-panel"
-                IsVisible="False">
+    <Grid ColumnDefinitions="300,*"
+          ColumnSpacing="12">
+        <!-- Account management sidebar: keep multiple publishing accounts visible on the material publish page. -->
+        <Border Classes="page-panel">
             <Grid RowDefinitions="Auto,Auto,Auto,*,Auto"
                   RowSpacing="10">
                 <TextBlock Text="账号管理"

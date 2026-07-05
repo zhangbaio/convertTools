@@ -111,6 +111,26 @@ public sealed class WeixinMaterialPublishPageTests
     }
 
     [Fact]
+    public void ResolvePublishVideoItems_Should_Use_NewDramaMountProjectDir_When_Configured()
+    {
+        var workflowDir = Directory.CreateTempSubdirectory().FullName;
+        var sourceDir = Directory.CreateTempSubdirectory().FullName;
+        var videoPath = Path.Combine(sourceDir, "episode-01.mp4");
+        File.WriteAllBytes(videoPath, [1]);
+
+        var items = WeixinMaterialPublishPage.ResolvePublishVideoItems(
+            workflowDir,
+            BuildOptions(videoSourceMode: "new_drama_mount") with
+            {
+                EpisodeSelectionMode = "all",
+                NewDramaMountProjectDir = sourceDir
+            });
+
+        items.Should().ContainSingle();
+        items[0].VideoPath.Should().Be(videoPath);
+    }
+
+    [Fact]
     public void BuildPublishDescription_Should_Use_PerVideoSidecarDescription()
     {
         var projectDir = Directory.CreateTempSubdirectory().FullName;

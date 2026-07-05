@@ -39,6 +39,9 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
     private readonly WeixinSeriesSubmissionPage _seriesSubmissionPage;
     private readonly WeixinMaterialPublishPage _materialPublishPage;
     private readonly WeixinSystemHighlightPublishPage _systemHighlightPublishPage;
+    private readonly WeixinNewDramaMountService _newDramaMountService;
+    private readonly WeixinMaterialPublishDescriptionService _materialPublishDescriptionService;
+    private readonly WeixinPublishOriginalityService _publishOriginalityService;
     private readonly IWeixinLoginNotificationService _loginNotificationService;
 
     public WeixinChannelUploader(
@@ -51,6 +54,9 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         WeixinSeriesSubmissionPage seriesSubmissionPage,
         WeixinMaterialPublishPage materialPublishPage,
         WeixinSystemHighlightPublishPage systemHighlightPublishPage,
+        WeixinNewDramaMountService newDramaMountService,
+        WeixinMaterialPublishDescriptionService materialPublishDescriptionService,
+        WeixinPublishOriginalityService publishOriginalityService,
         IWeixinLoginNotificationService? loginNotificationService = null)
     {
         _configLoader = configLoader;
@@ -62,6 +68,9 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         _seriesSubmissionPage = seriesSubmissionPage;
         _materialPublishPage = materialPublishPage;
         _systemHighlightPublishPage = systemHighlightPublishPage;
+        _newDramaMountService = newDramaMountService;
+        _materialPublishDescriptionService = materialPublishDescriptionService;
+        _publishOriginalityService = publishOriginalityService;
         _loginNotificationService = loginNotificationService ?? NoopWeixinLoginNotificationService.Instance;
     }
 
@@ -400,6 +409,11 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             return false;
         }
 
+        if (string.Equals(sourceMode, "new_drama_mount", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
         try
         {
             var publishItems = WeixinMaterialPublishPage.ResolvePublishVideoItems(request.ProjectDir, config.VideoPublish);
@@ -453,7 +467,23 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 cancellationToken);
         }
 
-        var allPublishItems = WeixinMaterialPublishPage.ResolvePublishVideoItems(request.ProjectDir, config.VideoPublish);
+        var materialSourceProjectDir = request.ProjectDir;
+        if (string.Equals(
+                WeixinMaterialPublishPage.NormalizeVideoSourceMode(config.VideoPublish.VideoSourceMode),
+                "new_drama_mount",
+                StringComparison.Ordinal))
+        {
+            var mount = await _newDramaMountService.EnsureAsync(
+                request.ProjectDir,
+                config,
+                resolvedConfigPath,
+                progress,
+                cancellationToken);
+            materialSourceProjectDir = mount.SourceProjectDir;
+            config = config with { VideoPublish = mount.Options };
+        }
+
+        var allPublishItems = WeixinMaterialPublishPage.ResolvePublishVideoItems(materialSourceProjectDir, config.VideoPublish);
         if (allPublishItems.Count == 0)
         {
             return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "当前项目未找到可发表的素材视频。");
@@ -499,6 +529,13 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             return new WeixinUploadResult(true, request.ProjectDir, resolvedConfigPath, "当前策略下没有可执行的素材视频。");
         }
 
+        selectedVideos = await _publishOriginalityService.ApplyAsync(
+            request.ProjectDir,
+            selectedVideos,
+            config.VideoPublish,
+            progress,
+            cancellationToken);
+
         var shortTitle = WeixinMaterialPublishPage.BuildShortTitle(projectInfo, config.VideoPublish);
         progress?.Report($"微信素材上传：准备发表 {selectedVideos.Count} 条视频。策略：{runStrategy}。");
 
@@ -507,7 +544,15 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             cancellationToken.ThrowIfCancellationRequested();
             var publishItem = selectedVideos[index];
             var videoPath = publishItem.VideoPath;
-            var description = WeixinMaterialPublishPage.BuildPublishDescription(projectInfo, config.VideoPublish, publishItem);
+            var baseDescription = WeixinMaterialPublishPage.BuildPublishDescription(projectInfo, config.VideoPublish, publishItem);
+            var description = await _materialPublishDescriptionService.ResolveAsync(
+                request.ProjectDir,
+                projectInfo,
+                config.VideoPublish,
+                publishItem,
+                baseDescription,
+                progress,
+                cancellationToken);
             progress?.Report($"微信素材上传：开始处理 {index + 1}/{selectedVideos.Count} -> 第{publishItem.EpisodeIndex}集 {Path.GetFileName(videoPath)}");
             SaveMaterialPublishState(statePath, publishState with
             {
@@ -671,7 +716,15 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             cancellationToken.ThrowIfCancellationRequested();
             var videoPath = WeixinSystemHighlightPublishPage.BuildVirtualVideoPath(request.ProjectDir, candidate.SlotIndex);
             var publishItem = new WeixinMaterialPublishPage.PublishVideoItem(candidate.SlotIndex, videoPath);
-            var description = WeixinMaterialPublishPage.BuildPublishDescription(projectInfo, config.VideoPublish, publishItem);
+            var baseDescription = WeixinMaterialPublishPage.BuildPublishDescription(projectInfo, config.VideoPublish, publishItem);
+            var description = await _materialPublishDescriptionService.ResolveAsync(
+                request.ProjectDir,
+                projectInfo,
+                config.VideoPublish,
+                publishItem,
+                baseDescription,
+                progress,
+                cancellationToken);
             progress?.Report($"系统高光发布：开始处理第 {candidate.SlotIndex} 个高光视频 {candidate.TypeText} {candidate.DurationText}");
             publishState = publishState with
             {

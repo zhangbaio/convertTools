@@ -177,7 +177,95 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
                     ResolveStringArray(videoPublishElement, "system_highlight_publish_video_types")),
                 SystemHighlightRegenerateAfterPublish = ResolveBool(videoPublishElement, "system_highlight_regenerate_after_publish") ?? false,
                 SystemHighlightRegenerateVideoTypes = NormalizeSystemHighlightVideoTypes(
-                    ResolveStringArray(videoPublishElement, "system_highlight_regenerate_video_types"))
+                    ResolveStringArray(videoPublishElement, "system_highlight_regenerate_video_types")),
+                NewDramaMountTitle = ResolveString(videoPublishElement, "new_drama_mount_title")
+                    ?? ResolveString(videoPublishElement, "new_drama_title")
+                    ?? string.Empty,
+                NewDramaMountProjectDir = ResolveOptionalPath(
+                    configDirectory,
+                    ResolveString(videoPublishElement, "new_drama_mount_project_dir")),
+                NewDramaMountResolvedTitle = ResolveString(videoPublishElement, "new_drama_mount_resolved_title") ?? string.Empty,
+                NewDramaMountResolvedBookId = ResolveString(videoPublishElement, "new_drama_mount_resolved_book_id") ?? string.Empty,
+                AiDescriptionEnabled = ResolveBool(videoPublishElement, "ai_description_enabled") ?? false,
+                AiDescriptionUseAsr = ResolveBool(videoPublishElement, "ai_description_use_asr") ?? true,
+                AiDescriptionFallbackToOriginal = ResolveBool(videoPublishElement, "ai_description_fallback_to_original") ?? true,
+                AiDescriptionCacheEnabled = ResolveBool(videoPublishElement, "ai_description_cache_enabled") ?? true,
+                AiDescriptionRetryAttempts = Math.Max(1, ResolveInt(videoPublishElement, "ai_description_retry_attempts") ?? 3),
+                AiDescriptionTimeoutSeconds = Math.Max(5, ResolveInt(videoPublishElement, "ai_description_timeout_seconds")
+                    ?? ResolveConfigInt(globalConfig, "AiTextTimeoutSeconds")
+                    ?? 60),
+                AiTextEndpoint = ResolveString(videoPublishElement, "ai_text_endpoint")
+                    ?? ResolveConfigString(globalConfig, "AiTextEndpoint")
+                    ?? ResolveConfigString(globalConfig, "ChatModelEndpoint")
+                    ?? string.Empty,
+                AiTextApiKey = ResolveString(videoPublishElement, "ai_text_api_key")
+                    ?? ResolveConfigString(globalConfig, "AiTextApiKey")
+                    ?? ResolveConfigString(globalConfig, "ChatModelApiKey")
+                    ?? string.Empty,
+                AiTextModel = ResolveString(videoPublishElement, "ai_text_model")
+                    ?? ResolveConfigString(globalConfig, "AiTextModel")
+                    ?? ResolveConfigString(globalConfig, "ChatModelId")
+                    ?? string.Empty,
+                AiDescriptionAsrEngine = ResolveString(videoPublishElement, "ai_description_asr_engine")
+                    ?? ResolveConfigString(globalConfig, "MaterialClipAsrEngine")
+                    ?? "volcengine",
+                AiDescriptionAsrLanguage = ResolveString(videoPublishElement, "ai_description_asr_language")
+                    ?? ResolveConfigString(globalConfig, "MaterialClipAsrLanguage")
+                    ?? "zh-CN",
+                AiDescriptionVolcengineAppId = ResolveString(videoPublishElement, "ai_description_volcengine_app_id")
+                    ?? ResolveString(videoPublishElement, "material_clip_volcengine_app_id")
+                    ?? ResolveConfigString(globalConfig, "MaterialClipVolcengineAppId")
+                    ?? string.Empty,
+                AiDescriptionVolcengineAccessToken = ResolveString(videoPublishElement, "ai_description_volcengine_access_token")
+                    ?? ResolveString(videoPublishElement, "material_clip_volcengine_access_token")
+                    ?? ResolveConfigString(globalConfig, "MaterialClipVolcengineAccessToken")
+                    ?? string.Empty,
+                AiDescriptionLocalModelDir = ResolveOptionalPath(
+                    configDirectory,
+                    ResolveString(videoPublishElement, "ai_description_local_model_dir")
+                    ?? ResolveString(videoPublishElement, "material_clip_asr_local_model_dir")
+                    ?? ResolveConfigString(globalConfig, "MaterialClipAsrLocalModelDir")),
+                AiDescriptionLocalVadPath = ResolveOptionalPath(
+                    configDirectory,
+                    ResolveString(videoPublishElement, "ai_description_local_vad_path")
+                    ?? ResolveString(videoPublishElement, "material_clip_asr_local_vad_path")
+                    ?? ResolveConfigString(globalConfig, "MaterialClipAsrLocalVadPath")),
+                AiDescriptionLocalUseItn = ResolveBool(videoPublishElement, "ai_description_local_use_itn")
+                    ?? ResolveBool(videoPublishElement, "material_clip_asr_local_use_itn")
+                    ?? ResolveConfigBool(globalConfig, "MaterialClipAsrLocalUseItn")
+                    ?? false,
+                AiDescriptionHybridMinCharsPerSec = ResolveDouble(videoPublishElement, "ai_description_hybrid_min_chars_per_sec")
+                    ?? ResolveDouble(videoPublishElement, "material_clip_asr_hybrid_min_chars_per_sec")
+                    ?? ResolveConfigDouble(globalConfig, "MaterialClipAsrHybridMinCharsPerSec")
+                    ?? 1.0,
+                PublishOriginalityEnabled = ResolveBool(videoPublishElement, "publish_originality_enabled")
+                    ?? ResolveBool(videoPublishElement, "material_clip_originality_enabled")
+                    ?? ResolveConfigBool(globalConfig, "PublishOriginalityEnabled")
+                    ?? ResolveConfigBool(globalConfig, "MaterialClipOriginalityEnabled")
+                    ?? false,
+                PublishOriginalityReuseAcrossRuns = ResolveBool(videoPublishElement, "publish_originality_reuse_across_runs") ?? true,
+                PublishOriginalityZoom = ResolveBool(videoPublishElement, "publish_originality_zoom")
+                    ?? ResolveBool(videoPublishElement, "material_clip_originality_zoom")
+                    ?? true,
+                PublishOriginalityColor = ResolveBool(videoPublishElement, "publish_originality_color")
+                    ?? ResolveBool(videoPublishElement, "material_clip_originality_color")
+                    ?? false,
+                PublishOriginalitySpeed = ResolveBool(videoPublishElement, "publish_originality_speed")
+                    ?? ResolveBool(videoPublishElement, "material_clip_originality_speed")
+                    ?? false,
+                PublishOriginalityFade = ResolveBool(videoPublishElement, "publish_originality_fade")
+                    ?? ResolveBool(videoPublishElement, "material_clip_originality_fade")
+                    ?? false,
+                PublishOriginalityStickerDir = ResolveOptionalPath(
+                    configDirectory,
+                    ResolveString(videoPublishElement, "publish_originality_sticker_dir")
+                    ?? ResolveString(videoPublishElement, "material_clip_originality_sticker_dir")),
+                FfmpegPath = ResolveString(videoPublishElement, "ffmpeg_path")
+                    ?? ResolveConfigString(globalConfig, "FfmpegPath")
+                    ?? "ffmpeg",
+                FfprobePath = ResolveString(videoPublishElement, "ffprobe_path")
+                    ?? ResolveConfigString(globalConfig, "FfprobePath")
+                    ?? "ffprobe"
             });
 
         return config;
@@ -504,6 +592,13 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
     private static bool? ResolveConfigBool(IReadOnlyDictionary<string, string> map, string key)
     {
         return map.TryGetValue(key, out var value) && bool.TryParse(value, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static double? ResolveConfigDouble(IReadOnlyDictionary<string, string> map, string key)
+    {
+        return map.TryGetValue(key, out var value) && double.TryParse(value, out var parsed)
             ? parsed
             : null;
     }

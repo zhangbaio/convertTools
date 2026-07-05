@@ -1570,6 +1570,14 @@ public partial class ProjectListItemViewModel : ViewModelBase
             return ResolveMaterialPublishFilesFromCandidates([workflowProjectDir], naturalSort: true);
         }
 
+        if (normalized is "new_drama_mount" or "newdramamount" or "new_drama")
+        {
+            var sourceDir = GetString(publish, "new_drama_mount_project_dir");
+            return !string.IsNullOrWhiteSpace(sourceDir) && Directory.Exists(sourceDir)
+                ? ResolveMaterialPublishFilesFromCandidates([sourceDir], naturalSort: true, recursive: true)
+                : [];
+        }
+
         if (normalized is "project_materials" or "project_material")
         {
             return ResolveMaterialPublishFilesFromCandidates([Path.Combine(workflowProjectDir, "material-videos")], naturalSort: false);
@@ -1603,7 +1611,10 @@ public partial class ProjectListItemViewModel : ViewModelBase
             .ToArray();
     }
 
-    private static string[] ResolveMaterialPublishFilesFromCandidates(IEnumerable<string> candidates, bool naturalSort)
+    private static string[] ResolveMaterialPublishFilesFromCandidates(
+        IEnumerable<string> candidates,
+        bool naturalSort,
+        bool recursive = false)
     {
         var files = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1614,7 +1625,10 @@ public partial class ProjectListItemViewModel : ViewModelBase
                 continue;
             }
 
-            foreach (var path in Directory.EnumerateFiles(candidate, "*.*", SearchOption.TopDirectoryOnly)
+            foreach (var path in Directory.EnumerateFiles(
+                             candidate,
+                             "*.*",
+                             recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly)
                          .Where(path => VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)))
             {
                 var fullPath = Path.GetFullPath(path);

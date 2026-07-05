@@ -155,4 +155,34 @@ public sealed record WeixinVideoPublishOptions(
     public IReadOnlyList<string> SystemHighlightPublishVideoTypes { get; init; } = [];
     public bool SystemHighlightRegenerateAfterPublish { get; init; }
     public IReadOnlyList<string> SystemHighlightRegenerateVideoTypes { get; init; } = [];
+    public string NewDramaMountTitle { get; init; } = string.Empty;
+    public string NewDramaMountProjectDir { get; init; } = string.Empty;
+    public string NewDramaMountResolvedTitle { get; init; } = string.Empty;
+    public string NewDramaMountResolvedBookId { get; init; } = string.Empty;
+    public bool AiDescriptionEnabled { get; init; }
+    public bool AiDescriptionUseAsr { get; init; } = true;
+    public bool AiDescriptionFallbackToOriginal { get; init; } = true;
+    public bool AiDescriptionCacheEnabled { get; init; } = true;
+    public int AiDescriptionRetryAttempts { get; init; } = 3;
+    public int AiDescriptionTimeoutSeconds { get; init; } = 60;
+    public string AiTextEndpoint { get; init; } = string.Empty;
+    public string AiTextApiKey { get; init; } = string.Empty;
+    public string AiTextModel { get; init; } = string.Empty;
+    public string AiDescriptionAsrEngine { get; init; } = "volcengine";
+    public string AiDescriptionAsrLanguage { get; init; } = "zh-CN";
+    public string AiDescriptionVolcengineAppId { get; init; } = string.Empty;
+    public string AiDescriptionVolcengineAccessToken { get; init; } = string.Empty;
+    public string AiDescriptionLocalModelDir { get; init; } = string.Empty;
+    public string AiDescriptionLocalVadPath { get; init; } = string.Empty;
+    public bool AiDescriptionLocalUseItn { get; init; }
+    public double AiDescriptionHybridMinCharsPerSec { get; init; } = 1.0;
+    public bool PublishOriginalityEnabled { get; init; }
+    public bool PublishOriginalityReuseAcrossRuns { get; init; } = true;
+    public bool PublishOriginalityZoom { get; init; } = true;
+    public bool PublishOriginalityColor { get; init; }
+    public bool PublishOriginalitySpeed { get; init; }
+    public bool PublishOriginalityFade { get; init; }
+    public string PublishOriginalityStickerDir { get; init; } = string.Empty;
+    public string FfmpegPath { get; init; } = "ffmpeg";
+    public string FfprobePath { get; init; } = "ffprobe";
 }

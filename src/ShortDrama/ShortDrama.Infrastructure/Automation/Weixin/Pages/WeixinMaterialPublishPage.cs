@@ -1285,8 +1285,12 @@ public sealed class WeixinMaterialPublishPage
 
         if (string.Equals(sourceMode, PublishVideoSourceModeNewDramaMount, StringComparison.Ordinal))
         {
-            var mountedFiles = Directory.Exists(projectDir)
-                ? Directory.EnumerateFiles(projectDir, "*.*", SearchOption.AllDirectories)
+            var sourceDir = !string.IsNullOrWhiteSpace(options.NewDramaMountProjectDir) &&
+                            Directory.Exists(options.NewDramaMountProjectDir)
+                ? options.NewDramaMountProjectDir
+                : projectDir;
+            var mountedFiles = Directory.Exists(sourceDir)
+                ? Directory.EnumerateFiles(sourceDir, "*.*", SearchOption.AllDirectories)
                     .Where(IsVideoFile)
                     .OrderBy(BuildNaturalSortToken, StringComparer.OrdinalIgnoreCase)
                     .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)

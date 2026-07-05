@@ -60,6 +60,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<WeixinSeriesSubmissionPage>();
         services.AddSingleton<WeixinMaterialPublishPage>();
         services.AddSingleton<WeixinSystemHighlightPublishPage>();
+        services.AddSingleton<WeixinNewDramaMountService>();
+        services.AddSingleton<WeixinMaterialPublishDescriptionService>();
+        services.AddSingleton<WeixinPublishOriginalityService>();
         services.AddSingleton<WeixinChannelUploader>();
         services.AddSingleton<IWeixinChannelUploader>(provider => provider.GetRequiredService<WeixinChannelUploader>());
         services.AddSingleton<IProjectInfoRewriter, ProjectInfoRewriter>();
