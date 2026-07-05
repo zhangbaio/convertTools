@@ -31,8 +31,7 @@
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="服务器地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="1"
                                      Grid.Column="1"
-                                     Text="{Binding AuthServerUrl}"
-                                     Watermark="例如：https://shortdrama.momotools.top" />
+                                     Text="{Binding AuthServerUrl}" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="联网校验间隔" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="2"

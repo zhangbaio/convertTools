@@ -106,10 +106,10 @@
                         </ComboBox>
 
                         <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="CDP 地址" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="CdpEndpointBox" Watermark="例如 http://127.0.0.1:9222" />
+                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="CdpEndpointBox" />
 
                         <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="启动命令" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="2" Grid.Column="1" x:Name="FingerprintStartCommandBox" Watermark="指纹浏览器启动命令或本地 API URL" />
+                        <TextBox Grid.Row="2" Grid.Column="1" x:Name="FingerprintStartCommandBox" />
 
                         <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="启用代理" VerticalAlignment="Center" />
                         <CheckBox Grid.Row="3" Grid.Column="1" x:Name="ProxyEnabledBox" Content="启用账号代理" />
@@ -134,10 +134,10 @@
                         <TextBox Grid.Row="8" Grid.Column="1" x:Name="ProxyPasswordBox" PasswordChar="●" RevealPassword="False" />
 
                         <TextBlock Classes="formLabel" Grid.Row="9" Grid.Column="0" Text="代理备注" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="9" Grid.Column="1" x:Name="ProxyLabelBox" Watermark="例如：91HTTP 静态独享IP" />
+                        <TextBox Grid.Row="9" Grid.Column="1" x:Name="ProxyLabelBox" />
 
                         <TextBlock Classes="formLabel" Grid.Row="10" Grid.Column="0" Text="静态IP备注" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="10" Grid.Column="1" x:Name="StaticIpNoteBox" Watermark="例如：美国洛杉矶 203.0.113.10" />
+                        <TextBox Grid.Row="10" Grid.Column="1" x:Name="StaticIpNoteBox" />
                     </Grid>
                 </ScrollViewer>
             </TabItem>
@@ -277,8 +277,8 @@
                           RowDefinitions="Auto,Auto,Auto,Auto"
                           RowSpacing="10"
                           ColumnSpacing="10">
-                        <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="短剧中心 URL" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="0" Grid.Column="1" x:Name="SeriesUrlBox" Watermark="短剧中心 URL" />
+                        <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="短剧中心地址" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="0" Grid.Column="1" x:Name="SeriesUrlBox" />
 
                         <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="上传工作目录" VerticalAlignment="Center" />
                         <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">

@@ -32,10 +32,7 @@ public sealed partial class SystemServicesViewModel
         }
         else
         {
-            var account = FirstNonEmpty(state.AccountUsername, state.Email, state.LicenseKeyMasked, state.LicenseKey, "已隐藏");
-            var parts = new List<string> { $"已登录（{account}）" };
-            if (!string.IsNullOrWhiteSpace(state.Licensee))
-                parts.Add($"账号对象：{state.Licensee}");
+            var parts = new List<string> { "已登录" };
             if (!string.IsNullOrWhiteSpace(state.ExpiresAt))
                 parts.Add($"到期时间：{state.ExpiresAt}");
             if (!string.IsNullOrWhiteSpace(state.LastVerifiedAt))

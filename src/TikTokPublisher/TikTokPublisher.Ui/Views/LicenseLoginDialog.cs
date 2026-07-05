@@ -69,7 +69,6 @@ public sealed class LicenseLoginDialog : Window
         _serverUrlBox = new TextBox
         {
             Text = serverUrl,
-            Watermark = "https://shortdrama.momotools.top",
             MinWidth = 360,
         };
         Grid.SetRow(_serverUrlBox, 0);

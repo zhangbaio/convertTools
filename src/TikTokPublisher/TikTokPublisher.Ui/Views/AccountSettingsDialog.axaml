@@ -17,7 +17,7 @@
                         <TextBox x:Name="NameBox" Watermark="账号名称" />
                         <TextBox x:Name="NicknameBox" Watermark="TikTok 昵称" />
                         <TextBox x:Name="LoginEmailBox" Watermark="登录邮箱/用户名" />
-                        <TextBox x:Name="SeriesUrlBox" Watermark="短剧中心 URL" />
+                        <TextBox x:Name="SeriesUrlBox" />
                         <TextBox x:Name="StorageStateBox" Watermark="Playwright storage_state 路径" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBox x:Name="WorkspaceBox" Watermark="上传工作目录" MinWidth="420" />

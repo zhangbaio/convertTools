@@ -70,7 +70,7 @@
                         <TextBlock Text="本地直连链路（自建红果 API 服务）" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本地链路地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding HongguoLocalBaseUrl}" Watermark="例如：https://xinge.example.com" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding HongguoLocalBaseUrl}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="本地链路密钥" VerticalAlignment="Center" />
                             <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HongguoLocalApiKey}" />
