@@ -60,7 +60,7 @@ public partial class ClipConfigDialog : Window
         PipelineConcurrentBox.Value = c.PipelineConcurrent;
         NetConcurrentBox.Value = c.NetConcurrent;
         SelectByTag(OutputQualityCombo, c.OutputQuality);
-        VideoBitrateBox.Value = c.VideoBitrate;
+        VideoBitrateBox.Value = (decimal)c.VideoBitrate;
         SelectByTag(EncodeModeCombo, c.EncodeMode);
         SelectByTag(VideoCodecCombo, c.VideoCodec);
         SelectByTag(RenderSpeedCombo, c.RenderSpeed);
@@ -108,7 +108,7 @@ public partial class ClipConfigDialog : Window
         c.PipelineConcurrent = (int)(PipelineConcurrentBox.Value ?? 4);
         c.NetConcurrent = (int)(NetConcurrentBox.Value ?? 4);
         c.OutputQuality = TagOf(OutputQualityCombo, "1080P");
-        c.VideoBitrate = (int)(VideoBitrateBox.Value ?? 0);
+        c.VideoBitrate = (double)(VideoBitrateBox.Value ?? 0);
         c.EncodeMode = TagOf(EncodeModeCombo, "auto");
         c.VideoCodec = TagOf(VideoCodecCombo, "h264");
         c.RenderSpeed = TagOf(RenderSpeedCombo, "medium");

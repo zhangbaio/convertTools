@@ -524,8 +524,11 @@ public partial class MaterialUploadView : UserControl
         ChannelsPublisher.Core.Config.ClipConfig clip,
         ShortDrama.Desktop.Models.GlobalConfigSnapshot settings)
     {
-        var (w, h) = (clip.OutputQuality ?? "").Trim().ToUpperInvariant() == "720P" ? (720, 1280) : (1080, 1920);
-        var hi = clip.Modes.FirstOrDefault(m => m.Key == "highlight");
+        var (w, h) = (clip.OutputQuality ?? "").Trim().Equals("1080p", StringComparison.OrdinalIgnoreCase) ? (1080, 1920) : (720, 1280);
+        var primaryMode = clip.Modes.FirstOrDefault(m => m.Enabled)
+                          ?? clip.Modes.FirstOrDefault(m => m.Key == "highlight")
+                          ?? clip.Mode("highlight");
+        var primaryRange = clip.RangesFor(primaryMode.Key).FirstOrDefault() ?? new ChannelsPublisher.Core.Config.ClipDurationRange();
         var modes = clip.Modes.Where(m => m.Enabled).Select(m => m.Key).ToList();
         if (modes.Count == 0) modes.Add("highlight");
         return new ClipEngineOptions
@@ -533,7 +536,9 @@ public partial class MaterialUploadView : UserControl
             Width = w,
             Height = h,
             Modes = modes,
-            ClipCount = Math.Max(1, hi?.Count ?? 3),
+            ClipCount = Math.Max(1, primaryMode.Count),
+            ClipMinSeconds = Math.Max(1, primaryRange.MinSeconds),
+            ClipMaxSeconds = Math.Max(Math.Max(1, primaryRange.MinSeconds), primaryRange.MaxSeconds),
             RenderSpeed = string.IsNullOrWhiteSpace(clip.RenderSpeed) ? "fast" : clip.RenderSpeed,
             HardwareEncode = clip.HardwareEncode,
             AudioEnergy = clip.AudioEnergy,
@@ -549,6 +554,12 @@ public partial class MaterialUploadView : UserControl
             AiEndpoint = settings.AiTextEndpoint,
             AiApiKey = settings.AiTextApiKey,
             AiModel = settings.AiTextModel,
+            TtsVoiceType = string.IsNullOrWhiteSpace(clip.TtsVoiceType) ? "BV701_streaming" : clip.TtsVoiceType,
+            TtsCluster = string.IsNullOrWhiteSpace(clip.TtsCluster) ? "volcano_tts" : clip.TtsCluster,
+            TtsSpeedRatio = clip.TtsSpeedRatio <= 0 ? 1.0 : clip.TtsSpeedRatio,
+            CommentaryNarrationRatio = clip.CommentaryNarrationRatio <= 0 ? 70.0 : clip.CommentaryNarrationRatio,
+            CommentaryStyleStrength = string.IsNullOrWhiteSpace(clip.CommentaryStyleStrength) ? "standard" : clip.CommentaryStyleStrength,
+            BurnSubtitles = clip.CommentaryBurnSubtitles,
             OrigEnabled = clip.OrigEnabled,
             OrigZoom = clip.OrigZoom,
             OrigColor = clip.OrigColor,
