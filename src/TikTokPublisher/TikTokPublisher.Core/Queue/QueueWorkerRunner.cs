@@ -18,6 +18,7 @@ public sealed class QueueWorkerSummary
     public int TotalCount { get; init; }
     public int SuccessCount { get; init; }
     public int FailedCount { get; init; }
+    public int StoppedAccountCount { get; init; }
     public bool Stopped { get; init; }
 }
 
@@ -445,6 +446,12 @@ public sealed class QueueWorkerRunner
             TotalCount = candidates.Count,
             SuccessCount = success,
             FailedCount = failed,
+            StoppedAccountCount = candidates
+                .Where(item => item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Stopped)
+                .Select(item => item.AccountProfileId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count(),
             Stopped = stopped || ct.IsCancellationRequested,
         };
         Report(onProgress, workspace, null,
@@ -530,6 +537,7 @@ public sealed class QueueWorkerRunner
         Exception? failure = null;
         var failureMessage = "";
         var stopQueue = false;
+        var skipManualIntervention = false;
         try
         {
             Action<string> browserLog = msg =>
@@ -567,6 +575,7 @@ public sealed class QueueWorkerRunner
                 }
                 failureMessage = result.Message;
                 stopQueue = result.StopQueue;
+                skipManualIntervention = result.SkipManualIntervention;
             }
         }
         catch (OperationCanceledException)
@@ -605,7 +614,10 @@ public sealed class QueueWorkerRunner
             throw new QueueStopRequestedException(failureMessage);
         }
 
-        if (manualIntervention is not null && !ct.IsCancellationRequested && !manualIntervention.WasResolved(item.ProjectDir))
+        if (!skipManualIntervention &&
+            manualIntervention is not null &&
+            !ct.IsCancellationRequested &&
+            !manualIntervention.WasResolved(item.ProjectDir))
         {
             mutate(() => MarkManualIntervention(item, failureMessage));
             Report(onProgress, workspace, item,
