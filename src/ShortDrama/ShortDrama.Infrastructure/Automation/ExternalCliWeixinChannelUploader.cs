@@ -291,13 +291,18 @@ public sealed class ExternalCliWeixinChannelUploader : IWeixinChannelUploader
 
     private static async Task WaitForBridgeCompletionAsync(Task bridgeTask)
     {
-        try
+        var completedTask = await Task.WhenAny(
+            bridgeTask,
+            Task.Delay(TimeSpan.FromSeconds(1))).ConfigureAwait(false);
+
+        if (!ReferenceEquals(completedTask, bridgeTask))
         {
-            await bridgeTask.ConfigureAwait(false);
+            return;
         }
-        catch (OperationCanceledException)
+
+        if (bridgeTask.IsFaulted)
         {
-            // Ignore cancellation while shutting down.
+            _ = bridgeTask.Exception;
         }
     }
 

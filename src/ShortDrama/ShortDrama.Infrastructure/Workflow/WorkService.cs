@@ -2451,12 +2451,15 @@ public sealed class WorkService : IWorkService
 
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
         var workflowStatePath = Path.Combine(context.WorkflowProjectDir, "states.json");
-        await File.WriteAllTextAsync(workflowStatePath, json, cancellationToken);
+        File.WriteAllText(workflowStatePath, json);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var sourceStatePath = Path.Combine(context.SourceProjectDir, "shortdrama-state.json");
-        await File.WriteAllTextAsync(sourceStatePath, json, cancellationToken);
+        File.WriteAllText(sourceStatePath, json);
+        cancellationToken.ThrowIfCancellationRequested();
         var sourceLegacyStatePath = Path.Combine(context.SourceProjectDir, "states.json");
-        await File.WriteAllTextAsync(sourceLegacyStatePath, json, cancellationToken);
+        File.WriteAllText(sourceLegacyStatePath, json);
+        cancellationToken.ThrowIfCancellationRequested();
 
         await SyncSourceProjectMetadataAsync(context, cancellationToken);
     }

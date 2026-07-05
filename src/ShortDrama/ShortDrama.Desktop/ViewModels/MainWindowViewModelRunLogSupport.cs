@@ -12,6 +12,8 @@ public partial class MainWindowViewModel
     private bool _syncingProjectLogFilterSelection;
     private bool _runLogViewRefreshQueued;
     private bool _runLogFilterRefreshQueued;
+    private bool _applyingActivityLogFilter;
+    private bool _refreshingRunLogViewState;
 
     private static readonly HashSet<string> MaterialRunLogStepKeys = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -233,20 +235,33 @@ public partial class MainWindowViewModel
 
     private void RefreshRunLogViewState()
     {
-        OnPropertyChanged(nameof(RunLogProjects));
-        OnPropertyChanged(nameof(RunLogSummary));
-        OnPropertyChanged(nameof(RunLogCurrentScopeLabel));
-        OnPropertyChanged(nameof(IsMaterialRunLogTab));
-        OnPropertyChanged(nameof(IsRunLogProjectPaneVisible));
-        OnPropertyChanged(nameof(IsRunLogFollowControlsVisible));
-        OnPropertyChanged(nameof(IsRunLogStopButtonVisible));
-        OnPropertyChanged(nameof(IsRunLogStepFilterVisible));
-        OnPropertyChanged(nameof(RunLogHeaderTitle));
-        OnPropertyChanged(nameof(RunLogHeaderContextText));
-        OnPropertyChanged(nameof(RunLogHeaderSummaryText));
-        OnPropertyChanged(nameof(RunLogFooterHintText));
-        OnPropertyChanged(nameof(IsAllProjectsRunLogScope));
-        OnPropertyChanged(nameof(VisibleActivityLogText));
+        if (_refreshingRunLogViewState)
+        {
+            return;
+        }
+
+        _refreshingRunLogViewState = true;
+        try
+        {
+            OnPropertyChanged(nameof(RunLogProjects));
+            OnPropertyChanged(nameof(RunLogSummary));
+            OnPropertyChanged(nameof(RunLogCurrentScopeLabel));
+            OnPropertyChanged(nameof(IsMaterialRunLogTab));
+            OnPropertyChanged(nameof(IsRunLogProjectPaneVisible));
+            OnPropertyChanged(nameof(IsRunLogFollowControlsVisible));
+            OnPropertyChanged(nameof(IsRunLogStopButtonVisible));
+            OnPropertyChanged(nameof(IsRunLogStepFilterVisible));
+            OnPropertyChanged(nameof(RunLogHeaderTitle));
+            OnPropertyChanged(nameof(RunLogHeaderContextText));
+            OnPropertyChanged(nameof(RunLogHeaderSummaryText));
+            OnPropertyChanged(nameof(RunLogFooterHintText));
+            OnPropertyChanged(nameof(IsAllProjectsRunLogScope));
+            OnPropertyChanged(nameof(VisibleActivityLogText));
+        }
+        finally
+        {
+            _refreshingRunLogViewState = false;
+        }
     }
 
     private static int CountProjectsByStatus(IEnumerable<ProjectListItemViewModel> projects, params string[] statuses)

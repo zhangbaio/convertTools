@@ -4948,27 +4948,40 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void ApplyActivityLogFilter()
     {
-        var projectKey = SelectedProjectLogFilter?.Key ?? AllProjectsFilterKey;
-        var stepKey = SelectedStepLogFilter?.Key ?? AllStepsFilterKey;
-        var checkedProjectKeys = RunLogProjects
-            .Select(item => item.ProjectKey)
-            .ToHashSet(StringComparer.Ordinal);
-
-        var filtered = _allActivityLogs
-            .Where(MatchesRunLogTab)
-            .Where(item => MatchesProjectFilter(item, projectKey, checkedProjectKeys))
-            .Where(item => MatchesStepFilter(item, stepKey))
-            .Where(item => !OnlyShowFailedLogs || item.IsFailure)
-            .Take(200)
-            .ToList();
-
-        ActivityLog.Clear();
-        foreach (var item in filtered)
+        if (_applyingActivityLogFilter)
         {
-            ActivityLog.Add(item);
+            return;
         }
 
-        RefreshRunLogViewState();
+        _applyingActivityLogFilter = true;
+        try
+        {
+            var projectKey = SelectedProjectLogFilter?.Key ?? AllProjectsFilterKey;
+            var stepKey = SelectedStepLogFilter?.Key ?? AllStepsFilterKey;
+            var checkedProjectKeys = RunLogProjects
+                .Select(item => item.ProjectKey)
+                .ToHashSet(StringComparer.Ordinal);
+
+            var filtered = _allActivityLogs
+                .Where(MatchesRunLogTab)
+                .Where(item => MatchesProjectFilter(item, projectKey, checkedProjectKeys))
+                .Where(item => MatchesStepFilter(item, stepKey))
+                .Where(item => !OnlyShowFailedLogs || item.IsFailure)
+                .Take(200)
+                .ToList();
+
+            ActivityLog.Clear();
+            foreach (var item in filtered)
+            {
+                ActivityLog.Add(item);
+            }
+
+            RefreshRunLogViewState();
+        }
+        finally
+        {
+            _applyingActivityLogFilter = false;
+        }
     }
 
     private void RefreshProjectLogFilters()

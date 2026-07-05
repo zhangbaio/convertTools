@@ -14,6 +14,30 @@ public sealed class PythonToolResolver
 
     public async Task<PythonCommand> ResolvePythonCommandAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var resolvedPython = BundledToolResolver.TryResolvePython();
+        if (!string.IsNullOrWhiteSpace(resolvedPython))
+        {
+            return new PythonCommand(resolvedPython, []);
+        }
+
+        foreach (var name in OperatingSystem.IsWindows()
+                     ? new[] { "python", "python3" }
+                     : new[] { "python3", "python" })
+        {
+            resolvedPython = BundledToolResolver.TryResolveBinary(name);
+            if (!string.IsNullOrWhiteSpace(resolvedPython))
+            {
+                return new PythonCommand(resolvedPython, []);
+            }
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            return new PythonCommand("py", ["-3"]);
+        }
+
         var candidates = new List<PythonCommand>();
         var bundledPython = BundledToolResolver.TryResolvePython();
         if (!string.IsNullOrWhiteSpace(bundledPython))
