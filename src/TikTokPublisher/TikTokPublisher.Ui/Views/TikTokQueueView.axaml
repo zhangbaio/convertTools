@@ -339,7 +339,10 @@
 
         <!-- 队列表格：作为 DockPanel 最后一个未指定 Dock 的子项，自动填充剩余空间 -->
         <Border Classes="queueTableFrame">
-            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+            <ScrollViewer x:Name="QueueTableScrollViewer"
+                          HorizontalScrollBarVisibility="Auto"
+                          VerticalScrollBarVisibility="Disabled"
+                          AllowAutoHide="False">
                 <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1608">
                     <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,68,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
