@@ -236,11 +236,20 @@ public sealed class BrowserSessionHost
 
         host.Ready += () => OnHostReady(account.Id, host);
         host.NavigationCompleted += url => _ = OnNavigationCompletedAsync(account, url);
+        host.ProcessFailed += message => OnHostProcessFailed(account, message);
         _hosts[account.Id] = host;
         _container.Children.Add(host);
-        ApplyHostVisibility(host, rendered: _presentationVisible);
+        ApplyHostVisibility(
+            host,
+            rendered: _presentationVisible && string.Equals(_activeAccountId, account.Id, StringComparison.Ordinal));
         host.Navigate(TikTokUrls.DefaultSeriesListUrl);
         return host;
+    }
+
+    private void OnHostProcessFailed(AccountItemViewModel account, string message)
+    {
+        Dispatcher.UIThread.Post(() =>
+            AuthStatusChanged?.Invoke($"账号「{account.DisplayName}」内置浏览器已断开：{message}，下次上传会自动重建。"));
     }
 
     public void InvalidateHostIfNetworkChanged(TikTokAccountProfile account)
@@ -252,14 +261,41 @@ public sealed class BrowserSessionHost
         if (string.Equals(_proxyFingerprints.GetValueOrDefault(account.Id), fingerprint, StringComparison.Ordinal))
             return;
 
-        if (_hosts.Remove(account.Id, out var existing))
+        RemoveHostCore(account.Id);
+    }
+
+    public async Task<WebView2Host> RecreateHostAsync(
+        AccountItemViewModel account,
+        CancellationToken ct = default,
+        Action<string>? log = null,
+        string? navigateUrl = null)
+    {
+        var host = await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            RemoveHostCore(account.Id);
+            var created = GetOrCreateHost(account);
+            if (!string.IsNullOrWhiteSpace(navigateUrl))
+                created.Navigate(navigateUrl);
+            if (_presentationVisible && string.Equals(_activeAccountId, account.Id, StringComparison.Ordinal))
+                ApplyHostVisibility(created, rendered: true);
+            return created;
+        }).GetTask().ConfigureAwait(false);
+
+        log?.Invoke($"已重建账号「{account.DisplayName}」内置浏览器会话");
+        await Task.Delay(500, ct).ConfigureAwait(false);
+        return host;
+    }
+
+    private void RemoveHostCore(string accountId)
+    {
+        if (_hosts.Remove(accountId, out var existing))
         {
             existing.CloseBrowser();
             _container?.Children.Remove(existing);
         }
 
-        AccountBrowserPortAllocator.Release(account.Id);
-        _proxyFingerprints.Remove(account.Id);
+        AccountBrowserPortAllocator.Release(accountId);
+        _proxyFingerprints.Remove(accountId);
     }
 
     private void ApplyProxySettings(WebView2Host host, TikTokAccountProfile account)
@@ -345,12 +381,30 @@ public sealed class BrowserSessionHost
             ShowAccount(account);
 
         var host = TryGetHost(account.Id) ?? GetOrCreateHost(account);
+        var recreated = false;
 
         for (var attempt = 0; attempt < 240; attempt++)
         {
             ct.ThrowIfCancellationRequested();
             var snapshot = await ReadHostSnapshotOnUiThreadAsync(host).ConfigureAwait(false);
             var initError = await ReadInitErrorOnUiThreadAsync(host).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(snapshot.ProcessFailure))
+            {
+                if (!recreated)
+                {
+                    log?.Invoke($"内置浏览器会话异常，正在重建：{snapshot.ProcessFailure}");
+                    host = await RecreateHostAsync(account, ct, log, TikTokUrls.DefaultSeriesListUrl)
+                        .ConfigureAwait(false);
+                    recreated = true;
+                    continue;
+                }
+
+                return new EmbeddedPublishPrepareResult(
+                    false,
+                    null,
+                    $"内置浏览器会话异常：{snapshot.ProcessFailure}，自动重建后仍未恢复，请在「浏览器」页刷新或重新登录。");
+            }
+
             if (!string.IsNullOrWhiteSpace(initError) && !snapshot.IsEngineReady && attempt >= 3)
             {
                 return new EmbeddedPublishPrepareResult(
@@ -373,6 +427,15 @@ public sealed class BrowserSessionHost
                 }
 
                 return new EmbeddedPublishPrepareResult(true, snapshot.CdpEndpoint, "");
+            }
+
+            if (!string.IsNullOrWhiteSpace(snapshot.CdpEndpoint) && attempt == 20 && !recreated)
+            {
+                log?.Invoke("内置浏览器 CDP 探测不可用，正在重建浏览器会话后重试。");
+                host = await RecreateHostAsync(account, ct, log, TikTokUrls.DefaultSeriesListUrl)
+                    .ConfigureAwait(false);
+                recreated = true;
+                continue;
             }
 
             if (attempt == 0)
@@ -399,21 +462,17 @@ public sealed class BrowserSessionHost
 
     private static Task<HostSnapshot> ReadHostSnapshotOnUiThreadAsync(WebView2Host host) =>
         Dispatcher.UIThread.InvokeAsync(() =>
-            new HostSnapshot(host.CdpEndpoint, host.CurrentUrl, host.IsEngineReady)).GetTask();
+            new HostSnapshot(host.CdpEndpoint, host.CurrentUrl, host.IsEngineReady, host.LastProcessFailure)).GetTask();
 
-    private sealed record HostSnapshot(string? CdpEndpoint, string? CurrentUrl, bool IsEngineReady);
+    private sealed record HostSnapshot(string? CdpEndpoint, string? CurrentUrl, bool IsEngineReady, string? ProcessFailure);
 
     private static async Task<bool> IsHostCdpUsableAsync(WebView2Host host, string? endpoint, CancellationToken ct)
     {
         var snapshot = await ReadHostSnapshotOnUiThreadAsync(host).ConfigureAwait(false);
-        if (!snapshot.IsEngineReady || string.IsNullOrEmpty(endpoint))
+        if (!snapshot.IsEngineReady || !string.IsNullOrWhiteSpace(snapshot.ProcessFailure) || string.IsNullOrEmpty(endpoint))
             return false;
 
-        if (await EmbeddedBrowserCdpProbe.IsReachableAsync(endpoint, ct).ConfigureAwait(false))
-            return true;
-
-        // 探测失败时仍以 WebView2 引擎就绪为准（系统代理可能拦截 localhost HTTP）。
-        return snapshot.IsEngineReady;
+        return await EmbeddedBrowserCdpProbe.IsReachableAsync(endpoint, ct).ConfigureAwait(false);
     }
 
     public Task<EmbeddedPublishPrepareResult> PrepareForPublishAsync(

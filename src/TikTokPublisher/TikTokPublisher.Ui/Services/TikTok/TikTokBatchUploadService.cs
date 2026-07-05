@@ -212,6 +212,8 @@ public static class TikTokBatchUploadService
             try { bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 }); }
             catch { bodyText = ""; }
 
+            TikTokBrowserActions.ThrowIfTikTokCrashText(bodyText);
+
             if (bodyText.Contains("上传失败", StringComparison.Ordinal) ||
                 bodyText.Contains("Upload failed", StringComparison.OrdinalIgnoreCase))
                 return BatchWaitOutcome.Stuck;

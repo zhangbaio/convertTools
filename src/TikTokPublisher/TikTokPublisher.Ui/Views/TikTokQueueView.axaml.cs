@@ -1048,7 +1048,9 @@ public partial class TikTokQueueView : UserControl
                 ct,
                 optionsOverride,
                 orderedProjectDirFilter);
-            if (summary is not null && !summary.Stopped)
+            if (summary is not null && !summary.Stopped && summary.StoppedAccountCount > 0)
+                vm.StatusMessage = $"队列结束：成功 {summary.SuccessCount}，失败 {summary.FailedCount}，已按账号停止 {summary.StoppedAccountCount} 个";
+            if (summary is not null && !summary.Stopped && summary.StoppedAccountCount == 0)
                 vm.StatusMessage = $"队列结束：成功 {summary.SuccessCount}，失败 {summary.FailedCount}";
         }
         catch (OperationCanceledException)
@@ -1116,7 +1118,11 @@ public partial class TikTokQueueView : UserControl
             var success = summaries.Sum(s => s?.SuccessCount ?? 0);
             var failed = summaries.Sum(s => s?.FailedCount ?? 0);
             var stopped = summaries.Any(s => s?.Stopped == true);
-            vm.StatusMessage = stopped
+            var stoppedAccounts = summaries.Sum(s => s?.StoppedAccountCount ?? 0);
+            if (!stopped && stoppedAccounts > 0)
+                vm.StatusMessage = $"多工作目录队列结束：成功 {success}，失败 {failed}，已按账号停止 {stoppedAccounts} 个";
+            else
+                vm.StatusMessage = stopped
                 ? "多工作目录队列已停止"
                 : $"多工作目录队列结束：成功 {success}，失败 {failed}";
         }
@@ -1238,6 +1244,7 @@ public partial class TikTokQueueView : UserControl
     {
         // 与 EnsureAccountBrowserReadyAsync 保持一致：独立浏览器 > 外部浏览器(可达) > 内置浏览器。
         IEmbeddedBrowser? browser;
+        var usingEmbeddedBrowser = false;
         if (UsesPlaywrightUploadBrowser(account))
         {
             // 独立浏览器由发布自动化内部 launch，这里只传标记载体。
@@ -1252,6 +1259,7 @@ public partial class TikTokQueueView : UserControl
             browser = await RequireBrowserProvider()
                 .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Background)
                 .ConfigureAwait(false);
+            usingEmbeddedBrowser = true;
         }
 
         if (browser is null)
@@ -1266,7 +1274,65 @@ public partial class TikTokQueueView : UserControl
         // 队列上传按账号配置的「提交动作」决定最终动作（对齐 Python submit_action 行为）。
         var effectiveAction = ResolveAccountFinalAction(account, finalAction);
         log($"最终动作：{FinalActionLabel(effectiveAction)}（来自账号「{account.DisplayName}」的提交动作配置）");
-        return await _automation.PublishAsync(account, item, browser, effectiveAction, log, ct).ConfigureAwait(false);
+        var attemptSignature = UploadAttemptSignature(project.ProjectDir);
+        var result = await _automation.PublishAsync(account, item, browser, effectiveAction, log, ct).ConfigureAwait(false);
+        if (!result.Ok &&
+            usingEmbeddedBrowser &&
+            IsRecoverableEmbeddedBrowserFailure(result.Message) &&
+            string.Equals(attemptSignature, UploadAttemptSignature(project.ProjectDir), StringComparison.Ordinal))
+        {
+            var accountVm = _vm?.FindAccount(account.Id) ?? _vm?.FindAccount(account.DisplayName);
+            if (accountVm is not null && _browserHost is not null)
+            {
+                log($"检测到内置浏览器连接异常，自动重建账号「{account.DisplayName}」浏览器并重试一次：{result.Message}");
+                var targetUrl = string.IsNullOrWhiteSpace(account.TiktokSeriesUrl)
+                    ? TikTokUrls.DefaultSeriesDraftUrl
+                    : account.TiktokSeriesUrl.Trim();
+                await _browserHost.RecreateHostAsync(accountVm, ct, log, targetUrl).ConfigureAwait(false);
+                browser = await RequireBrowserProvider()
+                    .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Background)
+                    .ConfigureAwait(false);
+                if (browser is null)
+                    return PublishResult.Fail($"{result.Message}；自动重建后内置浏览器仍未就绪");
+
+                result = await _automation.PublishAsync(account, item, browser, effectiveAction, log, ct)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        return result;
+    }
+
+    private static bool IsRecoverableEmbeddedBrowserFailure(string? message)
+    {
+        var text = message ?? "";
+        return text.Contains("连接浏览器自动化端口", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("CDP", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("WebView2", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("Target page, context or browser has been closed", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("Browser closed", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("disconnected", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("TikTok 页面刷新后仍显示异常", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string UploadAttemptSignature(string? projectDir)
+    {
+        try
+        {
+            var workflowDir = TikTokUploadStateStore.ResolveWorkflowProjectDir(projectDir);
+            var state = TikTokUploadStateStore.LoadState(workflowDir);
+            var started = state.TryGetValue("last_upload_step_started_at", out var startedValue)
+                ? startedValue.ToString()
+                : "";
+            var count = state.TryGetValue("upload_step_attempt_count", out var countValue)
+                ? countValue.ToString()
+                : "";
+            return $"{started}|{count}";
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     private static FinalAction ResolveAccountFinalAction(TikTokAccountProfile account, FinalAction fallback) =>

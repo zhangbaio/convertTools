@@ -54,6 +54,14 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
           $"题材={string.Join("、", recommendation.Genres)}");
         var coverPath = ResolveCoverPath(item, L);
         var hasWorkflow = !string.IsNullOrWhiteSpace(workflowDir);
+        var uploadStepStartedRecorded = false;
+        void RecordUploadStepStarted()
+        {
+            if (!hasWorkflow || uploadStepStartedRecorded)
+                return;
+            TikTokUploadStateStore.MarkUploadStepStarted(workflowDir, payload.Title);
+            uploadStepStartedRecorded = true;
+        }
 
         var useLaunch = string.Equals(
             (account.TiktokUploadBrowserMode ?? "").Trim(), "playwright", StringComparison.OrdinalIgnoreCase);
@@ -63,6 +71,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         CancellationTokenSource? limitCts = null;
         var outerCt = ct;
         string? dailyLimitHit = null;
+        IPage? activePage = null;
         try
         {
             IPage page;
@@ -79,6 +88,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                     .ConnectPageAsync(browser, targetUrl, L, ct)
                     .ConfigureAwait(false);
             }
+            activePage = page;
             ct.ThrowIfCancellationRequested();
 
             // 对齐 Python _watch_daily_episode_limit：上限提示是出现时机不固定的短暂 toast，
@@ -155,6 +165,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             {
                 await NavigateToCreateDraftPageAsync(page, targetUrl, L, ct).ConfigureAwait(false);
                 ThrowIfLoginRedirect(page);
+                RecordUploadStepStarted();
 
                 await TikTokBrowserActions.FillCreateInitialFieldsAsync(page, payload, options, L, ct)
                     .ConfigureAwait(false);
@@ -200,7 +211,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             }
 
             if (hasWorkflow)
-                TikTokUploadStateStore.MarkUploadStepStarted(workflowDir, payload.Title);
+                RecordUploadStepStarted();
 
             PublishResult result;
             if (finalAction == FinalAction.Publish)
@@ -238,10 +249,21 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         }
         catch (Exception ex)
         {
+            var failureText = $"{ex.GetType().Name}: {ex.Message}";
+            if (IsTikTokCrashFailure(failureText) ||
+                (activePage is not null && await TikTokBrowserActions.LooksLikeTikTokCrashPageAsync(activePage).ConfigureAwait(false)))
+            {
+                var message = $"内置浏览器页面崩溃，已自动跳过当前项目：{failureText}";
+                L(message);
+                if (hasWorkflow)
+                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title);
+                return PublishResult.FailAndSkipManualIntervention(message);
+            }
+
             if (hasWorkflow)
                 TikTokUploadStateStore.MarkUploadStepFailed(
-                    workflowDir, $"{ex.GetType().Name}: {ex.Message}", payload.Title);
-            return PublishResult.Fail($"{ex.GetType().Name}: {ex.Message}");
+                    workflowDir, failureText, payload.Title);
+            return PublishResult.Fail(failureText);
         }
         finally
         {
@@ -323,6 +345,16 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
     {
         if (IsLoginPage(page.Url))
             throw new InvalidOperationException("账号未登录（TikTok 跳转到登录页）");
+    }
+
+    private static bool IsTikTokCrashFailure(string? message)
+    {
+        var text = message ?? "";
+        return TikTokBrowserActions.ContainsTikTokCrashMarker(text) ||
+               text.Contains("TikTok 页面崩溃", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("TikTok 页面刷新后仍显示异常", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("页面异常", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("React 崩溃", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task NavigateToCreateDraftPageAsync(

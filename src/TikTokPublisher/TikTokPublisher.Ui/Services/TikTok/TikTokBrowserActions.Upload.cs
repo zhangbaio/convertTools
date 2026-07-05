@@ -85,6 +85,7 @@ public static partial class TikTokBrowserActions
             if (bodyText.Contains("上传失败", StringComparison.Ordinal) ||
                 bodyText.Contains("Upload failed", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("TikTok 视频上传失败，请查看页面提示。");
+            ThrowIfTikTokCrashText(bodyText);
 
             var uploading = new[] { "上传中", "正在上传", "处理中", "Transcoding", "Uploading" }
                 .Any(m => bodyText.Contains(m, StringComparison.OrdinalIgnoreCase));

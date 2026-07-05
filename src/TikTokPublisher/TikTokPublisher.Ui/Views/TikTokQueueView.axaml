@@ -11,7 +11,7 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="Padding" Value="6,0" />
             <Setter Property="MinHeight" Value="36" />
             <Setter Property="CornerRadius" Value="5" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
@@ -68,8 +68,8 @@
         <Style Selector="Border.stepStatusBadge">
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="5" />
-            <Setter Property="Padding" Value="6,2" />
-            <Setter Property="MinWidth" Value="56" />
+            <Setter Property="Padding" Value="5,2" />
+            <Setter Property="MinWidth" Value="54" />
             <Setter Property="MinHeight" Value="24" />
             <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Center" />
@@ -225,8 +225,8 @@
         <!-- 队列表格：作为 DockPanel 最后一个未指定 Dock 的子项，自动填充剩余空间 -->
         <Border Classes="queueTableFrame">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                <Grid RowDefinitions="Auto,*" Width="1620">
-                    <Grid Grid.Row="0" ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72">
+                <Grid RowDefinitions="Auto,*" Width="1496">
+                    <Grid Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,68,68,68">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
@@ -255,11 +255,11 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Border Classes="queueTableRow" Width="1620" Height="42">
-                                    <Grid ColumnDefinitions="56,64,128,220,220,72,140,72,72,72,72,72,72,72,72,72,72" ClipToBounds="True">
-                                        <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" Margin="8,0" />
+                                <Border Classes="queueTableRow" Width="1496" Height="42">
+                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,68,68,68" ClipToBounds="True">
+                                        <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                                        <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" FontSize="12" />
+                                        <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="4,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" />
                                         <Button Grid.Column="3"
                                                 Classes="queueLink"
                                                 Click="OnOpenOriginalProjectFolderClick"
@@ -284,8 +284,8 @@
                                                        TextTrimming="CharacterEllipsis"
                                                        Foreground="{Binding DramaTitleBrush}" />
                                         </Button>
-                                        <TextBlock Grid.Column="5" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
-                                        <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" ClipToBounds="True" ToolTip.Tip="{Binding QueuedAtTooltip}" />
+                                        <TextBlock Grid.Column="5" Text="{Binding EpisodeCount}" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                        <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="6,0" FontSize="12" TextTrimming="CharacterEllipsis" ClipToBounds="True" ToolTip.Tip="{Binding QueuedAtTooltip}" />
                                         <Border Grid.Column="7" Classes="stepStatusBadge" Background="{Binding DownloadStatusBackgroundBrush}" BorderBrush="{Binding DownloadStatusBorderBrush}" ToolTip.Tip="{Binding DownloadStatus}">
                                             <TextBlock Text="{Binding DownloadStatus}" Foreground="{Binding DownloadStatusBrush}" Classes="stepStatusText" />
                                         </Border>
@@ -310,10 +310,10 @@
                                         <Border Grid.Column="14" Classes="stepStatusBadge" Background="{Binding DeleteSourceStatusBackgroundBrush}" BorderBrush="{Binding DeleteSourceStatusBorderBrush}" ToolTip.Tip="{Binding DeleteSourceStatus}">
                                             <TextBlock Text="{Binding DeleteSourceStatus}" Foreground="{Binding DeleteSourceStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="15" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding UploadStatus}">
+                                        <Border Grid.Column="15" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding DetailText}">
                                             <TextBlock Text="{Binding UploadStatus}" Foreground="{Binding UploadStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="16" Classes="stepStatusBadge" Background="{Binding StatusTextBackgroundBrush}" BorderBrush="{Binding StatusTextBorderBrush}" ToolTip.Tip="{Binding StatusText}">
+                                        <Border Grid.Column="16" Classes="stepStatusBadge" Background="{Binding StatusTextBackgroundBrush}" BorderBrush="{Binding StatusTextBorderBrush}" ToolTip.Tip="{Binding DetailText}">
                                             <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusTextBrush}" Classes="stepStatusText" />
                                         </Border>
                                     </Grid>

@@ -12,6 +12,58 @@ public static partial class TikTokBrowserActions
         "当前创建剧集已达上限",
         "创建剧集已达上限",
     };
+    private static readonly string[] LeavePageDialogMarkers =
+    {
+        "是否离开网站",
+        "更改可能未保存",
+        "离开网站",
+        "Leave site",
+        "Changes you made may not be saved",
+        "unsaved changes",
+    };
+    private static readonly string[] ConfirmLeavePageButtonTexts =
+    {
+        "离开",
+        "确定",
+        "确认",
+        "Leave",
+        "Leave site",
+        "Discard",
+        "Discard changes",
+        "OK",
+    };
+
+    internal static async Task<bool> LooksLikeTikTokCrashPageAsync(IPage page)
+    {
+        try
+        {
+            var text = await page.Locator("body").InnerTextAsync(new LocatorInnerTextOptions
+            {
+                Timeout = 3000,
+            }).ConfigureAwait(false);
+            return ContainsTikTokCrashMarker(text);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static bool ContainsTikTokCrashMarker(string? text)
+    {
+        var value = text ?? "";
+        return value.Contains("出了点问题", StringComparison.Ordinal) ||
+               value.Contains("Minified React error", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("reactjs.org/docs/error-decoder", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("error-decoder.html", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("invariant=185", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static void ThrowIfTikTokCrashText(string? text)
+    {
+        if (ContainsTikTokCrashMarker(text))
+            throw new InvalidOperationException("TikTok 页面崩溃（出了点问题 / React error）");
+    }
 
     public static async Task FillCreatePublishFormAsync(
         IPage page,
@@ -782,7 +834,7 @@ public static partial class TikTokBrowserActions
 
     /// <summary>上传/编辑开始前重置残留页面：上一轮失败可能停留在半填的表单，
     /// 且页面上挂着「是否离开网站」确认弹窗；此处选择「离开」丢弃残留更改，让流程从干净页面开始。</summary>
-    public static async Task ResetLeftoverPageStateAsync(IPage page, Action<string>? log, CancellationToken ct)
+    public static async Task<bool> ResetLeftoverPageStateAsync(IPage page, Action<string>? log, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         try
@@ -791,19 +843,17 @@ public static partial class TikTokBrowserActions
             try { bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 2000 }); }
             catch { bodyText = ""; }
 
-            if (!bodyText.Contains("是否离开网站", StringComparison.Ordinal) &&
-                !bodyText.Contains("更改可能未保存", StringComparison.Ordinal))
-                return;
+            if (!ContainsLeavePageDialogMarker(bodyText))
+                return false;
 
-            foreach (var text in new[] { "离开", "确定" })
+            Log(log, "检测到上次残留的「是否离开网站」弹窗，准备丢弃旧表单更改。");
+            foreach (var text in ConfirmLeavePageButtonTexts)
             {
-                var button = page.GetByRole(AriaRole.Button, new() { Name = text }).First;
-                if (await button.CountAsync() > 0 && await button.IsVisibleAsync())
+                if (await TryClickVisibleButtonByTextAsync(page, text))
                 {
-                    await button.ClickAsync(new() { Timeout = 3000 });
-                    Log(log, "检测到上次残留的「是否离开网站」弹窗，已选择离开并重置页面。");
+                    Log(log, $"已自动点击「{text}」，离开旧表单页面。");
                     await page.WaitForTimeoutAsync(800);
-                    return;
+                    return true;
                 }
             }
         }
@@ -811,6 +861,41 @@ public static partial class TikTokBrowserActions
         {
             // 弹窗消失或页面切换中，忽略
         }
+
+        return false;
+    }
+
+    private static bool ContainsLeavePageDialogMarker(string? text)
+    {
+        var value = text ?? "";
+        return LeavePageDialogMarkers.Any(marker =>
+            value.Contains(marker, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static async Task<bool> TryClickVisibleButtonByTextAsync(IPage page, string text)
+    {
+        foreach (var locator in new[]
+                 {
+                     page.GetByRole(AriaRole.Button, new() { Name = text }).First,
+                     page.Locator("button").Filter(new() { HasText = text }).First,
+                     page.Locator("[role='button']").Filter(new() { HasText = text }).First,
+                 })
+        {
+            try
+            {
+                if (await locator.CountAsync() == 0 || !await locator.IsVisibleAsync())
+                    continue;
+
+                await locator.ClickAsync(new() { Timeout = 3000 });
+                return true;
+            }
+            catch
+            {
+                // 尝试下一个匹配方式
+            }
+        }
+
+        return false;
     }
 
     private static async Task<bool> DismissLeavePageDialogIfPresentAsync(IPage page, Action<string>? log)

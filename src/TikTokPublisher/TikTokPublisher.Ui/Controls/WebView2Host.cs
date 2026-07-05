@@ -27,10 +27,12 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     private CoreWebView2Controller? _controller;
     private string? _pendingUrl;
     private string? _lastInitError;
+    private string? _lastProcessFailure;
     private bool _renderedVisible;
     private bool _nativeHandleAlive;
 
     public string? LastInitError => _lastInitError;
+    public string? LastProcessFailure => _lastProcessFailure;
 
     public string UserDataFolder { get; set; } = "";
     public int RemoteDebuggingPort { get; set; }
@@ -48,19 +50,22 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     }
 
     public string? CdpEndpoint =>
-        _controller != null && RemoteDebuggingPort > 0 ? $"http://127.0.0.1:{RemoteDebuggingPort}" : null;
+        _controller != null && string.IsNullOrWhiteSpace(_lastProcessFailure) && RemoteDebuggingPort > 0
+            ? $"http://127.0.0.1:{RemoteDebuggingPort}"
+            : null;
 
     public bool IsEngineReady
     {
         get
         {
-            try { return _controller?.CoreWebView2 is not null && RemoteDebuggingPort > 0; }
+            try { return string.IsNullOrWhiteSpace(_lastProcessFailure) && _controller?.CoreWebView2 is not null && RemoteDebuggingPort > 0; }
             catch { return false; }
         }
     }
 
     public event Action? Ready;
     public event Action<string>? NavigationCompleted;
+    public event Action<string>? ProcessFailed;
 
     public WebView2Host()
     {
@@ -180,6 +185,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         try { _controller?.Close(); } catch { /* ignore */ }
         _controller = null;
         _pendingUrl = null;
+        _lastProcessFailure = null;
     }
 
     protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
@@ -216,6 +222,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         try
         {
             _lastInitError = null;
+            _lastProcessFailure = null;
             var options = new CoreWebView2EnvironmentOptions();
             var browserArgs = new List<string>
             {
@@ -254,6 +261,13 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
                 {
                     if (args.IsSuccess)
                         NavigationCompleted?.Invoke(_controller.CoreWebView2.Source);
+                };
+                _controller.CoreWebView2.ProcessFailed += (_, args) =>
+                {
+                    var message = $"WebView2 进程异常：{args.ProcessFailedKind}";
+                    _lastProcessFailure = message;
+                    Log($"process-failed udf={UserDataFolder} port={RemoteDebuggingPort} :: {message}");
+                    ProcessFailed?.Invoke(message);
                 };
             }
 
