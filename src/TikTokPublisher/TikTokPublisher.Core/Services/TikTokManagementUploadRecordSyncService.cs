@@ -183,6 +183,7 @@ public static class TikTokManagementUploadRecordSyncService
             ["project_path"] = projectDir,
             ["original_name"] = originalName,
             ["new_name"] = newName,
+            ["remark"] = (item.Remark ?? "").Trim(),
             ["episodes"] = item.EpisodeCount.ToString(),
             ["series_id"] = ResolveSeriesId(projectDir),
             ["uploader_display"] = uploaderDisplay,

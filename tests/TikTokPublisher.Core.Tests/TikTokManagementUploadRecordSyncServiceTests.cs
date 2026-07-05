@@ -18,6 +18,7 @@ public sealed class TikTokManagementUploadRecordSyncServiceTests
             EpisodeCount = 92,
             AccountProfileId = "acct-1dfecd83",
             AccountProfileName = "账号3",
+            Remark = "需要人工复核封面",
             QueuedAt = "2026-07-04 17:26:47",
             StepStates = new Dictionary<string, string>
             {
@@ -39,5 +40,6 @@ public sealed class TikTokManagementUploadRecordSyncServiceTests
         record["tiktok_login_email"].Should().Be("15327086817@163.com");
         record["tiktok_account"].Should().Be("15327086817@163.com");
         record["account_profile_name"].Should().Be("账号3");
+        record["remark"].Should().Be("需要人工复核封面");
     }
 }
