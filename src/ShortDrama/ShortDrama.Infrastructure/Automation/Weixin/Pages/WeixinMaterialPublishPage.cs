@@ -75,13 +75,35 @@ public sealed class WeixinMaterialPublishPage
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await page.GetByText(options.ReadyText, new PageGetByTextOptions
+        try
         {
-            Exact = false
-        }).First.WaitForAsync(new LocatorWaitForOptions
+            await FindVisibleTextAsync(page, options.ReadyText, 20_000);
+            return;
+        }
+        catch (Exception ex)
         {
-            Timeout = 20_000
-        });
+            if (await IsVisibleTextAsync(page, "你还不能发表视频"))
+            {
+                throw new InvalidOperationException(
+                    "当前账号暂不能发表视频，请在视频号后台确认账号权限、实名认证或发表入口状态。",
+                    ex);
+            }
+
+            var uploadInput = page.Locator(options.VideoUploadSelector).First;
+            try
+            {
+                await uploadInput.WaitForAsync(new LocatorWaitForOptions
+                {
+                    State = WaitForSelectorState.Attached,
+                    Timeout = 3_000
+                });
+                return;
+            }
+            catch
+            {
+                throw new InvalidOperationException($"未找到可见的发表视频页面入口: {options.ReadyText}", ex);
+            }
+        }
     }
 
     public async Task UploadVideosAsync(
@@ -282,30 +304,67 @@ public sealed class WeixinMaterialPublishPage
     {
         var candidates = new[]
         {
-            page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { NameString = text, Exact = false }).First,
-            page.GetByRole(AriaRole.Link, new PageGetByRoleOptions { NameString = text, Exact = false }).First,
-            page.GetByText(text, new PageGetByTextOptions { Exact = false }).First
+            page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { NameString = text, Exact = false }),
+            page.GetByRole(AriaRole.Link, new PageGetByRoleOptions { NameString = text, Exact = false }),
+            page.GetByText(text, new PageGetByTextOptions { Exact = false })
         };
 
-        Exception? lastError = null;
-        foreach (var candidate in candidates)
+        var timeoutAt = DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTimeOffset.UtcNow < timeoutAt)
         {
-            try
+            foreach (var locator in candidates)
             {
-                await candidate.WaitForAsync(new LocatorWaitForOptions
+                var count = 0;
+                try
                 {
-                    State = WaitForSelectorState.Visible,
-                    Timeout = timeoutMs
-                });
-                return candidate;
+                    count = await locator.CountAsync();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                for (var index = 0; index < count; index++)
+                {
+                    var candidate = locator.Nth(index);
+                    try
+                    {
+                        if (await candidate.IsVisibleAsync())
+                        {
+                            return candidate;
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
             }
-            catch (Exception ex)
-            {
-                lastError = ex;
-            }
+
+            await Task.Delay(200);
         }
 
-        throw lastError ?? new InvalidOperationException($"未找到文本: {text}");
+        throw new InvalidOperationException($"未找到可见文本: {text}");
+    }
+
+    private static async Task<bool> IsVisibleTextAsync(IPage page, string text)
+    {
+        var locator = page.GetByText(text, new PageGetByTextOptions { Exact = false });
+        try
+        {
+            var count = await locator.CountAsync();
+            for (var index = 0; index < count; index++)
+            {
+                if (await locator.Nth(index).IsVisibleAsync())
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return false;
     }
 
     private static async Task WaitBrieflyForLoadAsync(IPage page)

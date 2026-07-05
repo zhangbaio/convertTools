@@ -86,7 +86,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             return preflightResult;
         }
 
-        progress?.Report("寰俊鍓ч泦涓婁紶锛氭鏌ユ祻瑙堝櫒杩愯鏃?..");
+        progress?.Report("微信上传：检查浏览器运行时...");
         var runtimeStatus = await _browserRuntimeService.InspectAsync(cancellationToken);
         if (!runtimeStatus.IsReady)
         {
@@ -118,7 +118,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         await using var context = await CreateBrowserContextAsync(browser, config, progress);
 
         var page = await context.NewPageAsync();
-        progress?.Report($"寰俊涓婁紶锛氭鍦ㄦ墦寮€鍚庡彴 {config.BaseUrl}");
+        progress?.Report($"微信上传：正在打开后台 {config.BaseUrl}");
 
         await _homePage.OpenAsync(page, config.BaseUrl, cancellationToken);
         var isLoggedIn = await _homePage.IsLoggedInAsync(page, cancellationToken);
@@ -131,11 +131,11 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 "weixin-home.png",
                 cancellationToken);
             await _homePage.SaveDebugArtifactsAsync(page, config, "weixin-home", cancellationToken);
-            progress?.Report($"寰俊涓婁紶锛氬悗鍙伴椤靛凡鎵撳紑锛屾埅鍥惧凡淇濆瓨鍒?{homeScreenshotPath}");
+            progress?.Report($"微信上传：后台首页已打开，截图已保存到 {homeScreenshotPath}");
         }
         else
         {
-            progress?.Report("寰俊涓婁紶锛氬悗鍙伴椤靛凡鎵撳紑銆");
+            progress?.Report("微信上传：后台首页已打开。");
         }
 
         if (!isLoggedIn)
@@ -151,7 +151,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 loginQrScreenshotPath,
                 progress,
                 cancellationToken);
-            progress?.Report("寰俊涓婁紶锛氭湭妫€娴嬪埌鏈夋晥鐧诲綍鎬侊紝璇峰湪娴忚鍣ㄤ腑鎵爜鐧诲綍銆");
+            progress?.Report("微信上传：未检测到有效登录态，请在浏览器中扫码登录。");
             var loginDecision = await WaitForLoginCompletionAsync(
                 request,
                 page,
@@ -159,18 +159,18 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 cancellationToken);
             if (string.Equals(loginDecision, "stop", StringComparison.Ordinal))
             {
-                return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "寰俊涓婁紶宸插仠姝紝鍙户缁繍琛屻€");
+                return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "微信上传已停止，可继续运行。");
             }
 
             await context.StorageStateAsync(new BrowserContextStorageStateOptions
             {
                 Path = config.AuthFilePath
             });
-            progress?.Report($"寰俊涓婁紶锛氱櫥褰曟€佸凡鏇存柊鍒?{config.AuthFilePath}");
+            progress?.Report($"微信上传：登录态已更新到 {config.AuthFilePath}");
         }
         else
         {
-            progress?.Report("寰俊涓婁紶锛氬凡澶嶇敤鏈夋晥鐧诲綍鎬併€");
+            progress?.Report("微信上传：已复用有效登录态。");
         }
 
         if (string.Equals(config.TaskType, "publish_videos", StringComparison.OrdinalIgnoreCase))
@@ -187,7 +187,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             {
                 Path = config.AuthFilePath
             });
-            progress?.Report($"寰俊涓婁紶锛氬凡淇濆瓨鐧诲綍鎬?{config.AuthFilePath}");
+            progress?.Report($"微信上传：已保存登录态 {config.AuthFilePath}");
             return publishResult;
         }
 
@@ -196,7 +196,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             request,
             config,
             "series-navigate",
-            "瀵艰埅鍒板墽闆嗕笂浼犻〉闈",
+            "导航到剧集上传页面",
             () => _seriesSubmissionPage.NavigateAsync(page, config.Navigation, cancellationToken),
             progress,
             cancellationToken);
@@ -209,7 +209,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             request,
             config,
             "first-page-ready",
-            "绛夊緟绗竴椤靛氨缁",
+            "等待第一页就绪",
             () => _seriesSubmissionPage.WaitForReadyAsync(page, config.FirstPage, cancellationToken),
             progress,
             cancellationToken);
@@ -218,12 +218,12 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             return interruptionResult;
         }
 
-        progress?.Report("寰俊鍓ч泦涓婁紶锛氬紑濮嬭嚜鍔ㄥ～鍐欑涓€椤佃〃鍗?..");
+        progress?.Report("微信剧集上传：开始自动填写第一页表单...");
         resolution = await ExecuteSeriesStageAsync(
             request,
             config,
             "first-page-actions",
-            "濉啓绗竴椤佃〃鍗",
+            "填写第一页表单",
             () => _seriesSubmissionPage.ExecuteFirstPageActionsAsync(page, config, progress, cancellationToken),
             progress,
             cancellationToken);
@@ -237,13 +237,13 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             "weixin-series-first-page.png",
             cancellationToken);
         await _homePage.SaveDebugArtifactsAsync(page, config, "weixin-series-first-page", cancellationToken);
-        progress?.Report($"寰俊鍓ч泦涓婁紶锛氱涓€椤靛凡濉啓瀹屾垚锛屾埅鍥惧凡淇濆瓨鍒?{firstPageScreenshotPath}");
+        progress?.Report($"微信剧集上传：第一页已填写完成，截图已保存到 {firstPageScreenshotPath}");
 
         resolution = await ExecuteSeriesStageAsync(
             request,
             config,
             "second-page-entry",
-            "杩涘叆绗簩椤",
+            "进入第二页",
             async () =>
             {
                 await _seriesSubmissionPage.MoveToSecondPageAsync(page, config.FirstPage, config.SecondPage, config.OutputDirectory, progress, cancellationToken);
@@ -273,7 +273,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             request,
             config,
             "second-page-upload",
-            "涓婁紶绗簩椤佃棰",
+            "上传第二页视频",
             () => _seriesSubmissionPage.UploadSecondPageVideosAsync(page, config, progress, cancellationToken),
             progress,
             cancellationToken);
@@ -306,7 +306,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             request,
             config,
             "submit-page-entry",
-            "杩涘叆鎻愬椤",
+            "进入提审页",
             async () =>
             {
                 await _seriesSubmissionPage.EnterSubmitPageAsync(page, config.SecondPage, progress, cancellationToken);
@@ -334,14 +334,14 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
 
         if (string.Equals(decision, "stop", StringComparison.Ordinal))
         {
-            return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "寰俊涓婁紶宸插仠姝紝鍙户缁繍琛屻€");
+            return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "微信上传已停止，可继续运行。");
         }
 
         resolution = await ExecuteSeriesStageAsync(
             request,
             config,
             "submit-final",
-            "鎵ц鏈€缁堟彁瀹",
+            "执行最终提审",
             () => _seriesSubmissionPage.ExecuteFinalSubmitAsync(page, config.Submit, progress, cancellationToken),
             progress,
             cancellationToken);
@@ -351,18 +351,18 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         }
         if (config.Submit.Enabled)
         {
-            progress?.Report("寰俊鍓ч泦涓婁紶锛氬凡鎵ц鏈€缁堟彁浜ゃ€");
+            progress?.Report("微信剧集上传：已执行最终提交。");
         }
 
         await context.StorageStateAsync(new BrowserContextStorageStateOptions
         {
             Path = config.AuthFilePath
         });
-        progress?.Report($"寰俊鍓ч泦涓婁紶锛氬凡淇濆瓨鐧诲綍鎬?{config.AuthFilePath}");
+        progress?.Report($"微信剧集上传：已保存登录态 {config.AuthFilePath}");
 
         if (config.Browser.KeepOpenSeconds > 0)
         {
-            progress?.Report($"寰俊涓婁紶锛氭寜閰嶇疆淇濈暀娴忚鍣?{config.Browser.KeepOpenSeconds} 绉掋€");
+            progress?.Report($"微信上传：按配置保留浏览器 {config.Browser.KeepOpenSeconds} 秒。");
             await Task.Delay(TimeSpan.FromSeconds(config.Browser.KeepOpenSeconds), cancellationToken);
         }
 
@@ -371,8 +371,8 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             ProjectDir: request.ProjectDir,
             ConfigPath: resolvedConfigPath,
             Message: config.Submit.Enabled
-                ? "C# 寰俊鍓ч泦涓婁紶宸叉墽琛屽埌鏈€缁堟彁浜ゃ€"
-                : "C# 寰俊鍓ч泦涓婁紶宸叉墽琛屽埌鎻愬椤碉紝绛夊緟浜哄伐鏈€缁堢‘璁ゃ€");
+                ? "C# 微信剧集上传已执行到最终提交。"
+                : "C# 微信剧集上传已执行到提审页，等待人工最终确认。");
     }
 
     private static bool TryBuildMaterialPublishPreflightResult(
@@ -435,7 +435,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
     {
         if (!config.VideoPublish.Enabled)
         {
-            return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "褰撳墠椤圭洰宸茬鐢ㄥ井淇＄礌鏉愪笂浼犮€");
+            return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "当前项目已禁用微信素材上传。");
         }
 
         if (string.Equals(
@@ -455,7 +455,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         var allPublishItems = WeixinMaterialPublishPage.ResolvePublishVideoItems(request.ProjectDir, config.VideoPublish);
         if (allPublishItems.Count == 0)
         {
-            return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "褰撳墠椤圭洰鏈壘鍒板彲鍙戣〃鐨勭礌鏉愯棰戙€");
+            return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "当前项目未找到可发表的素材视频。");
         }
 
         var projectInfo = await ResolveMaterialPublishProjectInfoAsync(
@@ -478,8 +478,8 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 WeixinMaterialPublishStateService.Save(statePath, publishState);
                 progress?.Report(
                     duplicateAction == "started"
-                        ? "寰俊绱犳潗涓婁紶锛氬凡寮€鍚柊涓€杞噸澶嶅彂甯冿紝鏈疆浼氶噸鏂板彂甯冪洰鏍囩礌鏉愶紱涓柇鍚庝細缁窇鍓╀綑瑙嗛銆"
-                        : "寰俊绱犳潗涓婁紶锛氱户缁笂涓€杞湭瀹屾垚鐨勯噸澶嶅彂甯冿紝璺宠繃鏈疆宸叉垚鍔熻棰戙€");
+                        ? "微信素材上传：已开启新一轮重复发布，本轮会重新发布目标素材；中断后会继续跑剩余视频。"
+                        : "微信素材上传：继续上一轮未完成的重复发布，跳过本轮已成功视频。");
             }
         }
 
@@ -494,12 +494,12 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 WeixinMaterialPublishStateService.Save(statePath, publishState);
             }
 
-            progress?.Report($"寰俊绱犳潗涓婁紶锛氬綋鍓嶇瓥鐣?{runStrategy} 涓嬫病鏈夊彲鎵ц鐨勮棰戙€");
-            return new WeixinUploadResult(true, request.ProjectDir, resolvedConfigPath, "褰撳墠绛栫暐涓嬫病鏈夊彲鎵ц鐨勭礌鏉愯棰戙€");
+            progress?.Report($"微信素材上传：当前策略 {runStrategy} 下没有可执行的视频。");
+            return new WeixinUploadResult(true, request.ProjectDir, resolvedConfigPath, "当前策略下没有可执行的素材视频。");
         }
 
         var shortTitle = WeixinMaterialPublishPage.BuildShortTitle(projectInfo, config.VideoPublish);
-        progress?.Report($"寰俊绱犳潗涓婁紶锛氬噯澶囧彂琛?{selectedVideos.Count} 鏉¤棰戙€傜瓥鐣?{runStrategy}銆");
+        progress?.Report($"微信素材上传：准备发表 {selectedVideos.Count} 条视频。策略：{runStrategy}。");
 
         for (var index = 0; index < selectedVideos.Count; index++)
         {
@@ -547,7 +547,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                             publishItem.EpisodeIndex.ToString(),
                             new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "用户停止"))
                     });
-                    return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "寰俊绱犳潗涓婁紶宸插仠姝紝鍙户缁繍琛屻€");
+                    return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "微信素材上传已停止，可继续运行。");
                 }
 
                 await _materialPublishPage.FinalizeAsync(page, config.VideoPublish, progress, cancellationToken);
@@ -573,7 +573,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                     Entries = UpsertMaterialPublishEntry(
                         publishState.Entries,
                         publishItem.EpisodeIndex.ToString(),
-                        new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "宸插彇娑"))
+                        new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "已取消"))
                 });
                 throw;
             }
@@ -592,13 +592,13 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                     throw;
                 }
 
-                return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, $"寰俊绱犳潗涓婁紶澶辫触锛氱{publishItem.EpisodeIndex}闆?{ex.Message}");
+                return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, $"微信素材上传失败：第{publishItem.EpisodeIndex}集，{ex.Message}");
             }
         }
 
         if (config.Browser.KeepOpenSeconds > 0)
         {
-            progress?.Report($"寰俊涓婁紶锛氭寜閰嶇疆淇濈暀娴忚鍣?{config.Browser.KeepOpenSeconds} 绉掋€");
+            progress?.Report($"微信上传：按配置保留浏览器 {config.Browser.KeepOpenSeconds} 秒。");
             await Task.Delay(TimeSpan.FromSeconds(config.Browser.KeepOpenSeconds), cancellationToken);
         }
 
@@ -611,7 +611,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             Ok: true,
             ProjectDir: request.ProjectDir,
             ConfigPath: resolvedConfigPath,
-            Message: $"C# 寰俊绱犳潗涓婁紶宸插畬鎴愶紝鍏卞鐞?{selectedVideos.Count} 鏉¤棰戙€");
+            Message: $"C# 微信素材上传已完成，共处理 {selectedVideos.Count} 条视频。");
     }
 
     private async Task<WeixinUploadResult> RunSystemHighlightMaterialPublishAsync(
@@ -862,14 +862,14 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 cancellationToken.ThrowIfCancellationRequested();
                 if (await _homePage.IsLoggedInAsync(page, cancellationToken))
                 {
-                    progress?.Report("寰俊鍓ч泦涓婁紶锛氬凡纭鐧诲綍鎴愬姛銆");
+                    progress?.Report("微信上传：已确认登录成功。");
                     return "resume";
                 }
 
                 await Task.Delay(1000, cancellationToken);
             }
 
-            throw new TimeoutException("寰俊鍓ч泦涓婁紶锛氱瓑寰呮壂鐮佺櫥褰曡秴鏃躲€");
+            throw new TimeoutException("微信上传：等待扫码登录超时。");
         }
 
         while (!await _homePage.IsLoggedInAsync(page, cancellationToken))
@@ -877,18 +877,18 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             var decision = await RequestDecisionAsync(
                 request,
                 stage: "login-required",
-                message: "鏈娴嬪埌鍙鐢ㄧ櫥褰曟€併€傝鍦ㄦ墦寮€鐨勬祻瑙堝櫒涓壂鐮佺櫥褰曡棰戝彿鍚庡彴锛屽畬鎴愬悗鐐瑰嚮缁х画鎵ц锛涗篃鍙互鍏堝垏鍒颁汉宸ュ鐞嗘ā寮忋€",
+                message: "未检测到可复用登录态。请在打开的浏览器中扫码登录视频号后台，完成后点击继续执行；也可以先切到人工处理模式。",
                 options: null,
                 progress,
                 cancellationToken);
             if (string.Equals(decision, "stop", StringComparison.Ordinal))
             {
-                progress?.Report("寰俊鍓ч泦涓婁紶锛氱櫥褰曢樁娈靛凡鍋滄銆");
+                progress?.Report("微信上传：登录阶段已停止。");
                 return decision;
             }
         }
 
-        progress?.Report("寰俊鍓ч泦涓婁紶锛氬凡纭鐧诲綍鎴愬姛銆");
+        progress?.Report("微信上传：已确认登录成功。");
         return "resume";
     }
 
@@ -945,11 +945,11 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                     ScreenshotPath: screenshotPath,
                     Message: "检测到当前登录态不可复用，请在浏览器中扫码登录视频号后台后继续执行。"),
                 cancellationToken);
-            progress?.Report("寰俊涓婁紶锛氬凡鍙戦€佺櫥褰曚簩缁寸爜鎻愰啋銆");
+            progress?.Report("微信上传：已发送登录二维码提醒。");
         }
         catch (Exception ex)
         {
-            progress?.Report($"寰俊涓婁紶锛氱櫥褰曚簩缁寸爜鎻愰啋鍙戦€佸け璐? {ex.Message}");
+            progress?.Report($"微信上传：登录二维码提醒发送失败：{ex.Message}");
         }
     }
 
@@ -961,7 +961,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
     {
         if (AutomaticSeriesFlowOnly)
         {
-            progress?.Report("寰俊鍓ч泦涓婁紶锛氭彁瀹￠〉宸插氨缁紝鑷姩缁х画鍚庣画娴佺▼銆");
+            progress?.Report("微信剧集上传：提审页已就绪，自动继续后续流程。");
             return "resume";
         }
 
@@ -969,8 +969,8 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             request,
             stage: "submit-ready",
             message: config.Submit.Enabled
-                ? "鎻愬椤靛凡灏辩华銆傜‘璁ら〉闈㈠唴瀹规棤璇悗鐐瑰嚮缁х画鎵ц锛岀郴缁熷皢鑷姩鐐瑰嚮鏈€缁堟彁瀹℃寜閽紱涔熷彲浠ュ仠姝㈠綋鍓嶄笂浼犳楠ゃ€"
-                : "鎻愬椤靛凡灏辩华銆傝鎵嬪姩妫€鏌ュ苟鍐冲畾鏄惁鏈€缁堟彁瀹★紱澶勭悊瀹屾垚鍚庣偣鍑荤户缁墽琛岋紝鎴栧仠姝㈠綋鍓嶄笂浼犳楠ゃ€",
+                ? "提审页已就绪。确认页面内容无误后点击继续执行，系统将自动点击最终提审按钮；也可以停止当前上传步骤。"
+                : "提审页已就绪。请手动检查并决定是否最终提审；处理完成后点击继续执行，或停止当前上传步骤。",
             options: null,
             progress,
             cancellationToken);
@@ -998,7 +998,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
 
         while (string.Equals(decision, "manual", StringComparison.Ordinal))
         {
-            progress?.Report("寰俊鍓ч泦涓婁紶锛氬凡鍒囨崲鍒颁汉宸ュ鐞嗘ā寮忥紝绛夊緟缁х画鎴栧仠姝€");
+            progress?.Report("微信上传：已切换到人工处理模式，等待继续或停止。");
             var manualOptions = (options ?? ["manual", "resume", "stop"])
                 .Where(option => !string.Equals(option, "manual", StringComparison.Ordinal))
                 .Distinct(StringComparer.Ordinal)
@@ -1011,12 +1011,12 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                     StepType: "weixin-upload",
                     Scope: "project",
                     Stage: "manual",
-                    Message: "娴忚鍣ㄥ凡浜ょ敱浣犳墜鍔ㄥ鐞嗐€傚畬鎴愬綋鍓嶉〉闈㈡搷浣滃悗鐐瑰嚮缁х画鎵ц锛屾垨鍋滄褰撳墠涓婁紶姝ラ銆",
+                    Message: "浏览器已交由你手动处理。完成当前页面操作后点击继续执行，或停止当前上传步骤。",
                     Options: manualOptions),
                 cancellationToken);
         }
 
-        progress?.Report($"寰俊鍓ч泦涓婁紶锛氭敹鍒版搷浣滃喅绛?{decision}");
+        progress?.Report($"微信上传：收到操作决定 {decision}");
         return decision;
     }
 
@@ -1090,10 +1090,10 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         switch (resolution)
         {
             case SeriesStageResolution.SkipProject:
-                result = new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "寰俊鍓ч泦涓婁紶宸茶烦杩囧綋鍓嶉」鐩€");
+                result = new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "微信剧集上传已跳过当前项目。");
                 return true;
             case SeriesStageResolution.Stop:
-                result = new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "寰俊鍓ч泦涓婁紶宸插仠姝紝鍙户缁繍琛屻€");
+                result = new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "微信剧集上传已停止，可继续运行。");
                 return true;
             default:
                 result = default!;
