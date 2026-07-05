@@ -730,8 +730,6 @@ public sealed partial class MainViewModel : ViewModelBase
         if (IsWorkspaceQueueRunning(root))
             items = PreserveDisplayedRuntimeState(items);
 
-        ClearWorkspaceProjectCollections();
-        _queueRowByDir.Clear();
         _displayedWorkspaceRoot = SafeFullPath(root);
         _queueItems = items;
         _queueRunOptions = options;
@@ -744,16 +742,7 @@ public sealed partial class MainViewModel : ViewModelBase
         ApplyQueueStepTogglesFromOptions();
         UpdateWorkspaceBindingSummary(root);
 
-        // WorkspaceProjects/FilteredWorkspaceProjects 无 UI 绑定，切账号时不再构建（省去大量 VM 分配）。
-        var rowIndex = 1;
-        foreach (var project in _queueItems)
-        {
-            var row = new QueueProjectRowViewModel(project) { RowIndex = rowIndex++ };
-            row.EnabledChangedByUser += OnQueueRowEnabledChangedByUser;
-            row.RemarkChangedByUser += OnQueueRowRemarkChangedByUser;
-            QueueProjectRows.Add(row);
-            _queueRowByDir[NormalizeProjectDir(project.ProjectDir)] = row;
-        }
+        ReconcileQueueProjectRows(_queueItems);
 
         ApplyQueueProjectFilter();
         UpdateQueueSummaryText();
@@ -822,7 +811,80 @@ public sealed partial class MainViewModel : ViewModelBase
         string.IsNullOrWhiteSpace(workspaceRoot) ? "" : SafeFullPath(workspaceRoot.Trim());
 
     private static List<QueueProjectItem> CloneQueueItems(IReadOnlyList<QueueProjectItem> items) =>
-        items.Select(item => QueueProjectItem.FromPayload(item.ToPayload())).ToList();
+        items.Select(CloneQueueItem).ToList();
+
+    private static QueueProjectItem CloneQueueItem(QueueProjectItem item)
+    {
+        var clone = QueueProjectItem.FromPayload(item.ToPayload());
+        clone.PrimaryVideoPath = item.PrimaryVideoPath;
+        clone.CoverPath = item.CoverPath;
+        return clone;
+    }
+
+    private void ReconcileQueueProjectRows(IReadOnlyList<QueueProjectItem> items)
+    {
+        var nextRows = new List<QueueProjectRowViewModel>(items.Count);
+        var nextByDir = new Dictionary<string, QueueProjectRowViewModel>(StringComparer.OrdinalIgnoreCase);
+        var rowIndex = 1;
+
+        foreach (var project in items)
+        {
+            var key = NormalizeProjectDir(project.ProjectDir);
+            if (!_queueRowByDir.TryGetValue(key, out var row))
+            {
+                row = new QueueProjectRowViewModel(project);
+                row.EnabledChangedByUser += OnQueueRowEnabledChangedByUser;
+                row.RemarkChangedByUser += OnQueueRowRemarkChangedByUser;
+            }
+            else
+            {
+                row.RefreshFrom(project);
+            }
+
+            row.RowIndex = rowIndex++;
+            nextRows.Add(row);
+            nextByDir[key] = row;
+        }
+
+        ReconcileObservableCollection(QueueProjectRows, nextRows);
+        _queueRowByDir.Clear();
+        foreach (var (key, row) in nextByDir)
+            _queueRowByDir[key] = row;
+    }
+
+    private static void ReconcileObservableCollection<T>(
+        ObservableCollection<T> collection,
+        IReadOnlyList<T> target)
+        where T : class
+    {
+        for (var index = 0; index < target.Count; index++)
+        {
+            var item = target[index];
+            if (index < collection.Count && ReferenceEquals(collection[index], item))
+                continue;
+
+            var existingIndex = IndexOfReference(collection, item, index + 1);
+            if (existingIndex >= 0)
+                collection.Move(existingIndex, index);
+            else
+                collection.Insert(index, item);
+        }
+
+        while (collection.Count > target.Count)
+            collection.RemoveAt(collection.Count - 1);
+    }
+
+    private static int IndexOfReference<T>(IList<T> items, T target, int startIndex)
+        where T : class
+    {
+        for (var index = Math.Max(0, startIndex); index < items.Count; index++)
+        {
+            if (ReferenceEquals(items[index], target))
+                return index;
+        }
+
+        return -1;
+    }
 
     private List<QueueProjectItem> PreserveDisplayedRuntimeState(List<QueueProjectItem> scannedItems)
     {
@@ -918,8 +980,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var index = 1;
         foreach (var vm in target)
             vm.RowIndex = index++;
-        // 一次性 Reset：切账号整表刷新时 ListBox 只重建一次，而非逐项 Clear+Add。
-        FilteredQueueProjectRows.ReplaceAll(target);
+        ReconcileObservableCollection(FilteredQueueProjectRows, target);
     }
 
     public IReadOnlyList<QueueProjectItem> GetPendingUploadProjects() =>
@@ -2207,16 +2268,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void RefreshQueueRowViewModels()
     {
-        // 按归一化路径建索引，避免 O(行数×项目数) 的重复 Path.GetFullPath 比较拖慢 UI 线程。
-        var itemsByDir = new Dictionary<string, QueueProjectItem>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in _queueItems)
-            itemsByDir[NormalizeProjectDir(item.ProjectDir)] = item;
-
-        foreach (var row in QueueProjectRows)
-        {
-            if (itemsByDir.TryGetValue(NormalizeProjectDir(row.Item.ProjectDir), out var item))
-                row.RefreshFrom(item);
-        }
+        ReconcileQueueProjectRows(_queueItems);
         ApplyQueueProjectFilter();
         RefreshTodayUploadCount();
     }

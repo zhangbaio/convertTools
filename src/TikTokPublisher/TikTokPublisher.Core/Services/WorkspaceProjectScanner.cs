@@ -7,6 +7,11 @@ namespace TikTokPublisher.Core.Services;
 /// <summary>工作目录项目扫描（对齐 Python <c>scan_workspace_projects</c> 子集）。</summary>
 public static class WorkspaceProjectScanner
 {
+    private const int MaxProjectCacheSize = 4096;
+    private static readonly object ProjectCacheLock = new();
+    private static readonly Dictionary<string, CachedProjectScan> ProjectCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm",
@@ -41,8 +46,9 @@ public static class WorkspaceProjectScanner
         var results = new List<WorkspaceProject>();
         foreach (var dir in Directory.EnumerateDirectories(root).OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
         {
-            if (!IsValidProjectDirectory(dir)) continue;
-            results.Add(BuildProject(dir));
+            var project = TryBuildProject(dir, requireProjectLike: true);
+            if (project is not null)
+                results.Add(project);
         }
         return results;
     }
@@ -52,19 +58,56 @@ public static class WorkspaceProjectScanner
         if (!Directory.Exists(projectDir)) return false;
         var name = Path.GetFileName(projectDir);
         if (ReservedDirNames.Contains(name)) return false;
-        return LooksLikeProject(projectDir);
+        return TryBuildProject(projectDir, requireProjectLike: true) is not null;
     }
 
-    public static WorkspaceProject BuildProject(string projectDir) => BuildProjectInternal(projectDir);
+    public static WorkspaceProject BuildProject(string projectDir) =>
+        TryBuildProject(projectDir, requireProjectLike: false)
+        ?? BuildProjectInternal(Path.GetFullPath(projectDir));
 
-    private static bool LooksLikeProject(string projectDir)
+    private static WorkspaceProject? TryBuildProject(string projectDir, bool requireProjectLike)
+    {
+        var normalized = Path.GetFullPath(projectDir);
+        if (!Directory.Exists(normalized)) return null;
+        if (ReservedDirNames.Contains(Path.GetFileName(normalized))) return null;
+
+        var fingerprint = BuildProjectFingerprint(normalized);
+        lock (ProjectCacheLock)
+        {
+            if (ProjectCache.TryGetValue(normalized, out var cached) &&
+                string.Equals(cached.Fingerprint, fingerprint, StringComparison.Ordinal))
+            {
+                return cached.IsProject ? cached.Project : requireProjectLike ? null : cached.Project;
+            }
+        }
+
+        List<string>? preloadedVideos = null;
+        var isProject = LooksLikeProjectShallow(normalized);
+        if (!isProject)
+        {
+            preloadedVideos = FindVideoFiles(normalized);
+            isProject = preloadedVideos.Count > 0;
+        }
+
+        if (requireProjectLike && !isProject)
+        {
+            CacheProject(normalized, fingerprint, project: null, isProject: false);
+            return null;
+        }
+
+        var project = BuildProjectInternal(normalized, preloadedVideos);
+        CacheProject(normalized, fingerprint, project, isProject: true);
+        return project;
+    }
+
+    private static bool LooksLikeProjectShallow(string projectDir)
     {
         if (File.Exists(Path.Combine(projectDir, ProjectMetadataFile))) return true;
         if (File.Exists(Path.Combine(projectDir, DramaInfoFile))) return true;
-        return FindVideoFiles(projectDir).Count > 0;
+        return false;
     }
 
-    private static WorkspaceProject BuildProjectInternal(string projectDir)
+    private static WorkspaceProject BuildProjectInternal(string projectDir, List<string>? preloadedVideos = null)
     {
         var metadata = ReadJsonObject(Path.Combine(projectDir, ProjectMetadataFile));
         var dramaInfo = ParseInfoFile(Path.Combine(projectDir, DramaInfoFile));
@@ -77,7 +120,7 @@ public static class WorkspaceProjectScanner
                 : projectDir;
         var workflowInfo = ParseInfoFile(Path.Combine(workflowDir, DramaInfoFile));
 
-        var videos = FindVideoFiles(projectDir);
+        var videos = preloadedVideos ?? FindVideoFiles(projectDir);
         if (videos.Count == 0 && workflowDir != projectDir)
             videos = FindVideoFiles(workflowDir);
 
@@ -140,6 +183,82 @@ public static class WorkspaceProjectScanner
             PrimaryVideoPath = primaryVideo,
             CoverPath = cover,
         };
+    }
+
+    private static void CacheProject(
+        string projectDir,
+        string fingerprint,
+        WorkspaceProject? project,
+        bool isProject)
+    {
+        lock (ProjectCacheLock)
+        {
+            if (ProjectCache.Count > MaxProjectCacheSize)
+                ProjectCache.Clear();
+
+            ProjectCache[projectDir] = new CachedProjectScan(
+                fingerprint,
+                isProject,
+                project ?? BuildEmptyProject(projectDir));
+        }
+    }
+
+    private static WorkspaceProject BuildEmptyProject(string projectDir) => new()
+    {
+        ProjectDir = projectDir,
+        DisplayName = Path.GetFileName(projectDir),
+        OriginalTitle = Path.GetFileName(projectDir),
+        EpisodeCount = 1,
+    };
+
+    private static string BuildProjectFingerprint(string projectDir)
+    {
+        var workflowDir = ResolveWorkflowProjectDir(projectDir);
+        var nestedWorkflowDir = Path.Combine(projectDir, "workflow");
+        var parts = new List<string>
+        {
+            DirectoryStamp(projectDir),
+            DirectoryStamp(Path.Combine(projectDir, "videos")),
+            FileStamp(Path.Combine(projectDir, ProjectMetadataFile)),
+            FileStamp(Path.Combine(projectDir, DramaInfoFile)),
+            workflowDir,
+            DirectoryStamp(workflowDir),
+            DirectoryStamp(Path.Combine(workflowDir, "videos")),
+            DirectoryStamp(Path.Combine(workflowDir, TikTokUploadStagingService.StagingDirName)),
+            FileStamp(Path.Combine(workflowDir, DramaInfoFile)),
+            DirectoryStamp(nestedWorkflowDir),
+            FileStamp(Path.Combine(nestedWorkflowDir, DramaInfoFile)),
+        };
+
+        return string.Join('|', parts);
+    }
+
+    private static string DirectoryStamp(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path)) return "-";
+        try
+        {
+            var info = new DirectoryInfo(path);
+            return $"{info.FullName}:{info.LastWriteTimeUtc.Ticks}:{info.CreationTimeUtc.Ticks}";
+        }
+        catch
+        {
+            return path;
+        }
+    }
+
+    private static string FileStamp(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return "-";
+        try
+        {
+            var info = new FileInfo(path);
+            return $"{info.FullName}:{info.LastWriteTimeUtc.Ticks}:{info.Length}";
+        }
+        catch
+        {
+            return path;
+        }
     }
 
     private static List<string> FindVideoFiles(string dir)
@@ -230,4 +349,9 @@ public static class WorkspaceProjectScanner
         }
         return null;
     }
+
+    private sealed record CachedProjectScan(
+        string Fingerprint,
+        bool IsProject,
+        WorkspaceProject Project);
 }

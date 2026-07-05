@@ -51,7 +51,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
           .Append(item.AccountProfileName).Append('|')
           .Append(item.EpisodeCount).Append('|')
           .Append(item.QueuedAt);
-        foreach (var (key, value) in item.StepStates)
+        foreach (var (key, value) in item.StepStates.OrderBy(pair => pair.Key, StringComparer.Ordinal))
             sb.Append('|').Append(key).Append('=').Append(value);
         return sb.ToString();
     }
