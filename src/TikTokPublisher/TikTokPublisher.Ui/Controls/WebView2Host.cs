@@ -22,6 +22,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         "https://tiktokdramacenter.com",
         "https://www.tiktok.com",
     ];
+    private const int MaxLoggedDialogMessageLength = 120;
 
     private CoreWebView2Controller? _controller;
     private string? _pendingUrl;
@@ -237,6 +238,9 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
             if (_controller.CoreWebView2 is not null)
             {
+                _controller.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = false;
+                _controller.CoreWebView2.ScriptDialogOpening += OnScriptDialogOpening;
+
                 if (!string.IsNullOrWhiteSpace(ProxyUsername) || !string.IsNullOrWhiteSpace(ProxyPassword))
                 {
                     _controller.CoreWebView2.BasicAuthenticationRequested += (_, args) =>
@@ -267,6 +271,56 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             _lastInitError = $"{ex.GetType().Name}: {ex.Message}";
             Log($"FAILED udf={UserDataFolder} port={RemoteDebuggingPort} :: {_lastInitError}");
         }
+    }
+
+    private void OnScriptDialogOpening(object? sender, CoreWebView2ScriptDialogOpeningEventArgs args)
+    {
+        try
+        {
+            if (IsLeaveSiteDialog(args))
+            {
+                args.Accept();
+                Log($"auto-accepted leave-site dialog udf={UserDataFolder} port={RemoteDebuggingPort} kind={args.Kind} uri={args.Uri}");
+                return;
+            }
+
+            if (args.Kind == CoreWebView2ScriptDialogKind.Alert)
+            {
+                args.Accept();
+                Log($"auto-accepted alert dialog udf={UserDataFolder} port={RemoteDebuggingPort} message={TrimDialogMessage(args.Message)}");
+                return;
+            }
+
+            // With default dialogs disabled, not accepting confirm/prompt is the safe equivalent of Cancel.
+            Log($"auto-canceled script dialog udf={UserDataFolder} port={RemoteDebuggingPort} kind={args.Kind} message={TrimDialogMessage(args.Message)}");
+        }
+        catch (Exception ex)
+        {
+            Log($"script-dialog handler failed udf={UserDataFolder} port={RemoteDebuggingPort} :: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    private static bool IsLeaveSiteDialog(CoreWebView2ScriptDialogOpeningEventArgs args)
+    {
+        if (args.Kind == CoreWebView2ScriptDialogKind.Beforeunload)
+            return true;
+
+        var message = args.Message ?? "";
+        return message.Contains("是否离开网站", StringComparison.Ordinal) ||
+               message.Contains("更改可能未保存", StringComparison.Ordinal) ||
+               message.Contains("Changes you made may not be saved", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("Leave site", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string TrimDialogMessage(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return "";
+
+        var normalized = message.ReplaceLineEndings(" ").Trim();
+        return normalized.Length <= MaxLoggedDialogMessageLength
+            ? normalized
+            : normalized[..MaxLoggedDialogMessageLength] + "...";
     }
 
     private static EmbeddedBrowserCookie ToEmbeddedCookie(CoreWebView2Cookie cookie)
