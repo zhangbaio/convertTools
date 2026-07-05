@@ -4,6 +4,11 @@ using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation.Weixin;
 using ShortDrama.Infrastructure.Automation.Weixin.Pages;
 using ShortDrama.Infrastructure.Notifications;
+using System.Globalization;
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace ShortDrama.Infrastructure.Automation;
 
@@ -29,6 +34,12 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         "weixin-channel-material.json",
         "weixin-channel-test-no-final-click.json"
     ];
+    private static readonly JsonSerializerOptions MergeJsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        WriteIndented = true
+    };
+    private const double MergePublishFallbackFps = 25.0;
 
     private readonly IWeixinAutomationConfigLoader _configLoader;
     private readonly IWeixinAuthStateService _authStateService;
@@ -529,6 +540,14 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             return new WeixinUploadResult(true, request.ProjectDir, resolvedConfigPath, "当前策略下没有可执行的素材视频。");
         }
 
+        selectedVideos = await PrepareMergePublishVideosAsync(
+            request.ProjectDir,
+            projectInfo,
+            config.VideoPublish,
+            selectedVideos,
+            progress,
+            cancellationToken);
+
         selectedVideos = await _publishOriginalityService.ApplyAsync(
             request.ProjectDir,
             selectedVideos,
@@ -544,6 +563,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             cancellationToken.ThrowIfCancellationRequested();
             var publishItem = selectedVideos[index];
             var videoPath = publishItem.VideoPath;
+            var publishStateKeys = ResolveMaterialPublishStateKeys(publishItem);
             var baseDescription = WeixinMaterialPublishPage.BuildPublishDescription(projectInfo, config.VideoPublish, publishItem);
             var description = await _materialPublishDescriptionService.ResolveAsync(
                 request.ProjectDir,
@@ -554,13 +574,14 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 progress,
                 cancellationToken);
             progress?.Report($"微信素材上传：开始处理 {index + 1}/{selectedVideos.Count} -> 第{publishItem.EpisodeIndex}集 {Path.GetFileName(videoPath)}");
-            SaveMaterialPublishState(statePath, publishState with
+            publishState = publishState with
             {
-                Entries = UpsertMaterialPublishEntry(
+                Entries = UpsertMaterialPublishEntries(
                     publishState.Entries,
-                    publishItem.EpisodeIndex.ToString(),
+                    publishStateKeys,
                     new MaterialPublishStateEntry("running", videoPath, DateTimeOffset.Now, null))
-            });
+            };
+            SaveMaterialPublishState(statePath, publishState);
 
             try
             {
@@ -599,13 +620,14 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                     cancellationToken);
                 if (string.Equals(decision, "stop", StringComparison.Ordinal))
                 {
-                    SaveMaterialPublishState(statePath, publishState with
+                    publishState = publishState with
                     {
-                        Entries = UpsertMaterialPublishEntry(
+                        Entries = UpsertMaterialPublishEntries(
                             publishState.Entries,
-                            publishItem.EpisodeIndex.ToString(),
+                            publishStateKeys,
                             new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "用户停止"))
-                    });
+                    };
+                    SaveMaterialPublishState(statePath, publishState);
                     return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "微信素材上传已停止，可继续运行。");
                 }
 
@@ -617,34 +639,37 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                     $"weixin-material-{publishItem.EpisodeIndex:D2}",
                     cancellationToken);
 
-                SaveMaterialPublishState(statePath, publishState with
+                publishState = publishState with
                 {
-                    Entries = UpsertMaterialPublishEntry(
+                    Entries = UpsertMaterialPublishEntries(
                         publishState.Entries,
-                        publishItem.EpisodeIndex.ToString(),
+                        publishStateKeys,
                         new MaterialPublishStateEntry("success", videoPath, DateTimeOffset.Now, null))
-                });
+                };
+                SaveMaterialPublishState(statePath, publishState);
             }
             catch (OperationCanceledException)
             {
-                SaveMaterialPublishState(statePath, publishState with
+                publishState = publishState with
                 {
-                    Entries = UpsertMaterialPublishEntry(
+                    Entries = UpsertMaterialPublishEntries(
                         publishState.Entries,
-                        publishItem.EpisodeIndex.ToString(),
+                        publishStateKeys,
                         new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "已取消"))
-                });
+                };
+                SaveMaterialPublishState(statePath, publishState);
                 throw;
             }
             catch (Exception ex)
             {
-                SaveMaterialPublishState(statePath, publishState with
+                publishState = publishState with
                 {
-                    Entries = UpsertMaterialPublishEntry(
+                    Entries = UpsertMaterialPublishEntries(
                         publishState.Entries,
-                        publishItem.EpisodeIndex.ToString(),
+                        publishStateKeys,
                         new MaterialPublishStateEntry("failed", videoPath, DateTimeOffset.Now, ex.Message))
-                });
+                };
+                SaveMaterialPublishState(statePath, publishState);
 
                 if (!config.VideoPublish.PauseOnError)
                 {
@@ -897,6 +922,904 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         }
     }
 
+    private static async Task<IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem>> PrepareMergePublishVideosAsync(
+        string projectDir,
+        ProjectInfo projectInfo,
+        WeixinVideoPublishOptions options,
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> selectedVideos,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!options.MergePublishEnabled || selectedVideos.Count == 0)
+        {
+            return selectedVideos;
+        }
+
+        if (selectedVideos.Count == 1)
+        {
+            progress?.Report("合并发布：已启用，但本轮只有 1 个素材，直接发布原视频。");
+            return selectedVideos;
+        }
+
+        var groupSize = Math.Max(0, options.MergePublishGroupSize);
+        if (groupSize == 1)
+        {
+            progress?.Report("合并发布：合并频率为 1，无需生成合并视频。");
+            return selectedVideos;
+        }
+
+        var groups = SplitMergePublishGroups(selectedVideos, groupSize);
+        progress?.Report(
+            groupSize > 0
+                ? $"合并发布：已启用，{selectedVideos.Count} 个素材每 {groupSize} 个合并，预计发布 {groups.Count} 次。"
+                : $"合并发布：已启用，{selectedVideos.Count} 个素材全部合并为 1 次发布。");
+
+        var mergedVideos = new List<WeixinMaterialPublishPage.PublishVideoItem>();
+        for (var index = 0; index < groups.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var group = groups[index];
+            if (group.Count <= 1)
+            {
+                mergedVideos.Add(group[0]);
+                continue;
+            }
+
+            var outputPath = BuildMergePublishOutputPath(projectDir, projectInfo, group, groupSize);
+            progress?.Report($"合并发布：生成 {index + 1}/{groups.Count} -> {Path.GetFileName(outputPath)}");
+            var mergedPath = await MergePublishVideosAsync(
+                group,
+                outputPath,
+                options,
+                progress,
+                cancellationToken);
+            var baseDescription = WeixinMaterialPublishPage.BuildPublishDescription(projectInfo, options, group[0]);
+            WriteMergePublishSidecar(mergedPath, baseDescription, group);
+            mergedVideos.Add(group[0] with { VideoPath = mergedPath });
+        }
+
+        return mergedVideos;
+    }
+
+    private static IReadOnlyList<IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem>> SplitMergePublishGroups(
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> selectedVideos,
+        int groupSize)
+    {
+        if (selectedVideos.Count == 0)
+        {
+            return [];
+        }
+
+        if (groupSize <= 0)
+        {
+            return [selectedVideos.ToArray()];
+        }
+
+        var groups = new List<IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem>>();
+        for (var index = 0; index < selectedVideos.Count; index += groupSize)
+        {
+            groups.Add(selectedVideos.Skip(index).Take(groupSize).ToArray());
+        }
+
+        return groups;
+    }
+
+    private static string BuildMergePublishOutputPath(
+        string projectDir,
+        ProjectInfo projectInfo,
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> group,
+        int groupSize)
+    {
+        var title = !string.IsNullOrWhiteSpace(projectInfo.Title)
+            ? projectInfo.Title
+            : (!string.IsNullOrWhiteSpace(projectInfo.OriginalTitle)
+                ? projectInfo.OriginalTitle
+                : Path.GetFileName(projectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+        var safeTitle = SanitizeFileName(title);
+        if (string.IsNullOrWhiteSpace(safeTitle))
+        {
+            safeTitle = "material";
+        }
+
+        string suffix;
+        if (groupSize <= 0 || group.Count == 0)
+        {
+            suffix = "合并发布";
+        }
+        else
+        {
+            var firstEpisode = group[0].EpisodeIndex;
+            var lastEpisode = group[^1].EpisodeIndex;
+            suffix = firstEpisode == lastEpisode
+                ? $"合并发布-{firstEpisode}"
+                : $"合并发布-{firstEpisode}-{lastEpisode}";
+        }
+
+        return Path.Combine(projectDir, "合并发布", $"{safeTitle}-{suffix}.mp4");
+    }
+
+    private static async Task<string> MergePublishVideosAsync(
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> group,
+        string outputPath,
+        WeixinVideoPublishOptions options,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var inputPaths = group
+            .Select(item => Path.GetFullPath(item.VideoPath))
+            .Where(File.Exists)
+            .ToArray();
+        if (inputPaths.Length == 0)
+        {
+            throw new InvalidOperationException("合并发布失败：没有可合并的视频。");
+        }
+
+        if (inputPaths.Length == 1)
+        {
+            return inputPaths[0];
+        }
+
+        var normalizedOutputPath = Path.GetFullPath(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(normalizedOutputPath) ?? ".");
+
+        var ffmpeg = ResolveMergeFfmpegBinary(options);
+        var ffprobe = ResolveMergeFfprobeBinary(options);
+        var inputProbes = new List<MergePublishProbe>();
+        var expectedTotalDuration = 0.0;
+        foreach (var path in inputPaths)
+        {
+            var probe = await ProbeMergePublishMediaAsync(ffprobe, path, cancellationToken);
+            if (probe is null)
+            {
+                continue;
+            }
+
+            inputProbes.Add(probe);
+            expectedTotalDuration += Math.Max(0.0, probe.DurationSeconds);
+        }
+
+        var (targetWidth, targetHeight, targetFps) = ResolveMergePublishReencodeTargets(inputProbes);
+        var copyMergeAllowed = CanCopyMergePublishInputs(inputProbes, inputPaths.Length);
+        var inputs = BuildMergePublishInputs(group);
+        if (await HasReusableMergedOutputAsync(
+                normalizedOutputPath,
+                inputs,
+                expectedTotalDuration,
+                copyMergeAllowed,
+                targetWidth,
+                targetHeight,
+                ffprobe,
+                cancellationToken))
+        {
+            progress?.Report($"合并发布：复用已生成视频 {Path.GetFileName(normalizedOutputPath)}");
+            return normalizedOutputPath;
+        }
+
+        var tempPrefix = Path.Combine(
+            Path.GetDirectoryName(normalizedOutputPath) ?? ".",
+            $"{Path.GetFileNameWithoutExtension(normalizedOutputPath)}.tmp-{Guid.NewGuid():N}");
+        var tempOutputPath = tempPrefix + Path.GetExtension(normalizedOutputPath);
+        var fileListPath = tempPrefix + ".txt";
+
+        await File.WriteAllTextAsync(
+            fileListPath,
+            string.Join(Environment.NewLine, inputPaths.Select(BuildConcatFileLine)) + Environment.NewLine,
+            Encoding.UTF8,
+            cancellationToken);
+
+        try
+        {
+            progress?.Report($"合并发布：开始合并 {inputPaths.Length} 个片段 -> {Path.GetFileName(normalizedOutputPath)}");
+            var completed = copyMergeAllowed
+                ? await RunMergeProcessAsync(
+                    ffmpeg,
+                    BuildMergePublishCopyArguments(fileListPath, tempOutputPath),
+                    cancellationToken)
+                : new MergeProcessResult(1, string.Empty, "input parameters differ");
+
+            if (completed.ExitCode == 0 &&
+                !await HasValidMergedDurationAsync(
+                    tempOutputPath,
+                    expectedTotalDuration,
+                    copyMergeAllowed,
+                    targetWidth,
+                    targetHeight,
+                    ffprobe,
+                    cancellationToken))
+            {
+                completed = new MergeProcessResult(1, completed.Stdout, "invalid merged duration");
+            }
+
+            if (completed.ExitCode != 0)
+            {
+                TryDeleteFile(tempOutputPath);
+                progress?.Report(copyMergeAllowed
+                    ? "合并发布：无损合并不可用，改用重新编码合并。"
+                    : "合并发布：输入视频参数不一致，改用重新编码合并。");
+                var includeAudio = inputProbes.Count == inputPaths.Length &&
+                                   inputProbes.All(probe => !string.IsNullOrWhiteSpace(probe.AudioCodecName));
+                completed = await RunMergeProcessAsync(
+                    ffmpeg,
+                    BuildMergePublishReencodeArguments(
+                        inputPaths,
+                        tempOutputPath,
+                        includeAudio,
+                        targetWidth,
+                        targetHeight,
+                        targetFps),
+                    cancellationToken);
+            }
+
+            if (completed.ExitCode != 0)
+            {
+                var message = string.IsNullOrWhiteSpace(completed.Stderr)
+                    ? "ffmpeg 合并失败"
+                    : completed.Stderr.Trim();
+                throw new InvalidOperationException(message);
+            }
+
+            if (!await HasValidMergedDurationAsync(
+                    tempOutputPath,
+                    expectedTotalDuration,
+                    copyMergeAllowed,
+                    targetWidth,
+                    targetHeight,
+                    ffprobe,
+                    cancellationToken))
+            {
+                throw new InvalidOperationException("合并发布失败：输出视频时长异常。");
+            }
+
+            File.Move(tempOutputPath, normalizedOutputPath, overwrite: true);
+            WriteMergePublishInputsManifest(normalizedOutputPath, inputs);
+            return normalizedOutputPath;
+        }
+        finally
+        {
+            TryDeleteFile(fileListPath);
+            TryDeleteFile(tempOutputPath);
+        }
+    }
+
+    private static IReadOnlyList<string> BuildMergePublishCopyArguments(string fileListPath, string outputPath) =>
+    [
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        fileListPath,
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        outputPath
+    ];
+
+    private static IReadOnlyList<string> BuildMergePublishReencodeArguments(
+        IReadOnlyList<string> inputPaths,
+        string outputPath,
+        bool includeAudio,
+        int targetWidth,
+        int targetHeight,
+        double targetFps)
+    {
+        var args = new List<string>
+        {
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error"
+        };
+        foreach (var path in inputPaths)
+        {
+            args.Add("-i");
+            args.Add(path);
+        }
+
+        var (filterComplex, audioMap) = BuildMergePublishReencodeFilter(
+            inputPaths.Count,
+            includeAudio,
+            targetWidth,
+            targetHeight,
+            targetFps);
+        args.AddRange(
+        [
+            "-filter_complex",
+            filterComplex,
+            "-map",
+            "[v]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-pix_fmt",
+            "yuv420p"
+        ]);
+        if (includeAudio)
+        {
+            args.AddRange(
+            [
+                "-map",
+                audioMap ?? "[a]",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k"
+            ]);
+        }
+        else
+        {
+            args.Add("-an");
+        }
+
+        args.AddRange(
+        [
+            "-movflags",
+            "+faststart",
+            outputPath
+        ]);
+        return args;
+    }
+
+    private static (string FilterComplex, string? AudioMap) BuildMergePublishReencodeFilter(
+        int inputCount,
+        bool includeAudio,
+        int targetWidth,
+        int targetHeight,
+        double targetFps)
+    {
+        var filterParts = new List<string>();
+        var concatInputs = new StringBuilder();
+        var fpsText = targetFps.ToString("0.######", CultureInfo.InvariantCulture);
+        for (var index = 0; index < inputCount; index++)
+        {
+            filterParts.Add(
+                $"[{index}:v:0]scale={targetWidth}:{targetHeight}:force_original_aspect_ratio=decrease," +
+                $"pad={targetWidth}:{targetHeight}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fpsText},format=yuv420p[v{index}]");
+            concatInputs.Append($"[v{index}]");
+            if (includeAudio)
+            {
+                filterParts.Add(
+                    $"[{index}:a:0]aresample=async=1:first_pts=0," +
+                    $"aformat=sample_rates=48000:sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS[a{index}]");
+                concatInputs.Append($"[a{index}]");
+            }
+        }
+
+        if (includeAudio)
+        {
+            filterParts.Add($"{concatInputs}concat=n={inputCount}:v=1:a=1[v][a]");
+            return (string.Join(';', filterParts), "[a]");
+        }
+
+        filterParts.Add($"{concatInputs}concat=n={inputCount}:v=1:a=0[v]");
+        return (string.Join(';', filterParts), null);
+    }
+
+    private static async Task<MergePublishProbe?> ProbeMergePublishMediaAsync(
+        string ffprobe,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunMergeProcessAsync(
+            ffprobe,
+            [
+                "-v",
+                "error",
+                "-print_format",
+                "json",
+                "-show_streams",
+                "-show_format",
+                path
+            ],
+            cancellationToken);
+        if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.Stdout))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(result.Stdout);
+            var root = document.RootElement;
+            var duration = 0.0;
+            if (root.TryGetProperty("format", out var format) &&
+                format.TryGetProperty("duration", out var durationElement))
+            {
+                duration = ParseJsonDouble(durationElement);
+            }
+
+            JsonElement? videoStream = null;
+            JsonElement? audioStream = null;
+            if (root.TryGetProperty("streams", out var streams) &&
+                streams.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var stream in streams.EnumerateArray())
+                {
+                    if (!stream.TryGetProperty("codec_type", out var codecTypeElement))
+                    {
+                        continue;
+                    }
+
+                    var codecType = codecTypeElement.GetString();
+                    if (videoStream is null && string.Equals(codecType, "video", StringComparison.OrdinalIgnoreCase))
+                    {
+                        videoStream = stream.Clone();
+                    }
+                    else if (audioStream is null && string.Equals(codecType, "audio", StringComparison.OrdinalIgnoreCase))
+                    {
+                        audioStream = stream.Clone();
+                    }
+                }
+            }
+
+            var width = videoStream is { } video ? ParseJsonInt(GetPropertyOrDefault(video, "width")) : 0;
+            var height = videoStream is { } videoForHeight ? ParseJsonInt(GetPropertyOrDefault(videoForHeight, "height")) : 0;
+            var fps = videoStream is { } videoForFps
+                ? ParseFrameRate(
+                    GetJsonString(GetPropertyOrDefault(videoForFps, "avg_frame_rate"))
+                    ?? GetJsonString(GetPropertyOrDefault(videoForFps, "r_frame_rate")))
+                : 0.0;
+            var audioCodec = audioStream is { } audio && audio.TryGetProperty("codec_name", out var codecName)
+                ? codecName.GetString() ?? string.Empty
+                : string.Empty;
+            return new MergePublishProbe(duration, width, height, fps, audioCodec.Trim().ToLowerInvariant());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static (int Width, int Height, double Fps) ResolveMergePublishReencodeTargets(
+        IReadOnlyList<MergePublishProbe> probes)
+    {
+        var width = probes.Select(probe => probe.Width).Where(value => value > 0).DefaultIfEmpty(1080).Max();
+        var height = probes.Select(probe => probe.Height).Where(value => value > 0).DefaultIfEmpty(1920).Max();
+        var fps = probes.Select(probe => probe.FrameRateFps).Where(value => value > 0).DefaultIfEmpty(MergePublishFallbackFps).Max();
+        return (EnsureEvenDimension(width, 1080), EnsureEvenDimension(height, 1920), Math.Max(1.0, fps));
+    }
+
+    private static bool CanCopyMergePublishInputs(IReadOnlyList<MergePublishProbe> probes, int inputCount)
+    {
+        if (probes.Count != inputCount)
+        {
+            return false;
+        }
+
+        if (probes.Count < 2)
+        {
+            return true;
+        }
+
+        var first = probes[0];
+        if (first.Width <= 0 || first.Height <= 0)
+        {
+            return false;
+        }
+
+        foreach (var probe in probes.Skip(1))
+        {
+            if (probe.Width != first.Width || probe.Height != first.Height)
+            {
+                return false;
+            }
+
+            if (first.FrameRateFps > 0 &&
+                probe.FrameRateFps > 0 &&
+                Math.Abs(probe.FrameRateFps - first.FrameRateFps) > 0.01)
+            {
+                return false;
+            }
+
+            if (!string.Equals(probe.AudioCodecName, first.AudioCodecName, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static async Task<bool> HasReusableMergedOutputAsync(
+        string outputPath,
+        IReadOnlyList<MergePublishInput> inputs,
+        double expectedTotalDuration,
+        bool copyMergeAllowed,
+        int targetWidth,
+        int targetHeight,
+        string ffprobe,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(outputPath))
+        {
+            return false;
+        }
+
+        var outputInfo = new FileInfo(outputPath);
+        if (outputInfo.Length <= 0)
+        {
+            return false;
+        }
+
+        var latestInputMtime = inputs.Max(input => input.MtimeTicks);
+        if (outputInfo.LastWriteTimeUtc.Ticks < latestInputMtime)
+        {
+            return false;
+        }
+
+        var manifestPath = Path.ChangeExtension(outputPath, ".inputs.json");
+        if (!File.Exists(manifestPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath, cancellationToken));
+            if (!document.RootElement.TryGetProperty("inputs", out var inputsElement) ||
+                inputsElement.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            var existingInputs = JsonSerializer.Deserialize<List<MergePublishInput>>(
+                inputsElement.GetRawText(),
+                MergeJsonOptions) ?? [];
+            if (!AreSameMergeInputs(existingInputs, inputs))
+            {
+                return false;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return await HasValidMergedDurationAsync(
+            outputPath,
+            expectedTotalDuration,
+            copyMergeAllowed,
+            targetWidth,
+            targetHeight,
+            ffprobe,
+            cancellationToken);
+    }
+
+    private static async Task<bool> HasValidMergedDurationAsync(
+        string candidatePath,
+        double expectedTotalDuration,
+        bool copyMergeAllowed,
+        int targetWidth,
+        int targetHeight,
+        string ffprobe,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(candidatePath) || new FileInfo(candidatePath).Length <= 0)
+        {
+            return false;
+        }
+
+        if (expectedTotalDuration <= 0)
+        {
+            return true;
+        }
+
+        var probe = await ProbeMergePublishMediaAsync(ffprobe, candidatePath, cancellationToken);
+        if (probe is null)
+        {
+            return false;
+        }
+
+        if (!copyMergeAllowed && (probe.Width != targetWidth || probe.Height != targetHeight))
+        {
+            return false;
+        }
+
+        var durationTolerance = Math.Max(5.0, expectedTotalDuration * 0.15);
+        return Math.Abs(Math.Max(0.0, probe.DurationSeconds) - expectedTotalDuration) <= durationTolerance;
+    }
+
+    private static IReadOnlyList<MergePublishInput> BuildMergePublishInputs(
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> group)
+    {
+        return group.Select(item =>
+        {
+            var path = Path.GetFullPath(item.VideoPath);
+            var info = new FileInfo(path);
+            if (!info.Exists)
+            {
+                throw new FileNotFoundException("合并发布素材文件不存在。", path);
+            }
+
+            return new MergePublishInput(
+                EpisodeIndex: item.EpisodeIndex,
+                Path: path,
+                FileName: Path.GetFileName(path),
+                Size: info.Length,
+                MtimeTicks: info.LastWriteTimeUtc.Ticks);
+        }).ToArray();
+    }
+
+    private static bool AreSameMergeInputs(
+        IReadOnlyList<MergePublishInput> left,
+        IReadOnlyList<MergePublishInput> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Count; index++)
+        {
+            if (left[index].EpisodeIndex != right[index].EpisodeIndex ||
+                left[index].Size != right[index].Size ||
+                left[index].MtimeTicks != right[index].MtimeTicks ||
+                !string.Equals(Path.GetFullPath(left[index].Path), Path.GetFullPath(right[index].Path), StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static void WriteMergePublishInputsManifest(
+        string outputPath,
+        IReadOnlyList<MergePublishInput> inputs)
+    {
+        var payload = new
+        {
+            inputs,
+            updated_at = DateTimeOffset.Now.ToString("O")
+        };
+        File.WriteAllText(
+            Path.ChangeExtension(outputPath, ".inputs.json"),
+            JsonSerializer.Serialize(payload, MergeJsonOptions),
+            Encoding.UTF8);
+    }
+
+    private static void WriteMergePublishSidecar(
+        string outputPath,
+        string description,
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> group)
+    {
+        var payload = new
+        {
+            description,
+            caption = description,
+            source = "merge_publish",
+            created_at = DateTimeOffset.Now.ToString("O"),
+            inputs = BuildMergePublishInputs(group)
+        };
+        File.WriteAllText(
+            Path.ChangeExtension(outputPath, ".publish.json"),
+            JsonSerializer.Serialize(payload, MergeJsonOptions),
+            Encoding.UTF8);
+    }
+
+    private static IReadOnlyList<string> ResolveMaterialPublishStateKeys(
+        WeixinMaterialPublishPage.PublishVideoItem publishItem)
+    {
+        var keys = new List<int> { publishItem.EpisodeIndex };
+        var inputsPath = Path.ChangeExtension(publishItem.VideoPath, ".inputs.json");
+        if (File.Exists(inputsPath))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(inputsPath, Encoding.UTF8));
+                if (document.RootElement.TryGetProperty("inputs", out var inputs) &&
+                    inputs.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in inputs.EnumerateArray())
+                    {
+                        if (item.TryGetProperty("episode_index", out var episodeIndex) &&
+                            episodeIndex.ValueKind == JsonValueKind.Number &&
+                            episodeIndex.TryGetInt32(out var parsed) &&
+                            parsed > 0)
+                        {
+                            keys.Add(parsed);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return keys
+            .Where(key => key > 0)
+            .Distinct()
+            .Select(key => key.ToString(CultureInfo.InvariantCulture))
+            .ToArray();
+    }
+
+    private static async Task<MergeProcessResult> RunMergeProcessAsync(
+        string fileName,
+        IReadOnlyList<string> args,
+        CancellationToken cancellationToken)
+    {
+        var startInfo = new global::System.Diagnostics.ProcessStartInfo
+        {
+            FileName = string.IsNullOrWhiteSpace(fileName) ? "ffmpeg" : fileName,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+
+        foreach (var arg in args)
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        using var process = global::System.Diagnostics.Process.Start(startInfo)
+                            ?? throw new InvalidOperationException($"无法启动进程：{startInfo.FileName}");
+        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            TryKillProcess(process);
+            throw;
+        }
+
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
+        return new MergeProcessResult(process.ExitCode, stdout, stderr);
+    }
+
+    private static string ResolveMergeFfmpegBinary(WeixinVideoPublishOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(options.FfmpegPath) &&
+            !string.Equals(options.FfmpegPath.Trim(), "ffmpeg", StringComparison.OrdinalIgnoreCase))
+        {
+            return options.FfmpegPath.Trim();
+        }
+
+        return BundledToolResolver.TryResolveBinary("ffmpeg") ?? "ffmpeg";
+    }
+
+    private static string ResolveMergeFfprobeBinary(WeixinVideoPublishOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(options.FfprobePath) &&
+            !string.Equals(options.FfprobePath.Trim(), "ffprobe", StringComparison.OrdinalIgnoreCase))
+        {
+            return options.FfprobePath.Trim();
+        }
+
+        return BundledToolResolver.TryResolveBinary("ffprobe") ?? "ffprobe";
+    }
+
+    private static string BuildConcatFileLine(string path)
+    {
+        var text = Path.GetFullPath(path)
+            .Replace("\\", "/", StringComparison.Ordinal)
+            .Replace("'", "\\'", StringComparison.Ordinal);
+        return $"file '{text}'";
+    }
+
+    private static int EnsureEvenDimension(int value, int fallback)
+    {
+        var resolved = value <= 0 ? fallback : value;
+        if (resolved % 2 != 0)
+        {
+            resolved++;
+        }
+
+        return Math.Max(2, resolved);
+    }
+
+    private static JsonElement GetPropertyOrDefault(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out var value) ? value : default;
+
+    private static int ParseJsonInt(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var value))
+        {
+            return value;
+        }
+
+        return int.TryParse(GetJsonString(element), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0;
+    }
+
+    private static double ParseJsonDouble(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Number && element.TryGetDouble(out var value))
+        {
+            return value;
+        }
+
+        return double.TryParse(GetJsonString(element), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0.0;
+    }
+
+    private static string? GetJsonString(JsonElement element) =>
+        element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number => element.GetRawText(),
+            JsonValueKind.True => bool.TrueString,
+            JsonValueKind.False => bool.FalseString,
+            _ => null
+        };
+
+    private static double ParseFrameRate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return 0.0;
+        }
+
+        var parts = value.Split('/', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length == 2 &&
+            double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var numerator) &&
+            double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var denominator) &&
+            Math.Abs(denominator) > double.Epsilon)
+        {
+            return numerator / denominator;
+        }
+
+        return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0.0;
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var builder = new StringBuilder(value.Length);
+        foreach (var ch in value.Trim())
+        {
+            builder.Append(invalidChars.Contains(ch) ? '_' : ch);
+        }
+
+        var result = builder.ToString().Trim(' ', '.');
+        return result.Length <= 80 ? result : result[..80].Trim(' ', '.');
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static void TryKillProcess(global::System.Diagnostics.Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+        }
+    }
+
     private static string ResolveMaterialPublishStatePath(string projectDir, string stateFile)
     {
         return WeixinMaterialPublishStateService.ResolveStatePath(projectDir, stateFile);
@@ -926,6 +1849,20 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         MaterialPublishStateEntry value)
     {
         return WeixinMaterialPublishStateService.UpsertEntry(source, key, value);
+    }
+
+    private static IReadOnlyDictionary<string, MaterialPublishStateEntry> UpsertMaterialPublishEntries(
+        IReadOnlyDictionary<string, MaterialPublishStateEntry> source,
+        IReadOnlyList<string> keys,
+        MaterialPublishStateEntry value)
+    {
+        IReadOnlyDictionary<string, MaterialPublishStateEntry> result = source;
+        foreach (var key in keys.Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            result = WeixinMaterialPublishStateService.UpsertEntry(result, key, value);
+        }
+
+        return result;
     }
 
     private async Task<string> WaitForLoginCompletionAsync(
@@ -1203,4 +2140,23 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
 
         return null;
     }
+
+    private sealed record MergePublishInput(
+        [property: JsonPropertyName("episode_index")] int EpisodeIndex,
+        [property: JsonPropertyName("path")] string Path,
+        [property: JsonPropertyName("file_name")] string FileName,
+        [property: JsonPropertyName("size")] long Size,
+        [property: JsonPropertyName("mtime_ticks")] long MtimeTicks);
+
+    private sealed record MergePublishProbe(
+        double DurationSeconds,
+        int Width,
+        int Height,
+        double FrameRateFps,
+        string AudioCodecName);
+
+    private sealed record MergeProcessResult(
+        int ExitCode,
+        string Stdout,
+        string Stderr);
 }

@@ -40,8 +40,34 @@ internal static class KeyValueConfigReader
     {
         foreach (var property in root.EnumerateObject())
         {
-            map[property.Name] = ToConfigString(property.Value);
+            var value = ToConfigString(property.Value);
+            map[property.Name] = value;
+
+            var pascalAlias = ToPascalAlias(property.Name);
+            if (!string.Equals(pascalAlias, property.Name, StringComparison.Ordinal))
+            {
+                map.TryAdd(pascalAlias, value);
+            }
         }
+    }
+
+    private static string ToPascalAlias(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key) || !key.Contains('_', StringComparison.Ordinal))
+        {
+            return key;
+        }
+
+        var parts = key.Split('_', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0)
+        {
+            return key;
+        }
+
+        return string.Concat(parts.Select(part =>
+            part.Length == 0
+                ? string.Empty
+                : char.ToUpperInvariant(part[0]) + part[1..]));
     }
 
     private static void AddStructuredAliases(JsonElement root, IDictionary<string, string> map)

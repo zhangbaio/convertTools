@@ -528,15 +528,28 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
 
     private static IReadOnlyDictionary<string, string> LoadGlobalConfig(string projectDirectory, string configDirectory)
     {
-        foreach (var candidate in EnumerateGlobalConfigCandidates(projectDirectory, configDirectory))
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in EnumerateGlobalConfigCandidates(projectDirectory, configDirectory).Reverse())
         {
-            if (File.Exists(candidate))
+            if (!File.Exists(candidate))
             {
-                return KeyValueConfigReader.Read(candidate);
+                continue;
+            }
+
+            foreach (var item in KeyValueConfigReader.Read(candidate))
+            {
+                if (string.IsNullOrWhiteSpace(item.Value) &&
+                    result.TryGetValue(item.Key, out var existingValue) &&
+                    !string.IsNullOrWhiteSpace(existingValue))
+                {
+                    continue;
+                }
+
+                result[item.Key] = item.Value;
             }
         }
 
-        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        return result;
     }
 
     private static IEnumerable<string> EnumerateGlobalConfigCandidates(string projectDirectory, string configDirectory)
@@ -572,6 +585,29 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
 
                 current = parent;
             }
+        }
+
+        foreach (var candidate in EnumerateDesktopGlobalConfigCandidates())
+        {
+            if (visited.Add(candidate))
+            {
+                yield return candidate;
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateDesktopGlobalConfigCandidates()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (!string.IsNullOrWhiteSpace(localAppData))
+        {
+            yield return Path.Combine(localAppData, "ShortDramaDesktop", "global-settings.json");
+        }
+
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(userProfile))
+        {
+            yield return Path.Combine(userProfile, ".weixin_channel_tool", "settings.json");
         }
     }
 
