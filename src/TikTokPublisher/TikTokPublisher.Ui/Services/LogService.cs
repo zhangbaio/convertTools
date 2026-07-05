@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
 using Avalonia.Media;
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace TikTokPublisher.Ui.Services;
@@ -12,6 +13,7 @@ public sealed class LogEntry
     public string Level { get; init; } = "info";
     public string ProjectName { get; init; } = "";
     public string ProjectPath { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.Now;
     public IBrush Foreground => LogService.BrushForLevel(Level);
 }
 
@@ -43,6 +45,7 @@ public sealed class LogService
 {
     private const int MaxEntries = 5000;
     private const int MaxRendered = 1200;
+    private static readonly TimeSpan Retention = TimeSpan.FromDays(TikTokExecutionHistoryService.DefaultRetentionDays);
     private static readonly Regex HeaderRegex = new(
         @"^\[(?<time>[^\]]+)\]\s*(?<level>\w+)\s*(?:\[(?<project>[^\]]+)\])?\s*(?<rest>.*)$",
         RegexOptions.Compiled);
@@ -98,6 +101,7 @@ public sealed class LogService
         var line = (text ?? "").TrimEnd();
         if (string.IsNullOrWhiteSpace(line)) return;
 
+        var now = DateTime.Now;
         var (level, project, normalizedLine) = ParseHeader(line);
         var entry = new LogEntry
         {
@@ -105,12 +109,19 @@ public sealed class LogService
             Level = level,
             ProjectName = project,
             ProjectPath = ResolveProjectPath(project),
+            CreatedAt = now,
         };
         _entries.Add(entry);
+        var shouldRefreshRendered = PruneExpiredEntries(now);
         if (_entries.Count > MaxEntries)
+        {
             _entries.RemoveRange(0, _entries.Count - MaxEntries);
+            shouldRefreshRendered = true;
+        }
 
-        if (EntryMatchesFilter(entry))
+        if (shouldRefreshRendered)
+            RefreshRendered();
+        else if (EntryMatchesFilter(entry))
             AppendRendered(entry);
 
         ScheduleChanged();
@@ -194,6 +205,12 @@ public sealed class LogService
     {
         var filtered = FilterEntries().TakeLast(MaxRendered);
         return string.Join(Environment.NewLine, filtered.Select(e => e.Text));
+    }
+
+    private bool PruneExpiredEntries(DateTime now)
+    {
+        var cutoff = now - Retention;
+        return _entries.RemoveAll(entry => entry.CreatedAt < cutoff) > 0;
     }
 
     private void AppendRendered(LogEntry entry)

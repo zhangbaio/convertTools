@@ -12,7 +12,7 @@
                        Classes="pageSummary"
                        TextWrapping="Wrap" />
 
-            <TabControl>
+            <TabControl Classes="secondaryTabs">
                 <TabItem Header="软件授权">
                     <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
                         <Grid ColumnDefinitions="120,*"

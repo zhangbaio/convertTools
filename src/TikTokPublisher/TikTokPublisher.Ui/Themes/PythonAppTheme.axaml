@@ -304,6 +304,24 @@
         <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
 
+    <Style Selector="TabControl.secondaryTabs">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+
+    <Style Selector="TabControl.secondaryTabs TabItem">
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="#6B7280" />
+        <Setter Property="Padding" Value="0,0,0,6" />
+        <Setter Property="Margin" Value="0,0,22,8" />
+    </Style>
+
+    <Style Selector="TabControl.secondaryTabs TabItem:selected">
+        <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
+    </Style>
+
     <Style Selector="TextBlock.stepStatusCompleted">
         <Setter Property="Foreground" Value="{StaticResource PythonSuccessText}" />
     </Style>

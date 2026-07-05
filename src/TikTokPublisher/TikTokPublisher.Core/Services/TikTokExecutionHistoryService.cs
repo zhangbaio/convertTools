@@ -7,6 +7,11 @@ namespace TikTokPublisher.Core.Services;
 
 public static class TikTokExecutionHistoryService
 {
+    public const int DefaultRetentionDays = 3;
+    private static readonly TimeSpan AutomaticPruneInterval = TimeSpan.FromHours(1);
+    private static readonly object PruneLock = new();
+    private static DateTime _nextAutomaticPruneUtc = DateTime.MinValue;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -56,6 +61,7 @@ public static class TikTokExecutionHistoryService
             var path = ClientSettingsStore.MainDatabasePath;
             if (!File.Exists(path)) return [];
             AppDatabaseInitializer.EnsureInitialized(path);
+            PruneOldEventsIfDue(path, DateTime.Now);
 
             using var conn = new SqliteConnection($"Data Source={path};Mode=ReadOnly");
             conn.Open();
@@ -82,6 +88,29 @@ public static class TikTokExecutionHistoryService
         {
             return [];
         }
+    }
+
+    public static int PruneOldEvents(
+        string? databasePath = null,
+        DateTime? now = null,
+        int retentionDays = DefaultRetentionDays)
+    {
+        var path = string.IsNullOrWhiteSpace(databasePath)
+            ? ClientSettingsStore.MainDatabasePath
+            : Path.GetFullPath(databasePath);
+        AppDatabaseInitializer.EnsureInitialized(path);
+
+        var safeRetentionDays = Math.Max(1, retentionDays);
+        var cutoff = (now ?? DateTime.Now)
+            .AddDays(-safeRetentionDays)
+            .ToString("yyyy-MM-ddTHH:mm:ss");
+
+        using var conn = new SqliteConnection($"Data Source={path}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM upload_task_events WHERE created_at < $cutoff";
+        cmd.Parameters.AddWithValue("$cutoff", cutoff);
+        return cmd.ExecuteNonQuery();
     }
 
     private static Dictionary<string, object?> BuildPayload(
@@ -138,6 +167,8 @@ public static class TikTokExecutionHistoryService
     {
         var path = ClientSettingsStore.MainDatabasePath;
         AppDatabaseInitializer.EnsureInitialized(path);
+        PruneOldEventsIfDue(path, DateTime.Now);
+
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         var createdAt = payload.GetValueOrDefault("timestamp")?.ToString() ?? DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
         using var conn = new SqliteConnection($"Data Source={path}");
@@ -151,6 +182,27 @@ public static class TikTokExecutionHistoryService
         cmd.Parameters.AddWithValue("$payload_json", json);
         cmd.Parameters.AddWithValue("$created_at", createdAt);
         cmd.ExecuteNonQuery();
+    }
+
+    private static void PruneOldEventsIfDue(string databasePath, DateTime now)
+    {
+        var utcNow = DateTime.UtcNow;
+        lock (PruneLock)
+        {
+            if (utcNow < _nextAutomaticPruneUtc)
+                return;
+
+            _nextAutomaticPruneUtc = utcNow + AutomaticPruneInterval;
+        }
+
+        try
+        {
+            PruneOldEvents(databasePath, now);
+        }
+        catch
+        {
+            // History cleanup must not break queue execution or exports.
+        }
     }
 
     private static Dictionary<string, object?> Deserialize(string json)
