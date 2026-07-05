@@ -57,6 +57,8 @@ public partial class ProjectListItemViewModel : ViewModelBase
     public string SourceProjectDir { get; }
     public string OriginalTitle { get; }
     public string NewTitle => DisplayName;
+    public bool HasDistinctNewTitle => IsDistinctTitle(DisplayName, OriginalTitle, ProjectKey);
+    public string MaterialUploadNewTitleDisplay => HasDistinctNewTitle ? DisplayName : OriginalTitle;
     public event EventHandler? CheckedChanged;
     public ObservableCollection<DownloadEpisodeItemViewModel> DownloadEpisodes { get; } = [];
     public ObservableCollection<EpisodeUploadItemViewModel> EpisodeUploadEpisodes { get; } = [];
@@ -277,6 +279,13 @@ public partial class ProjectListItemViewModel : ViewModelBase
     partial void OnRewriteStepStatusChanged(string value) => OnPropertyChanged(nameof(RewriteStepStatusBrush));
     partial void OnPosterRenameStepStatusChanged(string value) => OnPropertyChanged(nameof(PosterRenameStepStatusBrush));
     partial void OnCostReportStepStatusChanged(string value) => OnPropertyChanged(nameof(CostReportStepStatusBrush));
+    partial void OnDisplayNameChanged(string value)
+    {
+        OnPropertyChanged(nameof(NewTitle));
+        OnPropertyChanged(nameof(HasDistinctNewTitle));
+        OnPropertyChanged(nameof(MaterialUploadNewTitleDisplay));
+    }
+
     partial void OnProjectImageStepStatusChanged(string value) => OnPropertyChanged(nameof(ProjectImageStepStatusBrush));
     partial void OnBatchFileRenameStepStatusChanged(string value) => OnPropertyChanged(nameof(BatchFileRenameStepStatusBrush));
     partial void OnMaterialConvertStepStatusChanged(string value) => OnPropertyChanged(nameof(MaterialConvertStepStatusBrush));
@@ -961,6 +970,19 @@ public partial class ProjectListItemViewModel : ViewModelBase
             ? Math.Round(_transcodedEpisodes.Count * 100d / _transcodeTotalEpisodes, 1)
             : 0d;
     }
+
+    private static bool IsDistinctTitle(string? title, params string?[] blockedTitles)
+    {
+        var normalized = NormalizeTitle(title);
+        return normalized.Length > 0 &&
+               blockedTitles
+                   .Select(NormalizeTitle)
+                   .Where(value => value.Length > 0)
+                   .All(value => !string.Equals(value, normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeTitle(string? value)
+        => (value ?? string.Empty).Trim().TrimStart('_').Trim();
 
     private static double ClampProgressForDisplay(double progress, string status)
     {

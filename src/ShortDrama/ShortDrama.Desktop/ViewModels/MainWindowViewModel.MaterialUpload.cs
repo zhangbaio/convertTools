@@ -1714,6 +1714,7 @@ public partial class MainWindowViewModel
 
         return Contains(project.OriginalTitle, token)
                || Contains(project.NewTitle, token)
+               || Contains(project.MaterialUploadNewTitleDisplay, token)
                || Contains(project.SourceSummary, token)
                || Contains(project.MaterialUploadStrategySummary, token)
                || Contains(project.MaterialUploadSelectionSummary, token)

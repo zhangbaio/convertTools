@@ -378,7 +378,7 @@
                                                        TextWrapping="Wrap"
                                                        MaxLines="2" />
                                             <TextBlock Grid.Column="3"
-                                                       Text="{Binding NewTitle}"
+                                                       Text="{Binding MaterialUploadNewTitleDisplay}"
                                                        FontWeight="SemiBold"
                                                        VerticalAlignment="Center"
                                                        TextWrapping="Wrap"
