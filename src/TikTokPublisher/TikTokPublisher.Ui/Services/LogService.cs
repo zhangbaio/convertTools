@@ -371,10 +371,10 @@ public sealed class LogService
 
     private static string ToneForRow(QueueProjectRowViewModel row)
     {
+        if (row.IsUploadCompleted)
+            return "ok";
         if (IsFailedRow(row))
             return "failed";
-        if (row.UploadStatus == QueueStepStatus.Completed)
-            return "ok";
         if (row.StatusText == QueueStepStatus.Running)
             return "running";
         if (row.StatusText == QueueStepStatus.WaitingUploadSlot || row.IsPendingUpload)
@@ -383,10 +383,11 @@ public sealed class LogService
     }
 
     private static bool IsFailedRow(QueueProjectRowViewModel row) =>
-        row.UploadStatus == QueueStepStatus.Failed ||
-        row.StatusText == QueueStepStatus.Failed ||
-        !string.IsNullOrWhiteSpace(row.LastError) ||
-        row.Item.StepStates.Values.Any(status => status == QueueStepStatus.Failed);
+        !row.IsUploadCompleted &&
+        (row.UploadStatus == QueueStepStatus.Failed ||
+         row.StatusText == QueueStepStatus.Failed ||
+         !string.IsNullOrWhiteSpace(row.LastError) ||
+         row.Item.StepStates.Values.Any(status => status == QueueStepStatus.Failed));
 
     private static bool IsUploadRunning(QueueProjectRowViewModel row) =>
         string.Equals(row.Item.CurrentStep, QueueStepRegistry.UploadSeries, StringComparison.Ordinal)

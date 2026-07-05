@@ -107,10 +107,10 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush DeleteSourceStatusBrush => BrushOf(DeleteSourceStatus);
     public IBrush UploadStatusBrush => BrushOf(UploadStatus);
     public IBrush StatusTextBrush => BrushOf(StatusText);
-    public IBrush DramaTitleBrush => HasFailure
-        ? FailedBrush
-        : UploadStatus == QueueStepStatus.Completed
-            ? CompletedBrush
+    public IBrush DramaTitleBrush => IsUploadCompleted
+        ? CompletedBrush
+        : HasFailure
+            ? FailedBrush
             : LinkBrush;
     public IBrush DownloadStatusBackgroundBrush => BackgroundOf(DownloadStatus);
     public IBrush RewriteStatusBackgroundBrush => BackgroundOf(RewriteStatus);
@@ -134,11 +134,15 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush StatusTextBorderBrush => BorderOf(StatusText);
     public string LastError => Item.LastError;
     public bool IsPendingUpload => Item.IsPendingUpload;
+    public bool IsUploadCompleted =>
+        UploadStatus == QueueStepStatus.Completed ||
+        (StatusText == QueueStepStatus.Completed && string.IsNullOrWhiteSpace(LastError));
     public bool HasFailure =>
-        StatusText == QueueStepStatus.Failed ||
-        UploadStatus == QueueStepStatus.Failed ||
-        !string.IsNullOrWhiteSpace(LastError) ||
-        Item.StepStates.Values.Any(status => status == QueueStepStatus.Failed);
+        !IsUploadCompleted &&
+        (StatusText == QueueStepStatus.Failed ||
+         UploadStatus == QueueStepStatus.Failed ||
+         !string.IsNullOrWhiteSpace(LastError) ||
+         Item.StepStates.Values.Any(status => status == QueueStepStatus.Failed));
 
     public string CurrentStepLabel => string.IsNullOrWhiteSpace(Item.CurrentStep)
         ? ""
