@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Queue;
@@ -21,6 +22,13 @@ public static class QueueProjectTitleRenameService
     private const string MetadataFile = "shortdrama-project.json";
     private const string DramaInfoFile = "短剧信息.txt";
     private const string LegacyManifestFile = "tiktok-upload-manifest.json";
+    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".flv", ".wmv",
+    };
+
+    private static readonly Regex EpisodePattern = new(@"第\s*(\d+)\s*集", RegexOptions.Compiled);
+    private static readonly Regex ForbiddenFileNameChars = new(@"[<>:""/\\|?*\x00-\x1f]", RegexOptions.Compiled);
 
     public static QueueProjectTitleRenameResult RenameNewTitle(
         string workspaceRoot,
@@ -60,11 +68,16 @@ public static class QueueProjectTitleRenameService
         var newWorkflowDir = ProjectWorkspaceService.SyncWorkflowProjectDirName(sourceDir, title);
         newWorkflowDir = Path.GetFullPath(newWorkflowDir);
         var workflowRenamed = !string.Equals(oldWorkflowDir, newWorkflowDir, StringComparison.OrdinalIgnoreCase);
+        var renamedUploadVideoPaths = RenameStagedUploadVideos(
+            oldWorkflowDir,
+            newWorkflowDir,
+            title,
+            updatedFiles);
 
         UpdateProjectMetadata(Path.Combine(sourceDir, MetadataFile), title, newWorkflowDir, sourceDir, updatedFiles);
         UpdateProjectMetadata(Path.Combine(newWorkflowDir, MetadataFile), title, newWorkflowDir, sourceDir, updatedFiles);
         UpdateUploadState(newWorkflowDir, oldTitle, title, updatedFiles);
-        UpdateManifest(root, sourceDir, newWorkflowDir, oldTitle, title, updatedFiles);
+        UpdateManifest(root, sourceDir, oldWorkflowDir, newWorkflowDir, title, renamedUploadVideoPaths, updatedFiles);
 
         target.NewTitle = title;
         ProjectWorkspaceService.RefreshQueueItemMetadata(target);
@@ -237,12 +250,80 @@ public static class QueueProjectTitleRenameService
         updatedFiles.Add(TikTokUploadStateStore.StateFilePath(workflowDir));
     }
 
+    private static IReadOnlyDictionary<string, string> RenameStagedUploadVideos(
+        string oldWorkflowDir,
+        string workflowDir,
+        string newTitle,
+        List<string> updatedFiles)
+    {
+        var stagingRoot = Path.Combine(workflowDir, TikTokUploadStagingService.StagingDirName);
+        if (!Directory.Exists(stagingRoot))
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        var safeTitle = SanitizeFileTitle(newTitle);
+        var plan = new List<(string Source, string Temp, string Final)>();
+        foreach (var source in Directory.EnumerateFiles(stagingRoot, "*.*", SearchOption.AllDirectories)
+                     .Where(path => VideoExtensions.Contains(Path.GetExtension(path))))
+        {
+            var final = BuildRenamedEpisodePath(source, safeTitle);
+            if (string.IsNullOrWhiteSpace(final) ||
+                string.Equals(Path.GetFullPath(source), Path.GetFullPath(final), StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (File.Exists(final))
+                throw new InvalidOperationException($"无法修改上传视频名称，目标文件已存在：{final}");
+
+            var temp = Path.Combine(Path.GetDirectoryName(source)!, $".rename-{Guid.NewGuid():N}{Path.GetExtension(source)}");
+            plan.Add((source, temp, final));
+        }
+
+        if (plan.Count == 0)
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var step in plan)
+            File.Move(step.Source, step.Temp);
+        foreach (var step in plan)
+            File.Move(step.Temp, step.Final);
+
+        var renamedPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var step in plan)
+        {
+            var final = Path.GetFullPath(step.Final);
+            var currentSource = Path.GetFullPath(step.Source);
+            renamedPaths[currentSource] = final;
+
+            var legacySource = RewriteWorkflowRoot(currentSource, workflowDir, oldWorkflowDir);
+            renamedPaths[legacySource] = final;
+            updatedFiles.Add(final);
+        }
+
+        return renamedPaths;
+    }
+
+    private static string BuildRenamedEpisodePath(string sourcePath, string safeTitle)
+    {
+        var fileName = Path.GetFileNameWithoutExtension(sourcePath);
+        var match = EpisodePattern.Match(fileName);
+        if (!match.Success)
+            return "";
+
+        var episode = match.Groups[1].Value;
+        var extension = Path.GetExtension(sourcePath);
+        if (string.IsNullOrWhiteSpace(extension))
+            extension = ".mp4";
+
+        return Path.Combine(Path.GetDirectoryName(sourcePath)!, $"{safeTitle}-第{episode}集{extension.ToLowerInvariant()}");
+    }
+
     private static void UpdateManifest(
         string workspaceRoot,
         string sourceDir,
+        string oldWorkflowDir,
         string workflowDir,
-        string oldTitle,
         string newTitle,
+        IReadOnlyDictionary<string, string> renamedUploadVideoPaths,
         List<string> updatedFiles)
     {
         var document = ProjectStateDocumentStore.LoadDocument(
@@ -253,6 +334,10 @@ public static class QueueProjectTitleRenameService
         if (document.Count > 0)
         {
             document["display_title"] = newTitle;
+            document["workflow_project_dir"] = workflowDir;
+            RewritePathList(document, "upload_video_paths", oldWorkflowDir, workflowDir, renamedUploadVideoPaths);
+            RewritePathList(document, "video_paths", oldWorkflowDir, workflowDir, renamedUploadVideoPaths);
+            RewritePathValue(document, "poster_path", oldWorkflowDir, workflowDir, renamedUploadVideoPaths);
             ProjectStateDocumentStore.SaveDocument(
                 workspaceRoot,
                 sourceDir,
@@ -266,6 +351,10 @@ public static class QueueProjectTitleRenameService
         if (legacy.Count == 0) return;
 
         legacy["display_title"] = newTitle;
+        legacy["workflow_project_dir"] = workflowDir;
+        RewritePathList(legacy, "upload_video_paths", oldWorkflowDir, workflowDir, renamedUploadVideoPaths);
+        RewritePathList(legacy, "video_paths", oldWorkflowDir, workflowDir, renamedUploadVideoPaths);
+        RewritePathValue(legacy, "poster_path", oldWorkflowDir, workflowDir, renamedUploadVideoPaths);
         File.WriteAllText(path, JsonSerializer.Serialize(legacy, new JsonSerializerOptions { WriteIndented = true }));
         updatedFiles.Add(path);
     }
@@ -363,6 +452,128 @@ public static class QueueProjectTitleRenameService
         if (seen.Add(newTitle))
             result.Add(newTitle);
         return result;
+    }
+
+    private static void RewritePathList(
+        IDictionary<string, object?> payload,
+        string key,
+        string oldWorkflowDir,
+        string workflowDir,
+        IReadOnlyDictionary<string, string> renamedPaths)
+    {
+        if (!payload.TryGetValue(key, out var raw)) return;
+
+        var values = ExtractStringList(raw);
+        if (values.Count == 0) return;
+
+        payload[key] = values
+            .Select(value => RewritePath(value, oldWorkflowDir, workflowDir, renamedPaths))
+            .ToList();
+    }
+
+    private static void RewritePathValue(
+        IDictionary<string, object?> payload,
+        string key,
+        string oldWorkflowDir,
+        string workflowDir,
+        IReadOnlyDictionary<string, string> renamedPaths)
+    {
+        if (!payload.TryGetValue(key, out var raw)) return;
+
+        var value = ExtractString(raw);
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        payload[key] = RewritePath(value, oldWorkflowDir, workflowDir, renamedPaths);
+    }
+
+    private static List<string> ExtractStringList(object? raw)
+    {
+        if (raw is JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Array)
+                return new List<string>();
+
+            return element.EnumerateArray()
+                .Where(item => item.ValueKind == JsonValueKind.String)
+                .Select(item => item.GetString() ?? "")
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToList();
+        }
+
+        if (raw is IEnumerable<string> strings)
+            return strings.Where(value => !string.IsNullOrWhiteSpace(value)).ToList();
+
+        if (raw is string)
+            return new List<string>();
+
+        if (raw is IEnumerable<object?> objects)
+            return objects
+                .Select(ExtractString)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToList()!;
+
+        return new List<string>();
+    }
+
+    private static string? ExtractString(object? raw) => raw switch
+    {
+        null => null,
+        string value => value,
+        JsonElement { ValueKind: JsonValueKind.String } element => element.GetString(),
+        _ => raw.ToString(),
+    };
+
+    private static string RewritePath(
+        string value,
+        string oldWorkflowDir,
+        string workflowDir,
+        IReadOnlyDictionary<string, string> renamedPaths)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return value;
+
+        string fullPath;
+        try
+        {
+            if (!Path.IsPathFullyQualified(value))
+                return value;
+            fullPath = Path.GetFullPath(value);
+        }
+        catch
+        {
+            return value;
+        }
+
+        if (renamedPaths.TryGetValue(fullPath, out var renamed))
+            return renamed;
+
+        var rewritten = RewriteWorkflowRoot(fullPath, oldWorkflowDir, workflowDir);
+        return renamedPaths.TryGetValue(rewritten, out renamed) ? renamed : rewritten;
+    }
+
+    private static string RewriteWorkflowRoot(string path, string oldRoot, string newRoot)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var oldFull = Path.GetFullPath(oldRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var newFull = Path.GetFullPath(newRoot);
+
+        if (string.Equals(fullPath, oldFull, StringComparison.OrdinalIgnoreCase))
+            return newFull;
+
+        var prefix = oldFull + Path.DirectorySeparatorChar;
+        if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return fullPath;
+
+        var relative = Path.GetRelativePath(oldFull, fullPath);
+        return Path.GetFullPath(Path.Combine(newFull, relative));
+    }
+
+    private static string SanitizeFileTitle(string value)
+    {
+        var text = ForbiddenFileNameChars.Replace(value.Trim(), " ");
+        text = Regex.Replace(text, @"\s+", " ").Trim().Trim('.');
+        if (string.IsNullOrWhiteSpace(text)) return "短剧视频";
+        return text.Length > 80 ? text[..80] : text;
     }
 
     private static string ReadInfoValue(string infoPath, params string[] keys)

@@ -27,6 +27,12 @@ public sealed class QueueProjectTitleRenameServiceTests
             File.WriteAllText(
                 Path.Combine(oldWorkflowDir, "短剧信息.txt"),
                 "新剧名: 旧剧名\n原剧名: 原剧名\n剧名: 旧剧名\n短标题: 旧剧名\n集数: 12\n");
+            var oldStagingDir = Path.Combine(oldWorkflowDir, TikTokUploadStagingService.StagingDirName);
+            Directory.CreateDirectory(oldStagingDir);
+            var oldUploadVideo1 = Path.Combine(oldStagingDir, "旧剧名-第1集.mp4");
+            var oldUploadVideo2 = Path.Combine(oldStagingDir, "旧剧名-第2集.mp4");
+            File.WriteAllBytes(oldUploadVideo1, [1]);
+            File.WriteAllBytes(oldUploadVideo2, [2]);
 
             WorkspaceQueueDatabase.EnsureDatabase(WorkspaceQueuePaths.QueueDatabasePath(workspace));
             var item = new QueueProjectItem
@@ -72,11 +78,17 @@ public sealed class QueueProjectTitleRenameServiceTests
                 {
                     ["display_title"] = "旧剧名",
                     ["workflow_project_dir"] = oldWorkflowDir,
+                    ["upload_video_paths"] = new List<string> { oldUploadVideo1, oldUploadVideo2 },
                 },
                 oldWorkflowDir);
             File.WriteAllText(
                 Path.Combine(oldWorkflowDir, "tiktok-upload-manifest.json"),
-                JsonSerializer.Serialize(new Dictionary<string, object?> { ["display_title"] = "旧剧名" }));
+                JsonSerializer.Serialize(new Dictionary<string, object?>
+                {
+                    ["display_title"] = "旧剧名",
+                    ["workflow_project_dir"] = oldWorkflowDir,
+                    ["upload_video_paths"] = new List<string> { oldUploadVideo1, oldUploadVideo2 },
+                }));
 
             var result = QueueProjectTitleRenameService.RenameNewTitle(workspace, sourceDir, "新剧名");
 
@@ -88,6 +100,12 @@ public sealed class QueueProjectTitleRenameServiceTests
             result.ResetMaterialValidate.Should().BeFalse();
             Directory.Exists(oldWorkflowDir).Should().BeFalse();
             Directory.Exists(newWorkflowDir).Should().BeTrue();
+            var newUploadVideo1 = Path.Combine(newWorkflowDir, TikTokUploadStagingService.StagingDirName, "新剧名-第1集.mp4");
+            var newUploadVideo2 = Path.Combine(newWorkflowDir, TikTokUploadStagingService.StagingDirName, "新剧名-第2集.mp4");
+            File.Exists(oldUploadVideo1).Should().BeFalse();
+            File.Exists(oldUploadVideo2).Should().BeFalse();
+            File.Exists(newUploadVideo1).Should().BeTrue();
+            File.Exists(newUploadVideo2).Should().BeTrue();
 
             var workflowInfo = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(newWorkflowDir, "短剧信息.txt"));
             workflowInfo["新剧名"].Should().Be("新剧名");
@@ -120,9 +138,15 @@ public sealed class QueueProjectTitleRenameServiceTests
                 sourceDir,
                 TikTokUploadManifestService.DocumentType);
             manifest["display_title"].GetString().Should().Be("新剧名");
+            manifest["workflow_project_dir"].GetString().Should().Be(newWorkflowDir);
+            manifest["upload_video_paths"].EnumerateArray().Select(item => item.GetString())
+                .Should().Equal(newUploadVideo1, newUploadVideo2);
             var legacyManifest = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
                 File.ReadAllText(Path.Combine(newWorkflowDir, "tiktok-upload-manifest.json")))!;
             legacyManifest["display_title"].GetString().Should().Be("新剧名");
+            legacyManifest["workflow_project_dir"].GetString().Should().Be(newWorkflowDir);
+            legacyManifest["upload_video_paths"].EnumerateArray().Select(item => item.GetString())
+                .Should().Equal(newUploadVideo1, newUploadVideo2);
         }
         finally
         {
