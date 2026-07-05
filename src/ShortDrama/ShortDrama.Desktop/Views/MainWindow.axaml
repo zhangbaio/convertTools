@@ -12,7 +12,7 @@
         MinWidth="1420"
         MinHeight="860"
         Icon="/Assets/avalonia-logo.ico"
-        Title="ShortDrama Desktop">
+        Title="短剧助手">
 
     <Window.Styles>
         <Style Selector="TabControl.sidebar">
@@ -320,7 +320,7 @@
                 <localviews:ConfigView />
             </TabItem>
 
-            <TabItem Header="素材上传">
+            <TabItem Header="发布素材">
                 <localviews:MaterialUploadView />
             </TabItem>
 

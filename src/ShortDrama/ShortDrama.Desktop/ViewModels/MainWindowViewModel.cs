@@ -751,6 +751,8 @@ public partial class MainWindowViewModel : ViewModelBase
     partial void OnRootDirChanged(string value)
     {
         OnPropertyChanged(nameof(WorkspaceSummary));
+        OnPropertyChanged(nameof(MaterialPublishPlanStatus));
+        OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
         RefreshCommandStates();
         LoadConfig();
         LoadMaterialUploadPageState();
@@ -871,6 +873,8 @@ public partial class MainWindowViewModel : ViewModelBase
             ClearMaterialValidationIssues();
             OnPropertyChanged(nameof(SelectedProjectTitle));
             OnPropertyChanged(nameof(MaterialUploadSummary));
+            OnPropertyChanged(nameof(MaterialPublishPlanStatus));
+            OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
             OnPropertyChanged(nameof(HasTaskQueueDetail));
             OnPropertyChanged(nameof(IsTaskQueueOverviewVisible));
             OnPropertyChanged(nameof(IsTaskQueueDownloadDetailVisible));
@@ -3737,6 +3741,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 OnPropertyChanged(nameof(TaskQueueSummary));
                 OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
                 OnPropertyChanged(nameof(MaterialUploadSummary));
+                OnPropertyChanged(nameof(MaterialPublishPlanStatus));
                 RefreshCommandStates();
             }
             catch (Exception ex)

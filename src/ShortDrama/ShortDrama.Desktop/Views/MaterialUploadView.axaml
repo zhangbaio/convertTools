@@ -2,9 +2,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:ShortDrama.Desktop.ViewModels"
              x:Class="ShortDrama.Desktop.Views.MaterialUploadView">
-    <Grid ColumnDefinitions="232,*"
-          ColumnSpacing="12">
-        <Border Classes="page-panel">
+    <Grid ColumnDefinitions="0,*"
+          ColumnSpacing="0">
+        <!-- Keep the account-management controls in the visual tree for existing code-behind wiring.
+             The reference app manages accounts from the sidebar, so this panel is intentionally hidden here. -->
+        <Border Classes="page-panel"
+                IsVisible="False">
             <Grid RowDefinitions="Auto,Auto,Auto,*,Auto"
                   RowSpacing="10">
                 <TextBlock Text="账号管理"
@@ -130,34 +133,35 @@
               RowDefinitions="Auto,Auto,Auto,*"
               RowSpacing="12">
             <Border Classes="page-panel">
-                <StackPanel Spacing="10">
-                    <Border Classes="toolbar-panel">
-                        <Grid ColumnDefinitions="88,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto"
-                              RowSpacing="8"
-                              ColumnSpacing="10">
-                            <TextBlock Text="执行控制"
-                                       FontWeight="SemiBold"
-                                       VerticalAlignment="Center" />
-                            <WrapPanel Grid.Column="1"
-                                       Orientation="Horizontal">
+                <Border Classes="toolbar-panel">
+                    <Grid ColumnDefinitions="86,*"
+                          RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                          RowSpacing="8"
+                          ColumnSpacing="10">
+                        <TextBlock Text="执行控制"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Grid Grid.Column="1"
+                              ColumnDefinitions="Auto,*"
+                              ColumnSpacing="8">
+                            <WrapPanel Orientation="Horizontal">
                                 <Button x:Name="RunMaterialUploadQueueButton"
                                         Classes="primary compact"
-                                        MinWidth="170"
+                                        MinWidth="154"
                                         Margin="0,0,8,0"
                                         Content="{Binding MaterialUploadQueueButtonText}" />
                                 <Button x:Name="CheckAllVisibleButton"
                                         Classes="compact"
-                                        MinWidth="92"
+                                        MinWidth="80"
                                         Margin="0,0,8,0"
                                         Content="全选" />
                                 <Button x:Name="UncheckAllVisibleButton"
                                         Classes="compact"
-                                        MinWidth="100"
+                                        MinWidth="96"
                                         Margin="0,0,8,0"
                                         Content="取消全选" />
-                                <Button Classes="compact"
-                                        MinWidth="92"
+                                <Button Classes="compact danger"
+                                        MinWidth="88"
                                         Margin="0,0,8,0"
                                         Command="{Binding StopCurrentRunCommand}"
                                         Content="停止" />
@@ -168,234 +172,276 @@
                                         Content="运行控制" />
                                 <Button x:Name="OpenPublishConfigButton"
                                         Classes="compact"
-                                        MinWidth="118"
+                                        MinWidth="112"
                                         Margin="0,0,8,0"
                                         Content="发表配置" />
-                                <Button x:Name="OpenMaterialUploadToolbarBrowserButton"
-                                        Classes="compact"
-                                        MinWidth="118"
-                                        Margin="0,0,8,0"
-                                        Content="打开浏览器" />
                             </WrapPanel>
-
-                            <TextBlock Grid.Row="1"
-                                       Text="素材来源"
-                                       FontWeight="SemiBold"
-                                       VerticalAlignment="Center" />
-                            <WrapPanel Grid.Row="1"
-                                       Grid.Column="1"
-                                       Orientation="Horizontal">
-                                <Button x:Name="PublishSystemHighlightButton"
-                                        Classes="compact"
-                                        MinWidth="150"
-                                        Margin="0,0,8,0"
-                                        Content="发布系统高光视频" />
-                                <Button x:Name="DownloadSystemHighlightButton"
-                                        Classes="compact"
-                                        MinWidth="150"
-                                        Margin="0,0,8,0"
-                                        Content="下载系统高光视频" />
-                                <Button x:Name="DownloadMaterialVideoButton"
-                                        Classes="compact"
-                                        MinWidth="132"
-                                        Margin="0,0,8,0"
-                                        Content="下载素材视频" />
-                                <Button x:Name="DirectoryBatchPublishButton"
-                                        Classes="compact"
-                                        MinWidth="132"
-                                        Margin="0,0,8,0"
-                                        Content="目录批量发表" />
-                                <Button x:Name="OpenSystemHighlightScheduleButton"
-                                        Classes="compact"
-                                        MinWidth="132"
-                                        Margin="0,0,8,0"
-                                        Content="高光定时配置" />
-                            </WrapPanel>
-
-                            <TextBlock Grid.Row="2"
-                                       Text="启用步骤"
-                                       FontWeight="SemiBold"
-                                       VerticalAlignment="Center" />
-                            <WrapPanel Grid.Row="2"
-                                       Grid.Column="1"
-                                       Orientation="Horizontal">
-                                <CheckBox x:Name="GenerateHighlightsCheckBox"
-                                          Margin="0,0,16,0"
-                                          Content="生成剪辑视频"
-                                          IsChecked="{Binding MaterialUploadGenerateHighlights}" />
-                                <CheckBox Margin="0,0,16,0"
-                                          Content="素材上传"
-                                          IsChecked="{Binding QueueStepMaterialUploadEnabled}" />
-                                <CheckBox Margin="0,0,16,0"
-                                          Content="允许重复发布素材"
-                                          IsChecked="{Binding MaterialUploadAllowDuplicatePublish}" />
-                                <Button x:Name="OpenClipConfigButton"
-                                        Classes="compact"
-                                        MinWidth="118"
-                                        Margin="0,0,8,0"
-                                        Content="剪辑配置" />
-                                <Button x:Name="GenerateClipsFullEngineButton"
-                                        Classes="compact"
-                                        MinWidth="176"
-                                        Margin="0,0,8,0"
-                                        Content="生成剪辑(完整引擎)" />
-                                <TextBlock Margin="8,0,8,0"
-                                           VerticalAlignment="Center"
-                                           Text="并发账号" />
-                                <NumericUpDown Width="78"
-                                               Minimum="1"
-                                               Maximum="8"
-                                               Increment="1"
-                                               FormatString="0"
-                                               Value="{Binding MaterialUploadMaxParallelAccounts}" />
-                            </WrapPanel>
-
-                            <TextBlock Grid.Row="3"
-                                       Text="工作区账号"
-                                       FontWeight="SemiBold"
-                                       VerticalAlignment="Center" />
-                            <WrapPanel Grid.Row="3"
-                                       Grid.Column="1"
-                                       Orientation="Horizontal">
-                                <ComboBox Width="180"
-                                          Margin="0,0,8,0"
-                                          ItemsSource="{Binding VisibleMaterialUploadAccounts}"
-                                          SelectedItem="{Binding SelectedMaterialUploadAccount}"
-                                          DisplayMemberBinding="{Binding DisplayName}" />
-                                <Button x:Name="BindCurrentMaterialUploadAccountButton"
-                                        Classes="compact"
-                                        MinWidth="126"
-                                        Margin="0,0,8,0"
-                                        Content="绑定到当前项目" />
-                                <Button x:Name="ClearMaterialUploadAccountBindingButton"
-                                        Classes="compact"
-                                        MinWidth="126"
-                                        Margin="0,0,8,0"
-                                        Content="清除项目绑定" />
-                                <Button x:Name="DeleteChannelMaterialsButton"
-                                        Classes="compact"
-                                        MinWidth="150"
-                                        Margin="0,0,8,0"
-                                        Content="删除视频号素材" />
-                                <Button x:Name="ShowMaterialLogsButton"
-                                        Classes="compact"
-                                        MinWidth="126"
-                                        Margin="0,0,8,0"
-                                        Content="查看素材日志" />
-                                <Button x:Name="CreateManualMaterialProjectButton"
-                                        Classes="compact"
-                                        MinWidth="168"
-                                        Margin="0,0,8,0"
-                                        Content="手动创建素材项目" />
-                            </WrapPanel>
+                            <Border Grid.Column="1"
+                                    Classes="status-pill"
+                                    Padding="8,6">
+                                <TextBlock Text="{Binding MaterialPublishPlanStatus}"
+                                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                            </Border>
                         </Grid>
-                    </Border>
-                </StackPanel>
+
+                        <TextBlock Grid.Row="1"
+                                   Text="素材来源"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <WrapPanel Grid.Row="1"
+                                   Grid.Column="1"
+                                   Orientation="Horizontal">
+                            <Button x:Name="PublishSystemHighlightButton"
+                                    Classes="compact"
+                                    MinWidth="164"
+                                    Margin="0,0,8,0"
+                                    Content="发布系统高光视频" />
+                            <Button x:Name="DownloadSystemHighlightButton"
+                                    Classes="compact"
+                                    MinWidth="168"
+                                    Margin="0,0,8,0"
+                                    Content="下载系统高光视频" />
+                            <Button x:Name="DownloadMaterialVideoButton"
+                                    Classes="compact"
+                                    MinWidth="140"
+                                    Margin="0,0,8,0"
+                                    Content="下载素材视频" />
+                            <Button x:Name="DirectoryBatchPublishButton"
+                                    Classes="compact"
+                                    MinWidth="140"
+                                    Margin="0,0,8,0"
+                                    Content="目录批量发表" />
+                            <Button x:Name="OpenSystemHighlightScheduleButton"
+                                    Classes="compact"
+                                    MinWidth="150"
+                                    Margin="0,0,8,0"
+                                    Content="高光定时配置" />
+                        </WrapPanel>
+
+                        <TextBlock Grid.Row="2"
+                                   Text="启用步骤"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <WrapPanel Grid.Row="2"
+                                   Grid.Column="1"
+                                   Orientation="Horizontal">
+                            <CheckBox x:Name="GenerateHighlightsCheckBox"
+                                      Margin="0,0,14,0"
+                                      Content="生成剪辑视频"
+                                      IsChecked="{Binding MaterialUploadGenerateHighlights}" />
+                            <CheckBox Margin="0,0,14,0"
+                                      Content="素材上传"
+                                      IsChecked="{Binding QueueStepMaterialUploadEnabled}" />
+                            <CheckBox Margin="0,0,14,0"
+                                      Content="允许重复发布素材"
+                                      IsChecked="{Binding MaterialUploadAllowDuplicatePublish}" />
+                            <Button x:Name="OpenClipConfigButton"
+                                    Classes="compact"
+                                    MinWidth="118"
+                                    Margin="0,0,8,0"
+                                    Content="全局剪辑配置" />
+                            <Button x:Name="GenerateClipsFullEngineButton"
+                                    Classes="compact"
+                                    MinWidth="176"
+                                    Margin="0,0,8,0"
+                                    IsVisible="False"
+                                    Content="生成剪辑(完整引擎)" />
+                            <NumericUpDown Width="78"
+                                           Minimum="1"
+                                           Maximum="8"
+                                           Increment="1"
+                                           FormatString="0"
+                                           IsVisible="False"
+                                           Value="{Binding MaterialUploadMaxParallelAccounts}" />
+                        </WrapPanel>
+
+                        <TextBlock Grid.Row="3"
+                                   Text="素材工具"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <WrapPanel Grid.Row="3"
+                                   Grid.Column="1"
+                                   Orientation="Horizontal">
+                            <Button x:Name="OpenMaterialUploadToolbarBrowserButton"
+                                    Classes="compact"
+                                    MinWidth="132"
+                                    Margin="0,0,8,0"
+                                    Content="浏览器运行中..." />
+                            <Button x:Name="DeleteChannelMaterialsButton"
+                                    Classes="compact"
+                                    MinWidth="138"
+                                    Margin="0,0,8,0"
+                                    Content="删除视频号素材" />
+                            <Button x:Name="ShowMaterialLogsButton"
+                                    Classes="compact"
+                                    MinWidth="118"
+                                    Margin="0,0,8,0"
+                                    Content="查看素材日志" />
+                            <Button x:Name="CreateManualMaterialProjectButton"
+                                    Classes="compact"
+                                    MinWidth="168"
+                                    Margin="0,0,8,0"
+                                    Content="手动创建素材项目" />
+                        </WrapPanel>
+
+                        <TextBlock Grid.Row="4"
+                                   Text="工作区账号"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <Grid Grid.Row="4"
+                              Grid.Column="1"
+                              ColumnDefinitions="Auto,Auto,Auto,*"
+                              ColumnSpacing="8">
+                            <ComboBox Width="120"
+                                      ItemsSource="{Binding VisibleMaterialUploadAccounts}"
+                                      SelectedItem="{Binding SelectedMaterialUploadAccount}"
+                                      DisplayMemberBinding="{Binding DisplayName}" />
+                            <Button x:Name="BindCurrentMaterialUploadAccountButton"
+                                    Grid.Column="1"
+                                    Classes="compact"
+                                    MinWidth="126"
+                                    Content="绑定到当前项目" />
+                            <Button x:Name="ClearMaterialUploadAccountBindingButton"
+                                    Grid.Column="2"
+                                    Classes="compact"
+                                    MinWidth="126"
+                                    Content="清除项目绑定" />
+                            <Border Grid.Column="3"
+                                    Classes="status-pill"
+                                    Padding="8,6">
+                                <TextBlock Text="{Binding CurrentMaterialUploadAccountSummary}"
+                                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </Border>
             </Border>
 
-            <Border Grid.Row="1" Classes="page-panel">
-                <Grid ColumnDefinitions="96,*,Auto,Auto" ColumnSpacing="10">
+            <Border Grid.Row="1"
+                    Classes="page-panel"
+                    Padding="8">
+                <Grid ColumnDefinitions="56,*,Auto,Auto,Auto"
+                      ColumnSpacing="8">
                     <TextBlock VerticalAlignment="Center"
-                               Text="工作目录"
-                               Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                               Text="工作目录:" />
                     <TextBox Grid.Column="1"
                              Classes="compact"
                              Text="{Binding RootDir}"
                              Watermark="请输入或选择项目根目录" />
                     <Button Grid.Column="2"
                             Classes="compact"
-                            MinWidth="126"
+                            MinWidth="118"
                             Click="PickRootDir_Click"
                             Content="选择工作目录" />
                     <Button Grid.Column="3"
                             Classes="compact"
-                            MinWidth="108"
+                            MinWidth="72"
+                            Click="ResetMaterialUploadWorkspace_Click"
+                            Content="重置" />
+                    <Button Grid.Column="4"
+                            Classes="compact"
+                            MinWidth="96"
                             Command="{Binding ScanCommand}"
                             Content="扫描项目" />
                 </Grid>
             </Border>
 
-            <Border Grid.Row="2" Classes="page-panel">
-                <Grid RowDefinitions="Auto,Auto" RowSpacing="10">
-                    <TextBox Classes="compact"
+            <Grid Grid.Row="2"
+                  RowDefinitions="Auto,Auto"
+                  RowSpacing="8">
+                <Grid ColumnDefinitions="56,*"
+                      ColumnSpacing="8">
+                    <TextBlock VerticalAlignment="Center"
+                               Text="搜索:" />
+                    <TextBox Grid.Column="1"
+                             Classes="compact"
                              Text="{Binding MaterialUploadFilterText}"
-                             Watermark="搜索原剧名 / 新剧名 / 账号档 / 发表配置 / 已上传素材 / 路径" />
-                    <TextBlock Grid.Row="1"
-                               Text="{Binding MaterialUploadSummary}"
-                               Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+                             Watermark="搜索原剧名 / 新剧名 / 发表配置 / 已上传素材 / 路径" />
                 </Grid>
-            </Border>
+                <TextBlock Grid.Row="1"
+                           Text="勾选表示加入素材上传队列；点击行可切换当前项目。此页同时支持当前工作目录剧集与已下载系统高光的素材上传流程。"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}" />
+            </Grid>
 
-            <Border Grid.Row="3" Classes="table-shell">
+            <Border Grid.Row="3"
+                    Classes="table-shell">
                 <Grid RowDefinitions="Auto,*">
                     <Border Classes="table-header">
-                        <Grid ColumnDefinitions="148,132,220,220,96,120,120"
+                        <Grid ColumnDefinitions="56,2.2*,2.2*,70,90,120,1.6*"
                               ColumnSpacing="12">
-                            <TextBlock Text="执行" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="1" Text="账号档" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="2" Text="原剧名" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="3" Text="新剧名" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="4" Text="素材数" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="5" Text="已上传素材" FontWeight="SemiBold" />
-                            <TextBlock Grid.Column="6" Text="状态" FontWeight="SemiBold" />
+                            <TextBlock Text="执行"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1"
+                                       Text="原剧名"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2"
+                                       Text="新剧名"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="3"
+                                       Text="集数"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="4"
+                                       Text="素材数"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="5"
+                                       Text="来源"
+                                       FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="6"
+                                       Text="已上传素材"
+                                       FontWeight="SemiBold" />
                         </Grid>
                     </Border>
 
-                    <ScrollViewer Grid.Row="1"
-                                  HorizontalScrollBarVisibility="Auto"
-                                  VerticalScrollBarVisibility="Auto">
-                        <ItemsControl x:Name="MaterialUploadProjectsListBox"
-                                      Classes="table-list"
-                                      ItemsSource="{Binding MaterialUploadProjects}"
-                                      MinWidth="1120">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:ProjectListItemViewModel">
-                                    <Border Classes="table-row">
-                                        <Grid ColumnDefinitions="148,132,220,220,96,120,120"
-                                              ColumnSpacing="12">
-                                            <StackPanel Orientation="Horizontal"
-                                                        Spacing="8"
-                                                        VerticalAlignment="Center">
-                                                <CheckBox IsChecked="{Binding IsChecked}"
-                                                          VerticalAlignment="Center" />
-                                                <Button Classes="compact"
-                                                        MinWidth="58"
-                                                        Content="执行"
-                                                        Click="RunSingleMaterialUpload_Click" />
-                                            </StackPanel>
-                                            <TextBlock Grid.Column="1"
-                                                       Text="{Binding MaterialUploadAccountDisplay}"
-                                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}"
-                                                       VerticalAlignment="Center"
-                                                       TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="2"
-                                                       Text="{Binding OriginalTitle}"
-                                                       FontWeight="SemiBold"
-                                                       VerticalAlignment="Center"
-                                                       TextWrapping="Wrap"
-                                                       MaxLines="2" />
-                                            <TextBlock Grid.Column="3"
-                                                       Text="{Binding MaterialUploadNewTitleDisplay}"
-                                                       FontWeight="SemiBold"
-                                                       VerticalAlignment="Center"
-                                                       TextWrapping="Wrap"
-                                                       MaxLines="2" />
-                                            <TextBlock Grid.Column="4"
-                                                       Text="{Binding MaterialPublishConfiguredCount}"
-                                                       VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="5"
-                                                       Text="{Binding MaterialPublishUploadedSummary}"
-                                                       VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="6"
-                                                       Text="{Binding MaterialUploadNodeStatus}"
-                                                       Foreground="{Binding MaterialUploadNodeForegroundBrush}"
-                                                       VerticalAlignment="Center" />
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
+                    <ListBox x:Name="MaterialUploadProjectsListBox"
+                             Grid.Row="1"
+                             Classes="table-list"
+                             ItemsSource="{Binding MaterialUploadProjects}"
+                             SelectedItem="{Binding SelectedProject}"
+                             MinWidth="980"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ProjectListItemViewModel">
+                                <Border Classes="table-row">
+                                    <Grid ColumnDefinitions="56,2.2*,2.2*,70,90,120,1.6*"
+                                          ColumnSpacing="12">
+                                        <CheckBox IsChecked="{Binding IsChecked}"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding OriginalTitle}"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"
+                                                   TextWrapping="Wrap"
+                                                   MaxLines="2" />
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding MaterialUploadNewTitleDisplay}"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"
+                                                   TextWrapping="Wrap"
+                                                   MaxLines="2" />
+                                        <TextBlock Grid.Column="3"
+                                                   Text="{Binding EpisodeCountText}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="4"
+                                                   Text="{Binding MaterialPublishConfiguredCount}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="5"
+                                                   Text="{Binding SourceSummary}"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="6"
+                                                   Text="{Binding MaterialPublishUploadedSummary}"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
                 </Grid>
             </Border>
         </Grid>

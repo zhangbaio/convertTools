@@ -66,6 +66,7 @@ public partial class MainWindowViewModel
 
         PersistMaterialUploadPageState();
         OnPropertyChanged(nameof(MaterialUploadSummary));
+        OnPropertyChanged(nameof(MaterialPublishPlanStatus));
     }
 
     partial void OnMaterialUploadAccountFilterTextChanged(string value) => RefreshVisibleMaterialUploadAccounts();
@@ -73,6 +74,7 @@ public partial class MainWindowViewModel
     partial void OnSelectedMaterialUploadAccountChanged(MaterialUploadAccountItemViewModel? value)
     {
         OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
+        OnPropertyChanged(nameof(MaterialPublishPlanStatus));
     }
 
     partial void OnMaterialUploadFilterTextChanged(string value)
@@ -114,16 +116,80 @@ public partial class MainWindowViewModel
                 MaterialUploadMaxParallelAccounts));
     }
 
-    public string MaterialUploadQueueButtonText =>
-        $"发表素材 ({MaterialUploadProjects.Count(item => item.IsChecked)})";
+    public string MaterialUploadQueueButtonText
+    {
+        get
+        {
+            var selectedCount = MaterialUploadProjects.Count(item => item.IsChecked);
+            return selectedCount > 0
+                ? $"▶ 上传素材队列 ({selectedCount})"
+                : "▶ 上传素材队列";
+        }
+    }
 
     public string MaterialUploadSummary =>
         $"项目数: {MaterialUploadProjects.Count} | 已勾选: {MaterialUploadProjects.Count(item => item.IsChecked)} | 当前项目: {SelectedProject?.DisplayName ?? "未选择"}";
 
+    public string MaterialPublishPlanStatus
+    {
+        get
+        {
+            var selectedCount = MaterialUploadProjects.Count(item => item.IsChecked);
+            var plan = SelectedProject?.MaterialUploadStrategySummary;
+            if (string.IsNullOrWhiteSpace(plan) || string.Equals(plan, "未配置", StringComparison.Ordinal))
+            {
+                plan = "待生成";
+            }
+
+            var publishDir = ResolveMaterialPublishDisplayPath(SelectedProject);
+            return $"计划：{plan} | {selectedCount} 个素材 | {publishDir}";
+        }
+    }
+
     public string CurrentMaterialUploadAccountSummary =>
-        SelectedMaterialUploadAccount is null
-            ? "当前：未选择账号"
-            : $"当前：{SelectedMaterialUploadAccount.DisplayName}";
+        BuildMaterialUploadAccountSummary();
+
+    private string BuildMaterialUploadAccountSummary()
+    {
+        var current = SelectedMaterialUploadAccount?.DisplayName ?? "未选择";
+        var workspace = string.IsNullOrWhiteSpace(RootDir)
+            ? "未选择"
+            : Path.GetFileName(RootDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(workspace))
+        {
+            workspace = RootDir;
+        }
+
+        var project = SelectedProject?.MaterialUploadAccountDisplay;
+        if (string.IsNullOrWhiteSpace(project) || string.Equals(project, "未绑定", StringComparison.Ordinal))
+        {
+            project = "跟随当前账号";
+        }
+
+        var effective = !string.Equals(project, "跟随当前账号", StringComparison.Ordinal)
+            ? project
+            : current;
+
+        return $"素材账号：当前={current} | 工作区={workspace} | 项目={project} | 生效={effective}";
+    }
+
+    private string ResolveMaterialPublishDisplayPath(ProjectListItemViewModel? project)
+    {
+        var baseDir = project?.WorkflowProjectDir;
+        if (string.IsNullOrWhiteSpace(baseDir))
+        {
+            baseDir = project?.SourceProjectDir;
+        }
+
+        if (string.IsNullOrWhiteSpace(baseDir))
+        {
+            baseDir = RootDir;
+        }
+
+        return string.IsNullOrWhiteSpace(baseDir)
+            ? "-"
+            : Path.Combine(baseDir, "素材发布");
+    }
 
     public void LoadMaterialUploadAccounts()
     {
@@ -783,6 +849,8 @@ public partial class MainWindowViewModel
 
         OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
         OnPropertyChanged(nameof(MaterialUploadSummary));
+        OnPropertyChanged(nameof(MaterialPublishPlanStatus));
+        OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
     }
 
     public void SetAllMaterialUploadProjectsChecked(bool isChecked)
@@ -794,6 +862,25 @@ public partial class MainWindowViewModel
 
         OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
         OnPropertyChanged(nameof(MaterialUploadSummary));
+        OnPropertyChanged(nameof(MaterialPublishPlanStatus));
+    }
+
+    public void ResetMaterialUploadWorkspace()
+    {
+        RootDir = string.Empty;
+        Projects.Clear();
+        FilteredProjects.Clear();
+        MaterialUploadProjects.Clear();
+        SelectedProject = null;
+        TotalProjects = 0;
+        PendingProjects = 0;
+        StatusMessage = "已重置发布素材工作目录。";
+        PersistState();
+        OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
+        OnPropertyChanged(nameof(MaterialUploadSummary));
+        OnPropertyChanged(nameof(MaterialPublishPlanStatus));
+        OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
+        RefreshCommandStates();
     }
 
     public void ActivateMaterialUploadProject(ProjectListItemViewModel? project)
@@ -813,6 +900,8 @@ public partial class MainWindowViewModel
             ActivityTitle = $"素材上传日志 · {project.DisplayName}";
             RefreshCommandStates();
             OnPropertyChanged(nameof(MaterialUploadSummary));
+            OnPropertyChanged(nameof(MaterialPublishPlanStatus));
+            OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
         }
         catch (Exception ex)
         {

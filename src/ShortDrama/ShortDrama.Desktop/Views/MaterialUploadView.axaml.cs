@@ -70,6 +70,11 @@ public partial class MaterialUploadView : UserControl
         }
     }
 
+    private void ResetMaterialUploadWorkspace_Click(object? sender, RoutedEventArgs e)
+    {
+        ViewModel?.ResetMaterialUploadWorkspace();
+    }
+
     private async void RunMaterialUploadQueueButton_Click(object? sender, RoutedEventArgs e)
     {
         if (ViewModel is null)
