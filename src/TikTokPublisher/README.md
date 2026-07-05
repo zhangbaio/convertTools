@@ -46,8 +46,6 @@ dotnet run --project src\TikTokPublisher\TikTokPublisher.Desktop
 | `.tiktok-task-queue.db` | 队列状态 SQLite |
 | `{project}/workflow/tiktok-upload-state.json` | 编辑草稿 URL 缓存 |
 
-> 首次升级：若旧版 C# 客户端曾在 `~/.tiktok_uploader_client` 保存过 `tiktok-accounts.json`，会自动读取一次并写入新目录。
-
 ## 已实现功能
 
 - 多工作目录并行队列 + 多账号内嵌浏览器后台上传

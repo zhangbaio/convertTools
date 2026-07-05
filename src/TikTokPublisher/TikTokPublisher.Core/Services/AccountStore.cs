@@ -36,11 +36,6 @@ public sealed class AccountStore
                 var list = JsonSerializer.Deserialize<List<TikTokAccountProfile>>(File.ReadAllText(AppPaths.AccountsFile), JsonOptions);
                 if (list != null) _accounts.AddRange(list.Where(a => !string.IsNullOrWhiteSpace(a.Id)));
             }
-            else if (File.Exists(LegacyAccountsFile))
-            {
-                var list = JsonSerializer.Deserialize<List<TikTokAccountProfile>>(File.ReadAllText(LegacyAccountsFile), JsonOptions);
-                if (list != null) _accounts.AddRange(list.Where(a => !string.IsNullOrWhiteSpace(a.Id)));
-            }
         }
         catch
         {
@@ -53,12 +48,6 @@ public sealed class AccountStore
             {
                 var active = JsonSerializer.Deserialize<ActiveAccountPointer>(
                     File.ReadAllText(AppPaths.ActiveAccountFile), JsonOptions);
-                _activeAccountId = (active?.ActiveAccountId ?? "").Trim();
-            }
-            else if (File.Exists(LegacyActiveAccountFile))
-            {
-                var active = JsonSerializer.Deserialize<ActiveAccountPointer>(
-                    File.ReadAllText(LegacyActiveAccountFile), JsonOptions);
                 _activeAccountId = (active?.ActiveAccountId ?? "").Trim();
             }
         }
@@ -163,15 +152,6 @@ public sealed class AccountStore
         var payload = new ActiveAccountPointer { ActiveAccountId = _activeAccountId };
         File.WriteAllText(AppPaths.ActiveAccountFile, JsonSerializer.Serialize(payload, JsonOptions));
     }
-
-    private static string LegacyAccountsFile =>
-        Path.Combine(LegacyDataRoot, "tiktok-accounts.json");
-
-    private static string LegacyActiveAccountFile =>
-        Path.Combine(LegacyDataRoot, "active-tiktok-account.json");
-
-    private static string LegacyDataRoot =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".tiktok_uploader_client");
 
     private static TikTokAccountProfile CreateProfileSkeleton(string id, string name)
     {

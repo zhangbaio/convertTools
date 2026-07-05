@@ -35,7 +35,7 @@ artifacts\INSTALL\TikTokShortDramaUploader-Setup-<version>.exe
 ## 可随安装包携带的依赖
 
 - .NET 运行时：脚本使用 `--self-contained true`，会打进发布目录。
-- Python 和字体：自动复制 `src\ShortDrama\tools` 到安装目录的 `tools`。
+- 字体：自动复制 `src\ShortDrama\tools\fonts` 到安装目录的 `tools\fonts`。
 - ffmpeg/ffprobe：当前仓库没有内置二进制。需要离线运行时，把文件放到 `packaging\dependencies\tools\win-x64\ffmpeg\ffmpeg.exe` 和 `ffprobe.exe`，脚本会复制进安装包。
 - Playwright Chromium：使用 `-InstallPlaywrightChromium` 下载到发布目录，或预先放到 `packaging\dependencies\ms-playwright`。
 - WebView2 Runtime：把 `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` 放到 `packaging\dependencies`，安装器会在目标机器缺少 WebView2 时静默安装。

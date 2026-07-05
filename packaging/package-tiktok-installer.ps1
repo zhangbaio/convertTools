@@ -257,7 +257,7 @@ function Install-PlaywrightChromium {
 
 Write-Host "Packaging TikTokPublisher $Version ($Runtime, $Configuration)"
 if ($BundleDependencies) {
-    Write-Host "Bundling runtime dependencies: .NET self-contained, Python/tools, ffmpeg, Playwright Chromium, WebView2 Runtime"
+    Write-Host "Bundling runtime dependencies: .NET self-contained, fonts/tools, ffmpeg, Playwright Chromium, WebView2 Runtime"
 }
 else {
     Write-Warning "Dependency bundling is disabled. The installer may require target machines to install dependencies separately."
@@ -285,9 +285,9 @@ Invoke-Checked -FilePath $dotnet -Arguments @(
     "/p:IncludeNativeLibrariesForSelfExtract=true"
 )
 
-$repoTools = Join-Path $Root "src\ShortDrama\tools"
 $publishTools = Join-Path $PublishDir "tools"
-Copy-DirectoryContents -Source $repoTools -Destination $publishTools
+$repoFonts = Join-Path $Root "src\ShortDrama\tools\fonts"
+Copy-DirectoryContents -Source $repoFonts -Destination (Join-Path $publishTools "fonts")
 
 $extraTools = Join-Path $DependenciesDir "tools"
 Copy-DirectoryContents -Source $extraTools -Destination $publishTools

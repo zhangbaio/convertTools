@@ -11,10 +11,6 @@ public static class AppPaths
     public static string ActiveAccountFile => Path.Combine(DataRoot, "active-account.json");
     public static string AppDatabaseFile => Path.Combine(DataRoot, "app.db");
     public static string ProfilesRoot => Path.Combine(DataRoot, "profiles");
-    public static string LegacyUploaderDataRoot => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".tiktok_uploader_client");
-    public static string LegacyUploaderDatabaseFile => Path.Combine(LegacyUploaderDataRoot, "tiktok_uploader.db");
 
     public static string ProfileDirFor(string accountId) => Path.Combine(ProfilesRoot, accountId);
 

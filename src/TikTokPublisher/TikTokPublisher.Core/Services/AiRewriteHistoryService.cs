@@ -34,7 +34,6 @@ public static class AiRewriteHistoryService
 
         var records = new List<AiRewriteHistoryRecord>();
         records.AddRange(LoadFromDatabase(ClientSettingsStore.MainDatabasePath, createIfMissing: true, limit));
-        records.AddRange(LoadFromDatabase(AppPaths.LegacyUploaderDatabaseFile, createIfMissing: false, limit));
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var output = new List<AiRewriteHistoryRecord>();
