@@ -15,7 +15,14 @@ public partial class MainWindowViewModel
     [ObservableProperty]
     private bool isWeixinBrowserSessionRunning;
 
-    partial void OnIsWeixinBrowserSessionRunningChanged(bool value) => RefreshCommandStates();
+    public string WeixinBrowserToolbarButtonText =>
+        IsWeixinBrowserSessionRunning ? "浏览器运行中..." : "打开浏览器";
+
+    partial void OnIsWeixinBrowserSessionRunningChanged(bool value)
+    {
+        OnPropertyChanged(nameof(WeixinBrowserToolbarButtonText));
+        RefreshCommandStates();
+    }
 
     private bool CanOpenWeixinBrowser()
     {

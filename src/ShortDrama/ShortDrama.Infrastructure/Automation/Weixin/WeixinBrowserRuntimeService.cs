@@ -10,6 +10,22 @@ public sealed class WeixinBrowserRuntimeService : IWeixinBrowserRuntimeService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        var browserRoot = ResolveBrowserRoot();
+        if (browserRoot is not null)
+        {
+            var playwrightExecutablePath = ResolveChromiumExecutable(browserRoot);
+            if (playwrightExecutablePath is not null)
+            {
+                return Task.FromResult(new WeixinBrowserRuntimeStatus(
+                    IsReady: true,
+                    BrowserType: "chromium",
+                    BrowserRootDirectory: browserRoot,
+                    BrowserExecutablePath: playwrightExecutablePath,
+                    Message: $"Detected Playwright Chromium runtime: {playwrightExecutablePath}",
+                    NeedsInstall: false));
+            }
+        }
+
         var localBrowser = ResolveLocalBrowserExecutable();
         if (localBrowser is not null)
         {
@@ -22,7 +38,6 @@ public sealed class WeixinBrowserRuntimeService : IWeixinBrowserRuntimeService
                 NeedsInstall: false));
         }
 
-        var browserRoot = ResolveBrowserRoot();
         if (browserRoot is null)
         {
             return Task.FromResult(new WeixinBrowserRuntimeStatus(

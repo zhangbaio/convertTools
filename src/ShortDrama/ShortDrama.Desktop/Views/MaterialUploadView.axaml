@@ -266,7 +266,7 @@
                                     Classes="compact"
                                     MinWidth="132"
                                     Margin="0,0,8,0"
-                                    Content="浏览器运行中..." />
+                                    Content="{Binding WeixinBrowserToolbarButtonText}" />
                             <Button x:Name="DeleteChannelMaterialsButton"
                                     Classes="compact"
                                     MinWidth="138"
