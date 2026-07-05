@@ -1959,6 +1959,47 @@ public sealed partial class MainViewModel : ViewModelBase
             : $"已取消勾选「{row.NewTitle}」";
     }
 
+    public async Task<QueueProjectTitleRenameResult> RenameQueueProjectNewTitleAsync(
+        QueueProjectRowViewModel row,
+        string newTitle)
+    {
+        var root = WorkspacePath.Trim();
+        if (string.IsNullOrWhiteSpace(root))
+            throw new InvalidOperationException("请先选择工作目录。");
+        if (row is null || string.IsNullOrWhiteSpace(row.Item.ProjectDir))
+            throw new InvalidOperationException("请先选择要修改的项目。");
+        if (IsCurrentWorkspaceQueueRunning())
+            throw new InvalidOperationException("当前工作目录队列正在运行，请停止后再修改新剧名。");
+
+        var projectDir = row.Item.ProjectDir;
+        var result = await Task.Run(() =>
+            QueueProjectTitleRenameService.RenameNewTitle(root, projectDir, newTitle)).ConfigureAwait(true);
+
+        var scanResult = await Task.Run(() =>
+            (
+                Items: WorkspaceQueueService.ScanProjects(root).ToList(),
+                Options: WorkspaceQueueService.LoadRunOptions(root))).ConfigureAwait(true);
+        ApplyWorkspaceScanResult(root, scanResult.Items, scanResult.Options);
+        AutoExportQueueExcel();
+
+        StatusMessage = BuildRenameNewTitleStatus(result);
+        AppendLog(StatusMessage);
+        return result;
+    }
+
+    private static string BuildRenameNewTitleStatus(QueueProjectTitleRenameResult result)
+    {
+        var resets = new List<string>();
+        if (result.ResetPoster) resets.Add("海报");
+        if (result.ResetMaterialValidate) resets.Add("素材校验");
+        if (result.ResetUpload) resets.Add("上传");
+
+        var suffix = resets.Count == 0
+            ? ""
+            : $"，已将{string.Join("、", resets)}步骤重置为待执行";
+        return $"已修改新剧名：{result.OldTitle} -> {result.NewTitle}{suffix}";
+    }
+
     private void RefreshQueueRowFor(QueueProjectItem item)
     {
         var normalized = NormalizeProjectDir(item.ProjectDir);

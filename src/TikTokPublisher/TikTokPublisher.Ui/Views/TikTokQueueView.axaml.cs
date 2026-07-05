@@ -486,6 +486,23 @@ public partial class TikTokQueueView : UserControl
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+    private QueueProjectRowViewModel? ResolveSingleRowForRename(object? sender)
+    {
+        if ((sender as Control)?.DataContext is QueueProjectRowViewModel direct)
+            return direct;
+
+        var selectedRows = GetSelectedQueueRows()
+            .Distinct()
+            .ToArray();
+        if (selectedRows.Length == 1)
+            return selectedRows[0];
+
+        var checkedRows = GetCheckedQueueRows()
+            .Distinct()
+            .ToArray();
+        return checkedRows.Length == 1 ? checkedRows[0] : null;
+    }
+
     private IReadOnlyList<string>? GetCheckedProjectDirsInDisplayOrder()
     {
         var vm = _vm;
@@ -803,6 +820,45 @@ public partial class TikTokQueueView : UserControl
         options.ForceRerunCompletedSteps = true;
         options.UploadEntryMode = "edit";
         await StartQueueRunAsync(options, dirs);
+    }
+
+    private async void OnRenameNewTitleClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var vm = _vm;
+        if (vm is null) return;
+
+        var row = ResolveSingleRowForRename(sender);
+        if (row is null)
+        {
+            vm.StatusMessage = "请只选中或勾选 1 个项目再修改新剧名";
+            return;
+        }
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is null)
+        {
+            vm.StatusMessage = "无法打开修改新剧名弹窗";
+            return;
+        }
+
+        var input = await TextPromptDialog.ShowAsync(
+            owner,
+            "修改新剧名",
+            $"原剧名：{row.OriginalTitle}\n当前新剧名：{row.NewTitle}\n请输入新的新剧名：",
+            row.NewTitle);
+        if (input is null)
+            return;
+
+        try
+        {
+            await vm.RenameQueueProjectNewTitleAsync(row, input);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"修改新剧名失败：{ex.Message}";
+            await ShowMessageAsync(owner, "修改新剧名失败", ex.Message, warning: true);
+        }
     }
 
     private async void OnRepairSilenceClick(object? sender, RoutedEventArgs e)

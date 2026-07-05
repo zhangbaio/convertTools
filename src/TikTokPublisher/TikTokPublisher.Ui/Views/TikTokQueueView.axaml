@@ -97,6 +97,7 @@
                     <Button Content="刷新项目" Click="OnScanWorkspaceClick" Classes="compactAction" Margin="0,0,8,8" />
                     <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="compactAction" Margin="0,0,8,8" />
                     <Button Content="编辑剧集" Click="OnEditSelectedClick" Classes="compactAction" Margin="0,0,8,8" />
+                    <Button Content="改新剧名" Click="OnRenameNewTitleClick" Classes="compactAction" Margin="0,0,8,8" />
                     <Button Content="修复静音视频" Click="OnRepairSilenceClick" Classes="compactAction" Margin="0,0,8,8" />
                     <Button Content="全选" Click="OnSelectAllQueueClick" Classes="compactAction" Margin="0,0,8,8" />
                     <Button Content="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Classes="compactAction" Margin="0,0,8,8" />
@@ -272,6 +273,12 @@
                                                 Classes="queueLink"
                                                 Click="OnOpenNewProjectFolderClick"
                                                 ToolTip.Tip="{Binding NewProjectDir}">
+                                            <Button.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="修改新剧名" Click="OnRenameNewTitleClick" />
+                                                    <MenuItem Header="打开新剧名目录" Click="OnOpenNewProjectFolderClick" />
+                                                </ContextMenu>
+                                            </Button.ContextMenu>
                                             <TextBlock Text="{Binding NewTitle}"
                                                        VerticalAlignment="Center"
                                                        TextTrimming="CharacterEllipsis"
