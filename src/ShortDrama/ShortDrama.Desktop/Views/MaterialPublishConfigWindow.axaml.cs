@@ -2,16 +2,23 @@ using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using ShortDrama.Desktop.Services;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 
 namespace ShortDrama.Desktop.Views;
 
 public partial class MaterialPublishConfigWindow : Window
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+    };
     private static readonly string[] PublishVideoFilePatterns = ["*.mp4", "*.mov", "*.m4v", "*.avi", "*.mkv", "*.webm"];
     private static readonly HashSet<string> PublishVideoFileSuffixes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -233,14 +240,44 @@ public partial class MaterialPublishConfigWindow : Window
 
     private void SaveButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (!ValidateBeforeSave(out var message))
+        try
         {
-            ValidationMessageTextBlock.Text = message;
-            return;
-        }
+            DesktopCrashTrace.Write("material-publish-config save click begin");
+            if (!ValidateBeforeSave(out var message))
+            {
+                DesktopCrashTrace.Write("material-publish-config save validation failed");
+                ValidationMessageTextBlock.Text = message;
+                return;
+            }
 
-        SaveConfig();
-        Close(true);
+            DesktopCrashTrace.Write("material-publish-config save config begin");
+            SaveConfig();
+            DesktopCrashTrace.Write("material-publish-config save config complete");
+            SaveButton.IsEnabled = false;
+            Dispatcher.UIThread.Post(CloseAfterSave, DispatcherPriority.Background);
+        }
+        catch (Exception ex)
+        {
+            DesktopCrashTrace.Write($"material-publish-config save exception: {ex}");
+            SaveButton.IsEnabled = true;
+            ValidationMessageTextBlock.Text = $"保存失败：{ex.Message}";
+        }
+    }
+
+    private void CloseAfterSave()
+    {
+        try
+        {
+            DesktopCrashTrace.Write("material-publish-config close begin");
+            Close(true);
+            DesktopCrashTrace.Write("material-publish-config close requested");
+        }
+        catch (Exception ex)
+        {
+            DesktopCrashTrace.Write($"material-publish-config close exception: {ex}");
+            SaveButton.IsEnabled = true;
+            ValidationMessageTextBlock.Text = $"关闭配置窗口失败：{ex.Message}";
+        }
     }
 
     private bool ValidateBeforeSave(out string message)

@@ -11,6 +11,11 @@ public partial class MainWindowViewModel
 {
     private const string ProjectMetadataFileName = "shortdrama-project.json";
     private const string WorkspaceAccountProfileConfigName = ".weixin-channel-workspace.json";
+    private static readonly System.Text.Json.JsonSerializerOptions MaterialUploadJsonOptions = new()
+    {
+        WriteIndented = true,
+        TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver()
+    };
     private static readonly string[] MaterialUploadProjectAccountKeys =
     [
         "materialUploadAccountProfileId",
@@ -798,14 +803,21 @@ public partial class MainWindowViewModel
             return;
         }
 
-        SelectedProject = project;
-        TaskQueueDetailMode = TaskQueueDetailMaterialUpload;
-        SyncProjectLogFilterToSelection();
-        SelectedStepLogFilter = StepLogFilters.FirstOrDefault(item => string.Equals(item.Key, "weixin-material-upload", StringComparison.Ordinal))
-            ?? SelectedStepLogFilter;
-        ActivityTitle = $"素材上传日志 · {project.DisplayName}";
-        RefreshCommandStates();
-        OnPropertyChanged(nameof(MaterialUploadSummary));
+        try
+        {
+            TaskQueueDetailMode = TaskQueueDetailMaterialUpload;
+            SelectedProject = project;
+            SyncProjectLogFilterToSelection();
+            SelectedStepLogFilter = StepLogFilters.FirstOrDefault(item => string.Equals(item.Key, "weixin-material-upload", StringComparison.Ordinal))
+                ?? SelectedStepLogFilter;
+            ActivityTitle = $"素材上传日志 · {project.DisplayName}";
+            RefreshCommandStates();
+            OnPropertyChanged(nameof(MaterialUploadSummary));
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"切换素材上传项目失败：{ex.Message}";
+        }
     }
 
     public async Task RunCheckedMaterialUploadQueueFromPageAsync()
@@ -957,6 +969,26 @@ public partial class MainWindowViewModel
         {
             StatusMessage = $"打开素材发表配置失败：{ex.Message}";
             return null;
+        }
+    }
+
+    public void RefreshMaterialPublishConfigAfterSave(ProjectListItemViewModel? project)
+    {
+        if (project is null)
+        {
+            return;
+        }
+
+        try
+        {
+            project.RefreshMaterialPublishSummary();
+            OnPropertyChanged(nameof(MaterialUploadSummary));
+            OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
+            RefreshCommandStates();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"刷新素材发表配置失败：{ex.Message}";
         }
     }
 
@@ -1245,7 +1277,7 @@ public partial class MainWindowViewModel
                 videoPublish["enabled"] = true;
             }
 
-            File.WriteAllText(configPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(configPath, root.ToJsonString(MaterialUploadJsonOptions));
             return true;
         }
         catch (Exception ex)
@@ -1339,7 +1371,7 @@ public partial class MainWindowViewModel
                     : new JsonObject();
                 root["materialUploadAccountProfileId"] = account.Id;
                 root.Remove("material_upload_account_profile_id");
-                File.WriteAllText(metadataPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                File.WriteAllText(metadataPath, root.ToJsonString(MaterialUploadJsonOptions));
             }
             catch (Exception ex)
             {
@@ -1370,7 +1402,7 @@ public partial class MainWindowViewModel
                 var root = JsonNode.Parse(File.ReadAllText(metadataPath)) as JsonObject ?? new JsonObject();
                 root.Remove("materialUploadAccountProfileId");
                 root.Remove("material_upload_account_profile_id");
-                File.WriteAllText(metadataPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                File.WriteAllText(metadataPath, root.ToJsonString(MaterialUploadJsonOptions));
             }
             catch (Exception ex)
             {
@@ -1566,7 +1598,7 @@ public partial class MainWindowViewModel
                 ["save_text"] = true
             }
         };
-        File.WriteAllText(configPath, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(configPath, root.ToJsonString(MaterialUploadJsonOptions));
         return configPath;
     }
 
@@ -1639,7 +1671,7 @@ public partial class MainWindowViewModel
             }
         };
 
-        return root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        return root.ToJsonString(MaterialUploadJsonOptions);
     }
 
     private static string ExpandMaterialUploadPath(string? path)

@@ -344,14 +344,11 @@
                     <ScrollViewer Grid.Row="1"
                                   HorizontalScrollBarVisibility="Auto"
                                   VerticalScrollBarVisibility="Auto">
-                        <ListBox x:Name="MaterialUploadProjectsListBox"
-                                 Classes="table-list"
-                                 ItemsSource="{Binding MaterialUploadProjects}"
-                                 SelectedItem="{Binding SelectedProject}"
-                                 MinWidth="1120"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                 ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                            <ListBox.ItemTemplate>
+                        <ItemsControl x:Name="MaterialUploadProjectsListBox"
+                                      Classes="table-list"
+                                      ItemsSource="{Binding MaterialUploadProjects}"
+                                      MinWidth="1120">
+                            <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ProjectListItemViewModel">
                                     <Border Classes="table-row">
                                         <Grid ColumnDefinitions="148,132,220,220,96,120,120"
@@ -396,8 +393,8 @@
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </ScrollViewer>
                 </Grid>
             </Border>

@@ -44,7 +44,6 @@ public partial class MaterialUploadView : UserControl
         ClearMaterialUploadAccountBindingButton.Click += (_, _) => ViewModel?.ClearMaterialUploadProjectAccountBinding();
         SaveMaterialUploadAccountButton.Click += (_, _) => ViewModel?.SaveSelectedMaterialUploadAccountConfig();
         BrowseMaterialUploadAuthFileButton.Click += BrowseMaterialUploadAuthFileButton_Click;
-        MaterialUploadProjectsListBox.SelectionChanged += MaterialUploadProjectsListBox_SelectionChanged;
     }
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
@@ -80,10 +79,13 @@ public partial class MaterialUploadView : UserControl
 
         try
         {
+            DesktopCrashTrace.Write("material-upload queue click begin");
             await ViewModel.RunCheckedMaterialUploadQueueFromPageAsync();
+            DesktopCrashTrace.Write("material-upload queue click complete");
         }
         catch (Exception ex)
         {
+            DesktopCrashTrace.Write($"material-upload queue click exception: {ex}");
             ReportMaterialUploadRunError("发表素材失败", ex, null);
         }
     }
@@ -133,14 +135,32 @@ public partial class MaterialUploadView : UserControl
             return;
         }
 
-        ViewModel.AppendExternalLog(
-            $"已保存素材发表配置：{target.Project.DisplayName}",
-            target.Project.ProjectKey,
-            target.Project.DisplayName,
-            "material-upload",
-            "素材上传");
-        ViewModel.StatusMessage = $"已保存素材发表配置：{target.Project.DisplayName}";
-        await ViewModel.ScanCommand.ExecuteAsync(null);
+        try
+        {
+            DesktopCrashTrace.Write("material-publish-config dialog accepted; append log begin");
+            ViewModel.AppendExternalLog(
+                $"已保存素材发表配置：{target.Project.DisplayName}",
+                target.Project.ProjectKey,
+                target.Project.DisplayName,
+                "material-upload",
+                "素材上传");
+            ViewModel.StatusMessage = $"已保存素材发表配置：{target.Project.DisplayName}";
+            DesktopCrashTrace.Write("material-publish-config dialog accepted; refresh current project summary");
+            ViewModel.RefreshMaterialPublishConfigAfterSave(target.Project);
+            DesktopCrashTrace.Write("material-publish-config dialog accepted; refresh complete");
+        }
+        catch (Exception ex)
+        {
+            DesktopCrashTrace.Write($"material-publish-config dialog accepted exception: {ex}");
+            ViewModel.StatusMessage = $"刷新素材发表配置失败：{ex.Message}";
+            ViewModel.AppendExternalLog(
+                ViewModel.StatusMessage,
+                target.Project.ProjectKey,
+                target.Project.DisplayName,
+                "material-upload",
+                "素材上传",
+                isFailure: true);
+        }
     }
 
     private void OpenMaterialRuntimeControlsButton_Click(object? sender, RoutedEventArgs e)
@@ -288,14 +308,6 @@ public partial class MaterialUploadView : UserControl
             "material-upload",
             "素材上传",
             isFailure: true);
-    }
-
-    private void MaterialUploadProjectsListBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (MaterialUploadProjectsListBox.SelectedItem is ProjectListItemViewModel project)
-        {
-            ViewModel?.ActivateMaterialUploadProject(project);
-        }
     }
 
     private void ShowMaterialLogsButton_Click(object? sender, RoutedEventArgs e)

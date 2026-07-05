@@ -17,6 +17,11 @@ public sealed class WorkService : IWorkService
     private const int MaxProofMaterialImageCount = 4;
     private const double UploadRemuxDurationToleranceSeconds = 0.5d;
     private static readonly string[] SupportedUploadRemuxExtensions = [".mp4", ".mov", ".m4v"];
+    private static readonly JsonSerializerOptions JsonNodeWriteOptions = new()
+    {
+        WriteIndented = true,
+        TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver()
+    };
     private static readonly string[] DefaultStepTypes =
     [
         "download",
@@ -1753,7 +1758,7 @@ public sealed class WorkService : IWorkService
             }
         };
 
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        return root.ToJsonString(JsonNodeWriteOptions);
     }
 
     private static JsonObject BuildFillAction(string label, string value, string? control = null)
@@ -1895,7 +1900,7 @@ public sealed class WorkService : IWorkService
             return false;
         }
 
-        File.WriteAllText(configPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(configPath, root.ToJsonString(JsonNodeWriteOptions));
         return true;
     }
 
@@ -2494,7 +2499,7 @@ public sealed class WorkService : IWorkService
 
         await File.WriteAllTextAsync(
             metadataPath,
-            root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+            root.ToJsonString(JsonNodeWriteOptions),
             cancellationToken);
     }
 

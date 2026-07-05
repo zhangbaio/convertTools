@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Avalonia.Media;
+using Avalonia.Threading;
 using ShortDrama.Core.Models;
 using ShortDrama.Desktop.Models;
 using ShortDrama.Infrastructure.Automation;
@@ -266,7 +267,8 @@ public partial class ProjectListItemViewModel : ViewModelBase
         };
     }
 
-    partial void OnIsCheckedChanged(bool value) => CheckedChanged?.Invoke(this, EventArgs.Empty);
+    partial void OnIsCheckedChanged(bool value) =>
+        Dispatcher.UIThread.Post(() => CheckedChanged?.Invoke(this, EventArgs.Empty));
     partial void OnSchedulingStatusChanged(string value) => OnPropertyChanged(nameof(SchedulingStatusBrush));
     partial void OnDownloadStepStatusChanged(string value)
     {
@@ -1438,6 +1440,11 @@ public partial class ProjectListItemViewModel : ViewModelBase
             "source_videos" => "源视频",
             _ => "项目视频"
         };
+    }
+
+    public void RefreshMaterialPublishSummary()
+    {
+        RefreshMaterialPublishVideos();
     }
 
     private void RefreshMaterialPublishVideos()

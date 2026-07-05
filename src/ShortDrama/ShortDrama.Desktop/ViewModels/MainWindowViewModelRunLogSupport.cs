@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Avalonia.Threading;
 using ShortDrama.Desktop.Models;
 using System.ComponentModel;
 using System.Text;
@@ -9,6 +10,8 @@ public partial class MainWindowViewModel
 {
     private bool _syncingRunLogProjectSelection;
     private bool _syncingProjectLogFilterSelection;
+    private bool _runLogViewRefreshQueued;
+    private bool _runLogFilterRefreshQueued;
 
     private static readonly HashSet<string> MaterialRunLogStepKeys = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -253,19 +256,52 @@ public partial class MainWindowViewModel
 
     private void OnProjectRowStatusChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(ProjectListItemViewModel.SchedulingStatus) or
-            nameof(ProjectListItemViewModel.IsChecked) or
-            nameof(ProjectListItemViewModel.CurrentStepLabel) or
-            nameof(ProjectListItemViewModel.CurrentStepProgressText))
+        try
         {
-            if (e.PropertyName == nameof(ProjectListItemViewModel.IsChecked))
+            if (e.PropertyName is nameof(ProjectListItemViewModel.SchedulingStatus) or
+                nameof(ProjectListItemViewModel.IsChecked) or
+                nameof(ProjectListItemViewModel.CurrentStepLabel) or
+                nameof(ProjectListItemViewModel.CurrentStepProgressText))
             {
-                SyncRunLogSelectionToCurrentFilter();
-                ApplyActivityLogFilter();
+                QueueRunLogViewRefresh(e.PropertyName == nameof(ProjectListItemViewModel.IsChecked));
             }
-
-            RefreshRunLogViewState();
         }
+        catch (Exception ex)
+        {
+            StatusMessage = $"刷新运行日志筛选失败：{ex.Message}";
+        }
+    }
+
+    private void QueueRunLogViewRefresh(bool refreshFilter)
+    {
+        _runLogFilterRefreshQueued |= refreshFilter;
+        if (_runLogViewRefreshQueued)
+        {
+            return;
+        }
+
+        _runLogViewRefreshQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            var shouldRefreshFilter = _runLogFilterRefreshQueued;
+            _runLogViewRefreshQueued = false;
+            _runLogFilterRefreshQueued = false;
+
+            try
+            {
+                if (shouldRefreshFilter)
+                {
+                    SyncRunLogSelectionToCurrentFilter();
+                    ApplyActivityLogFilter();
+                }
+
+                RefreshRunLogViewState();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"刷新运行日志筛选失败：{ex.Message}";
+            }
+        });
     }
 
     private static string FormatRunLogEntry(ActivityLogEntry item)

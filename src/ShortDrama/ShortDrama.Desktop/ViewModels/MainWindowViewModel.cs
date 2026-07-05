@@ -42,6 +42,11 @@ public partial class MainWindowViewModel : ViewModelBase
     private const string TaskQueueDetailProjectMaterial = "project-material";
     private const string TaskQueueDetailEpisodeUpload = "episode-upload";
     private const string TaskQueueDetailMaterialUpload = "material-upload";
+    private static readonly JsonSerializerOptions JsonNodeWriteOptions = new()
+    {
+        WriteIndented = true,
+        TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver()
+    };
     private static readonly string[] WeixinUploadConfigNames =
     [
         "weixin-channel-autogen.json",
@@ -89,6 +94,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _lastSearchKeyword = string.Empty;
     private bool _startupScanTriggered;
     private bool _suspendProjectCheckPersistence;
+    private bool _updatingSelectedProjectState;
+    private bool _updatingTaskQueueDetailState;
+    private bool _projectCheckRefreshQueued;
     private string _projectListRootDir = string.Empty;
     private string _costReportBaseImagePath = string.Empty;
     private string _costReportActorPayRatio = string.Empty;
@@ -773,7 +781,17 @@ public partial class MainWindowViewModel : ViewModelBase
     partial void OnIsSearchBusyChanged(bool value) => RefreshCommandStates();
 
     partial void OnSearchPageSizeChanged(string value) => RefreshCommandStates();
-    partial void OnSelectedProjectMaterialStepChanged(ProjectMaterialStepItem? value) => ApplyProjectMaterialStepLogs();
+    partial void OnSelectedProjectMaterialStepChanged(ProjectMaterialStepItem? value)
+    {
+        try
+        {
+            ApplyProjectMaterialStepLogs();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"刷新项目素材步骤日志失败：{ex.Message}";
+        }
+    }
 
     partial void OnSelectedStepOptionChanged(WorkflowStepOption? value) => RefreshCommandStates();
 
@@ -781,46 +799,100 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedRunLogTabOptionChanged(WorkflowStepOption? value)
     {
-        if (IsMaterialRunLogTab)
+        try
         {
-            SelectedStepLogFilter = StepLogFilters.FirstOrDefault(item => string.Equals(item.Key, AllStepsFilterKey, StringComparison.Ordinal))
-                ?? SelectedStepLogFilter;
-        }
+            if (IsMaterialRunLogTab)
+            {
+                SelectedStepLogFilter = StepLogFilters.FirstOrDefault(item => string.Equals(item.Key, AllStepsFilterKey, StringComparison.Ordinal))
+                    ?? SelectedStepLogFilter;
+            }
 
-        ApplyActivityLogFilter();
-        RefreshRunLogViewState();
+            ApplyActivityLogFilter();
+            RefreshRunLogViewState();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"切换日志页失败：{ex.Message}";
+        }
     }
 
     partial void OnSelectedProjectLogFilterChanged(LogFilterOption? value)
     {
-        if (_syncingProjectLogFilterSelection)
+        try
+        {
+            if (_syncingProjectLogFilterSelection)
+            {
+                return;
+            }
+
+            SyncRunLogSelectionToCurrentFilter();
+            ApplyActivityLogFilter();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"切换项目日志筛选失败：{ex.Message}";
+        }
+    }
+
+    partial void OnSelectedStepLogFilterChanged(LogFilterOption? value)
+    {
+        try
+        {
+            ApplyActivityLogFilter();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"切换步骤日志筛选失败：{ex.Message}";
+        }
+    }
+
+    partial void OnOnlyShowFailedLogsChanged(bool value)
+    {
+        try
+        {
+            ApplyActivityLogFilter();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"切换失败日志筛选失败：{ex.Message}";
+        }
+    }
+
+    partial void OnSelectedProjectChanged(ProjectListItemViewModel? value)
+    {
+        if (_updatingSelectedProjectState)
         {
             return;
         }
 
-        SyncRunLogSelectionToCurrentFilter();
-        ApplyActivityLogFilter();
-    }
-
-    partial void OnSelectedStepLogFilterChanged(LogFilterOption? value) => ApplyActivityLogFilter();
-
-    partial void OnOnlyShowFailedLogsChanged(bool value) => ApplyActivityLogFilter();
-
-    partial void OnSelectedProjectChanged(ProjectListItemViewModel? value)
-    {
-        ClearMaterialValidationIssues();
-        OnPropertyChanged(nameof(SelectedProjectTitle));
-        OnPropertyChanged(nameof(MaterialUploadSummary));
-        OnPropertyChanged(nameof(HasTaskQueueDetail));
-        OnPropertyChanged(nameof(IsTaskQueueOverviewVisible));
-        OnPropertyChanged(nameof(IsTaskQueueDownloadDetailVisible));
-        OnPropertyChanged(nameof(IsTaskQueueProjectMaterialDetailVisible));
-        OnPropertyChanged(nameof(IsTaskQueueEpisodeUploadDetailVisible));
-        OnPropertyChanged(nameof(IsTaskQueueMaterialUploadDetailVisible));
-        OnPropertyChanged(nameof(TaskQueueDetailTitle));
-        RefreshCommandStates();
-        RefreshSelectedProjectPreview();
-        RefreshProjectMaterialSteps();
+        _updatingSelectedProjectState = true;
+        try
+        {
+            ClearMaterialValidationIssues();
+            OnPropertyChanged(nameof(SelectedProjectTitle));
+            OnPropertyChanged(nameof(MaterialUploadSummary));
+            OnPropertyChanged(nameof(HasTaskQueueDetail));
+            OnPropertyChanged(nameof(IsTaskQueueOverviewVisible));
+            OnPropertyChanged(nameof(IsTaskQueueDownloadDetailVisible));
+            OnPropertyChanged(nameof(IsTaskQueueProjectMaterialDetailVisible));
+            OnPropertyChanged(nameof(IsTaskQueueEpisodeUploadDetailVisible));
+            OnPropertyChanged(nameof(IsTaskQueueMaterialUploadDetailVisible));
+            OnPropertyChanged(nameof(TaskQueueDetailTitle));
+            RefreshCommandStates();
+            RefreshSelectedProjectPreview();
+            if (string.Equals(TaskQueueDetailMode, TaskQueueDetailProjectMaterial, StringComparison.Ordinal))
+            {
+                RefreshProjectMaterialSteps();
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"切换项目失败：{ex.Message}";
+        }
+        finally
+        {
+            _updatingSelectedProjectState = false;
+        }
     }
 
     partial void OnSelectedArchivedProjectChanged(ArchivedProjectItem? value)
@@ -846,17 +918,37 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnTaskQueueDetailModeChanged(string value)
     {
-        OnPropertyChanged(nameof(IsTaskQueueDownloadDetailVisible));
-        OnPropertyChanged(nameof(IsTaskQueueOverviewVisible));
-        OnPropertyChanged(nameof(IsTaskQueueProjectMaterialDetailVisible));
-        OnPropertyChanged(nameof(IsTaskQueueEpisodeUploadDetailVisible));
-        OnPropertyChanged(nameof(IsTaskQueueMaterialUploadDetailVisible));
-        OnPropertyChanged(nameof(TaskQueueDetailTitle));
-        RefreshProjectMaterialSteps();
-        ApplyProjectMaterialStepLogs();
-        if (!string.Equals(value, TaskQueueDetailProjectMaterial, StringComparison.Ordinal))
+        if (_updatingTaskQueueDetailState)
         {
-            MaterialValidationIssues.Clear();
+            return;
+        }
+
+        _updatingTaskQueueDetailState = true;
+        try
+        {
+            OnPropertyChanged(nameof(IsTaskQueueDownloadDetailVisible));
+            OnPropertyChanged(nameof(IsTaskQueueOverviewVisible));
+            OnPropertyChanged(nameof(IsTaskQueueProjectMaterialDetailVisible));
+            OnPropertyChanged(nameof(IsTaskQueueEpisodeUploadDetailVisible));
+            OnPropertyChanged(nameof(IsTaskQueueMaterialUploadDetailVisible));
+            OnPropertyChanged(nameof(TaskQueueDetailTitle));
+            if (string.Equals(value, TaskQueueDetailProjectMaterial, StringComparison.Ordinal))
+            {
+                RefreshProjectMaterialSteps();
+                ApplyProjectMaterialStepLogs();
+            }
+            else
+            {
+                MaterialValidationIssues.Clear();
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"切换任务详情失败：{ex.Message}";
+        }
+        finally
+        {
+            _updatingTaskQueueDetailState = false;
         }
     }
 
@@ -2207,10 +2299,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }).ToArray());
 
         var tempPath = Path.Combine(project.WorkflowProjectDir, $".weixin-upload-override-{Guid.NewGuid():N}.json");
-        File.WriteAllText(tempPath, root.ToJsonString(new JsonSerializerOptions
-        {
-            WriteIndented = true
-        }));
+        File.WriteAllText(tempPath, root.ToJsonString(JsonNodeWriteOptions));
         return tempPath;
     }
 
@@ -3623,16 +3712,38 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void OnProjectRowCheckedChanged(object? sender, EventArgs e)
     {
-        if (!_suspendProjectCheckPersistence)
+        QueueProjectCheckRefresh();
+    }
+
+    private void QueueProjectCheckRefresh()
+    {
+        if (_projectCheckRefreshQueued)
         {
-            PersistCheckedProjectState();
+            return;
         }
 
-        OnPropertyChanged(nameof(CheckedProjectsSummary));
-        OnPropertyChanged(nameof(TaskQueueSummary));
-        OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
-        OnPropertyChanged(nameof(MaterialUploadSummary));
-        RefreshCommandStates();
+        _projectCheckRefreshQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _projectCheckRefreshQueued = false;
+            try
+            {
+                if (!_suspendProjectCheckPersistence)
+                {
+                    PersistCheckedProjectState();
+                }
+
+                OnPropertyChanged(nameof(CheckedProjectsSummary));
+                OnPropertyChanged(nameof(TaskQueueSummary));
+                OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
+                OnPropertyChanged(nameof(MaterialUploadSummary));
+                RefreshCommandStates();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"更新勾选状态失败：{ex.Message}";
+            }
+        });
     }
 
     private void OnInteractionRequestChanged(WorkflowInteractionRequest? request)
@@ -3796,7 +3907,14 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        _stateService.SaveCheckedProjectKeys(normalizedRootDir, GetCheckedProjectKeys());
+        try
+        {
+            _stateService.SaveCheckedProjectKeys(normalizedRootDir, GetCheckedProjectKeys());
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"保存勾选状态失败：{ex.Message}";
+        }
     }
 
     private void ReplaceProjects(IEnumerable<ScannedProject> scannedProjects, IReadOnlySet<string>? checkedKeys = null)
@@ -4434,7 +4552,7 @@ public partial class MainWindowViewModel : ViewModelBase
             UpdateFirstPageActions(actions, snapshot);
         }
 
-        File.WriteAllText(configPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(configPath, root.ToJsonString(JsonNodeWriteOptions));
         return true;
     }
 

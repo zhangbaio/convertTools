@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Data.Core;
 using Avalonia.Data.Core.Plugins;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using ShortDrama.Core.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -32,6 +33,7 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             DisableAvaloniaDataAnnotationValidation();
+            RegisterUnhandledUiExceptionHandler(desktop);
 
             _services = BuildServices();
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
@@ -80,6 +82,55 @@ public partial class App : Application
         services.AddSingleton<IDramaDownloader>(provider => provider.GetRequiredService<DramaSourceRouter>());
         services.AddSingleton<MainWindowViewModel>();
         return services.BuildServiceProvider();
+    }
+
+    private static void RegisterUnhandledUiExceptionHandler(IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        Dispatcher.UIThread.UnhandledException += (_, e) =>
+        {
+            var exception = e.Exception;
+            TryWriteUnhandledUiExceptionLog(exception);
+
+            try
+            {
+                if (desktop.MainWindow?.DataContext is MainWindowViewModel viewModel)
+                {
+                    var message = $"界面操作异常已拦截：{exception.Message}";
+                    viewModel.StatusMessage = message;
+                    viewModel.AppendExternalLog(
+                        message,
+                        stepKey: "ui",
+                        stepLabel: "界面操作",
+                        isFailure: true);
+                }
+            }
+            catch
+            {
+                // Avoid a secondary UI error from rethrowing while handling the original exception.
+            }
+
+            e.Handled = true;
+        };
+    }
+
+    private static void TryWriteUnhandledUiExceptionLog(Exception exception)
+    {
+        try
+        {
+            var logRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ShortDramaDesktop",
+                "logs");
+            Directory.CreateDirectory(logRoot);
+            var logPath = Path.Combine(logRoot, "ui-unhandled.log");
+            File.AppendAllText(
+                logPath,
+                $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}] {exception}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Logging must never turn a recoverable UI exception into a crash.
+        }
     }
 
     private void DisableAvaloniaDataAnnotationValidation()
