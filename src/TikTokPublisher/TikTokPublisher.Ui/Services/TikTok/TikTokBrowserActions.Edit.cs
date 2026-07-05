@@ -77,8 +77,31 @@ public static partial class TikTokBrowserActions
                 Log(log, $"正片表格读取失败，已从页面正文解析 {rows.Count} 行 slot/real。");
         }
 
+        var tableRowCount = await ReadEditVideoTableRowCountAsync(page);
         if (rows.Count > 0)
         {
+            if (tableRowCount > expectedCount && rows.Count < tableRowCount)
+            {
+                throw new InvalidOperationException(
+                    $"TikTok 草稿正片已有 {tableRowCount} 行，超过总集数 {expectedCount}，且只解析到 {rows.Count} 行。" +
+                    "为避免误删或重复补传，请先在页面删除多余视频后重试。");
+            }
+
+            if (rows.Count > expectedCount)
+            {
+                Log(log, $"TikTok 草稿正片已有 {rows.Count}/{expectedCount} 行，删除第 {expectedCount + 1} 集及其后的多余行。");
+                await DeleteEditVideoRowsFromSlotAsync(page, expectedCount, log, ct);
+                return;
+            }
+
+            if (tableRowCount >= expectedCount && rows.Count < expectedCount)
+            {
+                Log(log,
+                    $"TikTok 草稿正片表格行数已达 {tableRowCount}/{expectedCount}，但当前只解析到 {rows.Count} 行；" +
+                    "跳过自动补传，避免把未解析到的现有视频重复上传。");
+                return;
+            }
+
             var aligned = 0;
             foreach (var row in rows)
             {
@@ -125,11 +148,35 @@ public static partial class TikTokBrowserActions
             return;
         }
 
+        if (tableRowCount > expectedCount)
+        {
+            throw new InvalidOperationException(
+                $"TikTok 草稿正片已有 {tableRowCount} 行，超过总集数 {expectedCount}。请先在页面删除多余视频后重试。");
+        }
+
+        if (tableRowCount >= expectedCount)
+        {
+            Log(log,
+                $"TikTok 草稿正片表格行数已达 {tableRowCount}/{expectedCount}，但未解析到完整集号；" +
+                "跳过自动补传，避免重复上传。");
+            return;
+        }
+
         var detected = await DetectEditFlowVideoStateAsync(page, payload, ct);
         List<string> pathsToUpload;
         if (detected.UploadedIndexes.Count > 0)
         {
-            pathsToUpload = ResolveMissingUploadPathsByIndexes(uploadPaths, detected.UploadedIndexes);
+            if (tableRowCount > detected.UploadedIndexes.Count)
+            {
+                pathsToUpload = ResolveMissingUploadPaths(uploadPaths, tableRowCount);
+                Log(log,
+                    $"TikTok 草稿正片表格有 {tableRowCount}/{expectedCount} 行，但只识别到 {detected.UploadedIndexes.Count} 个集号；" +
+                    $"按尾部续传剩余 {pathsToUpload.Count} 个，避免重复补传已存在行。");
+            }
+            else
+            {
+                pathsToUpload = ResolveMissingUploadPathsByIndexes(uploadPaths, detected.UploadedIndexes);
+            }
             if (pathsToUpload.Count == 0)
             {
                 Log(log, $"TikTok 草稿视频已完整：{detected.UploadedIndexes.Count}/{expectedCount}。");
@@ -249,6 +296,7 @@ public static partial class TikTokBrowserActions
             await WaitVideoUploadFinishedAsync(
                 page, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct,
                 videoPaths: missingPaths);
+            await EnsureEditVideoTableCountMatchesAsync(page, expectedCount, log);
             return;
         }
 
@@ -268,6 +316,33 @@ public static partial class TikTokBrowserActions
         await WaitVideoUploadFinishedAsync(
             page, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct,
             videoPaths: missingPaths);
+        await EnsureEditVideoTableCountMatchesAsync(page, expectedCount, log);
+    }
+
+    private static async Task EnsureEditVideoTableCountMatchesAsync(
+        IPage page,
+        int expectedCount,
+        Action<string>? log)
+    {
+        var rowCount = await ReadEditVideoTableRowCountAsync(page);
+        if (rowCount <= 0)
+            return;
+
+        if (rowCount > expectedCount)
+        {
+            throw new InvalidOperationException(
+                $"TikTok 编辑补传后正片已有 {rowCount} 行，超过总集数 {expectedCount}。" +
+                "已中止完成标记，请删除多余视频后重新执行编辑剧集。");
+        }
+
+        if (rowCount < expectedCount)
+        {
+            throw new InvalidOperationException(
+                $"TikTok 编辑补传后正片只有 {rowCount}/{expectedCount} 行，仍未补齐。" +
+                "已中止完成标记，请重新执行编辑剧集。");
+        }
+
+        Log(log, $"TikTok 编辑补传后正片行数校验通过：{rowCount}/{expectedCount}。");
     }
 
     public static async Task<List<EditVideoRow>> ReadEditVideoRowsAsync(IPage page, CancellationToken ct)
@@ -314,6 +389,29 @@ public static partial class TikTokBrowserActions
         }
 
         return ParseEditVideoRows(rawRows);
+    }
+
+    private static async Task<int> ReadEditVideoTableRowCountAsync(IPage page)
+    {
+        try
+        {
+            return await page.EvaluateAsync<int>(
+                """
+                () => {
+                  const table = document.querySelector('.semi-table-body table');
+                  const raw = table && table.getAttribute('aria-rowcount');
+                  if (raw) {
+                    const parsed = Number.parseInt(raw, 10);
+                    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+                  }
+                  return document.querySelectorAll('.semi-table-body tr.semi-table-row').length;
+                }
+                """);
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
     private static async Task<List<EditVideoRow>> TryReadEditVideoRowsFromBodyAsync(IPage page, CancellationToken ct)
