@@ -17,6 +17,7 @@ public sealed class WeixinMaterialPublishPage
     private const string PublishVideoSourceModeDirectoryPublish = "directory_publish";
     private const string PublishVideoSourceModeProjectMaterials = "project_materials";
     private const string PublishVideoSourceModeSourceVideos = "source_videos";
+    private const string PublishVideoSourceModeNewDramaMount = "new_drama_mount";
     private static readonly string[] DirectoryPublishDescriptionFileNames =
     [
         "description.txt", "desc.txt", "描述.txt"
@@ -803,6 +804,18 @@ public sealed class WeixinMaterialPublishPage
                 preserveOrder: true);
         }
 
+        if (string.Equals(sourceMode, PublishVideoSourceModeNewDramaMount, StringComparison.Ordinal))
+        {
+            var mountedFiles = Directory.Exists(projectDir)
+                ? Directory.EnumerateFiles(projectDir, "*.*", SearchOption.AllDirectories)
+                    .Where(IsVideoFile)
+                    .OrderBy(BuildNaturalSortToken, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+                    .ToArray()
+                : [];
+            return BuildPublishItemsFromFiles(mountedFiles, options);
+        }
+
         if (string.Equals(sourceMode, PublishVideoSourceModeDownloadedSystemHighlight, StringComparison.Ordinal) ||
             string.Equals(sourceMode, PublishVideoSourceModeMaterialVideoDownload, StringComparison.Ordinal) ||
             string.Equals(sourceMode, PublishVideoSourceModeSourceVideos, StringComparison.Ordinal))
@@ -956,6 +969,7 @@ public sealed class WeixinMaterialPublishPage
             "directory_publish" or "dir_publish" => PublishVideoSourceModeDirectoryPublish,
             "project_materials" or "project_material" => PublishVideoSourceModeProjectMaterials,
             "source_videos" or "source" => PublishVideoSourceModeSourceVideos,
+            "new_drama_mount" or "newdramamount" or "new_drama" => PublishVideoSourceModeNewDramaMount,
             _ => PublishVideoSourceModeProject
         };
     }

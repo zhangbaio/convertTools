@@ -765,6 +765,7 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
             "directory_publish" or "dir_publish" => "directory_publish",
             "source_videos" or "source" => "source_videos",
             "project_materials" or "project_material" => "project_materials",
+            "new_drama_mount" or "newdramamount" or "new_drama" => "new_drama_mount",
             _ => "project"
         };
     }

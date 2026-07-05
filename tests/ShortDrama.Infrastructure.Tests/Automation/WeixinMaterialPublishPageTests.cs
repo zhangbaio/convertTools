@@ -94,6 +94,23 @@ public sealed class WeixinMaterialPublishPageTests
     }
 
     [Fact]
+    public void ResolvePublishVideoItems_Should_Scan_NewDramaMount_Recursively()
+    {
+        var projectDir = Directory.CreateTempSubdirectory().FullName;
+        var nestedDir = Directory.CreateDirectory(Path.Combine(projectDir, "downloaded", "batch-01")).FullName;
+        var first = Path.Combine(nestedDir, "episode-02.mp4");
+        var second = Path.Combine(nestedDir, "episode-10.mp4");
+        File.WriteAllBytes(first, [1]);
+        File.WriteAllBytes(second, [1]);
+
+        var items = WeixinMaterialPublishPage.ResolvePublishVideoItems(
+            projectDir,
+            BuildOptions(videoSourceMode: "new_drama_mount") with { EpisodeSelectionMode = "all" });
+
+        items.Select(item => item.VideoPath).Should().Equal([first, second]);
+    }
+
+    [Fact]
     public void BuildPublishDescription_Should_Use_PerVideoSidecarDescription()
     {
         var projectDir = Directory.CreateTempSubdirectory().FullName;

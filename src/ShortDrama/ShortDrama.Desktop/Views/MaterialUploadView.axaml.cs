@@ -78,7 +78,14 @@ public partial class MaterialUploadView : UserControl
             return;
         }
 
-        await ViewModel.RunCheckedMaterialUploadQueueFromPageAsync();
+        try
+        {
+            await ViewModel.RunCheckedMaterialUploadQueueFromPageAsync();
+        }
+        catch (Exception ex)
+        {
+            ReportMaterialUploadRunError("发表素材失败", ex, null);
+        }
     }
 
     private async void OpenPublishConfigButton_Click(object? sender, RoutedEventArgs e)
@@ -252,7 +259,35 @@ public partial class MaterialUploadView : UserControl
         }
 
         var project = (sender as Control)?.DataContext as ProjectListItemViewModel;
-        await ViewModel.RunMaterialUploadProjectFromPageAsync(project);
+        try
+        {
+            await ViewModel.RunMaterialUploadProjectFromPageAsync(project);
+        }
+        catch (Exception ex)
+        {
+            ReportMaterialUploadRunError("发表素材失败", ex, project);
+        }
+    }
+
+    private void ReportMaterialUploadRunError(
+        string prefix,
+        Exception exception,
+        ProjectListItemViewModel? project)
+    {
+        if (ViewModel is null)
+        {
+            return;
+        }
+
+        var message = $"{prefix}：{exception.Message}";
+        ViewModel.StatusMessage = message;
+        ViewModel.AppendExternalLog(
+            message,
+            project?.ProjectKey ?? string.Empty,
+            project?.DisplayName ?? string.Empty,
+            "material-upload",
+            "素材上传",
+            isFailure: true);
     }
 
     private void MaterialUploadProjectsListBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)

@@ -725,8 +725,6 @@ public sealed partial class MainViewModel : ViewModelBase
         UpdateQueueSummaryText();
         RefreshLogSnapshot(force: true);
 
-        var pending = WorkspaceQueueService.FilterPendingUpload(_queueItems).Count();
-        StatusMessage = $"已扫描工作目录：{_queueItems.Count} 个项目，{pending} 个待上传";
     }
 
     private List<QueueProjectItem> PreserveDisplayedRuntimeState(List<QueueProjectItem> scannedItems)

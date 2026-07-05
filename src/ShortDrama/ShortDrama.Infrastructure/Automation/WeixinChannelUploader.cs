@@ -81,6 +81,11 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             request.ProjectDir,
             cancellationToken);
 
+        if (TryBuildMaterialPublishPreflightResult(request, config, resolvedConfigPath, out var preflightResult))
+        {
+            return preflightResult;
+        }
+
         progress?.Report("寰俊鍓ч泦涓婁紶锛氭鏌ユ祻瑙堝櫒杩愯鏃?..");
         var runtimeStatus = await _browserRuntimeService.InspectAsync(cancellationToken);
         if (!runtimeStatus.IsReady)
@@ -368,6 +373,55 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             Message: config.Submit.Enabled
                 ? "C# 寰俊鍓ч泦涓婁紶宸叉墽琛屽埌鏈€缁堟彁浜ゃ€"
                 : "C# 寰俊鍓ч泦涓婁紶宸叉墽琛屽埌鎻愬椤碉紝绛夊緟浜哄伐鏈€缁堢‘璁ゃ€");
+    }
+
+    private static bool TryBuildMaterialPublishPreflightResult(
+        WeixinUploadRequest request,
+        WeixinAutomationConfig config,
+        string? resolvedConfigPath,
+        out WeixinUploadResult result)
+    {
+        result = default!;
+        if (!string.Equals(config.TaskType, "publish_videos", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!config.VideoPublish.Enabled)
+        {
+            result = new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "当前项目已禁用微信素材上传。");
+            return true;
+        }
+
+        var sourceMode = WeixinMaterialPublishPage.NormalizeVideoSourceMode(config.VideoPublish.VideoSourceMode);
+        if (string.Equals(sourceMode, "system_highlight", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        try
+        {
+            var publishItems = WeixinMaterialPublishPage.ResolvePublishVideoItems(request.ProjectDir, config.VideoPublish);
+            if (publishItems.Count > 0)
+            {
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            result = new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, $"素材视频解析失败：{ex.Message}");
+            return true;
+        }
+
+        result = new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, BuildNoMaterialVideoMessage(sourceMode));
+        return true;
+    }
+
+    private static string BuildNoMaterialVideoMessage(string sourceMode)
+    {
+        return sourceMode == "new_drama_mount"
+            ? "新剧挂载模式未找到可发表的视频；请先下载素材视频，或把视频放入当前 workflow 项目后再点击发表素材。"
+            : "当前项目未找到可发表的素材视频。";
     }
 
     private async Task<WeixinUploadResult> RunMaterialPublishAsync(
