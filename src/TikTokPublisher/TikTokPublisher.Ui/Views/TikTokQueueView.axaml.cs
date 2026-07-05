@@ -1215,7 +1215,7 @@ public partial class TikTokQueueView : UserControl
             var summary = await vm.RunQueueWorkerAsync(
                 host,
                 p => _queueProgressSink?.Post(p),
-                items => Dispatcher.UIThread.Post(() => vm.ApplyPersistedQueueItems(items)),
+                (root, items) => Dispatcher.UIThread.Post(() => vm.ApplyPersistedQueueItems(root, items)),
                 ct,
                 optionsOverride,
                 orderedProjectDirFilter);
@@ -1277,11 +1277,7 @@ public partial class TikTokQueueView : UserControl
             var summaries = await vm.RunAllAccountWorkspaceQueuesAsync(
                 host,
                 p => _queueProgressSink?.Post(p),
-                (root, items) => Dispatcher.UIThread.Post(() =>
-                {
-                    if (string.Equals(Path.GetFullPath(root), Path.GetFullPath(vm.WorkspacePath), StringComparison.OrdinalIgnoreCase))
-                        vm.ApplyPersistedQueueItems(items);
-                }),
+                (root, items) => Dispatcher.UIThread.Post(() => vm.ApplyPersistedQueueItems(root, items)),
                 ct,
                 targets,
                 optionsOverride);

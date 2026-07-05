@@ -37,6 +37,13 @@ public sealed partial class MainViewModel : ViewModelBase
     private bool _queueRunActive;
     private int _activeQueueRunCount;
     private string _displayedWorkspaceRoot = "";
+    private readonly object _workspaceQueueSnapshotsLock = new();
+    private readonly Dictionary<string, WorkspaceQueueSnapshot> _workspaceQueueSnapshots =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _queueExcelExportLock = new();
+    private readonly HashSet<string> _pendingQueueExcelExportWorkspaces =
+        new(StringComparer.OrdinalIgnoreCase);
+    private bool _queueFinalExcelExportScheduled;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
     public ObservableCollection<AccountItemViewModel> FilteredAccounts { get; } = new();
@@ -187,7 +194,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private void WireQueueOrchestrator()
     {
         _queueOrchestrator.ManualInterventionPending += OnOrchestratorManualInterventionPending;
-        _queueStatePersist.SetOnPersisted(AutoExportQueueExcelForWorkspace);
+        _queueStatePersist.SetOnPersisted(OnQueueStatePersisted);
     }
 
     private void OnOrchestratorManualInterventionPending(QueueProjectItem item, string errorMessage, string workspaceRoot)
@@ -651,6 +658,19 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         BindWorkspaceToSelectedAccountIfMissing(root);
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (generation != _workspaceRefreshGeneration) return;
+            if (TryGetWorkspaceQueueSnapshot(root, out var cachedItems, out var cachedOptions))
+            {
+                ApplyWorkspaceScanResult(root, cachedItems, cachedOptions);
+                return;
+            }
+
+            if (!string.Equals(_displayedWorkspaceRoot, SafeFullPath(root), StringComparison.OrdinalIgnoreCase))
+                ShowWorkspaceLoadingState(root);
+        });
+
         var scanResult = await Task.Run(() =>
         {
             _queueStatePersist.Flush(root, TimeSpan.FromMilliseconds(400));
@@ -666,7 +686,8 @@ public sealed partial class MainViewModel : ViewModelBase
             // 但切账号切到「另一个正在运行的工作目录」必须应用扫描结果，否则队列/日志面板停留在旧账号。
             if (!force &&
                 IsWorkspaceQueueRunning(root) &&
-                string.Equals(_displayedWorkspaceRoot, SafeFullPath(root), StringComparison.OrdinalIgnoreCase))
+                string.Equals(_displayedWorkspaceRoot, SafeFullPath(root), StringComparison.OrdinalIgnoreCase) &&
+                _queueItems.Count > 0)
                 return;
             ApplyWorkspaceScanResult(root, scanResult.Items, scanResult.Options);
         });
@@ -690,6 +711,18 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         QueueProjectRows.Clear();
         FilteredQueueProjectRows.Clear();
+    }
+
+    private void ShowWorkspaceLoadingState(string root)
+    {
+        ClearWorkspaceProjectCollections();
+        _queueItems.Clear();
+        _queueRowByDir.Clear();
+        _displayedWorkspaceRoot = SafeFullPath(root);
+        UpdateWorkspaceBindingSummary(root);
+        QueueSummaryText = $"正在加载工作目录 {root}";
+        RefreshTodayUploadCount();
+        RefreshLogSnapshot(force: true);
     }
 
     private void ApplyWorkspaceScanResult(string root, List<QueueProjectItem> items, QueueRunOptions options)
@@ -725,8 +758,71 @@ public sealed partial class MainViewModel : ViewModelBase
         ApplyQueueProjectFilter();
         UpdateQueueSummaryText();
         RefreshLogSnapshot(force: true);
+        CacheWorkspaceQueueSnapshot(root, _queueItems, _queueRunOptions);
 
     }
+
+    private void CacheWorkspaceQueueOptions(string workspaceRoot, QueueRunOptions options)
+    {
+        var root = NormalizeWorkspaceRootKey(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(root)) return;
+
+        lock (_workspaceQueueSnapshotsLock)
+        {
+            if (_workspaceQueueSnapshots.TryGetValue(root, out var snapshot))
+                snapshot.Options = options.Clone();
+            else
+                _workspaceQueueSnapshots[root] = new WorkspaceQueueSnapshot { Options = options.Clone() };
+        }
+    }
+
+    private void CacheWorkspaceQueueSnapshot(
+        string workspaceRoot,
+        IReadOnlyList<QueueProjectItem> items,
+        QueueRunOptions? options = null)
+    {
+        var root = NormalizeWorkspaceRootKey(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(root)) return;
+
+        lock (_workspaceQueueSnapshotsLock)
+        {
+            var existingOptions = _workspaceQueueSnapshots.TryGetValue(root, out var existing)
+                ? existing.Options?.Clone()
+                : null;
+            _workspaceQueueSnapshots[root] = new WorkspaceQueueSnapshot
+            {
+                Items = CloneQueueItems(items),
+                Options = options?.Clone() ?? existingOptions,
+            };
+        }
+    }
+
+    private bool TryGetWorkspaceQueueSnapshot(
+        string workspaceRoot,
+        out List<QueueProjectItem> items,
+        out QueueRunOptions options)
+    {
+        items = new List<QueueProjectItem>();
+        options = new QueueRunOptions();
+        var root = NormalizeWorkspaceRootKey(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(root)) return false;
+
+        lock (_workspaceQueueSnapshotsLock)
+        {
+            if (!_workspaceQueueSnapshots.TryGetValue(root, out var snapshot) || snapshot.Items.Count == 0)
+                return false;
+
+            items = CloneQueueItems(snapshot.Items);
+            options = (snapshot.Options ?? new QueueRunOptions()).Clone();
+            return true;
+        }
+    }
+
+    private static string NormalizeWorkspaceRootKey(string workspaceRoot) =>
+        string.IsNullOrWhiteSpace(workspaceRoot) ? "" : SafeFullPath(workspaceRoot.Trim());
+
+    private static List<QueueProjectItem> CloneQueueItems(IReadOnlyList<QueueProjectItem> items) =>
+        items.Select(item => QueueProjectItem.FromPayload(item.ToPayload())).ToList();
 
     private List<QueueProjectItem> PreserveDisplayedRuntimeState(List<QueueProjectItem> scannedItems)
     {
@@ -1049,7 +1145,7 @@ public sealed partial class MainViewModel : ViewModelBase
     public async Task<QueueWorkerSummary?> RunQueueWorkerAsync(
         IQueuePublishHost host,
         Action<QueueWorkerProgress> onProgress,
-        Action<IReadOnlyList<QueueProjectItem>> onPersist,
+        Action<string, IReadOnlyList<QueueProjectItem>> onPersist,
         CancellationToken ct,
         QueueRunOptions? optionsOverride = null,
         IReadOnlyCollection<string>? projectDirFilter = null)
@@ -1083,6 +1179,8 @@ public sealed partial class MainViewModel : ViewModelBase
         var runOptions = optionsOverride ?? BuildQueueRunOptionsFromUi();
         if (optionsOverride is null)
             _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
+        CacheWorkspaceQueueSnapshot(root, _queueItems, runOptions);
+        MarkQueueExcelExportPending(root);
         RefreshRunningWorkspacesSummary();
         _currentQueueBatchId = TikTokExecutionHistoryService.NewBatchId();
         var batchId = _currentQueueBatchId;
@@ -1128,7 +1226,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 (workspaceRoot, items) =>
                 {
                     if (string.Equals(Path.GetFullPath(workspaceRoot), Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase))
-                        onPersist(items);
+                        onPersist(workspaceRoot, items);
                 },
                 ct,
                 projectDirFilter);
@@ -1174,6 +1272,8 @@ public sealed partial class MainViewModel : ViewModelBase
         SyncEnabledStepsFromUi();
         _queueStatePersist.Enqueue(WorkspacePath, _queueItems, _queueRunOptions);
         PersistAccountQueueEnabledSteps();
+        foreach (var target in targets)
+            MarkQueueExcelExportPending(target.WorkspaceRoot);
         RefreshRunningWorkspacesSummary();
         _currentQueueBatchId = TikTokExecutionHistoryService.NewBatchId();
         foreach (var target in targets)
@@ -1199,17 +1299,25 @@ public sealed partial class MainViewModel : ViewModelBase
                 target =>
                 {
                     var account = FindAccount(target.AccountProfileId ?? "")?.Model;
+                    QueueRunOptions targetOptions;
                     if (optionsOverride is not null)
                     {
                         var cloned = optionsOverride.Clone();
                         cloned.ProjectConcurrency = Math.Clamp(account?.TiktokProjectConcurrency ?? cloned.ProjectConcurrency, 1, 20);
-                        return cloned;
+                        targetOptions = cloned;
+                    }
+                    else if (account?.Id == SelectedAccount?.Id &&
+                             string.Equals(Path.GetFullPath(target.WorkspaceRoot), Path.GetFullPath(WorkspacePath), StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetOptions = BuildQueueRunOptionsFromUi();
+                    }
+                    else
+                    {
+                        targetOptions = LoadQueueRunOptionsForAccountWorkspace(target.WorkspaceRoot, account);
                     }
 
-                    if (account?.Id == SelectedAccount?.Id &&
-                        string.Equals(Path.GetFullPath(target.WorkspaceRoot), Path.GetFullPath(WorkspacePath), StringComparison.OrdinalIgnoreCase))
-                        return BuildQueueRunOptionsFromUi();
-                    return LoadQueueRunOptionsForAccountWorkspace(target.WorkspaceRoot, account);
+                    CacheWorkspaceQueueOptions(target.WorkspaceRoot, targetOptions);
+                    return targetOptions;
                 },
                 progress =>
                 {
@@ -1771,14 +1879,17 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void EndQueueRun()
     {
+        var finishedAllRuns = false;
         _activeQueueRunCount = Math.Max(0, _activeQueueRunCount - 1);
         if (_activeQueueRunCount == 0)
         {
             _queueCts?.Dispose();
             _queueCts = null;
-            _queueRunActive = false;
+            finishedAllRuns = true;
         }
 
+        if (finishedAllRuns)
+            ScheduleFinalQueueExcelExport();
         RefreshRunningWorkspacesSummary();
     }
 
@@ -1951,24 +2062,38 @@ public sealed partial class MainViewModel : ViewModelBase
     private static bool IsUploadSeriesProgress(QueueWorkerProgress progress) =>
         string.Equals(progress.StepKey, QueueStepRegistry.UploadSeries, StringComparison.Ordinal);
 
-    public void ApplyPersistedQueueItems(IReadOnlyList<QueueProjectItem> items)
+    public void ApplyPersistedQueueItems(IReadOnlyList<QueueProjectItem> items) =>
+        ApplyPersistedQueueItems(WorkspacePath, items);
+
+    public void ApplyPersistedQueueItems(string workspaceRoot, IReadOnlyList<QueueProjectItem> items)
     {
-        var root = WorkspacePath.Trim();
+        var root = (workspaceRoot ?? "").Trim();
         if (string.IsNullOrEmpty(root)) return;
 
-        // 切账号后，旧工作目录队列的持久化回调仍会到达；项目不属于当前工作目录时忽略，防止跨目录覆盖状态。
-        if (items.Count > 0)
-        {
-            var rootPrefix = SafeFullPath(root)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            var firstDir = SafeFullPath(items[0].ProjectDir);
-            if (!firstDir.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
-                return;
-        }
+        CacheWorkspaceQueueSnapshot(root, items);
+        _queueStatePersist.Enqueue(root, items.ToList(), ResolveQueueOptionsForPersistedWorkspace(root));
+
+        if (!IsActiveWorkspace(root))
+            return;
 
         _queueItems = items.ToList();
-        _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
         ScheduleQueueRowRefresh();
+    }
+
+    private QueueRunOptions ResolveQueueOptionsForPersistedWorkspace(string workspaceRoot)
+    {
+        var root = NormalizeWorkspaceRootKey(workspaceRoot);
+        var displayedRoot = NormalizeWorkspaceRootKey(WorkspacePath);
+        if (string.Equals(root, displayedRoot, StringComparison.OrdinalIgnoreCase))
+            return _queueRunOptions;
+
+        lock (_workspaceQueueSnapshotsLock)
+        {
+            if (_workspaceQueueSnapshots.TryGetValue(root, out var snapshot) && snapshot.Options is not null)
+                return snapshot.Options.Clone();
+        }
+
+        return WorkspaceQueueService.LoadRunOptions(root);
     }
 
     private bool _queueRowRefreshPending;
@@ -2653,7 +2778,105 @@ public sealed partial class MainViewModel : ViewModelBase
         return TikTokExcelExportService.Export(root, snapshot.Items, account: null, settings, snapshot.WorkspaceByProject);
     }
 
+    private void OnQueueStatePersisted(string workspaceRoot)
+    {
+        if (ShouldDeferQueueExcelExport())
+        {
+            MarkQueueExcelExportPending(workspaceRoot);
+            return;
+        }
+
+        AutoExportQueueExcelForWorkspaceNow(workspaceRoot);
+    }
+
+    private bool ShouldDeferQueueExcelExport()
+    {
+        lock (_queueExcelExportLock)
+            return _queueRunActive || _queueFinalExcelExportScheduled;
+    }
+
+    private void MarkQueueExcelExportPending(string workspaceRoot)
+    {
+        var root = NormalizeWorkspaceRootKey(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(root)) return;
+
+        lock (_queueExcelExportLock)
+            _pendingQueueExcelExportWorkspaces.Add(root);
+    }
+
+    private void ScheduleFinalQueueExcelExport()
+    {
+        string[] workspaces;
+        lock (_queueExcelExportLock)
+        {
+            if (_pendingQueueExcelExportWorkspaces.Count == 0)
+            {
+                _queueRunActive = false;
+                return;
+            }
+
+            _queueFinalExcelExportScheduled = true;
+            _queueRunActive = false;
+            workspaces = _pendingQueueExcelExportWorkspaces.ToArray();
+        }
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                foreach (var workspace in workspaces)
+                    _queueStatePersist.Flush(workspace, TimeSpan.FromSeconds(3));
+
+                var exportWorkspace = ResolveFinalQueueExcelExportWorkspace(workspaces);
+                if (!string.IsNullOrWhiteSpace(exportWorkspace))
+                    AutoExportQueueExcelForWorkspaceNow(exportWorkspace);
+            }
+            finally
+            {
+                var scheduleAgain = false;
+                lock (_queueExcelExportLock)
+                {
+                    foreach (var workspace in workspaces)
+                        _pendingQueueExcelExportWorkspaces.Remove(workspace);
+
+                    _queueRunActive = false;
+                    _queueFinalExcelExportScheduled = false;
+                    scheduleAgain = _pendingQueueExcelExportWorkspaces.Count > 0;
+                }
+
+                Avalonia.Threading.Dispatcher.UIThread.Post(RefreshRunningWorkspacesSummary);
+                if (scheduleAgain)
+                    ScheduleFinalQueueExcelExport();
+            }
+        });
+    }
+
+    private string ResolveFinalQueueExcelExportWorkspace(IReadOnlyList<string> workspaces)
+    {
+        if (workspaces.Count == 0) return "";
+
+        var current = NormalizeWorkspaceRootKey(WorkspacePath);
+        if (!string.IsNullOrWhiteSpace(current) &&
+            workspaces.Any(workspace => string.Equals(workspace, current, StringComparison.OrdinalIgnoreCase)))
+        {
+            return current;
+        }
+
+        return workspaces.FirstOrDefault(Directory.Exists) ?? workspaces[0];
+    }
+
     private void AutoExportQueueExcelForWorkspace(string workspaceRoot)
+    {
+        if (ShouldDeferQueueExcelExport())
+        {
+            MarkQueueExcelExportPending(workspaceRoot);
+            return;
+        }
+
+        AutoExportQueueExcelForWorkspaceNow(workspaceRoot);
+    }
+
+    private void AutoExportQueueExcelForWorkspaceNow(string workspaceRoot)
     {
         try
         {
@@ -2731,4 +2954,10 @@ public sealed partial class MainViewModel : ViewModelBase
         (projectDir ?? "").Trim().Replace('\\', '/').ToLowerInvariant();
 
     private void AutoExportQueueExcel() => AutoExportQueueExcelForWorkspace(WorkspacePath);
+
+    private sealed class WorkspaceQueueSnapshot
+    {
+        public List<QueueProjectItem> Items { get; init; } = new();
+        public QueueRunOptions? Options { get; set; }
+    }
 }
