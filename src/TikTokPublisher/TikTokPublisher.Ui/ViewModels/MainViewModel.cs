@@ -2467,6 +2467,118 @@ public sealed partial class MainViewModel : ViewModelBase
         AppendLog(StatusMessage);
     }
 
+    public async Task<LocalManualDramaImportResult?> ImportLocalManualDramaAsync(string sourceProjectDir)
+    {
+        var root = ResolveSelectedAccountWorkspacePath();
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            StatusMessage = "请先为左侧选择账号配置上传工作目录";
+            return null;
+        }
+
+        var account = SelectedAccount?.Model;
+        Directory.CreateDirectory(root);
+        if (account is not null)
+            WorkspaceBindingService.Bind(root, account.Id, account.DisplayName);
+
+        if (!string.Equals(NormalizeWorkspacePath(WorkspacePath), root, StringComparison.OrdinalIgnoreCase))
+        {
+            WorkspacePath = root;
+            SystemSettings.UpdateWorkspacePath(root);
+            ArchivedProjects.SetWorkspace(root, refresh: false);
+        }
+
+        StatusMessage = $"正在导入本地剧集：{Path.GetFileName(sourceProjectDir)}";
+        AppendLog(StatusMessage);
+
+        LocalManualDramaImportResult result;
+        try
+        {
+            result = await Task.Run(() => LocalManualDramaImportService.Import(root, sourceProjectDir, AppendLog))
+                .ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"导入本地剧集失败：{ex.Message}";
+            AppendLog(StatusMessage);
+            throw;
+        }
+
+        var added = WorkspaceQueueService.AddProjectsToQueue(root, [result.SourceProjectDir]);
+        var importedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            Path.GetFullPath(result.SourceProjectDir),
+        };
+        ApplyImportedProjectsToCurrentAccount(root, importedKeys, account);
+
+        if (IsCurrentWorkspaceQueueRunning())
+        {
+            var appended = AppendImportedProjectsWhileRunning(importedKeys);
+            if (appended.Count > 0)
+            {
+                var appendedCount = _queueOrchestrator.TryAppendItemsToRunningWorkspace(root, appended);
+                AppendLog(appendedCount > 0
+                    ? $"已请求追加 {appendedCount} 个本地剧集到运行中的队列末尾。"
+                    : $"已导入 {appended.Count} 个本地剧集到队列列表。");
+            }
+        }
+        else
+        {
+            await RefreshWorkspaceProjectsAsync(root, force: true).ConfigureAwait(true);
+        }
+
+        var accountName = account?.DisplayName ?? "当前账号";
+        StatusMessage = added.Count > 0
+            ? $"已导入本地剧集「{result.DisplayName}」到「{accountName}」上传队列，共 {result.EpisodeCount} 集"
+            : $"本地剧集「{result.DisplayName}」已在「{accountName}」上传队列中，共 {result.EpisodeCount} 集";
+        AppendLog(StatusMessage);
+        return result;
+    }
+
+    private void ApplyImportedProjectsToCurrentAccount(
+        string workspaceRoot,
+        IReadOnlySet<string> importedKeys,
+        TikTokAccountProfile? account)
+    {
+        if (importedKeys.Count == 0)
+            return;
+
+        var items = WorkspaceQueueService.ScanProjects(workspaceRoot).ToList();
+        var changed = false;
+        foreach (var item in items)
+        {
+            if (!importedKeys.Contains(Path.GetFullPath(item.ProjectDir)))
+                continue;
+
+            item.Enabled = true;
+            ResetQueueItemToPending(item);
+            if (account is not null)
+            {
+                item.AccountProfileId = account.Id;
+                item.AccountProfileName = account.DisplayName;
+            }
+
+            changed = true;
+        }
+
+        foreach (var item in _queueItems)
+        {
+            if (!importedKeys.Contains(Path.GetFullPath(item.ProjectDir)))
+                continue;
+
+            item.Enabled = true;
+            ResetQueueItemToPending(item);
+            if (account is not null)
+            {
+                item.AccountProfileId = account.Id;
+                item.AccountProfileName = account.DisplayName;
+            }
+        }
+
+        if (changed)
+            WorkspaceQueueService.SaveRunOptions(workspaceRoot, items, WorkspaceQueueService.LoadRunOptions(workspaceRoot));
+    }
+
     public async Task ArchiveSelectedQueueProjectsAsync(IEnumerable<QueueProjectRowViewModel> selectedRows)
     {
         var root = WorkspacePath.Trim();

@@ -893,6 +893,52 @@ public partial class TikTokQueueView : UserControl
         _vm?.RemoveSelectedQueueProjects(GetSelectedQueueRows());
     }
 
+    private async void OnImportLocalDramaClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null || Storage is null) return;
+        if (string.IsNullOrWhiteSpace(vm.WorkspacePath))
+        {
+            vm.StatusMessage = "请先选择工作目录";
+            return;
+        }
+
+        var folders = await Storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "选择本地手动下载剧集目录",
+            AllowMultiple = false,
+            SuggestedStartLocation = await TryResolveFolderAsync(vm.WorkspacePath),
+        });
+        var folder = folders.FirstOrDefault();
+        if (folder is null) return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        try
+        {
+            await vm.ImportLocalManualDramaAsync(folder.Path.LocalPath);
+        }
+        catch (Exception ex)
+        {
+            if (owner is not null)
+                await ShowMessageAsync(owner, "导入本地剧集失败", ex.Message, warning: true);
+        }
+    }
+
+    private async Task<IStorageFolder?> TryResolveFolderAsync(string path)
+    {
+        if (Storage is null || string.IsNullOrWhiteSpace(path))
+            return null;
+
+        try
+        {
+            return await Storage.TryGetFolderFromPathAsync(path);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private async void OnUploadTitlesClick(object? sender, RoutedEventArgs e)
     {
         var vm = _vm;
