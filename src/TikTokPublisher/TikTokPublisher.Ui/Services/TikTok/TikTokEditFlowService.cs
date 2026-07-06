@@ -37,7 +37,8 @@ public static class TikTokEditFlowService
         string coverPath,
         Action<string>? log,
         CancellationToken ct,
-        bool allowPlatformSearch)
+        bool allowPlatformSearch,
+        bool allowCreateFallback)
     {
         if (await MaybeRouteDuplicateToEditFlowAsync(
                 page, workflowProjectDir, payload, options, recommendation, coverPath, log, ct))
@@ -50,7 +51,7 @@ public static class TikTokEditFlowService
         if (!allowPlatformSearch) return false;
 
         return await MaybeSearchExistingSeriesThenEditAsync(
-            page, workflowProjectDir, payload, options, recommendation, coverPath, log, ct);
+            page, workflowProjectDir, payload, options, recommendation, coverPath, log, ct, allowCreateFallback);
     }
 
     public static async Task<bool> MaybeRouteDuplicateToEditFlowAsync(
@@ -105,7 +106,8 @@ public static class TikTokEditFlowService
         TikTokPublishRecommendation recommendation,
         string coverPath,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool allowCreateFallback = true)
     {
         var titleCandidates = NormalizeTitleCandidates(payload.Title, payload.OriginalTitle);
         if (titleCandidates.Count == 0) return false;
@@ -115,7 +117,9 @@ public static class TikTokEditFlowService
         if (string.IsNullOrWhiteSpace(detailUrl))
         {
             TikTokUploadStateStore.RecordPlatformSeriesNotFound(workflowProjectDir, "pre_upload_search", titleCandidates);
-            log?.Invoke("TikTok 平台未找到同名草稿，改走新建剧集上传流程");
+            log?.Invoke(allowCreateFallback
+                ? "TikTok 平台未找到同名草稿，改走新建剧集上传流程"
+                : "TikTok 平台未找到同名草稿；当前为编辑剧集模式，不会新建上传");
             return false;
         }
 

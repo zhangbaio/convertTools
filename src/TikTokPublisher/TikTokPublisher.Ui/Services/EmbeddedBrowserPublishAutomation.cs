@@ -132,10 +132,11 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                     coverPath,
                     L,
                     ct,
-                    allowPlatformSearch: true)
+                    allowPlatformSearch: true,
+                    allowCreateFallback: false)
                     .ConfigureAwait(false);
                 if (!enteredEditFlow)
-                    return PublishResult.Fail("未找到可编辑草稿，无法进入编辑剧集模式");
+                    return PublishResult.Fail("未找到可编辑草稿，编辑剧集模式不会新建上传；如需新建请使用执行勾选队列");
             }
             else if (hasWorkflow)
             {
@@ -148,7 +149,8 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                     coverPath,
                     L,
                     ct,
-                    allowPlatformSearch: TikTokUploadStateStore.ShouldSearchPlatformForExistingDraft(workflowDir))
+                    allowPlatformSearch: TikTokUploadStateStore.ShouldSearchPlatformForExistingDraft(workflowDir),
+                    allowCreateFallback: true)
                     .ConfigureAwait(false);
             }
 
