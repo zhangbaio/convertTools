@@ -286,15 +286,34 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
     {
         ct.ThrowIfCancellationRequested();
         log?.Invoke("正在打开 TikTok 新建剧集页…");
-        await page.GotoAsync(targetUrl, new PageGotoOptions
+        try
         {
-            WaitUntil = WaitUntilState.DOMContentLoaded,
-            Timeout = 90000,
-        }).ConfigureAwait(false);
+            await page.GotoAsync(targetUrl, new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 90000,
+            }).ConfigureAwait(false);
+        }
+        catch (PlaywrightException ex) when (IsHttpResponseCodeFailure(ex.Message))
+        {
+            throw new InvalidOperationException(BuildAccessDeniedMessage(targetUrl), ex);
+        }
+
         try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 }).ConfigureAwait(false); }
         catch { /* SPA */ }
         await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log).ConfigureAwait(false);
     }
+
+    private static bool IsHttpResponseCodeFailure(string? message)
+    {
+        var value = message ?? "";
+        return value.Contains("ERR_HTTP_RESPONSE_CODE_FAILURE", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("HTTP ERROR 403", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("403", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildAccessDeniedMessage(string url) =>
+        $"TikTok Drama Center 拒绝访问：{url}。请先在「浏览器」页确认当前账号能打开 TikTok Drama Center；如果页面显示 403，请为该账号启用可用代理/静态 IP，或在新电脑上完成一次人工验证后再上传。";
 
     private static string ResolveCoverPath(PublishItem item, Action<string>? log = null)
     {

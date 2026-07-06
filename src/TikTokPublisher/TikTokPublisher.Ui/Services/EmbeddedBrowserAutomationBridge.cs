@@ -20,6 +20,8 @@ public static class EmbeddedBrowserAutomationBridge
         Action<string>? log,
         CancellationToken ct)
     {
+        PlaywrightBrowserRuntime.ConfigureBundledBrowsers(log);
+
         var pw = await Playwright.CreateAsync().ConfigureAwait(false);
         IBrowser? chromium = null;
         try
@@ -40,6 +42,7 @@ public static class EmbeddedBrowserAutomationBridge
             var contextOptions = new BrowserNewContextOptions
             {
                 Locale = "zh-CN",
+                UserAgent = PlaywrightBrowserRuntime.DesktopChromeUserAgent,
                 ViewportSize = ViewportSize.NoViewport,
             };
             var proxy = TikTokProxyHelper.BuildFromAccount(account);
@@ -106,6 +109,8 @@ public static class EmbeddedBrowserAutomationBridge
     {
         var cdp = browser.CdpEndpoint
             ?? throw new InvalidOperationException("内置浏览器 CDP 未就绪，请打开「浏览器」页等待加载完成");
+
+        PlaywrightBrowserRuntime.ConfigureBundledBrowsers(log);
 
         var pw = await Playwright.CreateAsync().ConfigureAwait(false);
         IBrowser chromium;
@@ -221,6 +226,10 @@ public static class EmbeddedBrowserAutomationBridge
                 Timeout = 60000,
             }).ConfigureAwait(false);
         }
+        catch (PlaywrightException ex) when (!ct.IsCancellationRequested && IsHttpResponseCodeFailure(ex.Message))
+        {
+            throw new InvalidOperationException(BuildAccessDeniedMessage(url), ex);
+        }
         catch (PlaywrightException ex) when (!ct.IsCancellationRequested && IsNavigationBlockedByDialog(ex.Message))
         {
             log?.Invoke("导航被上一轮遗留表单拦截，正在确认离开后重试。");
@@ -241,6 +250,17 @@ public static class EmbeddedBrowserAutomationBridge
                value.Contains("beforeunload", StringComparison.OrdinalIgnoreCase) ||
                value.Contains("dialog", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsHttpResponseCodeFailure(string? message)
+    {
+        var value = message ?? "";
+        return value.Contains("ERR_HTTP_RESPONSE_CODE_FAILURE", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("HTTP ERROR 403", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("403", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildAccessDeniedMessage(string url) =>
+        $"TikTok Drama Center 拒绝访问：{url}。请先在「浏览器」页确认当前账号能打开 TikTok Drama Center；如果页面显示 403，请为该账号启用可用代理/静态 IP，或在新电脑上完成一次人工验证后再上传。";
 
     private static bool IsSamePagePath(string? currentUrl, string targetUrl)
     {

@@ -21,7 +21,7 @@ public static class TikTokLoginService
         CancellationToken ct,
         int timeoutSeconds = 90)
     {
-        ConfigureBundledPlaywrightBrowsers();
+        PlaywrightBrowserRuntime.ConfigureBundledBrowsers(log);
 
         var email = (account.TiktokLoginEmail ?? "").Trim();
         if (string.IsNullOrEmpty(email))
@@ -59,6 +59,7 @@ public static class TikTokLoginService
                 var contextOptions = new BrowserNewContextOptions
                 {
                     Locale = "zh-CN",
+                    UserAgent = PlaywrightBrowserRuntime.DesktopChromeUserAgent,
                     ViewportSize = ViewportSize.NoViewport,
                 };
                 ApplyProxy(contextOptions, account, log);
@@ -72,11 +73,7 @@ public static class TikTokLoginService
                 try
                 {
                     var page = await context.NewPageAsync();
-                    await page.GotoAsync(TikTokUrls.DefaultLoginUrl, new PageGotoOptions
-                    {
-                        WaitUntil = WaitUntilState.DOMContentLoaded,
-                        Timeout = 60000,
-                    });
+                    await NavigateToLoginPageAsync(page);
                     try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 12000 }); }
                     catch { /* SPA */ }
 
@@ -118,50 +115,6 @@ public static class TikTokLoginService
         }
     }
 
-    private static void ConfigureBundledPlaywrightBrowsers()
-    {
-        var configured = Environment.GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH");
-        if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured))
-        {
-            return;
-        }
-
-        foreach (var root in EnumerateSearchRoots())
-        {
-            var candidate = Path.Combine(root, "ms-playwright");
-            if (Directory.Exists(candidate))
-            {
-                Environment.SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", candidate);
-                return;
-            }
-        }
-    }
-
-    private static IEnumerable<string> EnumerateSearchRoots()
-    {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
-        {
-            if (string.IsNullOrWhiteSpace(start))
-            {
-                continue;
-            }
-
-            var current = Path.GetFullPath(start);
-            while (!string.IsNullOrWhiteSpace(current) && seen.Add(current))
-            {
-                yield return current;
-                var parent = Directory.GetParent(current);
-                if (parent is null)
-                {
-                    break;
-                }
-
-                current = parent.FullName;
-            }
-        }
-    }
-
     private static async Task<TikTokLoginResult> LoginWithCdpAsync(
         TikTokAccountProfile account,
         string email,
@@ -180,15 +133,12 @@ public static class TikTokLoginService
             var context = browser.Contexts.FirstOrDefault() ?? await browser.NewContextAsync(new BrowserNewContextOptions
             {
                 Locale = "zh-CN",
+                UserAgent = PlaywrightBrowserRuntime.DesktopChromeUserAgent,
                 ViewportSize = ViewportSize.NoViewport,
             });
             var page = context.Pages.FirstOrDefault(p => !p.IsClosed) ?? await context.NewPageAsync();
 
-            await page.GotoAsync(TikTokUrls.DefaultLoginUrl, new PageGotoOptions
-            {
-                WaitUntil = WaitUntilState.DOMContentLoaded,
-                Timeout = 60000,
-            });
+            await NavigateToLoginPageAsync(page);
             try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 12000 }); }
             catch { /* SPA */ }
 
@@ -225,6 +175,24 @@ public static class TikTokLoginService
         finally
         {
             playwright.Dispose();
+        }
+    }
+
+    private static async Task NavigateToLoginPageAsync(IPage page)
+    {
+        try
+        {
+            await page.GotoAsync(TikTokUrls.DefaultLoginUrl, new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 60000,
+            });
+        }
+        catch (PlaywrightException ex) when (IsHttpResponseCodeFailure(ex.Message))
+        {
+            throw new InvalidOperationException(
+                "TikTok Drama Center 登录页拒绝访问。请检查当前账号代理/静态 IP 是否可用，或先在新电脑浏览器里完成一次人工验证后再登录。",
+                ex);
         }
     }
 
@@ -360,6 +328,14 @@ public static class TikTokLoginService
         {
             return false;
         }
+    }
+
+    private static bool IsHttpResponseCodeFailure(string? message)
+    {
+        var value = message ?? "";
+        return value.Contains("ERR_HTTP_RESPONSE_CODE_FAILURE", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("HTTP ERROR 403", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("403", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ApplyProxy(BrowserNewContextOptions options, TikTokAccountProfile account, Action<string>? log)

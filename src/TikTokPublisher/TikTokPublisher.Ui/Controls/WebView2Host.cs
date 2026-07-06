@@ -5,6 +5,7 @@ using Avalonia.Platform;
 using Avalonia.Threading;
 using TikTokPublisher.Core.Abstractions;
 using TikTokPublisher.Core.Services;
+using TikTokPublisher.Ui.Services.TikTok;
 using Microsoft.Web.WebView2.Core;
 
 namespace TikTokPublisher.Ui.Controls;
@@ -230,6 +231,8 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
                 "--disable-background-timer-throttling",
                 "--disable-backgrounding-occluded-windows",
                 "--disable-renderer-backgrounding",
+                "--disable-blink-features=AutomationControlled",
+                $"--user-agent={QuoteChromiumArgumentValue(PlaywrightBrowserRuntime.DesktopChromeUserAgent)}",
             };
             if (RemoteDebuggingPort > 0)
                 browserArgs.Add($"--remote-debugging-port={RemoteDebuggingPort}");
@@ -325,6 +328,9 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
                message.Contains("Changes you made may not be saved", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("Leave site", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static string QuoteChromiumArgumentValue(string value) =>
+        $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
 
     private static string TrimDialogMessage(string? message)
     {
