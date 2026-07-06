@@ -166,6 +166,8 @@ public sealed class AccountStore
             TiktokStorageStatePath = AppPaths.DefaultStorageStatePath(id),
             TiktokSeriesUrl = TikTokUrls.DefaultSeriesDraftUrl,
             TiktokContractIdMode = TikTokPublishConstants.ContractIdModeFirstAvailable,
+            TiktokUploadBrowserMode = "playwright",
+            TiktokPlaywrightUploadHeadless = true,
             TiktokPaidRatioEnabled = true,
             TiktokExpectedFullPriceMode = "option_index",
             TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
@@ -187,6 +189,7 @@ public sealed class AccountStore
         account.TiktokSubmitEnabled = string.Equals(account.TiktokSubmitAction, "submit", StringComparison.Ordinal);
         account.TiktokTargetAudienceMode = NormalizeTargetAudience(account.TiktokTargetAudienceMode);
         account.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount(account.TiktokGenreCount);
+        account.TiktokUploadBrowserMode = NormalizeUploadBrowserMode(account.TiktokUploadBrowserMode);
         if (account.TiktokProfilePreviewEpisodes <= 0) account.TiktokProfilePreviewEpisodes = 3;
         if (account.TiktokFreePreviewEpisodes <= 0) account.TiktokFreePreviewEpisodes = 3;
         if (account.TiktokProjectConcurrency <= 0) account.TiktokProjectConcurrency = 4;
@@ -211,6 +214,14 @@ public sealed class AccountStore
         return normalized is "female" or "male" or "ai_recommend"
             ? normalized
             : "ai_recommend";
+    }
+
+    private static string NormalizeUploadBrowserMode(string? value)
+    {
+        var normalized = (value ?? "").Trim().ToLowerInvariant();
+        return normalized is "embedded" or "external" or "playwright"
+            ? normalized
+            : "playwright";
     }
 
     private static string NormalizeManagementDedupScope(string? value)

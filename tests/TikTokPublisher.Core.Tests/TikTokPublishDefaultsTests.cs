@@ -104,6 +104,8 @@ public sealed class TikTokPublishDefaultsTests
 
         account.TiktokSubmitEnabled.Should().BeTrue();
         account.TiktokSubmitAction.Should().Be("submit");
+        account.TiktokUploadBrowserMode.Should().Be("playwright");
+        account.TiktokPlaywrightUploadHeadless.Should().BeTrue();
         account.TiktokContractId.Should().Be("");
         account.TiktokContractIdMode.Should().Be("manual");
         account.TiktokAnchorPromotionEnabled.Should().BeTrue();
