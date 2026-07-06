@@ -72,9 +72,6 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
 
         IPlaywright? pw = null;
         IBrowser? chromium = null;
-        CancellationTokenSource? limitCts = null;
-        var outerCt = ct;
-        string? dailyLimitHit = null;
         IPage? activePage = null;
         try
         {
@@ -94,22 +91,6 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             }
             activePage = page;
             ct.ThrowIfCancellationRequested();
-
-            void StartDailyLimitWatch()
-            {
-                if (limitCts is not null)
-                    return;
-
-                // 对齐 Python _watch_daily_episode_limit：上限提示是出现时机不固定的短暂 toast，
-                // 但必须在进入本次新建页后再监听，避免上一轮残留页面把当前任务误判为上限。
-                limitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                ct = limitCts.Token;
-                _ = WatchDailyEpisodeLimitAsync(page, limitCts, text =>
-                {
-                    dailyLimitHit = text;
-                    L($"TikTok 检测到单日创建剧集上限提示：{text}");
-                });
-            }
 
             // 清理上一轮失败遗留的「是否离开网站」弹窗/半填表单，确保从干净页面开始。
             await TikTokBrowserActions.ResetLeftoverPageStateAsync(page, L, ct).ConfigureAwait(false);
@@ -175,7 +156,6 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             {
                 await NavigateToCreateDraftPageAsync(page, targetUrl, L, ct).ConfigureAwait(false);
                 ThrowIfLoginRedirect(page);
-                StartDailyLimitWatch();
                 RecordUploadStepStarted();
 
                 await TikTokBrowserActions.FillCreateInitialFieldsAsync(page, payload, options, L, ct)
@@ -215,10 +195,10 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             var dailyLimit = await TikTokBrowserActions.DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false);
             if (dailyLimit is not null)
             {
-                var limitMsg = $"检测到 TikTok 单日创建剧集上限：{dailyLimit}";
+                var limitMsg = $"检测到 TikTok 发布限制提示，已跳过当前项目：{dailyLimit}";
                 if (hasWorkflow)
                     TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, limitMsg, payload.Title);
-                return PublishResult.FailAndStopQueue(limitMsg);
+                return PublishResult.FailAndSkipManualIntervention(limitMsg);
             }
 
             if (hasWorkflow)
@@ -250,15 +230,6 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 TikTokUploadStateStore.MarkUploadStepCompleted(workflowDir, payload.Title);
             return result;
         }
-        catch (Exception ex) when (dailyLimitHit is not null && !outerCt.IsCancellationRequested)
-        {
-            // 后台监视命中上限后取消主流程会抛出取消/操作异常；据 dailyLimitHit 还原为上限结果。
-            _ = ex;
-            var limitMsg = $"检测到 TikTok 单日创建剧集上限：{dailyLimitHit}（任务队列已停止，请明天再试）";
-            if (hasWorkflow)
-                TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, limitMsg, payload.Title);
-            return PublishResult.FailAndStopQueue(limitMsg);
-        }
         catch (OperationCanceledException)
         {
             throw;
@@ -283,77 +254,9 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         }
         finally
         {
-            try { limitCts?.Cancel(); } catch { /* ignore */ }
-            limitCts?.Dispose();
             try { await (chromium?.DisposeAsync() ?? ValueTask.CompletedTask).ConfigureAwait(false); }
             catch { /* disconnect CDP only */ }
             pw?.Dispose();
-        }
-    }
-
-    /// <summary>
-    /// 后台高频轮询「当前创建剧集已达上限」toast（对齐 Python <c>_watch_daily_episode_limit</c>）。
-    /// 该 toast 出现时机不固定且短暂，故需高频探测、命中即停。为适配共享 WebView2 会话，
-    /// 先消化「上一个项目提交后残留的 toast」作为基线，之后针对当前项目命中即取消主流程。
-    /// </summary>
-    private static async Task WatchDailyEpisodeLimitAsync(
-        IPage page,
-        CancellationTokenSource limitCts,
-        Action<string> onHit)
-    {
-        try
-        {
-            await WaitLeftoverLimitToastClearedAsync(page, limitCts.Token).ConfigureAwait(false);
-
-            while (!limitCts.IsCancellationRequested)
-            {
-                string? text = null;
-                try { text = await TikTokBrowserActions.DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false); }
-                catch { /* 页面繁忙/已释放时忽略本轮 */ }
-
-                if (text is not null)
-                {
-                    onHit(text);
-                    limitCts.Cancel();
-                    return;
-                }
-
-                await Task.Delay(400, limitCts.Token).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // 主流程结束时正常退出
-        }
-        catch (ObjectDisposedException)
-        {
-            // limitCts 已随主流程释放
-        }
-    }
-
-    /// <summary>
-    /// 连接后页面可能仍是上一个项目残留的上限 toast；等它消失（或首次导航清除）后再进入正式监视，
-    /// 避免把上一个项目的残留提示误判到当前项目头上。最多等待约 20 秒，超时也进入监视。
-    /// </summary>
-    private static async Task WaitLeftoverLimitToastClearedAsync(IPage page, CancellationToken ct)
-    {
-        string? initial = null;
-        try { initial = await TikTokBrowserActions.DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false); }
-        catch { /* ignore */ }
-
-        // 连接时无残留 toast：直接进入监视。
-        if (initial is null)
-            return;
-
-        var deadline = DateTime.UtcNow.AddSeconds(20);
-        while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
-        {
-            await Task.Delay(500, ct).ConfigureAwait(false);
-            string? current = null;
-            try { current = await TikTokBrowserActions.DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false); }
-            catch { /* ignore */ }
-            if (current is null)
-                return;
         }
     }
 
