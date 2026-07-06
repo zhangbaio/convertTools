@@ -51,6 +51,7 @@ public partial class TikTokQueueView : UserControl
     private int _queueResizeColumnIndex = -1;
     private double _queueResizeStartX;
     private double _queueResizeStartWidth;
+    private bool _queueStopRequested;
 
     public event EventHandler? OpenBrowserRequested;
     public event EventHandler? OpenLogsRequested;
@@ -90,10 +91,16 @@ public partial class TikTokQueueView : UserControl
     {
         var anyRunning = _vm?.IsQueueRunning == true;
         var currentRunning = _vm?.IsCurrentWorkspaceQueueRunning() == true;
+        if (!anyRunning)
+            _queueStopRequested = false;
         // 仅当前工作目录在跑时才禁用「执行勾选队列」；其他账号的队列不影响本工作目录启动。
         if (StartQueueButton is not null) StartQueueButton.IsEnabled = !currentRunning;
         if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !anyRunning;
-        if (StopQueueButton is not null) StopQueueButton.IsEnabled = anyRunning;
+        if (StopQueueButton is not null)
+        {
+            StopQueueButton.Content = _queueStopRequested && anyRunning ? "停止中" : "停止";
+            StopQueueButton.IsEnabled = anyRunning && !_queueStopRequested;
+        }
     }
 
     private void OnManualInterventionDialogRequested(ManualInterventionDialogRequest request)
@@ -1256,6 +1263,7 @@ public partial class TikTokQueueView : UserControl
 
         var host = CreateQueuePublishHost();
         var ct = vm.BeginQueueRun();
+        _queueStopRequested = false;
         RefreshQueueRunButtons();
         vm.StatusMessage = "TikTok 队列执行中…";
         try
@@ -1318,6 +1326,7 @@ public partial class TikTokQueueView : UserControl
 
         var host = CreateQueuePublishHost();
         var ct = vm.BeginQueueRun();
+        _queueStopRequested = false;
         RefreshQueueRunButtons();
         vm.StatusMessage = $"并行执行 {targets.Count} 个工作目录队列…";
         try
@@ -1358,6 +1367,7 @@ public partial class TikTokQueueView : UserControl
 
     private void OnStopQueueClick(object? sender, RoutedEventArgs e)
     {
+        _queueStopRequested = true;
         _vm?.RequestStopQueue();
         if (_vm is not null) _vm.StatusMessage = "正在停止队列…";
         RefreshQueueRunButtons();

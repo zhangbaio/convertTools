@@ -13,7 +13,7 @@ namespace TikTokPublisher.Desktop.Views;
 
 public partial class MainWindow : Window
 {
-    private const double ExpandedSidebarWidth = 220;
+    private const double ExpandedSidebarWidth = 198;
     private const double CollapsedSidebarWidth = 44;
 
     private readonly AccountStore _accountStore = new();

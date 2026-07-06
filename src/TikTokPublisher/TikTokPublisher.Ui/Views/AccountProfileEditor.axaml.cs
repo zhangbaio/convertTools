@@ -320,8 +320,8 @@ public partial class AccountProfileEditor : UserControl
 
         var result = await LookupOutboundIpAsync(client);
         var ip = string.IsNullOrWhiteSpace(result.Ip) ? "未知" : result.Ip;
-        var location = string.IsNullOrWhiteSpace(result.Location) ? "未知" : result.Location;
-        var org = string.IsNullOrWhiteSpace(result.Org) ? "未知" : result.Org;
+        var location = string.IsNullOrWhiteSpace(result.Location) ? "未知" : ToChineseIpLocation(result.Location);
+        var org = string.IsNullOrWhiteSpace(result.Org) ? "未知" : ToChineseIpOrg(result.Org);
         var text = $"✓ 出口 IP：{ip}（归属地：{location}）\n"
                  + $"运营商：{org}\n"
                  + $"方式：{modeDesc}";
@@ -405,6 +405,148 @@ public partial class AccountProfileEditor : UserControl
             .Select(part => part.Trim())
             .Where(part => !string.IsNullOrWhiteSpace(part))
             .Distinct(StringComparer.OrdinalIgnoreCase));
+
+    private static string ToChineseIpLocation(string value)
+    {
+        var text = value.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return "未知";
+
+        foreach (var (from, to) in IpLocationPhraseTranslations)
+            text = Regex.Replace(text, Regex.Escape(from), to, RegexOptions.IgnoreCase);
+
+        var parts = Regex.Split(text, @"[\s,/|]+")
+            .Select(TranslateIpLocationToken)
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return parts.Count == 0 ? value.Trim() : string.Join(" ", parts);
+    }
+
+    private static string TranslateIpLocationToken(string value)
+    {
+        var token = value.Trim();
+        return token.ToLowerInvariant() switch
+        {
+            "china" or "cn" or "chn" => "中国",
+            "jiangsu" => "江苏",
+            "suzhou" => "苏州",
+            "nanjing" => "南京",
+            "wuxi" => "无锡",
+            "changzhou" => "常州",
+            "nantong" => "南通",
+            "beijing" => "北京",
+            "shanghai" => "上海",
+            "tianjin" => "天津",
+            "chongqing" => "重庆",
+            "zhejiang" => "浙江",
+            "hangzhou" => "杭州",
+            "ningbo" => "宁波",
+            "guangdong" => "广东",
+            "guangzhou" => "广州",
+            "shenzhen" => "深圳",
+            "dongguan" => "东莞",
+            "fujian" => "福建",
+            "fuzhou" => "福州",
+            "xiamen" => "厦门",
+            "shandong" => "山东",
+            "jinan" => "济南",
+            "qingdao" => "青岛",
+            "henan" => "河南",
+            "zhengzhou" => "郑州",
+            "hebei" => "河北",
+            "shijiazhuang" => "石家庄",
+            "hubei" => "湖北",
+            "wuhan" => "武汉",
+            "hunan" => "湖南",
+            "changsha" => "长沙",
+            "sichuan" => "四川",
+            "chengdu" => "成都",
+            "anhui" => "安徽",
+            "hefei" => "合肥",
+            "jiangxi" => "江西",
+            "nanchang" => "南昌",
+            "liaoning" => "辽宁",
+            "shenyang" => "沈阳",
+            "dalian" => "大连",
+            "jilin" => "吉林",
+            "heilongjiang" => "黑龙江",
+            "harbin" => "哈尔滨",
+            "shanxi" => "山西",
+            "taiyuan" => "太原",
+            "shaanxi" => "陕西",
+            "xian" or "xi'an" => "西安",
+            "guangxi" => "广西",
+            "nanning" => "南宁",
+            "yunnan" => "云南",
+            "kunming" => "昆明",
+            "guizhou" => "贵州",
+            "guiyang" => "贵阳",
+            "hainan" => "海南",
+            "haikou" => "海口",
+            "gansu" => "甘肃",
+            "lanzhou" => "兰州",
+            "qinghai" => "青海",
+            "ningxia" => "宁夏",
+            "xinjiang" => "新疆",
+            "tibet" or "xizang" => "西藏",
+            "mongolia" => "内蒙古",
+            "taiwan" => "中国台湾",
+            "hongkong" => "中国香港",
+            "macau" or "macao" => "中国澳门",
+            "province" or "city" or "prefecture" or "municipality" => "",
+            _ => token,
+        };
+    }
+
+    private static string ToChineseIpOrg(string value)
+    {
+        var text = value.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return "未知";
+
+        var normalized = Regex.Replace(text, @"[\s._-]+", "", RegexOptions.IgnoreCase).ToLowerInvariant();
+        if (normalized.Contains("chinatelecom") || normalized.Contains("telecom"))
+            return "中国电信";
+        if (normalized.Contains("chinaunicom") || normalized.Contains("unicom"))
+            return "中国联通";
+        if (normalized.Contains("chinamobile") || normalized.Contains("cmcc") || normalized.Contains("cmi"))
+            return "中国移动";
+        if (normalized.Contains("cernet"))
+            return "中国教育网";
+        if (normalized.Contains("alibaba") || normalized.Contains("aliyun"))
+            return "阿里云";
+        if (normalized.Contains("tencent"))
+            return "腾讯云";
+        if (normalized.Contains("huawei"))
+            return "华为云";
+        if (normalized.Contains("baidu"))
+            return "百度云";
+
+        foreach (var (from, to) in IpOrgPhraseTranslations)
+            text = Regex.Replace(text, Regex.Escape(from), to, RegexOptions.IgnoreCase);
+        return text;
+    }
+
+    private static readonly (string From, string To)[] IpLocationPhraseTranslations =
+    [
+        ("Hong Kong", "hongkong"),
+        ("Macau", "macau"),
+        ("Macao", "macau"),
+        ("Inner Mongolia", "内蒙古"),
+        ("United States", "美国"),
+        ("United Kingdom", "英国"),
+        ("South Korea", "韩国"),
+    ];
+
+    private static readonly (string From, string To)[] IpOrgPhraseTranslations =
+    [
+        ("China", "中国"),
+        ("Telecom", "电信"),
+        ("Unicom", "联通"),
+        ("Mobile", "移动"),
+    ];
 
     private static string FirstNonEmpty(params string[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? "";
