@@ -2604,6 +2604,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         var successCount = 0;
         var failures = new List<string>();
+        var archivedProjectDirs = new List<string>();
         for (var index = 0; index < rows.Length; index++)
         {
             var row = rows[index];
@@ -2621,6 +2622,7 @@ public sealed partial class MainViewModel : ViewModelBase
                         queuedAt: row.Item.QueuedAt))
                     .ConfigureAwait(true);
                 row.Item.Archived = true;
+                archivedProjectDirs.Add(projectDir);
                 successCount++;
             }
             catch (Exception ex)
@@ -2632,9 +2634,10 @@ public sealed partial class MainViewModel : ViewModelBase
 
         if (successCount > 0)
         {
-            PersistQueueItems();
-            RefreshWorkspaceProjects(root);
-            ArchivedProjects.SetWorkspace(root);
+            ApplyArchivedQueueProjects(archivedProjectDirs);
+            ArchivedProjects.SetWorkspace(root, refresh: !_queueOrchestrator.AnyRunning);
+            if (_queueOrchestrator.AnyRunning)
+                AppendLog("其它队列运行中，已跳过即时归档列表刷新，避免与运行队列争抢磁盘扫描。");
         }
 
         StatusMessage = failures.Count == 0
@@ -2887,6 +2890,27 @@ public sealed partial class MainViewModel : ViewModelBase
         AppendLog(StatusMessage);
         foreach (var error in errors.Take(5))
             AppendLog($"删除失败：{error}");
+    }
+
+    private void ApplyArchivedQueueProjects(IReadOnlyCollection<string> archivedDirs)
+    {
+        if (archivedDirs.Count == 0)
+            return;
+
+        var archivedKeys = archivedDirs
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .Select(NormalizeProjectDir)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (archivedKeys.Count == 0)
+            return;
+
+        _queueItems = _queueItems
+            .Where(item => !archivedKeys.Contains(NormalizeProjectDir(item.ProjectDir)))
+            .ToList();
+        PersistQueueItems();
+        UpdateQueueSummaryText();
+        RefreshTodayUploadCount();
+        CacheWorkspaceQueueSnapshot(WorkspacePath, _queueItems, _queueRunOptions);
     }
 
     public async Task SyncSelectedManagementAsync(IEnumerable<QueueProjectRowViewModel> selectedRows, CancellationToken ct)

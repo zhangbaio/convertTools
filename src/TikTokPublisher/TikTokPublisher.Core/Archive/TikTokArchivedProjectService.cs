@@ -894,6 +894,13 @@ public static class TikTokArchivedProjectService
         {
             var videoDir = Path.Combine(dir, relative);
             if (!Directory.Exists(videoDir)) continue;
+            if (preserveWorkflowEpisodes.Count == 0 &&
+                TryDeleteWholeDirectoryIfOnlyMatchingFiles(videoDir, IsVideoFile, out var wholeDirDeleted))
+            {
+                deleted += wholeDirDeleted;
+                continue;
+            }
+
             foreach (var file in Directory.EnumerateFiles(videoDir, "*", SearchOption.AllDirectories))
             {
                 var extension = Path.GetExtension(file);
@@ -918,13 +925,23 @@ public static class TikTokArchivedProjectService
     private static int DeleteMaterialVideoFiles(string dir)
     {
         var materialDir = Path.Combine(dir, "material-videos");
-        return Directory.Exists(materialDir) ? DeleteVideoFilesRecursive(materialDir) : 0;
+        if (!Directory.Exists(materialDir))
+            return 0;
+
+        return TryDeleteWholeDirectoryIfOnlyMatchingFiles(materialDir, IsVideoFile, out var deleted)
+            ? deleted
+            : DeleteVideoFilesRecursive(materialDir);
     }
 
     private static int DeleteMaterialClipVideoFiles(string dir)
     {
         var clipDir = Path.Combine(dir, "material-clip-output");
         if (!Directory.Exists(clipDir)) return 0;
+        if (!ContainsSubtitlesDirectory(clipDir) &&
+            TryDeleteWholeDirectoryIfOnlyMatchingFiles(clipDir, IsVideoFile, out var wholeDirDeleted))
+        {
+            return wholeDirDeleted;
+        }
 
         var deleted = 0;
         foreach (var file in Directory.EnumerateFiles(clipDir, "*", SearchOption.AllDirectories))
@@ -936,6 +953,42 @@ public static class TikTokArchivedProjectService
         }
 
         return deleted;
+    }
+
+    private static bool TryDeleteWholeDirectoryIfOnlyMatchingFiles(
+        string dir,
+        Func<string, bool> shouldDelete,
+        out int deleted)
+    {
+        deleted = 0;
+        if (!Directory.Exists(dir))
+            return true;
+
+        var files = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).ToList();
+        if (files.Count == 0)
+        {
+            Directory.Delete(dir, recursive: true);
+            return true;
+        }
+
+        if (files.Any(file => !shouldDelete(file)))
+            return false;
+
+        deleted = files.Count;
+        Directory.Delete(dir, recursive: true);
+        return true;
+    }
+
+    private static bool IsVideoFile(string path) =>
+        VideoExtensions.Contains(Path.GetExtension(path));
+
+    private static bool ContainsSubtitlesDirectory(string rootDir)
+    {
+        if (!Directory.Exists(rootDir))
+            return false;
+
+        return Directory.EnumerateDirectories(rootDir, "*", SearchOption.AllDirectories)
+            .Any(dir => string.Equals(Path.GetFileName(dir), "subtitles", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsUnderSubtitlesDirectory(string rootDir, string filePath)
