@@ -43,6 +43,7 @@ public static class WorkspaceQueueDatabase
     private static WorkspaceQueueState LoadFromDatabase(string dbPath, string workspaceRoot)
     {
         var workspaceKey = WorkspaceKey(workspaceRoot);
+        var workspaceAliases = WorkspaceKeyAliases(workspaceRoot);
         var state = new WorkspaceQueueState();
 
         using var conn = Open(dbPath);
@@ -57,21 +58,50 @@ public static class WorkspaceQueueDatabase
 
         using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = """
-                SELECT payload_json
+            var placeholders = string.Join(", ", workspaceAliases.Select((_, index) => $"$workspace{index}"));
+            cmd.CommandText = $"""
+                SELECT payload_json, project_dir, created_at, updated_at, workspace_path
                 FROM upload_projects
-                WHERE workspace_path = $workspace
-                ORDER BY created_at ASC, project_dir ASC
+                WHERE workspace_path IN ({placeholders})
+                ORDER BY updated_at ASC, created_at ASC, project_dir ASC
                 """;
-            cmd.Parameters.AddWithValue("$workspace", workspaceKey);
+            for (var i = 0; i < workspaceAliases.Count; i++)
+                cmd.Parameters.AddWithValue($"$workspace{i}", workspaceAliases[i]);
+
+            var rowsByProject = new Dictionary<string, QueueDatabaseRow>(StringComparer.OrdinalIgnoreCase);
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
                 var payloadJson = reader.IsDBNull(0) ? "{}" : reader.GetString(0);
                 var payload = DeserializeObject(payloadJson);
-                if (payload.Count > 0)
-                    state.Items.Add(QueueProjectItem.FromPayload(payload));
+                if (payload.Count == 0)
+                    continue;
+
+                var projectDir = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                if (payload.TryGetValue("project_dir", out var rawProjectDir))
+                    projectDir = rawProjectDir?.ToString() ?? projectDir;
+                if (string.IsNullOrWhiteSpace(projectDir))
+                    continue;
+
+                var normalizedProjectDir = Path.GetFullPath(projectDir);
+                var row = new QueueDatabaseRow(
+                    payload,
+                    normalizedProjectDir,
+                    reader.IsDBNull(2) ? "" : reader.GetString(2),
+                    reader.IsDBNull(3) ? "" : reader.GetString(3),
+                    reader.IsDBNull(4) ? "" : reader.GetString(4));
+
+                if (!rowsByProject.TryGetValue(normalizedProjectDir, out var current) ||
+                    IsPreferredRow(row, current, workspaceKey))
+                {
+                    rowsByProject[normalizedProjectDir] = row;
+                }
             }
+
+            state.Items.AddRange(rowsByProject.Values
+                .OrderBy(row => string.IsNullOrWhiteSpace(row.CreatedAt) ? "9999" : row.CreatedAt, StringComparer.Ordinal)
+                .ThenBy(row => row.ProjectDir, StringComparer.OrdinalIgnoreCase)
+                .Select(row => QueueProjectItem.FromPayload(row.Payload)));
         }
 
         return state;
@@ -84,6 +114,7 @@ public static class WorkspaceQueueDatabase
         Dictionary<string, object?> options)
     {
         var workspaceKey = WorkspaceKey(workspaceRoot);
+        var workspaceAliases = WorkspaceKeyAliases(workspaceRoot);
         var now = DateTimeOffset.Now.ToString("o");
 
         using var conn = Open(dbPath);
@@ -141,19 +172,26 @@ public static class WorkspaceQueueDatabase
 
         using (var deleteCmd = conn.CreateCommand())
         {
+            var aliasPlaceholders = string.Join(", ", workspaceAliases.Select((_, i) => $"$workspace{i}"));
             if (seenIds.Count > 0)
             {
                 var placeholders = string.Join(", ", seenIds.Select((_, i) => $"$id{i}"));
-                deleteCmd.CommandText = $"DELETE FROM upload_projects WHERE workspace_path = $workspace AND project_id NOT IN ({placeholders})";
-                deleteCmd.Parameters.AddWithValue("$workspace", workspaceKey);
+                deleteCmd.CommandText = $"""
+                    DELETE FROM upload_projects
+                    WHERE workspace_path IN ({aliasPlaceholders})
+                      AND (workspace_path <> $workspace OR project_id NOT IN ({placeholders}))
+                    """;
                 for (var i = 0; i < seenIds.Count; i++)
                     deleteCmd.Parameters.AddWithValue($"$id{i}", seenIds[i]);
             }
             else
             {
-                deleteCmd.CommandText = "DELETE FROM upload_projects WHERE workspace_path = $workspace";
-                deleteCmd.Parameters.AddWithValue("$workspace", workspaceKey);
+                deleteCmd.CommandText = $"DELETE FROM upload_projects WHERE workspace_path IN ({aliasPlaceholders})";
             }
+
+            deleteCmd.Parameters.AddWithValue("$workspace", workspaceKey);
+            for (var i = 0; i < workspaceAliases.Count; i++)
+                deleteCmd.Parameters.AddWithValue($"$workspace{i}", workspaceAliases[i]);
             deleteCmd.ExecuteNonQuery();
         }
 
@@ -281,7 +319,68 @@ public static class WorkspaceQueueDatabase
         cmd.ExecuteNonQuery();
     }
 
-    private static string WorkspaceKey(string workspaceRoot) => Path.GetFullPath(workspaceRoot);
+    internal static string WorkspaceKey(string workspaceRoot)
+    {
+        var fullPath = Path.GetFullPath(workspaceRoot.Trim());
+        var root = Path.GetPathRoot(fullPath);
+        if (!string.IsNullOrWhiteSpace(root) &&
+            string.Equals(fullPath, root, StringComparison.OrdinalIgnoreCase))
+        {
+            return fullPath;
+        }
+
+        return fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static IReadOnlyList<string> WorkspaceKeyAliases(string workspaceRoot)
+    {
+        var aliases = new List<string>();
+        var canonical = WorkspaceKey(workspaceRoot);
+        AddAlias(canonical);
+
+        var fullPath = Path.GetFullPath(workspaceRoot.Trim());
+        AddAlias(fullPath);
+
+        var root = Path.GetPathRoot(canonical);
+        if (string.IsNullOrWhiteSpace(root) ||
+            !string.Equals(canonical, root, StringComparison.OrdinalIgnoreCase))
+        {
+            AddAlias(canonical + Path.DirectorySeparatorChar);
+            AddAlias(canonical + Path.AltDirectorySeparatorChar);
+        }
+
+        return aliases;
+
+        void AddAlias(string value)
+        {
+            if (!string.IsNullOrWhiteSpace(value) &&
+                !aliases.Contains(value, StringComparer.OrdinalIgnoreCase))
+            {
+                aliases.Add(value);
+            }
+        }
+    }
+
+    private static bool IsPreferredRow(QueueDatabaseRow candidate, QueueDatabaseRow current, string workspaceKey)
+    {
+        var comparison = string.Compare(
+            string.IsNullOrWhiteSpace(candidate.UpdatedAt) ? candidate.CreatedAt : candidate.UpdatedAt,
+            string.IsNullOrWhiteSpace(current.UpdatedAt) ? current.CreatedAt : current.UpdatedAt,
+            StringComparison.Ordinal);
+        if (comparison != 0)
+            return comparison > 0;
+
+        var candidateCanonical = string.Equals(candidate.WorkspacePath, workspaceKey, StringComparison.OrdinalIgnoreCase);
+        var currentCanonical = string.Equals(current.WorkspacePath, workspaceKey, StringComparison.OrdinalIgnoreCase);
+        return candidateCanonical && !currentCanonical;
+    }
+
+    private sealed record QueueDatabaseRow(
+        Dictionary<string, object?> Payload,
+        string ProjectDir,
+        string CreatedAt,
+        string UpdatedAt,
+        string WorkspacePath);
 
     private static string StableProjectId(string workspaceKey, string projectDir)
     {
