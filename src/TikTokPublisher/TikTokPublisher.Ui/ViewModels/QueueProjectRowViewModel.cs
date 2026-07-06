@@ -168,9 +168,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         UploadStatus == QueueStepStatus.Running ||
         StatusText == QueueStepStatus.Running;
 
-    public bool IsUploadCompleted =>
-        UploadStatus == QueueStepStatus.Completed ||
-        (StatusText == QueueStepStatus.Completed && string.IsNullOrWhiteSpace(LastError));
+    public bool IsUploadCompleted => UploadStatus == QueueStepStatus.Completed;
     public bool HasFailure =>
         !IsUploadCompleted &&
         (StatusText == QueueStepStatus.Failed ||

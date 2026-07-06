@@ -38,7 +38,7 @@ SetupIconFile={#AppIconFile}
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式:"; Flags: unchecked
-Name: "resetdata"; Description: "重置本地数据（删除当前用户的 .tiktok_publisher）"; GroupDescription: "本地数据:"; Flags: unchecked
+Name: "resetdata"; Description: "重置本地数据（保留上传记录）"; GroupDescription: "本地数据:"; Flags: unchecked
 
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -72,6 +72,44 @@ begin
   Result := not HasWebView2Runtime();
 end;
 
+function ShouldKeepLocalDataEntry(Name: String): Boolean;
+begin
+  Result :=
+    (CompareText(Name, 'app.db') = 0) or
+    (CompareText(Name, 'app.db-wal') = 0) or
+    (CompareText(Name, 'app.db-shm') = 0) or
+    (CompareText(Name, 'reports') = 0);
+end;
+
+procedure ResetLocalDataKeepUploadRecords(DataDir: String);
+var
+  FindRec: TFindRec;
+  EntryName: String;
+  EntryPath: String;
+begin
+  if not DirExists(DataDir) then
+    Exit;
+
+  if FindFirst(AddBackslash(DataDir) + '*', FindRec) then
+  begin
+    try
+      repeat
+        EntryName := FindRec.Name;
+        if (EntryName <> '.') and (EntryName <> '..') and not ShouldKeepLocalDataEntry(EntryName) then
+        begin
+          EntryPath := AddBackslash(DataDir) + EntryName;
+          if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+            DelTree(EntryPath, True, True, True)
+          else
+            DeleteFile(EntryPath);
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   DataDir: String;
@@ -84,7 +122,7 @@ begin
       DataDir := AddBackslash(DataDir) + '.tiktok_publisher';
       if DirExists(DataDir) then
       begin
-        DelTree(DataDir, True, True, True);
+        ResetLocalDataKeepUploadRecords(DataDir);
       end;
     end;
   end;

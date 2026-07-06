@@ -94,40 +94,14 @@ public static class TikTokMaterialValidationService
                 continue;
             }
 
-            if (options.SilenceValidationEnabled &&
-                string.IsNullOrWhiteSpace(probe.AudioCodec) &&
-                probe.AudioBitrateBps <= 0)
-            {
-                issues.Add($"第{episode}集 | {name} | 无音轨（按静音失败，阈值 {(int)options.MaxContinuousSilenceSeconds} 秒）");
-                continue;
-            }
-
             foreach (var message in ValidateVideoLimits(fileSize, probe.DurationSeconds))
                 issues.Add($"第{episode}集 | {name} | {message}");
 
             if (issues.Any(i => i.StartsWith($"第{episode}集", StringComparison.Ordinal)))
                 continue;
 
-            if (options.SilenceValidationEnabled)
-            {
-                var segments = await TikTokAudioSilenceService.DetectExcessiveSilenceAsync(
-                    uploadPath,
-                    probe.DurationSeconds,
-                    options.MaxContinuousSilenceSeconds,
-                    options.SilenceThresholdDb,
-                    ct);
-                if (segments.Count > 0)
-                {
-                    var first = segments[0];
-                    var extra = segments.Count > 1 ? $"；另有 {segments.Count - 1} 处" : "";
-                    issues.Add(
-                        $"第{episode}集 | {name} | 连续静音>{(int)options.MaxContinuousSilenceSeconds}秒（{TikTokAudioSilenceService.FormatSegment(first)}{extra}）");
-                    continue;
-                }
-            }
-
             log?.Invoke(
-                $"通过：第{episode}集 | {name} | {TikTokSmallVideoPaddingService.FormatSize(fileSize)} | {FormatDuration(probe.DurationSeconds)} | 静音{(options.SilenceValidationEnabled ? "正常" : "已跳过")}");
+                $"通过：第{episode}集 | {name} | {TikTokSmallVideoPaddingService.FormatSize(fileSize)} | {FormatDuration(probe.DurationSeconds)}");
         }
 
         if (issues.Count > 0)
@@ -190,7 +164,7 @@ public static class TikTokMaterialValidationService
     }
 
     private static string ValidationParamsSignature(Options options) =>
-        $"v1|{(options.SilenceValidationEnabled ? 1 : 0)}|{options.MaxContinuousSilenceSeconds:g}|{options.SilenceThresholdDb:g}|{options.Concurrency}";
+        $"v2|material-only|{options.Concurrency}";
 
     private static string ComputeMaterialFingerprint(IReadOnlyList<string> uploadVideoPaths)
     {
