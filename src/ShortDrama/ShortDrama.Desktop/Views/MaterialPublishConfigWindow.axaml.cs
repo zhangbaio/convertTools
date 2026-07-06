@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
+using System.Text.RegularExpressions;
 
 namespace ShortDrama.Desktop.Views;
 
@@ -19,6 +20,9 @@ public partial class MaterialPublishConfigWindow : Window
         WriteIndented = true,
         TypeInfoResolver = new DefaultJsonTypeInfoResolver()
     };
+    private static readonly Regex TitleNoiseRegex = new(
+        @"[\s\-_·•.,，。:：;；!！?？""'“”‘’（）()\[\]【】《》<>]+",
+        RegexOptions.Compiled);
     private static readonly string[] PublishVideoFilePatterns = ["*.mp4", "*.mov", "*.m4v", "*.avi", "*.mkv", "*.webm"];
     private static readonly HashSet<string> PublishVideoFileSuffixes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -339,13 +343,15 @@ public partial class MaterialPublishConfigWindow : Window
         }
 
         var sourceMode = CurrentSourceMode();
+        var dramaTitle = DramaTitleTextBox.Text?.Trim() ?? string.Empty;
+        var shouldClearNewDramaMountCache = ShouldClearNewDramaMountCache(_videoPublish, sourceMode, dramaTitle);
         _videoPublish["enabled"] = EnabledCheckBox.IsChecked == true;
         _videoPublish["publish_video_source_mode"] = sourceMode;
         _videoPublish["video_source_mode"] = sourceMode;
-        _videoPublish["new_drama_mount_title"] = DramaTitleTextBox.Text?.Trim() ?? string.Empty;
+        _videoPublish["new_drama_mount_title"] = dramaTitle;
         _videoPublish["system_highlight_drama_title"] = IsSystemHighlightMode()
             ? string.Empty
-            : DramaTitleTextBox.Text?.Trim() ?? string.Empty;
+            : dramaTitle;
         _videoPublish["episode_selection_mode"] = CurrentEpisodeMode();
         _videoPublish["start_episode_index"] = NumberValue(StartEpisodeUpDown, 2);
         _videoPublish["publish_count"] = NumberValue(PublishCountUpDown, 4);
@@ -392,6 +398,11 @@ public partial class MaterialPublishConfigWindow : Window
         if (uploadAction.Parent is null)
         {
             _videoPublish["video_upload_action"] = uploadAction;
+        }
+
+        if (shouldClearNewDramaMountCache)
+        {
+            ClearNewDramaMountCache(_root, _videoPublish);
         }
 
         RemoveRuntimeFlags(_videoPublish);
@@ -839,6 +850,63 @@ public partial class MaterialPublishConfigWindow : Window
         {
             videoPublish.Remove(key);
         }
+    }
+
+    private static bool ShouldClearNewDramaMountCache(JsonObject videoPublish, string sourceMode, string dramaTitle)
+    {
+        if (!string.Equals(sourceMode, "new_drama_mount", StringComparison.OrdinalIgnoreCase) ||
+            !HasNewDramaMountCache(videoPublish))
+        {
+            return false;
+        }
+
+        var previousTitle = ReadString(videoPublish, "new_drama_mount_title");
+        var resolvedTitle = ReadString(videoPublish, "new_drama_mount_resolved_title");
+        if (string.IsNullOrWhiteSpace(dramaTitle))
+        {
+            return true;
+        }
+
+        return !TitleMatches(dramaTitle, previousTitle) ||
+               (!string.IsNullOrWhiteSpace(resolvedTitle) && !TitleMatches(dramaTitle, resolvedTitle));
+    }
+
+    private static bool HasNewDramaMountCache(JsonObject videoPublish)
+    {
+        return !string.IsNullOrWhiteSpace(ReadString(videoPublish, "new_drama_mount_project_dir")) ||
+               !string.IsNullOrWhiteSpace(ReadString(videoPublish, "new_drama_mount_resolved_title")) ||
+               !string.IsNullOrWhiteSpace(ReadString(videoPublish, "new_drama_mount_resolved_book_id"));
+    }
+
+    private static void ClearNewDramaMountCache(JsonObject root, JsonObject videoPublish)
+    {
+        videoPublish.Remove("new_drama_mount_project_dir");
+        videoPublish.Remove("new_drama_mount_resolved_title");
+        videoPublish.Remove("new_drama_mount_resolved_book_id");
+        videoPublish.Remove("publish_video_description_map");
+
+        if (root["second_page"] is JsonObject secondPage)
+        {
+            secondPage.Remove("upload");
+            secondPage.Remove("upload_queue");
+        }
+    }
+
+    private static bool TitleMatches(string? left, string? right)
+    {
+        var leftKey = NormalizeTitleKey(left);
+        var rightKey = NormalizeTitleKey(right);
+        return leftKey.Length == 0 ||
+               rightKey.Length == 0 ||
+               string.Equals(leftKey, rightKey, StringComparison.Ordinal) ||
+               leftKey.Contains(rightKey, StringComparison.Ordinal) ||
+               rightKey.Contains(leftKey, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeTitleKey(string? value)
+    {
+        var text = (value ?? string.Empty).Trim().Trim('"').TrimStart('_').Trim();
+        return text.Length == 0 ? string.Empty : TitleNoiseRegex.Replace(text.ToLowerInvariant(), string.Empty);
     }
 
     private static string SelectedKey(ComboBox comboBox, string fallback) =>

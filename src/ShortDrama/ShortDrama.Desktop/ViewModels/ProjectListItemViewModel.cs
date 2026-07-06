@@ -20,6 +20,9 @@ public partial class ProjectListItemViewModel : ViewModelBase
     private static readonly Regex DownloadProgressRegex = new(@"\[(\d+)/(\d+)\].*?(\d+(?:\.\d+)?)%", RegexOptions.Compiled);
     private static readonly Regex DownloadSpeedRegex = new(@"(\d+(?:\.\d+)?)\s*(KB|MB|GB)/s", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex FractionProgressRegex = new(@"\b(\d+)/(\d+)\b", RegexOptions.Compiled);
+    private static readonly Regex TitleNoiseRegex = new(
+        @"[\s\-_·•.,，。:：;；!！?？""'“”‘’（）()\[\]【】《》<>]+",
+        RegexOptions.Compiled);
     private static readonly string[] ProjectMaterialStepKeys = ["transcode", "rewrite", "poster-rename", "project-image", "cost-report", "batch-file-rename", "material-convert"];
     private readonly Dictionary<int, double> _downloadEpisodeProgress = [];
     private readonly Dictionary<int, string> _downloadEpisodeSpeeds = [];
@@ -1573,7 +1576,9 @@ public partial class ProjectListItemViewModel : ViewModelBase
         if (normalized is "new_drama_mount" or "newdramamount" or "new_drama")
         {
             var sourceDir = GetString(publish, "new_drama_mount_project_dir");
-            return !string.IsNullOrWhiteSpace(sourceDir) && Directory.Exists(sourceDir)
+            return !string.IsNullOrWhiteSpace(sourceDir) &&
+                   Directory.Exists(sourceDir) &&
+                   NewDramaMountCacheMatchesTitle(publish, sourceDir)
                 ? ResolveMaterialPublishFilesFromCandidates([sourceDir], naturalSort: true, recursive: true)
                 : [];
         }
@@ -1609,6 +1614,75 @@ public partial class ProjectListItemViewModel : ViewModelBase
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static bool NewDramaMountCacheMatchesTitle(JsonElement publish, string sourceDir)
+    {
+        var requestedKey = NormalizeTitleKeyForCache(GetString(publish, "new_drama_mount_title"));
+        if (requestedKey.Length == 0)
+        {
+            return true;
+        }
+
+        var hasCandidate = false;
+        foreach (var candidate in EnumerateNewDramaMountTitleCandidates(publish, sourceDir))
+        {
+            var candidateKey = NormalizeTitleKeyForCache(candidate);
+            if (candidateKey.Length == 0)
+            {
+                continue;
+            }
+
+            hasCandidate = true;
+            if (string.Equals(candidateKey, requestedKey, StringComparison.Ordinal) ||
+                candidateKey.Contains(requestedKey, StringComparison.Ordinal) ||
+                requestedKey.Contains(candidateKey, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return !hasCandidate;
+    }
+
+    private static IReadOnlyList<string?> EnumerateNewDramaMountTitleCandidates(JsonElement publish, string sourceDir)
+    {
+        var candidates = new List<string?>
+        {
+            GetString(publish, "new_drama_mount_resolved_title"),
+            Path.GetFileName(sourceDir)
+        };
+
+        var metadataPath = Path.Combine(sourceDir, "shortdrama-project.json");
+        if (!File.Exists(metadataPath))
+        {
+            return candidates;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
+            var root = document.RootElement;
+            foreach (var key in new[] { "displayName", "title", "name", "newTitle", "new_title", "sourceName", "originalTitle" })
+            {
+                var text = GetString(root, key);
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    candidates.Add(text);
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return candidates;
+    }
+
+    private static string NormalizeTitleKeyForCache(string? value)
+    {
+        var text = (value ?? string.Empty).Trim().Trim('"').TrimStart('_').Trim();
+        return text.Length == 0 ? string.Empty : TitleNoiseRegex.Replace(text.ToLowerInvariant(), string.Empty);
     }
 
     private static string[] ResolveMaterialPublishFilesFromCandidates(

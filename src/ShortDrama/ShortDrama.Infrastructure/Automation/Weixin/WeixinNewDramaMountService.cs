@@ -314,7 +314,7 @@ public sealed class WeixinNewDramaMountService
             return true;
         }
 
-        foreach (var candidate in EnumerateProjectTitleCandidates(projectDir, options))
+        foreach (var candidate in EnumerateCachedProjectTitleCandidates(projectDir, options))
         {
             var candidateKey = NormalizeTitleKey(candidate);
             if (string.IsNullOrWhiteSpace(candidateKey))
@@ -333,12 +333,11 @@ public sealed class WeixinNewDramaMountService
         return false;
     }
 
-    private static IEnumerable<string> EnumerateProjectTitleCandidates(
+    private static IEnumerable<string> EnumerateCachedProjectTitleCandidates(
         string projectDir,
         WeixinVideoPublishOptions options)
     {
         yield return options.NewDramaMountResolvedTitle;
-        yield return options.NewDramaMountTitle;
         yield return Path.GetFileName(projectDir);
 
         var metadataPath = Path.Combine(projectDir, "shortdrama-project.json");
