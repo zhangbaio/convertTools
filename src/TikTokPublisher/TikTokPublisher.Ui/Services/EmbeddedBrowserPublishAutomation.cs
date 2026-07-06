@@ -91,15 +91,21 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             activePage = page;
             ct.ThrowIfCancellationRequested();
 
-            // 对齐 Python _watch_daily_episode_limit：上限提示是出现时机不固定的短暂 toast，
-            // 单点检测容易错过，需全程后台轮询；命中后立即取消主流程。
-            limitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            ct = limitCts.Token;
-            _ = WatchDailyEpisodeLimitAsync(page, limitCts, text =>
+            void StartDailyLimitWatch()
             {
-                dailyLimitHit = text;
-                L($"TikTok 检测到单日创建剧集上限提示：{text}");
-            });
+                if (limitCts is not null)
+                    return;
+
+                // 对齐 Python _watch_daily_episode_limit：上限提示是出现时机不固定的短暂 toast，
+                // 但必须在进入本次新建页后再监听，避免上一轮残留页面把当前任务误判为上限。
+                limitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                ct = limitCts.Token;
+                _ = WatchDailyEpisodeLimitAsync(page, limitCts, text =>
+                {
+                    dailyLimitHit = text;
+                    L($"TikTok 检测到单日创建剧集上限提示：{text}");
+                });
+            }
 
             // 清理上一轮失败遗留的「是否离开网站」弹窗/半填表单，确保从干净页面开始。
             await TikTokBrowserActions.ResetLeftoverPageStateAsync(page, L, ct).ConfigureAwait(false);
@@ -165,6 +171,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             {
                 await NavigateToCreateDraftPageAsync(page, targetUrl, L, ct).ConfigureAwait(false);
                 ThrowIfLoginRedirect(page);
+                StartDailyLimitWatch();
                 RecordUploadStepStarted();
 
                 await TikTokBrowserActions.FillCreateInitialFieldsAsync(page, payload, options, L, ct)
