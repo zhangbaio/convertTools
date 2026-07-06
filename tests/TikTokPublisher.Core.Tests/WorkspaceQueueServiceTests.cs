@@ -1,4 +1,6 @@
+using System.Text.Json;
 using FluentAssertions;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 
@@ -209,10 +211,156 @@ public sealed class WorkspaceQueueServiceTests
         }
     }
 
+    [Fact]
+    public void MoveProjectsToAccountWorkspace_Moves_Files_Queue_State_And_Rebinds_Account()
+    {
+        var sourceWorkspace = Path.Combine(Path.GetTempPath(), $"workspace-source-{Guid.NewGuid():N}");
+        var targetWorkspace = Path.Combine(Path.GetTempPath(), $"workspace-target-{Guid.NewGuid():N}");
+        var sourceProject = Path.Combine(sourceWorkspace, "first");
+        var sourceWorkflow = Path.Combine(sourceWorkspace, "workflow", "first-workflow");
+        var targetProject = Path.Combine(targetWorkspace, "first");
+        var targetWorkflow = Path.Combine(targetWorkspace, "workflow", "first-workflow");
+        var targetStorageState = Path.Combine(targetWorkspace, "acct-b-storage.json");
+
+        try
+        {
+            Directory.CreateDirectory(targetWorkspace);
+            CreateProject(sourceProject);
+            Directory.CreateDirectory(sourceWorkflow);
+            Directory.CreateDirectory(Path.Combine(sourceWorkflow, "upload"));
+            File.WriteAllText(Path.Combine(sourceWorkflow, "upload", "01.mp4"), "video");
+            WriteProjectMetadata(sourceProject, sourceProject, sourceWorkflow);
+            WriteProjectMetadata(sourceWorkflow, sourceProject, sourceWorkflow);
+            WorkspaceBindingService.Bind(sourceWorkspace, "acct-a", "Account A");
+            WorkspaceBindingService.Bind(targetWorkspace, "acct-old", "Old Account");
+
+            ProjectStateDocumentStore.SaveDocument(
+                sourceWorkspace,
+                sourceProject,
+                TikTokUploadManifestService.DocumentType,
+                new Dictionary<string, object?>
+                {
+                    ["project_dir"] = sourceProject,
+                    ["workflow_project_dir"] = sourceWorkflow,
+                    ["upload_video_paths"] = new List<object?> { Path.Combine(sourceWorkflow, "upload", "01.mp4") },
+                    ["publish_config"] = new Dictionary<string, object?>
+                    {
+                        ["storage_state_path"] = "old-state.json",
+                        ["upload_profile_path"] = sourceWorkspace,
+                    },
+                },
+                sourceWorkflow);
+            TikTokUploadStateStore.SaveState(
+                sourceWorkflow,
+                new Dictionary<string, object?>
+                {
+                    ["upload_step_attempted"] = true,
+                    ["last_upload_completed_at"] = "2026-01-01T00:00:00",
+                    ["platform_series_lookup"] = new Dictionary<string, object?>
+                    {
+                        ["status"] = "found",
+                        ["detail_url"] = "https://www.tiktokdramacenter.com/series/draft/1234567890123456",
+                    },
+                });
+            WorkspaceQueueService.SaveProjects(
+                sourceWorkspace,
+                [
+                    new QueueProjectItem
+                    {
+                        ProjectDir = sourceProject,
+                        DisplayName = "first",
+                        AccountProfileId = "acct-a",
+                        AccountProfileName = "Account A",
+                        StatusText = QueueStepStatus.Completed,
+                        UploadCompletedAt = "2026-01-01T00:00:00",
+                        StepStates = new Dictionary<string, string>
+                        {
+                            [QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed,
+                            [QueueStepKeys.UploadSeries] = QueueStepStatus.Completed,
+                        },
+                    },
+                ]);
+            var targetAccount = new TikTokAccountProfile
+            {
+                Id = "acct-b",
+                Name = "Account B",
+                TiktokUploadProfilePath = targetWorkspace,
+                TiktokStorageStatePath = targetStorageState,
+                TiktokSeriesUrl = "https://example.test/series",
+            };
+
+            var result = WorkspaceQueueService.MoveProjectsToAccountWorkspace(
+                sourceWorkspace,
+                WorkspaceQueueService.ScanProjects(sourceWorkspace),
+                targetAccount);
+
+            result.Count.Should().Be(1);
+            Directory.Exists(sourceProject).Should().BeFalse();
+            Directory.Exists(sourceWorkflow).Should().BeFalse();
+            Directory.Exists(targetProject).Should().BeTrue();
+            Directory.Exists(targetWorkflow).Should().BeTrue();
+            WorkspaceBindingService.ResolveAccountProfileId(targetWorkspace).Should().Be("acct-b");
+
+            WorkspaceQueueService.ScanProjects(sourceWorkspace).Should().BeEmpty();
+            var moved = WorkspaceQueueService.ScanProjects(targetWorkspace).Should().ContainSingle().Subject;
+            moved.ProjectDir.Should().Be(targetProject);
+            moved.AccountProfileId.Should().Be("acct-b");
+            moved.AccountProfileName.Should().Be("Account B");
+            moved.StepStates[QueueStepKeys.MaterialValidate].Should().Be(QueueStepStatus.Completed);
+            moved.StepStates[QueueStepKeys.UploadSeries].Should().Be(QueueStepStatus.Pending);
+            moved.UploadCompletedAt.Should().BeEmpty();
+            moved.StatusText.Should().Be(QueueStepStatus.Pending);
+
+            var sourceMetadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(targetProject, "shortdrama-project.json"))).RootElement;
+            sourceMetadata.GetProperty("sourceProjectDir").GetString().Should().Be(targetProject);
+            sourceMetadata.GetProperty("workflowProjectDir").GetString().Should().Be(targetWorkflow);
+
+            var manifest = ProjectStateDocumentStore.LoadDocument(
+                targetWorkspace,
+                targetProject,
+                TikTokUploadManifestService.DocumentType);
+            manifest["project_dir"].GetString().Should().Be(targetProject);
+            manifest["workflow_project_dir"].GetString().Should().Be(targetWorkflow);
+            manifest["upload_video_paths"].EnumerateArray().Single().GetString()
+                .Should().Be(Path.Combine(targetWorkflow, "upload", "01.mp4"));
+            var publishConfig = manifest["publish_config"];
+            publishConfig.GetProperty("storage_state_path").GetString().Should().Be(targetStorageState);
+            publishConfig.GetProperty("upload_profile_path").GetString().Should().Be(targetWorkspace);
+
+            TikTokUploadStateStore.LoadState(targetWorkflow).Should().NotContainKey("last_upload_completed_at");
+            TikTokUploadStateStore.LoadCachedEditDetailUrl(targetWorkflow).Should().BeEmpty();
+            ProjectStateDocumentStore.LoadDocument(
+                    sourceWorkspace,
+                    sourceProject,
+                    TikTokUploadManifestService.DocumentType)
+                .Should().BeEmpty();
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(sourceWorkspace);
+            DeleteWorkspaceBestEffort(targetWorkspace);
+        }
+    }
+
     private static void CreateProject(string projectDir)
     {
         Directory.CreateDirectory(projectDir);
         File.WriteAllText(Path.Combine(projectDir, "shortdrama-project.json"), "{}");
+    }
+
+    private static void WriteProjectMetadata(string projectDir, string sourceProjectDir, string workflowProjectDir)
+    {
+        Directory.CreateDirectory(projectDir);
+        File.WriteAllText(
+            Path.Combine(projectDir, "shortdrama-project.json"),
+            JsonSerializer.Serialize(
+                new Dictionary<string, object?>
+                {
+                    ["sourceProjectDir"] = sourceProjectDir,
+                    ["workflowProjectDir"] = workflowProjectDir,
+                    ["workflowDirName"] = Path.GetFileName(workflowProjectDir),
+                },
+                new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private static void DeleteWorkspaceBestEffort(string workspace)

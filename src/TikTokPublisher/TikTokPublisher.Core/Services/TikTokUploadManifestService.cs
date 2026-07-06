@@ -62,7 +62,7 @@ public static class TikTokUploadManifestService
         log?.Invoke("TikTok 上传清单已生成。");
     }
 
-    private static Dictionary<string, object?> BuildPublishConfigSnapshot(
+    public static Dictionary<string, object?> BuildPublishConfigSnapshot(
         TikTokAccountProfile? account,
         string? workflowProjectDir = null)
     {

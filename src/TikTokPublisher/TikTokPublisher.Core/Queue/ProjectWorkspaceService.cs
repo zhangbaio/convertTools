@@ -200,6 +200,11 @@ public static class ProjectWorkspaceService
         item.CoverPath = project.CoverPath;
     }
 
+    public static void UpdateMovedWorkspaceMetadata(string sourceProjectDir, string workflowProjectDir)
+    {
+        UpdateWorkflowMetadata(sourceProjectDir, workflowProjectDir, overwriteSourceProjectDir: true);
+    }
+
     public static string? FindPosterInputFile(string sourceProjectDir, string workflowProjectDir)
     {
         foreach (var root in new[] { sourceProjectDir, workflowProjectDir })
@@ -298,13 +303,28 @@ public static class ProjectWorkspaceService
         return null;
     }
 
-    private static void UpdateWorkflowMetadata(string sourceProjectDir, string workflowProjectDir)
+    private static void UpdateWorkflowMetadata(
+        string sourceProjectDir,
+        string workflowProjectDir,
+        bool overwriteSourceProjectDir = false)
     {
-        UpdateMetadataFile(Path.Combine(sourceProjectDir, MetadataFile), workflowProjectDir, sourceProjectDir);
-        UpdateMetadataFile(Path.Combine(workflowProjectDir, MetadataFile), workflowProjectDir, sourceProjectDir);
+        UpdateMetadataFile(
+            Path.Combine(sourceProjectDir, MetadataFile),
+            workflowProjectDir,
+            sourceProjectDir,
+            overwriteSourceProjectDir);
+        UpdateMetadataFile(
+            Path.Combine(workflowProjectDir, MetadataFile),
+            workflowProjectDir,
+            sourceProjectDir,
+            overwriteSourceProjectDir);
     }
 
-    private static void UpdateMetadataFile(string metadataPath, string workflowProjectDir, string sourceProjectDir)
+    private static void UpdateMetadataFile(
+        string metadataPath,
+        string workflowProjectDir,
+        string sourceProjectDir,
+        bool overwriteSourceProjectDir)
     {
         Dictionary<string, object?> payload;
         if (File.Exists(metadataPath))
@@ -326,8 +346,12 @@ public static class ProjectWorkspaceService
 
         payload["workflowDirName"] = Path.GetFileName(workflowProjectDir);
         payload["workflowProjectDir"] = workflowProjectDir;
-        if (!payload.ContainsKey("sourceProjectDir") || string.IsNullOrWhiteSpace(payload["sourceProjectDir"]?.ToString()))
+        if (overwriteSourceProjectDir ||
+            !payload.ContainsKey("sourceProjectDir") ||
+            string.IsNullOrWhiteSpace(payload["sourceProjectDir"]?.ToString()))
+        {
             payload["sourceProjectDir"] = sourceProjectDir;
+        }
 
         Directory.CreateDirectory(Path.GetDirectoryName(metadataPath)!);
         File.WriteAllText(metadataPath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));

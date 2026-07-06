@@ -691,6 +691,57 @@ public partial class TikTokQueueView : UserControl
         }
     }
 
+    private async void OnMoveSelectedProjectsClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var vm = _vm;
+        if (vm is null) return;
+
+        var rows = GetCheckedOrSelectedQueueRows()
+            .Distinct()
+            .ToArray();
+        if (rows.Length == 0)
+        {
+            vm.StatusMessage = "请先勾选或选中要移动的项目";
+            return;
+        }
+
+        if (vm.IsCurrentWorkspaceQueueRunning())
+        {
+            vm.StatusMessage = "当前工作目录队列正在运行，请停止后再移动项目";
+            return;
+        }
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is null)
+        {
+            vm.StatusMessage = "无法打开移动项目弹窗";
+            return;
+        }
+
+        var targetAccount = await ShowMoveProjectsDialogAsync(owner, vm, rows.Length);
+        if (targetAccount is null)
+            return;
+
+        if (!await ConfirmAsync(
+                owner,
+                "移动项目到账号",
+                $"将 {rows.Length} 个项目移动到「{targetAccount.DisplayName}」的工作目录，并重置 TikTok 上传状态。是否继续？"))
+        {
+            return;
+        }
+
+        try
+        {
+            await vm.MoveQueueProjectsToAccountAsync(rows, targetAccount);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"移动项目失败：{ex.Message}";
+            await ShowMessageAsync(owner, "移动项目失败", ex.Message, warning: true);
+        }
+    }
+
     private IReadOnlyList<string> GetSelectedProjectDirs() =>
         GetSelectedQueueRows()
             .Select(row => row.Item.ProjectDir)
@@ -744,6 +795,86 @@ public partial class TikTokQueueView : UserControl
     private sealed record UploadTitlesDialogResult(
         string RawText,
         string MatchMode);
+
+    private sealed record MoveTargetAccountOption(
+        AccountItemViewModel Account,
+        string Workspace)
+    {
+        public override string ToString() => $"{Account.DisplayName} · {Workspace}";
+    }
+
+    private static async Task<AccountItemViewModel?> ShowMoveProjectsDialogAsync(
+        Window owner,
+        MainViewModel vm,
+        int projectCount)
+    {
+        var options = vm.Accounts
+            .Select(account => new MoveTargetAccountOption(account, account.Model.ResolveWorkspacePath()))
+            .Where(option => !string.IsNullOrWhiteSpace(option.Workspace))
+            .OrderBy(option => option.Account.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (options.Count == 0)
+        {
+            await ShowMessageAsync(owner, "移动项目到账号", "没有配置有效工作目录的账号。", warning: true);
+            return null;
+        }
+
+        var dialog = new Window
+        {
+            Title = "移动项目到账号",
+            Width = 620,
+            Height = 260,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var targetCombo = new ComboBox
+        {
+            ItemsSource = options,
+            SelectedIndex = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        var cancelButton = BuildDialogButton("取消", () => dialog.Close(null));
+        var moveButton = BuildDialogButton("移动", () =>
+        {
+            if (targetCombo.SelectedItem is MoveTargetAccountOption option)
+                dialog.Close(option.Account);
+        }, primary: true);
+
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(16),
+            Spacing = 12,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = $"选择目标账号。将移动 {projectCount} 个项目目录和 workflow 目录，并同步队列账号绑定。",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                },
+                new TextBlock
+                {
+                    Text = "目标账号",
+                    FontWeight = FontWeight.SemiBold,
+                },
+                targetCombo,
+                new TextBlock
+                {
+                    Text = "移动后 TikTok 上传状态会重置，避免沿用原账号的草稿或已上传记录；本地处理步骤会保留。",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    Foreground = Brushes.Gray,
+                },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Spacing = 8,
+                    Children = { cancelButton, moveButton },
+                },
+            },
+        };
+
+        return await dialog.ShowDialog<AccountItemViewModel?>(owner);
+    }
 
     private static async Task<UploadTitlesDialogResult?> ShowUploadTitlesDialogAsync(Window owner)
     {

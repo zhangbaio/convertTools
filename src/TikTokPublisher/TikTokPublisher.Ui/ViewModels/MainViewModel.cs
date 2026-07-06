@@ -1169,6 +1169,63 @@ public sealed partial class MainViewModel : ViewModelBase
         return true;
     }
 
+    public async Task<QueueProjectMoveResult> MoveQueueProjectsToAccountAsync(
+        IEnumerable<QueueProjectRowViewModel> rows,
+        AccountItemViewModel targetAccount)
+    {
+        var root = WorkspacePath.Trim();
+        if (string.IsNullOrWhiteSpace(root))
+            throw new InvalidOperationException("请先选择源账号工作目录。");
+        if (targetAccount is null)
+            throw new InvalidOperationException("请先选择目标账号。");
+        if (IsCurrentWorkspaceQueueRunning())
+            throw new InvalidOperationException("当前工作目录队列正在运行，请停止后再移动项目。");
+
+        var selectedItems = rows
+            .Where(row => row is not null && !string.IsNullOrWhiteSpace(row.Item.ProjectDir))
+            .GroupBy(row => NormalizeProjectDir(row.Item.ProjectDir), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First().Item)
+            .ToArray();
+        if (selectedItems.Length == 0)
+            throw new InvalidOperationException("请先勾选或选中要移动的项目。");
+
+        _queueStatePersist.Flush(root, TimeSpan.FromMilliseconds(400));
+        var result = await Task.Run(() =>
+            WorkspaceQueueService.MoveProjectsToAccountWorkspace(
+                root,
+                selectedItems,
+                targetAccount.Model)).ConfigureAwait(true);
+
+        var targetRoot = targetAccount.Model.ResolveWorkspacePath();
+        var sameWorkspace = string.Equals(
+            NormalizeWorkspaceRootKey(root),
+            NormalizeWorkspaceRootKey(targetRoot),
+            StringComparison.OrdinalIgnoreCase);
+
+        var sourceScan = await Task.Run(() =>
+            (
+                Items: WorkspaceQueueService.ScanProjects(root).ToList(),
+                Options: WorkspaceQueueService.LoadRunOptions(root))).ConfigureAwait(true);
+        ApplyWorkspaceScanResult(root, sourceScan.Items, sourceScan.Options);
+
+        if (!sameWorkspace && !string.IsNullOrWhiteSpace(targetRoot))
+        {
+            var targetScan = await Task.Run(() =>
+                (
+                    Items: WorkspaceQueueService.ScanProjects(targetRoot).ToList(),
+                    Options: WorkspaceQueueService.LoadRunOptions(targetRoot))).ConfigureAwait(true);
+            CacheWorkspaceQueueSnapshot(targetRoot, targetScan.Items, targetScan.Options);
+        }
+
+        AutoExportQueueExcelForWorkspace(root);
+        if (!sameWorkspace && !string.IsNullOrWhiteSpace(targetRoot))
+            AutoExportQueueExcelForWorkspace(targetRoot);
+
+        StatusMessage = $"已移动 {result.Count} 个项目到「{targetAccount.DisplayName}」";
+        AppendLog(StatusMessage);
+        return result;
+    }
+
     public void MarkProjectUploadCompleted(string projectDir)
     {
         var root = WorkspacePath.Trim();

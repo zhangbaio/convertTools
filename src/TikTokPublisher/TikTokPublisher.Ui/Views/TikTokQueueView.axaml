@@ -217,6 +217,7 @@
                     <Button Content="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                     <Button Content="取消全选" Click="OnClearQueueSelectionClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                     <Button Content="归档勾选" Click="OnArchiveSelectedClick" Classes="archiveAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="移动到账号" Click="OnMoveSelectedProjectsClick" Classes="toolAction compactAction" Margin="0,0,8,8" />
                     <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" />
                     <Button Content="全选已完成" Click="OnSelectCompletedQueueClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                 </WrapPanel>

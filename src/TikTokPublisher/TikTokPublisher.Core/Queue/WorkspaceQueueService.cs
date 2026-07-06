@@ -1,4 +1,5 @@
 using System.Text.Json;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Queue;
@@ -155,6 +156,119 @@ public static class WorkspaceQueueService
         var items = ScanProjects(workspaceRoot).Where(i => !removeKeys.Contains(Path.GetFullPath(i.ProjectDir))).ToList();
         SaveRunOptions(workspaceRoot, items, LoadRunOptions(workspaceRoot));
     }
+
+    public static QueueProjectMoveResult MoveProjectsToAccountWorkspace(
+        string sourceWorkspaceRoot,
+        IEnumerable<QueueProjectItem> projects,
+        TikTokAccountProfile targetAccount)
+    {
+        var sourceRoot = Path.GetFullPath(sourceWorkspaceRoot);
+        var targetRoot = targetAccount.ResolveWorkspacePath();
+        if (string.IsNullOrWhiteSpace(targetRoot))
+            throw new InvalidOperationException($"目标账号「{targetAccount.DisplayName}」没有配置有效工作目录。");
+        targetRoot = Path.GetFullPath(targetRoot);
+
+        if (!Directory.Exists(sourceRoot))
+            throw new DirectoryNotFoundException($"源账号工作目录不存在：{sourceRoot}");
+        if (!Directory.Exists(targetRoot))
+            throw new DirectoryNotFoundException($"目标账号工作目录不存在：{targetRoot}");
+
+        var selectedDirs = projects
+            .Where(item => item is not null && !string.IsNullOrWhiteSpace(item.ProjectDir))
+            .Select(item => Path.GetFullPath(item.ProjectDir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (selectedDirs.Length == 0)
+            throw new InvalidOperationException("请先选择要移动的项目。");
+
+        var sourceItems = ScanProjects(sourceRoot).ToList();
+        var sourceByDir = sourceItems
+            .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
+            .GroupBy(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var moveItems = new List<QueueProjectItem>();
+        foreach (var selectedDir in selectedDirs)
+        {
+            if (!sourceByDir.TryGetValue(selectedDir, out var item))
+                throw new InvalidOperationException($"当前工作目录队列中未找到项目：{selectedDir}");
+            moveItems.Add(item);
+        }
+
+        var plans = moveItems
+            .Select(item => QueueProjectMoveService.PlanProjectMove(sourceRoot, targetRoot, item))
+            .ToList();
+        EnsureDistinctTargetPaths(plans.Select(plan => plan.TargetProjectDir), "目标项目目录重复");
+        EnsureDistinctTargetPaths(
+            plans.Select(plan => plan.TargetWorkflowProjectDir),
+            "目标 workflow 目录重复");
+
+        var sourceOptions = LoadRunOptions(sourceRoot);
+        var sameWorkspace = string.Equals(
+            NormalizeDirectoryForCompare(sourceRoot),
+            NormalizeDirectoryForCompare(targetRoot),
+            StringComparison.OrdinalIgnoreCase);
+        var targetItems = sameWorkspace ? sourceItems : ScanProjects(targetRoot).ToList();
+        var targetDirs = plans
+            .Select(plan => Path.GetFullPath(plan.TargetProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var movingDirs = plans
+            .SelectMany(plan => new[] { plan.SourceProjectDir, plan.SourceItem.ProjectDir })
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var targetConflict = targetItems.FirstOrDefault(item =>
+            !movingDirs.Contains(Path.GetFullPath(item.ProjectDir)) &&
+            targetDirs.Contains(Path.GetFullPath(item.ProjectDir)));
+        if (targetConflict is not null)
+            throw new IOException($"目标账号队列已存在同名项目：{targetConflict.ProjectDir}");
+
+        var entries = new List<QueueProjectMoveEntry>();
+        foreach (var plan in plans)
+            entries.Add(QueueProjectMoveService.ExecuteMove(plan, targetAccount));
+
+        if (!sameWorkspace)
+            WorkspaceBindingService.Bind(targetRoot, targetAccount.Id, targetAccount.DisplayName);
+
+        var removeDirs = entries
+            .SelectMany(entry => new[] { entry.OriginalProjectDir })
+            .Concat(plans.Select(plan => plan.SourceItem.ProjectDir))
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        sourceItems.RemoveAll(item => removeDirs.Contains(Path.GetFullPath(item.ProjectDir)));
+
+        if (sameWorkspace)
+        {
+            sourceItems.AddRange(entries.Select(entry => entry.Item));
+            SaveRunOptions(sourceRoot, OrderByQueuedAt(sourceItems), sourceOptions);
+        }
+        else
+        {
+            targetItems.RemoveAll(item => targetDirs.Contains(Path.GetFullPath(item.ProjectDir)));
+            targetItems.AddRange(entries.Select(entry => entry.Item));
+            var targetOptions = LoadRunOptions(targetRoot);
+
+            SaveRunOptions(sourceRoot, OrderByQueuedAt(sourceItems), sourceOptions);
+            SaveRunOptions(targetRoot, OrderByQueuedAt(targetItems), targetOptions);
+        }
+
+        return new QueueProjectMoveResult(entries);
+    }
+
+    private static void EnsureDistinctTargetPaths(IEnumerable<string> paths, string message)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in paths)
+        {
+            var normalized = Path.GetFullPath(path);
+            if (!seen.Add(normalized))
+                throw new IOException($"{message}：{normalized}");
+        }
+    }
+
+    private static string NormalizeDirectoryForCompare(string path) =>
+        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
     private static QueueProjectItem MergeScanned(
         WorkspaceProjectScanner.WorkspaceProject scanned,

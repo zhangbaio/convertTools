@@ -71,6 +71,54 @@ public static class ProjectStateDocumentStore
         }
     }
 
+    public static Dictionary<string, Dictionary<string, object?>> LoadProjectDocuments(
+        string workspaceRoot,
+        string projectDir)
+    {
+        var databasePath = ClientSettingsStore.WorkspaceDatabasePath(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(databasePath) || !File.Exists(databasePath))
+            return new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
+
+        var workspaceAliases = WorkspaceAliases(workspaceRoot);
+        var projectKey = NormalizePath(projectDir);
+        var result = new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
+
+        try
+        {
+            using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            var placeholders = string.Join(", ", workspaceAliases.Select((_, index) => $"$workspace{index}"));
+            command.CommandText = $"""
+                SELECT document_type, payload_json
+                FROM project_state_documents
+                WHERE workspace_path IN ({placeholders})
+                  AND project_dir = $project_dir
+                ORDER BY updated_at ASC, created_at ASC
+                """;
+            for (var i = 0; i < workspaceAliases.Count; i++)
+                command.Parameters.AddWithValue($"$workspace{i}", workspaceAliases[i]);
+            command.Parameters.AddWithValue("$project_dir", projectKey);
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                var docType = reader.IsDBNull(0) ? "" : reader.GetString(0).Trim();
+                if (string.IsNullOrWhiteSpace(docType))
+                    continue;
+
+                var payloadJson = reader.IsDBNull(1) ? "{}" : reader.GetString(1);
+                result[docType] = DeserializePayload(payloadJson);
+            }
+        }
+        catch
+        {
+            return new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
+        }
+
+        return result;
+    }
+
     public static void SaveDocument(
         string workspaceRoot,
         string projectDir,
@@ -136,7 +184,85 @@ public static class ProjectStateDocumentStore
         command.ExecuteNonQuery();
     }
 
+    public static void DeleteProjectDocuments(string workspaceRoot, string projectDir)
+    {
+        var databasePath = ClientSettingsStore.WorkspaceDatabasePath(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(databasePath) || !File.Exists(databasePath))
+            return;
+
+        var workspaceAliases = WorkspaceAliases(workspaceRoot);
+        try
+        {
+            WorkspaceQueueDatabase.EnsureDatabase(databasePath);
+            using var connection = new SqliteConnection($"Data Source={databasePath}");
+            connection.Open();
+            using var command = connection.CreateCommand();
+            var placeholders = string.Join(", ", workspaceAliases.Select((_, index) => $"$workspace{index}"));
+            command.CommandText = $"""
+                DELETE FROM project_state_documents
+                WHERE workspace_path IN ({placeholders})
+                  AND project_dir = $project_dir
+                """;
+            for (var i = 0; i < workspaceAliases.Count; i++)
+                command.Parameters.AddWithValue($"$workspace{i}", workspaceAliases[i]);
+            command.Parameters.AddWithValue("$project_dir", NormalizePath(projectDir));
+            command.ExecuteNonQuery();
+        }
+        catch
+        {
+            // State documents are an optimization. A stale row must not block moving the project files.
+        }
+    }
+
     private static string NormalizePath(string path) => Path.GetFullPath(path.Trim());
+
+    private static IReadOnlyList<string> WorkspaceAliases(string workspaceRoot)
+    {
+        var aliases = new List<string>();
+        AddAlias(NormalizePath(workspaceRoot));
+
+        try
+        {
+            var full = Path.GetFullPath(workspaceRoot.Trim());
+            AddAlias(full);
+            var trimmed = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            AddAlias(trimmed);
+            if (!string.Equals(full, trimmed, StringComparison.Ordinal))
+                AddAlias(trimmed + Path.DirectorySeparatorChar);
+        }
+        catch
+        {
+            // NormalizePath above already added the best-effort canonical alias.
+        }
+
+        return aliases;
+
+        void AddAlias(string value)
+        {
+            if (!string.IsNullOrWhiteSpace(value) &&
+                !aliases.Contains(value, StringComparer.OrdinalIgnoreCase))
+            {
+                aliases.Add(value);
+            }
+        }
+    }
+
+    private static Dictionary<string, object?> DeserializePayload(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return new Dictionary<string, object?>(StringComparer.Ordinal);
+
+            return doc.RootElement.EnumerateObject()
+                .ToDictionary(p => p.Name, p => JsonElementToObject(p.Value), StringComparer.Ordinal);
+        }
+        catch
+        {
+            return new Dictionary<string, object?>(StringComparer.Ordinal);
+        }
+    }
 
     private static string StableDocumentId(string workspaceKey, string projectKey, string documentType)
     {
