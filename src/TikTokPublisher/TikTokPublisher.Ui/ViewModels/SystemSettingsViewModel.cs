@@ -641,8 +641,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private static string FormatBytes(long bytes)
     {
         if (bytes < 1024) return $"{bytes} B";
-        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.1} KB";
-        return $"{bytes / (1024.0 * 1024.0):0.2} MB";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.#} KB";
+        return $"{bytes / (1024.0 * 1024.0):0.##} MB";
     }
 
     private static void OpenParentFolder(string path)
