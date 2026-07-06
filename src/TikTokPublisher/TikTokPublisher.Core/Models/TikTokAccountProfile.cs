@@ -58,9 +58,9 @@ public sealed class TikTokAccountProfile
     public bool TiktokSubmitEnabled { get; set; } = true;
     public string TiktokSubmitAction { get; set; } = "submit"; // none | submit | save
     /// <summary>上传剧集使用的浏览器：embedded=内置 WebView2；external=外部浏览器（经 CDP 端点接入）；playwright=程序自动启动的外部浏览器。</summary>
-    public string TiktokUploadBrowserMode { get; set; } = "playwright"; // embedded | external | playwright
+    public string TiktokUploadBrowserMode { get; set; } = "embedded"; // embedded | external | playwright
     /// <summary>playwright 模式：程序自动启动的外部浏览器是否无头运行（false=有头可见窗口）。</summary>
-    public bool TiktokPlaywrightUploadHeadless { get; set; } = true;
+    public bool TiktokPlaywrightUploadHeadless { get; set; }
     public string TiktokContractId { get; set; } = "";
     public string TiktokContractIdMode { get; set; } = "manual";
     public bool TiktokPaidEnabled { get; set; }

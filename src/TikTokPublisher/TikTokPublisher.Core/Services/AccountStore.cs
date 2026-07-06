@@ -166,8 +166,8 @@ public sealed class AccountStore
             TiktokStorageStatePath = AppPaths.DefaultStorageStatePath(id),
             TiktokSeriesUrl = TikTokUrls.DefaultSeriesDraftUrl,
             TiktokContractIdMode = TikTokPublishConstants.ContractIdModeFirstAvailable,
-            TiktokUploadBrowserMode = "playwright",
-            TiktokPlaywrightUploadHeadless = true,
+            TiktokUploadBrowserMode = "embedded",
+            TiktokPlaywrightUploadHeadless = false,
             TiktokPaidRatioEnabled = true,
             TiktokExpectedFullPriceMode = "option_index",
             TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
@@ -221,7 +221,7 @@ public sealed class AccountStore
         var normalized = (value ?? "").Trim().ToLowerInvariant();
         return normalized is "embedded" or "external" or "playwright"
             ? normalized
-            : "playwright";
+            : "embedded";
     }
 
     private static string NormalizeManagementDedupScope(string? value)
