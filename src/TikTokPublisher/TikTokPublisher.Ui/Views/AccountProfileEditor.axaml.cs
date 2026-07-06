@@ -331,8 +331,9 @@ public partial class AccountProfileEditor : UserControl
     private static async Task<IpLookupResult> LookupOutboundIpAsync(HttpClient client)
     {
         Exception? lastError = null;
+        var results = new List<IpLookupResult>();
 
-        foreach (var url in new[] { "https://ipwho.is/", "https://ipinfo.io/json" })
+        foreach (var url in new[] { "https://ipinfo.io/json", "https://ipwho.is/" })
         {
             try
             {
@@ -346,7 +347,7 @@ public partial class AccountProfileEditor : UserControl
                     ? ParseIpWhoIs(root)
                     : ParseIpInfo(root);
                 if (!string.IsNullOrWhiteSpace(result.Ip))
-                    return result;
+                    results.Add(result);
             }
             catch (Exception ex)
             {
@@ -354,7 +355,36 @@ public partial class AccountProfileEditor : UserControl
             }
         }
 
+        var primary = results.FirstOrDefault(result => !string.IsNullOrWhiteSpace(result.Ip));
+        if (primary is not null)
+        {
+            var matchingResults = results
+                .Where(result => string.Equals(result.Ip, primary.Ip, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (matchingResults.Count == 0)
+                matchingResults = results;
+
+            var location = FirstNonEmpty(matchingResults.Select(result => result.Location).ToArray());
+            var org = FirstNonEmpty(
+                matchingResults.Where(result => LooksLikeCarrierOrg(result.Org)).Select(result => result.Org)
+                    .Concat(matchingResults.Select(result => result.Org))
+                    .ToArray());
+            return new IpLookupResult(primary.Ip, location, org);
+        }
+
         throw new InvalidOperationException($"无法获取出口 IP 信息：{lastError?.Message ?? "未知错误"}");
+    }
+
+    private static bool LooksLikeCarrierOrg(string value)
+    {
+        var normalized = Regex.Replace(value, @"[\s._-]+", "", RegexOptions.IgnoreCase).ToLowerInvariant();
+        return normalized.Contains("chinatelecom")
+            || normalized.Contains("telecom")
+            || normalized.Contains("chinaunicom")
+            || normalized.Contains("unicom")
+            || normalized.Contains("chinamobile")
+            || normalized.Contains("cmcc")
+            || normalized.Contains("cmi");
     }
 
     private static IpLookupResult ParseIpWhoIs(JsonElement root)
