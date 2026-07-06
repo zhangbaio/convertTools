@@ -98,7 +98,7 @@
 
             <TabItem Header="网络 / IP">
                 <ScrollViewer>
-                    <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
+                    <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
                         <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="登录浏览器" VerticalAlignment="Center" />
                         <ComboBox Grid.Row="0" Grid.Column="1" x:Name="LoginBrowserModeCombo" HorizontalAlignment="Stretch">
                             <ComboBoxItem Tag="embedded">内置浏览器</ComboBoxItem>
@@ -138,6 +138,12 @@
 
                         <TextBlock Classes="formLabel" Grid.Row="10" Grid.Column="0" Text="静态IP备注" VerticalAlignment="Center" />
                         <TextBox Grid.Row="10" Grid.Column="1" x:Name="StaticIpNoteBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="11" Grid.Column="0" Text="IP 检测" VerticalAlignment="Top" Margin="0,6,0,0" />
+                        <StackPanel Grid.Row="11" Grid.Column="1" Orientation="Vertical" Spacing="6">
+                            <Button x:Name="TestProxyButton" Content="测试IP" Click="OnTestProxyClick" HorizontalAlignment="Left" />
+                            <TextBlock x:Name="ProxyTestResultText" TextWrapping="Wrap" Foreground="#666" Text="点击「测试IP」检测当前代理的实际出口 IP 与归属地。" />
+                        </StackPanel>
                     </Grid>
                 </ScrollViewer>
             </TabItem>

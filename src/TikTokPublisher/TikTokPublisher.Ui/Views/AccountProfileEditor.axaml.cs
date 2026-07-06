@@ -1,7 +1,11 @@
 using System.Text.RegularExpressions;
 using System.ComponentModel;
+using System.Net;
+using System.Net.Http;
+using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
@@ -252,6 +256,90 @@ public partial class AccountProfileEditor : UserControl
         if (_vm is not null)
             _vm.StatusMessage = "已保存账号配置，正在重新打开内置浏览器…";
         ReloginRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async void OnTestProxyClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+
+        var enabled = ProxyEnabledBox.IsChecked == true;
+        var type = TagOf(ProxyTypeCombo, "http");
+        var host = ProxyHostBox.Text?.Trim() ?? "";
+        var port = (int)(ProxyPortBox.Value ?? 0);
+        var user = ProxyUsernameBox.Text?.Trim() ?? "";
+        var pass = ProxyPasswordBox.Text ?? "";
+
+        TestProxyButton.IsEnabled = false;
+        ProxyTestResultText.Foreground = Brushes.Gray;
+        ProxyTestResultText.Text = "正在测试，请稍候…";
+        try
+        {
+            var (ok, message) = await TestProxyAsync(enabled, type, host, port, user, pass);
+            ProxyTestResultText.Foreground = ok ? Brushes.SeaGreen : Brushes.IndianRed;
+            ProxyTestResultText.Text = message;
+        }
+        catch (Exception ex)
+        {
+            ProxyTestResultText.Foreground = Brushes.IndianRed;
+            ProxyTestResultText.Text = $"测试失败：{ex.Message}";
+        }
+        finally
+        {
+            TestProxyButton.IsEnabled = true;
+        }
+    }
+
+    private static async Task<(bool Ok, string Message)> TestProxyAsync(
+        bool enabled, string type, string host, int port, string user, string pass)
+    {
+        using var handler = new HttpClientHandler();
+        string modeDesc;
+        if (enabled)
+        {
+            if (string.IsNullOrEmpty(host))
+                return (false, "已勾选「启用账号代理」，但未填写代理主机。");
+
+            var scheme = TikTokProxyHelper.NormalizeProxyType(type);
+            var server = host.Contains("://", StringComparison.Ordinal)
+                ? host
+                : port > 0 ? $"{scheme}://{host}:{port}" : $"{scheme}://{host}";
+
+            var proxy = new WebProxy(server);
+            if (!string.IsNullOrEmpty(user) || !string.IsNullOrEmpty(pass))
+                proxy.Credentials = new NetworkCredential(user, pass);
+            handler.Proxy = proxy;
+            handler.UseProxy = true;
+            modeDesc = $"经代理 {server}";
+        }
+        else
+        {
+            handler.UseProxy = false;
+            modeDesc = "直连（未启用代理）";
+        }
+
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 TikTokPublisher");
+
+        using var resp = await client.GetAsync("https://ipinfo.io/json");
+        resp.EnsureSuccessStatusCode();
+        var json = await resp.Content.ReadAsStringAsync();
+
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        string Get(string key) => root.TryGetProperty(key, out var v) ? v.GetString() ?? "" : "";
+
+        var ip = Get("ip");
+        var city = Get("city");
+        var region = Get("region");
+        var country = Get("country");
+        var org = Get("org");
+
+        var location = string.Join(" ", new[] { country, region, city }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        var text = $"✓ 出口 IP：{(string.IsNullOrEmpty(ip) ? "未知" : ip)}\n"
+                 + $"归属地：{(string.IsNullOrEmpty(location) ? "未知" : location)}\n"
+                 + $"运营商：{(string.IsNullOrEmpty(org) ? "未知" : org)}\n"
+                 + $"方式：{modeDesc}";
+        return (true, text);
     }
 
     private void ClearFields()
