@@ -140,6 +140,7 @@ public sealed class TikTokPublishDefaultsTests
     public void Account_profile_publish_defaults_match_python_settings()
     {
         var account = new TikTokAccountProfile();
+        account.TiktokLoginBrowserMode.Should().Be("embedded");
 
         account.TiktokSubmitEnabled.Should().BeTrue();
         account.TiktokSubmitAction.Should().Be("submit");

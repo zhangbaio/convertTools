@@ -164,6 +164,7 @@ public sealed class AccountStore
             UpdatedAt = now,
             ProfileDir = AppPaths.ProfileDirFor(id),
             TiktokStorageStatePath = AppPaths.DefaultStorageStatePath(id),
+            TiktokLoginBrowserMode = "embedded",
             TiktokSeriesUrl = TikTokUrls.DefaultSeriesDraftUrl,
             TiktokContractIdMode = TikTokPublishConstants.ContractIdModeFirstAvailable,
             TiktokUploadBrowserMode = "embedded",
@@ -187,6 +188,7 @@ public sealed class AccountStore
     {
         account.TiktokSubmitAction = NormalizeSubmitAction(account.TiktokSubmitAction, account.TiktokSubmitEnabled);
         account.TiktokSubmitEnabled = string.Equals(account.TiktokSubmitAction, "submit", StringComparison.Ordinal);
+        account.TiktokLoginBrowserMode = NormalizeLoginBrowserMode(account.TiktokLoginBrowserMode);
         account.TiktokTargetAudienceMode = NormalizeTargetAudience(account.TiktokTargetAudienceMode);
         account.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount(account.TiktokGenreCount);
         account.TiktokUploadBrowserMode = NormalizeUploadBrowserMode(account.TiktokUploadBrowserMode);
@@ -214,6 +216,14 @@ public sealed class AccountStore
         return normalized is "female" or "male" or "ai_recommend"
             ? normalized
             : "ai_recommend";
+    }
+
+    private static string NormalizeLoginBrowserMode(string? value)
+    {
+        var normalized = (value ?? "").Trim().ToLowerInvariant();
+        return normalized is "embedded" or "cdp"
+            ? normalized
+            : "embedded";
     }
 
     private static string NormalizeUploadBrowserMode(string? value)

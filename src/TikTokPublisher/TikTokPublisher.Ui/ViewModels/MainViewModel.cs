@@ -424,6 +424,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         SelectedAccount.Status = AccountStatus.LoggingIn;
         SelectedAccount.Model.TiktokLoginBrowserMode = "embedded";
+        SaveAccountProfile(SelectedAccount.Model);
         BrowserAuthStatus = forceRelogin
             ? "请在内置浏览器中重新完成 TikTok 登录"
             : "请在内置浏览器中完成 TikTok 登录";
