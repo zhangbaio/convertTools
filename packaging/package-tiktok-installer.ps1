@@ -5,6 +5,7 @@ param(
     [string]$Version,
     [switch]$InstallPlaywrightChromium,
     [switch]$NoBundleDependencies,
+    [switch]$NoBundleLocalAsrModels,
     [switch]$SkipInstallerCompile,
     [string]$InnoSetupCompiler,
     [string]$FfmpegDownloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
@@ -23,7 +24,9 @@ $ProjectPath = Join-Path $Root "src\TikTokPublisher\TikTokPublisher.Desktop\TikT
 $InnoScript = Join-Path $Root "packaging\tiktok-publisher.iss"
 $AppIconPath = Join-Path $Root "src\TikTokPublisher\TikTokPublisher.Desktop\Assets\tiktok-shortdrama-logo.ico"
 $DependencyCacheDir = Join-Path $DependenciesDir "cache"
+$ModelsDir = Join-Path $Root "models"
 $BundleDependencies = -not $NoBundleDependencies
+$BundleLocalAsrModels = $BundleDependencies -and -not $NoBundleLocalAsrModels
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = "1.0.$(Get-Date -Format 'yyyyMMdd').0"
@@ -262,6 +265,12 @@ if ($BundleDependencies) {
 else {
     Write-Warning "Dependency bundling is disabled. The installer may require target machines to install dependencies separately."
 }
+if ($BundleLocalAsrModels) {
+    Write-Host "Bundling local ASR models from: $ModelsDir"
+}
+elseif ($NoBundleLocalAsrModels) {
+    Write-Warning "Local ASR model bundling is disabled. The installed app will require users to configure a local model directory."
+}
 
 New-Item -ItemType Directory -Force -Path $ArtifactsRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $DependenciesDir | Out-Null
@@ -292,6 +301,18 @@ Copy-DirectoryContents -Source $repoFonts -Destination (Join-Path $publishTools 
 $extraTools = Join-Path $DependenciesDir "tools"
 Copy-DirectoryContents -Source $extraTools -Destination $publishTools
 
+$publishModels = Join-Path $PublishDir "models"
+if ($BundleLocalAsrModels) {
+    if (-not (Test-Path -LiteralPath $ModelsDir)) {
+        throw "Local ASR models were not found at $ModelsDir. Put sherpa-onnx models there, or pass -NoBundleLocalAsrModels."
+    }
+
+    Copy-DirectoryContents -Source $ModelsDir -Destination $publishModels
+}
+else {
+    Write-Warning "Local ASR models are not bundled. Users must set ASR local model paths or place models under the installed app's models directory."
+}
+
 $cachedPlaywright = Join-Path $DependenciesDir "ms-playwright"
 if ($BundleDependencies -or $InstallPlaywrightChromium) {
     Install-PlaywrightChromium -BrowserRoot $cachedPlaywright
@@ -320,6 +341,27 @@ if ($BundleDependencies) {
 }
 elseif (-not (Test-AnyPath -Candidates $ffmpegCandidates)) {
     Write-Warning "ffmpeg.exe is not bundled. Put ffmpeg/ffprobe under packaging\dependencies\tools\$Runtime\ffmpeg before building a fully offline installer."
+}
+
+$defaultParaformerDir = Join-Path $publishModels "sherpa-onnx-paraformer-zh-2023-09-14"
+$localAsrModelCandidates = @(
+    (Join-Path $defaultParaformerDir "model.int8.onnx"),
+    (Join-Path $defaultParaformerDir "model.onnx"),
+    (Join-Path $publishModels "model.int8.onnx"),
+    (Join-Path $publishModels "model.onnx")
+)
+$localAsrTokensCandidates = @(
+    (Join-Path $defaultParaformerDir "tokens.txt"),
+    (Join-Path $publishModels "tokens.txt")
+)
+$localAsrVadCandidates = @(
+    (Join-Path $defaultParaformerDir "silero_vad.onnx"),
+    (Join-Path $publishModels "silero_vad.onnx")
+)
+if ($BundleLocalAsrModels) {
+    Assert-AnyPath -Name "Local ASR Paraformer model" -Candidates $localAsrModelCandidates
+    Assert-AnyPath -Name "Local ASR tokens.txt" -Candidates $localAsrTokensCandidates
+    Assert-AnyPath -Name "Local ASR silero_vad.onnx" -Candidates $localAsrVadCandidates
 }
 
 $playwrightRoot = Join-Path $PublishDir "ms-playwright"
