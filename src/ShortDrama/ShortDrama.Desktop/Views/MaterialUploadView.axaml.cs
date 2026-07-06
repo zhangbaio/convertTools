@@ -77,11 +77,12 @@ public partial class MaterialUploadView : UserControl
 
     private async void RunMaterialUploadQueueButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (ViewModel is null)
+        if (ViewModel is null || !RunMaterialUploadQueueButton.IsEnabled)
         {
             return;
         }
 
+        RunMaterialUploadQueueButton.IsEnabled = false;
         try
         {
             DesktopCrashTrace.Write("material-upload queue click begin");
@@ -92,6 +93,10 @@ public partial class MaterialUploadView : UserControl
         {
             DesktopCrashTrace.Write($"material-upload queue click exception: {ex}");
             ReportMaterialUploadRunError("发表素材失败", ex, null);
+        }
+        finally
+        {
+            RunMaterialUploadQueueButton.IsEnabled = true;
         }
     }
 
@@ -318,6 +323,16 @@ public partial class MaterialUploadView : UserControl
     private void ShowMaterialLogsButton_Click(object? sender, RoutedEventArgs e)
     {
         ViewModel?.ShowMaterialUploadLogs(ViewModel.SelectedProject);
+    }
+
+    private void OpenMaterialUploadSourceFolder_Click(object? sender, RoutedEventArgs e)
+    {
+        ViewModel?.OpenProjectSourceFolder((sender as Control)?.DataContext as ProjectListItemViewModel);
+    }
+
+    private void OpenMaterialUploadWorkflowFolder_Click(object? sender, RoutedEventArgs e)
+    {
+        ViewModel?.OpenProjectWorkflowFolder((sender as Control)?.DataContext as ProjectListItemViewModel);
     }
 
     private async void CreateManualMaterialProjectButton_Click(object? sender, RoutedEventArgs e)

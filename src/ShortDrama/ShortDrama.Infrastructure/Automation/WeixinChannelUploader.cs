@@ -106,6 +106,23 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             return preflightResult;
         }
 
+        MaterialPublishPreparation? materialPublishPreparation = null;
+        if (string.Equals(config.TaskType, "publish_videos", StringComparison.OrdinalIgnoreCase))
+        {
+            var preparationResult = await PrepareMaterialPublishBeforeBrowserAsync(
+                request,
+                config,
+                resolvedConfigPath,
+                progress,
+                cancellationToken);
+            if (preparationResult.CompletedResult is not null)
+            {
+                return preparationResult.CompletedResult;
+            }
+
+            materialPublishPreparation = preparationResult.Preparation;
+        }
+
         progress?.Report("微信上传：检查浏览器运行时...");
         var runtimeStatus = await _browserRuntimeService.InspectAsync(cancellationToken);
         if (!runtimeStatus.IsReady)
@@ -202,6 +219,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 context,
                 page,
                 resolvedConfigPath,
+                materialPublishPreparation,
                 progress,
                 cancellationToken);
             await context.StorageStateAsync(new BrowserContextStorageStateOptions
@@ -450,39 +468,40 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             : "当前项目未找到可发表的素材视频。";
     }
 
-    private async Task<WeixinUploadResult> RunMaterialPublishAsync(
+    private sealed record MaterialPublishPreparation(
+        WeixinAutomationConfig Config,
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> AllPublishItems,
+        ProjectInfo ProjectInfo,
+        string StatePath,
+        MaterialPublishState PublishState,
+        string RunStrategy,
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> SelectedVideos);
+
+    private async Task<(WeixinUploadResult? CompletedResult, MaterialPublishPreparation? Preparation)> PrepareMaterialPublishBeforeBrowserAsync(
         WeixinUploadRequest request,
         WeixinAutomationConfig config,
-        IBrowserContext context,
-        IPage page,
         string? resolvedConfigPath,
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
-        if (!config.VideoPublish.Enabled)
+        if (!string.Equals(config.TaskType, "publish_videos", StringComparison.OrdinalIgnoreCase))
         {
-            return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "当前项目已禁用微信素材上传。");
+            return (null, null);
         }
 
-        if (string.Equals(
-                WeixinMaterialPublishPage.NormalizeVideoSourceMode(config.VideoPublish.VideoSourceMode),
-                "system_highlight",
-                StringComparison.Ordinal))
+        if (!config.VideoPublish.Enabled)
         {
-            return await RunSystemHighlightMaterialPublishAsync(
-                request,
-                config,
-                page,
-                resolvedConfigPath,
-                progress,
-                cancellationToken);
+            return (new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "当前项目已禁用微信素材上传。"), null);
+        }
+
+        var sourceMode = WeixinMaterialPublishPage.NormalizeVideoSourceMode(config.VideoPublish.VideoSourceMode);
+        if (string.Equals(sourceMode, "system_highlight", StringComparison.Ordinal))
+        {
+            return (null, null);
         }
 
         var materialSourceProjectDir = request.ProjectDir;
-        if (string.Equals(
-                WeixinMaterialPublishPage.NormalizeVideoSourceMode(config.VideoPublish.VideoSourceMode),
-                "new_drama_mount",
-                StringComparison.Ordinal))
+        if (string.Equals(sourceMode, "new_drama_mount", StringComparison.Ordinal))
         {
             var mount = await _newDramaMountService.EnsureAsync(
                 request.ProjectDir,
@@ -492,12 +511,22 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 cancellationToken);
             materialSourceProjectDir = mount.SourceProjectDir;
             config = config with { VideoPublish = mount.Options };
+            sourceMode = WeixinMaterialPublishPage.NormalizeVideoSourceMode(config.VideoPublish.VideoSourceMode);
         }
 
-        var allPublishItems = WeixinMaterialPublishPage.ResolvePublishVideoItems(materialSourceProjectDir, config.VideoPublish);
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> allPublishItems;
+        try
+        {
+            allPublishItems = WeixinMaterialPublishPage.ResolvePublishVideoItems(materialSourceProjectDir, config.VideoPublish);
+        }
+        catch (Exception ex)
+        {
+            return (new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, $"素材视频解析失败：{ex.Message}"), null);
+        }
+
         if (allPublishItems.Count == 0)
         {
-            return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "当前项目未找到可发表的素材视频。");
+            return (new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, BuildNoMaterialVideoMessage(sourceMode)), null);
         }
 
         var projectInfo = await ResolveMaterialPublishProjectInfoAsync(
@@ -537,7 +566,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             }
 
             progress?.Report($"微信素材上传：当前策略 {runStrategy} 下没有可执行的视频。");
-            return new WeixinUploadResult(true, request.ProjectDir, resolvedConfigPath, "当前策略下没有可执行的素材视频。");
+            return (new WeixinUploadResult(true, request.ProjectDir, resolvedConfigPath, "当前策略下没有可执行的素材视频。"), null);
         }
 
         selectedVideos = await PrepareMergePublishVideosAsync(
@@ -554,6 +583,58 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             config.VideoPublish,
             progress,
             cancellationToken);
+
+        return (null, new MaterialPublishPreparation(
+            config,
+            allPublishItems,
+            projectInfo,
+            statePath,
+            publishState,
+            runStrategy,
+            selectedVideos));
+    }
+
+    private async Task<WeixinUploadResult> RunMaterialPublishAsync(
+        WeixinUploadRequest request,
+        WeixinAutomationConfig config,
+        IBrowserContext context,
+        IPage page,
+        string? resolvedConfigPath,
+        MaterialPublishPreparation? preparation,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!config.VideoPublish.Enabled)
+        {
+            return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "当前项目已禁用微信素材上传。");
+        }
+
+        if (string.Equals(
+                WeixinMaterialPublishPage.NormalizeVideoSourceMode(config.VideoPublish.VideoSourceMode),
+                "system_highlight",
+                StringComparison.Ordinal))
+        {
+            return await RunSystemHighlightMaterialPublishAsync(
+                request,
+                config,
+                page,
+                resolvedConfigPath,
+                progress,
+                cancellationToken);
+        }
+
+        if (preparation is null)
+        {
+            return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "素材上传准备失败：未生成可发布任务。");
+        }
+
+        config = preparation.Config;
+        var allPublishItems = preparation.AllPublishItems;
+        var projectInfo = preparation.ProjectInfo;
+        var statePath = preparation.StatePath;
+        var publishState = preparation.PublishState;
+        var runStrategy = preparation.RunStrategy;
+        var selectedVideos = preparation.SelectedVideos;
 
         var shortTitle = WeixinMaterialPublishPage.BuildShortTitle(projectInfo, config.VideoPublish);
         progress?.Report($"微信素材上传：准备发表 {selectedVideos.Count} 条视频。策略：{runStrategy}。");
