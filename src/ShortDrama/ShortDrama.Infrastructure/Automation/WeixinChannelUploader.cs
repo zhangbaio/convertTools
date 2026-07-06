@@ -129,8 +129,10 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             progress?.Report($"使用配置: {resolvedConfigPath}");
         }
 
-        progress?.Report("微信上传：检查浏览器运行时...");
-        var runtimeStatus = await _browserRuntimeService.InspectAsync(cancellationToken);
+        progress?.Report(isMaterialPublishTask ? "素材发布：检查本机 Microsoft Edge..." : "微信上传：检查浏览器运行时...");
+        var runtimeStatus = isMaterialPublishTask
+            ? await _browserRuntimeService.InspectInstalledEdgeAsync(cancellationToken)
+            : await _browserRuntimeService.InspectAsync(cancellationToken);
         if (!runtimeStatus.IsReady)
         {
             return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, runtimeStatus.Message);
@@ -152,7 +154,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         Directory.CreateDirectory(config.OutputDirectory);
         Directory.CreateDirectory(Path.GetDirectoryName(config.AuthFilePath) ?? config.ConfigDirectory);
 
-        using var playwright = await _browserRuntimeService.CreatePlaywrightAsync(cancellationToken);
+        using var playwright = await _browserRuntimeService.CreatePlaywrightAsync(runtimeStatus, cancellationToken);
         await using var browser = await playwright.Chromium.LaunchAsync(
             new BrowserTypeLaunchOptions
             {

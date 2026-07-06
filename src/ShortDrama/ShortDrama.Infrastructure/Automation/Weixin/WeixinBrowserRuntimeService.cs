@@ -61,6 +61,31 @@ public sealed class WeixinBrowserRuntimeService : IWeixinBrowserRuntimeService
             NeedsInstall: executablePath is null));
     }
 
+    public Task<WeixinBrowserRuntimeStatus> InspectInstalledEdgeAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var edge = ResolveLocalEdgeExecutable();
+        if (edge is not null)
+        {
+            return Task.FromResult(new WeixinBrowserRuntimeStatus(
+                IsReady: true,
+                BrowserType: edge.Type,
+                BrowserRootDirectory: null,
+                BrowserExecutablePath: edge.Path,
+                Message: $"已检测到本机 Microsoft Edge：{edge.Path}",
+                NeedsInstall: false));
+        }
+
+        return Task.FromResult(new WeixinBrowserRuntimeStatus(
+            IsReady: false,
+            BrowserType: "msedge",
+            BrowserRootDirectory: null,
+            BrowserExecutablePath: null,
+            Message: "未找到本机 Microsoft Edge，请先安装 Edge 后再运行素材发布。",
+            NeedsInstall: true));
+    }
+
     public void ConfigureEnvironment(WeixinBrowserRuntimeStatus status)
     {
         if (string.IsNullOrWhiteSpace(status.BrowserRootDirectory) &&
@@ -79,6 +104,14 @@ public sealed class WeixinBrowserRuntimeService : IWeixinBrowserRuntimeService
     public async Task<IPlaywright> CreatePlaywrightAsync(CancellationToken cancellationToken)
     {
         var status = await InspectAsync(cancellationToken);
+        return await CreatePlaywrightAsync(status, cancellationToken);
+    }
+
+    public async Task<IPlaywright> CreatePlaywrightAsync(
+        WeixinBrowserRuntimeStatus status,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         ConfigureEnvironment(status);
         return await Playwright.CreateAsync();
     }
@@ -127,6 +160,22 @@ public sealed class WeixinBrowserRuntimeService : IWeixinBrowserRuntimeService
         return null;
     }
 
+    private static LocalBrowserExecutable? ResolveLocalEdgeExecutable()
+    {
+        foreach (var candidate in EnumerateLocalBrowserCandidates().Where(candidate => candidate.Type == "msedge"))
+        {
+            if (!string.IsNullOrWhiteSpace(candidate.Path) && File.Exists(candidate.Path))
+            {
+                return candidate with { Path = Path.GetFullPath(candidate.Path) };
+            }
+        }
+
+        var pathEdge = ResolveExecutableFromPath("msedge.exe");
+        return string.IsNullOrWhiteSpace(pathEdge)
+            ? null
+            : new LocalBrowserExecutable("msedge", "Edge", pathEdge);
+    }
+
     private static IEnumerable<LocalBrowserExecutable> EnumerateLocalBrowserCandidates()
     {
         var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
@@ -157,6 +206,37 @@ public sealed class WeixinBrowserRuntimeService : IWeixinBrowserRuntimeService
             "chrome",
             "Chrome",
             Path.Combine(localAppData, "Google", "Chrome", "Application", "chrome.exe"));
+    }
+
+    private static string? ResolveExecutableFromPath(string executableName)
+    {
+        var pathValue = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(pathValue))
+        {
+            return null;
+        }
+
+        foreach (var directory in pathValue.Split(Path.PathSeparator))
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                continue;
+            }
+
+            try
+            {
+                var candidate = Path.Combine(directory.Trim(), executableName);
+                if (File.Exists(candidate))
+                {
+                    return Path.GetFullPath(candidate);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return null;
     }
 
     private sealed record LocalBrowserExecutable(string Type, string DisplayName, string Path);
