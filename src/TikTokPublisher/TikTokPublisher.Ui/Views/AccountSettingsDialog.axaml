@@ -109,7 +109,7 @@
                             <NumericUpDown Grid.Row="16" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
 
                             <TextBlock Grid.Row="17" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="17" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="1" />
+                            <NumericUpDown Grid.Row="17" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
 
                             <TextBlock Grid.Row="18" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="18" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />

@@ -257,7 +257,7 @@
                             <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="7" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
                             <TextBlock Classes="formLabel" Grid.Row="8" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="8" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="1" />
+                            <NumericUpDown Grid.Row="8" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
                             <TextBlock Classes="formLabel" Grid.Row="9" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
                             <TextBlock Classes="formLabel" Grid.Row="10" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
