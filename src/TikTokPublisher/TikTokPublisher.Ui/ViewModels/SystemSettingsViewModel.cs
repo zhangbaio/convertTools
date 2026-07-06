@@ -16,6 +16,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     public event Action<ClientSettings>? SettingsSaved;
     public event Action<string>? StatusRequested;
+    public event Action<HongguoLoginProbeResult>? HgnewLoginProbeSucceeded;
 
     [ObservableProperty] private string _saveMessage = "";
     [ObservableProperty] private string _hgnewProbeStatus = "";
@@ -350,7 +351,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewProbeStatus = "测试中...";
         try
         {
-            await HongguoNewLoginClient.ProbeLoginAsync(
+            var result = await HongguoNewLoginClient.ProbeLoginAsync(
                 ProbeHttp,
                 HgnewAccount.Trim(),
                 HgnewPassword,
@@ -359,6 +360,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
                 HongguoDownloadTimeoutSeconds,
                 CancellationToken.None);
             HgnewProbeStatus = $"测试登录成功：{DateTime.Now:HH:mm:ss}";
+            HgnewLoginProbeSucceeded?.Invoke(result);
         }
         catch (HongguoLoginException ex)
         {

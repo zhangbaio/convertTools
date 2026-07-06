@@ -30,7 +30,7 @@ artifacts\INSTALL\TikTokShortDramaUploader-Setup-<version>.exe
 
 - 安装向导支持选择安装目录，默认安装到当前用户目录，不需要管理员权限。
 - 安装向导有“重置本地数据”复选框，默认不勾选。
-- 勾选重置时会清理当前用户的 `%USERPROFILE%\.tiktok_publisher` 中的账号、登录态、授权态等本地数据，但保留 `app.db` 和 `reports` 上传记录；同时会清空 `app.db` 中的红果账号和红果密码，不会删除工作目录中的短剧素材。
+- 勾选重置时会清理当前用户的 `%USERPROFILE%\.tiktok_publisher` 中的账号、登录态、授权态等本地数据，但保留 `app.db` 和 `reports` 上传记录；同时会清空 `app.db` 中的红果账号、红果密码、AI 文本 Key 和 AI 图片 Key，不会删除工作目录中的短剧素材。
 
 ## 可随安装包携带的依赖
 

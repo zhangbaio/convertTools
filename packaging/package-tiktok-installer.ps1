@@ -258,6 +258,172 @@ function Install-PlaywrightChromium {
     }
 }
 
+function Get-PlaywrightBrowserRevision {
+    param([Parameter(Mandatory = $true)][string]$BrowserName)
+
+    $browsersJson = Join-Path $PublishDir ".playwright\package\browsers.json"
+    if (-not (Test-Path -LiteralPath $browsersJson)) {
+        return $null
+    }
+
+    try {
+        $manifest = Get-Content -LiteralPath $browsersJson -Raw | ConvertFrom-Json
+        $browser = $manifest.browsers |
+            Where-Object { $_.name -eq $BrowserName } |
+            Select-Object -First 1
+        if ($null -eq $browser) {
+            return $null
+        }
+
+        return $browser.revision
+    }
+    catch {
+        return $null
+    }
+}
+
+function Get-PlaywrightRuntimeDirectoryNames {
+    $entries = @(
+        @{ Name = "chromium"; Prefix = "chromium" },
+        @{ Name = "chromium-headless-shell"; Prefix = "chromium_headless_shell" },
+        @{ Name = "ffmpeg"; Prefix = "ffmpeg" },
+        @{ Name = "winldd"; Prefix = "winldd" }
+    )
+
+    foreach ($entry in $entries) {
+        $revision = Get-PlaywrightBrowserRevision -BrowserName $entry["Name"]
+        if (-not [string]::IsNullOrWhiteSpace($revision)) {
+            $prefix = $entry["Prefix"]
+            "$prefix-$revision"
+        }
+    }
+}
+
+function Test-PlaywrightChromiumBundle {
+    param([string]$BrowserRoot)
+
+    if ([string]::IsNullOrWhiteSpace($BrowserRoot) -or -not (Test-Path -LiteralPath $BrowserRoot)) {
+        return $false
+    }
+
+    $chromiumRevision = Get-PlaywrightBrowserRevision -BrowserName "chromium"
+    $headlessRevision = Get-PlaywrightBrowserRevision -BrowserName "chromium-headless-shell"
+    if (-not [string]::IsNullOrWhiteSpace($chromiumRevision) -and
+        -not [string]::IsNullOrWhiteSpace($headlessRevision)) {
+        $requiredFiles = @(
+            (Join-Path $BrowserRoot "chromium-$chromiumRevision\chrome-win\chrome.exe"),
+            (Join-Path $BrowserRoot "chromium_headless_shell-$headlessRevision\chrome-win\headless_shell.exe")
+        )
+        return (Test-Path -LiteralPath $requiredFiles[0]) -and (Test-Path -LiteralPath $requiredFiles[1])
+    }
+
+    $chromium = Get-ChildItem -LiteralPath $BrowserRoot -Directory -Filter "chromium-*" -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "chrome-win\chrome.exe") } |
+        Select-Object -First 1
+    $headless = Get-ChildItem -LiteralPath $BrowserRoot -Directory -Filter "chromium_headless_shell-*" -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "chrome-win\headless_shell.exe") } |
+        Select-Object -First 1
+
+    return $null -ne $chromium -and $null -ne $headless
+}
+
+function Copy-PlaywrightRuntimeFromLocalCache {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    $sourceFull = [System.IO.Path]::GetFullPath($Source)
+    $destinationFull = [System.IO.Path]::GetFullPath($Destination)
+    if ($sourceFull.Equals($destinationFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return
+    }
+
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    $runtimeDirs = @(Get-PlaywrightRuntimeDirectoryNames)
+    if ($runtimeDirs.Count -eq 0) {
+        Copy-DirectoryContents -Source $Source -Destination $Destination
+        return
+    }
+
+    foreach ($runtimeDir in $runtimeDirs) {
+        $sourceDir = Join-Path $Source $runtimeDir
+        if (Test-Path -LiteralPath $sourceDir) {
+            Copy-Item -LiteralPath $sourceDir -Destination $Destination -Recurse -Force
+        }
+    }
+
+    $linksDir = Join-Path $Source ".links"
+    if (Test-Path -LiteralPath $linksDir) {
+        Copy-Item -LiteralPath $linksDir -Destination $Destination -Recurse -Force
+    }
+}
+
+function Resolve-LocalPlaywrightBrowserRoot {
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:PLAYWRIGHT_BROWSERS_PATH)) {
+        $candidates += $env:PLAYWRIGHT_BROWSERS_PATH
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        $candidates += (Join-Path $env:LOCALAPPDATA "ms-playwright")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        $candidates += (Join-Path $env:USERPROFILE "AppData\Local\ms-playwright")
+        $candidates += (Join-Path $env:USERPROFILE ".cache\ms-playwright")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:HOME)) {
+        $candidates += (Join-Path $env:HOME "AppData\Local\ms-playwright")
+        $candidates += (Join-Path $env:HOME ".cache\ms-playwright")
+    }
+
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+
+        try {
+            $fullPath = [System.IO.Path]::GetFullPath($candidate)
+        }
+        catch {
+            continue
+        }
+
+        if ($seen.Add($fullPath) -and (Test-PlaywrightChromiumBundle -BrowserRoot $fullPath)) {
+            return $fullPath
+        }
+    }
+
+    return $null
+}
+
+function Ensure-PlaywrightChromiumCached {
+    param(
+        [Parameter(Mandatory = $true)][string]$CacheRoot,
+        [switch]$AllowInstall
+    )
+
+    if (Test-PlaywrightChromiumBundle -BrowserRoot $CacheRoot) {
+        Write-Host "Using cached Playwright Chromium: $CacheRoot"
+        return
+    }
+
+    $localPlaywright = Resolve-LocalPlaywrightBrowserRoot
+    if (-not [string]::IsNullOrWhiteSpace($localPlaywright)) {
+        Write-Host "Copying local Playwright Chromium from: $localPlaywright"
+        Copy-PlaywrightRuntimeFromLocalCache -Source $localPlaywright -Destination $CacheRoot
+        if (Test-PlaywrightChromiumBundle -BrowserRoot $CacheRoot) {
+            Write-Host "Cached Playwright Chromium is ready: $CacheRoot"
+            return
+        }
+    }
+
+    if ($AllowInstall) {
+        Write-Host "Installing Playwright Chromium into dependency cache: $CacheRoot"
+        Install-PlaywrightChromium -BrowserRoot $CacheRoot
+    }
+}
+
 Write-Host "Packaging TikTokPublisher $Version ($Runtime, $Configuration)"
 if ($BundleDependencies) {
     Write-Host "Bundling runtime dependencies: .NET self-contained, fonts/tools, ffmpeg, Playwright Chromium, WebView2 Runtime"
@@ -315,7 +481,7 @@ else {
 
 $cachedPlaywright = Join-Path $DependenciesDir "ms-playwright"
 if ($BundleDependencies -or $InstallPlaywrightChromium) {
-    Install-PlaywrightChromium -BrowserRoot $cachedPlaywright
+    Ensure-PlaywrightChromiumCached -CacheRoot $cachedPlaywright -AllowInstall:($BundleDependencies -or $InstallPlaywrightChromium)
 }
 if (Test-Path -LiteralPath $cachedPlaywright) {
     Copy-DirectoryContents -Source $cachedPlaywright -Destination (Join-Path $PublishDir "ms-playwright")
@@ -365,15 +531,12 @@ if ($BundleLocalAsrModels) {
 }
 
 $playwrightRoot = Join-Path $PublishDir "ms-playwright"
-$chromiumDirs = @()
-if (Test-Path -LiteralPath $playwrightRoot) {
-    $chromiumDirs = @(Get-ChildItem -LiteralPath $playwrightRoot -Directory -Filter "chromium-*" -ErrorAction SilentlyContinue)
-}
-if ($BundleDependencies -and $chromiumDirs.Count -eq 0) {
+$hasPlaywrightChromium = Test-PlaywrightChromiumBundle -BrowserRoot $playwrightRoot
+if ($BundleDependencies -and -not $hasPlaywrightChromium) {
     throw "Playwright Chromium is not bundled. The installer would require a browser download on the target machine."
 }
-elseif ($chromiumDirs.Count -eq 0) {
-    Write-Warning "Playwright Chromium is not bundled. Use -InstallPlaywrightChromium, or prefill packaging\dependencies\ms-playwright."
+elseif (-not $hasPlaywrightChromium) {
+    Write-Warning "Playwright Chromium is not bundled. Use -InstallPlaywrightChromium, prefill packaging\dependencies\ms-playwright, or install Playwright browsers on the packaging machine."
 }
 
 $webView2Installer = Join-Path $DependenciesDir "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"

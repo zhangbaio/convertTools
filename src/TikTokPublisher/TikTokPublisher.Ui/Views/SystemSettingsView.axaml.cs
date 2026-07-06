@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Ui.ViewModels;
 
@@ -16,11 +17,15 @@ public partial class SystemSettingsView : UserControl
     public void Bind(SystemSettingsViewModel vm)
     {
         if (_vm is not null)
+        {
             _vm.SettingsSaved -= OnSettingsSaved;
+            _vm.HgnewLoginProbeSucceeded -= OnHgnewLoginProbeSucceeded;
+        }
 
         _vm = vm;
         DataContext = vm;
         vm.SettingsSaved += OnSettingsSaved;
+        vm.HgnewLoginProbeSucceeded += OnHgnewLoginProbeSucceeded;
         InitializeComboBoxes();
         SyncCombosFromVm();
         vm.PropertyChanged += (_, args) =>
@@ -43,6 +48,29 @@ public partial class SystemSettingsView : UserControl
     {
         var owner = TopLevel.GetTopLevel(this) as Window;
         await InfoDialog.ShowSaveSuccessAsync(owner, "系统设置已保存成功。");
+    }
+
+    private async void OnHgnewLoginProbeSucceeded(HongguoLoginProbeResult result)
+    {
+        var lines = new List<string> { $"token: {MaskToken(result.Token)}" };
+        if (!string.IsNullOrWhiteSpace(result.Email))
+        {
+            lines.Add($"email: {result.Email}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.VipExpiresAt))
+        {
+            lines.Add($"VIP 到期: {result.VipExpiresAt}");
+        }
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        await InfoDialog.ShowLoginProbeSuccessAsync(owner, string.Join(Environment.NewLine, lines));
+    }
+
+    private static string MaskToken(string? token)
+    {
+        var text = (token ?? string.Empty).Trim();
+        return text.Length > 12 ? $"{text[..6]}...{text[^4..]}" : text;
     }
 
     private void InitializeComboBoxes()

@@ -400,15 +400,19 @@
                                         <Button Grid.Column="3"
                                                 Classes="queueLink"
                                                 Click="OnOpenOriginalProjectFolderClick"
+                                                HorizontalContentAlignment="Stretch"
                                                 ToolTip.Tip="{Binding OriginalProjectDir}">
                                             <TextBlock Text="{Binding OriginalTitle}"
                                                        VerticalAlignment="Center"
+                                                       HorizontalAlignment="Stretch"
+                                                       TextAlignment="Center"
                                                        TextTrimming="CharacterEllipsis"
                                                        Foreground="{Binding DramaTitleBrush}" />
                                         </Button>
                                         <Button Grid.Column="4"
                                                 Classes="queueLink"
                                                 Click="OnOpenNewProjectFolderClick"
+                                                HorizontalContentAlignment="Stretch"
                                                 ToolTip.Tip="{Binding NewProjectDir}">
                                             <Button.ContextMenu>
                                                 <ContextMenu>
@@ -418,6 +422,8 @@
                                             </Button.ContextMenu>
                                             <TextBlock Text="{Binding NewTitle}"
                                                        VerticalAlignment="Center"
+                                                       HorizontalAlignment="Stretch"
+                                                       TextAlignment="Center"
                                                        TextTrimming="CharacterEllipsis"
                                                        Foreground="{Binding DramaTitleBrush}" />
                                         </Button>

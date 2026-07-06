@@ -15,7 +15,7 @@ public static class HongguoNewLoginClient
     private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("asKVK4K5tEPg4inz");
     private const string DefaultVersion = "1.3.8";
 
-    public static async Task ProbeLoginAsync(
+    public static async Task<HongguoLoginProbeResult> ProbeLoginAsync(
         HttpClient httpClient,
         string account,
         string password,
@@ -25,7 +25,7 @@ public static class HongguoNewLoginClient
         CancellationToken cancellationToken)
     {
         var credentials = ResolveCredentials(account, password, udid, clientVersion);
-        await EnsureTokenAsync(httpClient, credentials, timeoutSeconds, cancellationToken);
+        return await EnsureTokenAsync(httpClient, credentials, timeoutSeconds, cancellationToken);
     }
 
     private static HongguoCredentials ResolveCredentials(
@@ -51,7 +51,7 @@ public static class HongguoNewLoginClient
         return new HongguoCredentials(normalizedAccount, normalizedPassword, normalizedUdid, version);
     }
 
-    private static async Task<string> EnsureTokenAsync(
+    private static async Task<HongguoLoginProbeResult> EnsureTokenAsync(
         HttpClient httpClient,
         HongguoCredentials credentials,
         int timeoutSeconds,
@@ -91,7 +91,13 @@ public static class HongguoNewLoginClient
             var token = GetStringValue(data, "token");
             if (!string.IsNullOrWhiteSpace(token))
             {
-                return token;
+                return new HongguoLoginProbeResult(
+                    token.Trim(),
+                    FirstNonEmpty(ReadDeepString(data, "email", "mail", "account", "username", "userName"), credentials.Account),
+                    NormalizeDisplayDate(FirstNonEmpty(
+                        ReadDeepString(data, "vipExpDate", "vip_exp_date", "vip_expire_date", "vipExpireDate"),
+                        ReadDeepString(data, "vipExpiresAt", "vip_expire_at", "vip_expire_time", "vipEndTime"),
+                        ReadDeepString(data, "expireTime", "expiredAt", "expiresAt", "endTime"))));
             }
         }
 
@@ -300,6 +306,112 @@ public static class HongguoNewLoginClient
         };
     }
 
+    private static string ReadDeepString(object? value, params string[] keys)
+    {
+        var keySet = new HashSet<string>(keys, StringComparer.OrdinalIgnoreCase);
+        return ReadDeepString(value, keySet);
+    }
+
+    private static string ReadDeepString(object? value, IReadOnlySet<string> keys)
+    {
+        switch (value)
+        {
+            case null:
+                return string.Empty;
+            case IReadOnlyDictionary<string, object?> dictionary:
+            {
+                foreach (var (key, nested) in dictionary)
+                {
+                    if (keys.Contains(key))
+                    {
+                        var direct = FormatProbeValue(nested);
+                        if (!string.IsNullOrWhiteSpace(direct))
+                        {
+                            return direct;
+                        }
+                    }
+                }
+
+                foreach (var nested in dictionary.Values)
+                {
+                    var found = ReadDeepString(nested, keys);
+                    if (!string.IsNullOrWhiteSpace(found))
+                    {
+                        return found;
+                    }
+                }
+
+                return string.Empty;
+            }
+            case IEnumerable<object?> list:
+                foreach (var nested in list)
+                {
+                    var found = ReadDeepString(nested, keys);
+                    if (!string.IsNullOrWhiteSpace(found))
+                    {
+                        return found;
+                    }
+                }
+
+                return string.Empty;
+            default:
+                return string.Empty;
+        }
+    }
+
+    private static string FormatProbeValue(object? value) =>
+        value switch
+        {
+            null => string.Empty,
+            string text => text.Trim(),
+            IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture)?.Trim() ?? string.Empty,
+            _ => value.ToString()?.Trim() ?? string.Empty
+        };
+
+    private static string NormalizeDisplayDate(string? value)
+    {
+        var text = (value ?? string.Empty).Trim();
+        if (text.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numeric))
+        {
+            try
+            {
+                var seconds = numeric > 1_000_000_000_000 ? numeric / 1000 : numeric;
+                return DateTimeOffset.FromUnixTimeSeconds(seconds)
+                    .LocalDateTime
+                    .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            }
+            catch
+            {
+                return text;
+            }
+        }
+
+        if (DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
+        {
+            return parsed.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        }
+
+        return text;
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
     private static int? GetIntValue(IReadOnlyDictionary<string, object?> payload, string key)
     {
         if (!payload.TryGetValue(key, out var value) || value is null)
@@ -320,6 +432,8 @@ public static class HongguoNewLoginClient
 
     private sealed record HongguoCredentials(string Account, string Password, string Udid, string ClientVersion);
 }
+
+public sealed record HongguoLoginProbeResult(string Token, string Email, string VipExpiresAt);
 
 public sealed class HongguoLoginException : Exception
 {

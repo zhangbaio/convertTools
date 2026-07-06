@@ -18,6 +18,8 @@ public static class TikTokExpectedPriceSyncService
         if (!File.Exists(authPath))
             throw new InvalidOperationException("未找到 TikTok 登录态，请先登录 TikTok。");
 
+        PlaywrightBrowserRuntime.ConfigureBundledBrowsers(log);
+
         log?.Invoke("正在连接 Playwright 同步价格选项…");
         var playwright = await Playwright.CreateAsync();
         try

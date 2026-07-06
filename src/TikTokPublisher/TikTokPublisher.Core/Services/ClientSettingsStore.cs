@@ -116,7 +116,7 @@ public static class ClientSettingsStore
         SaveRawObject(path, existing);
     }
 
-    public static void ResetHgnewCredentials(string? databasePath = null)
+    public static void ResetInstallerDataSecrets(string? databasePath = null)
     {
         var path = ResolvePath(databasePath);
         AppDatabaseInitializer.EnsureInitialized(path);
@@ -124,8 +124,14 @@ public static class ClientSettingsStore
         var existing = LoadRawObject(path) ?? new JsonObject();
         existing["hgnew_account"] = "";
         existing["hgnew_password"] = "";
+        existing["ai_text_api_key"] = "";
+        existing["image_model_api_key"] = "";
+        existing["ofox_image2_api_key"] = "";
         SaveRawObject(path, existing);
     }
+
+    public static void ResetHgnewCredentials(string? databasePath = null) =>
+        ResetInstallerDataSecrets(databasePath);
 
     public static string MainDatabasePath => AppPaths.AppDatabaseFile;
 
