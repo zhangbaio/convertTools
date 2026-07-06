@@ -38,9 +38,29 @@ public static partial class TikTokBrowserActions
         ct.ThrowIfCancellationRequested();
         Log(log, "TikTok 已切换到草稿编辑流程，跳过合同、剧名、简介的重新填写。");
         await EnsureEditFlowVideosCompleteAsync(page, payload, options, log, ct);
-        await UploadCoverAsync(page, coverPath, log, ct);
+        await EnsureEditCoverUploadedAsync(page, coverPath, log, ct);
         await FillSharedPublishFieldsAsync(page, payload, options, recommendation, log, ct);
         Log(log, "TikTok 编辑页表单已填写完成。");
+    }
+
+    private static async Task EnsureEditCoverUploadedAsync(
+        IPage page,
+        string coverPath,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await EnsureEditBaseInfoSectionAsync(page, log, ct);
+
+        if (await IsCoverAlreadyUploadedAsync(page))
+        {
+            Log(log, "TikTok 编辑页封面已存在，跳过补传。");
+            await VerifyCoverUploadCompleteAsync(page, log, ct);
+            return;
+        }
+
+        Log(log, "TikTok 编辑页未检测到封面，开始补传封面。");
+        await UploadCoverAsync(page, coverPath, log, ct);
     }
 
     public static async Task EnsureEditFlowVideosCompleteAsync(
@@ -271,6 +291,75 @@ public static partial class TikTokBrowserActions
                 new() { State = WaitForSelectorState.Visible, Timeout = 8000 });
         }
         catch { /* continue */ }
+    }
+
+    private static async Task EnsureEditBaseInfoSectionAsync(
+        IPage page,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            var tab = page.GetByText("基础信息", new() { Exact = false }).First;
+            if (await tab.CountAsync() > 0 && await tab.IsVisibleAsync())
+            {
+                await ClickWithFallbackAsync(tab, ct);
+                await page.WaitForTimeoutAsync(500);
+            }
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            await page.EvaluateAsync(
+                """
+                () => {
+                  window.scrollTo(0, 0);
+                  for (const el of document.querySelectorAll("*")) {
+                    const style = getComputedStyle(el);
+                    const overflowY = style.overflowY || "";
+                    if (!/(auto|scroll)/.test(overflowY)) continue;
+                    if (el.scrollHeight <= el.clientHeight + 10) continue;
+                    el.scrollTop = 0;
+                  }
+                }
+                """);
+            await page.WaitForTimeoutAsync(300);
+        }
+        catch { /* ignore */ }
+
+        foreach (var selector in new[]
+                 {
+                     "#coverStruct",
+                     "[x-field-id='coverStruct']",
+                     ".uploadField-Xm2Vjl",
+                 })
+        {
+            try
+            {
+                var field = page.Locator(selector).First;
+                if (await field.CountAsync() == 0) continue;
+                await field.ScrollIntoViewIfNeededAsync(new() { Timeout = 5000 });
+                await page.WaitForTimeoutAsync(300);
+                return;
+            }
+            catch { /* try next */ }
+        }
+
+        try
+        {
+            var label = page.GetByText("封面图", new() { Exact = false }).First;
+            if (await label.CountAsync() > 0 && await label.IsVisibleAsync())
+            {
+                await label.ScrollIntoViewIfNeededAsync(new() { Timeout = 5000 });
+                await page.WaitForTimeoutAsync(300);
+                return;
+            }
+        }
+        catch { /* ignore */ }
+
+        Log(log, "TikTok 编辑页未定位到封面区域，继续尝试通过上传控件补传。");
     }
 
     private static async Task UploadEditFlowMissingVideosAsync(

@@ -49,6 +49,75 @@ public sealed class QueueWorkerRunnerTests
             item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Completed);
     }
 
+    [Fact]
+    public async Task RunAsync_repairs_stale_account_id_by_profile_name_instead_of_active_account()
+    {
+        var activeAccount = new TikTokAccountProfile
+        {
+            Id = "acct-active",
+            Name = "账号1",
+        };
+        var targetAccount = new TikTokAccountProfile
+        {
+            Id = "acct-current-3",
+            Name = "账号3",
+        };
+        var store = CreateAccountStore([activeAccount, targetAccount], activeAccount.Id);
+        var item = CreateReadyToUploadItem(1, targetAccount);
+        item.AccountProfileId = "acct-deleted-3";
+        item.AccountProfileName = targetAccount.Name;
+        var host = new ImmediatePublishHost();
+
+        var summary = await new QueueWorkerRunner().RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-stale-account-test"),
+            [item],
+            new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.SuccessCount.Should().Be(1);
+        summary.FailedCount.Should().Be(0);
+        host.PublishedAccountIds.Should().Equal(targetAccount.Id);
+        item.AccountProfileId.Should().Be(targetAccount.Id);
+        item.AccountProfileName.Should().Be(targetAccount.DisplayName);
+    }
+
+    [Fact]
+    public async Task RunAsync_fails_stale_account_binding_instead_of_falling_back_to_active_account()
+    {
+        var activeAccount = new TikTokAccountProfile
+        {
+            Id = "acct-active",
+            Name = "账号1",
+        };
+        var store = CreateAccountStore(activeAccount);
+        var item = CreateReadyToUploadItem(1, activeAccount);
+        item.AccountProfileId = "acct-deleted-3";
+        item.AccountProfileName = "账号3";
+        var host = new ImmediatePublishHost();
+
+        var summary = await new QueueWorkerRunner().RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-missing-account-test"),
+            [item],
+            new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.SuccessCount.Should().Be(0);
+        summary.FailedCount.Should().Be(1);
+        host.PublishedProjectDirs.Should().BeEmpty();
+        item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Failed);
+        item.LastError.Should().Contain("避免误用当前账号");
+    }
+
     private static QueueProjectItem CreateReadyToUploadItem(int index, TikTokAccountProfile account)
     {
         var item = new QueueProjectItem
@@ -69,7 +138,12 @@ public sealed class QueueWorkerRunnerTests
         return item;
     }
 
-    private static AccountStore CreateAccountStore(TikTokAccountProfile account)
+    private static AccountStore CreateAccountStore(TikTokAccountProfile account) =>
+        CreateAccountStore([account], account.Id);
+
+    private static AccountStore CreateAccountStore(
+        IEnumerable<TikTokAccountProfile> profiles,
+        string activeAccountId)
     {
         var store = new AccountStore();
         var accountsField = typeof(AccountStore).GetField("_accounts", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -77,14 +151,15 @@ public sealed class QueueWorkerRunnerTests
         var activeField = typeof(AccountStore).GetField("_activeAccountId", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("AccountStore active account field not found.");
         var accounts = (List<TikTokAccountProfile>)accountsField.GetValue(store)!;
-        accounts.Add(account);
-        activeField.SetValue(store, account.Id);
+        accounts.AddRange(profiles);
+        activeField.SetValue(store, activeAccountId);
         return store;
     }
 
     private sealed class ImmediatePublishHost : IQueuePublishHost
     {
         public List<string> PublishedProjectDirs { get; } = new();
+        public List<string> PublishedAccountIds { get; } = new();
 
         public Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
             TikTokAccountProfile account,
@@ -101,6 +176,7 @@ public sealed class QueueWorkerRunnerTests
             CancellationToken ct)
         {
             PublishedProjectDirs.Add(project.ProjectDir);
+            PublishedAccountIds.Add(account.Id);
             return Task.FromResult(PublishResult.Success("ok"));
         }
     }

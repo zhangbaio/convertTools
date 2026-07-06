@@ -212,7 +212,19 @@ public sealed class QueueWorkerRunner
                 {
                     var item = readyForUpload.Dequeue();
                     var account = ResolveAccount(accountStore, item);
-                    var accountKey = account?.Id ?? "default";
+                    if (account is null)
+                    {
+                        MarkFailed(
+                            item,
+                            QueueStepRegistry.UploadSeries,
+                            $"未找到绑定账号：{DescribeBoundAccount(item)}，已中止上传，避免误用当前账号。");
+                        failed++;
+                        Persist(workspace, items, onPersist);
+                        rotations = readyForUpload.Count;
+                        continue;
+                    }
+
+                    var accountKey = account.Id;
 
                     if (activeUploadAccounts.Contains(accountKey))
                     {
@@ -228,13 +240,19 @@ public sealed class QueueWorkerRunner
                         continue;
                     }
 
-                    if (account is null)
+                    if (!string.Equals((item.AccountProfileId ?? "").Trim(), account.Id, StringComparison.Ordinal) ||
+                        !string.Equals((item.AccountProfileName ?? "").Trim(), account.DisplayName, StringComparison.Ordinal))
                     {
-                        _uploadSlots.Release(accountKey);
-                        MarkFailed(item, QueueStepRegistry.UploadSeries, $"未找到绑定账号：{item.AccountProfileId}");
-                        failed++;
-                        rotations = readyForUpload.Count;
-                        continue;
+                        var oldBinding = DescribeBoundAccount(item);
+                        item.AccountProfileId = account.Id;
+                        item.AccountProfileName = account.DisplayName;
+                        Report(
+                            onProgress,
+                            workspace,
+                            item,
+                            $"已修复队列账号绑定：{oldBinding} -> {account.DisplayName} ({account.Id})",
+                            QueueStepRegistry.UploadSeries);
+                        Persist(workspace, items, onPersist);
                     }
 
                     activeUploadAccounts.Add(accountKey);
@@ -835,9 +853,37 @@ public sealed class QueueWorkerRunner
         {
             var bound = store.FindByNameOrId(item.AccountProfileId);
             if (bound is not null) return bound;
+
+            if (!string.IsNullOrWhiteSpace(item.AccountProfileName))
+            {
+                var renamed = store.FindByNameOrId(item.AccountProfileName);
+                if (renamed is not null) return renamed;
+            }
+
+            return null;
         }
+
+        if (!string.IsNullOrWhiteSpace(item.AccountProfileName))
+        {
+            var named = store.FindByNameOrId(item.AccountProfileName);
+            if (named is not null) return named;
+        }
+
         var activeId = store.ActiveAccountId;
         return store.Accounts.FirstOrDefault(a => a.Id == activeId) ?? store.Accounts.FirstOrDefault();
+    }
+
+    private static string DescribeBoundAccount(QueueProjectItem item)
+    {
+        var id = (item.AccountProfileId ?? "").Trim();
+        var name = (item.AccountProfileName ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(id) && !string.IsNullOrWhiteSpace(name))
+            return $"{name} ({id})";
+        return !string.IsNullOrWhiteSpace(id)
+            ? id
+            : !string.IsNullOrWhiteSpace(name)
+                ? name
+                : "未绑定";
     }
 
     private static void MarkRunning(QueueProjectItem item, string stepKey)

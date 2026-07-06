@@ -284,17 +284,87 @@ public static partial class TikTokBrowserActions
 
     private static async Task<bool> IsCoverAlreadyUploadedAsync(IPage page)
     {
-        try
+        var coverFieldFound = false;
+        foreach (var selector in new[]
+                 {
+                     "#coverStruct",
+                     "[x-field-id='coverStruct']",
+                     ".uploadField-Xm2Vjl",
+                 })
         {
-            var body = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 });
-            if (body.Contains("替换封面", StringComparison.Ordinal)) return true;
+            try
+            {
+                var root = page.Locator(selector).First;
+                if (await root.CountAsync() == 0) continue;
+                coverFieldFound = true;
+                if (await HasCoverUploadPreviewAsync(root)) return true;
+
+                var addButton = root.Locator(".semi-upload-picture-add").First;
+                if (await addButton.CountAsync() > 0 && await addButton.IsVisibleAsync())
+                    return false;
+            }
+            catch { /* try next */ }
         }
-        catch { /* ignore */ }
 
         try
         {
             var preview = page.Locator("#coverStruct img, [x-field-id='coverStruct'] img").First;
             if (await preview.CountAsync() > 0 && await preview.IsVisibleAsync()) return true;
+        }
+        catch { /* ignore */ }
+
+        if (!coverFieldFound)
+        {
+            try
+            {
+                var card = page.Locator(".semi-upload-picture-file-card, .semi-upload-picture-file-card-preview")
+                    .First;
+                if (await card.CountAsync() > 0 && await card.IsVisibleAsync()) return true;
+            }
+            catch { /* ignore */ }
+        }
+
+        return false;
+    }
+
+    private static async Task<bool> HasCoverUploadPreviewAsync(ILocator root)
+    {
+        try
+        {
+            var hasImagePreview = await root.Locator("img").EvaluateAllAsync<bool>(
+                """
+                (imgs) => imgs.some((img) => {
+                  const src = img.currentSrc || img.src || "";
+                  if (!src) return false;
+                  const rect = img.getBoundingClientRect();
+                  const style = getComputedStyle(img);
+                  return rect.width >= 40 &&
+                    rect.height >= 40 &&
+                    style.display !== "none" &&
+                    style.visibility !== "hidden" &&
+                    Number(style.opacity || "1") > 0;
+                })
+                """);
+            if (hasImagePreview) return true;
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            var replaceButton = root.Locator("button, span, div")
+                .Filter(new() { HasText = "替换封面" })
+                .First;
+            if (await replaceButton.CountAsync() > 0 && await replaceButton.IsVisibleAsync())
+                return true;
+        }
+        catch { /* ignore */ }
+
+        try
+        {
+            var uploadedCard = root.Locator(".semi-upload-picture-file-card, .semi-upload-picture-file-card-preview")
+                .First;
+            if (await uploadedCard.CountAsync() > 0 && await uploadedCard.IsVisibleAsync())
+                return true;
         }
         catch { /* ignore */ }
 
