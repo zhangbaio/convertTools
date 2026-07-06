@@ -52,6 +52,8 @@ public partial class TikTokQueueView : UserControl
     private double _queueResizeStartX;
     private double _queueResizeStartWidth;
     private bool _queueStopRequested;
+    private bool _startQueueRunActive;
+    private string _startQueueRunWorkspaceRoot = "";
 
     public event EventHandler? OpenBrowserRequested;
     public event EventHandler? OpenLogsRequested;
@@ -90,16 +92,43 @@ public partial class TikTokQueueView : UserControl
     private void RefreshQueueRunButtons()
     {
         var anyRunning = _vm?.IsQueueRunning == true;
-        var currentRunning = _vm?.IsCurrentWorkspaceQueueRunning() == true;
+        var currentRunning = IsStartQueueRunActiveForCurrentWorkspace() ||
+                             _vm?.IsCurrentWorkspaceQueueRunning() == true;
         if (!anyRunning)
             _queueStopRequested = false;
         // 仅当前工作目录在跑时才禁用「执行勾选队列」；其他账号的队列不影响本工作目录启动。
-        if (StartQueueButton is not null) StartQueueButton.IsEnabled = !currentRunning;
+        if (StartQueueButton is not null)
+        {
+            StartQueueButton.Content = currentRunning ? "执行中" : "执行勾选队列";
+            StartQueueButton.IsEnabled = !currentRunning;
+        }
         if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !anyRunning;
         if (StopQueueButton is not null)
         {
             StopQueueButton.Content = _queueStopRequested && anyRunning ? "停止中" : "停止";
             StopQueueButton.IsEnabled = anyRunning && !_queueStopRequested;
+        }
+    }
+
+    private bool IsStartQueueRunActiveForCurrentWorkspace()
+    {
+        if (!_startQueueRunActive || _vm is null)
+            return false;
+
+        var workspace = (_vm.WorkspacePath ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(workspace) || string.IsNullOrWhiteSpace(_startQueueRunWorkspaceRoot))
+            return false;
+
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(workspace),
+                _startQueueRunWorkspaceRoot,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return string.Equals(workspace, _startQueueRunWorkspaceRoot, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -1259,15 +1288,22 @@ public partial class TikTokQueueView : UserControl
 
         var orderedProjectDirFilter = projectDirFilter ?? GetCheckedProjectDirsInDisplayOrder();
 
-        await Task.Yield();
-
-        var host = CreateQueuePublishHost();
-        var ct = vm.BeginQueueRun();
+        _startQueueRunWorkspaceRoot = NormalizeQueueWorkspaceRoot(vm.WorkspacePath);
+        _startQueueRunActive = true;
         _queueStopRequested = false;
         RefreshQueueRunButtons();
+
+        var queueRunStarted = false;
         vm.StatusMessage = "TikTok 队列执行中…";
         try
         {
+            await Task.Yield();
+
+            var host = CreateQueuePublishHost();
+            var ct = vm.BeginQueueRun();
+            queueRunStarted = true;
+            RefreshQueueRunButtons();
+
             var summary = await vm.RunQueueWorkerAsync(
                 host,
                 p => _queueProgressSink?.Post(p),
@@ -1290,8 +1326,27 @@ public partial class TikTokQueueView : UserControl
         }
         finally
         {
-            vm.EndQueueRun();
+            _startQueueRunActive = false;
+            _startQueueRunWorkspaceRoot = "";
+            if (queueRunStarted)
+                vm.EndQueueRun();
             RefreshQueueRunButtons();
+        }
+    }
+
+    private static string NormalizeQueueWorkspaceRoot(string workspace)
+    {
+        var root = (workspace ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(root))
+            return "";
+
+        try
+        {
+            return Path.GetFullPath(root);
+        }
+        catch
+        {
+            return root;
         }
     }
 
@@ -1375,7 +1430,11 @@ public partial class TikTokQueueView : UserControl
 
     private void SetQueueRunning(bool running)
     {
-        if (StartQueueButton is not null) StartQueueButton.IsEnabled = !running;
+        if (StartQueueButton is not null)
+        {
+            StartQueueButton.Content = running ? "执行中" : "执行勾选队列";
+            StartQueueButton.IsEnabled = !running;
+        }
         if (StopQueueButton is not null) StopQueueButton.IsEnabled = running;
     }
 
