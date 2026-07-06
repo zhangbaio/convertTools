@@ -152,6 +152,12 @@ public sealed class QueueWorkerRunner
             }
         }
 
+        Mutate(() =>
+        {
+            foreach (var item in candidates)
+                MarkQueuedForRun(item, orderedSteps, options);
+        });
+
         void FillPreUploadSlots()
         {
             lock (stateLock)
@@ -165,7 +171,7 @@ public sealed class QueueWorkerRunner
                     if (preUploadSteps.Count > 0)
                     {
                         var captured = item;
-                        var task = RunPreUploadPipelineAsync(
+                        var task = MakeUniqueTask(RunPreUploadPipelineAsync(
                             workspace,
                             captured,
                             preUploadSteps,
@@ -173,7 +179,7 @@ public sealed class QueueWorkerRunner
                             accountStore,
                             onProgress,
                             ct,
-                            Mutate);
+                            Mutate));
                         preUploadTasks[task] = captured;
                         continue;
                     }
@@ -234,7 +240,7 @@ public sealed class QueueWorkerRunner
                     activeUploadAccounts.Add(accountKey);
                     var capturedAccount = account;
                     var capturedItem = item;
-                    var task = RunUploadPipelineAsync(
+                    var task = MakeUniqueTask(RunUploadPipelineAsync(
                         workspace,
                         capturedItem,
                         capturedAccount,
@@ -244,7 +250,7 @@ public sealed class QueueWorkerRunner
                         onProgress,
                         ct,
                         Mutate,
-                        manualInterventionAllowed ? ManualIntervention : null);
+                        manualInterventionAllowed ? ManualIntervention : null));
                     uploadTasks[task] = (capturedItem, accountKey, capturedAccount);
                     started++;
                     rotations = readyForUpload.Count;
@@ -754,6 +760,73 @@ public sealed class QueueWorkerRunner
         }
 
         return item.StepStates.GetValueOrDefault(stepKey) != QueueStepStatus.Completed;
+    }
+
+    private static Task MakeUniqueTask(Task task)
+    {
+        var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        task.ContinueWith(
+            completed =>
+            {
+                if (completed.IsCanceled)
+                    tcs.TrySetCanceled();
+                else if (completed.IsFaulted)
+                    tcs.TrySetException(completed.Exception!.InnerExceptions);
+                else
+                    tcs.TrySetResult(null);
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return tcs.Task;
+    }
+
+    private static Task<bool> MakeUniqueTask(Task<bool> task)
+    {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        task.ContinueWith(
+            completed =>
+            {
+                if (completed.IsCanceled)
+                    tcs.TrySetCanceled();
+                else if (completed.IsFaulted)
+                    tcs.TrySetException(completed.Exception!.InnerExceptions);
+                else
+                    tcs.TrySetResult(completed.Result);
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return tcs.Task;
+    }
+
+    private static void MarkQueuedForRun(
+        QueueProjectItem item,
+        IReadOnlyList<string> orderedSteps,
+        QueueRunOptions options)
+    {
+        var hasRunnableStep = orderedSteps.Any(stepKey => ShouldRunStep(item, stepKey, options));
+        if (!hasRunnableStep)
+            return;
+
+        item.CurrentStep = "";
+        item.StatusText = QueueStepStatus.Pending;
+        item.LastError = "";
+
+        foreach (var key in item.StepStates.Keys.ToList())
+        {
+            if (item.StepStates[key] is QueueStepStatus.Failed or QueueStepStatus.Stopped or QueueStepStatus.ManualIntervention)
+                item.StepStates[key] = QueueStepStatus.Pending;
+        }
+
+        foreach (var stepKey in orderedSteps)
+        {
+            if (!ShouldRunStep(item, stepKey, options))
+                continue;
+            if (stepKey == QueueStepRegistry.UploadSeries)
+                item.ManualUploadStatus = "";
+            item.StepStates[stepKey] = QueueStepStatus.Pending;
+        }
     }
 
     private static TikTokAccountProfile? ResolveAccount(AccountStore store, QueueProjectItem item)
