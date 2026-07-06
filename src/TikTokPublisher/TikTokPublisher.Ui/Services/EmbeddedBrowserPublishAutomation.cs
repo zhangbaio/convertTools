@@ -65,6 +65,10 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
 
         var useLaunch = string.Equals(
             (account.TiktokUploadBrowserMode ?? "").Trim(), "playwright", StringComparison.OrdinalIgnoreCase);
+        if (useLaunch && account.TiktokPlaywrightUploadHeadless && finalAction == FinalAction.Publish)
+        {
+            L("提示：当前使用独立浏览器无头模式提交，TikTok 可能在最终提交阶段触发风控；提交后会校验原创管理状态。");
+        }
 
         IPlaywright? pw = null;
         IBrowser? chromium = null;
@@ -223,7 +227,12 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             PublishResult result;
             if (finalAction == FinalAction.Publish)
             {
-                await TikTokBrowserActions.SubmitAsync(page, L, ct).ConfigureAwait(false);
+                await TikTokBrowserActions.SubmitAsync(
+                        page,
+                        L,
+                        ct,
+                        TikTokBrowserActions.PayloadTitleCandidates(payload))
+                    .ConfigureAwait(false);
                 result = PublishResult.Success("已提交 TikTok 表单");
             }
             else if (finalAction == FinalAction.Draft)

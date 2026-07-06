@@ -11,6 +11,22 @@ public static class TikTokEditFlowService
 {
     private static readonly Regex DetailIdPattern = new(@"\b(\d{16,20})\b", RegexOptions.Compiled);
     private static readonly string[] DuplicateWarningMarkers = { "合同剧名重复", "请修改后重试" };
+    private static readonly string[] SubmittedStatusMarkers =
+    {
+        "视频检测中",
+        "检测中",
+        "审核中",
+        "待审核",
+        "发布中",
+        "已发布",
+        "已上线",
+        "Submitted",
+        "Reviewing",
+        "In review",
+        "Published",
+    };
+
+    public sealed record SubmitVerificationResult(bool Accepted, string Message);
 
     public static async Task<bool> TryEnterExistingDraftFlowAsync(
         IPage page,
@@ -204,6 +220,85 @@ public static class TikTokEditFlowService
         return await FindFirstVisibleDetailUrlAsync(page);
     }
 
+    public static async Task<SubmitVerificationResult> VerifySubmittedFromSeriesListAsync(
+        IPage page,
+        IReadOnlyList<string>? titleCandidates,
+        Action<string>? log,
+        CancellationToken ct,
+        int timeoutSeconds = 120)
+    {
+        var normalized = NormalizeTitleCandidates(titleCandidates?.ToArray() ?? Array.Empty<string>());
+        if (normalized.Count == 0)
+            return new SubmitVerificationResult(true, "未提供剧名，已跳过提交后列表状态校验。");
+
+        var searchKeys = ExpandTitleSearchKeywords(normalized);
+        var deadline = DateTime.UtcNow.AddSeconds(Math.Max(15, timeoutSeconds));
+        var lastSeenRow = "";
+        var lastLog = "";
+
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            await page.GotoAsync(TikTokUrls.DefaultSeriesListUrl, new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 60000,
+            });
+            try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 }); }
+            catch { /* SPA */ }
+            await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log);
+
+            foreach (var title in searchKeys)
+            {
+                ct.ThrowIfCancellationRequested();
+                await ApplySeriesListSearchAsync(page, title, ct);
+                var rowText = await FindMatchingSeriesRowTextAsync(page, title);
+                if (string.IsNullOrWhiteSpace(rowText) && title.Length >= 4)
+                    rowText = await FindMatchingSeriesRowTextAsync(page, title[..Math.Min(4, title.Length)]);
+                if (string.IsNullOrWhiteSpace(rowText))
+                    continue;
+
+                lastSeenRow = rowText;
+                if (LooksSubmittedStatus(rowText))
+                {
+                    return new SubmitVerificationResult(
+                        true,
+                        $"TikTok 提交状态已确认：{CompactRowForLog(rowText)}");
+                }
+
+                var msg = LooksDraftStatus(rowText)
+                    ? $"TikTok 提交后仍显示草稿，继续等待平台状态变化：{CompactRowForLog(rowText)}"
+                    : $"TikTok 提交后找到剧集，但状态尚未确认：{CompactRowForLog(rowText)}";
+                if (!string.Equals(msg, lastLog, StringComparison.Ordinal))
+                {
+                    log?.Invoke(msg);
+                    lastLog = msg;
+                }
+            }
+
+            await Task.Delay(5000, ct);
+        }
+
+        if (LooksDraftStatus(lastSeenRow))
+        {
+            return new SubmitVerificationResult(
+                false,
+                "TikTok 提交后平台仍显示草稿，未标记为完成；可能是独立/无头浏览器触发平台风控或二次验证，" +
+                $"请关闭独立浏览器无头模式或改用内置浏览器重试。列表行：{CompactRowForLog(lastSeenRow)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(lastSeenRow))
+        {
+            return new SubmitVerificationResult(
+                false,
+                $"TikTok 提交后未确认进入视频检测/审核状态，未标记为完成。最后看到的列表行：{CompactRowForLog(lastSeenRow)}");
+        }
+
+        return new SubmitVerificationResult(
+            false,
+            $"TikTok 提交后未在原创管理列表找到「{normalized[0]}」，未标记为完成。");
+    }
+
     private static List<string> ExpandTitleSearchKeywords(IReadOnlyList<string> titles)
     {
         var results = new List<string>();
@@ -322,6 +417,39 @@ public static class TikTokEditFlowService
             }
         }
         return "";
+    }
+
+    private static async Task<string> FindMatchingSeriesRowTextAsync(IPage page, string titleFragment)
+    {
+        foreach (var selector in new[] { "tbody tr", "tr", "[role='row']" })
+        {
+            var rows = page.Locator(selector);
+            var count = Math.Min(await rows.CountAsync(), 100);
+            for (var i = 0; i < count; i++)
+            {
+                var row = rows.Nth(i);
+                string text;
+                try { text = NormalizeWhitespace(await row.InnerTextAsync(new() { Timeout = 500 })); }
+                catch { continue; }
+                if (string.IsNullOrEmpty(text) || !text.Contains(titleFragment, StringComparison.Ordinal)) continue;
+                return text;
+            }
+        }
+        return "";
+    }
+
+    private static bool LooksSubmittedStatus(string rowText) =>
+        SubmittedStatusMarkers.Any(marker => rowText.Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+    private static bool LooksDraftStatus(string rowText) =>
+        !string.IsNullOrWhiteSpace(rowText) &&
+        rowText.Contains("草稿", StringComparison.Ordinal) &&
+        !LooksSubmittedStatus(rowText);
+
+    private static string CompactRowForLog(string rowText)
+    {
+        var text = NormalizeWhitespace(rowText);
+        return text.Length <= 180 ? text : text[..180] + "...";
     }
 
     private static async Task<string> FindFirstVisibleDetailUrlAsync(IPage page)

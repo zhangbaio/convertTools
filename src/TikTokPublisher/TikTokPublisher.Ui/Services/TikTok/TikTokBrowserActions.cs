@@ -134,7 +134,11 @@ public static partial class TikTokBrowserActions
             videoPaths: uploadPaths);
     }
 
-    public static async Task SubmitAsync(IPage page, Action<string>? log, CancellationToken ct)
+    public static async Task SubmitAsync(
+        IPage page,
+        Action<string>? log,
+        CancellationToken ct,
+        IReadOnlyList<string>? titleCandidates = null)
     {
         await WaitBeforeSubmitAsync(log, ct).ConfigureAwait(false);
         await DismissFloatingAssistantAsync(page, log);
@@ -142,7 +146,8 @@ public static partial class TikTokBrowserActions
         await WaitSubmitEnabledAsync(button, ct);
         await button.ClickAsync(new() { Timeout = 15000 });
         await ConfirmSubmitDialogIfPresentAsync(page, log, ct);
-        Log(log, "TikTok 表单已提交。");
+        await VerifySubmitAcceptedAsync(page, titleCandidates, log, ct).ConfigureAwait(false);
+        Log(log, "TikTok 表单已提交并通过平台状态校验。");
     }
 
     public static async Task WaitBeforeSubmitAsync(Action<string>? log, CancellationToken ct, double seconds = 10)
@@ -948,6 +953,34 @@ public static partial class TikTokBrowserActions
             }
             catch { /* try next */ }
         }
+    }
+
+    private static async Task VerifySubmitAcceptedAsync(
+        IPage page,
+        IReadOnlyList<string>? titleCandidates,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        // The confirm button click can succeed even when TikTok later keeps the item as a draft.
+        // Wait briefly, then verify the list status before marking the local upload as complete.
+        await page.WaitForTimeoutAsync(3000).ConfigureAwait(false);
+        if (titleCandidates is null || titleCandidates.Count == 0)
+        {
+            Log(log, "未提供剧名，跳过提交后列表状态校验。");
+            return;
+        }
+
+        var result = await TikTokEditFlowService.VerifySubmittedFromSeriesListAsync(
+                page,
+                titleCandidates,
+                log,
+                ct)
+            .ConfigureAwait(false);
+
+        if (!result.Accepted)
+            throw new InvalidOperationException(result.Message);
+
+        Log(log, result.Message);
     }
 
     private static async Task WaitSubmitEnabledAsync(ILocator button, CancellationToken ct)
