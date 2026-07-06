@@ -54,6 +54,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\TikTokPublisher.Desktop.exe";
 #ifdef WebView2Installer
 Filename: "{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; StatusMsg: "正在安装 WebView2 Runtime..."; Flags: waituntilterminated; Check: NeedsWebView2
 #endif
+Filename: "{app}\TikTokPublisher.Desktop.exe"; Parameters: "--reset-hgnew-credentials"; StatusMsg: "正在重置红果账号配置..."; Flags: waituntilterminated runhidden; Check: ShouldResetData
 Filename: "{app}\TikTokPublisher.Desktop.exe"; Description: "启动 {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [Code]
@@ -70,6 +71,11 @@ end;
 function NeedsWebView2(): Boolean;
 begin
   Result := not HasWebView2Runtime();
+end;
+
+function ShouldResetData(): Boolean;
+begin
+  Result := WizardIsTaskSelected('resetdata');
 end;
 
 function ShouldKeepLocalDataEntry(Name: String): Boolean;

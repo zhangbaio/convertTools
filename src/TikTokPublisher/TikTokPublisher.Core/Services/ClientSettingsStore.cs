@@ -113,23 +113,18 @@ public static class ClientSettingsStore
             existing[property.Key] = property.Value?.DeepClone();
         }
 
-        var now = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss");
-        var payload = existing.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
+        SaveRawObject(path, existing);
+    }
 
-        using var conn = new SqliteConnection($"Data Source={path}");
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO app_settings (key, value_json, updated_at)
-            VALUES ($key, $json, $now)
-            ON CONFLICT(key) DO UPDATE SET
-                value_json = excluded.value_json,
-                updated_at = excluded.updated_at
-            """;
-        cmd.Parameters.AddWithValue("$key", SettingsKey);
-        cmd.Parameters.AddWithValue("$json", payload);
-        cmd.Parameters.AddWithValue("$now", now);
-        cmd.ExecuteNonQuery();
+    public static void ResetHgnewCredentials(string? databasePath = null)
+    {
+        var path = ResolvePath(databasePath);
+        AppDatabaseInitializer.EnsureInitialized(path);
+
+        var existing = LoadRawObject(path) ?? new JsonObject();
+        existing["hgnew_account"] = "";
+        existing["hgnew_password"] = "";
+        SaveRawObject(path, existing);
     }
 
     public static string MainDatabasePath => AppPaths.AppDatabaseFile;
@@ -164,6 +159,27 @@ public static class ClientSettingsStore
         }
 
         return JsonNode.Parse(json)?.AsObject();
+    }
+
+    private static void SaveRawObject(string path, JsonObject settings)
+    {
+        var now = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss");
+        var payload = settings.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
+
+        using var conn = new SqliteConnection($"Data Source={path}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO app_settings (key, value_json, updated_at)
+            VALUES ($key, $json, $now)
+            ON CONFLICT(key) DO UPDATE SET
+                value_json = excluded.value_json,
+                updated_at = excluded.updated_at
+            """;
+        cmd.Parameters.AddWithValue("$key", SettingsKey);
+        cmd.Parameters.AddWithValue("$json", payload);
+        cmd.Parameters.AddWithValue("$now", now);
+        cmd.ExecuteNonQuery();
     }
 
     public static void PatchPikachuRuntimeFields(string? fanqieCookie = null, string? deviceId = null, string? databasePath = null)

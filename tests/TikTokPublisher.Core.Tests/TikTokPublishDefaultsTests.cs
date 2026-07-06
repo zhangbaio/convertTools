@@ -98,6 +98,45 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Reset_hgnew_credentials_clears_only_hongguo_account_fields()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-reset-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                HgnewAccount = "demo@example.com",
+                HgnewPassword = "secret",
+                HgnewUdid = "abc-def",
+                HgnewClientVersion = "1.3.8",
+                DramaDownloadConcurrent = 4,
+            }, databasePath);
+
+            ClientSettingsStore.ResetHgnewCredentials(databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+            loaded.HgnewAccount.Should().BeEmpty();
+            loaded.HgnewPassword.Should().BeEmpty();
+            loaded.HgnewUdid.Should().Be("ABC-DEF");
+            loaded.HgnewClientVersion.Should().Be("1.3.8");
+            loaded.DramaDownloadConcurrent.Should().Be(4);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
     public void Account_profile_publish_defaults_match_python_settings()
     {
         var account = new TikTokAccountProfile();
