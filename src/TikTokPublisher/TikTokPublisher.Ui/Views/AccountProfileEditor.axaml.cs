@@ -20,6 +20,7 @@ public partial class AccountProfileEditor : UserControl
 
     public event EventHandler? LoginRequested;
     public event EventHandler? ReloginRequested;
+    public event EventHandler? LogoutRequested;
 
     public AccountProfileEditor()
     {
@@ -42,6 +43,8 @@ public partial class AccountProfileEditor : UserControl
         vm.PropertyChanged += OnViewModelPropertyChanged;
         vm.AccountProfileNetworkChanged += OnAccountProfileChanged;
     }
+
+    public void RefreshSelectedAccount() => ReloadFromSelectedAccount();
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -254,6 +257,13 @@ public partial class AccountProfileEditor : UserControl
         if (_vm is not null)
             _vm.StatusMessage = "已保存账号配置，正在重新打开内置浏览器…";
         ReloginRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnLogoutClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (!SaveToProfile()) return;
+        LogoutRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private async void OnTestProxyClick(object? sender, RoutedEventArgs e)
@@ -525,6 +535,26 @@ public partial class AccountProfileEditor : UserControl
             "taiwan" => "中国台湾",
             "hongkong" => "中国香港",
             "macau" or "macao" => "中国澳门",
+            "us" or "usa" or "america" => "美国",
+            "canada" => "加拿大",
+            "japan" => "日本",
+            "korea" => "韩国",
+            "singapore" => "新加坡",
+            "thailand" => "泰国",
+            "vietnam" => "越南",
+            "malaysia" => "马来西亚",
+            "indonesia" => "印度尼西亚",
+            "philippines" => "菲律宾",
+            "australia" => "澳大利亚",
+            "germany" => "德国",
+            "france" => "法国",
+            "italy" => "意大利",
+            "spain" => "西班牙",
+            "netherlands" => "荷兰",
+            "russia" => "俄罗斯",
+            "india" => "印度",
+            "brazil" => "巴西",
+            "syracuse" => "锡拉丘兹",
             "province" or "city" or "prefecture" or "municipality" => "",
             _ => token,
         };
@@ -561,6 +591,7 @@ public partial class AccountProfileEditor : UserControl
 
     private static readonly (string From, string To)[] IpLocationPhraseTranslations =
     [
+        ("United States of America", "美国"),
         ("Hong Kong", "hongkong"),
         ("Macau", "macau"),
         ("Macao", "macau"),
@@ -568,6 +599,36 @@ public partial class AccountProfileEditor : UserControl
         ("United States", "美国"),
         ("United Kingdom", "英国"),
         ("South Korea", "韩国"),
+        ("New York", "纽约州"),
+        ("New Jersey", "新泽西州"),
+        ("California", "加利福尼亚州"),
+        ("Texas", "得克萨斯州"),
+        ("Florida", "佛罗里达州"),
+        ("Washington", "华盛顿州"),
+        ("Illinois", "伊利诺伊州"),
+        ("Virginia", "弗吉尼亚州"),
+        ("Ohio", "俄亥俄州"),
+        ("Georgia", "佐治亚州"),
+        ("Pennsylvania", "宾夕法尼亚州"),
+        ("North Carolina", "北卡罗来纳州"),
+        ("South Carolina", "南卡罗来纳州"),
+        ("Massachusetts", "马萨诸塞州"),
+        ("Arizona", "亚利桑那州"),
+        ("Nevada", "内华达州"),
+        ("Oregon", "俄勒冈州"),
+        ("Colorado", "科罗拉多州"),
+        ("Michigan", "密歇根州"),
+        ("Syracuse", "锡拉丘兹"),
+        ("Los Angeles", "洛杉矶"),
+        ("San Francisco", "旧金山"),
+        ("San Jose", "圣何塞"),
+        ("Seattle", "西雅图"),
+        ("Chicago", "芝加哥"),
+        ("Dallas", "达拉斯"),
+        ("Houston", "休斯敦"),
+        ("Miami", "迈阿密"),
+        ("Atlanta", "亚特兰大"),
+        ("Ashburn", "阿什本"),
     ];
 
     private static readonly (string From, string To)[] IpOrgPhraseTranslations =

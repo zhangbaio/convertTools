@@ -207,6 +207,58 @@ public sealed class BrowserSessionHost
         AuthStatusChanged?.Invoke("请在下方浏览器完成 TikTok 登录");
     }
 
+    public async Task<EmbeddedAuthSaveResult> BeginLoginAndWaitForAuthAsync(
+        AccountItemViewModel account,
+        bool forceRelogin,
+        TimeSpan timeout,
+        CancellationToken ct,
+        Action<string>? log = null)
+    {
+        if (forceRelogin)
+        {
+            var warning = await ResetAccountAsync(account, ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(warning))
+                log?.Invoke($"内置浏览器清理旧会话提示：{warning}");
+        }
+
+        var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account.Model);
+        var saved = new TaskCompletionSource<EmbeddedAuthSaveResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void OnAuthSaved(EmbeddedAuthSavedEventArgs args)
+        {
+            if (string.Equals(args.Account.Id, account.Id, StringComparison.Ordinal))
+                saved.TrySetResult(args.Result);
+        }
+
+        AuthSaved += OnAuthSaved;
+        try
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => BeginLogin(account, forceRelogin))
+                .GetTask()
+                .ConfigureAwait(false);
+
+            log?.Invoke($"已打开账号「{account.DisplayName}」的内置浏览器自动登录，等待授权文件生成...");
+            var timeoutTask = Task.Delay(timeout, ct);
+            var completed = await Task.WhenAny(saved.Task, timeoutTask).ConfigureAwait(false);
+            if (completed == saved.Task)
+                return await saved.Task.ConfigureAwait(false);
+
+            ct.ThrowIfCancellationRequested();
+            if (File.Exists(authPath))
+            {
+                var savedAt = File.GetLastWriteTime(authPath).ToString("yyyy-MM-ddTHH:mm:ss");
+                return new EmbeddedAuthSaveResult(authPath, 0, 0, savedAt);
+            }
+
+            throw new TimeoutException("内置浏览器自动登录超时，请在「浏览器」页确认是否需要验证码或人工处理。");
+        }
+        finally
+        {
+            AuthSaved -= OnAuthSaved;
+        }
+    }
+
     public WebView2Host GetOrCreateHost(AccountItemViewModel account) =>
         GetOrCreateHost(account, out _);
 
@@ -331,6 +383,12 @@ public sealed class BrowserSessionHost
 
     public async Task<string> ResetAccountAsync(AccountItemViewModel account, CancellationToken ct = default)
     {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            return await Dispatcher.UIThread.InvokeAsync(() => ResetAccountAsync(account, ct))
+                .ConfigureAwait(false);
+        }
+
         if (_hosts.Remove(account.Id, out var existing))
         {
             existing.CloseBrowser();

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Threading;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Desktop;
@@ -64,6 +65,7 @@ public partial class MainWindow : Window
         QueueView.OpenLogsRequested += (_, _) => NavigateTo("logs");
         AccountsView.LoginRequested += (_, _) => BeginEmbeddedAccountLoginAsync(forceRelogin: false);
         AccountsView.ReloginRequested += (_, _) => BeginEmbeddedAccountLoginAsync(forceRelogin: true);
+        AccountsView.LogoutRequested += (_, _) => _ = LogoutSelectedTikTokAccountAsync();
         _viewModel.EmbeddedLoginRequested += OnEmbeddedLoginRequested;
         _browserHost.AuthSaved += args => _viewModel.HandleEmbeddedAuthSaved(args.Account, args.Result);
         _browserHost.AuthSaveFailed += _viewModel.HandleEmbeddedAuthSaveFailed;
@@ -256,6 +258,37 @@ public partial class MainWindow : Window
 
         NavigateTo("browser");
         _browserHost.BeginLogin(account, forceRelogin);
+    }
+
+    private async Task LogoutSelectedTikTokAccountAsync()
+    {
+        var account = _viewModel.SelectedAccount;
+        if (account is null)
+        {
+            _viewModel.StatusMessage = "请先在左侧选择一个账号";
+            return;
+        }
+
+        var confirmed = await ConfirmDialog.ShowAsync(
+            this,
+            "确认退出登录",
+            $"确认退出「{account.DisplayName}」的 TikTok 登录？\n\n这会删除本机授权文件并清空该账号的内置浏览器会话，账号配置和工作目录会保留。");
+        if (!confirmed)
+            return;
+
+        var warning = await _browserHost.ResetAccountAsync(account);
+        account.Model.TiktokLastLoginEmail = "";
+        account.Model.TiktokLastLoginAt = "";
+        account.Status = AccountStatus.Offline;
+        _viewModel.SaveAccountProfile(account.Model);
+        account.RefreshFromModel();
+        AccountsView.RefreshSelectedAccount();
+
+        _viewModel.HandleEmbeddedAuthStatusChanged("已退出登录");
+        _viewModel.StatusMessage = $"[{account.DisplayName}] 已退出 TikTok 登录";
+        if (!string.IsNullOrWhiteSpace(warning))
+            _viewModel.StatusMessage += $"；{warning}";
+        _viewModel.AppendLog(_viewModel.StatusMessage);
     }
 
     private void OnAccountSwitchRequested(AccountItemViewModel account)
