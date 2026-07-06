@@ -23,6 +23,10 @@ public sealed class LogProjectItem
     private static readonly IBrush SuccessBackground = new SolidColorBrush(Color.Parse("#E8F7ED"));
     private static readonly IBrush FailedForeground = new SolidColorBrush(Color.Parse("#B42318"));
     private static readonly IBrush FailedBackground = new SolidColorBrush(Color.Parse("#FFE3E3"));
+    private static readonly IBrush RunningForeground = new SolidColorBrush(Color.Parse("#075BC7"));
+    private static readonly IBrush RunningBackground = new SolidColorBrush(Color.Parse("#DDEBFF"));
+    private static readonly IBrush WaitingForeground = new SolidColorBrush(Color.Parse("#8A4B00"));
+    private static readonly IBrush WaitingBackground = new SolidColorBrush(Color.Parse("#FFF2CC"));
 
     public string Title { get; init; } = "";
     public string ProjectPath { get; init; } = "";
@@ -31,12 +35,16 @@ public sealed class LogProjectItem
     {
         "ok" => SuccessForeground,
         "failed" => FailedForeground,
+        "running" => RunningForeground,
+        "waiting" => WaitingForeground,
         _ => Brushes.Black,
     };
     public IBrush Background => StatusTone switch
     {
         "ok" => SuccessBackground,
         "failed" => FailedBackground,
+        "running" => RunningBackground,
+        "waiting" => WaitingBackground,
         _ => Brushes.Transparent,
     };
 }
@@ -390,6 +398,8 @@ public sealed class LogService
     {
         if (row.IsUploadCompleted)
             return "ok";
+        if (IsUploadRunning(row))
+            return "running";
         if (IsFailedRow(row))
             return "failed";
         if (row.StatusText == QueueStepStatus.Running)

@@ -136,6 +136,8 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush StatusTextBrush => BrushOf(StatusText);
     public IBrush DramaTitleBrush => IsUploadCompleted
         ? CompletedBrush
+        : IsUploadActive
+            ? RunningBrush
         : HasFailure
             ? FailedBrush
             : LinkBrush;
@@ -161,6 +163,11 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush StatusTextBorderBrush => BorderOf(StatusText);
     public string LastError => Item.LastError;
     public bool IsPendingUpload => Item.IsPendingUpload;
+    public bool IsUploadActive =>
+        string.Equals(Item.CurrentStep, QueueStepRegistry.UploadSeries, StringComparison.Ordinal) ||
+        UploadStatus == QueueStepStatus.Running ||
+        StatusText == QueueStepStatus.Running;
+
     public bool IsUploadCompleted =>
         UploadStatus == QueueStepStatus.Completed ||
         (StatusText == QueueStepStatus.Completed && string.IsNullOrWhiteSpace(LastError));
