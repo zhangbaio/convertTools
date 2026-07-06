@@ -94,19 +94,23 @@ public partial class TikTokQueueView : UserControl
         var anyRunning = _vm?.IsQueueRunning == true;
         var currentRunning = IsStartQueueRunActiveForCurrentWorkspace() ||
                              _vm?.IsCurrentWorkspaceQueueRunning() == true;
-        if (!anyRunning)
+        if (!currentRunning)
             _queueStopRequested = false;
         // 仅当前工作目录在跑时才禁用「执行勾选队列」；其他账号的队列不影响本工作目录启动。
         if (StartQueueButton is not null)
         {
-            StartQueueButton.Content = currentRunning ? "执行中" : "执行勾选队列";
+            StartQueueButton.Content = _queueStopRequested && currentRunning
+                ? "等待停止"
+                : currentRunning
+                    ? "执行中"
+                    : "执行勾选队列";
             StartQueueButton.IsEnabled = !currentRunning;
         }
         if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !anyRunning;
         if (StopQueueButton is not null)
         {
-            StopQueueButton.Content = _queueStopRequested && anyRunning ? "停止中" : "停止";
-            StopQueueButton.IsEnabled = anyRunning && !_queueStopRequested;
+            StopQueueButton.Content = _queueStopRequested && currentRunning ? "停止中" : "停止";
+            StopQueueButton.IsEnabled = currentRunning && !_queueStopRequested;
         }
     }
 
