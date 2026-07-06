@@ -245,11 +245,23 @@ public static class TikTokSilenceRepairService
             tmp,
         });
 
-        await FfmpegRunner.RunAsync(ffmpeg, args, ct).ConfigureAwait(false);
-        if (!File.Exists(tmp) || new FileInfo(tmp).Length == 0)
-            throw new InvalidOperationException("ffmpeg 处理失败");
-        File.Copy(tmp, path, overwrite: true);
-        File.Delete(tmp);
+        try
+        {
+            await FfmpegRunner.RunAsync(ffmpeg, args, ct).ConfigureAwait(false);
+            if (!File.Exists(tmp) || new FileInfo(tmp).Length == 0)
+                throw new InvalidOperationException("ffmpeg 处理失败");
+            File.Copy(tmp, path, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tmp)) File.Delete(tmp);
+            }
+            catch
+            {
+            }
+        }
     }
 
     private static async Task<bool> HasAudioStreamAsync(string ffprobe, string path, CancellationToken ct)

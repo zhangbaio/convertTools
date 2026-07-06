@@ -64,7 +64,7 @@ public static class ProjectVideoResolver
             if (!Directory.Exists(root)) continue;
             foreach (var path in Directory.EnumerateFiles(root))
             {
-                if (VideoExtensions.Contains(Path.GetExtension(path)))
+                if (IsCandidateVideoFile(path))
                     candidates.Add(Path.GetFullPath(path));
             }
         }
@@ -77,7 +77,7 @@ public static class ProjectVideoResolver
         if (!Directory.Exists(stagingRoot)) return new List<string>();
 
         var candidates = Directory.EnumerateFiles(stagingRoot, "*.*", SearchOption.AllDirectories)
-            .Where(path => VideoExtensions.Contains(Path.GetExtension(path)))
+            .Where(IsCandidateVideoFile)
             .Select(Path.GetFullPath)
             .ToList();
 
@@ -86,6 +86,13 @@ public static class ProjectVideoResolver
             var relative = Path.GetRelativePath(stagingRoot, path);
             return NaturalKey(relative);
         });
+    }
+
+    private static bool IsCandidateVideoFile(string path)
+    {
+        var name = Path.GetFileName(path);
+        return VideoExtensions.Contains(Path.GetExtension(path))
+            && !name.EndsWith(".silencefix.mp4", StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<string> DedupeAndSort(List<string> paths, Func<string, IComparable[]>? keyFn = null)
