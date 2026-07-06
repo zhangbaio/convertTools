@@ -24,7 +24,6 @@ public static class ClientSettingsStore
         "tiktok_storage_state_path",
         "tiktok_login_browser_mode",
         "tiktok_fingerprint_browser_cdp_endpoint",
-        "tiktok_fingerprint_browser_start_command",
         "last_workspace",
         "tiktok_upload_profile_path",
         "tiktok_proxy_enabled",

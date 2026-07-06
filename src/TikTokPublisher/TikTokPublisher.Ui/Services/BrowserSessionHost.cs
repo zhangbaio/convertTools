@@ -416,7 +416,7 @@ public sealed class BrowserSessionHost
             if (!string.IsNullOrEmpty(snapshot.CdpEndpoint)
                 && await IsHostCdpUsableAsync(host, snapshot.CdpEndpoint, ct).ConfigureAwait(false))
             {
-                // 不写回 account.TiktokFingerprintBrowserCdpEndpoint：那是用户为“外部/指纹浏览器”配置的端点，
+                // 不写回 account.TiktokExternalBrowserCdpEndpoint：那是用户为“外部浏览器”配置的端点，
                 // 内置浏览器的运行时端点通过返回值与 IEmbeddedBrowser.CdpEndpoint 传递即可，写回会污染外部模式配置。
                 if (EmbeddedBrowserLoginHelper.IsLoginUrl(snapshot.CurrentUrl))
                 {

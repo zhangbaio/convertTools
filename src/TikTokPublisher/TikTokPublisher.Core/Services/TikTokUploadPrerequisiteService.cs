@@ -22,9 +22,6 @@ public static class TikTokUploadPrerequisiteService
         if (string.IsNullOrWhiteSpace(account.TiktokLoginEmail))
             missing.Add("TikTok 用户名（登录设置）");
 
-        if (IsCdpLoginMode(account) && string.IsNullOrWhiteSpace(account.TiktokLoginPassword))
-            missing.Add("TikTok 密码（登录设置）");
-
         if (missing.Count > 0)
         {
             var hint = "TikTok 发布配置不完整，已跳过本次剧集上传，请在「账号管理」中补全当前账号："
@@ -62,11 +59,5 @@ public static class TikTokUploadPrerequisiteService
         if (account.TiktokPaidRatioEnabled && account.TiktokPaidRatioPercent > 0.0)
             return true;
         return account.TiktokPaidEnabled;
-    }
-
-    private static bool IsCdpLoginMode(TikTokAccountProfile account)
-    {
-        var mode = (account.TiktokLoginBrowserMode ?? "").Trim().ToLowerInvariant();
-        return mode is "cdp" or "fingerprint" or "fingerprint_browser";
     }
 }

@@ -80,15 +80,14 @@ public partial class AccountProfileEditor : UserControl
         ExcelReportBox.Text = profile.TiktokExcelReportPath;
 
         SelectByTag(LoginBrowserModeCombo, profile.TiktokLoginBrowserMode, "embedded");
-        CdpEndpointBox.Text = profile.TiktokFingerprintBrowserCdpEndpoint;
-        FingerprintStartCommandBox.Text = profile.TiktokFingerprintStartCommand;
+        CdpEndpointBox.Text = profile.TiktokExternalBrowserCdpEndpoint;
 
         ContractIdBox.Text = profile.TiktokContractId;
         SelectByTag(ContractModeCombo, profile.TiktokContractIdMode, "manual");
         var submitAction = NormalizeSubmitAction(profile.TiktokSubmitAction, profile.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
-        SelectByTag(UploadBrowserModeCombo, profile.TiktokUploadBrowserMode, "external");
+        SelectByTag(UploadBrowserModeCombo, profile.TiktokUploadBrowserMode, "playwright");
         PlaywrightHeadlessBox.IsChecked = profile.TiktokPlaywrightUploadHeadless;
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
@@ -171,14 +170,13 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokExcelReportPath = ExcelReportBox.Text?.Trim() ?? "";
 
             profile.TiktokLoginBrowserMode = TagOf(LoginBrowserModeCombo, "embedded");
-            profile.TiktokFingerprintBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";
-            profile.TiktokFingerprintStartCommand = FingerprintStartCommandBox.Text?.Trim() ?? "";
+            profile.TiktokExternalBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";
 
             profile.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
             profile.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
             profile.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
             profile.TiktokSubmitEnabled = string.Equals(profile.TiktokSubmitAction, "submit", StringComparison.Ordinal);
-            profile.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "external");
+            profile.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "playwright");
             profile.TiktokPlaywrightUploadHeadless = PlaywrightHeadlessBox.IsChecked == true;
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
@@ -320,27 +318,98 @@ public partial class AccountProfileEditor : UserControl
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 TikTokPublisher");
 
-        using var resp = await client.GetAsync("https://ipinfo.io/json");
-        resp.EnsureSuccessStatusCode();
-        var json = await resp.Content.ReadAsStringAsync();
-
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-        string Get(string key) => root.TryGetProperty(key, out var v) ? v.GetString() ?? "" : "";
-
-        var ip = Get("ip");
-        var city = Get("city");
-        var region = Get("region");
-        var country = Get("country");
-        var org = Get("org");
-
-        var location = string.Join(" ", new[] { country, region, city }.Where(s => !string.IsNullOrWhiteSpace(s)));
-        var text = $"✓ 出口 IP：{(string.IsNullOrEmpty(ip) ? "未知" : ip)}\n"
-                 + $"归属地：{(string.IsNullOrEmpty(location) ? "未知" : location)}\n"
-                 + $"运营商：{(string.IsNullOrEmpty(org) ? "未知" : org)}\n"
+        var result = await LookupOutboundIpAsync(client);
+        var ip = string.IsNullOrWhiteSpace(result.Ip) ? "未知" : result.Ip;
+        var location = string.IsNullOrWhiteSpace(result.Location) ? "未知" : result.Location;
+        var org = string.IsNullOrWhiteSpace(result.Org) ? "未知" : result.Org;
+        var text = $"✓ 出口 IP：{ip}（归属地：{location}）\n"
+                 + $"运营商：{org}\n"
                  + $"方式：{modeDesc}";
         return (true, text);
     }
+
+    private static async Task<IpLookupResult> LookupOutboundIpAsync(HttpClient client)
+    {
+        Exception? lastError = null;
+
+        foreach (var url in new[] { "https://ipwho.is/", "https://ipinfo.io/json" })
+        {
+            try
+            {
+                using var resp = await client.GetAsync(url);
+                resp.EnsureSuccessStatusCode();
+                var json = await resp.Content.ReadAsStringAsync();
+
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                var result = url.Contains("ipwho.is", StringComparison.Ordinal)
+                    ? ParseIpWhoIs(root)
+                    : ParseIpInfo(root);
+                if (!string.IsNullOrWhiteSpace(result.Ip))
+                    return result;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+            }
+        }
+
+        throw new InvalidOperationException($"无法获取出口 IP 信息：{lastError?.Message ?? "未知错误"}");
+    }
+
+    private static IpLookupResult ParseIpWhoIs(JsonElement root)
+    {
+        var success = !root.TryGetProperty("success", out var successValue)
+            || successValue.ValueKind != JsonValueKind.False;
+        if (!success)
+            return new IpLookupResult("", "", "");
+
+        var ip = GetJsonString(root, "ip");
+        var country = GetJsonString(root, "country");
+        var region = GetJsonString(root, "region");
+        var city = GetJsonString(root, "city");
+        var org = GetJsonString(root, "org");
+        var isp = GetJsonString(root, "isp");
+
+        if (root.TryGetProperty("connection", out var connection))
+        {
+            org = FirstNonEmpty(GetJsonString(connection, "org"), org);
+            isp = FirstNonEmpty(GetJsonString(connection, "isp"), isp);
+        }
+
+        return new IpLookupResult(ip, JoinLocation(country, region, city), FirstNonEmpty(isp, org));
+    }
+
+    private static IpLookupResult ParseIpInfo(JsonElement root)
+    {
+        var ip = GetJsonString(root, "ip");
+        var city = GetJsonString(root, "city");
+        var region = GetJsonString(root, "region");
+        var country = GetJsonString(root, "country");
+        var org = GetJsonString(root, "org");
+
+        return new IpLookupResult(ip, JoinLocation(country, region, city), org);
+    }
+
+    private static string GetJsonString(JsonElement root, string key)
+    {
+        if (!root.TryGetProperty(key, out var value))
+            return "";
+        return value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? ""
+            : value.ToString();
+    }
+
+    private static string JoinLocation(params string[] parts) =>
+        string.Join(" ", parts
+            .Select(part => part.Trim())
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+
+    private static string FirstNonEmpty(params string[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? "";
+
+    private sealed record IpLookupResult(string Ip, string Location, string Org);
 
     private void ClearFields()
     {
@@ -353,7 +422,6 @@ public partial class AccountProfileEditor : UserControl
         DownloadWorkspaceBox.Text = "";
         ExcelReportBox.Text = "";
         CdpEndpointBox.Text = "";
-        FingerprintStartCommandBox.Text = "";
         ContractIdBox.Text = "";
         SubmitEnabledBox.IsChecked = true;
         MaxContinuousSilenceSecondsBox.Value = 20;

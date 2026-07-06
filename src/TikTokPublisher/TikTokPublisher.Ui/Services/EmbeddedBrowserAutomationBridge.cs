@@ -11,7 +11,7 @@ namespace TikTokPublisher.Ui.Services;
 /// <summary>连接内置 WebView2（CDP）并获取可自动化的 Playwright 页面。</summary>
 public static class EmbeddedBrowserAutomationBridge
 {
-    /// <summary>用 Playwright 独立启动一个浏览器（不依赖内置 WebView2 / 外部浏览器），复用账号授权文件登录态。</summary>
+    /// <summary>用 Playwright 自动启动外部浏览器（不依赖内置 WebView2 / 外部 CDP），复用账号授权文件登录态。</summary>
     public static async Task<(IPlaywright Playwright, IBrowser Browser, IPage Page)> LaunchPageAsync(
         TikTokAccountProfile account,
         string? navigateUrl,
@@ -51,17 +51,17 @@ public static class EmbeddedBrowserAutomationBridge
                     Username = string.IsNullOrWhiteSpace(proxy.Username) ? null : proxy.Username,
                     Password = string.IsNullOrWhiteSpace(proxy.Password) ? null : proxy.Password,
                 };
-                log?.Invoke($"独立浏览器已启用账号代理：{proxy.Description}");
+                log?.Invoke($"外部浏览器已启用账号代理：{proxy.Description}");
             }
 
             if (File.Exists(authPath))
             {
                 contextOptions.StorageStatePath = authPath;
-                log?.Invoke($"独立浏览器已复用登录态文件：{authPath}");
+                log?.Invoke($"外部浏览器已复用登录态文件：{authPath}");
             }
             else
             {
-                log?.Invoke("独立浏览器未找到登录态文件，可能需要在浏览器页先用内置浏览器登录一次。");
+                log?.Invoke("外部浏览器未找到登录态文件，可能需要在浏览器页先用内置浏览器登录一次。");
             }
 
             var context = await chromium.NewContextAsync(contextOptions).ConfigureAwait(false);
@@ -75,7 +75,7 @@ public static class EmbeddedBrowserAutomationBridge
             };
 
             var url = string.IsNullOrWhiteSpace(navigateUrl) ? TikTokUrls.DefaultSeriesDraftUrl : navigateUrl;
-            log?.Invoke($"独立浏览器导航：{url}");
+            log?.Invoke($"外部浏览器导航：{url}");
             await page.GotoAsync(url, new PageGotoOptions
             {
                 WaitUntil = WaitUntilState.DOMContentLoaded,
@@ -86,7 +86,7 @@ public static class EmbeddedBrowserAutomationBridge
             await page.WaitForTimeoutAsync(1200).ConfigureAwait(false);
             await EnsureTikTokPageHealthyAsync(page, url, log, ct).ConfigureAwait(false);
 
-            log?.Invoke($"已启动独立浏览器（{(headless ? "无头" : "有头")}）并打开自动化页面");
+            log?.Invoke($"已启动外部浏览器（{(headless ? "无头" : "有头")}）并打开自动化页面");
             return (pw, chromium, page);
         }
         catch

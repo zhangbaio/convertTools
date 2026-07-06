@@ -3,13 +3,13 @@ using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Publishing;
 
-/// <summary>外部浏览器（指纹浏览器等）上传通道：直接经账号配置的 CDP 端点接入自动化，不使用内置 WebView2。</summary>
+/// <summary>外部浏览器上传通道：直接经账号配置的 CDP 端点接入自动化，不使用内置 WebView2。</summary>
 public sealed class ExternalCdpBrowser : IEmbeddedBrowser
 {
     public ExternalCdpBrowser(TikTokAccountProfile account)
     {
         UserDataFolder = account.ProfileDir;
-        var endpoint = (account.TiktokFingerprintBrowserCdpEndpoint ?? "").Trim();
+        var endpoint = (account.TiktokExternalBrowserCdpEndpoint ?? "").Trim();
         CdpEndpoint = endpoint.Length > 0 ? endpoint : null;
     }
 

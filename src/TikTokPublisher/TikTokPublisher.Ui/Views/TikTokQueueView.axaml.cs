@@ -1497,7 +1497,7 @@ public partial class TikTokQueueView : UserControl
         Action<string>? log,
         CancellationToken ct)
     {
-        var endpoint = (account.TiktokFingerprintBrowserCdpEndpoint ?? "").Trim();
+        var endpoint = (account.TiktokExternalBrowserCdpEndpoint ?? "").Trim();
         if (string.IsNullOrEmpty(endpoint))
         {
             return QueueBrowserReadyResult.NotReady(
@@ -1519,7 +1519,7 @@ public partial class TikTokQueueView : UserControl
         Action<string>? log,
         CancellationToken ct)
     {
-        // 独立 Playwright 浏览器：只需存在授权文件（发布时 launch 独立浏览器并复用登录态）。
+        // 程序自动打开的外部浏览器：只需存在授权文件（发布时 launch 浏览器并复用登录态）。
         if (UsesPlaywrightUploadBrowser(account))
         {
             var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
@@ -1530,13 +1530,13 @@ public partial class TikTokQueueView : UserControl
                     log,
                     ct,
                     forceRefresh: false,
-                    reason: "独立浏览器上传缺少授权文件，正在执行 TikTok 自动登录...")
+                    reason: "外部浏览器上传缺少授权文件，正在执行 TikTok 自动登录...")
                     .ConfigureAwait(false);
                 if (!loginReady.Ok)
                     return loginReady;
             }
 
-            log?.Invoke($"上传浏览器：独立浏览器（{(account.TiktokPlaywrightUploadHeadless ? "无头" : "有头")}）");
+            log?.Invoke($"上传浏览器：外部浏览器（程序自动打开，{(account.TiktokPlaywrightUploadHeadless ? "无头" : "有头")}）");
             return QueueBrowserReadyResult.Ready();
         }
 
@@ -1567,7 +1567,7 @@ public partial class TikTokQueueView : UserControl
         Action<string> log,
         CancellationToken ct)
     {
-        // 与 EnsureAccountBrowserReadyAsync 保持一致：独立浏览器 > 外部浏览器(可达) > 内置浏览器。
+        // 与 EnsureAccountBrowserReadyAsync 保持一致：程序自动打开的外部浏览器 > 外部浏览器(CDP 可达) > 内置浏览器。
         IEmbeddedBrowser? browser;
         var usingEmbeddedBrowser = false;
         if (UsesPlaywrightUploadBrowser(account))
@@ -1577,12 +1577,12 @@ public partial class TikTokQueueView : UserControl
                 log,
                 ct,
                 forceRefresh: false,
-                reason: "独立浏览器上传前正在确认 TikTok 自动登录授权...")
+                reason: "外部浏览器上传前正在确认 TikTok 自动登录授权...")
                 .ConfigureAwait(false);
             if (!ready.Ok)
                 return PublishResult.Fail(ready.Message);
 
-            // 独立浏览器由发布自动化内部 launch，这里只传标记载体。
+            // 程序自动打开的外部浏览器由发布自动化内部 launch，这里只传标记载体。
             browser = new PlaywrightLaunchBrowser(account);
         }
         else if (UsesExternalUploadBrowser(account))

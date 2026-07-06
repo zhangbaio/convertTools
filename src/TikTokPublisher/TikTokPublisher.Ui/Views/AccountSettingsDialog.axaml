@@ -148,11 +148,11 @@
                             <ComboBox Grid.Row="28" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
                                 <ComboBoxItem Tag="external">外部浏览器（CDP 端点）</ComboBoxItem>
-                                <ComboBoxItem Tag="playwright">独立浏览器（程序自动打开）</ComboBoxItem>
+                                <ComboBoxItem Tag="playwright">外部浏览器（程序自动打开，可无头）</ComboBoxItem>
                             </ComboBox>
 
-                            <TextBlock Grid.Row="29" Grid.Column="0" Text="独立浏览器无头" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="29" Grid.Column="1" x:Name="PlaywrightHeadlessBox" Content="无头模式（仅独立浏览器模式生效）" />
+                            <TextBlock Grid.Row="29" Grid.Column="0" Text="外部浏览器无头" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="29" Grid.Column="1" x:Name="PlaywrightHeadlessBox" Content="无头模式（仅程序自动打开的外部浏览器生效）" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

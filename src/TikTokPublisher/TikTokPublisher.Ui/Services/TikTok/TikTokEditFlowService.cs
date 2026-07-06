@@ -284,7 +284,7 @@ public static class TikTokEditFlowService
             return new SubmitVerificationResult(
                 false,
                 "TikTok 提交后平台仍显示草稿，未标记为完成；可能是独立/无头浏览器触发平台风控或二次验证，" +
-                $"请关闭独立浏览器无头模式或改用内置浏览器重试。列表行：{CompactRowForLog(lastSeenRow)}");
+                $"请关闭外部浏览器无头模式或改用内置浏览器重试。列表行：{CompactRowForLog(lastSeenRow)}");
         }
 
         if (!string.IsNullOrWhiteSpace(lastSeenRow))

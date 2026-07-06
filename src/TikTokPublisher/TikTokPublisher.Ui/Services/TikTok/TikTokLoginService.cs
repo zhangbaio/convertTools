@@ -15,10 +15,6 @@ public sealed record TikTokLoginResult(
 /// <summary>Playwright 自动登录 TikTok 短剧中心（对齐 Python <c>login_service.py</c>）。</summary>
 public static class TikTokLoginService
 {
-    private static readonly Regex CdpEndpointPattern = new(
-        @"(wss?://[^\s""'<>]+|https?://[^\s""'<>]+:\d+[^\s""'<>]*|(?:localhost|127\.0\.0\.1|\d{1,3}(?:\.\d{1,3}){3}|[a-zA-Z0-9.-]+):\d+(?:/[^\s""'<>]*)?)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
     public static async Task<TikTokLoginResult> LoginAsync(
         TikTokAccountProfile account,
         Action<string>? log,
@@ -174,8 +170,8 @@ public static class TikTokLoginService
         CancellationToken ct,
         int timeoutSeconds)
     {
-        var endpoint = ResolveCdpEndpoint(account, log);
-        log?.Invoke($"正在连接指纹浏览器 CDP：{endpoint}");
+        var endpoint = ResolveCdpEndpoint(account);
+        log?.Invoke($"正在连接外部浏览器 CDP：{endpoint}");
 
         var playwright = await Playwright.CreateAsync();
         try
@@ -200,7 +196,7 @@ public static class TikTokLoginService
             if (await IsLoggedInAsync(page))
             {
                 await context.StorageStateAsync(new() { Path = authPath });
-                log?.Invoke("指纹浏览器已处于 TikTok 登录状态，登录态已保存。");
+                log?.Invoke("外部浏览器已处于 TikTok 登录状态，登录态已保存。");
                 return BuildResult(email, authPath, page, alreadyLoggedIn: true);
             }
 
@@ -213,17 +209,17 @@ public static class TikTokLoginService
                 }
                 catch (Exception ex)
                 {
-                    log?.Invoke($"自动填写失败，请在指纹浏览器中手动完成登录：{ex.GetType().Name}: {ex.Message}");
+                    log?.Invoke($"自动填写失败，请在外部浏览器中手动完成登录：{ex.GetType().Name}: {ex.Message}");
                 }
             }
             else
             {
-                log?.Invoke("当前账号未配置密码，请在指纹浏览器中手动完成 TikTok 登录。");
+                log?.Invoke("当前账号未配置密码，请在外部浏览器中手动完成 TikTok 登录。");
             }
 
             await WaitForLoginSuccessAsync(page, timeoutSeconds, log, ct);
             await context.StorageStateAsync(new() { Path = authPath });
-            log?.Invoke($"TikTok 登录成功，已从指纹浏览器保存登录态：{authPath}");
+            log?.Invoke($"TikTok 登录成功，已从外部浏览器保存登录态：{authPath}");
             return BuildResult(email, authPath, page, alreadyLoggedIn: false);
         }
         finally
@@ -393,63 +389,13 @@ public static class TikTokLoginService
     private static bool IsCdpMode(TikTokAccountProfile account) =>
         string.Equals(account.TiktokLoginBrowserMode, "cdp", StringComparison.OrdinalIgnoreCase);
 
-    private static string ResolveCdpEndpoint(TikTokAccountProfile account, Action<string>? log)
+    private static string ResolveCdpEndpoint(TikTokAccountProfile account)
     {
-        var endpoint = (account.TiktokFingerprintBrowserCdpEndpoint ?? "").Trim();
-        var startCommand = (account.TiktokFingerprintStartCommand ?? "").Trim();
-        if (!string.IsNullOrEmpty(startCommand))
-        {
-            log?.Invoke("正在执行指纹浏览器启动命令…");
-            var output = RunStartCommand(startCommand);
-            var detected = ExtractCdpEndpoint(output);
-            if (!string.IsNullOrEmpty(detected))
-            {
-                endpoint = detected;
-                log?.Invoke($"已从启动输出识别 CDP 地址：{endpoint}");
-            }
-            else if (string.IsNullOrEmpty(endpoint))
-            {
-                throw new InvalidOperationException("指纹浏览器启动命令未返回 CDP 地址，请在网络/IP 中填写 CDP 地址。");
-            }
-        }
-
+        var endpoint = (account.TiktokExternalBrowserCdpEndpoint ?? "").Trim();
         var normalized = NormalizeCdpEndpoint(endpoint);
         if (string.IsNullOrEmpty(normalized))
-            throw new InvalidOperationException("请在账号网络/IP 中填写指纹浏览器 CDP 地址，或填写能返回 CDP 地址的启动命令。");
+            throw new InvalidOperationException("请在账号网络/IP 中填写外部浏览器 CDP 地址。");
         return normalized;
-    }
-
-    private static string RunStartCommand(string command)
-    {
-        if (command.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-            command.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
-            return client.GetStringAsync(command).GetAwaiter().GetResult();
-        }
-
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "cmd.exe",
-            Arguments = $"/c {command}",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        using var process = System.Diagnostics.Process.Start(psi)
-            ?? throw new InvalidOperationException("无法启动指纹浏览器命令。");
-        var stdout = process.StandardOutput.ReadToEnd();
-        var stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit(45000);
-        return string.Join('\n', new[] { stdout, stderr }.Where(s => !string.IsNullOrWhiteSpace(s)));
-    }
-
-    private static string ExtractCdpEndpoint(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return "";
-        var match = CdpEndpointPattern.Match(text);
-        return match.Success ? NormalizeCdpEndpoint(match.Groups[1].Value) : "";
     }
 
     private static string NormalizeCdpEndpoint(string value)

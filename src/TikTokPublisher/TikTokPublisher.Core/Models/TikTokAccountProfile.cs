@@ -22,7 +22,21 @@ public sealed class TikTokAccountProfile
     public string TiktokLastLoginAt { get; set; } = "";
     public string TiktokStorageStatePath { get; set; } = "";
     public string TiktokLoginBrowserMode { get; set; } = "embedded"; // embedded | cdp
-    public string TiktokFingerprintBrowserCdpEndpoint { get; set; } = "";
+    public string TiktokExternalBrowserCdpEndpoint { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TiktokFingerprintBrowserCdpEndpoint
+    {
+        get => null;
+        set => SetExternalBrowserCdpEndpointIfMissing(value);
+    }
+
+    [JsonPropertyName("tiktok_fingerprint_browser_cdp_endpoint")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TiktokLegacyExternalBrowserCdpEndpoint
+    {
+        get => null;
+        set => SetExternalBrowserCdpEndpointIfMissing(value);
+    }
     public string TiktokSeriesUrl { get; set; } = TikTokUrls.DefaultSeriesDraftUrl;
 
     // 工作目录（与 Python last_workspace / tiktok_upload_profile_path 对齐）
@@ -39,15 +53,14 @@ public sealed class TikTokAccountProfile
     public string TiktokProxyPassword { get; set; } = "";
     public string TiktokProxyLabel { get; set; } = "";
     public string TiktokStaticIpNote { get; set; } = "";
-    public string TiktokFingerprintStartCommand { get; set; } = "";
 
     // 发布默认
     public bool TiktokSubmitEnabled { get; set; } = true;
     public string TiktokSubmitAction { get; set; } = "submit"; // none | submit | save
-    /// <summary>上传剧集使用的浏览器：embedded=内置 WebView2；external=外部浏览器（经 CDP 端点接入）；playwright=程序用 Playwright 独立启动的浏览器。</summary>
-    public string TiktokUploadBrowserMode { get; set; } = "external"; // embedded | external | playwright
-    /// <summary>playwright 模式：独立浏览器是否无头运行（false=有头可见窗口）。</summary>
-    public bool TiktokPlaywrightUploadHeadless { get; set; }
+    /// <summary>上传剧集使用的浏览器：embedded=内置 WebView2；external=外部浏览器（经 CDP 端点接入）；playwright=程序自动启动的外部浏览器。</summary>
+    public string TiktokUploadBrowserMode { get; set; } = "playwright"; // embedded | external | playwright
+    /// <summary>playwright 模式：程序自动启动的外部浏览器是否无头运行（false=有头可见窗口）。</summary>
+    public bool TiktokPlaywrightUploadHeadless { get; set; } = true;
     public string TiktokContractId { get; set; } = "";
     public string TiktokContractIdMode { get; set; } = "manual";
     public bool TiktokPaidEnabled { get; set; }
@@ -124,6 +137,13 @@ public sealed class TikTokAccountProfile
         }
 
         return "";
+    }
+
+    private void SetExternalBrowserCdpEndpointIfMissing(string? value)
+    {
+        var text = (value ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(text) && string.IsNullOrWhiteSpace(TiktokExternalBrowserCdpEndpoint))
+            TiktokExternalBrowserCdpEndpoint = text;
     }
 }
 

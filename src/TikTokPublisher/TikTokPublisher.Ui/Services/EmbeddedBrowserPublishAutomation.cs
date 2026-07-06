@@ -67,7 +67,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             (account.TiktokUploadBrowserMode ?? "").Trim(), "playwright", StringComparison.OrdinalIgnoreCase);
         if (useLaunch && account.TiktokPlaywrightUploadHeadless && finalAction == FinalAction.Publish)
         {
-            L("提示：当前使用独立浏览器无头模式提交，TikTok 可能在最终提交阶段触发风控；提交后会校验原创管理状态。");
+            L("提示：当前使用外部浏览器无头模式提交，TikTok 可能在最终提交阶段触发风控；提交后会校验原创管理状态。");
         }
 
         IPlaywright? pw = null;
@@ -113,7 +113,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
 
             if (IsLoginPage(page.Url))
                 return PublishResult.Fail(useLaunch
-                    ? "独立浏览器登录态失效，请在「浏览器」页用内置浏览器重新登录以刷新授权文件"
+                    ? "外部浏览器登录态失效，请在「浏览器」页用内置浏览器重新登录以刷新授权文件"
                     : "账号未登录（请先在内置浏览器完成 TikTok 登录）");
 
             // 注意：此处不检测单日上限。刚连接时页面可能停留在上一个项目的残留页
