@@ -136,7 +136,7 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
                     ?? ResolveString(videoPublishElement, "video_source_mode")),
                 FillDescription: ResolveBool(videoPublishElement, "fill_description") ?? true,
                 FillShortTitle: ResolveBool(videoPublishElement, "fill_short_title") ?? false,
-                DescriptionTemplate: ResolveString(videoPublishElement, "description_template") ?? "{新剧名}",
+                DescriptionTemplate: ResolveString(videoPublishElement, "description_template") ?? "{剧集名称}，热播爆火剧，点击链接，免费观看全集。#热门#爆火 {标签}",
                 PrependHashToDescription: ResolveBool(videoPublishElement, "prepend_hash_to_description") ?? true,
                 LocationOptionText: ResolveString(videoPublishElement, "location_option_text") ?? "不显示",
                 LinkOptionText: ResolveString(videoPublishElement, "link_option_text") ?? "视频号剧集",

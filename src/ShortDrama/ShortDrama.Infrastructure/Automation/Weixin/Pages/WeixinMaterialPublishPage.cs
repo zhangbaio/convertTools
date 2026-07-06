@@ -1621,6 +1621,18 @@ public sealed class WeixinMaterialPublishPage
         var description = ResolvePerVideoDescription(options, publishItem?.VideoPath);
         if (string.IsNullOrWhiteSpace(description))
         {
+            description = ApplyDescriptionTemplate(
+                string.IsNullOrWhiteSpace(options.DescriptionTemplate)
+                    ? "{剧集名称}，热播爆火剧，点击链接，免费观看全集。#热门#爆火 {标签}"
+                    : options.DescriptionTemplate,
+                projectInfo,
+                publishItem);
+            if (string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(projectInfo.Tags))
+            {
+                description = projectInfo.Tags.Trim();
+            }
+
+            goto DescriptionTemplateApplied;
             description = !string.IsNullOrWhiteSpace(projectInfo.Tags)
             ? projectInfo.Tags.Trim()
             : (string.IsNullOrWhiteSpace(options.DescriptionTemplate)
@@ -1630,6 +1642,7 @@ public sealed class WeixinMaterialPublishPage
                 .Replace("{原剧名}", projectInfo.OriginalTitle, StringComparison.Ordinal);
         }
 
+DescriptionTemplateApplied:
         if (options.PrependHashToDescription &&
             !string.IsNullOrWhiteSpace(description) &&
             !description.TrimStart().StartsWith('#'))
@@ -1638,6 +1651,24 @@ public sealed class WeixinMaterialPublishPage
         }
 
         return description;
+    }
+
+    private static string ApplyDescriptionTemplate(
+        string template,
+        ProjectInfo projectInfo,
+        PublishVideoItem? publishItem)
+    {
+        var videoFileName = string.IsNullOrWhiteSpace(publishItem?.VideoPath)
+            ? string.Empty
+            : Path.GetFileNameWithoutExtension(publishItem.VideoPath);
+        return (template ?? string.Empty)
+            .Replace("{剧集名称}", projectInfo.Title, StringComparison.Ordinal)
+            .Replace("{新剧名}", projectInfo.Title, StringComparison.Ordinal)
+            .Replace("{原剧名}", projectInfo.OriginalTitle, StringComparison.Ordinal)
+            .Replace("{短标题}", projectInfo.ShortTitle, StringComparison.Ordinal)
+            .Replace("{标签}", projectInfo.Tags, StringComparison.Ordinal)
+            .Replace("{视频文件名}", videoFileName, StringComparison.Ordinal)
+            .Trim();
     }
 
     private static string ResolvePerVideoDescription(WeixinVideoPublishOptions options, string? videoPath)

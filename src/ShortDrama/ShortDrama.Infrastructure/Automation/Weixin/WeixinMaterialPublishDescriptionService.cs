@@ -15,6 +15,10 @@ public sealed class WeixinMaterialPublishDescriptionService
 {
     private const string PromptVersion = "csharp-publish-ai-description-v1";
     private const int MaxDescriptionLength = 500;
+    private const int MaxHookLength = 24;
+    private const int MinHookClauseLength = 8;
+    private const int SingleClauseKeepLength = 13;
+    private const string DefaultTopicTag = "短剧推荐";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -25,6 +29,7 @@ public sealed class WeixinMaterialPublishDescriptionService
     private static readonly Regex SrtClockRegex = new(@"-->|^\s*\d{1,2}:\d{2}:\d{2}", RegexOptions.Compiled);
     private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
     private static readonly Regex HashtagJoinRegex = new(@"(?<=[^\s#])#", RegexOptions.Compiled);
+    private static readonly Regex HashtagRegex = new(@"#\s*([\p{L}\p{Nd}]+)", RegexOptions.Compiled);
 
     private readonly HttpClient _httpClient;
 
@@ -82,7 +87,7 @@ public sealed class WeixinMaterialPublishDescriptionService
             try
             {
                 var generated = await GenerateAsync(options, context, cancellationToken);
-                var normalized = NormalizeGeneratedDescription(generated, projectInfo, options, baseDescription);
+                var normalized = NormalizeGeneratedDescription(generated, projectInfo, options, baseDescription, context);
                 if (string.IsNullOrWhiteSpace(normalized))
                 {
                     return baseDescription;
@@ -240,6 +245,11 @@ public sealed class WeixinMaterialPublishDescriptionService
         {
             ["source_type"] = context.SourceType,
             ["episode_index"] = context.EpisodeIndex,
+            ["description_title"] = GetMetadataString(context.Metadata, "description_title"),
+            ["new_title"] = GetMetadataString(context.Metadata, "description_title"),
+            ["original_title"] = GetMetadataString(context.Metadata, "original_title"),
+            ["short_title"] = GetMetadataString(context.Metadata, "short_title"),
+            ["tag_text"] = GetMetadataString(context.Metadata, "tags"),
             ["base_description"] = context.BaseDescription,
             ["metadata"] = context.Metadata,
             ["reference_descriptions"] = context.ReferenceDescriptions.Take(6).ToArray(),
@@ -263,15 +273,25 @@ public sealed class WeixinMaterialPublishDescriptionService
         string generated,
         ProjectInfo projectInfo,
         WeixinVideoPublishOptions options,
-        string baseDescription)
+        string baseDescription,
+        PublishDescriptionContext context)
     {
-        var text = WhitespaceRegex.Replace(generated.Trim(), " ");
+        var text = WhitespaceRegex.Replace((generated ?? string.Empty).Trim().Trim('"', '\''), " ");
         if (string.IsNullOrWhiteSpace(text))
         {
             return baseDescription;
         }
 
         text = HashtagJoinRegex.Replace(text, " #");
+        var hook = NormalizeHook(text, projectInfo);
+        if (string.IsNullOrWhiteSpace(hook))
+        {
+            return baseDescription;
+        }
+
+        var normalizedTags = FormatTopicTags(projectInfo, options, context, text, baseDescription);
+        var formatted = string.Join(" ", new[] { hook }.Concat(normalizedTags.Select(tag => "#" + tag))).Trim();
+        return TrimTo(formatted, MaxDescriptionLength);
         if (!text.Contains('#', StringComparison.Ordinal))
         {
             var title = FirstNonEmpty(projectInfo.Title, options.NewDramaMountResolvedTitle, projectInfo.OriginalTitle);
@@ -285,6 +305,244 @@ public sealed class WeixinMaterialPublishDescriptionService
         }
 
         return TrimTo(text, MaxDescriptionLength);
+    }
+
+    private static string NormalizeHook(string description, ProjectInfo projectInfo)
+    {
+        var hook = StripHashtags(description);
+        hook = WhitespaceRegex.Replace(hook, " ").Trim().Trim('"', '\'');
+        if (string.IsNullOrWhiteSpace(hook))
+        {
+            hook = FirstNonEmpty(projectInfo.ShortTitle, projectInfo.Title, projectInfo.OriginalTitle);
+        }
+
+        if (string.IsNullOrWhiteSpace(hook))
+        {
+            return string.Empty;
+        }
+
+        var firstLine = hook.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault()?.Trim();
+        if (!string.IsNullOrWhiteSpace(firstLine))
+        {
+            hook = firstLine;
+        }
+
+        return hook.Length > MaxHookLength
+            ? CompactHookByClauses(hook)
+            : hook;
+    }
+
+    private static string StripHashtags(string text)
+    {
+        var stripped = HashtagRegex.Replace(text ?? string.Empty, string.Empty);
+        stripped = WhitespaceRegex.Replace(stripped, " ");
+        stripped = Regex.Replace(stripped, @"\s*([，。！？!?；;])\s*", "$1");
+        return stripped.Trim(' ', '\t', '\r', '\n', '，', '。', '！', '？', '!', '?', '；', ';', '、');
+    }
+
+    private static string CompactHookByClauses(string hook)
+    {
+        var clauses = Regex.Split(hook ?? string.Empty, @"[，,。！？!?；;、\r\n]+")
+            .Select(item => WhitespaceRegex.Replace(item, string.Empty).Trim())
+            .Where(item => item.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (clauses.Length == 0)
+        {
+            return TrimTo(hook ?? string.Empty, MaxHookLength).Trim('，', ',', '、', '；', ';', '。', ' ');
+        }
+
+        var first = clauses[0];
+        if (first.Length >= SingleClauseKeepLength)
+        {
+            return TrimTo(first, MaxHookLength).Trim('，', ',', '、', '；', ';', '。', ' ');
+        }
+
+        if (first.Length >= MinHookClauseLength)
+        {
+            foreach (var clause in clauses.Skip(1))
+            {
+                var candidate = $"{first}，{clause}";
+                if (candidate.Length <= MaxHookLength)
+                {
+                    return candidate.Trim('，', ',', '、', '；', ';', '。', ' ');
+                }
+            }
+
+            return first.Trim('，', ',', '、', '；', ';', '。', ' ');
+        }
+
+        var combined = first;
+        foreach (var clause in clauses.Skip(1))
+        {
+            var candidate = string.IsNullOrWhiteSpace(combined) ? clause : $"{combined}，{clause}";
+            if (candidate.Length > MaxHookLength)
+            {
+                break;
+            }
+
+            combined = candidate;
+            if (combined.Length >= MinHookClauseLength)
+            {
+                return combined.Trim('，', ',', '、', '；', ';', '。', ' ');
+            }
+        }
+
+        return TrimTo(string.IsNullOrWhiteSpace(combined) ? first : combined, MaxHookLength)
+            .Trim('，', ',', '、', '；', ';', '。', ' ');
+    }
+
+    private static IReadOnlyList<string> FormatTopicTags(
+        ProjectInfo projectInfo,
+        WeixinVideoPublishOptions options,
+        PublishDescriptionContext context,
+        string description,
+        string baseDescription)
+    {
+        var tags = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var titleTag = CleanTagName(FirstNonEmpty(projectInfo.Title, GetMetadataString(context.Metadata, "description_title"), projectInfo.OriginalTitle));
+        var blocked = ResolveBlockedNewDramaMountTags(projectInfo, options, context, titleTag);
+
+        AppendTag(tags, seen, titleTag);
+        foreach (var tag in ExtractHashtagNames(description))
+        {
+            AppendTag(tags, seen, tag, blocked);
+        }
+
+        foreach (var tag in ExtractHashtagNames(projectInfo.Tags ?? string.Empty, baseDescription))
+        {
+            AppendTag(tags, seen, tag, blocked);
+        }
+
+        foreach (var tag in ExtractCategoryTags(context.Metadata))
+        {
+            AppendTag(tags, seen, tag);
+        }
+
+        if (tags.Count < 4)
+        {
+            AppendTag(tags, seen, DefaultTopicTag);
+        }
+
+        return tags.Take(6).ToArray();
+    }
+
+    private static HashSet<string> ResolveBlockedNewDramaMountTags(
+        ProjectInfo projectInfo,
+        WeixinVideoPublishOptions options,
+        PublishDescriptionContext context,
+        string titleTag)
+    {
+        var blocked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.Equals(context.SourceType, "new_drama_mount", StringComparison.OrdinalIgnoreCase))
+        {
+            return blocked;
+        }
+
+        var titleKey = CleanTagName(titleTag);
+        foreach (var value in new[]
+                 {
+                     options.NewDramaMountTitle,
+                     options.NewDramaMountResolvedTitle,
+                     GetMetadataString(context.Metadata, "mount_title"),
+                     GetMetadataString(context.Metadata, "displayName"),
+                     GetMetadataString(context.Metadata, "title")
+                 })
+        {
+            var tag = CleanTagName(value);
+            if (!string.IsNullOrWhiteSpace(tag) &&
+                !string.Equals(tag, titleKey, StringComparison.OrdinalIgnoreCase))
+            {
+                blocked.Add(tag);
+            }
+        }
+
+        return blocked;
+    }
+
+    private static IReadOnlyList<string> ExtractHashtagNames(params string[] values)
+    {
+        var tags = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var value in values.Where(item => !string.IsNullOrWhiteSpace(item)))
+        {
+            var normalized = HashtagJoinRegex.Replace(value, " #");
+            foreach (Match match in HashtagRegex.Matches(normalized))
+            {
+                AppendTag(tags, seen, match.Groups[1].Value);
+            }
+        }
+
+        return tags;
+    }
+
+    private static IReadOnlyList<string> ExtractCategoryTags(IReadOnlyDictionary<string, object?> metadata)
+    {
+        var raw = FirstNonEmpty(
+            GetMetadataString(metadata, "category"),
+            GetMetadataString(metadata, "type"),
+            GetMetadataString(metadata, "genre"));
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return [];
+        }
+
+        raw = Regex.Replace(raw, @"\d+\s*集", string.Empty);
+        raw = Regex.Replace(raw, @"\d+\s*episodes?", string.Empty, RegexOptions.IgnoreCase);
+        var tags = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var token in Regex.Split(raw, @"[\s,，、/\\|;；·.。]+"))
+        {
+            AppendTag(tags, seen, token);
+        }
+
+        return tags.Take(3).ToArray();
+    }
+
+    private static void AppendTag(
+        ICollection<string> tags,
+        ISet<string> seen,
+        string? value,
+        ISet<string>? blocked = null)
+    {
+        var tag = CleanTagName(value);
+        if (string.IsNullOrWhiteSpace(tag))
+        {
+            return;
+        }
+
+        if (blocked is not null && blocked.Contains(tag))
+        {
+            return;
+        }
+
+        if (seen.Add(tag))
+        {
+            tags.Add(tag);
+        }
+    }
+
+    private static string CleanTagName(string? value)
+    {
+        var text = Regex.Replace((value ?? string.Empty).Trim().TrimStart('#'), @"[^\p{L}\p{Nd}]+", string.Empty);
+        return text.Length > 30 ? text[..30] : text;
+    }
+
+    private static string GetMetadataString(IReadOnlyDictionary<string, object?> metadata, string key)
+    {
+        if (!metadata.TryGetValue(key, out var value) || value is null)
+        {
+            return string.Empty;
+        }
+
+        return value switch
+        {
+            string text => text.Trim(),
+            JsonElement { ValueKind: JsonValueKind.String } element => element.GetString()?.Trim() ?? string.Empty,
+            _ => value.ToString()?.Trim() ?? string.Empty
+        };
     }
 
     private static string ExtractChatContent(string responseJson)

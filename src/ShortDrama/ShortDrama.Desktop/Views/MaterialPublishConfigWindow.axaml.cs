@@ -222,7 +222,7 @@ public partial class MaterialPublishConfigWindow : Window
         AiDescriptionCheckBox.IsChecked = ReadBool(config, "ai_description_enabled", false);
         AiUseDialogueCheckBox.IsChecked = ReadBool(config, "ai_description_use_asr", true);
         PrependHashCheckBox.IsChecked = ReadBool(config, "prepend_hash_to_description", true);
-        DescriptionTemplateTextBox.Text = ReadString(config, "description_template") ?? "{新剧名}";
+        DescriptionTemplateTextBox.Text = ReadString(config, "description_template") ?? DefaultDescriptionTemplate;
         LocationOptionTextBox.Text = ReadString(config, "location_option_text") ?? "不显示";
         ActivityOptionTextBox.Text = ReadString(config, "activity_option_text") ?? "不参与活动";
         LinkOptionTextBox.Text = ReadString(config, "link_option_text") ?? "视频号剧集";
