@@ -183,6 +183,8 @@ public sealed record WeixinVideoPublishOptions(
     public bool PublishOriginalitySpeed { get; init; }
     public bool PublishOriginalityFade { get; init; }
     public string PublishOriginalityStickerDir { get; init; } = string.Empty;
+    public string RuntimeAccountProfileId { get; init; } = string.Empty;
+    public string RuntimeAccountProfileName { get; init; } = string.Empty;
     public string FfmpegPath { get; init; } = "ffmpeg";
     public string FfprobePath { get; init; } = "ffprobe";
 }

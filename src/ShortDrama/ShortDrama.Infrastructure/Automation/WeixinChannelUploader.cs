@@ -100,6 +100,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             resolvedConfigPath,
             request.ProjectDir,
             cancellationToken);
+        var isMaterialPublishTask = string.Equals(config.TaskType, "publish_videos", StringComparison.OrdinalIgnoreCase);
 
         if (TryBuildMaterialPublishPreflightResult(request, config, resolvedConfigPath, out var preflightResult))
         {
@@ -107,7 +108,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         }
 
         MaterialPublishPreparation? materialPublishPreparation = null;
-        if (string.Equals(config.TaskType, "publish_videos", StringComparison.OrdinalIgnoreCase))
+        if (isMaterialPublishTask)
         {
             var preparationResult = await PrepareMaterialPublishBeforeBrowserAsync(
                 request,
@@ -123,6 +124,11 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             materialPublishPreparation = preparationResult.Preparation;
         }
 
+        if (isMaterialPublishTask)
+        {
+            progress?.Report($"使用配置: {resolvedConfigPath}");
+        }
+
         progress?.Report("微信上传：检查浏览器运行时...");
         var runtimeStatus = await _browserRuntimeService.InspectAsync(cancellationToken);
         if (!runtimeStatus.IsReady)
@@ -134,7 +140,14 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         progress?.Report(runtimeStatus.Message);
 
         var authState = await _authStateService.ResolveAsync(config, cancellationToken);
-        progress?.Report(authState.Message);
+        if (isMaterialPublishTask && authState.Exists)
+        {
+            progress?.Report($"复用登录态: {authState.AuthFilePath}");
+        }
+        else
+        {
+            progress?.Report(authState.Message);
+        }
 
         Directory.CreateDirectory(config.OutputDirectory);
         Directory.CreateDirectory(Path.GetDirectoryName(config.AuthFilePath) ?? config.ConfigDirectory);
@@ -156,7 +169,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         await using var context = await CreateBrowserContextAsync(browser, config, progress);
 
         var page = await context.NewPageAsync();
-        progress?.Report($"微信上传：正在打开后台 {config.BaseUrl}");
+        progress?.Report(isMaterialPublishTask ? $"打开: {config.BaseUrl}" : $"微信上传：正在打开后台 {config.BaseUrl}");
 
         await _homePage.OpenAsync(page, config.BaseUrl, cancellationToken);
         var isLoggedIn = await _homePage.IsLoggedInAsync(page, cancellationToken);
@@ -189,7 +202,17 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 loginQrScreenshotPath,
                 progress,
                 cancellationToken);
-            progress?.Report("微信上传：未检测到有效登录态，请在浏览器中扫码登录。");
+            if (isMaterialPublishTask)
+            {
+                progress?.Report("现有登录态失效，将重新扫码登录");
+                progress?.Report("============================================================");
+                progress?.Report("请使用微信扫描页面二维码登录视频号助手");
+                progress?.Report("============================================================");
+            }
+            else
+            {
+                progress?.Report("微信上传：未检测到有效登录态，请在浏览器中扫码登录。");
+            }
             var loginDecision = await WaitForLoginCompletionAsync(
                 request,
                 page,
@@ -204,14 +227,16 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             {
                 Path = config.AuthFilePath
             });
-            progress?.Report($"微信上传：登录态已更新到 {config.AuthFilePath}");
+            progress?.Report(isMaterialPublishTask
+                ? $"登录凭证已保存到 {config.AuthFilePath}"
+                : $"微信上传：登录态已更新到 {config.AuthFilePath}");
         }
         else
         {
-            progress?.Report("微信上传：已复用有效登录态。");
+            progress?.Report(isMaterialPublishTask ? "已复用有效登录态。" : "微信上传：已复用有效登录态。");
         }
 
-        if (string.Equals(config.TaskType, "publish_videos", StringComparison.OrdinalIgnoreCase))
+        if (isMaterialPublishTask)
         {
             var publishResult = await RunMaterialPublishAsync(
                 request,
@@ -475,7 +500,8 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         string StatePath,
         MaterialPublishState PublishState,
         string RunStrategy,
-        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> SelectedVideos);
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> SelectedVideos,
+        IReadOnlyDictionary<int, IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem>> LiveMergeGroupsByEpisode);
 
     private async Task<(WeixinUploadResult? CompletedResult, MaterialPublishPreparation? Preparation)> PrepareMaterialPublishBeforeBrowserAsync(
         WeixinUploadRequest request,
@@ -569,20 +595,43 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             return (new WeixinUploadResult(true, request.ProjectDir, resolvedConfigPath, "当前策略下没有可执行的素材视频。"), null);
         }
 
-        selectedVideos = await PrepareMergePublishVideosAsync(
-            request.ProjectDir,
-            projectInfo,
-            config.VideoPublish,
-            selectedVideos,
-            progress,
-            cancellationToken);
+        IReadOnlyDictionary<int, IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem>> liveMergeGroupsByEpisode =
+            new Dictionary<int, IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem>>(0);
+        if (ShouldUseNewDramaMountLiveMergePipeline(sourceMode, config.VideoPublish, selectedVideos))
+        {
+            var selectedEpisodeIndexes = selectedVideos
+                .Select(item => item.EpisodeIndex)
+                .ToHashSet();
+            var mergeGroups = SplitMergePublishGroups(allPublishItems, Math.Max(0, config.VideoPublish.MergePublishGroupSize))
+                .Where(group => group.Count > 0 && selectedEpisodeIndexes.Contains(group[0].EpisodeIndex))
+                .ToArray();
+            if (mergeGroups.Length > 0)
+            {
+                selectedVideos = mergeGroups.Select(group => group[0]).ToArray();
+                liveMergeGroupsByEpisode = mergeGroups.ToDictionary(
+                    group => group[0].EpisodeIndex,
+                    group => group,
+                    EqualityComparer<int>.Default);
+                progress?.Report($"新剧挂载合并发布启用流水线：浏览器启动前跳过批量合并，将边生成边上传（预计发布 {mergeGroups.Length} 次）。");
+            }
+        }
+        else
+        {
+            selectedVideos = await PrepareMergePublishVideosAsync(
+                request.ProjectDir,
+                projectInfo,
+                config.VideoPublish,
+                selectedVideos,
+                progress,
+                cancellationToken);
 
-        selectedVideos = await _publishOriginalityService.ApplyAsync(
-            request.ProjectDir,
-            selectedVideos,
-            config.VideoPublish,
-            progress,
-            cancellationToken);
+            selectedVideos = await _publishOriginalityService.ApplyAsync(
+                request.ProjectDir,
+                selectedVideos,
+                config.VideoPublish,
+                progress,
+                cancellationToken);
+        }
 
         return (null, new MaterialPublishPreparation(
             config,
@@ -591,7 +640,8 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             statePath,
             publishState,
             runStrategy,
-            selectedVideos));
+            selectedVideos,
+            liveMergeGroupsByEpisode));
     }
 
     private async Task<WeixinUploadResult> RunMaterialPublishAsync(
@@ -635,14 +685,45 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         var publishState = preparation.PublishState;
         var runStrategy = preparation.RunStrategy;
         var selectedVideos = preparation.SelectedVideos;
+        var liveMergeGroupsByEpisode = preparation.LiveMergeGroupsByEpisode;
 
         var shortTitle = WeixinMaterialPublishPage.BuildShortTitle(projectInfo, config.VideoPublish);
-        progress?.Report($"微信素材上传：准备发表 {selectedVideos.Count} 条视频。策略：{runStrategy}。");
+        progress?.Report(BuildMaterialPublishRunStrategyLog(runStrategy));
+        if (liveMergeGroupsByEpisode.Count > 0)
+        {
+            var sourceVideoCount = liveMergeGroupsByEpisode.Values.Sum(group => group.Count);
+            var groupSize = Math.Max(0, config.VideoPublish.MergePublishGroupSize);
+            progress?.Report(
+                groupSize > 0
+                    ? $"已启用合并发布：{sourceVideoCount} 个视频，每 {groupSize} 个合并，预计发布 {selectedVideos.Count} 次；将边合并边发布"
+                    : $"已启用合并发布：{sourceVideoCount} 个视频，全部合并为 1 次发布；将在发布前合并");
+            progress?.Report($"新剧挂载合并发布流水线已启动：{selectedVideos.Count} 个发布视频将边生成边上传。");
+        }
+        else if (config.VideoPublish.MergePublishEnabled && selectedVideos.Count == 1)
+        {
+            progress?.Report("已启用合并发布，但目标视频只有 1 个，直接按单个视频发布。");
+        }
+
+        progress?.Report("当前项目将执行发表视频流程: " + BuildMaterialPublishTargetSummary(selectedVideos));
+        var accountName = FirstNonEmpty(config.VideoPublish.RuntimeAccountProfileName, config.VideoPublish.RuntimeAccountProfileId);
+        if (!string.IsNullOrWhiteSpace(accountName))
+        {
+            progress?.Report($"素材发布账号：{accountName}");
+        }
 
         for (var index = 0; index < selectedVideos.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var publishItem = selectedVideos[index];
+            var publishItem = await PrepareLiveMergePublishItemForUploadAsync(
+                request.ProjectDir,
+                projectInfo,
+                config.VideoPublish,
+                selectedVideos[index],
+                liveMergeGroupsByEpisode,
+                index + 1,
+                selectedVideos.Count,
+                progress,
+                cancellationToken);
             var videoPath = publishItem.VideoPath;
             var publishStateKeys = ResolveMaterialPublishStateKeys(publishItem);
             var baseDescription = WeixinMaterialPublishPage.BuildPublishDescription(projectInfo, config.VideoPublish, publishItem);
@@ -654,7 +735,8 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                 baseDescription,
                 progress,
                 cancellationToken);
-            progress?.Report($"微信素材上传：开始处理 {index + 1}/{selectedVideos.Count} -> 第{publishItem.EpisodeIndex}集 {Path.GetFileName(videoPath)}");
+            progress?.Report("------------------------------------------------------------");
+            progress?.Report($"发表视频 {index + 1}/{selectedVideos.Count}: 第 {publishItem.EpisodeIndex} 集 -> {Path.GetFileName(videoPath)}");
             publishState = publishState with
             {
                 Entries = UpsertMaterialPublishEntries(
@@ -777,6 +859,96 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             ProjectDir: request.ProjectDir,
             ConfigPath: resolvedConfigPath,
             Message: $"C# 微信素材上传已完成，共处理 {selectedVideos.Count} 条视频。");
+    }
+
+    private static bool ShouldUseNewDramaMountLiveMergePipeline(
+        string sourceMode,
+        WeixinVideoPublishOptions options,
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> selectedVideos)
+    {
+        return string.Equals(sourceMode, "new_drama_mount", StringComparison.Ordinal) &&
+               options.MergePublishEnabled &&
+               selectedVideos.Count > 1;
+    }
+
+    private async Task<WeixinMaterialPublishPage.PublishVideoItem> PrepareLiveMergePublishItemForUploadAsync(
+        string projectDir,
+        ProjectInfo projectInfo,
+        WeixinVideoPublishOptions options,
+        WeixinMaterialPublishPage.PublishVideoItem publishItem,
+        IReadOnlyDictionary<int, IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem>> liveMergeGroupsByEpisode,
+        int progressIndex,
+        int totalCount,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!liveMergeGroupsByEpisode.TryGetValue(publishItem.EpisodeIndex, out var group) || group.Count == 0)
+        {
+            return publishItem;
+        }
+
+        WeixinMaterialPublishPage.PublishVideoItem preparedItem;
+        if (group.Count <= 1)
+        {
+            progress?.Report($"合并发布 {progressIndex}/{totalCount}：第 {publishItem.EpisodeIndex} 集单视频发布");
+            preparedItem = publishItem;
+        }
+        else
+        {
+            var episodeIndexes = group.Select(item => item.EpisodeIndex).ToArray();
+            var outputPath = BuildMergePublishOutputPath(projectDir, projectInfo, group, Math.Max(0, options.MergePublishGroupSize));
+            progress?.Report(
+                $"合并发布 {progressIndex}/{totalCount}：{string.Join(",", episodeIndexes)} -> {Path.GetFileName(outputPath)}");
+            var mergedPath = await MergePublishVideosAsync(
+                group,
+                outputPath,
+                options,
+                progress,
+                cancellationToken);
+            var baseDescription = WeixinMaterialPublishPage.BuildPublishDescription(projectInfo, options, group[0]);
+            WriteMergePublishSidecar(mergedPath, baseDescription, group);
+            progress?.Report($"合并发布视频已就绪：{Path.GetFileName(mergedPath)}");
+            preparedItem = group[0] with { VideoPath = mergedPath };
+        }
+
+        var processed = await _publishOriginalityService.ApplyAsync(
+            projectDir,
+            [preparedItem],
+            options,
+            progress,
+            cancellationToken);
+        return processed.FirstOrDefault() ?? preparedItem;
+    }
+
+    private static string BuildMaterialPublishRunStrategyLog(string runStrategy)
+    {
+        return runStrategy switch
+        {
+            "resume" => "发表视频模式：断点续跑（跳过已成功集数）",
+            "retry_failed" => "发表视频模式：只重试失败集",
+            _ => "发表视频模式：全部按配置重跑"
+        };
+    }
+
+    private static string BuildMaterialPublishTargetSummary(
+        IReadOnlyList<WeixinMaterialPublishPage.PublishVideoItem> selectedVideos)
+    {
+        return string.Join(
+            ", ",
+            selectedVideos.Select(item => $"第{item.EpisodeIndex}集({Path.GetFileName(item.VideoPath)})"));
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return string.Empty;
     }
 
     private async Task<WeixinUploadResult> RunSystemHighlightMaterialPublishAsync(

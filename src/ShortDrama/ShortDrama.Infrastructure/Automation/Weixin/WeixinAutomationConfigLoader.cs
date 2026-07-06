@@ -260,6 +260,8 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
                     configDirectory,
                     ResolveString(videoPublishElement, "publish_originality_sticker_dir")
                     ?? ResolveString(videoPublishElement, "material_clip_originality_sticker_dir")),
+                RuntimeAccountProfileId = ResolveString(videoPublishElement, "_runtime_account_profile_id") ?? string.Empty,
+                RuntimeAccountProfileName = ResolveString(videoPublishElement, "_runtime_account_profile_name") ?? string.Empty,
                 FfmpegPath = ResolveString(videoPublishElement, "ffmpeg_path")
                     ?? ResolveConfigString(globalConfig, "FfmpegPath")
                     ?? "ffmpeg",
