@@ -16,6 +16,7 @@ using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Services;
+using TikTokPublisher.Ui.Services.TikTok;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace TikTokPublisher.Ui.Views;
@@ -32,6 +33,8 @@ public partial class TikTokQueueView : UserControl
     private TikTokPublishConfig _publishConfig = TikTokPublishConfig.Load();
     private CancellationTokenSource? _publishCts;
     private readonly PublishRunStateStore _runState = PublishRunStateStore.Load();
+    private readonly object _autoLoginLocksGate = new();
+    private readonly Dictionary<string, SemaphoreSlim> _autoLoginLocks = new(StringComparer.Ordinal);
     private readonly Queue<ManualInterventionDialogRequest> _manualInterventionDialogs = new();
     private bool _manualInterventionDialogOpen;
     private QueueUiProgressSink? _queueProgressSink;
@@ -1392,30 +1395,124 @@ public partial class TikTokQueueView : UserControl
     private static bool UsesPlaywrightUploadBrowser(TikTokAccountProfile account) =>
         string.Equals((account.TiktokUploadBrowserMode ?? "").Trim(), "playwright", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>账号选了外部浏览器且其 CDP 端点确实可达时返回 true；否则（含未配置/不可达）返回 false，交由调用方回退内置浏览器。</summary>
-    private static async Task<bool> IsExternalUploadBrowserReadyAsync(
+    private SemaphoreSlim GetAutoLoginLock(TikTokAccountProfile account)
+    {
+        var key = string.IsNullOrWhiteSpace(account.Id) ? account.DisplayName : account.Id;
+        lock (_autoLoginLocksGate)
+        {
+            if (!_autoLoginLocks.TryGetValue(key, out var gate))
+            {
+                gate = new SemaphoreSlim(1, 1);
+                _autoLoginLocks[key] = gate;
+            }
+
+            return gate;
+        }
+    }
+
+    private async Task<QueueBrowserReadyResult> EnsureAutoLoginStateAsync(
+        TikTokAccountProfile account,
+        Action<string>? log,
+        CancellationToken ct,
+        bool forceRefresh,
+        string reason)
+    {
+        var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
+        if (!forceRefresh && File.Exists(authPath))
+            return QueueBrowserReadyResult.Ready();
+
+        if (string.IsNullOrWhiteSpace(account.TiktokLoginEmail) ||
+            string.IsNullOrWhiteSpace(account.TiktokLoginPassword))
+        {
+            return QueueBrowserReadyResult.NotReady(
+                "自动登录失败：请先在「账号管理」为当前账号配置 TikTok 用户名和密码。");
+        }
+
+        var gate = GetAutoLoginLock(account);
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!forceRefresh && File.Exists(authPath))
+                return QueueBrowserReadyResult.Ready();
+
+            log?.Invoke(string.IsNullOrWhiteSpace(reason)
+                ? "检测到 TikTok 授权文件缺失，开始自动登录..."
+                : reason);
+
+            var result = await TikTokLoginService
+                .LoginAsync(account, log, ct, timeoutSeconds: 180)
+                .ConfigureAwait(false);
+
+            account.TiktokStorageStatePath = result.AuthPath;
+            account.TiktokLastLoginEmail = result.Email;
+            account.TiktokLastLoginAt = result.LoggedInAt;
+            var vm = _vm;
+            if (vm is not null)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    vm.SaveAccountProfile(account);
+                    var accountVm = vm.FindAccount(account.Id) ?? vm.FindAccount(account.DisplayName);
+                    if (accountVm is not null)
+                        accountVm.Status = AccountStatus.Online;
+                }).GetTask().ConfigureAwait(false);
+            }
+
+            log?.Invoke($"TikTok 自动登录完成，授权文件已更新：{result.AuthPath}");
+            return QueueBrowserReadyResult.Ready();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return QueueBrowserReadyResult.NotReady($"自动登录失败：{ex.Message}");
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private static bool IsLoginNotReadyMessage(string? message)
+    {
+        var text = message ?? "";
+        return text.Contains("未登录", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("登录页", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("login", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsUploadLoginFailure(string? message)
+    {
+        var text = message ?? "";
+        return text.Contains("登录态失效", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("未登录", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("跳转到登录页", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("login", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>账号选了外部浏览器时必须使用外部 CDP；端点缺失或不可达时直接失败，避免静默回退内置浏览器。</summary>
+    private static async Task<QueueBrowserReadyResult> EnsureExternalUploadBrowserReadyAsync(
         TikTokAccountProfile account,
         Action<string>? log,
         CancellationToken ct)
     {
-        if (!UsesExternalUploadBrowser(account))
-            return false;
-
         var endpoint = (account.TiktokFingerprintBrowserCdpEndpoint ?? "").Trim();
         if (string.IsNullOrEmpty(endpoint))
         {
-            log?.Invoke("已选择外部浏览器上传，但未配置 CDP 端点，自动回退到内置浏览器。");
-            return false;
+            return QueueBrowserReadyResult.NotReady(
+                $"账号「{account.DisplayName}」已选择外部浏览器上传，但未配置 CDP 端点，请在「账号管理 > 网络/IP」中填写。");
         }
 
         if (!await EmbeddedBrowserCdpProbe.IsReachableAsync(endpoint, ct).ConfigureAwait(false))
         {
-            log?.Invoke($"外部浏览器 CDP 不可达（{endpoint}），自动回退到内置浏览器上传。");
-            return false;
+            return QueueBrowserReadyResult.NotReady(
+                $"账号「{account.DisplayName}」已选择外部浏览器上传，但 CDP 端点不可达：{endpoint}。请确认外部浏览器已启动且端口正确。");
         }
 
         log?.Invoke($"使用外部浏览器上传（CDP：{endpoint}）");
-        return true;
+        return QueueBrowserReadyResult.Ready();
     }
 
     private async Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
@@ -1429,21 +1526,37 @@ public partial class TikTokQueueView : UserControl
             var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
             if (!File.Exists(authPath))
             {
-                return QueueBrowserReadyResult.NotReady(
-                    "独立浏览器上传需要先在「浏览器」页用内置浏览器登录一次以生成授权文件。");
+                var loginReady = await EnsureAutoLoginStateAsync(
+                    account,
+                    log,
+                    ct,
+                    forceRefresh: false,
+                    reason: "独立浏览器上传缺少授权文件，正在执行 TikTok 自动登录...")
+                    .ConfigureAwait(false);
+                if (!loginReady.Ok)
+                    return loginReady;
             }
 
             log?.Invoke($"上传浏览器：独立浏览器（{(account.TiktokPlaywrightUploadHeadless ? "无头" : "有头")}）");
             return QueueBrowserReadyResult.Ready();
         }
 
-        // 外部浏览器可用则用外部；不可用（未配置/不可达）自动回退内置浏览器。
-        if (await IsExternalUploadBrowserReadyAsync(account, log, ct).ConfigureAwait(false))
-            return QueueBrowserReadyResult.Ready();
+        if (UsesExternalUploadBrowser(account))
+            return await EnsureExternalUploadBrowserReadyAsync(account, log, ct).ConfigureAwait(false);
 
         var provider = RequireBrowserProvider();
-        return await provider
+        var ready = await provider
             .EnsureBrowserReadyAsync(account, ct, EmbeddedBrowserAccessOptions.Background, log)
+            .ConfigureAwait(false);
+        if (ready.Ok || !IsLoginNotReadyMessage(ready.Message))
+            return ready;
+
+        return await EnsureAutoLoginStateAsync(
+            account,
+            log,
+            ct,
+            forceRefresh: false,
+            reason: "检测到内置浏览器尚未登录，正在执行 TikTok 自动登录...")
             .ConfigureAwait(false);
     }
 
@@ -1460,18 +1573,47 @@ public partial class TikTokQueueView : UserControl
         var usingEmbeddedBrowser = false;
         if (UsesPlaywrightUploadBrowser(account))
         {
+            var ready = await EnsureAutoLoginStateAsync(
+                account,
+                log,
+                ct,
+                forceRefresh: false,
+                reason: "独立浏览器上传前正在确认 TikTok 自动登录授权...")
+                .ConfigureAwait(false);
+            if (!ready.Ok)
+                return PublishResult.Fail(ready.Message);
+
             // 独立浏览器由发布自动化内部 launch，这里只传标记载体。
             browser = new PlaywrightLaunchBrowser(account);
         }
-        else if (await IsExternalUploadBrowserReadyAsync(account, log, ct).ConfigureAwait(false))
+        else if (UsesExternalUploadBrowser(account))
         {
+            var ready = await EnsureExternalUploadBrowserReadyAsync(account, log, ct).ConfigureAwait(false);
+            if (!ready.Ok)
+                return PublishResult.Fail(ready.Message);
+
             browser = new ExternalCdpBrowser(account);
         }
         else
         {
-            browser = await RequireBrowserProvider()
-                .GetBrowserAsync(account, ct, EmbeddedBrowserAccessOptions.Background)
+            var ready = await RequireBrowserProvider()
+                .EnsureBrowserReadyAsync(account, ct, EmbeddedBrowserAccessOptions.Background, log)
                 .ConfigureAwait(false);
+            if (!ready.Ok && IsLoginNotReadyMessage(ready.Message))
+            {
+                ready = await EnsureAutoLoginStateAsync(
+                    account,
+                    log,
+                    ct,
+                    forceRefresh: false,
+                    reason: "检测到内置浏览器尚未登录，正在执行 TikTok 自动登录...")
+                    .ConfigureAwait(false);
+            }
+
+            if (!ready.Ok)
+                return PublishResult.Fail(ready.Message);
+
+            browser = _browserHost?.TryGetHost(account.Id);
             usingEmbeddedBrowser = true;
         }
 
@@ -1489,6 +1631,40 @@ public partial class TikTokQueueView : UserControl
         log($"最终动作：{FinalActionLabel(effectiveAction)}（来自账号「{account.DisplayName}」的提交动作配置）");
         var attemptSignature = UploadAttemptSignature(project.ProjectDir);
         var result = await _automation.PublishAsync(account, item, browser, effectiveAction, log, ct).ConfigureAwait(false);
+        if (!result.Ok && IsUploadLoginFailure(result.Message))
+        {
+            var loginReady = await EnsureAutoLoginStateAsync(
+                account,
+                log,
+                ct,
+                forceRefresh: true,
+                reason: "检测到 TikTok 登录态失效，正在自动重新登录后重试当前剧集...")
+                .ConfigureAwait(false);
+            if (loginReady.Ok)
+            {
+                log("TikTok 自动登录完成，正在重试当前剧集上传...");
+                if (UsesPlaywrightUploadBrowser(account))
+                    browser = new PlaywrightLaunchBrowser(account);
+                else if (UsesExternalUploadBrowser(account))
+                {
+                    var externalReady = await EnsureExternalUploadBrowserReadyAsync(account, log, ct).ConfigureAwait(false);
+                    if (!externalReady.Ok)
+                        return PublishResult.Fail(externalReady.Message);
+
+                    browser = new ExternalCdpBrowser(account);
+                }
+                else
+                    browser = _browserHost?.TryGetHost(account.Id) ?? browser;
+
+                result = await _automation.PublishAsync(account, item, browser, effectiveAction, log, ct)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                log(loginReady.Message);
+            }
+        }
+
         if (!result.Ok &&
             usingEmbeddedBrowser &&
             IsRecoverableEmbeddedBrowserFailure(result.Message) &&
