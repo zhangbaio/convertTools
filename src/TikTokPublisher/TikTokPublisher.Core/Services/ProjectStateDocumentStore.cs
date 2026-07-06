@@ -264,6 +264,18 @@ public static class ProjectStateDocumentStore
         }
     }
 
+    private static object? JsonElementToObject(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.String => element.GetString(),
+        JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.Object => element.EnumerateObject()
+            .ToDictionary(p => p.Name, p => JsonElementToObject(p.Value), StringComparer.Ordinal),
+        JsonValueKind.Array => element.EnumerateArray().Select(JsonElementToObject).ToList(),
+        _ => null,
+    };
+
     private static string StableDocumentId(string workspaceKey, string projectKey, string documentType)
     {
         var payload = string.Join('\n', workspaceKey, projectKey, documentType);
