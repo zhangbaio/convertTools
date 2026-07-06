@@ -147,7 +147,6 @@
                             <TextBlock Grid.Row="28" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="28" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
-                                <ComboBoxItem Tag="external">外部浏览器（CDP 端点）</ComboBoxItem>
                                 <ComboBoxItem Tag="playwright">外部浏览器（程序自动打开，可无头）</ComboBoxItem>
                             </ComboBox>
 

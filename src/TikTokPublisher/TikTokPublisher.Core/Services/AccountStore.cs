@@ -229,7 +229,7 @@ public sealed class AccountStore
     private static string NormalizeUploadBrowserMode(string? value)
     {
         var normalized = (value ?? "").Trim().ToLowerInvariant();
-        return normalized is "embedded" or "external" or "playwright"
+        return normalized is "embedded" or "playwright"
             ? normalized
             : "embedded";
     }

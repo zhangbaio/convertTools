@@ -138,12 +138,14 @@ public sealed class DesktopDependencyInspector
 
     private static IEnumerable<string> GetBundledCandidates(string binaryName)
     {
-        var rid = GetOsArchKey();
         foreach (var root in EnumerateSearchRoots())
         {
-            yield return Path.Combine(root, "tools", rid, binaryName, ExecutableName(binaryName));
-            yield return Path.Combine(root, "tools", rid, "ffmpeg", ExecutableName(binaryName));
-            yield return Path.Combine(root, "tools", rid, "ffmpeg", "bin", ExecutableName(binaryName));
+            foreach (var rid in GetOsArchKeys())
+            {
+                yield return Path.Combine(root, "tools", rid, binaryName, ExecutableName(binaryName));
+                yield return Path.Combine(root, "tools", rid, "ffmpeg", ExecutableName(binaryName));
+                yield return Path.Combine(root, "tools", rid, "ffmpeg", "bin", ExecutableName(binaryName));
+            }
         }
     }
 
@@ -151,8 +153,11 @@ public sealed class DesktopDependencyInspector
     {
         foreach (var root in EnumerateSearchRoots())
         {
-            yield return Path.Combine(root, "tools", GetOsArchKey(), "python", ExecutableName("python"));
-            yield return Path.Combine(root, "tools", GetOsArchKey(), "python", ExecutableName("python3"));
+            foreach (var rid in GetOsArchKeys())
+            {
+                yield return Path.Combine(root, "tools", rid, "python", ExecutableName("python"));
+                yield return Path.Combine(root, "tools", rid, "python", ExecutableName("python3"));
+            }
         }
     }
 
@@ -181,12 +186,8 @@ public sealed class DesktopDependencyInspector
         }
     }
 
-    private static string GetOsArchKey()
+    private static IEnumerable<string> GetOsArchKeys()
     {
-        var os = OperatingSystem.IsMacOS() ? "macos"
-            : OperatingSystem.IsWindows() ? "windows"
-            : "linux";
-
         var arch = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch
         {
             System.Runtime.InteropServices.Architecture.Arm64 => "arm64",
@@ -194,7 +195,15 @@ public sealed class DesktopDependencyInspector
             _ => "unknown"
         };
 
-        return $"{os}-{arch}";
+        if (OperatingSystem.IsWindows())
+        {
+            yield return $"win-{arch}";
+            yield return $"windows-{arch}";
+            yield break;
+        }
+
+        var os = OperatingSystem.IsMacOS() ? "osx" : "linux";
+        yield return $"{os}-{arch}";
     }
 
     private static string ExecutableName(string name)

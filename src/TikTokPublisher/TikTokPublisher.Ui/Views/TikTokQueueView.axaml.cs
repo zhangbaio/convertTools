@@ -1593,7 +1593,7 @@ public partial class TikTokQueueView : UserControl
         _scheduler ??= new PublishScheduler(_automation, RequireBrowserProvider());
 
     private static bool UsesExternalUploadBrowser(TikTokAccountProfile account) =>
-        string.Equals((account.TiktokUploadBrowserMode ?? "").Trim(), "external", StringComparison.OrdinalIgnoreCase);
+        false;
 
     private static bool UsesPlaywrightUploadBrowser(TikTokAccountProfile account) =>
         string.Equals((account.TiktokUploadBrowserMode ?? "").Trim(), "playwright", StringComparison.OrdinalIgnoreCase);

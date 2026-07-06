@@ -98,7 +98,7 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
-    public void Reset_hgnew_credentials_clears_only_hongguo_account_fields()
+    public void Reset_installer_data_secrets_clears_sensitive_fields_only()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-reset-{Guid.NewGuid():N}");
         var databasePath = Path.Combine(tempDir, "app.db");
@@ -112,16 +112,28 @@ public sealed class TikTokPublishDefaultsTests
                 HgnewPassword = "secret",
                 HgnewUdid = "abc-def",
                 HgnewClientVersion = "1.3.8",
+                AiTextApiKey = "text-key",
+                ImageModelApiKey = "image-key",
+                OfoxImage2ApiKey = "ofox-key",
+                AiTextEndpoint = "https://example.test/v1",
+                ImageModelEndpoint = "https://image.example.test/v1",
+                OfoxImage2Endpoint = "https://ofox.example.test/v1",
                 DramaDownloadConcurrent = 4,
             }, databasePath);
 
-            ClientSettingsStore.ResetHgnewCredentials(databasePath);
+            ClientSettingsStore.ResetInstallerDataSecrets(databasePath);
 
             var loaded = ClientSettingsStore.Load(databasePath);
             loaded.HgnewAccount.Should().BeEmpty();
             loaded.HgnewPassword.Should().BeEmpty();
+            loaded.AiTextApiKey.Should().BeEmpty();
+            loaded.ImageModelApiKey.Should().BeEmpty();
+            loaded.OfoxImage2ApiKey.Should().BeEmpty();
             loaded.HgnewUdid.Should().Be("ABC-DEF");
             loaded.HgnewClientVersion.Should().Be("1.3.8");
+            loaded.AiTextEndpoint.Should().Be("https://example.test/v1");
+            loaded.ImageModelEndpoint.Should().Be("https://image.example.test/v1");
+            loaded.OfoxImage2Endpoint.Should().Be("https://ofox.example.test/v1");
             loaded.DramaDownloadConcurrent.Should().Be(4);
         }
         finally
@@ -140,8 +152,8 @@ public sealed class TikTokPublishDefaultsTests
     public void Account_profile_publish_defaults_match_python_settings()
     {
         var account = new TikTokAccountProfile();
-        account.TiktokLoginBrowserMode.Should().Be("embedded");
 
+        account.TiktokLoginBrowserMode.Should().Be("embedded");
         account.TiktokSubmitEnabled.Should().BeTrue();
         account.TiktokSubmitAction.Should().Be("submit");
         account.TiktokUploadBrowserMode.Should().Be("embedded");
@@ -169,6 +181,19 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokSilenceValidationEnabled.Should().BeTrue();
         account.TiktokMaxContinuousSilenceSeconds.Should().Be(20);
         account.TiktokSilenceThresholdDb.Should().Be(-45.0);
+    }
+
+    [Fact]
+    public void Account_store_normalizes_removed_external_upload_browser_to_embedded()
+    {
+        var method = typeof(AccountStore).GetMethod(
+            "NormalizeUploadBrowserMode",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+
+        method.Should().NotBeNull();
+        method!.Invoke(null, ["external"]).Should().Be("embedded");
+        method.Invoke(null, ["playwright"]).Should().Be("playwright");
+        method.Invoke(null, ["embedded"]).Should().Be("embedded");
     }
 
     [Fact]

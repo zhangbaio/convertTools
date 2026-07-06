@@ -17,10 +17,21 @@ public static class BundledToolResolver
     {
         foreach (var root in EnumerateSearchRoots())
         {
+            foreach (var runtimeFolder in EnumerateRuntimeFolders())
+            {
+                foreach (var candidate in new[]
+                         {
+                             Path.Combine(root, "tools", runtimeFolder, "python", ExecutableName("python")),
+                             Path.Combine(root, "tools", runtimeFolder, "python", ExecutableName("python3")),
+                         })
+                {
+                    if (File.Exists(candidate))
+                        return candidate;
+                }
+            }
+
             foreach (var candidate in new[]
                      {
-                         Path.Combine(root, "tools", RuntimeFolder, "python", ExecutableName("python")),
-                         Path.Combine(root, "tools", RuntimeFolder, "python", ExecutableName("python3")),
                          Path.Combine(root, "tools", "python", ExecutableName("python")),
                          Path.Combine(root, "tools", "python", ExecutableName("python3")),
                      })
@@ -63,16 +74,20 @@ public static class BundledToolResolver
         foreach (var root in EnumerateSearchRoots())
         {
             yield return Path.Combine(root, fileName);
-            yield return Path.Combine(root, "tools", RuntimeFolder, name, fileName);
-            yield return Path.Combine(root, "tools", RuntimeFolder, name, "bin", fileName);
+            foreach (var runtimeFolder in EnumerateRuntimeFolders())
+            {
+                yield return Path.Combine(root, "tools", runtimeFolder, name, fileName);
+                yield return Path.Combine(root, "tools", runtimeFolder, name, "bin", fileName);
+
+                if (name is "ffmpeg" or "ffprobe")
+                {
+                    yield return Path.Combine(root, "tools", runtimeFolder, "ffmpeg", fileName);
+                    yield return Path.Combine(root, "tools", runtimeFolder, "ffmpeg", "bin", fileName);
+                }
+            }
+
             yield return Path.Combine(root, "tools", name, fileName);
             yield return Path.Combine(root, "tools", name, "bin", fileName);
-
-            if (name is "ffmpeg" or "ffprobe")
-            {
-                yield return Path.Combine(root, "tools", RuntimeFolder, "ffmpeg", fileName);
-                yield return Path.Combine(root, "tools", RuntimeFolder, "ffmpeg", "bin", fileName);
-            }
         }
     }
 
@@ -93,17 +108,17 @@ public static class BundledToolResolver
     private static string ExecutableName(string name) =>
         OperatingSystem.IsWindows() && !Path.HasExtension(name) ? $"{name}.exe" : name;
 
-    private static string RuntimeFolder
+    private static IEnumerable<string> EnumerateRuntimeFolders()
     {
-        get
+        var arch = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
+        if (OperatingSystem.IsWindows())
         {
-            var os = OperatingSystem.IsWindows()
-                ? "windows"
-                : OperatingSystem.IsMacOS()
-                    ? "osx"
-                    : "linux";
-            var arch = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
-            return $"{os}-{arch}";
+            yield return $"win-{arch}";
+            yield return $"windows-{arch}";
+            yield break;
         }
+
+        var os = OperatingSystem.IsMacOS() ? "osx" : "linux";
+        yield return $"{os}-{arch}";
     }
 }
