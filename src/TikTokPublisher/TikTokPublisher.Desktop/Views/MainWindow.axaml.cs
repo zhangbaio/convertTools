@@ -5,6 +5,7 @@ using Avalonia.Layout;
 using Avalonia.Threading;
 using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Services;
+using TikTokPublisher.Desktop;
 using TikTokPublisher.Ui.Services;
 using TikTokPublisher.Ui.ViewModels;
 using TikTokPublisher.Ui.Views;
@@ -83,7 +84,6 @@ public partial class MainWindow : Window
 
         SetSidebarCollapsed(false);
         NavigateTo("queue");
-        Opened += OnWindowOpened;
         Closed += OnWindowClosed;
     }
 
@@ -113,43 +113,13 @@ public partial class MainWindow : Window
         ToolTip.SetTip(SidebarToggleButton, collapsed ? "展开左侧面板" : "收起左侧面板");
     }
 
-    private async void OnWindowOpened(object? sender, EventArgs e)
-    {
-        if (await EnsureLicenseOnStartupAsync())
-            StartLicenseVerifyTimer();
-    }
-
     private void OnWindowClosed(object? sender, EventArgs e)
     {
         _licenseVerifyTimer?.Stop();
         _licenseVerifyTimer = null;
     }
 
-    private async Task<bool> EnsureLicenseOnStartupAsync()
-    {
-        _viewModel.StatusMessage = "正在进行软件授权联网校验...";
-        var state = await VerifyLicenseAsync(forceVerify: true, allowOfflineGrace: false);
-        if (state is not null)
-        {
-            SaveVerifiedLicenseState(state);
-            _viewModel.StatusMessage = "软件授权联网校验通过";
-            return true;
-        }
-
-        NavigateTo("services");
-        var loggedIn = await ShowLicenseLoginDialogAsync("软件授权联网校验失败，请登录后继续使用。");
-        if (loggedIn)
-        {
-            _viewModel.StatusMessage = "软件授权登录成功";
-            return true;
-        }
-
-        _viewModel.StatusMessage = "软件授权未登录，程序已关闭。";
-        Close();
-        return false;
-    }
-
-    private void StartLicenseVerifyTimer()
+    public void StartLicenseVerifyTimer()
     {
         _licenseVerifyTimer?.Stop();
         _licenseVerifyTimer = new DispatcherTimer
@@ -168,7 +138,7 @@ public partial class MainWindow : Window
         _licenseVerifyRunning = true;
         try
         {
-            var state = await VerifyLicenseAsync(forceVerify: true, allowOfflineGrace: true);
+            var state = await LicenseGate.VerifyAsync(forceVerify: true, allowOfflineGrace: true);
             if (state is not null)
             {
                 SaveVerifiedLicenseState(state);
@@ -176,18 +146,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            _licenseVerifyTimer?.Stop();
-            NavigateTo("services");
-            var loggedIn = await ShowLicenseLoginDialogAsync("软件授权联网校验失败，请重新登录后继续使用。");
-            if (loggedIn)
-            {
-                _viewModel.StatusMessage = "软件授权登录成功";
-                StartLicenseVerifyTimer();
-            }
-            else
-            {
-                _viewModel.StatusMessage = "软件授权联网校验失败，请重新登录后继续使用。";
-            }
+            await RequireLicenseReloginAsync("软件授权联网校验失败，请重新登录后继续使用。");
         }
         finally
         {
@@ -195,19 +154,26 @@ public partial class MainWindow : Window
         }
     }
 
-    private static Task<LicenseState?> VerifyLicenseAsync(bool forceVerify, bool allowOfflineGrace)
+    private async Task RequireLicenseReloginAsync(string message)
     {
-        var settings = ClientSettingsStore.Load();
-        return Task.Run(() => LicenseAuthService.LoadUsableState(
-            settings.AuthServerUrl,
-            verifyIfDue: true,
-            allowOfflineGrace: allowOfflineGrace,
-            forceVerify: forceVerify,
-            account: settings.AuthAccount,
-            password: settings.AuthPassword));
+        _licenseVerifyTimer?.Stop();
+        _viewModel.StatusMessage = message;
+        _viewModel.RequestStopQueue();
+        HideForLicenseGate();
+
+        var loggedIn = await ShowLicenseLoginDialogAsync(message, standalone: true);
+        if (loggedIn)
+        {
+            _viewModel.StatusMessage = "软件授权登录成功";
+            ShowAfterLicenseGate();
+            StartLicenseVerifyTimer();
+            return;
+        }
+
+        Close();
     }
 
-    private async Task<bool> ShowLicenseLoginDialogAsync(string message)
+    private async Task<bool> ShowLicenseLoginDialogAsync(string message, bool standalone = false)
     {
         if (_licenseLoginDialogOpen)
             return false;
@@ -215,15 +181,19 @@ public partial class MainWindow : Window
         _licenseLoginDialogOpen = true;
         try
         {
-            var settings = ClientSettingsStore.Load();
-            var state = LicenseStore.Load();
-            var account = FirstNonEmpty(state.AccountUsername, state.Email, state.LicenseKey, settings.AuthAccount);
-            var result = await LicenseLoginDialog.ShowAsync(
-                this,
-                settings.AuthServerUrl,
-                account,
-                settings.AuthPassword,
-                message);
+            var login = LicenseGate.GetLoginDefaults();
+            var result = standalone
+                ? await LicenseLoginDialog.ShowStandaloneAsync(
+                    login.ServerUrl,
+                    login.Account,
+                    login.Password,
+                    message)
+                : await LicenseLoginDialog.ShowAsync(
+                    this,
+                    login.ServerUrl,
+                    login.Account,
+                    login.Password,
+                    message);
             if (result is null)
                 return false;
 
@@ -238,30 +208,31 @@ public partial class MainWindow : Window
 
     private void SaveLicenseLoginResult(LicenseLoginDialogResult result)
     {
-        var settings = ClientSettingsStore.Load();
-        LicenseSettingsBridge.ApplyAccountLoginCredentials(
-            settings,
-            result.State,
-            result.ServerUrl,
-            result.Account,
-            result.Password);
-        ClientSettingsStore.Save(settings);
+        LicenseGate.SaveLoginResult(result);
         _viewModel.SystemServices.Load();
         _viewModel.SystemServices.RefreshLicenseSummaryDisplay();
     }
 
     private void SaveVerifiedLicenseState(LicenseState state)
     {
-        var settings = ClientSettingsStore.Load();
-        LicenseSettingsBridge.ApplyAccountLoginCredentials(settings, state);
-        ClientSettingsStore.Save(settings);
+        LicenseGate.SaveVerifiedState(state);
         _viewModel.SystemServices.Load();
         _viewModel.SystemServices.RefreshLicenseSummaryDisplay();
     }
 
-    private static string FirstNonEmpty(params string?[] values) =>
-        values.Select(value => value?.Trim() ?? "")
-            .FirstOrDefault(value => value.Length > 0) ?? "";
+    private void HideForLicenseGate()
+    {
+        CollapseBrowserHostMount();
+        _browserHost.SetPresentationVisible(false);
+        Hide();
+    }
+
+    private void ShowAfterLicenseGate()
+    {
+        Show();
+        Activate();
+        ShowPage(_activeNavTag);
+    }
 
     private void BeginEmbeddedAccountLoginAsync(bool forceRelogin)
     {

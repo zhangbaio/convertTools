@@ -20,6 +20,7 @@ public sealed class LicenseLoginDialog : Window
     private readonly TextBlock _statusText;
     private readonly Button _loginButton;
     private readonly Button _cancelButton;
+    private LicenseLoginDialogResult? _result;
 
     private LicenseLoginDialog(
         string serverUrl,
@@ -139,10 +140,28 @@ public sealed class LicenseLoginDialog : Window
         string password,
         string message = "")
     {
+        if (owner is null)
+            return ShowStandaloneAsync(serverUrl, account, password, message);
+
         var dialog = new LicenseLoginDialog(serverUrl, account, password, message);
-        return owner is null
-            ? dialog.ShowDialog<LicenseLoginDialogResult?>(new Window())
-            : dialog.ShowDialog<LicenseLoginDialogResult?>(owner);
+        return dialog.ShowDialog<LicenseLoginDialogResult?>(owner);
+    }
+
+    public static Task<LicenseLoginDialogResult?> ShowStandaloneAsync(
+        string serverUrl,
+        string account,
+        string password,
+        string message = "")
+    {
+        var dialog = new LicenseLoginDialog(serverUrl, account, password, message)
+        {
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+        };
+
+        var tcs = new TaskCompletionSource<LicenseLoginDialogResult?>();
+        dialog.Closed += (_, _) => tcs.TrySetResult(dialog._result);
+        dialog.Show();
+        return tcs.Task;
     }
 
     private async Task LoginAsync()
@@ -156,7 +175,8 @@ public sealed class LicenseLoginDialog : Window
         try
         {
             var state = await LicenseAuthService.LoginAsync(serverUrl, account, password);
-            Close(new LicenseLoginDialogResult(serverUrl, account, password, state));
+            _result = new LicenseLoginDialogResult(serverUrl, account, password, state);
+            Close(_result);
         }
         catch (Exception ex)
         {
