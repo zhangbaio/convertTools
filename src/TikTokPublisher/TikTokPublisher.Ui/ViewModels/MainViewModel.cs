@@ -330,7 +330,6 @@ public sealed partial class MainViewModel : ViewModelBase
         RefreshWorkspaceFromActiveAccount();
         AccountSwitchRequested?.Invoke(value);
         RefreshTodayUploadCount();
-        StatusMessage = $"已切换账号「{value.DisplayName}」";
     }
 
     private string GetQueueSearchAccountKey()
@@ -1544,8 +1543,6 @@ public sealed partial class MainViewModel : ViewModelBase
             return TikTokRemoteCommandResult.Failed(command.Command, error);
 
         var text = $"已切换账号「{SelectedAccount?.DisplayName ?? ""}」";
-        StatusMessage = text;
-        AppendLog(text);
         return TikTokRemoteCommandResult.Success(command.Command, text);
     }
 

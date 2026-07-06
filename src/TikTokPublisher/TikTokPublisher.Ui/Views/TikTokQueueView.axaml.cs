@@ -294,7 +294,6 @@ public partial class TikTokQueueView : UserControl
             if (bound is not null && bound.Id != _vm.SelectedAccount?.Id)
             {
                 _vm.SelectedAccount = bound;
-                _vm.StatusMessage = $"工作目录已绑定账号「{bound.DisplayName}」，已自动切换";
             }
         }
 
