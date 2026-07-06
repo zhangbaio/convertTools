@@ -17,10 +17,17 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public event Action<QueueProjectRowViewModel>? RemarkChangedByUser;
 
     private string _lastRefreshFingerprint = "";
+    // NewProjectDir 解析 workflow 目录（含文件系统/元数据访问），NewTitle 依赖它。
+    // 缓存这两个值，避免 OnPropertyChanged("") 触发的多次绑定重求值每次都走 IO；
+    // 仅在内容指纹变化时（含标题变化，可能改变 workflow 目录名）重算一次。
+    private string _newProjectDir;
+    private string _newTitle;
 
     public QueueProjectRowViewModel(QueueProjectItem item)
     {
         Item = item;
+        _newProjectDir = ResolveWorkflowProjectDir(item.ProjectDir);
+        _newTitle = ResolveNewTitle(item, _newProjectDir);
         _lastRefreshFingerprint = BuildRefreshFingerprint(item);
     }
 
@@ -33,6 +40,8 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
             return;
 
         _lastRefreshFingerprint = fingerprint;
+        _newProjectDir = ResolveWorkflowProjectDir(item.ProjectDir);
+        _newTitle = ResolveNewTitle(item, _newProjectDir);
         OnPropertyChanged(string.Empty);
     }
 
@@ -88,13 +97,15 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         }
     }
     public string OriginalTitle => string.IsNullOrWhiteSpace(Item.OriginalTitle) ? Item.DisplayName : Item.OriginalTitle;
-    public string NewTitle => FirstNonEmpty(
-        Item.NewTitle,
-        ResolveWorkflowDisplayName(NewProjectDir),
-        Item.Title,
-        OriginalTitle);
+    public string NewTitle => _newTitle;
     public string OriginalProjectDir => Item.ProjectDir;
-    public string NewProjectDir => ResolveWorkflowProjectDir(Item.ProjectDir);
+    public string NewProjectDir => _newProjectDir;
+
+    private static string ResolveNewTitle(QueueProjectItem item, string newProjectDir) => FirstNonEmpty(
+        item.NewTitle,
+        ResolveWorkflowDisplayName(newProjectDir),
+        item.Title,
+        string.IsNullOrWhiteSpace(item.OriginalTitle) ? item.DisplayName : item.OriginalTitle);
     public int EpisodeCount => Item.EpisodeCount;
     public string QueuedAt => FormatQueuedAt(Item.QueuedAt, compact: true);
     public string QueuedAtTooltip => FormatQueuedAt(Item.QueuedAt, compact: false);

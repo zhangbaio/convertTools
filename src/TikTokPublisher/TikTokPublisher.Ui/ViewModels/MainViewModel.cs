@@ -113,6 +113,16 @@ public sealed partial class MainViewModel : ViewModelBase
     private DateTime _lastLogSnapshotUtc = DateTime.MinValue;
     private readonly Dictionary<string, QueueProjectRowViewModel> _queueRowByDir =
         new(StringComparer.OrdinalIgnoreCase);
+    // 跨工作目录持久复用行 VM：来回切账号时避免重建全部行 VM 与重复订阅事件。
+    private readonly Dictionary<string, QueueProjectRowViewModel> _rowVmCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private const int RowVmCacheMax = 2000;
+    // 持久化回调合并：worker 每次状态变更都会回调，这里按工作目录合并到最多每 200ms 应用一次。
+    private readonly object _persistCoalesceLock = new();
+    private readonly Dictionary<string, (string Root, IReadOnlyList<QueueProjectItem> Items)> _pendingPersistByRoot =
+        new(StringComparer.OrdinalIgnoreCase);
+    private bool _persistFlushScheduled;
+    private static readonly TimeSpan PersistCoalesceInterval = TimeSpan.FromMilliseconds(200);
     private readonly Dictionary<string, string> _lastProgressMessageByKey =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _queueSearchTextByAccount =
@@ -830,7 +840,9 @@ public sealed partial class MainViewModel : ViewModelBase
         foreach (var project in items)
         {
             var key = NormalizeProjectDir(project.ProjectDir);
-            if (!_queueRowByDir.TryGetValue(key, out var row))
+            // 优先复用当前显示映射，其次复用跨工作目录的持久缓存；都命中不到才新建并订阅事件。
+            if (!_queueRowByDir.TryGetValue(key, out var row) &&
+                !_rowVmCache.TryGetValue(key, out row))
             {
                 row = new QueueProjectRowViewModel(project);
                 row.EnabledChangedByUser += OnQueueRowEnabledChangedByUser;
@@ -844,12 +856,26 @@ public sealed partial class MainViewModel : ViewModelBase
             row.RowIndex = rowIndex++;
             nextRows.Add(row);
             nextByDir[key] = row;
+            _rowVmCache[key] = row;
         }
 
         ReconcileObservableCollection(QueueProjectRows, nextRows);
         _queueRowByDir.Clear();
         foreach (var (key, row) in nextByDir)
             _queueRowByDir[key] = row;
+
+        PruneRowVmCache(nextByDir);
+    }
+
+    /// <summary>持久行 VM 缓存超上限时，移除不在当前显示集合中的条目（其它工作目录的行需要时会重建）。</summary>
+    private void PruneRowVmCache(Dictionary<string, QueueProjectRowViewModel> keep)
+    {
+        if (_rowVmCache.Count <= RowVmCacheMax) return;
+        foreach (var key in _rowVmCache.Keys.ToList())
+        {
+            if (!keep.ContainsKey(key))
+                _rowVmCache.Remove(key);
+        }
     }
 
     private static void ReconcileObservableCollection<T>(
@@ -2122,6 +2148,52 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private static bool IsUploadSeriesProgress(QueueWorkerProgress progress) =>
         string.Equals(progress.StepKey, QueueStepRegistry.UploadSeries, StringComparison.Ordinal);
+
+    /// <summary>
+    /// 队列 worker 每次 mutate 都会回调持久化；并行多账号时若每条都在 UI 线程执行
+    /// <see cref="ApplyPersistedQueueItems(string, IReadOnlyList{QueueProjectItem})"/>
+    /// （深拷贝全部项目 + 缓存快照 + 入队持久化），会打满 UI 线程，切账号时表现为卡顿。
+    /// 这里按工作目录合并为最多每 200ms 应用一次最新快照。可从任意线程调用。
+    /// </summary>
+    public void EnqueuePersistedQueueItems(string workspaceRoot, IReadOnlyList<QueueProjectItem> items)
+    {
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            QueuePersistedItemsOnUiThread(workspaceRoot, items);
+        else
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => QueuePersistedItemsOnUiThread(workspaceRoot, items));
+    }
+
+    private void QueuePersistedItemsOnUiThread(string workspaceRoot, IReadOnlyList<QueueProjectItem> items)
+    {
+        var root = (workspaceRoot ?? "").Trim();
+        if (string.IsNullOrEmpty(root)) return;
+
+        bool schedule;
+        lock (_persistCoalesceLock)
+        {
+            _pendingPersistByRoot[NormalizeWorkspaceRootKey(root)] = (root, items);
+            schedule = !_persistFlushScheduled;
+            if (schedule) _persistFlushScheduled = true;
+        }
+
+        if (schedule)
+            Avalonia.Threading.DispatcherTimer.RunOnce(FlushPendingPersistedQueueItems, PersistCoalesceInterval);
+    }
+
+    private void FlushPendingPersistedQueueItems()
+    {
+        List<(string Root, IReadOnlyList<QueueProjectItem> Items)> batch;
+        lock (_persistCoalesceLock)
+        {
+            _persistFlushScheduled = false;
+            if (_pendingPersistByRoot.Count == 0) return;
+            batch = _pendingPersistByRoot.Values.ToList();
+            _pendingPersistByRoot.Clear();
+        }
+
+        foreach (var (root, items) in batch)
+            ApplyPersistedQueueItems(root, items);
+    }
 
     public void ApplyPersistedQueueItems(IReadOnlyList<QueueProjectItem> items) =>
         ApplyPersistedQueueItems(WorkspacePath, items);
