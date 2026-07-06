@@ -765,13 +765,14 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var root = NormalizeWorkspaceRootKey(workspaceRoot);
         if (string.IsNullOrWhiteSpace(root)) return;
+        var persistedOptions = ClonePersistentQueueRunOptions(options);
 
         lock (_workspaceQueueSnapshotsLock)
         {
             if (_workspaceQueueSnapshots.TryGetValue(root, out var snapshot))
-                snapshot.Options = options.Clone();
+                snapshot.Options = persistedOptions;
             else
-                _workspaceQueueSnapshots[root] = new WorkspaceQueueSnapshot { Options = options.Clone() };
+                _workspaceQueueSnapshots[root] = new WorkspaceQueueSnapshot { Options = persistedOptions };
         }
     }
 
@@ -791,9 +792,16 @@ public sealed partial class MainViewModel : ViewModelBase
             _workspaceQueueSnapshots[root] = new WorkspaceQueueSnapshot
             {
                 Items = CloneQueueItems(items),
-                Options = options?.Clone() ?? existingOptions,
+                Options = options is null ? existingOptions : ClonePersistentQueueRunOptions(options),
             };
         }
+    }
+
+    private static QueueRunOptions ClonePersistentQueueRunOptions(QueueRunOptions options)
+    {
+        var clone = options.Clone();
+        clone.UploadEntryMode = "";
+        return clone;
     }
 
     private bool TryGetWorkspaceQueueSnapshot(
@@ -812,7 +820,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 return false;
 
             items = CloneQueueItems(snapshot.Items);
-            options = (snapshot.Options ?? new QueueRunOptions()).Clone();
+            options = ClonePersistentQueueRunOptions(snapshot.Options ?? new QueueRunOptions());
             return true;
         }
     }
@@ -1460,6 +1468,7 @@ public sealed partial class MainViewModel : ViewModelBase
         SyncEnabledStepsFromUi();
         var concurrency = SelectedAccount?.Model.TiktokProjectConcurrency ?? _queueRunOptions.ProjectConcurrency;
         _queueRunOptions.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
+        _queueRunOptions.UploadEntryMode = "";
         return _queueRunOptions.Clone();
     }
 
@@ -2216,15 +2225,15 @@ public sealed partial class MainViewModel : ViewModelBase
         var root = NormalizeWorkspaceRootKey(workspaceRoot);
         var displayedRoot = NormalizeWorkspaceRootKey(WorkspacePath);
         if (string.Equals(root, displayedRoot, StringComparison.OrdinalIgnoreCase))
-            return _queueRunOptions;
+            return ClonePersistentQueueRunOptions(_queueRunOptions);
 
         lock (_workspaceQueueSnapshotsLock)
         {
             if (_workspaceQueueSnapshots.TryGetValue(root, out var snapshot) && snapshot.Options is not null)
-                return snapshot.Options.Clone();
+                return ClonePersistentQueueRunOptions(snapshot.Options);
         }
 
-        return WorkspaceQueueService.LoadRunOptions(root);
+        return ClonePersistentQueueRunOptions(WorkspaceQueueService.LoadRunOptions(root));
     }
 
     private bool _queueRowRefreshPending;
@@ -2347,7 +2356,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root)) return;
-        _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
+        _queueStatePersist.Enqueue(root, _queueItems, ClonePersistentQueueRunOptions(_queueRunOptions));
     }
 
     private void ApplyQueueStepTogglesFromOptions()
@@ -2390,6 +2399,7 @@ public sealed partial class MainViewModel : ViewModelBase
         _queueRunOptions.SyncManagementAfterUpload = SyncManagementAfterUpload;
         var concurrency = SelectedAccount?.Model.TiktokProjectConcurrency ?? _queueRunOptions.ProjectConcurrency;
         _queueRunOptions.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
+        _queueRunOptions.UploadEntryMode = "";
     }
 
     private void ApplyAccountQueueEnabledSteps(string workspaceRoot, QueueRunOptions? preloadedOptions = null)
@@ -2420,6 +2430,7 @@ public sealed partial class MainViewModel : ViewModelBase
         options.EnabledSteps = enabledSteps.ToList();
         var concurrency = account?.TiktokProjectConcurrency ?? options.ProjectConcurrency;
         options.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
+        options.UploadEntryMode = "";
         return options;
     }
 
