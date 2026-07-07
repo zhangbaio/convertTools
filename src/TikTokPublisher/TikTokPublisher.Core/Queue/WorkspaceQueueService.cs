@@ -637,8 +637,7 @@ public static class WorkspaceQueueService
 
             try
             {
-                if (Directory.EnumerateFiles(root)
-                    .Any(path => VideoExtensions.Contains(Path.GetExtension(path))))
+                if (EnumerateVideoFiles(root).Any())
                 {
                     return true;
                 }
@@ -650,6 +649,31 @@ public static class WorkspaceQueueService
         }
 
         return false;
+    }
+
+    private static IEnumerable<string> EnumerateVideoFiles(string root)
+    {
+        foreach (var path in Directory.EnumerateFiles(root, "*.*", SearchOption.TopDirectoryOnly))
+        {
+            if (VideoExtensions.Contains(Path.GetExtension(path)))
+                yield return path;
+        }
+
+        foreach (var child in Directory.EnumerateDirectories(root))
+        {
+            var name = Path.GetFileName(child);
+            if (string.IsNullOrWhiteSpace(name) ||
+                name.StartsWith(".", StringComparison.Ordinal) ||
+                name.Equals("workflow", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals("archive", StringComparison.OrdinalIgnoreCase) ||
+                name.Equals(TikTokUploadStagingService.StagingDirName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            foreach (var path in EnumerateVideoFiles(child))
+                yield return path;
+        }
     }
 
     private static bool IsPending(QueueProjectItem item, string stepKey) =>

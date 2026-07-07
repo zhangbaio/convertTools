@@ -23,6 +23,20 @@ public sealed record ManualInterventionDialogRequest(
     string ErrorMessage,
     string Hint);
 
+public sealed record LocalManualDramaBatchImportResult(
+    int RequestCount,
+    int AddedCount,
+    int ExistingCount,
+    IReadOnlyList<LocalManualDramaImportResult> Results,
+    IReadOnlyList<string> Failures)
+{
+    public int SuccessCount => Results.Count;
+    public int FailedCount => Failures.Count;
+    public IReadOnlyList<string> ProjectDirs => Results.Select(result => result.SourceProjectDir).ToArray();
+    public string SummaryText =>
+        $"本地剧集批量导入完成：请求 {RequestCount} 个，成功 {SuccessCount} 个，新增 {AddedCount} 个，已存在 {ExistingCount} 个，失败 {FailedCount} 个。";
+}
+
 public sealed partial class MainViewModel : ViewModelBase
 {
     public const string TikTokLoginUrl = TikTokUrls.DefaultLoginUrl;
@@ -2671,6 +2685,113 @@ public sealed partial class MainViewModel : ViewModelBase
             : $"本地剧集「{result.DisplayName}」已在「{accountName}」上传队列中，共 {result.EpisodeCount} 集";
         AppendLog(StatusMessage);
         return result;
+    }
+
+    public async Task<IReadOnlyList<LocalManualDramaImportPreview>> ListLocalManualDramaCandidatesAsync()
+    {
+        var root = ResolveSelectedAccountWorkspacePath();
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            StatusMessage = "请先为左侧选择账号配置上传工作目录";
+            return Array.Empty<LocalManualDramaImportPreview>();
+        }
+
+        return await Task.Run(() => LocalManualDramaImportService.ListCandidates(root))
+            .ConfigureAwait(true);
+    }
+
+    public async Task<LocalManualDramaBatchImportResult> ImportLocalManualDramasAsync(
+        IReadOnlyList<string> sourceProjectDirs)
+    {
+        var requestedDirs = sourceProjectDirs
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var root = ResolveSelectedAccountWorkspacePath();
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            StatusMessage = "请先为左侧选择账号配置上传工作目录";
+            return new LocalManualDramaBatchImportResult(requestedDirs.Length, 0, 0, [], ["请先为左侧选择账号配置上传工作目录"]);
+        }
+
+        var account = SelectedAccount?.Model;
+        Directory.CreateDirectory(root);
+        if (account is not null)
+            WorkspaceBindingService.Bind(root, account.Id, account.DisplayName);
+
+        if (!string.Equals(NormalizeWorkspacePath(WorkspacePath), root, StringComparison.OrdinalIgnoreCase))
+        {
+            WorkspacePath = root;
+            SystemSettings.UpdateWorkspacePath(root);
+            ArchivedProjects.SetWorkspace(root, refresh: false);
+        }
+
+        var existingBefore = WorkspaceQueueService.ScanProjects(root)
+            .Select(item => Path.GetFullPath(item.ProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var results = new List<LocalManualDramaImportResult>();
+        var failures = new List<string>();
+
+        for (var index = 0; index < requestedDirs.Length; index++)
+        {
+            var sourceProjectDir = requestedDirs[index];
+            var name = Path.GetFileName(sourceProjectDir);
+            StatusMessage = $"正在导入本地剧集（{index + 1}/{requestedDirs.Length}）：{name}";
+            AppendLog(StatusMessage);
+
+            try
+            {
+                var result = await Task.Run(() => LocalManualDramaImportService.Import(root, sourceProjectDir, AppendLog))
+                    .ConfigureAwait(true);
+                results.Add(result);
+                AppendLog($"已导入本地剧集：{result.DisplayName}（{result.EpisodeCount} 集）");
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{name}: {ex.Message}");
+                AppendLog($"导入本地剧集失败：{name} -> {ex.Message}");
+            }
+        }
+
+        var importedKeys = results
+            .Select(result => Path.GetFullPath(result.SourceProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (importedKeys.Count > 0)
+        {
+            WorkspaceQueueService.AddProjectsToQueue(root, importedKeys);
+            ApplyImportedProjectsToCurrentAccount(root, importedKeys, account);
+
+            if (IsCurrentWorkspaceQueueRunning())
+            {
+                var appended = AppendImportedProjectsWhileRunning(importedKeys);
+                if (appended.Count > 0)
+                {
+                    var appendedCount = _queueOrchestrator.TryAppendItemsToRunningWorkspace(root, appended);
+                    AppendLog(appendedCount > 0
+                        ? $"已请求追加 {appendedCount} 个本地剧集到运行中的队列末尾。"
+                        : $"已导入 {appended.Count} 个本地剧集到队列列表。");
+                }
+            }
+            else
+            {
+                await RefreshWorkspaceProjectsAsync(root, force: true).ConfigureAwait(true);
+            }
+        }
+
+        var addedCount = importedKeys.Count(key => !existingBefore.Contains(key));
+        var existingCount = Math.Max(0, importedKeys.Count - addedCount);
+        var batchResult = new LocalManualDramaBatchImportResult(
+            requestedDirs.Length,
+            addedCount,
+            existingCount,
+            results,
+            failures);
+
+        StatusMessage = batchResult.SummaryText;
+        AppendLog(StatusMessage);
+        return batchResult;
     }
 
     private void ApplyImportedProjectsToCurrentAccount(

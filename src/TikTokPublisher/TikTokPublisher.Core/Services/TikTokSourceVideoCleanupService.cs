@@ -8,6 +8,11 @@ public static class TikTokSourceVideoCleanupService
         ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm",
     };
 
+    private static readonly HashSet<string> IgnoredDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "workflow", "archive", TikTokUploadStagingService.StagingDirName,
+    };
+
     public static void DeleteSourceVideos(
         string sourceProjectDir,
         string workflowProjectDir,
@@ -123,11 +128,7 @@ public static class TikTokSourceVideoCleanupService
         foreach (var root in new[] { sourceProjectDir, Path.Combine(sourceProjectDir, "videos") })
         {
             if (!Directory.Exists(root)) continue;
-            foreach (var path in Directory.EnumerateFiles(root))
-            {
-                if (!VideoExtensions.Contains(Path.GetExtension(path))) continue;
-                candidates.Add(Path.GetFullPath(path));
-            }
+            candidates.AddRange(EnumerateSourceVideos(root));
         }
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -139,5 +140,28 @@ public static class TikTokSourceVideoCleanupService
         }
 
         return ordered;
+    }
+
+    private static IEnumerable<string> EnumerateSourceVideos(string root)
+    {
+        foreach (var path in Directory.EnumerateFiles(root, "*.*", SearchOption.TopDirectoryOnly))
+        {
+            if (VideoExtensions.Contains(Path.GetExtension(path)))
+                yield return Path.GetFullPath(path);
+        }
+
+        foreach (var child in Directory.EnumerateDirectories(root))
+        {
+            var name = Path.GetFileName(child);
+            if (string.IsNullOrWhiteSpace(name) ||
+                name.StartsWith(".", StringComparison.Ordinal) ||
+                IgnoredDirectoryNames.Contains(name))
+            {
+                continue;
+            }
+
+            foreach (var path in EnumerateSourceVideos(child))
+                yield return path;
+        }
     }
 }

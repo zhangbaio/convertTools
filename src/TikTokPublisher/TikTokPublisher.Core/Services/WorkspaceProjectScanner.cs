@@ -19,7 +19,7 @@ public static class WorkspaceProjectScanner
 
     private static readonly HashSet<string> ReservedDirNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "archive", "config", "material-clip-output", "workflow",
+        "archive", "config", "material-clip-output", "workflow", TikTokUploadStagingService.StagingDirName,
     };
 
     private const string ProjectMetadataFile = "shortdrama-project.json";
@@ -86,7 +86,7 @@ public static class WorkspaceProjectScanner
         if (!isProject)
         {
             preloadedVideos = FindVideoFiles(normalized);
-            isProject = preloadedVideos.Count > 0;
+            isProject = preloadedVideos.Count > 0 && !LooksLikeNestedProjectContainer(normalized);
         }
 
         if (requireProjectLike && !isProject)
@@ -105,6 +105,40 @@ public static class WorkspaceProjectScanner
         if (File.Exists(Path.Combine(projectDir, ProjectMetadataFile))) return true;
         if (File.Exists(Path.Combine(projectDir, DramaInfoFile))) return true;
         return false;
+    }
+
+    private static bool LooksLikeNestedProjectContainer(string projectDir)
+    {
+        if (HasDirectProjectSignal(projectDir))
+            return false;
+
+        foreach (var child in Directory.EnumerateDirectories(projectDir))
+        {
+            var name = Path.GetFileName(child);
+            if (string.IsNullOrWhiteSpace(name) ||
+                name.StartsWith(".", StringComparison.Ordinal) ||
+                ReservedDirNames.Contains(name) ||
+                LooksLikeEpisodeFolderName(name))
+            {
+                continue;
+            }
+
+            if (HasDirectProjectSignal(child) || FindVideoFiles(child).Count > 0)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasDirectProjectSignal(string projectDir)
+    {
+        if (LooksLikeProjectShallow(projectDir))
+            return true;
+
+        if (CountTopLevelVideoFiles(projectDir) > 0)
+            return true;
+
+        return CountTopLevelVideoFiles(Path.Combine(projectDir, "videos")) > 0;
     }
 
     private static WorkspaceProject BuildProjectInternal(string projectDir, List<string>? preloadedVideos = null)
@@ -271,6 +305,27 @@ public static class WorkspaceProjectScanner
                 results.Add(path);
         }
         return results.OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static int CountTopLevelVideoFiles(string dir)
+    {
+        if (!Directory.Exists(dir))
+            return 0;
+
+        return Directory.EnumerateFiles(dir, "*.*", SearchOption.TopDirectoryOnly)
+            .Count(path => VideoExtensions.Contains(Path.GetExtension(path)));
+    }
+
+    private static bool LooksLikeEpisodeFolderName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        return System.Text.RegularExpressions.Regex.IsMatch(
+            name.Trim(),
+            @"^(?:第?\s*\d+\s*(?:集|话|話|章|回)?|ep(?:isode)?\.?\s*\d+)$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     }
 
     private static string? ResolveCover(string stem, string? primaryVideo)

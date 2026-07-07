@@ -22,6 +22,11 @@ public static class ProjectWorkspaceService
         ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm",
     };
 
+    private static readonly HashSet<string> IgnoredVideoDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "workflow", "archive", TikTokUploadStagingService.StagingDirName,
+    };
+
     public static ProjectWorkspaceContext LoadContext(string projectDir)
     {
         var resolved = Path.GetFullPath(projectDir);
@@ -445,15 +450,35 @@ public static class ProjectWorkspaceService
             foreach (var sub in new[] { root, Path.Combine(root, "videos") })
             {
                 if (!Directory.Exists(sub)) continue;
-                foreach (var path in Directory.EnumerateFiles(sub))
-                {
-                    if (!VideoExtensions.Contains(Path.GetExtension(path))) continue;
+                foreach (var path in EnumerateVideoFiles(sub))
                     seen.Add(Path.GetFullPath(path));
-                }
             }
         }
 
         return seen.Count;
+    }
+
+    private static IEnumerable<string> EnumerateVideoFiles(string root)
+    {
+        foreach (var path in Directory.EnumerateFiles(root, "*.*", SearchOption.TopDirectoryOnly))
+        {
+            if (VideoExtensions.Contains(Path.GetExtension(path)))
+                yield return path;
+        }
+
+        foreach (var child in Directory.EnumerateDirectories(root))
+        {
+            var name = Path.GetFileName(child);
+            if (string.IsNullOrWhiteSpace(name) ||
+                name.StartsWith(".", StringComparison.Ordinal) ||
+                IgnoredVideoDirectoryNames.Contains(name))
+            {
+                continue;
+            }
+
+            foreach (var path in EnumerateVideoFiles(child))
+                yield return path;
+        }
     }
 
     private static void WriteMinimalProjectInfo(string infoPath, string newTitle, string originalTitle, int episodeCount)

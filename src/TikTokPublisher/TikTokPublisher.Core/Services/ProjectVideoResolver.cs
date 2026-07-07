@@ -13,6 +13,11 @@ public static class ProjectVideoResolver
         ".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".flv", ".wmv",
     };
 
+    private static readonly HashSet<string> IgnoredSourceDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "workflow", "archive", UploadStagingDirName,
+    };
+
     public static IReadOnlyList<string> ResolveUploadVideos(string sourceProjectDir, bool allowStagedFallback = false)
     {
         var source = Path.GetFullPath(sourceProjectDir);
@@ -62,13 +67,32 @@ public static class ProjectVideoResolver
         foreach (var root in new[] { sourceProjectDir, Path.Combine(sourceProjectDir, "videos"), Path.Combine(workflowProjectDir, "videos") })
         {
             if (!Directory.Exists(root)) continue;
-            foreach (var path in Directory.EnumerateFiles(root))
-            {
-                if (IsCandidateVideoFile(path))
-                    candidates.Add(Path.GetFullPath(path));
-            }
+            candidates.AddRange(EnumerateSourceVideos(root));
         }
         return DedupeAndSort(candidates);
+    }
+
+    private static IEnumerable<string> EnumerateSourceVideos(string root)
+    {
+        foreach (var path in Directory.EnumerateFiles(root, "*.*", SearchOption.TopDirectoryOnly))
+        {
+            if (IsCandidateVideoFile(path))
+                yield return Path.GetFullPath(path);
+        }
+
+        foreach (var child in Directory.EnumerateDirectories(root))
+        {
+            var name = Path.GetFileName(child);
+            if (string.IsNullOrWhiteSpace(name) ||
+                name.StartsWith(".", StringComparison.Ordinal) ||
+                IgnoredSourceDirectoryNames.Contains(name))
+            {
+                continue;
+            }
+
+            foreach (var path in EnumerateSourceVideos(child))
+                yield return path;
+        }
     }
 
     private static List<string> ResolveStagedUploadVideos(string workflowProjectDir)

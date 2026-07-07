@@ -862,6 +862,10 @@ public partial class TikTokQueueView : UserControl
         string RawText,
         string MatchMode);
 
+    private sealed record LocalDramaImportDialogResult(
+        IReadOnlyList<string> ProjectDirs,
+        bool AutoRun);
+
     private sealed record MoveTargetAccountOption(
         AccountItemViewModel Account,
         string Workspace)
@@ -1026,6 +1030,120 @@ public partial class TikTokQueueView : UserControl
         return await dialog.ShowDialog<UploadTitlesDialogResult?>(owner);
     }
 
+    private static async Task<LocalDramaImportDialogResult?> ShowLocalDramaImportDialogAsync(
+        Window owner,
+        IReadOnlyList<LocalManualDramaImportPreview> candidates)
+    {
+        var dialog = new Window
+        {
+            Title = "导入本地剧集 - TikTok",
+            Width = 720,
+            Height = 560,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+
+        var listBox = new ListBox
+        {
+            SelectionMode = SelectionMode.Multiple,
+            MinHeight = 300,
+            MaxHeight = 340,
+        };
+
+        foreach (var preview in candidates)
+        {
+            var item = new ListBoxItem
+            {
+                Content = FormatLocalDramaImportCandidate(preview),
+                Tag = preview,
+                IsSelected = !preview.MetadataExists,
+            };
+            listBox.Items.Add(item);
+        }
+
+        var autoRunCheck = new CheckBox
+        {
+            Content = "导入后自动按当前启用步骤执行",
+            IsChecked = false,
+        };
+
+        var selectNewButton = BuildDialogButton("选择未导入", () =>
+        {
+            foreach (var item in listBox.Items.OfType<ListBoxItem>())
+                item.IsSelected = item.Tag is LocalManualDramaImportPreview preview && !preview.MetadataExists;
+        });
+        var selectAllButton = BuildDialogButton("全选", () =>
+        {
+            foreach (var item in listBox.Items.OfType<ListBoxItem>())
+                item.IsSelected = true;
+        });
+        var clearButton = BuildDialogButton("取消全选", () =>
+        {
+            foreach (var item in listBox.Items.OfType<ListBoxItem>())
+                item.IsSelected = false;
+        });
+        var cancelButton = BuildDialogButton("取消", () => dialog.Close(null));
+        var importButton = BuildDialogButton("确定", () =>
+        {
+            var selected = listBox.SelectedItems?
+                .OfType<ListBoxItem>()
+                .Select(item => item.Tag is LocalManualDramaImportPreview preview ? preview.ProjectDir : "")
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray() ?? Array.Empty<string>();
+            dialog.Close(new LocalDramaImportDialogResult(selected, autoRunCheck.IsChecked == true));
+        }, primary: true);
+
+        dialog.Content = new StackPanel
+        {
+            Margin = new Thickness(16),
+            Spacing = 10,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = "从当前工作目录中批量选择已由下载器下载好的短剧文件夹。导入后会生成 shortdrama-project.json 并加入 TikTok 上传队列，本地导入项目会自动跳过下载剧集步骤。",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                },
+                new TextBlock
+                {
+                    Text = $"发现 {candidates.Count} 个可导入目录。默认选中未导入项目。",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                },
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8,
+                    Children = { selectNewButton, selectAllButton, clearButton },
+                },
+                listBox,
+                autoRunCheck,
+                new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Spacing = 8,
+                    Children = { cancelButton, importButton },
+                },
+            },
+        };
+
+        return await dialog.ShowDialog<LocalDramaImportDialogResult?>(owner);
+    }
+
+    private static string FormatLocalDramaImportCandidate(LocalManualDramaImportPreview preview)
+    {
+        var parts = new List<string>
+        {
+            preview.DisplayName,
+            $"{preview.EpisodeCount} 集",
+            string.IsNullOrWhiteSpace(preview.IntroPath) ? "缺简介" : "有简介",
+            string.IsNullOrWhiteSpace(preview.PosterPath) ? "缺海报" : "有海报",
+        };
+        if (preview.MetadataExists)
+            parts.Add("已导入");
+        return string.Join(" | ", parts);
+    }
+
     private static async Task ShowMessageAsync(Window owner, string title, string message, bool warning = false)
     {
         var dialog = new Window
@@ -1140,31 +1258,75 @@ public partial class TikTokQueueView : UserControl
     private async void OnImportLocalDramaClick(object? sender, RoutedEventArgs e)
     {
         var vm = _vm;
-        if (vm is null || Storage is null) return;
+        if (vm is null) return;
         if (string.IsNullOrWhiteSpace(vm.WorkspacePath))
         {
             vm.StatusMessage = "请先选择工作目录";
             return;
         }
 
-        var folders = await Storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "选择本地手动下载剧集目录",
-            AllowMultiple = false,
-            SuggestedStartLocation = await TryResolveFolderAsync(vm.WorkspacePath),
-        });
-        var folder = folders.FirstOrDefault();
-        if (folder is null) return;
-
         var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is null) return;
+
+        IReadOnlyList<LocalManualDramaImportPreview> candidates;
         try
         {
-            await vm.ImportLocalManualDramaAsync(folder.Path.LocalPath);
+            vm.StatusMessage = "正在扫描工作目录中的本地剧集…";
+            candidates = await vm.ListLocalManualDramaCandidatesAsync();
         }
         catch (Exception ex)
         {
-            if (owner is not null)
-                await ShowMessageAsync(owner, "导入本地剧集失败", ex.Message, warning: true);
+            vm.StatusMessage = $"扫描本地剧集失败：{ex.Message}";
+            await ShowMessageAsync(owner, "扫描本地剧集失败", ex.Message, warning: true);
+            return;
+        }
+
+        if (candidates.Count == 0)
+        {
+            await ShowMessageAsync(owner, "导入本地剧集", "当前工作目录下未发现包含视频文件的本地剧集文件夹。");
+            return;
+        }
+
+        var request = await ShowLocalDramaImportDialogAsync(owner, candidates);
+        if (request is null)
+            return;
+        if (request.ProjectDirs.Count == 0)
+        {
+            await ShowMessageAsync(owner, "导入本地剧集", "请至少选择一个本地剧集文件夹。", warning: true);
+            return;
+        }
+
+        LocalManualDramaBatchImportResult result;
+        try
+        {
+            result = await vm.ImportLocalManualDramasAsync(request.ProjectDirs);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"导入本地剧集失败：{ex.Message}";
+            await ShowMessageAsync(owner, "导入本地剧集失败", ex.Message, warning: true);
+            return;
+        }
+
+        if (result.Failures.Count > 0)
+        {
+            var lines = string.Join('\n', result.Failures.Take(30).Select(item => $"· {item}"));
+            var extra = result.Failures.Count > 30 ? $"\n… 等共 {result.Failures.Count} 条" : "";
+            await ShowMessageAsync(
+                owner,
+                "导入本地剧集 · 部分失败",
+                $"{result.SummaryText}\n\n{lines}{extra}",
+                warning: true);
+        }
+        else if (result.SuccessCount == 0)
+        {
+            await ShowMessageAsync(owner, "导入本地剧集", "没有可导入的本地剧集。");
+            return;
+        }
+
+        if (request.AutoRun && result.SuccessCount > 0 && !vm.IsCurrentWorkspaceQueueRunning())
+        {
+            await StartQueueRunAsync(projectDirFilter: BuildLocalManualImportProjectFilter(result));
         }
     }
 
@@ -1558,6 +1720,13 @@ public partial class TikTokQueueView : UserControl
     }
 
     private static IReadOnlyCollection<string> BuildUploadTitleImportProjectFilter(UploadTitleImportResult result)
+        => result.ProjectDirs
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    private static IReadOnlyCollection<string> BuildLocalManualImportProjectFilter(LocalManualDramaBatchImportResult result)
         => result.ProjectDirs
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(Path.GetFullPath)

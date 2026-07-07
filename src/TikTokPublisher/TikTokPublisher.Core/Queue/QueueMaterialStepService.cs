@@ -202,18 +202,13 @@ public static class QueueMaterialStepService
         var found = new HashSet<int>();
         try
         {
-            foreach (var dir in new[] { sourceProjectDir, Path.Combine(sourceProjectDir, "videos") })
+            foreach (var file in ProjectVideoResolver.ResolveSourceVideos(sourceProjectDir))
             {
-                if (!Directory.Exists(dir))
+                if (!EpisodeVideoExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
                     continue;
-                foreach (var file in Directory.EnumerateFiles(dir))
-                {
-                    if (!EpisodeVideoExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
-                        continue;
-                    var match = EpisodeNumberInFileName.Match(Path.GetFileName(file));
-                    if (match.Success && int.TryParse(match.Groups[1].Value, out var episode) && episode > 0)
-                        found.Add(episode);
-                }
+                var match = EpisodeNumberInFileName.Match(Path.GetFileName(file));
+                if (match.Success && int.TryParse(match.Groups[1].Value, out var episode) && episode > 0)
+                    found.Add(episode);
             }
         }
         catch (Exception ex)
