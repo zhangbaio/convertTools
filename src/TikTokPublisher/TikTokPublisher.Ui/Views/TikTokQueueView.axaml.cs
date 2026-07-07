@@ -8,6 +8,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Microsoft.Playwright;
 using TikTokPublisher.Core.Abstractions;
 using TikTokPublisher.Core.Config;
 using TikTokPublisher.Core.Drama;
@@ -35,6 +36,7 @@ public partial class TikTokQueueView : UserControl
     private readonly PublishRunStateStore _runState = PublishRunStateStore.Load();
     private readonly object _autoLoginLocksGate = new();
     private readonly Dictionary<string, SemaphoreSlim> _autoLoginLocks = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ManualExternalBrowserSession> _manualExternalBrowserSessions = new(StringComparer.Ordinal);
     private readonly Queue<ManualInterventionDialogRequest> _manualInterventionDialogs = new();
     private bool _manualInterventionDialogOpen;
     private QueueUiProgressSink? _queueProgressSink;
@@ -67,6 +69,7 @@ public partial class TikTokQueueView : UserControl
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
+        DetachedFromVisualTree += async (_, _) => await CloseManualExternalBrowserSessionsAsync().ConfigureAwait(false);
     }
 
     public void Initialize(MainViewModel vm, BrowserSessionHost browserHost, Action? ensureBrowserMounted = null)
@@ -208,7 +211,7 @@ public partial class TikTokQueueView : UserControl
                 : WindowStartupLocation.CenterOwner,
         };
 
-        var openBrowserButton = BuildDialogButton("打开外部浏览器", () => OpenSelectedAccountExternalBrowser());
+        var openBrowserButton = BuildDialogButton("打开外部浏览器", () => _ = OpenSelectedAccountExternalBrowserAsync());
         var skipButton = BuildDialogButton("跳过此项目", () =>
         {
             tcs.TrySetResult("failed");
@@ -398,39 +401,76 @@ public partial class TikTokQueueView : UserControl
         _vm.RefreshWorkspaceProjects();
     }
 
-    private void OnOpenBrowserClick(object? sender, RoutedEventArgs e)
+    private async void OnOpenBrowserClick(object? sender, RoutedEventArgs e)
     {
-        OpenSelectedAccountExternalBrowser();
+        await OpenSelectedAccountExternalBrowserAsync();
     }
 
-    private void OpenSelectedAccountExternalBrowser()
+    private async Task OpenSelectedAccountExternalBrowserAsync()
     {
         var vm = _vm;
-        if (vm?.SelectedAccount is null)
+        if (vm is null)
+            return;
+
+        var accountVm = ResolveManualExternalBrowserAccount(vm);
+        if (accountVm is null)
         {
-            if (vm is not null) vm.StatusMessage = "请先选择账号";
+            vm.StatusMessage = "请先选择账号";
             return;
         }
 
-        var account = vm.SelectedAccount.Model;
+        var account = accountVm.Model;
         var url = string.IsNullOrWhiteSpace(account.TiktokSeriesUrl)
             ? TikTokUrls.DefaultSeriesDraftUrl
             : account.TiktokSeriesUrl.Trim();
+        var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
 
         try
         {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = url,
-                UseShellExecute = true,
-            });
+            await CloseManualExternalBrowserSessionsAsync().ConfigureAwait(true);
+            var (pw, browser, _) = await EmbeddedBrowserAutomationBridge
+                .LaunchPageAsync(account, url, authPath, headless: false, vm.AppendLog, CancellationToken.None)
+                .ConfigureAwait(true);
+            _manualExternalBrowserSessions[account.Id] = new ManualExternalBrowserSession(pw, browser);
 
-            vm.StatusMessage = $"[{vm.SelectedAccount.DisplayName}] 已打开外部浏览器：{url}";
+            vm.StatusMessage = $"[{accountVm.DisplayName}] 已打开账号专属外部浏览器：{url}";
             vm.AppendLog(vm.StatusMessage);
         }
         catch (Exception ex)
         {
             vm.StatusMessage = $"打开外部浏览器失败：{ex.Message}";
+            vm.AppendLog(vm.StatusMessage);
+        }
+    }
+
+    private AccountItemViewModel? ResolveManualExternalBrowserAccount(MainViewModel vm)
+    {
+        var workspace = (vm.WorkspacePath ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(workspace))
+        {
+            var boundId = WorkspaceBindingService.ResolveAccountProfileId(workspace);
+            if (!string.IsNullOrWhiteSpace(boundId))
+            {
+                var bound = vm.FindAccount(boundId);
+                if (bound is not null)
+                    return bound;
+            }
+        }
+
+        return vm.SelectedAccount;
+    }
+
+    private async Task CloseManualExternalBrowserSessionsAsync()
+    {
+        if (_manualExternalBrowserSessions.Count == 0)
+            return;
+
+        var sessions = _manualExternalBrowserSessions.Values.ToArray();
+        _manualExternalBrowserSessions.Clear();
+        foreach (var session in sessions)
+        {
+            try { await session.DisposeAsync().ConfigureAwait(false); }
+            catch { /* Best-effort cleanup for manually opened browsers. */ }
         }
     }
 
@@ -2260,6 +2300,24 @@ public partial class TikTokQueueView : UserControl
             _runState.MarkDone(PublishRunStateStore.SignatureFor(task.Account.Id, task.Item), task.VideoName, task.AccountName);
             if (!string.IsNullOrWhiteSpace(task.Item.ProjectDir) && !string.IsNullOrWhiteSpace(vm.WorkspacePath))
                 vm.MarkProjectUploadCompleted(task.Item.ProjectDir);
+        }
+    }
+
+    private sealed class ManualExternalBrowserSession : IAsyncDisposable
+    {
+        private readonly IPlaywright _playwright;
+        private readonly IBrowser _browser;
+
+        public ManualExternalBrowserSession(IPlaywright playwright, IBrowser browser)
+        {
+            _playwright = playwright;
+            _browser = browser;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            try { await _browser.DisposeAsync().ConfigureAwait(false); }
+            finally { _playwright.Dispose(); }
         }
     }
 }

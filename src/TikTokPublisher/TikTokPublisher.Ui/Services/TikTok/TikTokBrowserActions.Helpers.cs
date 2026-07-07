@@ -455,9 +455,9 @@ public static partial class TikTokBrowserActions
 
         if (!enabled)
         {
-            var unchecked = await CollectUncheckedPromiseItemsAsync(drawer);
+            var uncheckedItems = await CollectUncheckedPromiseItemsAsync(drawer);
             var buttonState = await DescribeButtonStateAsync(agree);
-            var uncheckedText = unchecked.Count == 0 ? "未检测到未勾选项" : string.Join("；", unchecked.Take(8));
+            var uncheckedText = uncheckedItems.Count == 0 ? "未检测到未勾选项" : string.Join("；", uncheckedItems.Take(8));
             throw new InvalidOperationException(
                 $"版权内容自查清单子项已勾选，但「同意」按钮仍不可用。{uncheckedText}。按钮状态：{buttonState}");
         }
