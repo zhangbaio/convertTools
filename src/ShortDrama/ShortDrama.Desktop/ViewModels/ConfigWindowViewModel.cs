@@ -267,7 +267,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string pikachuDeviceId = string.Empty;
 
     [ObservableProperty]
-    private string pikachuClientVersion = "1.4.2";
+    private string pikachuClientVersion = "1.4.4";
 
     [ObservableProperty]
     private string pikachuProbeStatus = string.Empty;
@@ -563,7 +563,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
         PikachuFanqieCookie = _loadedGlobalConfig.PikachuFanqieCookie;
         PikachuDramaType = _loadedGlobalConfig.PikachuDramaType;
         PikachuDeviceId = _loadedGlobalConfig.PikachuDeviceId;
-        PikachuClientVersion = string.IsNullOrWhiteSpace(_loadedGlobalConfig.PikachuClientVersion) ? "1.4.2" : _loadedGlobalConfig.PikachuClientVersion;
+        PikachuClientVersion = string.IsNullOrWhiteSpace(_loadedGlobalConfig.PikachuClientVersion) ? "1.4.4" : _loadedGlobalConfig.PikachuClientVersion;
         PikachuProbeStatus = string.Empty;
         AiTextEndpoint = merged.AiTextEndpoint;
         AiTextApiKey = merged.AiTextApiKey;

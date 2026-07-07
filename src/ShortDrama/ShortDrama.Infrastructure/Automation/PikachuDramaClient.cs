@@ -1,21 +1,22 @@
 using System.Globalization;
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
 namespace ShortDrama.Infrastructure.Automation;
 
-/// <summary>皮卡丘链路搜索与连通性测试（从 Desktop DramaSourceRouter / Python pikachu_source_service 抽取）。</summary>
+/// <summary>皮卡丘链路搜索与连通性测试。</summary>
 public static class PikachuDramaClient
 {
     private const string FanqieSearchUrl =
         "https://api5-sinfonlinea.novelfm.com/novelfm/bookmall/search/page/v1/?device_platform=android&aid=3040&manifest_version_code=628&update_version_code=62832";
     private const string DetailPath = "/api/drama/hongguo/detail";
+    private const string VideoPath = "/api/drama/hongguo/decryptVideo";
     private const string TestBookId = "7599558182226119705";
     private const string PikachuPassId = "start-prod-api";
     private const string PikachuPassToken = "MkYQyRrrD2iG5WuDEV7DjYcq2jq7";
-    private const string DefaultServerUrl = "http://8.138.192.128/start-prod-api";
+    private const string DefaultServerUrl = "https://startvlog.cn/start-prod-api";
+    private const string DefaultClientVersion = "1.4.4";
     private const string FanqieUserAgent =
         "com.xs.fm/576 (Linux; U; Android 9; zh_CN; BVL-AN16; Build/PQ3B.190801.11191547;tt-ok/3.12.13.4-tiktok)";
     private const string PikachuPublicKey = """
@@ -48,6 +49,8 @@ public static class PikachuDramaClient
         string? serverUrl,
         string? fanqieCookie,
         string dramaType = "short",
+        string? deviceId = null,
+        string? clientVersion = null,
         int timeoutSeconds = 15,
         CancellationToken cancellationToken = default)
     {
@@ -81,13 +84,38 @@ public static class PikachuDramaClient
         var detailOk = false;
         try
         {
-            var episodeCount = await ProbeDetailEpisodeCountAsync(
+            var detailProbe = await ProbeDetailAsync(
                 httpClient,
                 normalizedServer,
                 TestBookId,
                 timeoutCts.Token);
             detailOk = true;
-            detailMessage = $"皮卡丘服务器正常，测试剧返回 {episodeCount} 集";
+            detailMessage = $"皮卡丘服务器正常，测试剧返回 {detailProbe.EpisodeCount} 集";
+
+            var resolvedDeviceId = (deviceId ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(detailProbe.FirstVideoId) && !string.IsNullOrWhiteSpace(resolvedDeviceId))
+            {
+                try
+                {
+                    await ProbeVideoAsync(
+                        httpClient,
+                        normalizedServer,
+                        detailProbe.FirstVideoId,
+                        resolvedDeviceId,
+                        string.IsNullOrWhiteSpace(clientVersion) ? DefaultClientVersion : clientVersion.Trim(),
+                        timeoutCts.Token);
+                    detailMessage += "；video 直链正常";
+                }
+                catch (Exception ex)
+                {
+                    detailOk = false;
+                    detailMessage += $"；video 失败：{ex.Message}";
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(detailProbe.FirstVideoId))
+            {
+                detailMessage += "；未配置 DeviceId，未测试 video";
+            }
         }
         catch (Exception ex)
         {
@@ -97,7 +125,7 @@ public static class PikachuDramaClient
         return new ConnectivityResult(searchOk, detailOk, searchMessage, detailMessage);
     }
 
-    private static async Task<int> ProbeDetailEpisodeCountAsync(
+    private static async Task<DetailProbeResult> ProbeDetailAsync(
         HttpClient httpClient,
         string serverUrl,
         string bookId,
@@ -125,10 +153,58 @@ public static class PikachuDramaClient
             !data.TryGetProperty("data", out var episodeList) ||
             episodeList.ValueKind != JsonValueKind.Array)
         {
-            return 0;
+            return new DetailProbeResult(0, null);
         }
 
-        return episodeList.GetArrayLength();
+        string? firstVideoId = null;
+        foreach (var episode in episodeList.EnumerateArray())
+        {
+            firstVideoId = GetString(episode, "videoId") ?? GetString(episode, "video_id");
+            if (!string.IsNullOrWhiteSpace(firstVideoId))
+            {
+                break;
+            }
+        }
+
+        return new DetailProbeResult(episodeList.GetArrayLength(), firstVideoId);
+    }
+
+    private static async Task ProbeVideoAsync(
+        HttpClient httpClient,
+        string serverUrl,
+        string videoId,
+        string deviceId,
+        string clientVersion,
+        CancellationToken cancellationToken)
+    {
+        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["videoId"] = Encrypt(videoId),
+            ["quality"] = Encrypt("1080"),
+            ["deviceId"] = Encrypt(deviceId),
+            ["version"] = Encrypt(clientVersion)
+        });
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{serverUrl}{VideoPath}")
+        {
+            Content = content
+        };
+        ApplyPikachuHeaders(request);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        if (!string.Equals(GetString(document.RootElement, "code"), "200", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"皮卡丘 video 失败: {GetString(document.RootElement, "msg") ?? "unknown"}");
+        }
+
+        var url = document.RootElement.TryGetProperty("data", out var data)
+            ? GetString(data, "url")
+            : null;
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            throw new InvalidOperationException("皮卡丘 video 未返回可用播放链接。");
+        }
     }
 
     private static async Task<IReadOnlyList<int>> SearchAsync(
@@ -242,4 +318,6 @@ public static class PikachuDramaClient
             _ => null
         };
     }
+
+    private sealed record DetailProbeResult(int EpisodeCount, string? FirstVideoId);
 }

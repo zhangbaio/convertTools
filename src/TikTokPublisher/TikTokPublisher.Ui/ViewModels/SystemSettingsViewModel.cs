@@ -39,11 +39,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _hongguoLocalBaseUrl = "";
     [ObservableProperty] private string _hongguoLocalApiKey = "";
 
-    [ObservableProperty] private string _pikachuServerUrl = "http://8.138.192.128/start-prod-api";
+    [ObservableProperty] private string _pikachuServerUrl = "https://startvlog.cn/start-prod-api";
     [ObservableProperty] private string _pikachuFanqieCookie = "";
     [ObservableProperty] private string _pikachuDramaType = "short";
     [ObservableProperty] private string _pikachuDeviceId = "";
-    [ObservableProperty] private string _pikachuClientVersion = "1.4.2";
+    [ObservableProperty] private string _pikachuClientVersion = "1.4.4";
     [ObservableProperty] private string _pikachuProbeStatus = "";
     [ObservableProperty] private bool _isPikachuBusy;
     [ObservableProperty] private string _hongguoLocalProbeStatus = "";
@@ -149,7 +149,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PikachuFanqieCookie = PikachuFanqieCookie.Trim(),
         PikachuDramaType = PikachuDramaType,
         PikachuDeviceId = PikachuDeviceId.Trim(),
-        PikachuClientVersion = string.IsNullOrWhiteSpace(PikachuClientVersion) ? "1.4.2" : PikachuClientVersion.Trim(),
+        PikachuClientVersion = string.IsNullOrWhiteSpace(PikachuClientVersion) ? "1.4.4" : PikachuClientVersion.Trim(),
         TiktokSilenceAsrEngine = TiktokSilenceAsrEngine,
         TiktokSilenceLocalModelDir = TiktokSilenceLocalModelDir.Trim(),
         TiktokSilenceLocalVadPath = TiktokSilenceLocalVadPath.Trim(),
@@ -263,8 +263,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
                 PikachuServerUrl,
                 PikachuFanqieCookie,
                 PikachuDramaType,
+                PikachuDeviceId,
+                PikachuClientVersion,
                 timeoutSeconds: 15,
-                CancellationToken.None);
+                cancellationToken: CancellationToken.None);
 
             var lines = new List<string>
             {

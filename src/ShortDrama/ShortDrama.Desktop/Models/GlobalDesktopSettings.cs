@@ -26,11 +26,11 @@ public sealed class GlobalDesktopSettings
     public int HongguoEpisodeDownloadAttempts { get; set; } = 5;
     public string HongguoLocalBaseUrl { get; set; } = string.Empty;
     public string HongguoLocalApiKey { get; set; } = string.Empty;
-    public string PikachuServerUrl { get; set; } = "http://8.138.192.128/start-prod-api";
+    public string PikachuServerUrl { get; set; } = "https://startvlog.cn/start-prod-api";
     public string PikachuFanqieCookie { get; set; } = string.Empty;
     public string PikachuDramaType { get; set; } = "short";
     public string PikachuDeviceId { get; set; } = string.Empty;
-    public string PikachuClientVersion { get; set; } = "1.4.2";
+    public string PikachuClientVersion { get; set; } = "1.4.4";
     public string AiTextEndpoint { get; set; } = string.Empty;
     public string AiTextApiKey { get; set; } = string.Empty;
     public string AiTextModel { get; set; } = string.Empty;

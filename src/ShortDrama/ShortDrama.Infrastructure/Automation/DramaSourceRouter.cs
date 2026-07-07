@@ -985,7 +985,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var videoId = StripPrefix(prefixedVideoId, PikachuEpisodePrefix);
         var deviceId = await ResolvePikachuDeviceIdAsync(settings, cancellationToken);
         var clientVersion = string.IsNullOrWhiteSpace(settings.PikachuClientVersion)
-            ? "1.4.2"
+            ? "1.4.4"
             : settings.PikachuClientVersion.Trim();
         using var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
@@ -994,7 +994,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             ["deviceId"] = PikachuEncrypt(deviceId),
             ["version"] = PikachuEncrypt(clientVersion)
         });
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{serverUrl}/api/drama/hongguo/video")
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{serverUrl}/api/drama/hongguo/decryptVideo")
         {
             Content = content
         };
@@ -1344,7 +1344,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     {
         var normalized = (value ?? string.Empty).Trim().TrimEnd('/');
         return string.IsNullOrWhiteSpace(normalized)
-            ? "http://8.138.192.128/start-prod-api"
+            ? "https://startvlog.cn/start-prod-api"
             : normalized;
     }
 

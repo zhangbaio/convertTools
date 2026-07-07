@@ -26,7 +26,7 @@ public static class DramaSourceSettingsMapping
         PikachuFanqieCookie = settings.PikachuFanqieCookie ?? "",
         PikachuDramaType = settings.PikachuDramaType ?? "short",
         PikachuDeviceId = settings.PikachuDeviceId ?? "",
-        PikachuClientVersion = settings.PikachuClientVersion ?? "1.4.2",
+        PikachuClientVersion = settings.PikachuClientVersion ?? "1.4.4",
     };
 
     private static string NormalizeChain(string? chain)

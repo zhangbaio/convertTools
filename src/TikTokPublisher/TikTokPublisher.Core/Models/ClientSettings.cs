@@ -20,11 +20,11 @@ public sealed class ClientSettings
     public string HongguoLocalBaseUrl { get; set; } = "";
     public string HongguoLocalApiKey { get; set; } = "";
 
-    public string PikachuServerUrl { get; set; } = "http://8.138.192.128/start-prod-api";
+    public string PikachuServerUrl { get; set; } = "https://startvlog.cn/start-prod-api";
     public string PikachuFanqieCookie { get; set; } = "";
     public string PikachuDramaType { get; set; } = "short";
     public string PikachuDeviceId { get; set; } = "";
-    public string PikachuClientVersion { get; set; } = "1.4.2";
+    public string PikachuClientVersion { get; set; } = "1.4.4";
 
     public string TiktokSilenceAsrEngine { get; set; } = "local";
     public string TiktokSilenceLocalModelDir { get; set; } = "";
