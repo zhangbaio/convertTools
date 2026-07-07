@@ -555,6 +555,14 @@ public sealed class QueueWorkerRunner
                 Report(onProgress, workspace, item, msg, QueueStepRegistry.UploadSeries))
             : msg => Report(onProgress, workspace, item, msg, QueueStepRegistry.UploadSeries);
 
+        var consistency = TikTokUploadEpisodeConsistencyService.ValidateBeforeUpload(item);
+        if (!consistency.Ok)
+        {
+            mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, consistency.Message));
+            Report(onProgress, workspace, item, consistency.Message, QueueStepRegistry.UploadSeries);
+            return false;
+        }
+
         mutate(() => MarkRunning(item, QueueStepRegistry.UploadSeries));
         Report(onProgress, workspace, item, $"[{account.DisplayName}] 准备内置浏览器…", QueueStepRegistry.UploadSeries);
 

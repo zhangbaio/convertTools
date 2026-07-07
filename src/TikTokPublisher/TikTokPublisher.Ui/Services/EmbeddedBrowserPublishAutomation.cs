@@ -22,6 +22,10 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
     {
         void L(string m) => log?.Invoke(m);
 
+        var consistency = TikTokUploadEpisodeConsistencyService.ValidateBeforeUpload(item);
+        if (!consistency.Ok)
+            return PublishResult.FailAndSkipManualIntervention(consistency.Message);
+
         if (!File.Exists(item.VideoPath))
             return PublishResult.Fail($"视频不存在：{item.VideoPath}");
 

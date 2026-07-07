@@ -118,6 +118,61 @@ public sealed class QueueWorkerRunnerTests
         item.LastError.Should().Contain("避免误用当前账号");
     }
 
+    [Fact]
+    public async Task RunAsync_fails_before_browser_when_source_episode_count_is_incomplete()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"tiktok-queue-runner-episode-check-{Guid.NewGuid():N}");
+        var projectDir = Path.Combine(workspace, "source");
+        Directory.CreateDirectory(projectDir);
+
+        try
+        {
+            for (var episode = 1; episode <= 99; episode++)
+                File.WriteAllBytes(Path.Combine(projectDir, $"show-第{episode}集.mp4"), [1]);
+
+            var account = new TikTokAccountProfile
+            {
+                Id = "acct-test",
+                Name = "test",
+            };
+            var store = CreateAccountStore(account);
+            var item = CreateReadyToUploadItem(1, account);
+            item.ProjectDir = projectDir;
+            item.EpisodeCount = 100;
+            var host = new ImmediatePublishHost();
+            var progressMessages = new List<string>();
+
+            var summary = await new QueueWorkerRunner().RunAsync(
+                workspace,
+                [item],
+                new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+                host,
+                store,
+                FinalAction.None,
+                onProgress: progress => progressMessages.Add(progress.Message),
+                onPersist: null,
+                CancellationToken.None);
+
+            summary.SuccessCount.Should().Be(0);
+            summary.FailedCount.Should().Be(1);
+            host.BrowserReadyCalls.Should().Be(0);
+            host.PublishedProjectDirs.Should().BeEmpty();
+            item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Failed);
+            string.Join(Environment.NewLine, progressMessages).Should().Contain("第 100 集");
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(workspace))
+                    Directory.Delete(workspace, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     private static QueueProjectItem CreateReadyToUploadItem(int index, TikTokAccountProfile account)
     {
         var item = new QueueProjectItem
@@ -160,12 +215,16 @@ public sealed class QueueWorkerRunnerTests
     {
         public List<string> PublishedProjectDirs { get; } = new();
         public List<string> PublishedAccountIds { get; } = new();
+        public int BrowserReadyCalls { get; private set; }
 
         public Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
             TikTokAccountProfile account,
             Action<string>? log,
-            CancellationToken ct) =>
-            Task.FromResult(QueueBrowserReadyResult.Ready());
+            CancellationToken ct)
+        {
+            BrowserReadyCalls++;
+            return Task.FromResult(QueueBrowserReadyResult.Ready());
+        }
 
         public Task<PublishResult> PublishProjectAsync(
             TikTokAccountProfile account,
