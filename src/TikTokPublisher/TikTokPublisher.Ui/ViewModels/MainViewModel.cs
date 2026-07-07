@@ -2883,6 +2883,14 @@ public sealed partial class MainViewModel : ViewModelBase
                 row.Item.Archived = true;
                 archivedProjectDirs.Add(projectDir);
                 successCount++;
+                var archivedItem = CloneQueueItem(row.Item);
+                _ = Task.Run(() => TikTokExecutionHistoryService.AppendEvent(
+                    "project_archived",
+                    archivedItem.StatusText,
+                    root,
+                    archivedItem,
+                    message: "项目已归档",
+                    account: account));
             }
             catch (Exception ex)
             {
@@ -3372,14 +3380,14 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private (IReadOnlyList<QueueProjectItem> Items, IReadOnlyDictionary<string, string> WorkspaceByProject) BuildExcelExportSnapshot(string activeWorkspace)
     {
-        var activeRoot = Path.GetFullPath(activeWorkspace);
-        var displayedRoot = string.IsNullOrWhiteSpace(WorkspacePath) ? "" : Path.GetFullPath(WorkspacePath);
+        var activeRoot = SafeFullPath(activeWorkspace);
+        var displayedRoot = string.IsNullOrWhiteSpace(WorkspacePath) ? "" : SafeFullPath(WorkspacePath);
         var workspaces = new Dictionary<string, TikTokAccountProfile?>(StringComparer.OrdinalIgnoreCase);
 
         void AddWorkspace(string? workspace, TikTokAccountProfile? account)
         {
             if (string.IsNullOrWhiteSpace(workspace)) return;
-            var normalized = Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspace.Trim()));
+            var normalized = SafeFullPath(Environment.ExpandEnvironmentVariables(workspace.Trim()));
             if (!Directory.Exists(normalized)) return;
 
             if (!workspaces.TryGetValue(normalized, out var existing) || (existing is null && account is not null))
@@ -3392,8 +3400,74 @@ public sealed partial class MainViewModel : ViewModelBase
         AddWorkspace(activeRoot, SelectedAccount?.Model);
 
         var items = new List<QueueProjectItem>();
+        var indexByKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var keyByAlias = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var workspaceByProject = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var seenProjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var knownAccountKeys = BuildKnownAccountKeys();
+
+        void AddOrMergeItem(QueueProjectItem source, string workspaceRoot, TikTokAccountProfile? account, bool preferSource)
+        {
+            if (string.IsNullOrWhiteSpace(source.ProjectDir) &&
+                string.IsNullOrWhiteSpace(source.OriginalTitle) &&
+                string.IsNullOrWhiteSpace(source.NewTitle) &&
+                string.IsNullOrWhiteSpace(source.DisplayName))
+            {
+                return;
+            }
+
+            var item = CloneQueueItem(source);
+            FillExportAccount(item, account);
+            var key = BuildExcelExportItemKey(item);
+
+            if (indexByKey.TryGetValue(key, out var index))
+            {
+                MergeExcelExportItem(items[index], item, preferSource);
+                RegisterExcelExportAliases(items[index], key, keyByAlias);
+            }
+            else
+            {
+                indexByKey[key] = items.Count;
+                items.Add(item);
+                RegisterExcelExportAliases(item, key, keyByAlias);
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.ProjectDir))
+                workspaceByProject[ExcelProjectKey(item.ProjectDir)] = workspaceRoot;
+        }
+
+        void MergeArchiveItem(ArchivedProjectItem archive, string workspaceRoot, TikTokAccountProfile? account)
+        {
+            var archiveItem = TikTokArchivedProjectService.ToQueueItemForSync(archive);
+            archiveItem.Archived = true;
+            if (string.IsNullOrWhiteSpace(archiveItem.UploadCompletedAt))
+                archiveItem.UploadCompletedAt = archive.ArchivedAt;
+            FillExportAccount(archiveItem, account);
+
+            var matchKey = FindArchiveExportMatchKey(archive, archiveItem, workspaceRoot, keyByAlias);
+            if (!string.IsNullOrWhiteSpace(matchKey) && indexByKey.TryGetValue(matchKey, out var index))
+            {
+                var existing = items[index];
+                existing.Archived = true;
+                MergeExcelExportItem(existing, archiveItem, preferSource: false);
+                RegisterExcelExportAliases(existing, matchKey, keyByAlias);
+                if (!string.IsNullOrWhiteSpace(existing.ProjectDir))
+                    workspaceByProject[ExcelProjectKey(existing.ProjectDir)] = workspaceRoot;
+                return;
+            }
+
+            AddOrMergeItem(archiveItem, workspaceRoot, account, preferSource: false);
+        }
+
+        foreach (var snapshot in TikTokExecutionHistoryService.LoadProjectSnapshots())
+        {
+            var item = snapshot.Item;
+            var account = ResolveAccountForExportItem(item);
+            var snapshotWorkspace = ResolveHistorySnapshotWorkspace(snapshot, account, workspaces);
+            if (!ShouldExportHistorySnapshot(snapshotWorkspace, item, workspaces.Keys, knownAccountKeys))
+                continue;
+
+            AddOrMergeItem(item, snapshotWorkspace, account, preferSource: true);
+        }
 
         foreach (var (workspaceRoot, account) in workspaces)
         {
@@ -3403,26 +3477,250 @@ public sealed partial class MainViewModel : ViewModelBase
                 : WorkspaceQueueService.ScanProjects(workspaceRoot);
 
             foreach (var source in sourceItems)
-            {
-                if (string.IsNullOrWhiteSpace(source.ProjectDir)) continue;
-                var projectKey = Path.GetFullPath(source.ProjectDir);
-                if (!seenProjects.Add(projectKey)) continue;
+                AddOrMergeItem(source, workspaceRoot, account, preferSource: false);
 
-                var item = QueueProjectItem.FromPayload(source.ToPayload());
-                if (account is not null)
-                {
-                    if (string.IsNullOrWhiteSpace(item.AccountProfileId))
-                        item.AccountProfileId = account.Id;
-                    if (string.IsNullOrWhiteSpace(item.AccountProfileName))
-                        item.AccountProfileName = account.DisplayName;
-                }
-
-                items.Add(item);
-                workspaceByProject[ExcelProjectKey(item.ProjectDir)] = workspaceRoot;
-            }
+            foreach (var archive in TikTokArchivedProjectService.List(workspaceRoot))
+                MergeArchiveItem(archive, workspaceRoot, account);
         }
 
         return (items, workspaceByProject);
+    }
+
+    private HashSet<string> BuildKnownAccountKeys()
+    {
+        var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var account in _store.Accounts)
+        {
+            AddAccountKey(keys, account.Id);
+            AddAccountKey(keys, account.Name);
+            AddAccountKey(keys, account.DisplayName);
+            AddAccountKey(keys, account.ResolveTikTokAccountName());
+            AddAccountKey(keys, account.TiktokLoginEmail);
+            AddAccountKey(keys, account.TiktokLastLoginEmail);
+        }
+
+        return keys;
+    }
+
+    private TikTokAccountProfile? ResolveAccountForExportItem(QueueProjectItem item)
+    {
+        if (!string.IsNullOrWhiteSpace(item.AccountProfileId))
+        {
+            var account = FindAccount(item.AccountProfileId)?.Model;
+            if (account is not null) return account;
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.AccountProfileName))
+        {
+            var account = FindAccount(item.AccountProfileName)?.Model;
+            if (account is not null) return account;
+        }
+
+        return null;
+    }
+
+    private static string ResolveHistorySnapshotWorkspace(
+        TikTokExecutionProjectSnapshot snapshot,
+        TikTokAccountProfile? account,
+        IReadOnlyDictionary<string, TikTokAccountProfile?> workspaces)
+    {
+        var workspace = NormalizeWorkspaceRootKey(snapshot.Workspace);
+        if (!string.IsNullOrWhiteSpace(workspace))
+            return workspace;
+
+        var accountWorkspace = account?.ResolveWorkspacePath() ?? "";
+        if (!string.IsNullOrWhiteSpace(accountWorkspace))
+            return NormalizeWorkspaceRootKey(accountWorkspace);
+
+        return workspaces.Keys.FirstOrDefault() ?? "";
+    }
+
+    private static bool ShouldExportHistorySnapshot(
+        string workspaceRoot,
+        QueueProjectItem item,
+        IEnumerable<string> knownWorkspaces,
+        ISet<string> knownAccountKeys)
+    {
+        if (!string.IsNullOrWhiteSpace(workspaceRoot) &&
+            knownWorkspaces.Any(workspace => string.Equals(workspace, workspaceRoot, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return AccountMatchesKnownKeys(item, knownAccountKeys);
+    }
+
+    private static bool AccountMatchesKnownKeys(QueueProjectItem item, ISet<string> knownAccountKeys) =>
+        IsKnownAccountKey(knownAccountKeys, item.AccountProfileId) ||
+        IsKnownAccountKey(knownAccountKeys, item.AccountProfileName);
+
+    private static bool IsKnownAccountKey(ISet<string> knownAccountKeys, string? value) =>
+        !string.IsNullOrWhiteSpace(value) && knownAccountKeys.Contains(value.Trim());
+
+    private static void AddAccountKey(ISet<string> keys, string? value)
+    {
+        var text = (value ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(text))
+            keys.Add(text);
+    }
+
+    private static void FillExportAccount(QueueProjectItem item, TikTokAccountProfile? account)
+    {
+        if (account is null) return;
+        if (string.IsNullOrWhiteSpace(item.AccountProfileId))
+            item.AccountProfileId = account.Id;
+        if (string.IsNullOrWhiteSpace(item.AccountProfileName))
+            item.AccountProfileName = account.DisplayName;
+    }
+
+    private static void MergeExcelExportItem(QueueProjectItem target, QueueProjectItem source, bool preferSource)
+    {
+        if (preferSource)
+        {
+            var archived = target.Archived || source.Archived;
+            var merged = CloneQueueItem(source);
+            target.ProjectDir = merged.ProjectDir;
+            target.DisplayName = merged.DisplayName;
+            target.OriginalTitle = merged.OriginalTitle;
+            target.NewTitle = merged.NewTitle;
+            target.EpisodeCount = merged.EpisodeCount;
+            target.GenreCategory = merged.GenreCategory;
+            target.Description = merged.Description;
+            target.QueueEntryDramaType = merged.QueueEntryDramaType;
+            target.AccountProfileId = merged.AccountProfileId;
+            target.AccountProfileName = merged.AccountProfileName;
+            target.QueuedAt = merged.QueuedAt;
+            target.UploadCompletedAt = merged.UploadCompletedAt;
+            target.Enabled = merged.Enabled;
+            target.CurrentStep = merged.CurrentStep;
+            target.StatusText = merged.StatusText;
+            target.LastError = merged.LastError;
+            target.Remark = merged.Remark;
+            target.ManualUploadStatus = merged.ManualUploadStatus;
+            target.StepStates = new Dictionary<string, string>(merged.StepStates);
+            target.Archived = archived;
+            return;
+        }
+
+        target.Archived |= source.Archived;
+        if (string.IsNullOrWhiteSpace(target.ProjectDir)) target.ProjectDir = source.ProjectDir;
+        if (string.IsNullOrWhiteSpace(target.DisplayName)) target.DisplayName = source.DisplayName;
+        if (string.IsNullOrWhiteSpace(target.OriginalTitle)) target.OriginalTitle = source.OriginalTitle;
+        if (string.IsNullOrWhiteSpace(target.NewTitle)) target.NewTitle = source.NewTitle;
+        if (target.EpisodeCount <= 0) target.EpisodeCount = source.EpisodeCount;
+        if (string.IsNullOrWhiteSpace(target.GenreCategory)) target.GenreCategory = source.GenreCategory;
+        if (string.IsNullOrWhiteSpace(target.Description)) target.Description = source.Description;
+        if (string.IsNullOrWhiteSpace(target.AccountProfileId)) target.AccountProfileId = source.AccountProfileId;
+        if (string.IsNullOrWhiteSpace(target.AccountProfileName)) target.AccountProfileName = source.AccountProfileName;
+        if (string.IsNullOrWhiteSpace(target.QueuedAt)) target.QueuedAt = source.QueuedAt;
+        if (string.IsNullOrWhiteSpace(target.UploadCompletedAt)) target.UploadCompletedAt = source.UploadCompletedAt;
+        if (string.IsNullOrWhiteSpace(target.StatusText)) target.StatusText = source.StatusText;
+        if (string.IsNullOrWhiteSpace(target.LastError)) target.LastError = source.LastError;
+        foreach (var (key, value) in source.StepStates)
+        {
+            if (!target.StepStates.TryGetValue(key, out var existing) ||
+                string.Equals(existing, QueueStepStatus.Pending, StringComparison.Ordinal))
+            {
+                target.StepStates[key] = value;
+            }
+        }
+    }
+
+    private static string FindArchiveExportMatchKey(
+        ArchivedProjectItem archive,
+        QueueProjectItem archiveItem,
+        string workspaceRoot,
+        IReadOnlyDictionary<string, string> keyByAlias)
+    {
+        foreach (var alias in BuildArchiveExportAliases(archive, archiveItem, workspaceRoot))
+        {
+            if (keyByAlias.TryGetValue(alias, out var key))
+                return key;
+        }
+
+        return "";
+    }
+
+    private static IEnumerable<string> BuildArchiveExportAliases(
+        ArchivedProjectItem archive,
+        QueueProjectItem archiveItem,
+        string workspaceRoot)
+    {
+        foreach (var alias in BuildExcelExportAliases(archiveItem))
+            yield return alias;
+
+        foreach (var candidate in new[]
+                 {
+                     archive.ArchivedSourceDir,
+                     archive.ArchivedWorkflowDir,
+                     string.IsNullOrWhiteSpace(archive.ProjectKey) ? "" : Path.Combine(workspaceRoot, archive.ProjectKey),
+                     string.IsNullOrWhiteSpace(archive.ProjectKey) ? "" : Path.Combine(workspaceRoot, "workflow", archive.ProjectKey),
+                     string.IsNullOrWhiteSpace(archive.ProjectKey) ? "" : Path.Combine(workspaceRoot, "workflow", "_" + archive.ProjectKey),
+                 })
+        {
+            var alias = BuildExcelPathAlias(archiveItem, candidate);
+            if (!string.IsNullOrWhiteSpace(alias))
+                yield return alias;
+        }
+    }
+
+    private static void RegisterExcelExportAliases(
+        QueueProjectItem item,
+        string key,
+        IDictionary<string, string> keyByAlias)
+    {
+        foreach (var alias in BuildExcelExportAliases(item))
+            keyByAlias[alias] = key;
+    }
+
+    private static IEnumerable<string> BuildExcelExportAliases(QueueProjectItem item)
+    {
+        foreach (var alias in new[]
+                 {
+                     BuildExcelPathAlias(item, item.ProjectDir),
+                     BuildExcelTitleAlias(item),
+                 })
+        {
+            if (!string.IsNullOrWhiteSpace(alias))
+                yield return alias;
+        }
+    }
+
+    private static string BuildExcelExportItemKey(QueueProjectItem item) =>
+        FirstNonEmpty(BuildExcelPathAlias(item, item.ProjectDir), BuildExcelTitleAlias(item));
+
+    private static string BuildExcelPathAlias(QueueProjectItem item, string? path)
+    {
+        var normalized = NormalizeExcelProjectPath(path);
+        return string.IsNullOrWhiteSpace(normalized) ? "" : $"{ExcelAccountKey(item)}|path|{normalized}";
+    }
+
+    private static string BuildExcelTitleAlias(QueueProjectItem item)
+    {
+        var title = FirstNonEmpty(item.OriginalTitle, item.NewTitle, item.DisplayName);
+        return string.IsNullOrWhiteSpace(title) ? "" : $"{ExcelAccountKey(item)}|title|{title.Trim()}";
+    }
+
+    private static string ExcelAccountKey(QueueProjectItem item) =>
+        FirstNonEmpty(item.AccountProfileId, item.AccountProfileName, "未绑定");
+
+    private static string NormalizeExcelProjectPath(string? path)
+    {
+        var text = (path ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        try { return Path.GetFullPath(text).Replace('\\', '/').ToLowerInvariant(); }
+        catch { return text.Replace('\\', '/').ToLowerInvariant(); }
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            var text = (value ?? "").Trim();
+            if (!string.IsNullOrWhiteSpace(text)) return text;
+        }
+
+        return "";
     }
 
     private static string ExcelProjectKey(string? projectDir) =>

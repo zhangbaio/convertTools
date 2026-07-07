@@ -8,9 +8,6 @@ namespace TikTokPublisher.Core.Services;
 public static class TikTokExecutionHistoryService
 {
     public const int DefaultRetentionDays = 3;
-    private static readonly TimeSpan AutomaticPruneInterval = TimeSpan.FromHours(1);
-    private static readonly object PruneLock = new();
-    private static DateTime _nextAutomaticPruneUtc = DateTime.MinValue;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -61,7 +58,6 @@ public static class TikTokExecutionHistoryService
             var path = ClientSettingsStore.MainDatabasePath;
             if (!File.Exists(path)) return [];
             AppDatabaseInitializer.EnsureInitialized(path);
-            PruneOldEventsIfDue(path, DateTime.Now);
 
             using var conn = new SqliteConnection($"Data Source={path};Mode=ReadOnly");
             conn.Open();
@@ -90,28 +86,29 @@ public static class TikTokExecutionHistoryService
         }
     }
 
+    public static IReadOnlyList<TikTokExecutionProjectSnapshot> LoadProjectSnapshots()
+    {
+        var latestByKey = new Dictionary<string, TikTokExecutionProjectSnapshot>(StringComparer.OrdinalIgnoreCase);
+        foreach (var payload in LoadEvents())
+        {
+            if (!TryBuildProjectSnapshot(payload, out var snapshot))
+                continue;
+
+            latestByKey[BuildSnapshotKey(snapshot.Item)] = snapshot;
+        }
+
+        return latestByKey.Values
+            .OrderBy(snapshot => FirstNonEmpty(snapshot.Item.QueuedAt, snapshot.Timestamp), StringComparer.Ordinal)
+            .ThenBy(snapshot => snapshot.Item.AccountProfileName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(snapshot => snapshot.Item.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     public static int PruneOldEvents(
         string? databasePath = null,
         DateTime? now = null,
         int retentionDays = DefaultRetentionDays)
-    {
-        var path = string.IsNullOrWhiteSpace(databasePath)
-            ? ClientSettingsStore.MainDatabasePath
-            : Path.GetFullPath(databasePath);
-        AppDatabaseInitializer.EnsureInitialized(path);
-
-        var safeRetentionDays = Math.Max(1, retentionDays);
-        var cutoff = (now ?? DateTime.Now)
-            .AddDays(-safeRetentionDays)
-            .ToString("yyyy-MM-ddTHH:mm:ss");
-
-        using var conn = new SqliteConnection($"Data Source={path}");
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM upload_task_events WHERE created_at < $cutoff";
-        cmd.Parameters.AddWithValue("$cutoff", cutoff);
-        return cmd.ExecuteNonQuery();
-    }
+        => 0;
 
     private static Dictionary<string, object?> BuildPayload(
         string eventType,
@@ -167,7 +164,6 @@ public static class TikTokExecutionHistoryService
     {
         var path = ClientSettingsStore.MainDatabasePath;
         AppDatabaseInitializer.EnsureInitialized(path);
-        PruneOldEventsIfDue(path, DateTime.Now);
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         var createdAt = payload.GetValueOrDefault("timestamp")?.ToString() ?? DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
@@ -184,25 +180,60 @@ public static class TikTokExecutionHistoryService
         cmd.ExecuteNonQuery();
     }
 
-    private static void PruneOldEventsIfDue(string databasePath, DateTime now)
+    private static bool TryBuildProjectSnapshot(
+        IReadOnlyDictionary<string, object?> payload,
+        out TikTokExecutionProjectSnapshot snapshot)
     {
-        var utcNow = DateTime.UtcNow;
-        lock (PruneLock)
+        snapshot = default!;
+        var itemPayload = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            if (utcNow < _nextAutomaticPruneUtc)
-                return;
+            ["project_dir"] = GetString(payload, "project_dir"),
+            ["display_name"] = GetString(payload, "display_name"),
+            ["original_title"] = GetString(payload, "original_title"),
+            ["new_title"] = GetString(payload, "new_title"),
+            ["episode_count"] = payload.TryGetValue("episode_count", out var episodeCount) ? episodeCount : 0,
+            ["genre_category"] = GetString(payload, "genre_category"),
+            ["description"] = GetString(payload, "description"),
+            ["account_profile_id"] = GetString(payload, "account_profile_id"),
+            ["account_profile_name"] = GetString(payload, "account_profile_name"),
+            ["queued_at"] = GetString(payload, "queued_at"),
+            ["upload_completed_at"] = GetString(payload, "upload_completed_at"),
+            ["current_step"] = GetString(payload, "current_step"),
+            ["status_text"] = FirstNonEmpty(GetString(payload, "status_text"), GetString(payload, "status")),
+            ["last_error"] = FirstNonEmpty(GetString(payload, "last_error"), GetString(payload, "error")),
+            ["archived"] = payload.TryGetValue("archived", out var archived) && archived is bool archivedBool && archivedBool,
+            ["step_states"] = payload.TryGetValue("step_states", out var stepStates)
+                ? stepStates ?? new Dictionary<string, string>()
+                : new Dictionary<string, string>(),
+        };
 
-            _nextAutomaticPruneUtc = utcNow + AutomaticPruneInterval;
+        var item = QueueProjectItem.FromPayload(itemPayload);
+        if (string.IsNullOrWhiteSpace(item.ProjectDir) &&
+            string.IsNullOrWhiteSpace(item.OriginalTitle) &&
+            string.IsNullOrWhiteSpace(item.NewTitle) &&
+            string.IsNullOrWhiteSpace(item.DisplayName))
+        {
+            return false;
         }
 
-        try
+        var stepKey = GetString(payload, "step_key");
+        var status = GetString(payload, "status");
+        var timestamp = GetString(payload, "timestamp");
+        if (string.Equals(stepKey, QueueStepKeys.UploadSeries, StringComparison.Ordinal) &&
+            string.Equals(status, QueueStepStatus.Completed, StringComparison.Ordinal))
         {
-            PruneOldEvents(databasePath, now);
+            item.StepStates[QueueStepKeys.UploadSeries] = QueueStepStatus.Completed;
+            item.StatusText = QueueStepStatus.Completed;
+            if (string.IsNullOrWhiteSpace(item.UploadCompletedAt))
+                item.UploadCompletedAt = timestamp;
         }
-        catch
-        {
-            // History cleanup must not break queue execution or exports.
-        }
+
+        item.NormalizeStepStates();
+        snapshot = new TikTokExecutionProjectSnapshot(
+            GetString(payload, "workspace"),
+            timestamp,
+            item);
+        return true;
     }
 
     private static Dictionary<string, object?> Deserialize(string json)
@@ -237,4 +268,42 @@ public static class TikTokExecutionHistoryService
         JsonValueKind.Array => element.EnumerateArray().Select(JsonElementToObject).ToList(),
         _ => null,
     };
+
+    private static string BuildSnapshotKey(QueueProjectItem item)
+    {
+        var account = FirstNonEmpty(item.AccountProfileId, item.AccountProfileName);
+        var project = FirstNonEmpty(
+            NormalizeProjectKey(item.ProjectDir),
+            item.OriginalTitle,
+            item.NewTitle,
+            item.DisplayName);
+        return $"{account}|{project}";
+    }
+
+    private static string NormalizeProjectKey(string? value)
+    {
+        var text = (value ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        try { return Path.GetFullPath(text).Replace('\\', '/').ToLowerInvariant(); }
+        catch { return text.Replace('\\', '/').ToLowerInvariant(); }
+    }
+
+    private static string GetString(IReadOnlyDictionary<string, object?> payload, string key) =>
+        payload.TryGetValue(key, out var value) ? (value?.ToString() ?? "").Trim() : "";
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            var text = (value ?? "").Trim();
+            if (!string.IsNullOrWhiteSpace(text)) return text;
+        }
+
+        return "";
+    }
 }
+
+public sealed record TikTokExecutionProjectSnapshot(
+    string Workspace,
+    string Timestamp,
+    QueueProjectItem Item);

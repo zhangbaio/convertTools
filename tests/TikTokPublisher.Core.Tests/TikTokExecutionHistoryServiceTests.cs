@@ -31,7 +31,7 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
     }
 
     [Fact]
-    public void PruneOldEvents_keeps_last_three_days_by_default()
+    public void PruneOldEvents_keeps_all_upload_history()
     {
         InsertEvent("old", "2026-07-01T23:59:59");
         InsertEvent("before-cutoff", "2026-07-02T11:59:59");
@@ -42,8 +42,8 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
             databasePath: _databasePath,
             now: new DateTime(2026, 7, 5, 12, 0, 0));
 
-        deleted.Should().Be(2);
-        ReadEventIds().Should().Equal("at-cutoff", "new");
+        deleted.Should().Be(0);
+        ReadEventIds().Should().Equal("old", "before-cutoff", "at-cutoff", "new");
     }
 
     private void InsertEvent(string eventId, string createdAt)
