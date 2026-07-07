@@ -435,8 +435,116 @@ public static partial class TikTokBrowserActions
 
         await DismissFloatingAssistantAsync(page, log);
 
+        var checkedCount = await CheckPromiseDrawerItemsAsync(drawer, page, ct);
+        if (checkedCount > 0)
+            Log(log, $"TikTok 版权内容自查清单已勾选 {checkedCount} 个子项。");
+
+        var agree = await ResolvePromiseAgreeButtonAsync(drawer, page);
+        if (await agree.CountAsync() == 0)
+            return false;
+
+        var enabled = await WaitUntilAsync(async () =>
+        {
+            try
+            {
+                await CheckPromiseDrawerItemsAsync(drawer, page, ct);
+                return await IsPromiseAgreeButtonReadyAsync(agree);
+            }
+            catch { return false; }
+        }, 30000, 500, ct);
+
+        if (!enabled)
+        {
+            var unchecked = await CollectUncheckedPromiseItemsAsync(drawer);
+            var buttonState = await DescribeButtonStateAsync(agree);
+            var uncheckedText = unchecked.Count == 0 ? "未检测到未勾选项" : string.Join("；", unchecked.Take(8));
+            throw new InvalidOperationException(
+                $"版权内容自查清单子项已勾选，但「同意」按钮仍不可用。{uncheckedText}。按钮状态：{buttonState}");
+        }
+
+        await ClickWithFallbackAsync(agree, ct);
+        await page.WaitForTimeoutAsync(500);
+        Log(log, "已勾选本人承诺抽屉并点击同意。");
+        return true;
+    }
+
+    private static async Task<int> CheckPromiseDrawerItemsAsync(ILocator drawer, IPage page, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var changed = 0;
+
+        try
+        {
+            changed += await drawer.EvaluateAsync<int>(
+                """
+                root => {
+                  const skipIds = new Set(['anchorPromotionStatus', 'consignmentStatus']);
+                  const checkedSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked')?.set;
+                  const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+                  const resolveScope = rootNode => {
+                    const role = normalize(rootNode.getAttribute?.('role')).toLowerCase();
+                    if (role === 'dialog') return rootNode;
+                    const title = Array.from(rootNode.querySelectorAll('*'))
+                      .find(node => normalize(node.textContent).includes('版权内容自查清单'));
+                    return title?.closest('[role="dialog"], .semi-modal, .semi-drawer, .semi-modal-content, .semi-drawer-content') || rootNode;
+                  };
+                  const scope = resolveScope(root);
+                  const itemText = node => normalize((node.closest('label, .semi-checkbox-wrapper, [role="checkbox"], li, .semi-modal-content, .semi-drawer-content') || node).innerText || '');
+                  const isVisible = node => {
+                    const rect = node.getBoundingClientRect();
+                    const style = window.getComputedStyle(node);
+                    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+                  };
+                  const shouldSkipInput = input => {
+                    const id = normalize(input.id);
+                    const role = normalize(input.getAttribute('role')).toLowerCase();
+                    if (role === 'switch' || skipIds.has(id)) return true;
+                    const text = itemText(input);
+                    return /不同意|取消/.test(text) && text.length <= 12;
+                  };
+                  const markChecked = input => {
+                    if (input.checked) return false;
+                    const target = input.closest('label') || input.closest('.semi-checkbox-wrapper') || input.closest('.semi-checkbox') || input;
+                    try { target.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch {}
+                    try { target.click(); } catch {}
+                    if (!input.checked && checkedSetter) {
+                      checkedSetter.call(input, true);
+                      input.dispatchEvent(new Event('input', { bubbles: true }));
+                      input.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    return input.checked;
+                  };
+
+                  let changed = 0;
+                  for (const input of Array.from(scope.querySelectorAll('input[type="checkbox"]'))) {
+                    if (shouldSkipInput(input)) continue;
+                    if (markChecked(input)) changed += 1;
+                  }
+
+                  for (const box of Array.from(scope.querySelectorAll('[role="checkbox"]'))) {
+                    if (box.querySelector('input[type="checkbox"]')) continue;
+                    const aria = normalize(box.getAttribute('aria-checked')).toLowerCase();
+                    if (aria === 'true') continue;
+                    const text = itemText(box);
+                    if ((/不同意|取消/.test(text) && text.length <= 12) || !isVisible(box)) continue;
+                    try { box.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch {}
+                    try {
+                      box.click();
+                      changed += 1;
+                    } catch {}
+                  }
+
+                  return changed;
+                }
+                """);
+        }
+        catch
+        {
+            // Fall back to Playwright locators below.
+        }
+
         var boxes = drawer.Locator("input[type=\"checkbox\"]");
-        var count = await boxes.CountAsync();
+        var count = Math.Min(await boxes.CountAsync(), 100);
         for (var index = 0; index < count; index++)
         {
             ct.ThrowIfCancellationRequested();
@@ -448,7 +556,7 @@ public static partial class TikTokBrowserActions
                 if (role == "switch" || itemId is "anchorPromotionStatus" or "consignmentStatus")
                     continue;
 
-                if (!await item.IsVisibleAsync() || await item.IsCheckedAsync())
+                if (await item.IsCheckedAsync())
                     continue;
 
                 try
@@ -457,35 +565,140 @@ public static partial class TikTokBrowserActions
                 }
                 catch
                 {
-                    var parent = item.Locator("xpath=ancestor::label[1]").First;
-                    if (await parent.CountAsync() > 0)
-                        await ClickWithFallbackAsync(parent, ct);
+                    var clickable = await ResolvePromiseCheckboxClickTargetAsync(item);
+                    if (await clickable.CountAsync() > 0)
+                        await ClickWithFallbackAsync(clickable, ct);
                 }
 
-                await page.WaitForTimeoutAsync(250);
+                await page.WaitForTimeoutAsync(200);
+                if (await item.IsCheckedAsync())
+                    changed += 1;
             }
             catch { /* try next checkbox */ }
         }
 
-        var agree = drawer.Locator("button").Filter(new() { HasText = "同意" }).Last;
-        if (await agree.CountAsync() == 0)
-            agree = page.Locator("button").Filter(new() { HasText = "同意" }).Last;
-        if (await agree.CountAsync() == 0)
-            return false;
+        await page.WaitForTimeoutAsync(300);
+        return changed;
+    }
 
-        var enabled = await WaitUntilAsync(async () =>
+    private static async Task<ILocator> ResolvePromiseCheckboxClickTargetAsync(ILocator checkbox)
+    {
+        foreach (var xpath in new[]
+                 {
+                     "xpath=ancestor::label[1]",
+                     "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' semi-checkbox-wrapper ')][1]",
+                     "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' semi-checkbox ')][1]",
+                 })
         {
-            try { return await agree.IsEnabledAsync(); }
-            catch { return false; }
-        }, 15000, 300, ct);
+            var candidate = checkbox.Locator(xpath).First;
+            if (await candidate.CountAsync() > 0)
+                return candidate;
+        }
 
-        if (!enabled)
-            throw new InvalidOperationException("版权内容自查清单子项已勾选，但「同意」按钮仍不可用。");
+        return checkbox;
+    }
 
-        await ClickWithFallbackAsync(agree, ct);
-        await page.WaitForTimeoutAsync(500);
-        Log(log, "已勾选本人承诺抽屉并点击同意。");
-        return true;
+    private static async Task<ILocator> ResolvePromiseAgreeButtonAsync(ILocator drawer, IPage page)
+    {
+        foreach (var scope in new[] { drawer, page.Locator("body") })
+        {
+            var buttons = scope.Locator("button").Filter(new() { HasText = "同意" });
+            var count = await buttons.CountAsync();
+            for (var index = count - 1; index >= 0; index--)
+            {
+                var candidate = buttons.Nth(index);
+                try
+                {
+                    if (await candidate.IsVisibleAsync(new() { Timeout = 500 }))
+                        return candidate;
+                }
+                catch { /* try previous */ }
+            }
+        }
+
+        return drawer.Locator("button").Filter(new() { HasText = "同意" }).Last;
+    }
+
+    private static async Task<bool> IsPromiseAgreeButtonReadyAsync(ILocator button)
+    {
+        if (await button.CountAsync() == 0)
+            return false;
+        try
+        {
+            if (!await button.IsVisibleAsync(new() { Timeout = 500 }))
+                return false;
+            if (await IsAriaDisabledAsync(button))
+                return false;
+            var cls = (await button.GetAttributeAsync("class") ?? "").ToLowerInvariant();
+            if (cls.Contains("disabled", StringComparison.Ordinal))
+                return false;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<IReadOnlyList<string>> CollectUncheckedPromiseItemsAsync(ILocator drawer)
+    {
+        try
+        {
+            var result = await drawer.EvaluateAsync<string[]>(
+                """
+                root => {
+                  const skipIds = new Set(['anchorPromotionStatus', 'consignmentStatus']);
+                  const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+                  const resolveScope = rootNode => {
+                    const role = normalize(rootNode.getAttribute?.('role')).toLowerCase();
+                    if (role === 'dialog') return rootNode;
+                    const title = Array.from(rootNode.querySelectorAll('*'))
+                      .find(node => normalize(node.textContent).includes('版权内容自查清单'));
+                    return title?.closest('[role="dialog"], .semi-modal, .semi-drawer, .semi-modal-content, .semi-drawer-content') || rootNode;
+                  };
+                  const scope = resolveScope(root);
+                  const labelText = node => normalize((node.closest('label, .semi-checkbox-wrapper, [role="checkbox"], li, .semi-modal-content, .semi-drawer-content') || node).innerText || '');
+                  const result = [];
+                  for (const input of Array.from(scope.querySelectorAll('input[type="checkbox"]'))) {
+                    const id = normalize(input.id);
+                    const role = normalize(input.getAttribute('role')).toLowerCase();
+                    if (role === 'switch' || skipIds.has(id) || input.checked) continue;
+                    const text = labelText(input);
+                    if (!text || (/不同意|取消/.test(text) && text.length <= 12)) continue;
+                    result.push(text);
+                  }
+                  for (const box of Array.from(scope.querySelectorAll('[role="checkbox"]'))) {
+                    if (box.querySelector('input[type="checkbox"]')) continue;
+                    if (normalize(box.getAttribute('aria-checked')).toLowerCase() === 'true') continue;
+                    const text = labelText(box);
+                    if (!text || (/不同意|取消/.test(text) && text.length <= 12)) continue;
+                    result.push(text);
+                  }
+                  return Array.from(new Set(result)).slice(0, 12);
+                }
+                """);
+            return result;
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static async Task<string> DescribeButtonStateAsync(ILocator button)
+    {
+        try
+        {
+            var visible = await button.IsVisibleAsync(new() { Timeout = 500 });
+            var disabledAttr = await button.GetAttributeAsync("disabled") ?? "";
+            var ariaDisabled = await button.GetAttributeAsync("aria-disabled") ?? "";
+            var cls = await button.GetAttributeAsync("class") ?? "";
+            return $"visible={visible}, disabled={disabledAttr}, aria-disabled={ariaDisabled}, class={cls}";
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
     }
 
     private static async Task<bool> IsMainPromiseCheckedAsync(IPage page)
