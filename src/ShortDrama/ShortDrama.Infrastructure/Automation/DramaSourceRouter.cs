@@ -1,5 +1,6 @@
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure;
 using System.Diagnostics;
 using ShortDrama.Infrastructure.Automation;
 using System.Globalization;
@@ -7,6 +8,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 
 namespace ShortDrama.Infrastructure.Automation;
 
@@ -27,6 +29,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif"];
     private static readonly ProductInfoHeaderValue UserAgentProduct = new("ShortDramaDesktop", "1.0");
     private static readonly string MobileUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+    internal static AsyncLocal<Func<string>?> ResolveFfmpegBinaryForTests { get; } = new();
+    internal static AsyncLocal<Func<ProcessStartInfo, CancellationToken, Task<ProcessRunResult>>?> RunProcessAsyncForTests { get; } = new();
 
     private readonly HttpClient _httpClient;
     private readonly IDramaSettingsProvider _settingsProvider;
@@ -520,6 +524,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         finalPath,
                         downloadTimeoutSeconds,
                         cancellationToken,
+                        detail.PikachuDecryptKey,
                         downloadProgress => ReportEpisodeDownloadProgress(progress, task, totalCount, downloadProgress));
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
                     return;
@@ -541,6 +546,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     finalPath,
                     downloadTimeoutSeconds,
                     cancellationToken,
+                    detail.PikachuDecryptKey,
                     downloadProgress => ReportEpisodeDownloadProgress(progress, task, totalCount, downloadProgress));
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
             }
@@ -570,7 +576,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string finalPath,
         int timeoutSeconds,
         CancellationToken cancellationToken)
-        => await DownloadVideoFileOnceAsync(url, tempPath, finalPath, timeoutSeconds, cancellationToken, progress: null);
+        => await DownloadVideoFileOnceAsync(url, tempPath, finalPath, timeoutSeconds, cancellationToken, pikachuDecryptKey: null, progress: null);
 
     private async Task<DownloadFileStats> DownloadVideoFileOnceAsync(
         string url,
@@ -578,8 +584,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string finalPath,
         int timeoutSeconds,
         CancellationToken cancellationToken,
+        string? pikachuDecryptKey,
         Action<DownloadFileProgress>? progress)
     {
+        var hasPikachuDecryptKey = !string.IsNullOrWhiteSpace(pikachuDecryptKey);
+        var encryptedTempPath = hasPikachuDecryptKey ? BuildEncryptedTempPath(tempPath) : null;
+        var downloadTargetPath = encryptedTempPath ?? tempPath;
+        if (encryptedTempPath is not null)
+        {
+            DeleteIfExists(encryptedTempPath);
+            DeleteIfExists(tempPath);
+        }
+
         var clampedTimeoutSeconds = Math.Clamp(timeoutSeconds, 10, 600);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(clampedTimeoutSeconds));
@@ -601,7 +617,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             var lastProgressAt = DateTime.UtcNow;
 
             await using (var source = await response.Content.ReadAsStreamAsync(token))
-            await using (var file = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, DownloadBufferSize, useAsync: true))
+            await using (var file = new FileStream(downloadTargetPath, FileMode.Create, FileAccess.Write, FileShare.None, DownloadBufferSize, useAsync: true))
             {
                 var buffer = new byte[DownloadBufferSize];
                 while (true)
@@ -629,19 +645,146 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 await file.FlushAsync(token);
             }
 
-            await DownloadFileOperations.DelayAfterWriteAsync(token);
-            await DownloadFileOperations.SafeReplaceAsync(tempPath, finalPath, token);
+            if (hasPikachuDecryptKey)
+            {
+                await DecryptPikachuCencVideoAsync(pikachuDecryptKey!.Trim(), downloadTargetPath, tempPath, timeoutSeconds, cancellationToken);
+            }
+
+            await DownloadFileOperations.DelayAfterWriteAsync(cancellationToken);
+            await DownloadFileOperations.SafeReplaceAsync(tempPath, finalPath, cancellationToken);
 
             stopwatch.Stop();
+            var finalBytes = hasPikachuDecryptKey && HasValidVideoFile(finalPath)
+                ? new FileInfo(finalPath).Length
+                : downloadedBytes;
             return new DownloadFileStats(
-                downloadedBytes,
+                finalBytes,
                 stopwatch.Elapsed,
-                downloadedBytes / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001d));
+                finalBytes / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001d));
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
         {
             throw new TimeoutException($"下载超过 {clampedTimeoutSeconds} 秒未完成，已中止并准备重试。", ex);
         }
+        finally
+        {
+            if (encryptedTempPath is not null)
+            {
+                DeleteIfExists(encryptedTempPath);
+            }
+        }
+    }
+
+    private static async Task DecryptPikachuCencVideoAsync(
+        string decryptKey,
+        string encryptedPath,
+        string outputPath,
+        int timeoutSeconds,
+        CancellationToken cancellationToken)
+    {
+        var ffmpegPath = ResolveFfmpegBinaryForTests.Value?.Invoke() ?? ResolveFfmpegBinary();
+        var clampedTimeoutSeconds = Math.Clamp(timeoutSeconds + 120, 60, 900);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(clampedTimeoutSeconds));
+
+        DeleteIfExists(outputPath);
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add("-y");
+        startInfo.ArgumentList.Add("-decryption_key");
+        startInfo.ArgumentList.Add(decryptKey);
+        startInfo.ArgumentList.Add("-i");
+        startInfo.ArgumentList.Add(encryptedPath);
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add("copy");
+        startInfo.ArgumentList.Add("-movflags");
+        startInfo.ArgumentList.Add("+faststart");
+        startInfo.ArgumentList.Add("-f");
+        startInfo.ArgumentList.Add("mp4");
+        startInfo.ArgumentList.Add(outputPath);
+
+        try
+        {
+            var runner = RunProcessAsyncForTests.Value ?? RunProcessAsyncDefault;
+            var result = await runner(startInfo, timeoutCts.Token);
+            if (result.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"Pikachu CENC decrypt failed: {TrimProcessOutput(result.StandardError)}");
+            }
+
+            if (!HasValidVideoFile(outputPath))
+            {
+                throw new InvalidOperationException("Pikachu CENC decrypt did not produce a playable mp4 file.");
+            }
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Pikachu CENC decrypt timed out after {clampedTimeoutSeconds} seconds.", ex);
+        }
+    }
+
+    private static async Task<ProcessRunResult> RunProcessAsyncDefault(ProcessStartInfo startInfo, CancellationToken cancellationToken)
+    {
+        using var process = new System.Diagnostics.Process
+        {
+            StartInfo = startInfo,
+            EnableRaisingEvents = true
+        };
+
+        if (!process.Start())
+        {
+            throw new InvalidOperationException($"Failed to start process: {startInfo.FileName}");
+        }
+
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch
+        {
+            TryKillProcess(process);
+            throw;
+        }
+
+        var standardOutput = await outputTask;
+        var standardError = await errorTask;
+        return new ProcessRunResult(process.ExitCode, standardOutput, standardError);
+    }
+
+    private static void TryKillProcess(System.Diagnostics.Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch
+        {
+            // Ignore process cleanup failures.
+        }
+    }
+
+    private static string ResolveFfmpegBinary() => BundledToolResolver.TryResolveBinary("ffmpeg") ?? "ffmpeg";
+
+    private static string TrimProcessOutput(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "no stderr";
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length <= 500 ? trimmed : trimmed[..500];
     }
 
     private static void ReportEpisodeDownloadProgress(
@@ -1011,12 +1154,15 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var url = document.RootElement.TryGetProperty("data", out var data)
             ? GetString(data, "url")
             : null;
+        var decryptKey = document.RootElement.TryGetProperty("data", out data)
+            ? GetString(data, "key")
+            : null;
         if (string.IsNullOrWhiteSpace(url))
         {
             throw new InvalidOperationException("皮卡丘未返回可用播放链接。");
         }
 
-        return new SourceVideoDetail(url);
+        return new SourceVideoDetail(url, decryptKey);
     }
 
     private async Task<string> ResolvePikachuDeviceIdAsync(DramaSourceSettings settings, CancellationToken cancellationToken)
@@ -1175,12 +1321,16 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private static void CleanupDownloadArtifacts(string path, bool keepVideo)
     {
-        DeleteIfExists($"{path}.part");
+        var tempPath = $"{path}.part";
+        DeleteIfExists(tempPath);
+        DeleteIfExists(BuildEncryptedTempPath(tempPath));
         if (!keepVideo)
         {
             DeleteIfExists(path);
         }
     }
+
+    private static string BuildEncryptedTempPath(string tempPath) => $"{tempPath}.enc.part";
 
     private static void DeleteIfExists(string path)
     {
@@ -1530,7 +1680,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string VideoId,
         string PosterUrl);
 
-    private sealed record SourceVideoDetail(string Url);
+    private sealed record SourceVideoDetail(string Url, string? PikachuDecryptKey = null);
+
+    internal sealed record ProcessRunResult(int ExitCode, string StandardOutput, string StandardError);
 
     private sealed record EpisodeTask(
         int Order,
