@@ -631,7 +631,7 @@ public static partial class TikTokBrowserActions
     {
         ct.ThrowIfCancellationRequested();
         var text = Math.Max(0, value).ToString();
-        var locator = page.Locator(selector).First;
+        var locator = await ResolveVisibleInputAsync(page, selector, fieldName, ct);
         await locator.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
         await locator.ClickAsync(new() { Timeout = 5000 });
         await locator.FillAsync(text);
@@ -647,6 +647,64 @@ public static partial class TikTokBrowserActions
         catch { /* ignore */ }
 
         Log(log, $"TikTok {fieldName}已填写：{text}");
+    }
+
+    private static async Task<ILocator> ResolveVisibleInputAsync(
+        IPage page,
+        string selector,
+        string fieldName,
+        CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(12);
+        Exception? lastError = null;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var visible = page.Locator($"{selector}:visible").First;
+            if (await IsReadyInputAsync(visible))
+                return visible;
+
+            var candidates = page.Locator(selector);
+            var count = Math.Min(await candidates.CountAsync(), 12);
+            for (var i = 0; i < count; i++)
+            {
+                var candidate = candidates.Nth(i);
+                try
+                {
+                    if (await candidate.IsVisibleAsync(new() { Timeout = 500 }) &&
+                        await candidate.IsEnabledAsync(new() { Timeout = 500 }))
+                    {
+                        return candidate;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
+                }
+            }
+
+            await page.WaitForTimeoutAsync(300);
+        }
+
+        throw new TimeoutException(
+            $"TikTok 未找到可见的 {fieldName} 输入框（{selector}）。当前页面可能未切换到对应步骤，或 TikTok 表单结构已更新。",
+            lastError);
+    }
+
+    private static async Task<bool> IsReadyInputAsync(ILocator locator)
+    {
+        try
+        {
+            return await locator.CountAsync() > 0 &&
+                   await locator.IsVisibleAsync(new() { Timeout = 500 }) &&
+                   await locator.IsEnabledAsync(new() { Timeout = 500 });
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static async Task ApplyCommercialModeAsync(

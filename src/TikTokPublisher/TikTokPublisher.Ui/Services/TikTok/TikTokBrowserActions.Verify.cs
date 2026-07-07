@@ -148,11 +148,12 @@ public static partial class TikTokBrowserActions
         CancellationToken ct)
     {
         var expected = Math.Max(0, expectedValue).ToString();
+        var locator = await ResolveVisibleInputAsync(page, selector, fieldName, ct);
         var ok = await WaitUntilAsync(async () =>
         {
             try
             {
-                var actual = await page.Locator(selector).First.InputValueAsync();
+                var actual = await locator.InputValueAsync();
                 return string.Equals(actual?.Trim(), expected, StringComparison.Ordinal);
             }
             catch

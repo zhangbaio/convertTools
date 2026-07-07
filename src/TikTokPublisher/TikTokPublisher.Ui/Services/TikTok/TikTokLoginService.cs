@@ -48,11 +48,14 @@ public static class TikTokLoginService
         var playwright = await Playwright.CreateAsync();
         try
         {
-            var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+            var launchOptions = new BrowserTypeLaunchOptions
             {
                 Headless = false,
                 Args = BuildLaunchArgs(),
-            });
+            };
+            PlaywrightBrowserRuntime.ApplyChromiumExecutable(launchOptions, preferHeadlessShell: false, log);
+
+            var browser = await playwright.Chromium.LaunchAsync(launchOptions);
 
             try
             {

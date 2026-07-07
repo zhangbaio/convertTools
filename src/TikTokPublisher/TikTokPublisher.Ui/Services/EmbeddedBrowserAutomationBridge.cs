@@ -26,7 +26,7 @@ public static class EmbeddedBrowserAutomationBridge
         IBrowser? chromium = null;
         try
         {
-            chromium = await pw.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+            var launchOptions = new BrowserTypeLaunchOptions
             {
                 Headless = headless,
                 Args =
@@ -37,7 +37,10 @@ public static class EmbeddedBrowserAutomationBridge
                     "--disable-renderer-backgrounding",
                     headless ? "--window-size=1440,900" : "--start-maximized",
                 ],
-            }).ConfigureAwait(false);
+            };
+            PlaywrightBrowserRuntime.ApplyChromiumExecutable(launchOptions, headless, log);
+
+            chromium = await pw.Chromium.LaunchAsync(launchOptions).ConfigureAwait(false);
 
             var contextOptions = new BrowserNewContextOptions
             {

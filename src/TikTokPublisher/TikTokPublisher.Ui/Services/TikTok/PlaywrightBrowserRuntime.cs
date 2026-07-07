@@ -1,3 +1,5 @@
+using Microsoft.Playwright;
+
 namespace TikTokPublisher.Ui.Services.TikTok;
 
 internal static class PlaywrightBrowserRuntime
@@ -7,24 +9,56 @@ internal static class PlaywrightBrowserRuntime
 
     public static void ConfigureBundledBrowsers(Action<string>? log = null)
     {
-        var configured = Environment.GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH");
-        if (HasPlaywrightChromium(configured))
+        var browserRoot = ResolveBrowserRoot();
+        if (browserRoot is null)
+            return;
+
+        Environment.SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", browserRoot);
+        log?.Invoke($"Playwright browser path: {browserRoot}");
+    }
+
+    public static void ApplyChromiumExecutable(
+        BrowserTypeLaunchOptions options,
+        bool preferHeadlessShell,
+        Action<string>? log = null)
+    {
+        var executable = ResolveChromiumExecutable(preferHeadlessShell);
+        if (!string.IsNullOrWhiteSpace(executable))
         {
+            options.ExecutablePath = executable;
+            log?.Invoke($"Playwright executable: {executable}");
             return;
         }
 
-        foreach (var root in EnumerateSearchRoots())
+        if (OperatingSystem.IsWindows())
         {
-            var candidate = Path.Combine(root, "ms-playwright");
-            if (!HasPlaywrightChromium(candidate))
-            {
-                continue;
-            }
-
-            Environment.SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", candidate);
-            log?.Invoke($"Playwright browser path: {candidate}");
-            return;
+            options.Channel = "msedge";
+            log?.Invoke("Playwright executable not found; fallback to installed Microsoft Edge.");
         }
+    }
+
+    private static string? ResolveBrowserRoot()
+    {
+        foreach (var candidate in EnumerateBrowserRootCandidates())
+        {
+            if (HasPlaywrightChromium(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
+    private static string? ResolveChromiumExecutable(bool preferHeadlessShell)
+    {
+        foreach (var browserRoot in EnumerateBrowserRootCandidates())
+        {
+            var executable = FindChromiumExecutable(browserRoot, preferHeadlessShell) ??
+                             FindChromiumExecutable(browserRoot, preferHeadlessShell: false);
+            if (!string.IsNullOrWhiteSpace(executable))
+                return executable;
+        }
+
+        return null;
     }
 
     private static bool HasPlaywrightChromium(string? browserRoot)
@@ -54,6 +88,50 @@ internal static class PlaywrightBrowserRuntime
         {
             return false;
         }
+    }
+
+    private static string? FindChromiumExecutable(string? browserRoot, bool preferHeadlessShell)
+    {
+        if (string.IsNullOrWhiteSpace(browserRoot) || !Directory.Exists(browserRoot))
+            return null;
+
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                var directoryPattern = preferHeadlessShell ? "chromium_headless_shell-*" : "chromium-*";
+                var executablePath = preferHeadlessShell
+                    ? Path.Combine("chrome-win", "headless_shell.exe")
+                    : Path.Combine("chrome-win", "chrome.exe");
+
+                return Directory
+                    .EnumerateDirectories(browserRoot, directoryPattern)
+                    .Select(dir => Path.Combine(dir, executablePath))
+                    .FirstOrDefault(File.Exists);
+            }
+
+            return Directory
+                .EnumerateDirectories(browserRoot, preferHeadlessShell ? "chromium_headless_shell-*" : "chromium-*")
+                .FirstOrDefault();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateBrowserRootCandidates()
+    {
+        foreach (var root in EnumerateSearchRoots())
+            yield return Path.Combine(root, "ms-playwright");
+
+        var configured = Environment.GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH");
+        if (!string.IsNullOrWhiteSpace(configured))
+            yield return configured;
+
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (!string.IsNullOrWhiteSpace(localAppData))
+            yield return Path.Combine(localAppData, "ms-playwright");
     }
 
     private static IEnumerable<string> EnumerateSearchRoots()
