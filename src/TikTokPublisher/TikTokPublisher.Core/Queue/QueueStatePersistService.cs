@@ -124,7 +124,7 @@ public sealed class QueueStatePersistService : IDisposable
                     if (pending.Items is null || pending.Items.Count == 0)
                         continue;
                     var options = pending.Options ?? WorkspaceQueueService.LoadRunOptions(workspaceKey);
-                    WorkspaceQueueService.SaveProjects(workspaceKey, pending.Items, options.ToDictionary());
+                    WorkspaceQueueService.SaveProjects(workspaceKey, pending.Items, options.ToPersistentDictionary());
                     var callback = _onPersisted;
                     if (callback is not null)
                     {

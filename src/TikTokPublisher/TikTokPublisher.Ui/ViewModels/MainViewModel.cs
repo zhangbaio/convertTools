@@ -813,9 +813,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private static QueueRunOptions ClonePersistentQueueRunOptions(QueueRunOptions options)
     {
-        var clone = options.Clone();
-        clone.UploadEntryMode = "";
-        return clone;
+        return options.ClonePersistent();
     }
 
     private bool TryGetWorkspaceQueueSnapshot(

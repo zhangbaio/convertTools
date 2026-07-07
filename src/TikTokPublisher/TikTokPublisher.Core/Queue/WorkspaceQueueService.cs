@@ -67,11 +67,13 @@ public static class WorkspaceQueueService
     public static QueueRunOptions LoadRunOptions(string workspaceRoot)
     {
         var state = WorkspaceQueueDatabase.Load(workspaceRoot);
-        return QueueRunOptions.FromDictionary(state.Options);
+        var options = QueueRunOptions.FromDictionary(state.Options);
+        options.ClearTransientRunState();
+        return options;
     }
 
     public static void SaveRunOptions(string workspaceRoot, IReadOnlyList<QueueProjectItem> items, QueueRunOptions options) =>
-        WorkspaceQueueDatabase.Save(workspaceRoot, items, options.ToDictionary());
+        WorkspaceQueueDatabase.Save(workspaceRoot, items, options.ToPersistentDictionary());
 
     public static void MarkUploadSeriesCompleted(
         string workspaceRoot,

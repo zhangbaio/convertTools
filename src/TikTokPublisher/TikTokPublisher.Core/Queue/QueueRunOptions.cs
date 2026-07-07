@@ -68,6 +68,19 @@ public sealed class QueueRunOptions
         UploadEntryMode = UploadEntryMode,
     };
 
+    public QueueRunOptions ClonePersistent()
+    {
+        var clone = Clone();
+        clone.ClearTransientRunState();
+        return clone;
+    }
+
+    public void ClearTransientRunState()
+    {
+        ForceRerunCompletedSteps = false;
+        UploadEntryMode = "";
+    }
+
     public Dictionary<string, object?> ToDictionary() => new()
     {
         ["enabled_steps"] = EnabledSteps.ToList(),
@@ -78,6 +91,9 @@ public sealed class QueueRunOptions
         ["project_concurrency"] = Math.Clamp(ProjectConcurrency, 1, 20),
         ["upload_entry_mode"] = NormalizeUploadEntryMode(UploadEntryMode),
     };
+
+    public Dictionary<string, object?> ToPersistentDictionary() =>
+        ClonePersistent().ToDictionary();
 
     public static QueueRunOptions FromDictionary(Dictionary<string, object?>? payload)
     {
