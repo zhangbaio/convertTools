@@ -54,6 +54,8 @@ public partial class TikTokQueueView : UserControl
     private bool _queueStopRequested;
     private bool _startQueueRunActive;
     private string _startQueueRunWorkspaceRoot = "";
+    private bool _uploadTitleImportActive;
+    private string _uploadTitleImportWorkspaceRoot = "";
 
     public event EventHandler? OpenBrowserRequested;
     public event EventHandler? OpenLogsRequested;
@@ -94,6 +96,7 @@ public partial class TikTokQueueView : UserControl
         var anyRunning = _vm?.IsQueueRunning == true;
         var currentRunning = IsStartQueueRunActiveForCurrentWorkspace() ||
                              _vm?.IsCurrentWorkspaceQueueRunning() == true;
+        var startBusy = currentRunning || IsUploadTitleImportActiveForCurrentWorkspace();
         if (!currentRunning)
             _queueStopRequested = false;
         // 仅当前工作目录在跑时才禁用「执行勾选队列」；其他账号的队列不影响本工作目录启动。
@@ -101,10 +104,10 @@ public partial class TikTokQueueView : UserControl
         {
             StartQueueButton.Content = _queueStopRequested && currentRunning
                 ? "等待停止"
-                : currentRunning
+                : startBusy
                     ? "执行中"
                     : "执行勾选队列";
-            StartQueueButton.IsEnabled = !currentRunning;
+            StartQueueButton.IsEnabled = !startBusy;
         }
         if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !anyRunning;
         if (StopQueueButton is not null)
@@ -133,6 +136,28 @@ public partial class TikTokQueueView : UserControl
         catch
         {
             return string.Equals(workspace, _startQueueRunWorkspaceRoot, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private bool IsUploadTitleImportActiveForCurrentWorkspace()
+    {
+        if (!_uploadTitleImportActive || _vm is null)
+            return false;
+
+        var workspace = (_vm.WorkspacePath ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(workspace) || string.IsNullOrWhiteSpace(_uploadTitleImportWorkspaceRoot))
+            return false;
+
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(workspace),
+                _uploadTitleImportWorkspaceRoot,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return string.Equals(workspace, _uploadTitleImportWorkspaceRoot, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -1133,6 +1158,11 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
+        _uploadTitleImportWorkspaceRoot = NormalizeQueueWorkspaceRoot(vm.WorkspacePath);
+        _uploadTitleImportActive = true;
+        RefreshQueueRunButtons();
+        try
+        {
         vm.StatusMessage = "正在按标题导入短剧…";
         UploadTitleImportResult? result;
         try
@@ -1186,6 +1216,13 @@ public partial class TikTokQueueView : UserControl
 
         if (vm.ShouldAutoStartQueueAfterUploadTitleImport(result))
             await StartQueueRunAsync();
+        }
+        finally
+        {
+            _uploadTitleImportActive = false;
+            _uploadTitleImportWorkspaceRoot = "";
+            RefreshQueueRunButtons();
+        }
     }
 
     private async void OnEditSelectedClick(object? sender, RoutedEventArgs e)
