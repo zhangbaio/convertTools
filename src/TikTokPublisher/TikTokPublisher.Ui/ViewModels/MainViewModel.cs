@@ -757,12 +757,14 @@ public sealed partial class MainViewModel : ViewModelBase
         if (IsWorkspaceQueueRunning(root))
             items = PreserveDisplayedRuntimeState(items);
 
+        var currentForceRerunCompletedSteps = ForceRerunCompletedSteps;
         _displayedWorkspaceRoot = SafeFullPath(root);
         _queueItems = items;
         _queueRunOptions = options;
         // 传入后台线程已加载的 options，避免在 UI 线程重复读工作目录运行配置。
         ApplyAccountQueueEnabledSteps(root, options);
-        ForceRerunCompletedSteps = _queueRunOptions.ForceRerunCompletedSteps;
+        _queueRunOptions.ForceRerunCompletedSteps = currentForceRerunCompletedSteps;
+        ForceRerunCompletedSteps = currentForceRerunCompletedSteps;
         AutoArchiveAfterUpload = _queueRunOptions.AutoArchiveAfterUpload;
         PreferUploadWhenReady = _queueRunOptions.PreferUploadWhenReady;
         SyncManagementAfterUpload = _queueRunOptions.SyncManagementAfterUpload;
