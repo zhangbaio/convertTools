@@ -38,6 +38,7 @@ public partial class TikTokQueueView : UserControl
     private readonly Queue<ManualInterventionDialogRequest> _manualInterventionDialogs = new();
     private bool _manualInterventionDialogOpen;
     private QueueUiProgressSink? _queueProgressSink;
+    private static readonly TimeSpan QueueAutoLoginTimeout = TimeSpan.FromMinutes(10);
     private static readonly double[] QueueTableDefaultColumnWidths =
     {
         48, 56, 104, 210, 210, 60, 128, 68, 68, 68, 68, 68, 68, 68, 68, 68, 180,
@@ -1705,7 +1706,13 @@ public partial class TikTokQueueView : UserControl
                 ? "检测到 TikTok 授权文件缺失，开始通过内置浏览器自动登录..."
                 : $"{reason}（使用内置浏览器登录）");
 
-            await Dispatcher.UIThread.InvokeAsync(() => _ensureBrowserMounted?.Invoke())
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (vm.SelectedAccount?.Id != accountVm.Id)
+                    vm.SelectedAccount = accountVm;
+                PublishBrowserFocusRequested?.Invoke(accountVm);
+                _ensureBrowserMounted?.Invoke();
+            })
                 .GetTask()
                 .ConfigureAwait(false);
 
@@ -1713,7 +1720,7 @@ public partial class TikTokQueueView : UserControl
                 .BeginLoginAndWaitForAuthAsync(
                     accountVm,
                     forceRefresh,
-                    TimeSpan.FromSeconds(180),
+                    QueueAutoLoginTimeout,
                     ct,
                     log)
                 .ConfigureAwait(false);

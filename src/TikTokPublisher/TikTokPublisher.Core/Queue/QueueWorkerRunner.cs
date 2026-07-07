@@ -719,7 +719,7 @@ public sealed class QueueWorkerRunner
                 await QueueMaterialStepService.RunGeneratePosterAsync(item, settings, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.DeleteSourceVideos:
-                await QueueMaterialStepService.RunDeleteSourceVideosAsync(item, log, ct).ConfigureAwait(false);
+                await QueueMaterialStepService.RunDeleteSourceVideosAsync(item, settings, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.SmallVideoRepair:
                 TikTokSmallVideoRepairService.Repair(item.ProjectDir, item.Title, item.OriginalTitle, log, ct);

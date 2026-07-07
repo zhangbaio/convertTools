@@ -202,8 +202,8 @@ public sealed class BrowserSessionHost
 
         var host = GetOrCreateHost(account);
         ShowAccount(account);
-        host.Navigate(MainViewModel.TikTokLoginUrl);
         _wasOnLoginPage[account.Id] = true;
+        host.Navigate(MainViewModel.TikTokLoginUrl);
         AuthStatusChanged?.Invoke("请在下方浏览器完成 TikTok 登录");
     }
 
@@ -239,24 +239,122 @@ public sealed class BrowserSessionHost
                 .ConfigureAwait(false);
 
             log?.Invoke($"已打开账号「{account.DisplayName}」的内置浏览器自动登录，等待授权文件生成...");
-            var timeoutTask = Task.Delay(timeout, ct);
-            var completed = await Task.WhenAny(saved.Task, timeoutTask).ConfigureAwait(false);
-            if (completed == saved.Task)
-                return await saved.Task.ConfigureAwait(false);
-
-            ct.ThrowIfCancellationRequested();
-            if (File.Exists(authPath))
-            {
-                var savedAt = File.GetLastWriteTime(authPath).ToString("yyyy-MM-ddTHH:mm:ss");
-                return new EmbeddedAuthSaveResult(authPath, 0, 0, savedAt);
-            }
-
-            throw new TimeoutException("内置浏览器自动登录超时，请在「浏览器」页确认是否需要验证码或人工处理。");
+            return await WaitForAuthSavedOrExportAsync(
+                    account,
+                    authPath,
+                    saved.Task,
+                    timeout,
+                    log,
+                    ct)
+                .ConfigureAwait(false);
         }
         finally
         {
             AuthSaved -= OnAuthSaved;
         }
+    }
+
+    private async Task<EmbeddedAuthSaveResult> WaitForAuthSavedOrExportAsync(
+        AccountItemViewModel account,
+        string authPath,
+        Task<EmbeddedAuthSaveResult> savedTask,
+        TimeSpan timeout,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        var pollInterval = TimeSpan.FromSeconds(1);
+        var lastExportProbe = DateTimeOffset.MinValue;
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (savedTask.IsCompleted)
+                return await savedTask.ConfigureAwait(false);
+
+            if (TryReadExistingAuthFile(authPath) is { } existing)
+                return existing;
+
+            var now = DateTimeOffset.UtcNow;
+            if (now >= deadline)
+                break;
+
+            var remaining = deadline - now;
+            var delay = remaining < pollInterval ? remaining : pollInterval;
+            if (delay > TimeSpan.Zero)
+            {
+                var completed = await Task.WhenAny(savedTask, Task.Delay(delay, ct)).ConfigureAwait(false);
+                if (completed == savedTask)
+                    return await savedTask.ConfigureAwait(false);
+            }
+
+            if (DateTimeOffset.UtcNow - lastExportProbe < TimeSpan.FromSeconds(2))
+                continue;
+
+            lastExportProbe = DateTimeOffset.UtcNow;
+            if (await TryExportAuthFromLoggedInBrowserAsync(account, log, ct).ConfigureAwait(false) &&
+                savedTask.IsCompleted)
+            {
+                return await savedTask.ConfigureAwait(false);
+            }
+        }
+
+        ct.ThrowIfCancellationRequested();
+        if (TryReadExistingAuthFile(authPath) is { } finalExisting)
+            return finalExisting;
+
+        throw new TimeoutException("内置浏览器自动登录超时，请在「浏览器」页确认是否需要验证码或人工处理。");
+    }
+
+    private static EmbeddedAuthSaveResult? TryReadExistingAuthFile(string authPath)
+    {
+        if (!File.Exists(authPath))
+            return null;
+
+        var savedAt = File.GetLastWriteTime(authPath).ToString("yyyy-MM-ddTHH:mm:ss");
+        return new EmbeddedAuthSaveResult(authPath, 0, 0, savedAt);
+    }
+
+    private async Task<bool> TryExportAuthFromLoggedInBrowserAsync(
+        AccountItemViewModel account,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var host = TryGetHost(account.Id);
+        if (host is null)
+            return false;
+
+        var snapshot = await ReadHostSnapshotOnUiThreadAsync(host).ConfigureAwait(false);
+        if (!snapshot.IsEngineReady ||
+            string.IsNullOrWhiteSpace(snapshot.CurrentUrl) ||
+            EmbeddedBrowserLoginHelper.IsLoginUrl(snapshot.CurrentUrl) ||
+            !IsTikTokPage(snapshot.CurrentUrl))
+        {
+            return false;
+        }
+
+        var result = await SaveAuthOnUiThreadAsync(
+                account,
+                auto: true,
+                notifyFailure: false,
+                ct)
+            .ConfigureAwait(false);
+
+        if (result is not null)
+        {
+            log?.Invoke($"检测到账号「{account.DisplayName}」已登录，授权文件已自动保存：{result.AuthPath}");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsTikTokPage(string? url)
+    {
+        var text = (url ?? "").Trim();
+        return text.Contains("tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("tiktok.com", StringComparison.OrdinalIgnoreCase);
     }
 
     public WebView2Host GetOrCreateHost(AccountItemViewModel account) =>
@@ -553,21 +651,60 @@ public sealed class BrowserSessionHost
 
     public async Task SaveAuthAsync(AccountItemViewModel account, bool auto = false)
     {
+        await SaveAuthCoreAsync(account, auto, notifyFailure: true).ConfigureAwait(true);
+    }
+
+    private async Task<EmbeddedAuthSaveResult?> SaveAuthOnUiThreadAsync(
+        AccountItemViewModel account,
+        bool auto,
+        bool notifyFailure,
+        CancellationToken ct)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+            return await SaveAuthCoreAsync(account, auto, notifyFailure).ConfigureAwait(true);
+
+        var tcs = new TaskCompletionSource<EmbeddedAuthSaveResult?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = ct.Register(() => tcs.TrySetCanceled(ct));
+        Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                var result = await SaveAuthCoreAsync(account, auto, notifyFailure).ConfigureAwait(true);
+                tcs.TrySetResult(result);
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        });
+
+        return await tcs.Task.ConfigureAwait(false);
+    }
+
+    private async Task<EmbeddedAuthSaveResult?> SaveAuthCoreAsync(
+        AccountItemViewModel account,
+        bool auto,
+        bool notifyFailure)
+    {
         var host = TryGetHost(account.Id);
         if (host is null)
         {
-            AuthSaveFailed?.Invoke("内置浏览器尚未打开账号页面。");
-            return;
+            if (notifyFailure)
+                AuthSaveFailed?.Invoke("内置浏览器尚未打开账号页面。");
+            return null;
         }
 
         var currentUrl = host.CurrentUrl ?? "";
         if (EmbeddedBrowserLoginHelper.IsLoginUrl(currentUrl))
         {
-            AuthSaveFailed?.Invoke("当前仍在登录页，请登录成功后再保存授权。");
-            return;
+            if (notifyFailure)
+                AuthSaveFailed?.Invoke("当前仍在登录页，请登录成功后再保存授权。");
+            return null;
         }
 
-        AuthStatusChanged?.Invoke(auto ? "检测到登录成功，正在保存授权..." : "正在读取授权...");
+        if (notifyFailure)
+            AuthStatusChanged?.Invoke(auto ? "检测到登录成功，正在保存授权..." : "正在读取授权...");
         try
         {
             var cookies = await host.GetCookiesAsync().ConfigureAwait(true);
@@ -581,11 +718,16 @@ public sealed class BrowserSessionHost
             _autofillStates.Remove(account.Id);
             AuthSaved?.Invoke(new EmbeddedAuthSavedEventArgs(account, result));
             AuthStatusChanged?.Invoke($"授权已保存（{result.CookieCount} 个 Cookie）");
+            return result;
         }
         catch (Exception ex)
         {
-            AuthSaveFailed?.Invoke(ex.Message);
-            AuthStatusChanged?.Invoke("保存失败");
+            if (notifyFailure)
+            {
+                AuthSaveFailed?.Invoke(ex.Message);
+                AuthStatusChanged?.Invoke("保存失败");
+            }
+            return null;
         }
     }
 

@@ -10,7 +10,7 @@ namespace TikTokPublisher.Core.Queue;
 /// <summary>队列步骤：下载 / 改写 / 海报 / 删源（对齐 Python drama + tiktok 服务）。</summary>
 public static class QueueMaterialStepService
 {
-    private const int MissingEpisodeRepairRounds = 2;
+    private const int MissingEpisodeRepairRounds = 3;
 
     public static async Task RunDownloadAsync(
         QueueProjectItem item,
@@ -437,13 +437,16 @@ public static class QueueMaterialStepService
         item.CoverPath = outputPath;
     }
 
-    public static Task RunDeleteSourceVideosAsync(
+    public static async Task RunDeleteSourceVideosAsync(
         QueueProjectItem item,
+        ClientSettings settings,
         Action<string> log,
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        await EnsureSourceVideosCompleteBeforeCleanupAsync(context, item, settings, log, ct)
+            .ConfigureAwait(false);
         TikTokSourceVideoCleanupService.DeleteSourceVideos(
             context.SourceProjectDir,
             context.WorkflowProjectDir,
@@ -451,7 +454,46 @@ public static class QueueMaterialStepService
             item.OriginalTitle,
             log,
             ct);
-        return Task.CompletedTask;
+    }
+
+    private static async Task EnsureSourceVideosCompleteBeforeCleanupAsync(
+        ProjectWorkspaceContext context,
+        QueueProjectItem item,
+        ClientSettings settings,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        var inspection = InspectDownloadedEpisodes(context.SourceProjectDir, item);
+        if (inspection.IsUnknown)
+        {
+            log(string.IsNullOrWhiteSpace(inspection.SkipReason)
+                ? "删除源视频前未能确定短剧总集数，跳过补下载校验。"
+                : $"删除源视频前{inspection.SkipReason}");
+            return;
+        }
+
+        if (inspection.IsComplete)
+        {
+            log($"删除源视频前集数校验通过：{inspection.Expected}/{inspection.Expected} 集齐全。");
+            return;
+        }
+
+        var metadata = ReadDownloadMetadata(context.SourceProjectDir);
+        var displayName = FirstNonEmpty(item.Title, item.OriginalTitle, metadata.Title, Path.GetFileName(context.SourceProjectDir));
+        log(
+            $"删除源视频前发现源视频不完整：短剧总集数 {inspection.Expected}，源视频 {inspection.FoundCount} 个，" +
+            $"缺第 {FormatEpisodePreview(inspection.Missing)} 集。先自动补下载，补齐后再删除源视频。");
+
+        var repaired = await TryRepairMissingEpisodesAsync(context, item, metadata, settings, displayName, log, ct)
+            .ConfigureAwait(false);
+
+        ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
+        ProjectWorkspaceService.RefreshQueueItemMetadata(item);
+
+        if (repaired)
+            log("删源前缺集已补齐，继续执行删除源视频。");
+
+        EnsureDownloadedEpisodesComplete(context.SourceProjectDir, item, log);
     }
 
     private static async Task WriteTikTokPublishFieldsAsync(

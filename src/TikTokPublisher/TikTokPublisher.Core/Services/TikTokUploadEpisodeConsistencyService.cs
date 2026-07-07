@@ -75,49 +75,49 @@ public static class TikTokUploadEpisodeConsistencyService
                 Path.GetFullPath(projectDir));
         }
 
-        var sourceVideos = ProjectVideoResolver
-            .ResolveSourceVideos(context.SourceProjectDir, allowStagedFallback: false)
+        var uploadVideos = ProjectVideoResolver
+            .ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
             .ToList();
 
         var declaredCounts = ResolveDeclaredEpisodeCounts(context, itemEpisodeCount).ToList();
         var expectedCount = declaredCounts.Count > 0
             ? declaredCounts.Max()
-            : sourceVideos.Count;
+            : uploadVideos.Count;
 
         if (expectedCount <= 0)
             return Pass();
 
-        if (sourceVideos.Count == 0)
+        if (uploadVideos.Count == 0)
         {
             return Fail(
-                $"上传前集数校验失败：短剧总集数 {expectedCount}，源目录未找到视频文件。请先补齐源视频后再执行上传。",
+                $"上传前集数校验失败：短剧总集数 {expectedCount}，源目录和新剧名文件夹均未找到可上传视频文件。请先补齐视频后再执行上传。",
                 expectedCount,
-                sourceVideos.Count,
+                uploadVideos.Count,
                 Array.Empty<int>());
         }
 
-        var indexedEpisodes = ExtractEpisodeIndexes(sourceVideos);
+        var indexedEpisodes = ExtractEpisodeIndexes(uploadVideos);
         var missingEpisodes = indexedEpisodes.Count > 0
             ? Enumerable.Range(1, expectedCount).Where(episode => !indexedEpisodes.Contains(episode)).ToList()
             : new List<int>();
 
-        if (sourceVideos.Count != expectedCount || missingEpisodes.Count > 0)
+        if (uploadVideos.Count != expectedCount || missingEpisodes.Count > 0)
         {
             var localDescription = indexedEpisodes.Count > 0
-                ? $"源目录仅 {indexedEpisodes.Count} 个唯一视频集数（视频文件 {sourceVideos.Count} 个）"
-                : $"源目录仅 {sourceVideos.Count} 个视频文件";
+                ? $"可上传视频仅 {indexedEpisodes.Count} 个唯一视频集数（视频文件 {uploadVideos.Count} 个）"
+                : $"可上传视频仅 {uploadVideos.Count} 个视频文件";
             var missingDescription = missingEpisodes.Count > 0
                 ? $"，缺第 {FormatEpisodeList(missingEpisodes)} 集"
                 : "";
 
             return Fail(
-                $"上传前集数校验失败：短剧总集数 {expectedCount}，{localDescription}{missingDescription}。请先补齐源视频后再执行上传。",
+                $"上传前集数校验失败：短剧总集数 {expectedCount}，{localDescription}{missingDescription}。请先补齐视频后再执行上传。",
                 expectedCount,
-                sourceVideos.Count,
+                uploadVideos.Count,
                 missingEpisodes);
         }
 
-        return Pass(expectedCount, sourceVideos.Count);
+        return Pass(expectedCount, uploadVideos.Count);
     }
 
     private static IEnumerable<int> ResolveDeclaredEpisodeCounts(
