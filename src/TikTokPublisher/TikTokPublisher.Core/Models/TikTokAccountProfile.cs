@@ -93,6 +93,9 @@ public sealed class TikTokAccountProfile
     public double TiktokSilenceThresholdDb { get; set; } = -45.0;
     public string TiktokExcelReportPath { get; set; } = "";
     public List<string>? TiktokQueueEnabledSteps { get; set; }
+    public bool? TiktokQueueAutoArchiveAfterUpload { get; set; }
+    public bool? TiktokQueuePreferUploadWhenReady { get; set; }
+    public bool? TiktokQueueSyncManagementAfterUpload { get; set; }
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
 

@@ -305,18 +305,21 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         _queueRunOptions.AutoArchiveAfterUpload = value;
         PersistQueueRunOptions();
+        PersistAccountQueueSettings();
     }
 
     partial void OnPreferUploadWhenReadyChanged(bool value)
     {
         _queueRunOptions.PreferUploadWhenReady = value;
         PersistQueueRunOptions();
+        PersistAccountQueueSettings();
     }
 
     partial void OnSyncManagementAfterUploadChanged(bool value)
     {
         _queueRunOptions.SyncManagementAfterUpload = value;
         PersistQueueRunOptions();
+        PersistAccountQueueSettings();
     }
 
     public AccountItemViewModel? FindAccount(string nameOrId)
@@ -383,7 +386,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (_applyingQueueStepToggles) return;
         SyncEnabledStepsFromUi();
         PersistQueueRunOptions();
-        PersistAccountQueueEnabledSteps();
+        PersistAccountQueueSettings();
     }
 
     [RelayCommand]
@@ -1435,7 +1438,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         SyncEnabledStepsFromUi();
         _queueStatePersist.Enqueue(WorkspacePath, _queueItems, _queueRunOptions);
-        PersistAccountQueueEnabledSteps();
+        PersistAccountQueueSettings();
         foreach (var target in targets)
             MarkQueueExcelExportPending(target.WorkspaceRoot);
         RefreshRunningWorkspacesSummary();
@@ -2486,35 +2489,82 @@ public sealed partial class MainViewModel : ViewModelBase
         var enabledSteps = hasAccountSteps
             ? NormalizeQueueEnabledSteps(account?.TiktokQueueEnabledSteps)
             : new List<string>();
+        var changedAccountSettings = false;
         if (!hasAccountSteps)
         {
             enabledSteps = NormalizeQueueEnabledSteps(options.EnabledSteps);
             if (account is not null)
             {
                 account.TiktokQueueEnabledSteps = enabledSteps.ToList();
-                _context.NotifyProfileUpdated(account);
+                changedAccountSettings = true;
             }
         }
 
         options.EnabledSteps = enabledSteps.ToList();
+        if (account is not null)
+        {
+            if (!account.TiktokQueueAutoArchiveAfterUpload.HasValue)
+            {
+                account.TiktokQueueAutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
+                changedAccountSettings = true;
+            }
+            if (!account.TiktokQueuePreferUploadWhenReady.HasValue)
+            {
+                account.TiktokQueuePreferUploadWhenReady = options.PreferUploadWhenReady;
+                changedAccountSettings = true;
+            }
+            if (!account.TiktokQueueSyncManagementAfterUpload.HasValue)
+            {
+                account.TiktokQueueSyncManagementAfterUpload = options.SyncManagementAfterUpload;
+                changedAccountSettings = true;
+            }
+
+            options.AutoArchiveAfterUpload = account.TiktokQueueAutoArchiveAfterUpload.GetValueOrDefault();
+            options.PreferUploadWhenReady = account.TiktokQueuePreferUploadWhenReady.GetValueOrDefault();
+            options.SyncManagementAfterUpload = account.TiktokQueueSyncManagementAfterUpload.GetValueOrDefault();
+
+            if (changedAccountSettings)
+                _context.NotifyProfileUpdated(account);
+        }
+
         var concurrency = account?.TiktokProjectConcurrency ?? options.ProjectConcurrency;
         options.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
         options.UploadEntryMode = "";
         return options;
     }
 
-    private void PersistAccountQueueEnabledSteps()
+    private void PersistAccountQueueSettings()
     {
         var account = SelectedAccount?.Model;
         if (account is null) return;
 
         var enabledSteps = NormalizeQueueEnabledSteps(_queueRunOptions.EnabledSteps);
+        var changed = false;
 
-        if (NormalizeQueueEnabledSteps(account.TiktokQueueEnabledSteps).SequenceEqual(enabledSteps))
-            return;
+        if (!NormalizeQueueEnabledSteps(account.TiktokQueueEnabledSteps).SequenceEqual(enabledSteps))
+        {
+            account.TiktokQueueEnabledSteps = enabledSteps.ToList();
+            changed = true;
+        }
 
-        account.TiktokQueueEnabledSteps = enabledSteps.ToList();
-        _context.NotifyProfileUpdated(account);
+        if (account.TiktokQueueAutoArchiveAfterUpload != _queueRunOptions.AutoArchiveAfterUpload)
+        {
+            account.TiktokQueueAutoArchiveAfterUpload = _queueRunOptions.AutoArchiveAfterUpload;
+            changed = true;
+        }
+        if (account.TiktokQueuePreferUploadWhenReady != _queueRunOptions.PreferUploadWhenReady)
+        {
+            account.TiktokQueuePreferUploadWhenReady = _queueRunOptions.PreferUploadWhenReady;
+            changed = true;
+        }
+        if (account.TiktokQueueSyncManagementAfterUpload != _queueRunOptions.SyncManagementAfterUpload)
+        {
+            account.TiktokQueueSyncManagementAfterUpload = _queueRunOptions.SyncManagementAfterUpload;
+            changed = true;
+        }
+
+        if (changed)
+            _context.NotifyProfileUpdated(account);
     }
 
     private static List<string> NormalizeQueueEnabledSteps(IEnumerable<string>? steps)
@@ -2988,9 +3038,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var queueRunning = IsCurrentWorkspaceQueueRunning();
 
         ForceRerunCompletedSteps = false;
-        PreferUploadWhenReady = false;
         OnPropertyChanged(nameof(ForceRerunCompletedSteps));
-        OnPropertyChanged(nameof(PreferUploadWhenReady));
 
         // 导入短剧是明确的“用当前账号处理这批短剧”操作：强制把工作目录与导入项目绑定到当前账号，
         // 覆盖此前用其它账号跑过留下的残留绑定，避免账号槽错乱、上传到错误账号。
