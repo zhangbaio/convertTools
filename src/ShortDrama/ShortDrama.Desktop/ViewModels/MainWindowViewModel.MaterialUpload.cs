@@ -30,6 +30,7 @@ public partial class MainWindowViewModel
     private bool _applyingMaterialUploadPageState;
     private DispatcherTimer? _materialSystemHighlightScheduleTimer;
     private bool _checkingMaterialSystemHighlightSchedule;
+    private bool _applyingMaterialUploadAccountSelection;
 
     public ObservableCollection<ProjectListItemViewModel> MaterialUploadProjects { get; } = [];
     public ObservableCollection<MaterialUploadAccountItemViewModel> MaterialUploadAccounts { get; } = [];
@@ -74,6 +75,12 @@ public partial class MainWindowViewModel
 
     partial void OnSelectedMaterialUploadAccountChanged(MaterialUploadAccountItemViewModel? value)
     {
+        if (!_applyingMaterialUploadAccountSelection)
+        {
+            PersistMaterialUploadWorkspaceAccount(value);
+            RefreshMaterialUploadAccountNames();
+        }
+
         OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
         OnPropertyChanged(nameof(MaterialPublishPlanStatus));
     }
@@ -121,7 +128,7 @@ public partial class MainWindowViewModel
     {
         get
         {
-            var selectedCount = MaterialUploadProjects.Count(item => item.IsChecked);
+            var selectedCount = MaterialUploadProjects.Count(item => item.IsMaterialUploadChecked);
             return selectedCount > 0
                 ? $"▶ 上传素材队列 ({selectedCount})"
                 : "▶ 上传素材队列";
@@ -129,13 +136,13 @@ public partial class MainWindowViewModel
     }
 
     public string MaterialUploadSummary =>
-        $"项目数: {MaterialUploadProjects.Count} | 已勾选: {MaterialUploadProjects.Count(item => item.IsChecked)} | 当前项目: {SelectedProject?.DisplayName ?? "未选择"}";
+        $"项目数: {MaterialUploadProjects.Count} | 已勾选: {MaterialUploadProjects.Count(item => item.IsMaterialUploadChecked)} | 当前项目: {SelectedProject?.DisplayName ?? "未选择"}";
 
     public string MaterialPublishPlanStatus
     {
         get
         {
-            var selectedCount = MaterialUploadProjects.Count(item => item.IsChecked);
+            var selectedCount = MaterialUploadProjects.Count(item => item.IsMaterialUploadChecked);
             var plan = SelectedProject?.MaterialUploadStrategySummary;
             if (string.IsNullOrWhiteSpace(plan) || string.Equals(plan, "未配置", StringComparison.Ordinal))
             {
@@ -153,25 +160,44 @@ public partial class MainWindowViewModel
     private string BuildMaterialUploadAccountSummary()
     {
         var current = SelectedMaterialUploadAccount?.DisplayName ?? "未选择";
-        var workspace = string.IsNullOrWhiteSpace(RootDir)
-            ? "未选择"
-            : Path.GetFileName(RootDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        if (string.IsNullOrWhiteSpace(workspace))
-        {
-            workspace = RootDir;
-        }
+        var workspaceId = ResolveWorkspaceMaterialUploadAccountProfileId();
+        var workspaceAccount = FindMaterialUploadAccount(workspaceId);
+        var workspace = workspaceAccount?.DisplayName
+                        ?? (!string.IsNullOrWhiteSpace(workspaceId) ? workspaceId : "跟随当前账号");
 
-        var project = SelectedProject?.MaterialUploadAccountDisplay;
-        if (string.IsNullOrWhiteSpace(project) || string.Equals(project, "未绑定", StringComparison.Ordinal))
-        {
-            project = "跟随当前账号";
-        }
+        var projectId = SelectedProject?.MaterialUploadAccountProfileId;
+        var projectAccount = FindMaterialUploadAccount(projectId);
+        var project = projectAccount?.DisplayName
+                      ?? (!string.IsNullOrWhiteSpace(projectId) ? projectId : "跟随工作区账号");
 
-        var effective = !string.Equals(project, "跟随当前账号", StringComparison.Ordinal)
-            ? project
-            : current;
+        var effective = ResolveEffectiveMaterialUploadAccount(SelectedProject)?.DisplayName ?? "未选择";
 
         return $"素材账号：当前={current} | 工作区={workspace} | 项目={project} | 生效={effective}";
+    }
+
+    private MaterialUploadAccountItemViewModel? ResolveEffectiveMaterialUploadAccount(ProjectListItemViewModel? project)
+    {
+        var projectProfileId = project?.MaterialUploadAccountProfileId;
+        if (project is not null && string.IsNullOrWhiteSpace(projectProfileId))
+        {
+            projectProfileId = ResolveProjectMaterialUploadAccountProfileId(project);
+        }
+
+        var projectAccount = FindMaterialUploadAccount(projectProfileId);
+        if (projectAccount is not null)
+        {
+            return projectAccount;
+        }
+
+        return ResolveMaterialUploadWorkspaceAccount();
+    }
+
+    private MaterialUploadAccountItemViewModel? ResolveMaterialUploadWorkspaceAccount()
+    {
+        return FindMaterialUploadAccount(ResolveWorkspaceMaterialUploadAccountProfileId())
+               ?? SelectedMaterialUploadAccount
+               ?? GetActiveMaterialUploadAccount()
+               ?? MaterialUploadAccounts.FirstOrDefault();
     }
 
     private string ResolveMaterialPublishDisplayPath(ProjectListItemViewModel? project)
@@ -220,9 +246,19 @@ public partial class MainWindowViewModel
                 string.Equals(profile.Id, activeId, StringComparison.OrdinalIgnoreCase)));
         }
 
-        SelectedMaterialUploadAccount = MaterialUploadAccounts.FirstOrDefault(item => item.IsActive)
-                                        ?? MaterialUploadAccounts.FirstOrDefault();
-        RefreshVisibleMaterialUploadAccounts();
+        _applyingMaterialUploadAccountSelection = true;
+        try
+        {
+            SelectedMaterialUploadAccount = MaterialUploadAccounts.FirstOrDefault(item => item.IsActive)
+                                            ?? MaterialUploadAccounts.FirstOrDefault();
+            RefreshVisibleMaterialUploadAccounts();
+        }
+        finally
+        {
+            _applyingMaterialUploadAccountSelection = false;
+        }
+
+        ApplyMaterialUploadWorkspaceAccountSelection();
         SaveMaterialUploadAccounts();
         OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
         OnPropertyChanged(nameof(MaterialUploadSummary));
@@ -248,9 +284,17 @@ public partial class MainWindowViewModel
 
         if (!string.IsNullOrWhiteSpace(selectedId))
         {
-            SelectedMaterialUploadAccount = VisibleMaterialUploadAccounts.FirstOrDefault(item =>
-                string.Equals(item.Id, selectedId, StringComparison.OrdinalIgnoreCase))
-                ?? SelectedMaterialUploadAccount;
+            _applyingMaterialUploadAccountSelection = true;
+            try
+            {
+                SelectedMaterialUploadAccount = VisibleMaterialUploadAccounts.FirstOrDefault(item =>
+                    string.Equals(item.Id, selectedId, StringComparison.OrdinalIgnoreCase))
+                    ?? SelectedMaterialUploadAccount;
+            }
+            finally
+            {
+                _applyingMaterialUploadAccountSelection = false;
+            }
         }
     }
 
@@ -356,7 +400,7 @@ public partial class MainWindowViewModel
             return;
         }
 
-        var targets = MaterialUploadProjects.Where(item => item.IsChecked).ToArray();
+        var targets = MaterialUploadProjects.Where(item => item.IsMaterialUploadChecked).ToArray();
         if (targets.Length == 0 && SelectedProject is not null)
         {
             targets = [SelectedProject];
@@ -406,7 +450,7 @@ public partial class MainWindowViewModel
 
     public void ClearMaterialUploadProjectAccountBinding()
     {
-        var targets = MaterialUploadProjects.Where(item => item.IsChecked).ToArray();
+        var targets = MaterialUploadProjects.Where(item => item.IsMaterialUploadChecked).ToArray();
         if (targets.Length == 0)
         {
             var target = ResolveMaterialUploadTargetProject(null);
@@ -432,7 +476,7 @@ public partial class MainWindowViewModel
 
     public Task OpenSelectedMaterialUploadAccountBrowserAsync(bool relogin)
     {
-        var account = SelectedMaterialUploadAccount ?? GetActiveMaterialUploadAccount();
+        var account = ResolveMaterialUploadWorkspaceAccount();
         if (account is null)
         {
             StatusMessage = "请先选择素材上传账号。";
@@ -510,7 +554,7 @@ public partial class MainWindowViewModel
             return;
         }
 
-        var account = SelectedMaterialUploadAccount ?? GetActiveMaterialUploadAccount();
+        var account = ResolveMaterialUploadWorkspaceAccount();
         if (account is null)
         {
             StatusMessage = "请先选择素材上传账号。";
@@ -573,7 +617,7 @@ public partial class MainWindowViewModel
     {
         await RunMaterialSystemHighlightBatchPublishAsync(
             dialog,
-            SelectedMaterialUploadAccount ?? GetActiveMaterialUploadAccount(),
+            ResolveMaterialUploadWorkspaceAccount(),
             RootDir,
             scheduleRule: null);
     }
@@ -858,7 +902,7 @@ public partial class MainWindowViewModel
     {
         foreach (var project in MaterialUploadProjects)
         {
-            project.IsChecked = isChecked;
+            project.IsMaterialUploadChecked = isChecked;
         }
 
         OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
@@ -912,7 +956,7 @@ public partial class MainWindowViewModel
 
     public async Task RunCheckedMaterialUploadQueueFromPageAsync()
     {
-        var targets = MaterialUploadProjects.Where(item => item.IsChecked).ToArray();
+        var targets = MaterialUploadProjects.Where(item => item.IsMaterialUploadChecked).ToArray();
         if (targets.Length == 0)
         {
             StatusMessage = "请先勾选要上传素材的项目。";
@@ -1096,7 +1140,7 @@ public partial class MainWindowViewModel
             return SelectedProject;
         }
 
-        return MaterialUploadProjects.FirstOrDefault(item => item.IsChecked && HasMaterialPublishWorkflow(item))
+        return MaterialUploadProjects.FirstOrDefault(item => item.IsMaterialUploadChecked && HasMaterialPublishWorkflow(item))
                ?? MaterialUploadProjects.FirstOrDefault(HasMaterialPublishWorkflow);
     }
 
@@ -1115,7 +1159,7 @@ public partial class MainWindowViewModel
             return SelectedProject;
         }
 
-        return MaterialUploadProjects.FirstOrDefault(item => item.IsChecked)
+        return MaterialUploadProjects.FirstOrDefault(item => item.IsMaterialUploadChecked)
                ?? MaterialUploadProjects.FirstOrDefault();
     }
 
@@ -1437,7 +1481,7 @@ public partial class MainWindowViewModel
             return account;
         }
 
-        account = GetActiveMaterialUploadAccount() ?? SelectedMaterialUploadAccount ?? MaterialUploadAccounts.FirstOrDefault();
+        account = ResolveMaterialUploadWorkspaceAccount();
         if (account is not null && (bindMissing || string.IsNullOrWhiteSpace(profileId)))
         {
             BindMaterialUploadProjectToAccount(project, account);
@@ -1542,17 +1586,69 @@ public partial class MainWindowViewModel
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(RootDir))
+        return string.Empty;
+    }
+
+    private string ResolveWorkspaceMaterialUploadAccountProfileId()
+    {
+        if (string.IsNullOrWhiteSpace(RootDir))
         {
-            var workspacePath = Path.Combine(RootDir, WorkspaceAccountProfileConfigName);
-            var id = ReadAccountProfileId(workspacePath, MaterialUploadWorkspaceAccountKeys);
-            if (!string.IsNullOrWhiteSpace(id))
-            {
-                return id;
-            }
+            return string.Empty;
         }
 
-        return string.Empty;
+        var workspacePath = Path.Combine(RootDir, WorkspaceAccountProfileConfigName);
+        return ReadAccountProfileId(workspacePath, MaterialUploadWorkspaceAccountKeys);
+    }
+
+    private void PersistMaterialUploadWorkspaceAccount(MaterialUploadAccountItemViewModel? account)
+    {
+        if (account is null || string.IsNullOrWhiteSpace(RootDir) || !Directory.Exists(RootDir))
+        {
+            return;
+        }
+
+        var workspacePath = Path.Combine(RootDir, WorkspaceAccountProfileConfigName);
+        try
+        {
+            var root = File.Exists(workspacePath)
+                ? JsonNode.Parse(File.ReadAllText(workspacePath)) as JsonObject ?? new JsonObject()
+                : new JsonObject();
+            root["materialUploadAccountProfileId"] = account.Id;
+            root.Remove("material_upload_account_profile_id");
+            File.WriteAllText(workspacePath, root.ToJsonString(MaterialUploadJsonOptions));
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"保存工作区素材账号失败：{ex.Message}";
+        }
+    }
+
+    private void ApplyMaterialUploadWorkspaceAccountSelection()
+    {
+        var workspaceProfileId = ResolveWorkspaceMaterialUploadAccountProfileId();
+        if (string.IsNullOrWhiteSpace(workspaceProfileId))
+        {
+            return;
+        }
+
+        var account = FindMaterialUploadAccount(workspaceProfileId);
+        if (account is null || ReferenceEquals(account, SelectedMaterialUploadAccount))
+        {
+            return;
+        }
+
+        _applyingMaterialUploadAccountSelection = true;
+        try
+        {
+            SelectedMaterialUploadAccount = account;
+        }
+        finally
+        {
+            _applyingMaterialUploadAccountSelection = false;
+        }
+
+        OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
+        OnPropertyChanged(nameof(MaterialPublishPlanStatus));
     }
 
     private static string ReadAccountProfileId(string path, IEnumerable<string> keys)
@@ -1771,8 +1867,8 @@ public partial class MainWindowViewModel
                 ["activity_option_text"] = "不参与活动",
                 ["timing_option_text"] = "不定时",
                 ["short_title_max_length"] = 15,
-                ["final_action"] = "draft",
-                ["single_test_final_action"] = "draft",
+                ["final_action"] = "publish",
+                ["single_test_final_action"] = "publish",
                 ["pause_on_error"] = true,
                 ["video_upload_action"] = new JsonObject
                 {

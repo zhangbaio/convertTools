@@ -203,7 +203,8 @@ public sealed class ManualMaterialProjectService
                 link_option_text = "视频号剧集",
                 activity_option_text = "不参与活动",
                 timing_option_text = "不定时",
-                final_action = "draft",
+                final_action = "publish",
+                single_test_final_action = "publish",
                 episode_selection_mode = "range",
                 start_episode_index = 2,
                 publish_count = 4
@@ -242,7 +243,8 @@ public sealed class ManualMaterialProjectService
                 link_option_text = "视频号剧集",
                 activity_option_text = "不参与活动",
                 timing_option_text = "不定时",
-                final_action = "draft"
+                final_action = "publish",
+                single_test_final_action = "publish"
             },
             second_page = new
             {

@@ -407,7 +407,7 @@
                                 <Border Classes="table-row">
                                     <Grid ColumnDefinitions="56,2.2*,2.2*,70,90,120,1.6*"
                                           ColumnSpacing="12">
-                                        <CheckBox IsChecked="{Binding IsChecked}"
+                                        <CheckBox IsChecked="{Binding IsMaterialUploadChecked}"
                                                   HorizontalAlignment="Center"
                                                   VerticalAlignment="Center" />
                                         <Button Grid.Column="1"

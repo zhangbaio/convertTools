@@ -64,6 +64,7 @@ public partial class ProjectListItemViewModel : ViewModelBase
     public bool HasDistinctNewTitle => IsDistinctTitle(DisplayName, OriginalTitle, ProjectKey);
     public string MaterialUploadNewTitleDisplay => HasDistinctNewTitle ? DisplayName : OriginalTitle;
     public event EventHandler? CheckedChanged;
+    public event EventHandler? MaterialUploadCheckedChanged;
     public ObservableCollection<DownloadEpisodeItemViewModel> DownloadEpisodes { get; } = [];
     public ObservableCollection<EpisodeUploadItemViewModel> EpisodeUploadEpisodes { get; } = [];
     public ObservableCollection<MaterialPublishVideoItemViewModel> MaterialPublishVideos { get; } = [];
@@ -73,6 +74,9 @@ public partial class ProjectListItemViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool isChecked;
+
+    [ObservableProperty]
+    private bool isMaterialUploadChecked;
 
     [ObservableProperty]
     private string status = string.Empty;
@@ -272,6 +276,8 @@ public partial class ProjectListItemViewModel : ViewModelBase
 
     partial void OnIsCheckedChanged(bool value) =>
         Dispatcher.UIThread.Post(() => CheckedChanged?.Invoke(this, EventArgs.Empty));
+    partial void OnIsMaterialUploadCheckedChanged(bool value) =>
+        Dispatcher.UIThread.Post(() => MaterialUploadCheckedChanged?.Invoke(this, EventArgs.Empty));
     partial void OnSchedulingStatusChanged(string value) => OnPropertyChanged(nameof(SchedulingStatusBrush));
     partial void OnDownloadStepStatusChanged(string value)
     {

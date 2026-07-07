@@ -97,6 +97,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _updatingSelectedProjectState;
     private bool _updatingTaskQueueDetailState;
     private bool _projectCheckRefreshQueued;
+    private bool _materialUploadCheckRefreshQueued;
     private string _projectListRootDir = string.Empty;
     private string _costReportBaseImagePath = string.Empty;
     private string _costReportActorPayRatio = string.Empty;
@@ -751,11 +752,12 @@ public partial class MainWindowViewModel : ViewModelBase
     partial void OnRootDirChanged(string value)
     {
         OnPropertyChanged(nameof(WorkspaceSummary));
-        OnPropertyChanged(nameof(MaterialPublishPlanStatus));
-        OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
         RefreshCommandStates();
         LoadConfig();
         LoadMaterialUploadPageState();
+        ApplyMaterialUploadWorkspaceAccountSelection();
+        OnPropertyChanged(nameof(MaterialPublishPlanStatus));
+        OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
     }
 
     partial void OnSearchKeywordChanged(string value) => RefreshCommandStates();
@@ -3719,6 +3721,11 @@ public partial class MainWindowViewModel : ViewModelBase
         QueueProjectCheckRefresh();
     }
 
+    private void OnMaterialUploadProjectCheckedChanged(object? sender, EventArgs e)
+    {
+        QueueMaterialUploadCheckRefresh();
+    }
+
     private void QueueProjectCheckRefresh()
     {
         if (_projectCheckRefreshQueued)
@@ -3747,6 +3754,31 @@ public partial class MainWindowViewModel : ViewModelBase
             catch (Exception ex)
             {
                 StatusMessage = $"更新勾选状态失败：{ex.Message}";
+            }
+        });
+    }
+
+    private void QueueMaterialUploadCheckRefresh()
+    {
+        if (_materialUploadCheckRefreshQueued)
+        {
+            return;
+        }
+
+        _materialUploadCheckRefreshQueued = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _materialUploadCheckRefreshQueued = false;
+            try
+            {
+                OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
+                OnPropertyChanged(nameof(MaterialUploadSummary));
+                OnPropertyChanged(nameof(MaterialPublishPlanStatus));
+                OnPropertyChanged(nameof(CurrentMaterialUploadAccountSummary));
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"更新素材勾选状态失败：{ex.Message}";
             }
         });
     }
@@ -3938,6 +3970,7 @@ public partial class MainWindowViewModel : ViewModelBase
             };
             ApplyMaterialUploadAccountContext(item);
             item.CheckedChanged += OnProjectRowCheckedChanged;
+            item.MaterialUploadCheckedChanged += OnMaterialUploadProjectCheckedChanged;
             item.PropertyChanged += OnProjectRowStatusChanged;
             Projects.Add(item);
         }
@@ -3974,6 +4007,7 @@ public partial class MainWindowViewModel : ViewModelBase
         foreach (var project in Projects)
         {
             project.CheckedChanged -= OnProjectRowCheckedChanged;
+            project.MaterialUploadCheckedChanged -= OnMaterialUploadProjectCheckedChanged;
             project.PropertyChanged -= OnProjectRowStatusChanged;
         }
     }

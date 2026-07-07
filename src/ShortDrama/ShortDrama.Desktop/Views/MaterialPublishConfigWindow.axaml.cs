@@ -103,8 +103,8 @@ public partial class MaterialPublishConfigWindow : Window
 
         BindOptions(SingleTestActionComboBox,
         [
-            new("draft", "保存草稿"),
             new("publish", "发表"),
+            new("draft", "保存草稿"),
             new("none", "只填不发")
         ]);
     }
@@ -212,8 +212,8 @@ public partial class MaterialPublishConfigWindow : Window
         CustomVideoFilesTextBox.Text = string.Join(Environment.NewLine, ReadStringArray(config, "publish_video_custom_files"));
 
         SelectOption(RunStrategyComboBox, ReadString(config, "run_strategy") ?? "resume");
-        SelectOption(FinalActionComboBox, ReadString(config, "final_action") ?? "draft");
-        SelectOption(SingleTestActionComboBox, ReadString(config, "single_test_final_action") ?? "draft");
+        SelectOption(FinalActionComboBox, ReadString(config, "final_action") ?? "publish");
+        SelectOption(SingleTestActionComboBox, ReadString(config, "single_test_final_action") ?? "publish");
         PauseOnErrorCheckBox.IsChecked = ReadBool(config, "pause_on_error", ReadBool(_root, "pause_on_error", true));
         FastModeCheckBox.IsChecked = ReadBool(config, "fast_mode", false);
         AllowDuplicateCheckBox.IsChecked = ReadBool(config, "allow_duplicate_publish", false);
@@ -361,8 +361,8 @@ public partial class MaterialPublishConfigWindow : Window
         _videoPublish.Remove("material_transcode");
 
         _videoPublish["run_strategy"] = SelectedKey(RunStrategyComboBox, "resume");
-        _videoPublish["final_action"] = SelectedKey(FinalActionComboBox, "draft");
-        _videoPublish["single_test_final_action"] = SelectedKey(SingleTestActionComboBox, "draft");
+        _videoPublish["final_action"] = SelectedKey(FinalActionComboBox, "publish");
+        _videoPublish["single_test_final_action"] = SelectedKey(SingleTestActionComboBox, "publish");
         _videoPublish["pause_on_error"] = PauseOnErrorCheckBox.IsChecked == true;
         _videoPublish["fast_mode"] = FastModeCheckBox.IsChecked == true;
         _videoPublish["allow_duplicate_publish"] = AllowDuplicateCheckBox.IsChecked == true;

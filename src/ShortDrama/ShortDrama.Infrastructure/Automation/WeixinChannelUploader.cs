@@ -14,7 +14,8 @@ namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class WeixinChannelUploader : IWeixinChannelUploader
 {
-    private const bool AutomaticSeriesFlowOnly = true;
+    private static readonly bool AutomaticSeriesFlowOnly = true;
+    private static readonly bool AutoContinueMaterialPublish = true;
 
     private enum SeriesStageResolution
     {
@@ -776,24 +777,31 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
 
                 await _materialPublishPage.ChooseOptionsAsync(page, config.VideoPublish, projectInfo.Title, progress, cancellationToken);
 
-                var decision = await RequestDecisionAsync(
-                    request,
-                    stage: "material-publish-ready",
-                    message: $"素材视频 {Path.GetFileName(videoPath)} 已填充完成。点击继续执行后将自动{config.VideoPublish.FinalActionText}；也可以手动接管或停止。",
-                    options: null,
-                    progress,
-                    cancellationToken);
-                if (string.Equals(decision, "stop", StringComparison.Ordinal))
+                if (!AutoContinueMaterialPublish)
                 {
-                    publishState = publishState with
+                    var decision = await RequestDecisionAsync(
+                        request,
+                        stage: "material-publish-ready",
+                        message: $"素材视频 {Path.GetFileName(videoPath)} 已填充完成。点击继续执行后将自动{config.VideoPublish.FinalActionText}；也可以手动接管或停止。",
+                        options: null,
+                        progress,
+                        cancellationToken);
+                    if (string.Equals(decision, "stop", StringComparison.Ordinal))
                     {
-                        Entries = UpsertMaterialPublishEntries(
-                            publishState.Entries,
-                            publishStateKeys,
-                            new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "用户停止"))
-                    };
-                    SaveMaterialPublishState(statePath, publishState);
-                    return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "微信素材上传已停止，可继续运行。");
+                        publishState = publishState with
+                        {
+                            Entries = UpsertMaterialPublishEntries(
+                                publishState.Entries,
+                                publishStateKeys,
+                                new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "用户停止"))
+                        };
+                        SaveMaterialPublishState(statePath, publishState);
+                        return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "微信素材上传已停止，可继续运行。");
+                    }
+                }
+                else
+                {
+                    progress?.Report($"微信素材上传：表单已填充完成，自动{config.VideoPublish.FinalActionText}。");
                 }
 
                 await _materialPublishPage.FinalizeAsync(page, config.VideoPublish, progress, cancellationToken);
@@ -1050,24 +1058,31 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
 
                 await _materialPublishPage.ChooseOptionsAsync(publishPage, config.VideoPublish, projectInfo.Title, progress, cancellationToken);
 
-                var decision = await RequestDecisionAsync(
-                    request,
-                    stage: "system-highlight-material-publish-ready",
-                    message: $"系统高光第 {candidate.SlotIndex} 个视频已填充完成。点击继续执行后将自动{config.VideoPublish.FinalActionText}；也可以手动接管或停止。",
-                    options: null,
-                    progress,
-                    cancellationToken);
-                if (string.Equals(decision, "stop", StringComparison.Ordinal))
+                if (!AutoContinueMaterialPublish)
                 {
-                    publishState = publishState with
+                    var decision = await RequestDecisionAsync(
+                        request,
+                        stage: "system-highlight-material-publish-ready",
+                        message: $"系统高光第 {candidate.SlotIndex} 个视频已填充完成。点击继续执行后将自动{config.VideoPublish.FinalActionText}；也可以手动接管或停止。",
+                        options: null,
+                        progress,
+                        cancellationToken);
+                    if (string.Equals(decision, "stop", StringComparison.Ordinal))
                     {
-                        Entries = UpsertMaterialPublishEntry(
-                            publishState.Entries,
-                            candidate.SlotIndex.ToString(),
-                            new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "用户停止"))
-                    };
-                    SaveMaterialPublishState(statePath, publishState);
-                    return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "系统高光发布已停止，可继续运行。");
+                        publishState = publishState with
+                        {
+                            Entries = UpsertMaterialPublishEntry(
+                                publishState.Entries,
+                                candidate.SlotIndex.ToString(),
+                                new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "用户停止"))
+                        };
+                        SaveMaterialPublishState(statePath, publishState);
+                        return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "系统高光发布已停止，可继续运行。");
+                    }
+                }
+                else
+                {
+                    progress?.Report($"系统高光发布：表单已填充完成，自动{config.VideoPublish.FinalActionText}。");
                 }
 
                 await _materialPublishPage.FinalizeAsync(publishPage, config.VideoPublish, progress, cancellationToken);

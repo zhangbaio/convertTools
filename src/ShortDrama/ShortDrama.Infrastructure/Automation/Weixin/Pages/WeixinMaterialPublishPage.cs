@@ -192,11 +192,12 @@ public sealed class WeixinMaterialPublishPage
         if (!string.IsNullOrWhiteSpace(options.LocationOptionText))
         {
             await TryOptionalStepAsync(
+                page,
                 progress,
                 "位置",
                 async () =>
                 {
-                    await ChooseOptionAsync(page, "位置", options.LocationOptionText);
+                    await ChooseOptionAsync(page, "位置", options.LocationOptionText, 3_000);
                     progress?.Report($"微信素材上传：已选择位置 -> {options.LocationOptionText}");
                 });
         }
@@ -210,11 +211,12 @@ public sealed class WeixinMaterialPublishPage
         if (!string.IsNullOrWhiteSpace(options.ActivityOptionText))
         {
             await TryOptionalStepAsync(
+                page,
                 progress,
                 "活动",
                 async () =>
                 {
-                    await ChooseOptionAsync(page, "活动", options.ActivityOptionText);
+                    await ChooseOptionAsync(page, "活动", options.ActivityOptionText, 3_000);
                     progress?.Report($"微信素材上传：已选择活动 -> {options.ActivityOptionText}");
                 });
         }
@@ -222,11 +224,12 @@ public sealed class WeixinMaterialPublishPage
         if (!string.IsNullOrWhiteSpace(options.TimingOptionText))
         {
             await TryOptionalStepAsync(
+                page,
                 progress,
                 "定时发表",
                 async () =>
                 {
-                    await ChooseOptionAsync(page, "定时发表", options.TimingOptionText);
+                    await ChooseOptionAsync(page, "定时发表", options.TimingOptionText, 3_000);
                     progress?.Report($"微信素材上传：已选择定时发表 -> {options.TimingOptionText}");
                 });
         }
@@ -314,19 +317,174 @@ public sealed class WeixinMaterialPublishPage
 
         if (normalizedAction is "draft" or "save_draft" or "保存草稿")
         {
-            await ClickFirstOrThrowAsync(page, "button:has-text('保存草稿')");
+            await ClickFinalActionButtonAsync(page, "保存草稿", cancellationToken);
             progress?.Report("微信素材上传：已点击 保存草稿");
+            await WaitForFinalActionFeedbackAsync(page, "保存草稿", cancellationToken);
         }
         else
         {
-            await ClickFirstOrThrowAsync(page, "button.weui-desktop-btn_primary:has-text('发表')", "button:has-text('发表')");
+            await ClickFinalActionButtonAsync(page, "发表", cancellationToken);
             progress?.Report("微信素材上传：已点击 发表");
+            await WaitForFinalActionFeedbackAsync(page, "发表", cancellationToken);
         }
 
         if (options.WaitAfterFinalActionSeconds > 0)
         {
             await Task.Delay(TimeSpan.FromSeconds(options.WaitAfterFinalActionSeconds), cancellationToken);
         }
+    }
+
+    private static async Task ClickFinalActionButtonAsync(IPage page, string actionText, CancellationToken cancellationToken)
+    {
+        var safe = Escape(actionText);
+        var candidates = new[]
+        {
+            page.Locator($"button.weui-desktop-btn_primary:has-text(\"{safe}\")").First,
+            page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { NameString = actionText, Exact = false }).First,
+            page.Locator($"button:has-text(\"{safe}\")").First
+        };
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(8);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var candidate in candidates)
+            {
+                try
+                {
+                    if (await candidate.CountAsync() > 0 &&
+                        await IsLocatorVisibleAsync(candidate) &&
+                        await IsLocatorEnabledAsync(candidate))
+                    {
+                        await candidate.ClickAsync(new LocatorClickOptions { Timeout = 3_000 });
+                        return;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            await Task.Delay(250, cancellationToken);
+        }
+
+        throw new InvalidOperationException($"未找到可点击的“{actionText}”按钮。");
+    }
+
+    private static async Task WaitForFinalActionFeedbackAsync(
+        IPage page,
+        string actionText,
+        CancellationToken cancellationToken)
+    {
+        var successTexts = actionText == "保存草稿"
+            ? new[] { "已保存", "保存成功", "草稿保存成功" }
+            : new[] { "已发表", "发表成功", "发布成功" };
+        var timeoutAt = DateTimeOffset.UtcNow.AddSeconds(12);
+        while (DateTimeOffset.UtcNow < timeoutAt)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var failure = await ReadVisibleFinalActionFailureAsync(page, actionText);
+            if (!string.IsNullOrWhiteSpace(failure))
+            {
+                throw new InvalidOperationException(failure);
+            }
+
+            foreach (var successText in successTexts)
+            {
+                if (await IsVisibleTextAsync(page, successText))
+                {
+                    return;
+                }
+            }
+
+            await Task.Delay(200, cancellationToken);
+        }
+    }
+
+    private static async Task<string> ReadVisibleFinalActionFailureAsync(IPage page, string actionText)
+    {
+        var explicitFailures = actionText == "保存草稿"
+            ? new[] { "保存失败", "保存草稿失败", "草稿保存失败" }
+            : new[] { "发表失败", "发布失败", $"{actionText}失败" };
+        var selectors = new[]
+        {
+            ".weui-desktop-toptips",
+            ".weui-toptips",
+            "[class*='toptips']",
+            ".weui-desktop-toast",
+            "[class*='toast']",
+            ".weui-desktop-form__msg",
+            ".weui-desktop-form__tips"
+        };
+
+        foreach (var selector in selectors)
+        {
+            var locator = page.Locator(selector);
+            int count;
+            try
+            {
+                count = Math.Min(await locator.CountAsync(), 20);
+            }
+            catch
+            {
+                continue;
+            }
+
+            for (var index = 0; index < count; index++)
+            {
+                var item = locator.Nth(index);
+                try
+                {
+                    if (!await IsLocatorVisibleAsync(item))
+                    {
+                        continue;
+                    }
+
+                    var text = CompactFeedbackText(await item.InnerTextAsync(new LocatorInnerTextOptions { Timeout = 500 }));
+                    if (IsFinalActionFailureText(text, explicitFailures))
+                    {
+                        return text;
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool IsFinalActionFailureText(string text, IReadOnlyList<string> explicitFailures)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        if (explicitFailures.Any(marker => !string.IsNullOrWhiteSpace(marker) && text.Contains(marker, StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        return (text.Contains("失败", StringComparison.Ordinal) ||
+                text.Contains("错误", StringComparison.Ordinal) ||
+                text.Contains("异常", StringComparison.Ordinal) ||
+                text.Contains("不能为空", StringComparison.Ordinal) ||
+                text.Contains("不支持", StringComparison.Ordinal) ||
+                text.Contains("不符合", StringComparison.Ordinal)) &&
+               !text.Contains("发布中", StringComparison.Ordinal) &&
+               !text.Contains("发表中", StringComparison.Ordinal) &&
+               !text.Contains("保存中", StringComparison.Ordinal);
+    }
+
+    private static string CompactFeedbackText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        return Regex.Replace(text.Trim(), @"\s+", " ");
     }
 
     public async Task SaveArtifactsAsync(
@@ -448,7 +606,7 @@ public sealed class WeixinMaterialPublishPage
         await Task.Delay(1_500, cancellationToken);
     }
 
-    private static async Task TryOptionalStepAsync(IProgress<string>? progress, string name, Func<Task> action)
+    private static async Task TryOptionalStepAsync(IPage page, IProgress<string>? progress, string name, Func<Task> action)
     {
         try
         {
@@ -456,6 +614,7 @@ public sealed class WeixinMaterialPublishPage
         }
         catch (Exception ex)
         {
+            await DismissTransientOverlaysAsync(page);
             progress?.Report($"微信素材上传：{name}未完成，已继续后续流程。{ex.Message}");
         }
     }
@@ -501,29 +660,183 @@ public sealed class WeixinMaterialPublishPage
         await search.FillAsync(seriesTitle);
         await Task.Delay(3_500, cancellationToken);
 
-        var matches = await page.GetByText(seriesTitle, new PageGetByTextOptions { Exact = false }).AllAsync();
-        foreach (var match in matches)
+        var match = await FindSeriesResultInPickerAsync(page, seriesTitle, 10_000, cancellationToken);
+        if (match is not null)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!await IsLocatorVisibleAsync(match))
+            await match.ScrollIntoViewIfNeededAsync();
+            await match.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 5_000 });
+            await Task.Delay(800, cancellationToken);
+            if (!await TryClickSeriesPickerConfirmAsync(page, cancellationToken))
             {
-                continue;
+                await WaitForSeriesPickerSelectionAppliedAsync(page, match, cancellationToken);
+            }
+            else
+            {
+                await WaitBrieflyForLoadAsync(page);
             }
 
-            await match.ScrollIntoViewIfNeededAsync();
-            await match.ClickAsync(new LocatorClickOptions { Timeout = 5_000 });
-            await Task.Delay(800, cancellationToken);
-            await ClickFirstOrThrowAsync(
-                page,
-                "button:has-text('确定')",
-                "button:has-text('确认')",
-                "button:has-text('完成')",
-                "button:has-text('添加')");
-            await WaitBrieflyForLoadAsync(page);
             return;
         }
 
         throw new InvalidOperationException($"未搜到剧集“{seriesTitle}”。");
+    }
+
+    private static async Task<ILocator?> FindSeriesResultInPickerAsync(
+        IPage page,
+        string seriesTitle,
+        int timeoutMs,
+        CancellationToken cancellationToken)
+    {
+        var safeTitle = Escape(seriesTitle);
+        var timeoutAt = DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTimeOffset.UtcNow < timeoutAt)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var roots = page.Locator(
+                ".weui-desktop-dialog__wrp:visible, .weui-desktop-dialog:visible, .ant-modal:visible, " +
+                ".ant-drawer:visible, .ant-popover:visible, .ant-table-wrapper:visible, .ant-select-dropdown:visible");
+            var rootCount = 0;
+            try
+            {
+                rootCount = await roots.CountAsync();
+            }
+            catch
+            {
+            }
+
+            for (var rootIndex = 0; rootIndex < rootCount; rootIndex++)
+            {
+                var root = roots.Nth(rootIndex);
+                foreach (var candidate in EnumerateSeriesResultCandidates(root, seriesTitle, safeTitle))
+                {
+                    try
+                    {
+                        if (await candidate.CountAsync() > 0 && await IsLocatorVisibleAsync(candidate.First))
+                        {
+                            return candidate.First;
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            await Task.Delay(250, cancellationToken);
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<ILocator> EnumerateSeriesResultCandidates(ILocator root, string seriesTitle, string safeTitle)
+    {
+        yield return root.Locator($".ant-table-tbody tr:has-text(\"{safeTitle}\")");
+        yield return root.Locator($".ant-table-row:has-text(\"{safeTitle}\")");
+        yield return root.Locator($"[role='row']:has-text(\"{safeTitle}\")");
+        yield return root.Locator($".ant-list-item:has-text(\"{safeTitle}\")");
+        yield return root.Locator($".weui-desktop-media__list-item:has-text(\"{safeTitle}\")");
+        yield return root.Locator($".weui-desktop-dropdown__list-item:has-text(\"{safeTitle}\")");
+        yield return root.GetByText(seriesTitle, new LocatorGetByTextOptions { Exact = false });
+    }
+
+    private static async Task<bool> TryClickSeriesPickerConfirmAsync(IPage page, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var roots = page.Locator(
+            ".weui-desktop-dialog__wrp:visible, .weui-desktop-dialog:visible, " +
+            ".ant-modal:visible, .ant-drawer:visible, [role='dialog']:visible");
+        var selectors = new[]
+        {
+            "button:not(.weui-desktop-btn_disabled):has-text('确定')",
+            "button:not(.weui-desktop-btn_disabled):has-text('确认')",
+            "button:not(.weui-desktop-btn_disabled):has-text('完成')",
+            "button:not(.weui-desktop-btn_disabled):has-text('添加')"
+        };
+
+        var rootCount = 0;
+        try
+        {
+            rootCount = await roots.CountAsync();
+        }
+        catch
+        {
+            return false;
+        }
+
+        for (var rootIndex = 0; rootIndex < rootCount; rootIndex++)
+        {
+            var root = roots.Nth(rootIndex);
+            foreach (var selector in selectors)
+            {
+                var buttons = root.Locator(selector);
+                var buttonCount = 0;
+                try
+                {
+                    buttonCount = await buttons.CountAsync();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                for (var buttonIndex = 0; buttonIndex < buttonCount; buttonIndex++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var button = buttons.Nth(buttonIndex);
+                    try
+                    {
+                        if (!await IsLocatorVisibleAsync(button) || !await IsLocatorEnabledAsync(button))
+                        {
+                            continue;
+                        }
+
+                        await button.ClickAsync(new LocatorClickOptions { Timeout = 2_500 });
+                        await Task.Delay(500, cancellationToken);
+                        return true;
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static async Task WaitForSeriesPickerSelectionAppliedAsync(
+        IPage page,
+        ILocator selectedResult,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var dialog = selectedResult.Locator(
+            "xpath=ancestor::*[@role='dialog' or contains(@class,'weui-desktop-dialog__wrp') or " +
+            "contains(@class,'weui-desktop-dialog') or contains(@class,'ant-modal') or contains(@class,'ant-drawer')][1]");
+        var waitTasks = new[]
+        {
+            WaitForHiddenQuietlyAsync(dialog, 800),
+            WaitForHiddenQuietlyAsync(selectedResult, 800)
+        };
+
+        await Task.WhenAny(waitTasks);
+        await Task.WhenAll(waitTasks);
+        await WaitBrieflyForLoadAsync(page);
+    }
+
+    private static async Task WaitForHiddenQuietlyAsync(ILocator locator, int timeoutMs)
+    {
+        try
+        {
+            await locator.WaitForAsync(new LocatorWaitForOptions
+            {
+                State = WaitForSelectorState.Hidden,
+                Timeout = timeoutMs
+            });
+        }
+        catch
+        {
+        }
     }
 
     private static async Task DeclareOriginalAsync(IPage page, CancellationToken cancellationToken)
@@ -678,6 +991,18 @@ public sealed class WeixinMaterialPublishPage
         }
     }
 
+    private static async Task<bool> IsLocatorEnabledAsync(ILocator locator)
+    {
+        try
+        {
+            return await locator.IsEnabledAsync();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static async Task WaitBrieflyForLoadAsync(IPage page)
     {
         try
@@ -694,9 +1019,23 @@ public sealed class WeixinMaterialPublishPage
         await Task.Delay(500);
     }
 
-    private static async Task ChooseOptionAsync(IPage page, string fieldLabel, string optionText)
+    private static async Task DismissTransientOverlaysAsync(IPage page)
     {
-        var group = await FindGroupByLabelAsync(page, fieldLabel, 10_000);
+        try
+        {
+            await page.Keyboard.PressAsync("Escape");
+            await Task.Delay(200);
+            await page.Keyboard.PressAsync("Escape");
+            await Task.Delay(200);
+        }
+        catch
+        {
+        }
+    }
+
+    private static async Task ChooseOptionAsync(IPage page, string fieldLabel, string optionText, int timeoutMs = 10_000)
+    {
+        var group = await FindGroupByLabelAsync(page, fieldLabel, timeoutMs);
         try
         {
             await group.ClickAsync();
@@ -705,7 +1044,7 @@ public sealed class WeixinMaterialPublishPage
         {
         }
 
-        var option = await FindVisibleTextAsync(page, optionText, 10_000);
+        var option = await FindVisibleTextAsync(page, optionText, timeoutMs);
         await option.ClickAsync();
         await WaitBrieflyForLoadAsync(page);
     }
@@ -1033,8 +1372,10 @@ public sealed class WeixinMaterialPublishPage
         }
 
         await Task.Delay(500);
-        var result = await FindVisibleTextAsync(page, seriesTitle, 10_000);
-        await result.ClickAsync();
+        var result = await FindSeriesResultInPickerAsync(page, seriesTitle, 10_000, CancellationToken.None)
+            ?? throw new InvalidOperationException($"未搜到剧集“{seriesTitle}”。");
+        await result.ScrollIntoViewIfNeededAsync();
+        await result.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 5_000 });
         var confirm = await FindVisibleTextAsync(page, "确定", 5_000);
         await confirm.ClickAsync();
         await WaitBrieflyForLoadAsync(page);

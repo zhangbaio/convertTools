@@ -24,7 +24,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
     private const string EpisodeNumberModeContinuous = "continuous";
     private const int DownloadBufferSize = 128 * 1024;
-    private static readonly TimeSpan DownloadProgressInterval = TimeSpan.FromSeconds(5);
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif"];
     private static readonly ProductInfoHeaderValue UserAgentProduct = new("ShortDramaDesktop", "1.0");
@@ -524,8 +523,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         finalPath,
                         downloadTimeoutSeconds,
                         cancellationToken,
-                        detail.PikachuDecryptKey,
-                        downloadProgress => ReportEpisodeDownloadProgress(progress, task, totalCount, downloadProgress));
+                        detail.PikachuDecryptKey);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
                     return;
                 }
@@ -546,8 +544,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     finalPath,
                     downloadTimeoutSeconds,
                     cancellationToken,
-                    detail.PikachuDecryptKey,
-                    downloadProgress => ReportEpisodeDownloadProgress(progress, task, totalCount, downloadProgress));
+                    detail.PikachuDecryptKey);
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -576,7 +573,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string finalPath,
         int timeoutSeconds,
         CancellationToken cancellationToken)
-        => await DownloadVideoFileOnceAsync(url, tempPath, finalPath, timeoutSeconds, cancellationToken, pikachuDecryptKey: null, progress: null);
+        => await DownloadVideoFileOnceAsync(url, tempPath, finalPath, timeoutSeconds, cancellationToken, pikachuDecryptKey: null);
 
     private async Task<DownloadFileStats> DownloadVideoFileOnceAsync(
         string url,
@@ -584,8 +581,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string finalPath,
         int timeoutSeconds,
         CancellationToken cancellationToken,
-        string? pikachuDecryptKey,
-        Action<DownloadFileProgress>? progress)
+        string? pikachuDecryptKey)
     {
         var hasPikachuDecryptKey = !string.IsNullOrWhiteSpace(pikachuDecryptKey);
         var encryptedTempPath = hasPikachuDecryptKey ? BuildEncryptedTempPath(tempPath) : null;
@@ -610,11 +606,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
             response.EnsureSuccessStatusCode();
 
-            var contentLength = response.Content.Headers.ContentLength;
             var downloadedBytes = 0L;
             var stopwatch = Stopwatch.StartNew();
-            var nextPercentToReport = 10d;
-            var lastProgressAt = DateTime.UtcNow;
 
             await using (var source = await response.Content.ReadAsStreamAsync(token))
             await using (var file = new FileStream(downloadTargetPath, FileMode.Create, FileAccess.Write, FileShare.None, DownloadBufferSize, useAsync: true))
@@ -628,18 +621,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
                     await file.WriteAsync(buffer.AsMemory(0, read), token);
                     downloadedBytes += read;
-
-                    var now = DateTime.UtcNow;
-                    var percent = contentLength is > 0 ? downloadedBytes * 100d / contentLength.Value : (double?)null;
-                    if (now - lastProgressAt >= DownloadProgressInterval ||
-                        (percent is not null && percent >= nextPercentToReport))
-                    {
-                        var speed = downloadedBytes / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001d);
-                        progress?.Invoke(new DownloadFileProgress(downloadedBytes, contentLength, stopwatch.Elapsed, speed));
-                        if (percent is not null)
-                            nextPercentToReport = Math.Floor(percent.Value / 10d) * 10d + 10d;
-                        lastProgressAt = now;
-                    }
                 }
 
                 await file.FlushAsync(token);
@@ -785,24 +766,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         var trimmed = value.Trim();
         return trimmed.Length <= 500 ? trimmed : trimmed[..500];
-    }
-
-    private static void ReportEpisodeDownloadProgress(
-        IProgress<string>? progress,
-        EpisodeTask task,
-        int totalCount,
-        DownloadFileProgress downloadProgress)
-    {
-        if (progress is null)
-            return;
-
-        var total = downloadProgress.TotalBytes is > 0
-            ? $" / {FormatBytes(downloadProgress.TotalBytes.Value)}"
-            : "";
-        var percent = downloadProgress.TotalBytes is > 0
-            ? $"，{downloadProgress.Bytes * 100d / downloadProgress.TotalBytes.Value:0.#}%"
-            : "";
-        progress.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载中：{FormatBytes(downloadProgress.Bytes)}{total}{percent}，{FormatBytes(downloadProgress.BytesPerSecond)}/s");
     }
 
     private static string FormatBytes(double bytes)
@@ -1692,12 +1655,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string Title,
         string VideoId,
         string PosterUrl);
-
-    private sealed record DownloadFileProgress(
-        long Bytes,
-        long? TotalBytes,
-        TimeSpan Elapsed,
-        double BytesPerSecond);
 
     private sealed record DownloadFileStats(
         long Bytes,

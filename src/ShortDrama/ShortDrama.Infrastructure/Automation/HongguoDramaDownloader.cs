@@ -12,7 +12,6 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
     private const string EpisodeNumberModeContinuous = "continuous";
     private const int ChunkSize = 65_536;
-    private static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(350);
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif"];
     private static readonly string[] PosterKeys =
@@ -276,12 +275,6 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
                 cancellationToken);
             response.EnsureSuccessStatusCode();
 
-            var totalBytes = response.Content.Headers.ContentLength ?? 0L;
-            var downloadedBytes = 0L;
-            var startAt = DateTime.UtcNow;
-            var nextPercentToReport = 0d;
-            var lastProgressAt = DateTime.MinValue;
-
             await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken))
             await using (var target = File.Create(tempPath))
             {
@@ -296,23 +289,6 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
                     }
 
                     await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                    downloadedBytes += read;
-
-                    if (totalBytes <= 0)
-                    {
-                        continue;
-                    }
-
-                    var percent = downloadedBytes * 100d / totalBytes;
-                    var elapsedSeconds = Math.Max((DateTime.UtcNow - startAt).TotalSeconds, 0.001d);
-                    var speedBytesPerSecond = downloadedBytes / elapsedSeconds;
-                    var nowUtc = DateTime.UtcNow;
-                    if (percent >= nextPercentToReport || nowUtc - lastProgressAt >= ProgressInterval)
-                    {
-                        progressReporter.Report(percent, speedBytesPerSecond, "直连", null);
-                        nextPercentToReport = Math.Floor(percent / 5d) * 5d + 5d;
-                        lastProgressAt = nowUtc;
-                    }
                 }
 
                 await target.FlushAsync(cancellationToken);
@@ -920,42 +896,12 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
             _progress = progress;
         }
 
-        public void Report(double percent, double speedBytesPerSecond, string status, string? message)
-        {
-            _progress?.Report(BuildLine(percent, speedBytesPerSecond, status, message));
-        }
-
         public void ReportSimple(string message)
         {
             _progress?.Report($"{Prefix} {message}");
         }
 
-        private string BuildLine(double percent, double speedBytesPerSecond, string status, string? message)
-        {
-            var text = $"{Prefix} {Math.Clamp(percent, 0d, 100d):0.0}% | {FormatSpeed(speedBytesPerSecond)} | {status}";
-            return string.IsNullOrWhiteSpace(message) ? text : $"{text} - {message}";
-        }
-
         private string Prefix => $"[{_task.Order:00}/{_totalCount:00}] 第{_task.EpisodeNumber:00}集";
-
-        private static string FormatSpeed(double bytesPerSecond)
-        {
-            if (bytesPerSecond <= 0d)
-            {
-                return "0 B/s";
-            }
-
-            var units = new[] { "B/s", "KB/s", "MB/s", "GB/s" };
-            var speed = bytesPerSecond;
-            var index = 0;
-            while (speed >= 1024d && index < units.Length - 1)
-            {
-                speed /= 1024d;
-                index++;
-            }
-
-            return $"{speed:0.0} {units[index]}";
-        }
     }
 
     private sealed record EpisodeDownloadTask(
