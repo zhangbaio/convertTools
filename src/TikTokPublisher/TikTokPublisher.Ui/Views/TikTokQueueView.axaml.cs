@@ -420,9 +420,7 @@ public partial class TikTokQueueView : UserControl
         }
 
         var account = accountVm.Model;
-        var url = string.IsNullOrWhiteSpace(account.TiktokSeriesUrl)
-            ? TikTokUrls.DefaultSeriesDraftUrl
-            : account.TiktokSeriesUrl.Trim();
+        var url = EmbeddedBrowserLoginHelper.ResolveHomeUrl(account);
         var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
 
         try
@@ -1633,7 +1631,7 @@ public partial class TikTokQueueView : UserControl
     }
 
     private async void OnStartQueueClick(object? sender, RoutedEventArgs e)
-        => await StartQueueRunAsync();
+        => await StartQueueRunAsync(confirmForceRerun: true);
 
     public Task StartQueueRunFromRemoteAsync(
         QueueRunOptions? optionsOverride = null,
@@ -1642,7 +1640,8 @@ public partial class TikTokQueueView : UserControl
 
     private async Task StartQueueRunAsync(
         QueueRunOptions? optionsOverride = null,
-        IReadOnlyCollection<string>? projectDirFilter = null)
+        IReadOnlyCollection<string>? projectDirFilter = null,
+        bool confirmForceRerun = false)
     {
         var vm = _vm;
         if (vm is null) return;
@@ -1672,6 +1671,31 @@ public partial class TikTokQueueView : UserControl
         }
 
         var orderedProjectDirFilter = projectDirFilter ?? GetCheckedProjectDirsInDisplayOrder();
+        if (confirmForceRerun)
+        {
+            var confirmedOptions = optionsOverride ?? vm.CreateCurrentQueueRunOptionsSnapshot();
+            if (confirmedOptions.ForceRerunCompletedSteps)
+            {
+                var owner = TopLevel.GetTopLevel(this) as Window;
+                if (owner is null)
+                {
+                    vm.StatusMessage = "无法打开确认弹窗";
+                    return;
+                }
+
+                var confirmed = await ConfirmAsync(
+                    owner,
+                    "确认强制重跑",
+                    "已勾选“强制重跑已完成步骤”。继续执行会重新运行已完成的步骤，可能重新下载、改写、生成、删除源视频或上传。确认继续执行勾选队列？");
+                if (!confirmed)
+                {
+                    vm.StatusMessage = "已取消执行勾选队列";
+                    return;
+                }
+            }
+
+            optionsOverride = confirmedOptions;
+        }
 
         _startQueueRunWorkspaceRoot = NormalizeQueueWorkspaceRoot(vm.WorkspacePath);
         _startQueueRunActive = true;
