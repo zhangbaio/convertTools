@@ -1,5 +1,6 @@
 using ShortDrama.Core.Models;
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Drama;
 
@@ -60,6 +61,13 @@ public sealed class DramaDownloadRunner
                     item.Progress = $"{percent.Value}%";
                 onUpdated(item);
             });
+
+            var settings = ClientSettingsStore.Load();
+            using var downloadSlot = await QueueDownloadSlotCoordinator.WaitAsync(
+                settings.DramaDownloadMaxParallelProjects,
+                item.Title,
+                message => log(item, message),
+                ct).ConfigureAwait(false);
 
             var result = await ShortDramaDramaServices.Downloader.DownloadAsync(request, progress, ct);
 

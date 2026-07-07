@@ -10,6 +10,8 @@ namespace TikTokPublisher.Core.Queue;
 /// <summary>队列步骤：下载 / 改写 / 海报 / 删源（对齐 Python drama + tiktok 服务）。</summary>
 public static class QueueMaterialStepService
 {
+    private const int MissingEpisodeRepairRounds = 2;
+
     public static async Task RunDownloadAsync(
         QueueProjectItem item,
         ClientSettings settings,
@@ -24,19 +26,22 @@ public static class QueueMaterialStepService
             throw new InvalidOperationException("项目缺少 bookId，无法执行下载步骤。");
 
         var concurrent = Math.Clamp(settings.DramaDownloadConcurrent, 1, 10);
+        var maxParallelProjects = Math.Clamp(
+            settings.DramaDownloadMaxParallelProjects <= 0 ? 1 : settings.DramaDownloadMaxParallelProjects,
+            1,
+            4);
         var timeoutSeconds = Math.Clamp(settings.HongguoDownloadTimeoutSeconds, 10, 600);
         var attempts = Math.Clamp(settings.HongguoEpisodeDownloadAttempts, 1, 20);
-        log($"下载并发: {concurrent}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
+        var displayName = FirstNonEmpty(item.Title, item.OriginalTitle, metadata.Title, Path.GetFileName(context.SourceProjectDir));
+        log($"分集下载并发: {concurrent}，同时下载剧数: {maxParallelProjects}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
 
-        var request = new DramaDownloadRequest(
-            ProjectDir: context.SourceProjectDir,
-            OutputDir: context.SourceProjectDir,
-            DisplayName: FirstNonEmpty(item.Title, item.OriginalTitle, Path.GetFileName(context.SourceProjectDir)),
-            BookId: bookId,
-            Episodes: FirstNonEmpty(metadata.Episodes, "all"),
-            Quality: FirstNonEmpty(metadata.Quality, settings.DramaDownloadDefaultQuality, "1080P"),
-            Concurrent: concurrent,
-            EpisodeNumberMode: FirstNonEmpty(metadata.EpisodeNumberMode, "source"));
+        using var downloadSlot = await QueueDownloadSlotCoordinator.WaitAsync(
+            maxParallelProjects,
+            displayName,
+            log,
+            ct).ConfigureAwait(false);
+
+        var request = BuildDownloadRequest(context, metadata, settings, displayName, FirstNonEmpty(metadata.Episodes, "all"), concurrent);
 
         var progress = new Progress<string>(message =>
         {
@@ -48,13 +53,41 @@ public static class QueueMaterialStepService
         {
             if (ct.IsCancellationRequested)
                 throw new OperationCanceledException(ct);
+
+            if (await TryRepairMissingEpisodesAsync(context, item, metadata, settings, displayName, log, ct).ConfigureAwait(false))
+            {
+                ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
+                ProjectWorkspaceService.RefreshQueueItemMetadata(item);
+                return;
+            }
+
             throw new InvalidOperationException(result.Message ?? "下载失败");
         }
 
         log(result.Message ?? $"下载完成，共 {result.VideoCount} 集");
-        VerifyDownloadedEpisodesComplete(context.SourceProjectDir, item, log);
+        await RepairMissingEpisodesIfNeededAsync(context, item, metadata, settings, displayName, log, ct).ConfigureAwait(false);
+        EnsureDownloadedEpisodesComplete(context.SourceProjectDir, item, log);
         ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
+    }
+
+    private static DramaDownloadRequest BuildDownloadRequest(
+        ProjectWorkspaceContext context,
+        DownloadMetadata metadata,
+        ClientSettings settings,
+        string displayName,
+        string episodes,
+        int concurrent)
+    {
+        return new DramaDownloadRequest(
+            ProjectDir: context.SourceProjectDir,
+            OutputDir: context.SourceProjectDir,
+            DisplayName: displayName,
+            BookId: FirstNonEmpty(metadata.BookId),
+            Episodes: FirstNonEmpty(episodes, "all"),
+            Quality: FirstNonEmpty(metadata.Quality, settings.DramaDownloadDefaultQuality, "1080P"),
+            Concurrent: Math.Clamp(concurrent, 1, 10),
+            EpisodeNumberMode: FirstNonEmpty(metadata.EpisodeNumberMode, "source"));
     }
 
     private static bool ShouldLogDownloadProgress(string? message)
@@ -70,21 +103,101 @@ public static class QueueMaterialStepService
 
     private static readonly string[] EpisodeVideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".ts"];
 
+    private static async Task RepairMissingEpisodesIfNeededAsync(
+        ProjectWorkspaceContext context,
+        QueueProjectItem item,
+        DownloadMetadata metadata,
+        ClientSettings settings,
+        string displayName,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        if (await TryRepairMissingEpisodesAsync(context, item, metadata, settings, displayName, log, ct).ConfigureAwait(false))
+            return;
+    }
+
+    private static async Task<bool> TryRepairMissingEpisodesAsync(
+        ProjectWorkspaceContext context,
+        QueueProjectItem item,
+        DownloadMetadata metadata,
+        ClientSettings settings,
+        string displayName,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        var inspection = InspectDownloadedEpisodes(context.SourceProjectDir, item);
+        if (inspection.IsUnknown || inspection.IsComplete)
+            return inspection.IsComplete;
+        if (inspection.FoundCount <= 0)
+            return false;
+
+        for (var round = 1; round <= MissingEpisodeRepairRounds; round++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var selection = FormatEpisodeSelection(inspection.Missing);
+            log($"检测到缺集：应 {inspection.Expected} 集，实际 {inspection.FoundCount} 集，缺第 {FormatEpisodePreview(inspection.Missing)} 集。开始补下载（{round}/{MissingEpisodeRepairRounds}），补下载并发 1。");
+
+            var repairRequest = BuildDownloadRequest(context, metadata, settings, displayName, selection, concurrent: 1);
+            var repairResult = await ShortDramaDramaServices.Downloader.DownloadAsync(
+                repairRequest,
+                new Progress<string>(message =>
+                {
+                    if (ShouldLogDownloadProgress(message))
+                        log(message);
+                }),
+                ct).ConfigureAwait(false);
+
+            if (!repairResult.Ok)
+                log($"缺集补下载未完成：{repairResult.Message ?? "下载失败"}");
+
+            inspection = InspectDownloadedEpisodes(context.SourceProjectDir, item);
+            if (inspection.IsComplete)
+            {
+                log($"缺集补下载完成，集数完整性校验通过：{inspection.Expected}/{inspection.Expected} 集齐全。");
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>下载后按「短剧信息」集数逐集核对文件，缺集视为下载失败，阻止进入后续步骤。</summary>
-    private static void VerifyDownloadedEpisodesComplete(
+    private static void EnsureDownloadedEpisodesComplete(
         string sourceProjectDir,
         QueueProjectItem item,
         Action<string> log)
+    {
+        var inspection = InspectDownloadedEpisodes(sourceProjectDir, item);
+        if (inspection.IsUnknown)
+        {
+            log(string.IsNullOrWhiteSpace(inspection.SkipReason)
+                ? "未能确定短剧总集数，跳过集数完整性校验。"
+                : inspection.SkipReason);
+            return;
+        }
+
+        if (inspection.IsComplete)
+        {
+            log($"集数完整性校验通过：{inspection.Expected}/{inspection.Expected} 集齐全。");
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"下载完成但集数不完整：应 {inspection.Expected} 集，实际 {inspection.FoundCount} 集，" +
+            $"缺第 {FormatEpisodePreview(inspection.Missing)} 集。" +
+            "请重新执行下载步骤或检查片源。");
+    }
+
+    private static DownloadCompleteness InspectDownloadedEpisodes(
+        string sourceProjectDir,
+        QueueProjectItem item)
     {
         var expected = 0;
         try { expected = ProjectWorkspaceService.ResolveSourceEpisodeCount(item.ProjectDir); }
         catch { /* 信息文件缺失时回退 item.EpisodeCount */ }
         if (expected <= 0) expected = item.EpisodeCount;
         if (expected <= 1)
-        {
-            log("未能确定短剧总集数，跳过集数完整性校验。");
-            return;
-        }
+            return DownloadCompleteness.Unknown;
 
         var found = new HashSet<int>();
         try
@@ -105,22 +218,38 @@ public static class QueueMaterialStepService
         }
         catch (Exception ex)
         {
-            log($"集数完整性校验读取目录失败，跳过：{ex.Message}");
-            return;
+            return new DownloadCompleteness(0, found.Count, [], $"集数完整性校验读取目录失败，跳过：{ex.Message}");
         }
 
         var missing = Enumerable.Range(1, expected).Where(i => !found.Contains(i)).ToList();
-        if (missing.Count == 0)
+        return new DownloadCompleteness(expected, found.Count, missing, "");
+    }
+
+    private static string FormatEpisodeSelection(IReadOnlyList<int> episodes)
+    {
+        if (episodes.Count == 0) return "";
+
+        var parts = new List<string>();
+        var start = episodes[0];
+        var previous = episodes[0];
+        foreach (var episode in episodes.Skip(1))
         {
-            log($"集数完整性校验通过：{expected}/{expected} 集齐全。");
-            return;
+            if (episode == previous + 1)
+            {
+                previous = episode;
+                continue;
+            }
+
+            parts.Add(start == previous ? start.ToString() : $"{start}-{previous}");
+            start = previous = episode;
         }
 
-        throw new InvalidOperationException(
-            $"下载完成但集数不完整：应 {expected} 集，实际 {found.Count} 集，" +
-            $"缺第 {string.Join("、", missing.Take(20))}{(missing.Count > 20 ? "…" : "")} 集。" +
-            "请重新执行下载步骤或检查片源。");
+        parts.Add(start == previous ? start.ToString() : $"{start}-{previous}");
+        return string.Join(",", parts);
     }
+
+    private static string FormatEpisodePreview(IReadOnlyList<int> episodes) =>
+        $"{string.Join("、", episodes.Take(20))}{(episodes.Count > 20 ? "…" : "")}";
 
     public static async Task RunRewriteAsync(
         QueueProjectItem item,
@@ -918,6 +1047,18 @@ public static class QueueMaterialStepService
 
         return !string.IsNullOrWhiteSpace(settings.ImageModelEndpoint)
                && !string.IsNullOrWhiteSpace(settings.ImageModelApiKey);
+    }
+
+    private sealed record DownloadCompleteness(
+        int Expected,
+        int FoundCount,
+        IReadOnlyList<int> Missing,
+        string SkipReason)
+    {
+        public static DownloadCompleteness Unknown { get; } = new(0, 0, [], "");
+
+        public bool IsUnknown => Expected <= 1 || !string.IsNullOrWhiteSpace(SkipReason);
+        public bool IsComplete => !IsUnknown && Missing.Count == 0;
     }
 
     private sealed record DownloadMetadata(string BookId, string Episodes, string Quality, string Title, string EpisodeNumberMode);

@@ -22,21 +22,24 @@
 
                         <TextBlock Text="数据链路与下载参数" FontWeight="Bold" />
                         <TextBlock Text="选择短剧来源链路，并配置下载任务的通用参数。" Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="数据链路" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="0" Grid.Column="1" x:Name="DramaSourceCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="默认清晰度" VerticalAlignment="Center" />
                             <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DramaDownloadDefaultQuality}" />
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="下载并发" VerticalAlignment="Center" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="分集下载并发" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding DramaDownloadConcurrent}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="下载超时(秒)" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding HongguoDownloadTimeoutSeconds}" Minimum="10" Maximum="300" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="同时下载剧数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding DramaDownloadMaxParallelProjects}" Minimum="1" Maximum="4" Width="120" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="单集重试次数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding HongguoEpisodeDownloadAttempts}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="下载超时(秒)" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding HongguoDownloadTimeoutSeconds}" Minimum="10" Maximum="300" Width="120" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="单集重试次数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding HongguoEpisodeDownloadAttempts}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
                         </Grid>
 
                         <Separator Margin="0,4" />

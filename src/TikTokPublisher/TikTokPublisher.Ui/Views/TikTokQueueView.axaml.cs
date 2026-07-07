@@ -914,9 +914,14 @@ public partial class TikTokQueueView : UserControl
         {
             AcceptsReturn = true,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-            MinHeight = 220,
+            MinHeight = 180,
+            Height = 220,
+            MaxHeight = 220,
             Watermark = "例如：\n她的豪门，我的刑场\n岁岁冥婚鬼夫夜夜来\n\n剧名 + 集数匹配：\n凤月无凭 43",
         };
+        ScrollViewer.SetVerticalScrollBarVisibility(
+            titleBox,
+            Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
         var modeCombo = new ComboBox
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -1215,7 +1220,12 @@ public partial class TikTokQueueView : UserControl
         }
 
         if (vm.ShouldAutoStartQueueAfterUploadTitleImport(result))
-            await StartQueueRunAsync();
+        {
+            _uploadTitleImportActive = false;
+            _uploadTitleImportWorkspaceRoot = "";
+            RefreshQueueRunButtons();
+            await StartQueueRunAsync(projectDirFilter: BuildUploadTitleImportProjectFilter(result));
+        }
         }
         finally
         {
@@ -1446,7 +1456,7 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
-        if (vm.FilteredQueueProjectRows.Count == 0)
+        if (projectDirFilter is null && vm.FilteredQueueProjectRows.Count == 0)
         {
             vm.StatusMessage = "队列为空，请先刷新项目";
             return;
@@ -1505,6 +1515,13 @@ public partial class TikTokQueueView : UserControl
             RefreshQueueRunButtons();
         }
     }
+
+    private static IReadOnlyCollection<string> BuildUploadTitleImportProjectFilter(UploadTitleImportResult result)
+        => result.ProjectDirs
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     private static string NormalizeQueueWorkspaceRoot(string workspace)
     {

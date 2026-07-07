@@ -222,6 +222,10 @@ public static class ClientSettingsStore
             ? "1080P"
             : settings.DramaDownloadDefaultQuality.Trim();
         settings.DramaDownloadConcurrent = Math.Clamp(settings.DramaDownloadConcurrent, 1, 10);
+        settings.DramaDownloadMaxParallelProjects = Math.Clamp(
+            settings.DramaDownloadMaxParallelProjects <= 0 ? 1 : settings.DramaDownloadMaxParallelProjects,
+            1,
+            4);
         settings.HongguoDownloadTimeoutSeconds = Math.Clamp(settings.HongguoDownloadTimeoutSeconds, 10, 300);
         settings.HongguoEpisodeDownloadAttempts = Math.Clamp(settings.HongguoEpisodeDownloadAttempts, 1, 10);
         settings.HgnewUdid = NormalizeUdid(settings.HgnewUdid);

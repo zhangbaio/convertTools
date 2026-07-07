@@ -27,6 +27,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _dramaSourceChain = "hgnew";
     [ObservableProperty] private string _dramaDownloadDefaultQuality = "1080P";
     [ObservableProperty] private int _dramaDownloadConcurrent = 3;
+    [ObservableProperty] private int _dramaDownloadMaxParallelProjects = 1;
     [ObservableProperty] private int _hongguoDownloadTimeoutSeconds = 60;
     [ObservableProperty] private int _hongguoEpisodeDownloadAttempts = 5;
 
@@ -133,6 +134,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         DramaSourceChain = DramaSourceChain,
         DramaDownloadDefaultQuality = DramaDownloadDefaultQuality,
         DramaDownloadConcurrent = DramaDownloadConcurrent,
+        DramaDownloadMaxParallelProjects = DramaDownloadMaxParallelProjects,
         HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds,
         HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts,
         HgnewAccount = HgnewAccount.Trim(),
@@ -558,6 +560,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         DramaSourceChain = settings.DramaSourceChain;
         DramaDownloadDefaultQuality = settings.DramaDownloadDefaultQuality;
         DramaDownloadConcurrent = settings.DramaDownloadConcurrent;
+        DramaDownloadMaxParallelProjects = settings.DramaDownloadMaxParallelProjects;
         HongguoDownloadTimeoutSeconds = settings.HongguoDownloadTimeoutSeconds;
         HongguoEpisodeDownloadAttempts = settings.HongguoEpisodeDownloadAttempts;
         HgnewAccount = settings.HgnewAccount;
