@@ -201,10 +201,10 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             var dailyLimit = await TikTokBrowserActions.DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false);
             if (dailyLimit is not null)
             {
-                var limitMsg = $"检测到 TikTok 发布限制提示，已跳过当前项目：{dailyLimit}";
+                var limitMsg = $"TikTok 单日创建剧集上限：{dailyLimit}";
                 if (hasWorkflow)
                     TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, limitMsg, payload.Title);
-                return PublishResult.FailAndSkipManualIntervention(limitMsg);
+                return PublishResult.FailAndStopQueue(limitMsg);
             }
 
             if (hasWorkflow)
@@ -239,6 +239,14 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         catch (OperationCanceledException)
         {
             throw;
+        }
+        catch (TikTokDailyLimitException ex)
+        {
+            var message = ex.Message;
+            L($"检测到 TikTok 发布限制提示，任务队列将停止：{ex.LimitText}");
+            if (hasWorkflow)
+                TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title);
+            return PublishResult.FailAndStopQueue(message);
         }
         catch (Exception ex)
         {

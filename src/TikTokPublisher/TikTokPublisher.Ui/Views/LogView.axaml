@@ -46,12 +46,12 @@
                     <ItemsControl x:Name="LogItems">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="services:LogEntry">
-                                <TextBlock Text="{Binding Text}"
-                                           Foreground="{Binding Foreground}"
-                                           FontFamily="Consolas,Courier New,monospace"
-                                           FontSize="12"
-                                           TextWrapping="Wrap"
-                                           Margin="0,1" />
+                                <SelectableTextBlock Text="{Binding Text}"
+                                                     Foreground="{Binding Foreground}"
+                                                     FontFamily="Consolas,Courier New,monospace"
+                                                     FontSize="12"
+                                                     TextWrapping="Wrap"
+                                                     Margin="0,1" />
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>

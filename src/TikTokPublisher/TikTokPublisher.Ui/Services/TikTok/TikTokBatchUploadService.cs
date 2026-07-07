@@ -213,6 +213,7 @@ public static class TikTokBatchUploadService
             catch { bodyText = ""; }
 
             TikTokBrowserActions.ThrowIfTikTokCrashText(bodyText);
+            TikTokBrowserActions.ThrowIfDailyEpisodeLimitText(bodyText);
 
             if (bodyText.Contains("上传失败", StringComparison.Ordinal) ||
                 bodyText.Contains("Upload failed", StringComparison.OrdinalIgnoreCase))

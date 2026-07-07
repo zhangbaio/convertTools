@@ -11,6 +11,9 @@ public static partial class TikTokBrowserActions
     {
         "当前创建剧集已达上限",
         "创建剧集已达上限",
+        "今日创建剧集已达上限",
+        "今日创建剧集数量已达上限",
+        "请明天再进行操作",
     };
     private static readonly string[] LeavePageDialogMarkers =
     {
@@ -63,6 +66,13 @@ public static partial class TikTokBrowserActions
     {
         if (ContainsTikTokCrashMarker(text))
             throw new InvalidOperationException("TikTok 页面崩溃（出了点问题 / React error）");
+    }
+
+    internal static void ThrowIfDailyEpisodeLimitText(string? text)
+    {
+        var message = DetectDailyLimitText(text);
+        if (message is not null)
+            throw new TikTokDailyLimitException(message);
     }
 
     public static async Task FillCreatePublishFormAsync(
@@ -146,6 +156,9 @@ public static partial class TikTokBrowserActions
         await WaitSubmitEnabledAsync(button, ct);
         await button.ClickAsync(new() { Timeout = 15000 });
         await ConfirmSubmitDialogIfPresentAsync(page, log, ct);
+        var dailyLimit = await DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false);
+        if (dailyLimit is not null)
+            throw new TikTokDailyLimitException(dailyLimit);
         await VerifySubmitAcceptedAsync(page, titleCandidates, log, ct).ConfigureAwait(false);
         Log(log, "TikTok 表单已提交并通过平台状态校验。");
     }
@@ -174,20 +187,54 @@ public static partial class TikTokBrowserActions
         await button.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
         await button.ClickAsync(new() { Timeout = 15000 });
         await page.WaitForTimeoutAsync(800);
+        var dailyLimit = await DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false);
+        if (dailyLimit is not null)
+            throw new TikTokDailyLimitException(dailyLimit);
         Log(log, "TikTok 表单已保存，未执行最终提交。");
     }
 
     public static async Task<string?> DetectDailyEpisodeLimitAsync(IPage page)
     {
-        string body;
-        try { body = await page.Locator("body").InnerTextAsync(new() { Timeout = 5000 }); }
-        catch { return null; }
+        foreach (var selector in new[] { ".semi-toast", ".semi-toast-content", "[role='alert']", ".semi-notification", ".semi-banner" })
+        {
+            try
+            {
+                var locator = page.Locator(selector);
+                var count = Math.Min(await locator.CountAsync().ConfigureAwait(false), 8);
+                for (var index = 0; index < count; index++)
+                {
+                    var text = await locator.Nth(index).InnerTextAsync(new() { Timeout = 500 }).ConfigureAwait(false);
+                    var detected = DetectDailyLimitText(text);
+                    if (detected is not null)
+                        return detected;
+                }
+            }
+            catch { /* try next source */ }
+        }
+
+        try
+        {
+            var body = await page.Locator("body").InnerTextAsync(new() { Timeout = 5000 }).ConfigureAwait(false);
+            return DetectDailyLimitText(body);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? DetectDailyLimitText(string? text)
+    {
+        var normalized = NormalizeWhitespace(text ?? "");
+        if (string.IsNullOrWhiteSpace(normalized))
+            return null;
 
         foreach (var marker in DailyLimitMarkers)
         {
-            if (body.Contains(marker, StringComparison.Ordinal))
-                return marker;
+            if (normalized.Contains(marker, StringComparison.Ordinal))
+                return normalized.Length <= 160 ? normalized : marker;
         }
+
         return null;
     }
 
@@ -1137,4 +1184,15 @@ public static partial class TikTokBrowserActions
         try { return (await locator.InnerTextAsync(new() { Timeout = 3000 })).Trim(); }
         catch { return ""; }
     }
+}
+
+internal sealed class TikTokDailyLimitException : InvalidOperationException
+{
+    public TikTokDailyLimitException(string limitText)
+        : base($"TikTok 单日创建剧集上限：{limitText}")
+    {
+        LimitText = limitText;
+    }
+
+    public string LimitText { get; }
 }

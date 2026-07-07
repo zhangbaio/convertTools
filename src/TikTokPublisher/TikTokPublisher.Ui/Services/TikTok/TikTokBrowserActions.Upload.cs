@@ -82,6 +82,7 @@ public static partial class TikTokBrowserActions
                 continue;
             }
 
+            ThrowIfDailyEpisodeLimitText(bodyText);
             if (bodyText.Contains("上传失败", StringComparison.Ordinal) ||
                 bodyText.Contains("Upload failed", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("TikTok 视频上传失败，请查看页面提示。");
@@ -294,6 +295,7 @@ public static partial class TikTokBrowserActions
             string body;
             try { body = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 }); }
             catch { body = ""; }
+            ThrowIfDailyEpisodeLimitText(body);
             if (HasVideoUploadProgressSignal(body)) return true;
             await page.WaitForTimeoutAsync(2000);
         }
