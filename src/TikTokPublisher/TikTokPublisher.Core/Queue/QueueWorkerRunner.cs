@@ -432,10 +432,14 @@ public sealed class QueueWorkerRunner
                         {
                             try
                             {
+                                var deleteVideosOnArchive = uploadCtx.Account?.TiktokDeleteVideosOnArchive ?? true;
                                 await TikTokArchivedProjectService
                                     .ArchiveQueueProjectAsync(
                                         workspace,
                                         uploadCtx.Item.ProjectDir,
+                                        deleteSourceVideos: deleteVideosOnArchive,
+                                        deleteWorkflowVideos: deleteVideosOnArchive,
+                                        deleteMaterialVideos: deleteVideosOnArchive,
                                         account: uploadCtx.Account,
                                         queuedAt: uploadCtx.Item.QueuedAt,
                                         ct: ct)

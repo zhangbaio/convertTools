@@ -171,6 +171,7 @@ public sealed class AccountStore
             TiktokPlaywrightUploadHeadless = false,
             TiktokPaidRatioEnabled = true,
             TiktokExpectedFullPriceMode = "option_index",
+            TiktokDeleteVideosOnArchive = true,
             TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
         };
     }

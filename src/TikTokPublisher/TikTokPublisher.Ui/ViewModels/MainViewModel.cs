@@ -2924,9 +2924,13 @@ public sealed partial class MainViewModel : ViewModelBase
                 // 归档包含递归删视频与跨盘目录移动等重 IO，必须放到后台线程，避免 UI 卡顿。
                 var projectDir = row.Item.ProjectDir;
                 var account = ResolveAccountForQueueItem(row.Item);
+                var deleteVideosOnArchive = account?.TiktokDeleteVideosOnArchive ?? true;
                 await Task.Run(() => TikTokArchivedProjectService.ArchiveQueueProjectAsync(
                         root,
                         projectDir,
+                        deleteSourceVideos: deleteVideosOnArchive,
+                        deleteWorkflowVideos: deleteVideosOnArchive,
+                        deleteMaterialVideos: deleteVideosOnArchive,
                         account: account,
                         queuedAt: row.Item.QueuedAt))
                     .ConfigureAwait(true);
@@ -2939,7 +2943,7 @@ public sealed partial class MainViewModel : ViewModelBase
                     archivedItem.StatusText,
                     root,
                     archivedItem,
-                    message: "项目已归档",
+                    message: deleteVideosOnArchive ? "项目已归档，已删除视频文件" : "项目已归档，已保留视频文件",
                     account: account));
             }
             catch (Exception ex)

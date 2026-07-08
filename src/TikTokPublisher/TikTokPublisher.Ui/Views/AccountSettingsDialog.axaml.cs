@@ -30,6 +30,7 @@ public partial class AccountSettingsDialog : Window
         StorageStateBox.Text = p.TiktokStorageStatePath;
         WorkspaceBox.Text = !string.IsNullOrWhiteSpace(p.TiktokUploadProfilePath) ? p.TiktokUploadProfilePath : p.LastWorkspace;
         DownloadWorkspaceBox.Text = p.LastDownloadWorkspace;
+        DeleteVideosOnArchiveBox.IsChecked = p.TiktokDeleteVideosOnArchive;
 
         ContractIdBox.Text = p.TiktokContractId;
         SelectByTag(ContractModeCombo, p.TiktokContractIdMode, "manual");
@@ -87,6 +88,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokUploadProfilePath = workspace;
         p.LastWorkspace = workspace;
         p.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
+        p.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
 
         p.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
         p.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");

@@ -24,6 +24,8 @@
                             <Button Content="浏览…" Click="OnBrowseWorkspaceClick" />
                         </StackPanel>
                         <TextBox x:Name="DownloadWorkspaceBox" Watermark="下载工作目录（last_download_workspace，可选）" />
+                        <CheckBox x:Name="DeleteVideosOnArchiveBox" Content="归档时删除视频文件" />
+                        <TextBlock Text="关闭后归档目录会保留视频，占用更多磁盘" Foreground="#6B7280" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

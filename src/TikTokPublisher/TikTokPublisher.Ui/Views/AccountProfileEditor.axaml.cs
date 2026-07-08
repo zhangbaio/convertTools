@@ -81,6 +81,7 @@ public partial class AccountProfileEditor : UserControl
             : profile.LastWorkspace;
         DownloadWorkspaceBox.Text = profile.LastDownloadWorkspace;
         ExcelReportBox.Text = profile.TiktokExcelReportPath;
+        DeleteVideosOnArchiveBox.IsChecked = profile.TiktokDeleteVideosOnArchive;
 
         SelectByTag(LoginBrowserModeCombo, profile.TiktokLoginBrowserMode, "embedded");
         CdpEndpointBox.Text = profile.TiktokExternalBrowserCdpEndpoint;
@@ -171,6 +172,7 @@ public partial class AccountProfileEditor : UserControl
             profile.LastWorkspace = workspace;
             profile.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
             profile.TiktokExcelReportPath = ExcelReportBox.Text?.Trim() ?? "";
+            profile.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
 
             profile.TiktokLoginBrowserMode = TagOf(LoginBrowserModeCombo, "embedded");
             profile.TiktokExternalBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";
@@ -679,6 +681,7 @@ public partial class AccountProfileEditor : UserControl
         WorkspaceBox.Text = "";
         DownloadWorkspaceBox.Text = "";
         ExcelReportBox.Text = "";
+        DeleteVideosOnArchiveBox.IsChecked = true;
         CdpEndpointBox.Text = "";
         ContractIdBox.Text = "";
         SubmitEnabledBox.IsChecked = true;
