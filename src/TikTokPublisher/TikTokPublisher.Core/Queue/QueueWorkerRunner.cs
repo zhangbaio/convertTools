@@ -313,7 +313,15 @@ public sealed class QueueWorkerRunner
 
             if (!stopped)
             {
-                DrainIncomingItems(items, candidates, pendingPreUpload, stateLock);
+                DrainIncomingItems(
+                    workspace,
+                    items,
+                    candidates,
+                    pendingPreUpload,
+                    stateLock,
+                    orderedSteps,
+                    options,
+                    onPersist);
                 FillPreUploadSlots();
                 StartReadyUploads();
             }
@@ -984,11 +992,18 @@ public sealed class QueueWorkerRunner
         });
     }
 
+    private static bool SameProjectDir(QueueProjectItem item, string projectDir) =>
+        string.Equals(Path.GetFullPath(item.ProjectDir), projectDir, StringComparison.OrdinalIgnoreCase);
+
     private void DrainIncomingItems(
+        string workspace,
         IList<QueueProjectItem> items,
         List<QueueProjectItem> candidates,
         Queue<(int Index, QueueProjectItem Item)> pendingPreUpload,
-        object stateLock)
+        object stateLock,
+        IReadOnlyList<string> orderedSteps,
+        QueueRunOptions options,
+        Action<IReadOnlyList<QueueProjectItem>>? onPersist)
     {
         List<QueueProjectItem> batch;
         lock (_incomingLock)
@@ -1001,22 +1016,32 @@ public sealed class QueueWorkerRunner
 
         lock (stateLock)
         {
+            var added = false;
             foreach (var item in batch)
             {
                 if (!item.Enabled)
                     continue;
 
                 var projectDir = Path.GetFullPath(item.ProjectDir);
-                if (items.Any(existing =>
-                        string.Equals(Path.GetFullPath(existing.ProjectDir), projectDir, StringComparison.OrdinalIgnoreCase)))
-                {
+                if (candidates.Any(existing => SameProjectDir(existing, projectDir)))
                     continue;
+
+                var queueItem = items.FirstOrDefault(existing => SameProjectDir(existing, projectDir));
+                if (queueItem is null)
+                {
+                    queueItem = item;
+                    items.Add(queueItem);
                 }
 
-                items.Add(item);
-                candidates.Add(item);
-                pendingPreUpload.Enqueue((candidates.Count, item));
+                queueItem.Enabled = true;
+                MarkQueuedForRun(queueItem, orderedSteps, options);
+                candidates.Add(queueItem);
+                pendingPreUpload.Enqueue((candidates.Count, queueItem));
+                added = true;
             }
+
+            if (added)
+                Persist(workspace, items, onPersist);
         }
     }
 

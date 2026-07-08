@@ -3054,9 +3054,12 @@ public sealed partial class MainViewModel : ViewModelBase
             if (appended.Count > 0)
             {
                 var added = _queueOrchestrator.TryAppendItemsToRunningWorkspace(root, appended);
+                StatusMessage = added > 0
+                    ? $"已追加 {added} 个项目到运行中的队列末尾，将自动继续执行。"
+                    : $"已更新 {appended.Count} 个导入项目，等待当前队列刷新。";
                 AppendLog(added > 0
                     ? $"已请求追加 {added} 个项目到运行中的队列末尾。"
-                    : $"已追加 {appended.Count} 个项目到队列列表。");
+                    : $"已更新 {appended.Count} 个导入项目，未找到运行中的追加入口。");
             }
 
             return;
@@ -3099,9 +3102,9 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrEmpty(root) || importedKeys.Count == 0)
             return [];
 
-        var existingKeys = _queueItems
-            .Select(item => Path.GetFullPath(item.ProjectDir))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var existingByKey = _queueItems
+            .GroupBy(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var scanned = WorkspaceQueueService.ScanProjects(root)
             .ToDictionary(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase);
         var appended = new List<QueueProjectItem>();
@@ -3109,8 +3112,22 @@ public sealed partial class MainViewModel : ViewModelBase
 
         foreach (var key in importedKeys)
         {
-            if (existingKeys.Contains(key))
+            if (existingByKey.TryGetValue(key, out var existing))
+            {
+                if (IsQueueItemInActiveUpload(existing))
+                    continue;
+
+                existing.Enabled = true;
+                ResetQueueItemToPending(existing);
+                if (importAccount is not null)
+                {
+                    existing.AccountProfileId = importAccount.Id;
+                    existing.AccountProfileName = importAccount.DisplayName;
+                }
+                appended.Add(existing);
                 continue;
+            }
+
             if (!scanned.TryGetValue(key, out var item))
                 continue;
 
@@ -3122,7 +3139,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 item.AccountProfileName = importAccount.DisplayName;
             }
             _queueItems.Add(item);
-            existingKeys.Add(key);
+            existingByKey[key] = item;
             appended.Add(item);
         }
 
@@ -3134,6 +3151,10 @@ public sealed partial class MainViewModel : ViewModelBase
 
         return appended;
     }
+
+    private static bool IsQueueItemInActiveUpload(QueueProjectItem item) =>
+        string.Equals(item.StatusText, QueueStepStatus.Running, StringComparison.Ordinal) ||
+        string.Equals(item.StatusText, QueueStepStatus.WaitingUploadSlot, StringComparison.Ordinal);
 
     private static void ResetQueueItemToPending(QueueProjectItem item)
     {

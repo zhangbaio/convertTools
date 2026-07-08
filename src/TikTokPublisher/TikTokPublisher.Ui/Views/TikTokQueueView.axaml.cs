@@ -1442,10 +1442,12 @@ public partial class TikTokQueueView : UserControl
 
         if (vm.ShouldAutoStartQueueAfterUploadTitleImport(result))
         {
+            var projectFilter = BuildUploadTitleImportProjectFilter(result);
+            vm.AppendLog($"上传短剧导入完成，自动执行勾选队列：{projectFilter.Count} 个项目。");
             _uploadTitleImportActive = false;
             _uploadTitleImportWorkspaceRoot = "";
             RefreshQueueRunButtons();
-            await StartQueueRunAsync(projectDirFilter: BuildUploadTitleImportProjectFilter(result));
+            await StartQueueRunAsync(projectDirFilter: projectFilter);
         }
         }
         finally
