@@ -343,7 +343,7 @@ public partial class AccountProfileEditor : UserControl
         Exception? lastError = null;
         var results = new List<IpLookupResult>();
 
-        foreach (var url in new[] { "https://ipinfo.io/json", "https://ipwho.is/" })
+        foreach (var url in new[] { "https://ip9.com.cn/get", "https://ipinfo.io/json", "https://ipwho.is/" })
         {
             try
             {
@@ -353,9 +353,11 @@ public partial class AccountProfileEditor : UserControl
 
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
-                var result = url.Contains("ipwho.is", StringComparison.Ordinal)
-                    ? ParseIpWhoIs(root)
-                    : ParseIpInfo(root);
+                var result = url.Contains("ip9.com.cn", StringComparison.OrdinalIgnoreCase)
+                    ? ParseIp9(root)
+                    : url.Contains("ipwho.is", StringComparison.OrdinalIgnoreCase)
+                        ? ParseIpWhoIs(root)
+                        : ParseIpInfo(root);
                 if (!string.IsNullOrWhiteSpace(result.Ip))
                     results.Add(result);
             }
@@ -395,6 +397,29 @@ public partial class AccountProfileEditor : UserControl
             || normalized.Contains("chinamobile")
             || normalized.Contains("cmcc")
             || normalized.Contains("cmi");
+    }
+
+    private static IpLookupResult ParseIp9(JsonElement root)
+    {
+        if (root.TryGetProperty("ret", out var retValue) &&
+            retValue.ValueKind == JsonValueKind.Number &&
+            retValue.TryGetInt32(out var ret) &&
+            ret != 200)
+        {
+            return new IpLookupResult("", "", "");
+        }
+
+        if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+            return new IpLookupResult("", "", "");
+
+        var ip = GetJsonString(data, "ip");
+        var country = GetJsonString(data, "country");
+        var province = GetJsonString(data, "prov");
+        var city = GetJsonString(data, "city");
+        var area = GetJsonString(data, "area");
+        var isp = GetJsonString(data, "isp");
+
+        return new IpLookupResult(ip, JoinLocation(country, province, city, area), isp);
     }
 
     private static IpLookupResult ParseIpWhoIs(JsonElement root)
