@@ -213,7 +213,7 @@ public static class TikTokBatchUploadService
             catch { bodyText = ""; }
 
             TikTokBrowserActions.ThrowIfTikTokCrashText(bodyText);
-            TikTokBrowserActions.ThrowIfDailyEpisodeLimitText(bodyText);
+            await TikTokBrowserActions.ThrowIfDailyEpisodeLimitAsync(page).ConfigureAwait(false);
 
             if (bodyText.Contains("上传失败", StringComparison.Ordinal) ||
                 bodyText.Contains("Upload failed", StringComparison.OrdinalIgnoreCase))

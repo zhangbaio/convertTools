@@ -13,7 +13,23 @@ public static partial class TikTokBrowserActions
         "创建剧集已达上限",
         "今日创建剧集已达上限",
         "今日创建剧集数量已达上限",
+    };
+    private static readonly string[] DailyLimitContextMarkers =
+    {
         "请明天再进行操作",
+    };
+    private static readonly string[] DailyLimitVisibleSelectors =
+    {
+        ".semi-toast",
+        ".semi-toast-content",
+        "[role='alert']",
+        ".semi-notification",
+        ".semi-banner",
+        ".semi-modal",
+        ".semi-modal-content",
+        ".semi-dialog",
+        ".semi-dialog-content",
+        "[role='dialog']",
     };
     private static readonly string[] LeavePageDialogMarkers =
     {
@@ -71,6 +87,13 @@ public static partial class TikTokBrowserActions
     internal static void ThrowIfDailyEpisodeLimitText(string? text)
     {
         var message = DetectDailyLimitText(text);
+        if (message is not null)
+            throw new TikTokDailyLimitException(message);
+    }
+
+    internal static async Task ThrowIfDailyEpisodeLimitAsync(IPage page)
+    {
+        var message = await DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false);
         if (message is not null)
             throw new TikTokDailyLimitException(message);
     }
@@ -195,15 +218,19 @@ public static partial class TikTokBrowserActions
 
     public static async Task<string?> DetectDailyEpisodeLimitAsync(IPage page)
     {
-        foreach (var selector in new[] { ".semi-toast", ".semi-toast-content", "[role='alert']", ".semi-notification", ".semi-banner" })
+        foreach (var selector in DailyLimitVisibleSelectors)
         {
             try
             {
                 var locator = page.Locator(selector);
-                var count = Math.Min(await locator.CountAsync().ConfigureAwait(false), 8);
+                var count = Math.Min(await locator.CountAsync().ConfigureAwait(false), 12);
                 for (var index = 0; index < count; index++)
                 {
-                    var text = await locator.Nth(index).InnerTextAsync(new() { Timeout = 500 }).ConfigureAwait(false);
+                    var item = locator.Nth(index);
+                    if (!await item.IsVisibleAsync(new() { Timeout = 500 }).ConfigureAwait(false))
+                        continue;
+
+                    var text = await item.InnerTextAsync(new() { Timeout = 500 }).ConfigureAwait(false);
                     var detected = DetectDailyLimitText(text);
                     if (detected is not null)
                         return detected;
@@ -212,15 +239,7 @@ public static partial class TikTokBrowserActions
             catch { /* try next source */ }
         }
 
-        try
-        {
-            var body = await page.Locator("body").InnerTextAsync(new() { Timeout = 5000 }).ConfigureAwait(false);
-            return DetectDailyLimitText(body);
-        }
-        catch
-        {
-            return null;
-        }
+        return null;
     }
 
     private static string? DetectDailyLimitText(string? text)
@@ -232,6 +251,14 @@ public static partial class TikTokBrowserActions
         foreach (var marker in DailyLimitMarkers)
         {
             if (normalized.Contains(marker, StringComparison.Ordinal))
+                return normalized.Length <= 160 ? normalized : marker;
+        }
+
+        foreach (var marker in DailyLimitContextMarkers)
+        {
+            if (normalized.Contains(marker, StringComparison.Ordinal) &&
+                normalized.Contains("创建", StringComparison.Ordinal) &&
+                normalized.Contains("剧集", StringComparison.Ordinal))
                 return normalized.Length <= 160 ? normalized : marker;
         }
 
