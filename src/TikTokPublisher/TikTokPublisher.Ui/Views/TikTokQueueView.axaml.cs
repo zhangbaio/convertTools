@@ -1144,29 +1144,49 @@ public partial class TikTokQueueView : UserControl
 
     private static async Task ShowMessageAsync(Window owner, string title, string message, bool warning = false)
     {
+        var lineCount = Math.Max(1, message.Split('\n').Length);
+        var dialogHeight = Math.Clamp(180 + lineCount * 22, 260, 560);
         var dialog = new Window
         {
             Title = title,
-            Width = 480,
-            Height = 220,
+            Width = 560,
+            Height = dialogHeight,
+            MinWidth = 460,
+            MinHeight = 240,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
         };
         var okButton = BuildDialogButton("确定", () => dialog.Close(), primary: !warning);
-        dialog.Content = new StackPanel
+        var grid = new Grid
         {
             Margin = new Thickness(16),
-            Spacing = 14,
-            Children =
+        };
+        grid.RowDefinitions.Add(new RowDefinition(GridLength.Star));
+        grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+
+        var messageViewer = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            Content = new TextBlock
             {
-                new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap },
-                new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    Children = { okButton },
-                },
+                Text = message,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             },
         };
+        Grid.SetRow(messageViewer, 0);
+        grid.Children.Add(messageViewer);
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 14, 0, 0),
+            Children = { okButton },
+        };
+        Grid.SetRow(buttons, 1);
+        grid.Children.Add(buttons);
+
+        dialog.Content = grid;
         await dialog.ShowDialog<bool?>(owner);
     }
 
