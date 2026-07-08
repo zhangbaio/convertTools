@@ -50,7 +50,7 @@ public partial class App : Application
 
     private static async Task<bool> EnsureLicenseBeforeMainWindowAsync()
     {
-        var state = await LicenseGate.VerifyAsync(forceVerify: true, allowOfflineGrace: false);
+        var state = await LicenseGate.VerifyAsync(forceVerify: true, allowOfflineGrace: true);
         if (state is not null)
         {
             LicenseGate.SaveVerifiedState(state);

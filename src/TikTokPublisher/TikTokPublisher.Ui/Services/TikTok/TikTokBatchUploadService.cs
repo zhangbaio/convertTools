@@ -300,46 +300,17 @@ public static class TikTokBatchUploadService
         for (var guard = 0; guard < 200; guard++)
         {
             ct.ThrowIfCancellationRequested();
-            var result = await page.EvaluateAsync<string>(
-                """
-                (targets) => {
-                  const body = document.querySelector('.semi-table-body');
-                  if (!body) return 'no-table';
-                  body.scrollTop = body.scrollHeight;
-                  const rows = body.querySelectorAll('tr.semi-table-row');
-                  for (const tr of rows) {
-                    const name = (tr.querySelector('td') && tr.querySelector('td').textContent) || '';
-                    const m = name.match(/-第\s*(\d+)\s*集/);
-                    if (!m || !targets.includes(+m[1])) continue;
-                    const icon = tr.querySelector('[data-icon="X"],[data-testid="X"]')
-                              || tr.querySelector('[data-icon="Backspace"],[data-testid="Backspace"]');
-                    const btn = icon ? icon.closest('button') : null;
-                    if (btn) { btn.click(); return 'clicked:' + m[1]; }
-                  }
-                  return 'none';
-                }
-                """,
-                targets);
+            var result = await ClickBatchDeleteButtonAsync(page, targets);
 
             if (result == "no-table")
                 throw new InvalidOperationException("删除本批行失败：未找到正片列表（semi-table）。");
-            if (result == "none")
+            if (result.StartsWith("none:", StringComparison.Ordinal))
                 break;
+            if (!result.StartsWith("clicked:", StringComparison.Ordinal))
+                throw new InvalidOperationException($"删除本批行失败：{result}");
 
             await page.WaitForTimeoutAsync(500);
-            foreach (var text in new[] { "确认删除", "确认", "确定", "删除" })
-            {
-                try
-                {
-                    var dlg = page.Locator("[role='dialog'] button").Filter(new() { HasText = text }).First;
-                    if (await dlg.CountAsync() > 0)
-                    {
-                        await TikTokBrowserActions.ClickLocatorAsync(dlg, ct);
-                        break;
-                    }
-                }
-                catch { /* try next */ }
-            }
+            await TikTokBrowserActions.ConfirmDeleteDialogIfPresentAsync(page, ct);
             await page.WaitForTimeoutAsync(700);
             deleted++;
         }
@@ -349,6 +320,107 @@ public static class TikTokBatchUploadService
 
         log?.Invoke($"已删除本批 {deleted} 行（集号 {string.Join(", ", targets)}）。");
         return deleted;
+    }
+
+    private static async Task<string> ClickBatchDeleteButtonAsync(
+        IPage page,
+        IReadOnlyList<int> targets)
+    {
+        return await page.EvaluateAsync<string>(
+            """
+            async (targetValues) => {
+              const targets = new Set((targetValues || []).map((value) => Number(value)).filter((value) => value > 0));
+              if (targets.size === 0) return 'none:no-targets';
+
+              const body = document.querySelector('.semi-table-body');
+              if (!body) return 'no-table';
+
+              const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+              const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+              const rows = () => Array.from(body.querySelectorAll('tr.semi-table-row'));
+              const rowEpisode = (tr) => {
+                const text = normalize(Array.from(tr.querySelectorAll('td'))
+                  .map((td) => td.textContent || '')
+                  .join(' '));
+                const fileMatch = text.match(/-\s*第\s*(\d+)\s*集/);
+                if (fileMatch) return Number.parseInt(fileMatch[1], 10) || 0;
+
+                const matches = Array.from(text.matchAll(/第\s*(\d+)\s*集/g));
+                if (matches.length === 0) return 0;
+                return Number.parseInt(matches[matches.length - 1][1], 10) || 0;
+              };
+              const visibleEpisodes = () => rows().map(rowEpisode).filter((episode) => episode > 0);
+              const hoverRow = (tr) => {
+                try { tr.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch {}
+                for (const type of ['mouseover', 'mouseenter']) {
+                  try { tr.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window })); } catch {}
+                }
+              };
+              const findDeleteButton = (tr) => {
+                const icon = tr.querySelector('[data-icon="X"],[data-testid="X"],[data-icon="Backspace"],[data-testid="Backspace"]');
+                const iconButton = icon?.closest('button,[role="button"]');
+                if (iconButton) return iconButton;
+
+                return Array.from(tr.querySelectorAll('button,[role="button"]'))
+                  .find((button) => {
+                    const text = normalize(button.textContent);
+                    return /删除|Delete|Remove/i.test(text)
+                      || button.querySelector('[data-icon="X"],[data-testid="X"],[data-icon="Backspace"],[data-testid="Backspace"]');
+                  }) || null;
+              };
+              const clickDelete = async (target) => {
+                hoverRow(target.tr);
+                await sleep(60);
+                const button = findDeleteButton(target.tr);
+                if (!button) return `no-button:${target.episode}`;
+                if (button.disabled || button.getAttribute('aria-disabled') === 'true') {
+                  return `disabled:${target.episode}`;
+                }
+
+                try { button.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch {}
+                for (const type of ['mouseover', 'mouseenter', 'mousedown', 'mouseup']) {
+                  try { button.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window })); } catch {}
+                }
+                button.click();
+                return `clicked:${target.episode}`;
+              };
+              const pickTarget = () => {
+                const candidates = rows()
+                  .map((tr) => ({ tr, episode: rowEpisode(tr) }))
+                  .filter((item) => targets.has(item.episode))
+                  .sort((a, b) => b.episode - a.episode);
+                return candidates[0] || null;
+              };
+              const scrollAndPick = async (top) => {
+                body.scrollTop = Math.max(0, top);
+                try { body.dispatchEvent(new Event('scroll', { bubbles: true })); } catch {}
+                for (let i = 0; i < 8; i++) {
+                  await sleep(120);
+                  const target = pickTarget();
+                  if (target) return clickDelete(target);
+                }
+                return null;
+              };
+
+              const maxTarget = Math.max(...targets);
+              const firstRow = rows()[0];
+              const rowHeight = Math.max(32, Math.round(firstRow?.getBoundingClientRect().height || 48));
+              const scrollTargets = [
+                body.scrollHeight,
+                Math.max(0, (maxTarget - 1) * rowHeight),
+                0,
+                body.scrollHeight
+              ];
+
+              for (const targetTop of scrollTargets) {
+                const result = await scrollAndPick(targetTop);
+                if (result) return result;
+              }
+
+              return `none:${visibleEpisodes().join(',')}`;
+            }
+            """,
+            targets);
     }
 
     private static string EpisodeLabel(string path)

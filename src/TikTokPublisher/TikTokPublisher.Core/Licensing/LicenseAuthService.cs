@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -25,8 +26,14 @@ public static class LicenseAuthService
     public const string DeviceName = "TikTok Uploader Desktop";
     public const int VerifyIntervalHours = 1;
     public const int OfflineGraceHours = 72;
+    public const int NetworkRetryAttempts = 3;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
+    private static readonly TimeSpan[] NetworkRetryDelays =
+    [
+        TimeSpan.FromSeconds(1),
+        TimeSpan.FromSeconds(3),
+    ];
 
     public static bool ShouldVerify(LicenseState state)
     {
@@ -250,44 +257,86 @@ public static class LicenseAuthService
         Dictionary<string, object?> body,
         CancellationToken ct)
     {
-        try
+        for (var attempt = 1; attempt <= NetworkRetryAttempts; attempt++)
         {
-            using var response = await Http.PostAsJsonAsync(url, body, ct);
-            var raw = await response.Content.ReadAsStringAsync(ct);
-            if (!response.IsSuccessStatusCode)
+            try
             {
-                var message = $"授权服务返回错误：{StringifyError(raw)}";
-                if ((int)response.StatusCode is >= 400 and < 500)
-                    throw new LicenseRejectedException(message);
-                throw new LicenseServiceException(message);
-            }
+                using var response = await Http.PostAsJsonAsync(url, body, ct);
+                var raw = await response.Content.ReadAsStringAsync(ct);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var message = $"授权服务返回错误：{StringifyError(raw)}";
+                    if (IsTransientStatusCode(response.StatusCode))
+                    {
+                        if (attempt < NetworkRetryAttempts)
+                        {
+                            await DelayBeforeRetryAsync(attempt, ct);
+                            continue;
+                        }
 
-            using var doc = JsonDocument.Parse(raw);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object)
-                throw new LicenseServiceException("授权服务返回格式错误");
-            return doc.RootElement.EnumerateObject()
-                .ToDictionary(p => p.Name, p => p.Value.Clone(), StringComparer.Ordinal);
+                        throw new LicenseNetworkException($"{message}（已重试 {NetworkRetryAttempts} 次）");
+                    }
+
+                    if ((int)response.StatusCode is >= 400 and < 500)
+                        throw new LicenseRejectedException(message);
+                    throw new LicenseServiceException(message);
+                }
+
+                using var doc = JsonDocument.Parse(raw);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                    throw new LicenseServiceException("授权服务返回格式错误");
+                return doc.RootElement.EnumerateObject()
+                    .ToDictionary(p => p.Name, p => p.Value.Clone(), StringComparer.Ordinal);
+            }
+            catch (LicenseNetworkException) when (attempt < NetworkRetryAttempts)
+            {
+                await DelayBeforeRetryAsync(attempt, ct);
+            }
+            catch (LicenseServiceException)
+            {
+                throw;
+            }
+            catch (HttpRequestException ex)
+            {
+                if (attempt < NetworkRetryAttempts)
+                {
+                    await DelayBeforeRetryAsync(attempt, ct);
+                    continue;
+                }
+
+                throw new LicenseNetworkException($"网络连接授权服务失败：{ex.Message}（已重试 {NetworkRetryAttempts} 次）");
+            }
+            catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+            {
+                if (attempt < NetworkRetryAttempts)
+                {
+                    await DelayBeforeRetryAsync(attempt, ct);
+                    continue;
+                }
+
+                throw new LicenseNetworkException($"连接授权服务超时：{ex.Message}（已重试 {NetworkRetryAttempts} 次）");
+            }
+            catch (JsonException ex)
+            {
+                throw new LicenseServiceException($"授权服务返回了无法解析的 JSON：{ex.Message}");
+            }
+            catch (Exception ex) when (ex is UriFormatException or InvalidOperationException)
+            {
+                throw new LicenseNetworkException($"连接授权服务异常：{ex.Message}");
+            }
         }
-        catch (LicenseServiceException)
-        {
-            throw;
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new LicenseNetworkException($"网络连接授权服务失败：{ex.Message}");
-        }
-        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
-        {
-            throw new LicenseNetworkException($"连接授权服务超时：{ex.Message}");
-        }
-        catch (JsonException ex)
-        {
-            throw new LicenseServiceException($"授权服务返回了无法解析的 JSON：{ex.Message}");
-        }
-        catch (Exception ex) when (ex is UriFormatException or InvalidOperationException)
-        {
-            throw new LicenseNetworkException($"连接授权服务异常：{ex.Message}");
-        }
+
+        throw new LicenseNetworkException($"连接授权服务失败（已重试 {NetworkRetryAttempts} 次）");
+    }
+
+    private static bool IsTransientStatusCode(HttpStatusCode statusCode) =>
+        statusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests
+        || (int)statusCode >= 500;
+
+    private static Task DelayBeforeRetryAsync(int failedAttempt, CancellationToken ct)
+    {
+        var index = Math.Clamp(failedAttempt - 1, 0, NetworkRetryDelays.Length - 1);
+        return Task.Delay(NetworkRetryDelays[index], ct);
     }
 
     private static Dictionary<string, JsonElement> EnsureSuccess(Dictionary<string, JsonElement> data)

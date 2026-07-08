@@ -588,24 +588,9 @@ public static partial class TikTokBrowserActions
                 """);
             if (count <= keepCount) break;
 
-            var clicked = await page.EvaluateAsync<bool>(
-                """
-                () => {
-                  const body = document.querySelector('.semi-table-body');
-                  if (!body) return false;
-                  body.scrollTop = body.scrollHeight;
-                  const rows = body.querySelectorAll('tr.semi-table-row');
-                  const last = rows[rows.length - 1];
-                  if (!last) return false;
-                  const icon = last.querySelector('[data-icon="Backspace"],[data-testid="Backspace"]');
-                  const btn = icon ? icon.closest('button') : null;
-                  if (!btn) return false;
-                  btn.click();
-                  return true;
-                }
-                """);
-            if (!clicked)
-                throw new InvalidOperationException("未找到错位行的删除按钮（Backspace 图标）。");
+            var clickResult = await ClickEditVideoDeleteButtonBeyondKeepAsync(page, keepCount, count);
+            if (!clickResult.StartsWith("clicked:", StringComparison.Ordinal))
+                throw new InvalidOperationException($"未找到错位行的删除按钮（{clickResult}）。");
 
             await page.WaitForTimeoutAsync(500);
             await ConfirmDeleteDialogIfPresentAsync(page, ct);
@@ -627,6 +612,112 @@ public static partial class TikTokBrowserActions
         if (deleted > 0)
             Log(log, $"已删除错位的 {deleted} 行（保留前 {keepCount} 集）。");
         return deleted;
+    }
+
+    private static async Task<string> ClickEditVideoDeleteButtonBeyondKeepAsync(
+        IPage page,
+        int keepCount,
+        int rowCount)
+    {
+        return await page.EvaluateAsync<string>(
+            """
+            async (args) => {
+              const keepCount = Number(args.keepCount || 0);
+              const rowCount = Number(args.rowCount || 0);
+              const body = document.querySelector('.semi-table-body');
+              if (!body) return 'no-table';
+
+              const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+              const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+              const rowSlot = (tr) => {
+                const text = normalize(Array.from(tr.querySelectorAll('td'))
+                  .map((td) => td.textContent || '')
+                  .join(' '));
+                const textMatch = text.match(/第\s*(\d+)\s*集/);
+                if (textMatch) return Number.parseInt(textMatch[1], 10) || 0;
+
+                const raw = tr.getAttribute('aria-rowindex')
+                  || tr.getAttribute('data-row-key')
+                  || tr.getAttribute('data-row-index')
+                  || '';
+                const parsed = Number.parseInt(raw, 10);
+                return Number.isFinite(parsed) ? parsed : 0;
+              };
+              const rows = () => Array.from(body.querySelectorAll('tr.semi-table-row'));
+              const visibleSlots = () => rows().map(rowSlot).filter((slot) => slot > 0);
+              const hoverRow = (tr) => {
+                try { tr.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch {}
+                for (const type of ['mouseover', 'mouseenter']) {
+                  try { tr.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window })); } catch {}
+                }
+              };
+              const findDeleteButton = (tr) => {
+                const icon = tr.querySelector('[data-icon="Backspace"],[data-testid="Backspace"],[data-icon="X"],[data-testid="X"]');
+                const iconButton = icon?.closest('button,[role="button"]');
+                if (iconButton) return iconButton;
+
+                return Array.from(tr.querySelectorAll('button,[role="button"]'))
+                  .find((button) => {
+                    const text = normalize(button.textContent);
+                    return /删除|Delete|Remove/i.test(text)
+                      || button.querySelector('[data-icon="Backspace"],[data-testid="Backspace"],[data-icon="X"],[data-testid="X"]');
+                  }) || null;
+              };
+              const clickDelete = async (target) => {
+                hoverRow(target.tr);
+                await sleep(60);
+                const button = findDeleteButton(target.tr);
+                if (!button) return `no-button:${target.slot}`;
+                if (button.disabled || button.getAttribute('aria-disabled') === 'true') {
+                  return `disabled:${target.slot}`;
+                }
+
+                try { button.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch {}
+                for (const type of ['mouseover', 'mouseenter', 'mousedown', 'mouseup']) {
+                  try { button.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window })); } catch {}
+                }
+                button.click();
+                return `clicked:${target.slot}`;
+              };
+              const pickTarget = () => {
+                const candidates = rows()
+                  .map((tr) => ({ tr, slot: rowSlot(tr) }))
+                  .filter((item) => item.slot > keepCount)
+                  .sort((a, b) => b.slot - a.slot);
+                if (candidates.length === 0) return null;
+
+                const nearTail = candidates.find((item) => rowCount <= 0 || item.slot >= rowCount - 2);
+                return nearTail || candidates[0];
+              };
+              const scrollAndPick = async (top) => {
+                body.scrollTop = Math.max(0, top);
+                try { body.dispatchEvent(new Event('scroll', { bubbles: true })); } catch {}
+                for (let i = 0; i < 8; i++) {
+                  await sleep(120);
+                  const target = pickTarget();
+                  if (target) return clickDelete(target);
+                }
+                return null;
+              };
+
+              const firstRow = rows()[0];
+              const rowHeight = Math.max(32, Math.round(firstRow?.getBoundingClientRect().height || 48));
+              const scrollTargets = [
+                body.scrollHeight,
+                Math.max(0, (rowCount - 1) * rowHeight),
+                Math.max(0, (keepCount + 1) * rowHeight),
+                body.scrollHeight
+              ];
+
+              for (const targetTop of scrollTargets) {
+                const result = await scrollAndPick(targetTop);
+                if (result) return result;
+              }
+
+              return `not-rendered:${visibleSlots().join(',')}`;
+            }
+            """,
+            new { keepCount, rowCount });
     }
 
     public static async Task<EditFlowVideoState> DetectEditFlowVideoStateAsync(
@@ -795,20 +886,32 @@ public static partial class TikTokBrowserActions
         return match.Success && int.TryParse(match.Groups[1].Value, out var value) && value > 0 ? value : null;
     }
 
-    private static async Task ConfirmDeleteDialogIfPresentAsync(IPage page, CancellationToken ct)
+    internal static async Task ConfirmDeleteDialogIfPresentAsync(IPage page, CancellationToken ct)
     {
-        foreach (var text in new[] { "确认删除", "确认", "确定", "删除" })
+        for (var attempt = 0; attempt < 15; attempt++)
         {
-            try
+            ct.ThrowIfCancellationRequested();
+            foreach (var text in new[] { "确认删除", "确认", "确定", "删除" })
             {
-                var dlg = page.Locator("[role='dialog'] button").Filter(new() { HasText = text }).First;
-                if (await dlg.CountAsync() > 0)
+                try
                 {
-                    await ClickLocatorAsync(dlg, ct);
-                    return;
+                    var buttons = page.Locator("[role='dialog'] button").Filter(new() { HasText = text });
+                    var count = Math.Min(await buttons.CountAsync(), 8);
+                    for (var index = 0; index < count; index++)
+                    {
+                        var dlg = buttons.Nth(index);
+                        if (!await dlg.IsVisibleAsync(new() { Timeout = 300 }))
+                            continue;
+
+                        await ClickLocatorAsync(dlg, ct);
+                        await page.WaitForTimeoutAsync(200);
+                        return;
+                    }
                 }
+                catch { /* try next */ }
             }
-            catch { /* try next */ }
+
+            await page.WaitForTimeoutAsync(200);
         }
     }
 }
