@@ -54,7 +54,8 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     public void Load()
     {
         var settings = ClientSettingsStore.Load();
-        AuthServerUrl = settings.AuthServerUrl ?? "";
+        var state = LicenseStore.Load();
+        AuthServerUrl = FirstNonEmpty(settings.AuthServerUrl, state.ServerUrl);
         LoginAccount = settings.AuthAccount ?? "";
         LoginPassword = settings.AuthPassword ?? "";
         FeishuCommandEnabled = settings.FeishuCommandEnabled;

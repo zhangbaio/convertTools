@@ -24,8 +24,9 @@ internal static class LicenseGate
     {
         var settings = ClientSettingsStore.Load();
         var state = LicenseStore.Load();
+        var serverUrl = FirstNonEmpty(settings.AuthServerUrl, state.ServerUrl);
         var account = FirstNonEmpty(state.AccountUsername, state.Email, state.LicenseKey, settings.AuthAccount);
-        return new LicenseLoginDefaults(settings.AuthServerUrl, account, settings.AuthPassword);
+        return new LicenseLoginDefaults(serverUrl, account, settings.AuthPassword);
     }
 
     public static void SaveLoginResult(LicenseLoginDialogResult result)

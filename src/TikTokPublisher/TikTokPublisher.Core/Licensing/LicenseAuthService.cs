@@ -116,7 +116,7 @@ public static class LicenseAuthService
         string? password,
         CancellationToken ct = default)
     {
-        var baseUrl = CleanBaseUrl(serverUrl ?? state.ServerUrl);
+        var baseUrl = CleanBaseUrl(FirstNonEmpty(serverUrl, state.ServerUrl));
         if (baseUrl.Length == 0)
             throw new LicenseServiceException("未配置授权服务地址");
         if (!state.IsActivated())
