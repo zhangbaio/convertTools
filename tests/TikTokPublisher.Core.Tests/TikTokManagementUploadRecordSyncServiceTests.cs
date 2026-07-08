@@ -42,4 +42,25 @@ public sealed class TikTokManagementUploadRecordSyncServiceTests
         record["account_profile_name"].Should().Be("账号3");
         record["remark"].Should().Be("需要人工复核封面");
     }
+
+    [Fact]
+    public void BuildDuplicateCheckPayload_all_series_uses_original_names_without_account_scope()
+    {
+        var account = new TikTokAccountProfile
+        {
+            TiktokLoginEmail = "15327086817@163.com",
+            TiktokAccountNickname = "账号3",
+        };
+
+        var payload = TikTokManagementUploadRecordSyncService.BuildDuplicateCheckPayload(
+            ["盛夏的浪起", "盛夏的浪起", "金钱照冷暖"],
+            "all_series",
+            account);
+
+        payload["dedupe_scope"].Should().Be("all_series");
+        payload["platform"].Should().Be("tt");
+        ((IEnumerable<string>)payload["original_names"]!).Should().Equal("盛夏的浪起", "金钱照冷暖");
+        payload.Should().NotContainKey("tiktok_username");
+        payload.Should().NotContainKey("tiktok_account_username");
+    }
 }

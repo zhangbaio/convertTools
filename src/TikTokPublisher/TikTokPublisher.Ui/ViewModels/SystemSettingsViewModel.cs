@@ -119,7 +119,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> PosterModeOptions { get; } = ["original", "poster_ai_erase_pil_title", "poster_ai_edit"];
     public IReadOnlyList<string> ImageProviderOptions { get; } = ["doubao", "ofox_image2"];
     public IReadOnlyList<string> PosterTitleVerifyModeOptions { get; } = ["fallback_repaint", "warn", "blocking"];
-    public IReadOnlyList<string> ManagementDedupScopeOptions { get; } = ["tiktok_username", "software_user"];
+    public IReadOnlyList<string> ManagementDedupScopeOptions { get; } = ["tiktok_username", "software_user", "all_series"];
 
     public void Load(string? workspacePath = null)
     {

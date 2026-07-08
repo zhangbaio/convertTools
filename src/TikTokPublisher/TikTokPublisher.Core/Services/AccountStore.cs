@@ -242,7 +242,8 @@ public sealed class AccountStore
         {
             "tiktok" or "tiktok_account" or "tiktok_account_username" or "tt_account" or "account_username" => "tiktok_username",
             "software" or "login_user" or "owner" or "owner_user" => "software_user",
-            "tiktok_username" or "software_user" => normalized,
+            "all" or "global" or "all_records" or "all_tt_series" or "global_series" => "all_series",
+            "tiktok_username" or "software_user" or "all_series" => normalized,
             _ => "tiktok_username"
         };
     }

@@ -106,22 +106,7 @@ public static class TikTokManagementUploadRecordSyncService
         if (string.IsNullOrWhiteSpace(machineId) || string.IsNullOrWhiteSpace(token))
             return new(false, "软件未登录或登录态不完整", new HashSet<string>(StringComparer.Ordinal));
 
-        var scope = NormalizeDedupeScope(dedupeScope);
-        var payload = new Dictionary<string, object?>
-        {
-            ["original_names"] = names,
-            ["platform"] = Platform,
-            ["dedupe_scope"] = scope,
-        };
-        if (scope == "tiktok_username")
-        {
-            var username = FirstNonEmpty(
-                account?.TiktokLoginEmail,
-                account?.TiktokLastLoginEmail,
-                account?.TiktokAccountNickname);
-            payload["tiktok_username"] = username;
-            payload["tiktok_account_username"] = username;
-        }
+        var payload = BuildDuplicateCheckPayload(names, dedupeScope, account);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/client-api/upload-records/check-duplicates");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -197,6 +182,37 @@ public static class TikTokManagementUploadRecordSyncService
         if (!string.IsNullOrWhiteSpace(item.LastError))
             record["failure_reason"] = item.LastError.Trim();
         return record;
+    }
+
+    internal static Dictionary<string, object?> BuildDuplicateCheckPayload(
+        IEnumerable<string> originalNames,
+        string dedupeScope,
+        TikTokAccountProfile? account)
+    {
+        var names = originalNames
+            .Select(name => (name ?? "").Trim())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var scope = NormalizeDedupeScope(dedupeScope);
+        var payload = new Dictionary<string, object?>
+        {
+            ["original_names"] = names,
+            ["platform"] = Platform,
+            ["dedupe_scope"] = scope,
+        };
+
+        if (scope == "tiktok_username")
+        {
+            var username = FirstNonEmpty(
+                account?.TiktokLoginEmail,
+                account?.TiktokLastLoginEmail,
+                account?.TiktokAccountNickname);
+            payload["tiktok_username"] = username;
+            payload["tiktok_account_username"] = username;
+        }
+
+        return payload;
     }
 
     private static Dictionary<string, object?> FinalizeRecord(
@@ -343,7 +359,8 @@ public static class TikTokManagementUploadRecordSyncService
         return normalized switch
         {
             "software" or "login_user" or "owner" or "owner_user" => "software_user",
-            "software_user" => "software_user",
+            "all" or "global" or "all_records" or "all_tt_series" or "global_series" => "all_series",
+            "software_user" or "all_series" => normalized,
             _ => "tiktok_username",
         };
     }
