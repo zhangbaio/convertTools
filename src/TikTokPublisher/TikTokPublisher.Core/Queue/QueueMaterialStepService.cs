@@ -378,7 +378,7 @@ public static class QueueMaterialStepService
         var inputPath = await QueueMaterialPrepareService.PrepareMaterialInputsAsync(item.ProjectDir, log, ct)
             ?? ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir);
         if (inputPath is null)
-            throw new InvalidOperationException("未找到可用于生成海报的封面图片，且无法从视频抽帧。");
+            throw new InvalidOperationException("未找到可用于生成海报的封面图片。请先提供下载海报或本地图片素材。");
 
         var posterMode = (settings.PosterMode ?? "original").Trim();
         if (IsAiPosterMode(posterMode))

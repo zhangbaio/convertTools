@@ -29,7 +29,7 @@ public sealed class AiImageSettingsTab : UserControl
         panel.Children.Add(Row("图片模型 ID", BindText(nameof(ConfigWindowViewModel.ImageModelId))));
         panel.Children.Add(Row("图片模型 API Key", BindText(nameof(ConfigWindowViewModel.ImageModelApiKey), isPassword: true)));
         panel.Children.Add(Row("图片模型接口", BindText(nameof(ConfigWindowViewModel.ImageModelEndpoint))));
-        panel.Children.Add(Row("抽帧封面 Prompt", MultiLineText(nameof(ConfigWindowViewModel.FrameCoverPrompt), 120)));
+        panel.Children.Add(Row("封面生成 Prompt", MultiLineText(nameof(ConfigWindowViewModel.FrameCoverPrompt), 120)));
         panel.Children.Add(Row("布局检测 Prompt", MultiLineText(nameof(ConfigWindowViewModel.PosterLayoutDetectPrompt), 120)));
         panel.Children.Add(Row("局部改字 Prompt", MultiLineText(nameof(ConfigWindowViewModel.PosterInpaintPrompt), 120)));
         panel.Children.Add(Row("局部改字安全重试 Prompt", MultiLineText(nameof(ConfigWindowViewModel.PosterInpaintSafeRetryPrompt), 120)));

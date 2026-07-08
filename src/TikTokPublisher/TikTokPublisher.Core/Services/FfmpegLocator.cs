@@ -25,6 +25,6 @@ public static class FfmpegLocator
         if (File.Exists(bundled))
             return bundled;
 
-        throw new InvalidOperationException("未找到 ffmpeg，无法从视频抽帧生成封面。");
+        throw new InvalidOperationException("未找到 ffmpeg，无法处理媒体文件。");
     }
 }
