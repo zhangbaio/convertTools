@@ -3,6 +3,7 @@ using FluentAssertions;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
@@ -44,6 +45,7 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         var subtitleVideo = Path.Combine(workflowDir, "material-clip-output", "clip", "subtitles", "caption.mp4");
         WriteSmallFile(subtitleVideo);
         const string queuedAt = "2026-06-28T14:42:13.4600000+08:00";
+        const string uploadCompletedAt = "2026-07-08T12:34:56.0000000+08:00";
         WorkspaceQueueDatabase.Save(
             _workspaceRoot,
             new[]
@@ -53,6 +55,11 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
                     ProjectDir = sourceDir,
                     DisplayName = "demo",
                     QueuedAt = queuedAt,
+                    UploadCompletedAt = uploadCompletedAt,
+                    StepStates = new Dictionary<string, string>
+                    {
+                        [QueueStepKeys.UploadSeries] = QueueStepStatus.Completed,
+                    },
                 },
             });
         var account = new TikTokAccountProfile
@@ -90,13 +97,61 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         root.GetProperty("queued_at").GetString().Should().Be(queuedAt);
         root.GetProperty("accountProfileId").GetString().Should().Be("acct-1dfecd83");
         root.GetProperty("accountProfileName").GetString().Should().Be("账号3");
+        root.GetProperty("uploadCompletedAt").GetString().Should().Be(uploadCompletedAt);
+        root.GetProperty("upload_completed_at").GetString().Should().Be(uploadCompletedAt);
 
         var archivedItem = TikTokArchivedProjectService.List(_workspaceRoot, _archiveRoot).Single();
         archivedItem.QueuedAt.Should().Be(queuedAt);
+        archivedItem.UploadCompletedAt.Should().Be(uploadCompletedAt);
         var syncItem = TikTokArchivedProjectService.ToQueueItemForSync(archivedItem);
         syncItem.QueuedAt.Should().Be(queuedAt);
+        syncItem.UploadCompletedAt.Should().Be(uploadCompletedAt);
         syncItem.AccountProfileId.Should().Be("acct-1dfecd83");
         syncItem.AccountProfileName.Should().Be("账号3");
+    }
+
+    [Fact]
+    public async Task TodayUploadCount_includes_completed_archived_projects()
+    {
+        var (sourceDir, _) = CreateProjectDirs("today-completed");
+        const string uploadCompletedAt = "2026-07-08T09:15:00.0000000+08:00";
+        WorkspaceQueueDatabase.Save(
+            _workspaceRoot,
+            new[]
+            {
+                new QueueProjectItem
+                {
+                    ProjectDir = sourceDir,
+                    DisplayName = "today-completed",
+                    AccountProfileId = "acct-today",
+                    AccountProfileName = "账号今日",
+                    UploadCompletedAt = uploadCompletedAt,
+                    StepStates = new Dictionary<string, string>
+                    {
+                        [QueueStepKeys.UploadSeries] = QueueStepStatus.Completed,
+                    },
+                },
+            });
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-today",
+            Name = "账号今日",
+        };
+
+        await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+            _workspaceRoot,
+            sourceDir,
+            _archiveRoot,
+            account: account);
+
+        var count = TikTokTodayUploadCountService.CountTodayUploads(
+            Array.Empty<QueueProjectItem>(),
+            "acct-today",
+            _workspaceRoot,
+            new DateTimeOffset(2026, 7, 8, 18, 0, 0, TimeSpan.FromHours(8)),
+            includeExecutionHistory: false);
+
+        count.Should().Be(1);
     }
 
     [Fact]

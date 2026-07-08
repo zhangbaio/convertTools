@@ -607,19 +607,10 @@ public sealed partial class MainViewModel : ViewModelBase
     /// <summary>今日上传完成数：按当前账号隔离统计（对齐 Python <c>_count_today_uploaded_projects</c>）。</summary>
     public void RefreshTodayUploadCount()
     {
-        var accountId = (SelectedAccount?.Id ?? "").Trim();
-        var today = DateTime.Now.Date;
-        TodayUploadCount = _queueItems.Count(item =>
-        {
-            if (accountId.Length > 0 &&
-                !string.Equals((item.AccountProfileId ?? "").Trim(), accountId, StringComparison.Ordinal))
-                return false;
-
-            var completedAt = (item.UploadCompletedAt ?? "").Trim();
-            return completedAt.Length > 0 &&
-                   DateTimeOffset.TryParse(completedAt, out var timestamp) &&
-                   timestamp.ToLocalTime().Date == today;
-        });
+        TodayUploadCount = TikTokTodayUploadCountService.CountTodayUploads(
+            _queueItems,
+            SelectedAccount?.Id,
+            WorkspacePath);
     }
 
     [RelayCommand]
@@ -2932,7 +2923,8 @@ public sealed partial class MainViewModel : ViewModelBase
                         deleteWorkflowVideos: deleteVideosOnArchive,
                         deleteMaterialVideos: deleteVideosOnArchive,
                         account: account,
-                        queuedAt: row.Item.QueuedAt))
+                        queuedAt: row.Item.QueuedAt,
+                        uploadCompletedAt: row.Item.UploadCompletedAt))
                     .ConfigureAwait(true);
                 row.Item.Archived = true;
                 archivedProjectDirs.Add(projectDir);

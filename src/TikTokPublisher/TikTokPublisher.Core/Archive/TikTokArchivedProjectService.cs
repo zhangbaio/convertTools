@@ -22,7 +22,8 @@ public sealed record ArchivedProjectItem(
     string ArchivedSourceDir,
     string ArchivedWorkflowDir,
     string AccountProfileId = "",
-    string AccountProfileName = "");
+    string AccountProfileName = "",
+    string UploadCompletedAt = "");
 
 public static class TikTokArchivedProjectService
 {
@@ -99,6 +100,7 @@ public static class TikTokArchivedProjectService
         string source = "tiktok",
         TikTokAccountProfile? account = null,
         string? queuedAt = null,
+        string? uploadCompletedAt = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(workspaceRoot) || !Directory.Exists(workspaceRoot))
@@ -112,6 +114,9 @@ public static class TikTokArchivedProjectService
         var queuedAtValue = FirstNonEmpty(
             queuedAt,
             ResolveQueuedAtFromQueueState(workspaceRoot, sourceProjectDir, workflowProjectDir, projectDir));
+        var uploadCompletedAtValue = FirstNonEmpty(
+            uploadCompletedAt,
+            ResolveUploadCompletedAtFromQueueState(workspaceRoot, sourceProjectDir, workflowProjectDir, projectDir));
         var archiveRoot = ResolveArchiveRoot(workspaceRoot, archiveRootDir);
         var sourceRoot = Path.Combine(archiveRoot, "source");
         var workflowRoot = Path.Combine(archiveRoot, "workflow");
@@ -237,6 +242,8 @@ public static class TikTokArchivedProjectService
             ["archivedAt"] = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
             ["queuedAt"] = queuedAtValue,
             ["queued_at"] = queuedAtValue,
+            ["uploadCompletedAt"] = uploadCompletedAtValue,
+            ["upload_completed_at"] = uploadCompletedAtValue,
             ["sourceProjectDir"] = sourceProjectDir,
             ["workflowProjectDir"] = workflowProjectDir,
             ["archivedSourceDir"] = archivedSourceDir,
@@ -345,6 +352,7 @@ public static class TikTokArchivedProjectService
             AccountProfileName = item.AccountProfileName,
             EpisodeCount = Math.Max(1, episodeCount),
             QueuedAt = NormalizeTime(FirstNonEmpty(item.QueuedAt, item.ArchivedAt)),
+            UploadCompletedAt = NormalizeTime(FirstNonEmpty(item.UploadCompletedAt, item.ArchivedAt)),
             StatusText = QueueStepStatus.Completed,
             StepStates = new Dictionary<string, string>
             {
@@ -466,7 +474,11 @@ public static class TikTokArchivedProjectService
                 ReadString(payload, "account_profile_id")),
             AccountProfileName: FirstNonEmpty(
                 ReadString(payload, "accountProfileName"),
-                ReadString(payload, "account_profile_name")));
+                ReadString(payload, "account_profile_name")),
+            UploadCompletedAt: FirstNonEmpty(
+                ReadString(payload, "uploadCompletedAt"),
+                ReadString(payload, "upload_completed_at"),
+                ReadString(payload, "UploadCompletedAt")));
     }
 
     private static (Dictionary<string, object?> Payload, string MetadataPath, string ArchiveDir) LoadArchiveReference(
@@ -557,6 +569,8 @@ public static class TikTokArchivedProjectService
             ["archivedAt"] = ReadString(payload, "archived_at", "archivedAt"),
             ["queuedAt"] = ReadString(payload, "queued_at", "queuedAt"),
             ["queued_at"] = ReadString(payload, "queued_at", "queuedAt"),
+            ["uploadCompletedAt"] = ReadString(payload, "upload_completed_at", "uploadCompletedAt"),
+            ["upload_completed_at"] = ReadString(payload, "upload_completed_at", "uploadCompletedAt"),
             ["sourceProjectDir"] = ReadString(payload, "source_project_dir", "sourceProjectDir"),
             ["workflowProjectDir"] = ReadString(payload, "workflow_project_dir", "workflowProjectDir"),
             ["archivedSourceDir"] = ReadString(payload, "archived_source_dir", "archivedSourceDir"),
@@ -1152,6 +1166,33 @@ public static class TikTokArchivedProjectService
         return "";
     }
 
+    private static string ResolveUploadCompletedAtFromQueueState(string workspaceRoot, params string[] projectDirs)
+    {
+        try
+        {
+            var candidates = projectDirs
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(Path.GetFullPath)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (candidates.Count == 0)
+                return "";
+
+            foreach (var item in WorkspaceQueueDatabase.Load(workspaceRoot).Items)
+            {
+                if (string.IsNullOrWhiteSpace(item.ProjectDir) || string.IsNullOrWhiteSpace(item.UploadCompletedAt))
+                    continue;
+                if (candidates.Contains(Path.GetFullPath(item.ProjectDir)))
+                    return item.UploadCompletedAt.Trim();
+            }
+        }
+        catch
+        {
+            return "";
+        }
+
+        return "";
+    }
+
     private static int ResolveArchivedEpisodeCount(ArchivedProjectItem item)
     {
         foreach (var root in new[] { item.ArchivedWorkflowDir, item.ArchivedSourceDir })
@@ -1308,6 +1349,7 @@ public static class TikTokArchivedProjectService
         ["account_profile_name"] = item.AccountProfileName,
         ["archived_at"] = item.ArchivedAt,
         ["queued_at"] = item.QueuedAt,
+        ["upload_completed_at"] = item.UploadCompletedAt,
         ["metadata_path"] = item.MetadataPath,
         ["archive_source"] = item.ArchiveSource,
         ["archived_source_dir"] = item.ArchivedSourceDir,
