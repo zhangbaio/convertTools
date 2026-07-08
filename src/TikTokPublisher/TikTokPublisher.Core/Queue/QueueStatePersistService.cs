@@ -39,7 +39,7 @@ public sealed class QueueStatePersistService : IDisposable
         {
             if (!_pending.TryGetValue(workspaceKey, out var pending))
                 pending = _pending[workspaceKey] = new PendingWorkspace();
-            pending.Items = items.Select(CloneQueueItem).ToList();
+            pending.Items = items.ToArray();
             if (options is not null)
                 pending.Options = options.Clone();
             _workAvailable.Set();
@@ -121,10 +121,11 @@ public sealed class QueueStatePersistService : IDisposable
             {
                 try
                 {
-                    if (pending.Items is null || pending.Items.Count == 0)
+                    if (pending.Items is null || pending.Items.Length == 0)
                         continue;
                     var options = pending.Options ?? WorkspaceQueueService.LoadRunOptions(workspaceKey);
-                    WorkspaceQueueService.SaveProjects(workspaceKey, pending.Items, options.ToPersistentDictionary());
+                    var items = CloneQueueItems(pending.Items);
+                    WorkspaceQueueService.SaveProjects(workspaceKey, items, options.ToPersistentDictionary());
                     var callback = _onPersisted;
                     if (callback is not null)
                     {
@@ -167,12 +168,34 @@ public sealed class QueueStatePersistService : IDisposable
         }
     }
 
-    private static QueueProjectItem CloneQueueItem(QueueProjectItem item) =>
-        QueueProjectItem.FromPayload(item.ToPayload());
+    private static List<QueueProjectItem> CloneQueueItems(IEnumerable<QueueProjectItem> items)
+    {
+        var cloned = new List<QueueProjectItem>();
+        foreach (var item in items)
+            cloned.Add(CloneQueueItemWithRetry(item));
+        return cloned;
+    }
+
+    private static QueueProjectItem CloneQueueItemWithRetry(QueueProjectItem item)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                return QueueProjectItem.FromPayload(item.ToPayload());
+            }
+            catch when (attempt < 2)
+            {
+                Thread.Sleep(5);
+            }
+        }
+
+        return QueueProjectItem.FromPayload(item.ToPayload());
+    }
 
     private sealed class PendingWorkspace
     {
-        public List<QueueProjectItem>? Items;
+        public QueueProjectItem[]? Items;
         public QueueRunOptions? Options;
     }
 }

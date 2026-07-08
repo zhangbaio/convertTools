@@ -58,6 +58,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly HashSet<string> _pendingQueueExcelExportWorkspaces =
         new(StringComparer.OrdinalIgnoreCase);
     private bool _queueFinalExcelExportScheduled;
+    private bool _queueExcelExportDebounceScheduled;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
     public ObservableCollection<AccountItemViewModel> FilteredAccounts { get; } = new();
@@ -2328,20 +2329,21 @@ public sealed partial class MainViewModel : ViewModelBase
         }, delay);
     }
 
-    private void PersistQueueItems(IReadOnlyList<QueueProjectItem> items)
+    private void PersistQueueItems(IReadOnlyList<QueueProjectItem> items, bool refreshRows = true)
     {
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root)) return;
         _queueItems = items.ToList();
         _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
-        RefreshQueueRowViewModels();
+        if (refreshRows)
+            RefreshQueueRowViewModels();
     }
 
     private void PersistQueueItems() => PersistQueueItems(_queueItems);
 
     private void OnQueueRowEnabledChangedByUser(QueueProjectRowViewModel row)
     {
-        PersistQueueItems();
+        PersistQueueItems(_queueItems, refreshRows: false);
         UpdateQueueSummaryText();
         StatusMessage = row.IsEnabled
             ? $"已勾选「{row.NewTitle}」"
@@ -2350,7 +2352,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void OnQueueRowRemarkChangedByUser(QueueProjectRowViewModel row)
     {
-        PersistQueueItems();
+        PersistQueueItems(_queueItems, refreshRows: false);
         StatusMessage = string.IsNullOrWhiteSpace(row.Remark)
             ? $"已清空「{row.NewTitle}」备注"
             : $"已保存「{row.NewTitle}」备注";
@@ -3328,13 +3330,35 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void OnQueueStatePersisted(string workspaceRoot)
     {
+        MarkQueueExcelExportPending(workspaceRoot);
         if (ShouldDeferQueueExcelExport())
-        {
-            MarkQueueExcelExportPending(workspaceRoot);
             return;
+
+        ScheduleDebouncedQueueExcelExport();
+    }
+
+    private void ScheduleDebouncedQueueExcelExport()
+    {
+        lock (_queueExcelExportLock)
+        {
+            if (_queueExcelExportDebounceScheduled || _queueFinalExcelExportScheduled)
+                return;
+
+            _queueExcelExportDebounceScheduled = true;
         }
 
-        AutoExportQueueExcelForWorkspaceNow(workspaceRoot);
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(900)).ConfigureAwait(false);
+            lock (_queueExcelExportLock)
+            {
+                _queueExcelExportDebounceScheduled = false;
+                if (_queueRunActive || _queueFinalExcelExportScheduled)
+                    return;
+            }
+
+            ScheduleFinalQueueExcelExport();
+        });
     }
 
     private bool ShouldDeferQueueExcelExport()
