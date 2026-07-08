@@ -605,15 +605,11 @@ public partial class TikTokQueueView : UserControl
 
     private void OnSelectAllQueueClick(object? sender, RoutedEventArgs e)
     {
-        if (QueueProjectList is null) return;
-        QueueProjectList.SelectAll();
         _vm?.SetFilteredQueueRowsEnabled(true);
     }
 
     private void OnClearQueueSelectionClick(object? sender, RoutedEventArgs e)
     {
-        if (QueueProjectList is null) return;
-        QueueProjectList.SelectedItems?.Clear();
         _vm?.SetFilteredQueueRowsEnabled(false);
     }
 
@@ -622,15 +618,7 @@ public partial class TikTokQueueView : UserControl
         var vm = _vm;
         if (vm is null) return;
 
-        var completedRows = vm.SetFilteredCompletedQueueRowsEnabled();
-        if (QueueProjectList is null) return;
-
-        var selectedItems = QueueProjectList.SelectedItems;
-        if (selectedItems is null) return;
-
-        selectedItems.Clear();
-        foreach (var row in completedRows)
-            selectedItems.Add(row);
+        vm.SetFilteredCompletedQueueRowsEnabled();
     }
 
     private void OnBindSelectedAccountClick(object? sender, RoutedEventArgs e)

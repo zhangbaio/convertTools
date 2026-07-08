@@ -595,14 +595,15 @@ public sealed partial class MainViewModel : ViewModelBase
             : $"账号绑定：{account.DisplayName}（{boundId}）";
     }
 
-    private void UpdateQueueSummaryText()
+    private void UpdateQueueSummaryText(bool refreshTodayUploadCount = true)
     {
         var checkedCount = _queueItems.Count(i => i.Enabled);
         var pending = WorkspaceQueueService.FilterPendingUpload(_queueItems).Count();
         QueueSummaryText =
             $"已加载 { _queueItems.Count} 个项目，勾选 {checkedCount} 个，待上传 {pending} 个" +
             (string.IsNullOrWhiteSpace(WorkspacePath) ? "" : $" · 工作目录 {WorkspacePath}");
-        RefreshTodayUploadCount();
+        if (refreshTodayUploadCount)
+            RefreshTodayUploadCount();
     }
 
     /// <summary>今日上传完成数：按当前账号隔离统计（对齐 Python <c>_count_today_uploaded_projects</c>）。</summary>
@@ -1063,7 +1064,7 @@ public sealed partial class MainViewModel : ViewModelBase
             RefreshQueueRowViewModels();
         }
 
-        UpdateQueueSummaryText();
+        UpdateQueueSummaryText(refreshTodayUploadCount: false);
         StatusMessage = enabled
             ? $"已勾选 {visibleRows.Length} 个项目"
             : $"已取消勾选 {visibleRows.Length} 个项目";
@@ -1111,7 +1112,7 @@ public sealed partial class MainViewModel : ViewModelBase
             RefreshQueueRowViewModels();
         }
 
-        UpdateQueueSummaryText();
+        UpdateQueueSummaryText(refreshTodayUploadCount: false);
         StatusMessage = completedDirs.Count == 0
             ? "当前筛选结果中没有已完成项目"
             : $"已勾选 {completedDirs.Count} 个已完成项目";
@@ -1150,7 +1151,7 @@ public sealed partial class MainViewModel : ViewModelBase
         else
             RefreshQueueRowViewModels();
 
-        UpdateQueueSummaryText();
+        UpdateQueueSummaryText(refreshTodayUploadCount: false);
         return matched;
     }
 
@@ -2344,7 +2345,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private void OnQueueRowEnabledChangedByUser(QueueProjectRowViewModel row)
     {
         PersistQueueItems(_queueItems, refreshRows: false);
-        UpdateQueueSummaryText();
+        UpdateQueueSummaryText(refreshTodayUploadCount: false);
         StatusMessage = row.IsEnabled
             ? $"已勾选「{row.NewTitle}」"
             : $"已取消勾选「{row.NewTitle}」";
