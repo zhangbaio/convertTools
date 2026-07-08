@@ -144,7 +144,7 @@ public static class TikTokUploadProgressParser
         return filtered;
     }
 
-    private static List<int> ExtractCompletedUploadedEpisodeIndexes(
+    public static List<int> ExtractCompletedUploadedEpisodeIndexes(
         string bodyText,
         IReadOnlyList<string> titleCandidates)
     {

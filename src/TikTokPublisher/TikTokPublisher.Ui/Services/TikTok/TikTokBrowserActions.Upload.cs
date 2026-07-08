@@ -12,6 +12,8 @@ public static partial class TikTokBrowserActions
 
     /// <summary>ConnectOverCDP 下 Playwright 串流上限；单文件超过此值必须走 CDP 路径注入。</summary>
     internal const long CdpFileTransferLimitBytes = 45L * 1024 * 1024;
+    private const int MaxInactiveIncompleteRepairAttempts = 2;
+    private const int MaxInactiveIncompleteRepairFiles = 3;
 
     public static async Task UploadLocalVideosAsync(
         IPage page,
@@ -63,6 +65,9 @@ public static partial class TikTokBrowserActions
         (int? uploaded, int percent, bool uploading)? lastSignature = null;
         var lastProgressTime = DateTime.UtcNow;
         var readFailStreak = 0;
+        (int uploaded, int waiting, bool disabled)? inactiveIncompleteSignature = null;
+        DateTime? inactiveIncompleteSince = null;
+        var inactiveIncompleteRepairAttempts = 0;
 
         while (DateTime.UtcNow < deadline)
         {
@@ -96,6 +101,12 @@ public static partial class TikTokBrowserActions
             var submit = page.Locator("button").Filter(new() { HasText = "提交" }).First;
             var disabled = await IsAriaDisabledAsync(submit);
             var meetsDone = !uploading && !disabled && UploadedCountMeetsExpected(uploadedCount, expectedCount);
+            var inactiveIncomplete = IsInactiveIncompleteUpload(
+                uploadedCount,
+                expectedCount,
+                waitingCount,
+                uploading,
+                disabled);
 
             var signature = (uploadedCount, percentTotal, uploading);
             if (lastSignature != signature)
@@ -121,6 +132,57 @@ public static partial class TikTokBrowserActions
                 lastStatus = status;
             }
 
+            if (!meetsDone && inactiveIncomplete)
+            {
+                var inactiveSignature = (uploaded: uploadedCount.GetValueOrDefault(), waiting: waitingCount, disabled);
+                if (inactiveIncompleteSignature != inactiveSignature)
+                {
+                    inactiveIncompleteSignature = inactiveSignature;
+                    inactiveIncompleteSince = DateTime.UtcNow;
+                }
+                else if (inactiveIncompleteSince is not null &&
+                         (DateTime.UtcNow - inactiveIncompleteSince.Value).TotalSeconds >= ResolveInactiveIncompleteRepairSeconds(stallLimit))
+                {
+                    if (inactiveIncompleteRepairAttempts >= MaxInactiveIncompleteRepairAttempts)
+                    {
+                        throw new TimeoutException(
+                            $"TikTok 视频上传疑似单集卡死：当前已就绪 {countLabel}/{expectedCount}，等待中 0 个，自动补传 {inactiveIncompleteRepairAttempts} 次后仍未完成。");
+                    }
+
+                    if (!TryResolveInactiveIncompleteUploadPaths(
+                            videoPaths,
+                            expectedCount,
+                            uploadedCount.GetValueOrDefault(),
+                            bodyText,
+                            titleCandidates,
+                            out var missingPaths,
+                            out var repairReason))
+                    {
+                        throw new TimeoutException(
+                            $"TikTok 视频上传疑似卡死：当前已就绪 {countLabel}/{expectedCount}，等待中 0 个，且无法安全定位要补传的视频（{repairReason}）。");
+                    }
+
+                    inactiveIncompleteRepairAttempts++;
+                    Log(log,
+                        $"⚠️ 检测到 TikTok 上传疑似卡死（已就绪 {countLabel}/{expectedCount}，等待中 0 个，提交仍不可用），" +
+                        $"自动补传 {missingPaths.Count} 个视频（第 {inactiveIncompleteRepairAttempts}/{MaxInactiveIncompleteRepairAttempts} 次）：{FormatUploadPathPreview(missingPaths)}");
+                    await RefeedInactiveIncompleteVideosAsync(page, missingPaths, log, ct).ConfigureAwait(false);
+                    await page.WaitForTimeoutAsync(5000);
+                    inactiveIncompleteSignature = null;
+                    inactiveIncompleteSince = null;
+                    readySince = null;
+                    lastSignature = null;
+                    lastProgressTime = DateTime.UtcNow;
+                    lastStatus = "";
+                    continue;
+                }
+            }
+            else
+            {
+                inactiveIncompleteSignature = null;
+                inactiveIncompleteSince = null;
+            }
+
             if (meetsDone)
             {
                 readySince ??= DateTime.UtcNow;
@@ -141,6 +203,168 @@ public static partial class TikTokBrowserActions
         }
 
         throw new TimeoutException("等待 TikTok 视频上传完成超时。");
+    }
+
+    private static bool IsInactiveIncompleteUpload(
+        int? uploadedCount,
+        int expectedCount,
+        int waitingCount,
+        bool uploading,
+        bool submitDisabled)
+    {
+        if (uploadedCount is null || expectedCount <= 0)
+            return false;
+
+        var missingCount = expectedCount - uploadedCount.Value;
+        return uploadedCount.Value > 0 &&
+               missingCount is > 0 and <= MaxInactiveIncompleteRepairFiles &&
+               waitingCount == 0 &&
+               !uploading &&
+               submitDisabled;
+    }
+
+    private static double ResolveInactiveIncompleteRepairSeconds(double stallLimit) =>
+        Math.Clamp(stallLimit / 4.0, 60.0, 90.0);
+
+    private static bool TryResolveInactiveIncompleteUploadPaths(
+        IReadOnlyList<string>? videoPaths,
+        int expectedCount,
+        int uploadedCount,
+        string bodyText,
+        IReadOnlyList<string>? titleCandidates,
+        out List<string> missingPaths,
+        out string reason)
+    {
+        missingPaths = [];
+        reason = "";
+
+        var missingCount = expectedCount - uploadedCount;
+        if (missingCount <= 0)
+        {
+            reason = "平台已识别为完整上传";
+            return false;
+        }
+
+        if (missingCount > MaxInactiveIncompleteRepairFiles)
+        {
+            reason = $"缺失数量 {missingCount} 超过自动补传上限 {MaxInactiveIncompleteRepairFiles}";
+            return false;
+        }
+
+        var paths = (videoPaths ?? Array.Empty<string>())
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .ToList();
+        if (paths.Count == 0)
+        {
+            reason = "没有可用于补传的视频路径";
+            return false;
+        }
+
+        if (paths.Count <= missingCount)
+        {
+            missingPaths = paths;
+            return true;
+        }
+
+        var completedIndexes = TikTokUploadProgressParser.ExtractCompletedUploadedEpisodeIndexes(
+            bodyText,
+            titleCandidates ?? Array.Empty<string>());
+        if (completedIndexes.Count > 0)
+        {
+            var completedSet = completedIndexes.ToHashSet();
+            var byIndex = new List<string>();
+            for (var i = 0; i < paths.Count; i++)
+            {
+                var episodeIndex = ExtractEpisodeIndexFromPath(paths[i]) ?? (i + 1);
+                if (!completedSet.Contains(episodeIndex))
+                    byIndex.Add(paths[i]);
+            }
+
+            if (byIndex.Count is > 0 and <= MaxInactiveIncompleteRepairFiles)
+            {
+                missingPaths = byIndex;
+                return true;
+            }
+
+            if (byIndex.Count > MaxInactiveIncompleteRepairFiles)
+            {
+                reason = $"按页面集号推断缺失 {byIndex.Count} 个视频，超过自动补传上限";
+                return false;
+            }
+        }
+
+        if (paths.Count == expectedCount)
+        {
+            var start = Math.Clamp(uploadedCount, 0, paths.Count);
+            missingPaths = paths.Skip(start).Take(missingCount).ToList();
+            if (missingPaths.Count == missingCount)
+                return true;
+        }
+
+        if (paths.Count >= missingCount)
+        {
+            missingPaths = paths.Skip(paths.Count - missingCount).Take(missingCount).ToList();
+            return missingPaths.Count == missingCount;
+        }
+
+        reason = $"当前仅有 {paths.Count} 个候选视频路径，不足以补传缺失的 {missingCount} 个";
+        return false;
+    }
+
+    private static async Task RefeedInactiveIncompleteVideosAsync(
+        IPage page,
+        IReadOnlyList<string> missingPaths,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        await DismissFloatingAssistantAsync(page, log);
+        var resolved = missingPaths.Select(Path.GetFullPath).ToList();
+        var button = await ResolveVideoUploadButtonAsync(page);
+        if (button is not null)
+        {
+            await FeedVideoFilesAsync(page, button, resolved, ct);
+        }
+        else
+        {
+            var input = await FindVideoFileInputAsync(page);
+            if (input is null)
+                throw new InvalidOperationException("未找到 TikTok 视频上传控件，无法自动补传卡住的视频。");
+            await FeedVideoFilesToInputAsync(page, input, resolved, ct);
+        }
+
+        Log(log, $"已重新提交疑似卡住的视频：{FormatUploadPathPreview(resolved)}");
+    }
+
+    private static async Task<ILocator?> ResolveVideoUploadButtonAsync(IPage page)
+    {
+        foreach (var text in new[] { "上传视频", "本地上传" })
+        {
+            var locator = page.Locator("button").Filter(new() { HasText = text }).First;
+            try
+            {
+                if (await locator.CountAsync() > 0)
+                    return locator;
+            }
+            catch { /* try next */ }
+        }
+
+        return null;
+    }
+
+    private static string FormatUploadPathPreview(IReadOnlyList<string> paths)
+    {
+        var labels = paths
+            .Take(5)
+            .Select((path, index) =>
+            {
+                var episode = ExtractEpisodeIndexFromPath(path);
+                var prefix = episode is > 0 ? $"第{episode}集 " : "";
+                return $"{prefix}{Path.GetFileName(path)}";
+            })
+            .ToList();
+        var suffix = paths.Count > labels.Count ? $" 等 {paths.Count} 个" : "";
+        return string.Join("、", labels) + suffix;
     }
 
     private static async Task FeedVideoFilesAsync(
