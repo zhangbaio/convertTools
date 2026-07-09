@@ -27,12 +27,14 @@ public static class TikTokExcelExportService
         IReadOnlyList<QueueProjectItem> items,
         TikTokAccountProfile? account,
         ClientSettings? settings = null,
-        IReadOnlyDictionary<string, string>? workspaceByProject = null)
+        IReadOnlyDictionary<string, string>? workspaceByProject = null,
+        IReadOnlyList<TikTokAccountProfile>? accountProfiles = null)
     {
         settings ??= ClientSettingsStore.Load();
         var outputPath = ResolveReportPath(account, settings);
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         var manualValues = LoadManualValues(outputPath);
+        var accountLookup = BuildAccountLookup(accountProfiles);
 
         using var document = SpreadsheetDocument.Create(outputPath, SpreadsheetDocumentType.Workbook);
         var workbookPart = document.AddWorkbookPart();
@@ -45,12 +47,12 @@ public static class TikTokExcelExportService
         var usedSheetNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var sheetId = 1U;
 
-        AppendSheet(workbookPart, sheets, ReserveSheetName(SummarySheet, usedSheetNames), sheetId++, BuildCurrentQueueRows(workspace, items, manualValues, workspaceByProject));
+        AppendSheet(workbookPart, sheets, ReserveSheetName(SummarySheet, usedSheetNames), sheetId++, BuildCurrentQueueRows(workspace, items, manualValues, workspaceByProject, accountLookup));
 
         foreach (var group in BuildAccountGroups(items))
         {
             var sheetName = ReserveSheetName(group.SheetName, usedSheetNames);
-            AppendSheet(workbookPart, sheets, sheetName, sheetId++, BuildCurrentQueueRows(workspace, group.Items, manualValues, workspaceByProject));
+            AppendSheet(workbookPart, sheets, sheetName, sheetId++, BuildCurrentQueueRows(workspace, group.Items, manualValues, workspaceByProject, accountLookup));
         }
 
         workbookPart.Workbook.Save();
@@ -117,7 +119,8 @@ public static class TikTokExcelExportService
         string workspace,
         IReadOnlyList<QueueProjectItem> items,
         IReadOnlyDictionary<string, ManualReviewValue> manualValues,
-        IReadOnlyDictionary<string, string>? workspaceByProject)
+        IReadOnlyDictionary<string, string>? workspaceByProject,
+        IReadOnlyDictionary<string, TikTokAccountProfile> accountLookup)
     {
         var rows = new List<IReadOnlyList<object?>>
         {
@@ -125,8 +128,7 @@ public static class TikTokExcelExportService
             {
                 "工作目录", "项目目录", "显示名", "原剧名", "新剧名", "集数", "题材（分类）",
                 "审核状态", "备注", "简介", "加入时间", "上传完成时间", "当前步骤", "总状态",
-                "最后错误", "已归档", "账号", "账号ID",
-                "下载", "改写", "海报", "小文件修复", "静音检测", "静音修复", "素材校验", "删源", "上传"
+                "最后错误", "已归档", "账号", "TIKTOK用户名", "上传"
             }
         };
 
@@ -153,15 +155,7 @@ public static class TikTokExcelExportService
                 item.LastError,
                 item.Archived ? "是" : "否",
                 item.AccountProfileName,
-                item.AccountProfileId,
-                item.StepStates.GetValueOrDefault(QueueStepKeys.Download, ""),
-                item.StepStates.GetValueOrDefault(QueueStepKeys.RewriteInfo, ""),
-                item.StepStates.GetValueOrDefault(QueueStepKeys.GeneratePoster, ""),
-                item.StepStates.GetValueOrDefault(QueueStepKeys.SmallVideoRepair, ""),
-                item.StepStates.GetValueOrDefault(QueueStepKeys.SilenceDetect, ""),
-                item.StepStates.GetValueOrDefault(QueueStepKeys.SilenceRepair, ""),
-                item.StepStates.GetValueOrDefault(QueueStepKeys.MaterialValidate, ""),
-                item.StepStates.GetValueOrDefault(QueueStepKeys.DeleteSourceVideos, ""),
+                ResolveTikTokUsername(item, accountLookup),
                 item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries, ""),
             });
         }
@@ -329,6 +323,46 @@ public static class TikTokExcelExportService
         }
 
         return fallbackWorkspace;
+    }
+
+    private static IReadOnlyDictionary<string, TikTokAccountProfile> BuildAccountLookup(
+        IReadOnlyList<TikTokAccountProfile>? accountProfiles)
+    {
+        var lookup = new Dictionary<string, TikTokAccountProfile>(StringComparer.OrdinalIgnoreCase);
+        foreach (var account in accountProfiles ?? [])
+        {
+            AddAccountLookupKey(lookup, account.Id, account);
+            AddAccountLookupKey(lookup, account.Name, account);
+            AddAccountLookupKey(lookup, account.DisplayName, account);
+            AddAccountLookupKey(lookup, account.TiktokAccountNickname, account);
+            AddAccountLookupKey(lookup, account.TiktokLoginEmail, account);
+            AddAccountLookupKey(lookup, account.TiktokLastLoginEmail, account);
+        }
+
+        return lookup;
+    }
+
+    private static void AddAccountLookupKey(
+        IDictionary<string, TikTokAccountProfile> lookup,
+        string? key,
+        TikTokAccountProfile account)
+    {
+        var text = (key ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(text) && !lookup.ContainsKey(text))
+            lookup[text] = account;
+    }
+
+    private static string ResolveTikTokUsername(
+        QueueProjectItem item,
+        IReadOnlyDictionary<string, TikTokAccountProfile> accountLookup)
+    {
+        foreach (var key in new[] { item.AccountProfileId, item.AccountProfileName })
+        {
+            if (accountLookup.TryGetValue((key ?? "").Trim(), out var account))
+                return FirstNonEmpty(account.ResolveTikTokAccountName(), account.TiktokAccountNickname);
+        }
+
+        return "";
     }
 
     private static string FirstNonEmpty(params string?[] values)

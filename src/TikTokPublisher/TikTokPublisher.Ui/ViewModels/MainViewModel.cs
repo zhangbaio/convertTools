@@ -3326,7 +3326,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (snapshot.Items.Count == 0)
             throw new InvalidOperationException("没有可导出的队列项目");
 
-        return TikTokExcelExportService.Export(root, snapshot.Items, account: null, settings, snapshot.WorkspaceByProject);
+        return TikTokExcelExportService.Export(root, snapshot.Items, account: null, settings, snapshot.WorkspaceByProject, _store.Accounts);
     }
 
     private void OnQueueStatePersisted(string workspaceRoot)
@@ -3460,7 +3460,7 @@ public sealed partial class MainViewModel : ViewModelBase
             var snapshot = BuildExcelExportSnapshot(workspaceRoot);
             if (snapshot.Items.Count == 0) return;
 
-            TikTokExcelExportService.Export(workspaceRoot, snapshot.Items, account: null, settings, snapshot.WorkspaceByProject);
+            TikTokExcelExportService.Export(workspaceRoot, snapshot.Items, account: null, settings, snapshot.WorkspaceByProject, _store.Accounts);
         }
         catch (Exception ex)
         {
