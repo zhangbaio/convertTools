@@ -173,6 +173,7 @@ public partial class AccountProfileEditor : UserControl
             profile.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
             profile.TiktokExcelReportPath = ExcelReportBox.Text?.Trim() ?? "";
             profile.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
+            profile.TiktokDeleteVideosOnArchiveConfigured = true;
 
             profile.TiktokLoginBrowserMode = TagOf(LoginBrowserModeCombo, "embedded");
             profile.TiktokExternalBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";

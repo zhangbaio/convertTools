@@ -172,6 +172,7 @@ public sealed class AccountStore
             TiktokPaidRatioEnabled = true,
             TiktokExpectedFullPriceMode = "option_index",
             TiktokDeleteVideosOnArchive = true,
+            TiktokDeleteVideosOnArchiveConfigured = true,
             TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
         };
     }
@@ -193,6 +194,8 @@ public sealed class AccountStore
         account.TiktokTargetAudienceMode = NormalizeTargetAudience(account.TiktokTargetAudienceMode);
         account.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount(account.TiktokGenreCount);
         account.TiktokUploadBrowserMode = NormalizeUploadBrowserMode(account.TiktokUploadBrowserMode);
+        if (!account.TiktokDeleteVideosOnArchiveConfigured)
+            account.TiktokDeleteVideosOnArchive = true;
         if (account.TiktokProfilePreviewEpisodes <= 0) account.TiktokProfilePreviewEpisodes = 3;
         if (account.TiktokFreePreviewEpisodes <= 0) account.TiktokFreePreviewEpisodes = 3;
         if (account.TiktokProjectConcurrency <= 0) account.TiktokProjectConcurrency = 4;

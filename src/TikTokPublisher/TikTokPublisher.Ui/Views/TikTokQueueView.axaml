@@ -267,10 +267,10 @@
                         </Grid>
 
                         <WrapPanel Orientation="Horizontal" Margin="64,0,0,0">
+                            <CheckBox Content="同步管理系统" IsChecked="{Binding SyncManagementAfterUpload}" Margin="0,0,16,0" />
                             <CheckBox Content="上传完成后自动归档" IsChecked="{Binding AutoArchiveAfterUpload}" Margin="0,0,16,0" />
                             <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding ForceRerunCompletedSteps}" Margin="0,0,16,0" />
                             <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding PreferUploadWhenReady}" Margin="0,0,16,0" />
-                            <CheckBox Content="同步管理系统" IsChecked="{Binding SyncManagementAfterUpload}" Margin="0,0,16,0" />
                         </WrapPanel>
                     </StackPanel>
                 </Border>

@@ -97,6 +97,7 @@ public sealed class TikTokAccountProfile
     public bool? TiktokQueuePreferUploadWhenReady { get; set; }
     public bool? TiktokQueueSyncManagementAfterUpload { get; set; }
     public bool TiktokDeleteVideosOnArchive { get; set; } = true;
+    public bool TiktokDeleteVideosOnArchiveConfigured { get; set; }
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
 

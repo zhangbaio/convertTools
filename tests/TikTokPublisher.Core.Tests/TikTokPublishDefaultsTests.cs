@@ -181,6 +181,7 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokSilenceValidationEnabled.Should().BeTrue();
         account.TiktokMaxContinuousSilenceSeconds.Should().Be(20);
         account.TiktokSilenceThresholdDb.Should().Be(-45.0);
+        account.TiktokDeleteVideosOnArchive.Should().BeTrue();
     }
 
     [Fact]
@@ -194,6 +195,32 @@ public sealed class TikTokPublishDefaultsTests
         method!.Invoke(null, ["external"]).Should().Be("embedded");
         method.Invoke(null, ["playwright"]).Should().Be("playwright");
         method.Invoke(null, ["embedded"]).Should().Be("embedded");
+    }
+
+    [Fact]
+    public void Account_store_defaults_unconfigured_archive_video_deletion_to_enabled()
+    {
+        var method = typeof(AccountStore).GetMethod(
+            "NormalizeProfileDefaults",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+
+        method.Should().NotBeNull();
+
+        var legacyAccount = new TikTokAccountProfile
+        {
+            TiktokDeleteVideosOnArchive = false,
+            TiktokDeleteVideosOnArchiveConfigured = false,
+        };
+        method!.Invoke(null, [legacyAccount]);
+        legacyAccount.TiktokDeleteVideosOnArchive.Should().BeTrue();
+
+        var explicitlyDisabledAccount = new TikTokAccountProfile
+        {
+            TiktokDeleteVideosOnArchive = false,
+            TiktokDeleteVideosOnArchiveConfigured = true,
+        };
+        method.Invoke(null, [explicitlyDisabledAccount]);
+        explicitlyDisabledAccount.TiktokDeleteVideosOnArchive.Should().BeFalse();
     }
 
     [Fact]

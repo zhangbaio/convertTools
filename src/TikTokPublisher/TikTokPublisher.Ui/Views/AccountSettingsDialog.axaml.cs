@@ -89,6 +89,7 @@ public partial class AccountSettingsDialog : Window
         p.LastWorkspace = workspace;
         p.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
         p.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
+        p.TiktokDeleteVideosOnArchiveConfigured = true;
 
         p.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
         p.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
