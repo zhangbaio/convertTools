@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
@@ -267,8 +267,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return ExecuteRemoteCommandAsync(command);
 
         return Avalonia.Threading.Dispatcher.UIThread
-            .InvokeAsync(() => ExecuteRemoteCommandAsync(command))
-            .GetTask();
+            .InvokeAsync(() => ExecuteRemoteCommandAsync(command));
     }
 
     private XingeRemoteRegistrationSnapshot BuildXingeRemoteRegistrationSnapshotThreadSafe()
@@ -939,6 +938,18 @@ public sealed partial class MainViewModel : ViewModelBase
         clone.CoverPath = item.CoverPath;
         return clone;
     }
+
+    private static TikTokAccountProfile CloneAccountProfileForExport(TikTokAccountProfile account) => new()
+    {
+        Id = account.Id,
+        Name = account.Name,
+        TiktokAccountNickname = account.TiktokAccountNickname,
+        TiktokLoginEmail = account.TiktokLoginEmail,
+        TiktokLastLoginEmail = account.TiktokLastLoginEmail,
+        TiktokUploadProfilePath = account.TiktokUploadProfilePath,
+        LastWorkspace = account.LastWorkspace,
+        TiktokExcelReportPath = account.TiktokExcelReportPath,
+    };
 
     private void ReconcileQueueProjectRows(IReadOnlyList<QueueProjectItem> items)
     {
@@ -3409,15 +3420,35 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public string ExportQueueExcel()
     {
-        var root = WorkspacePath.Trim();
-        if (string.IsNullOrEmpty(root))
+        return ExportQueueExcelCore(CaptureExcelExportSnapshotContext(WorkspacePath.Trim()));
+    }
+
+    public Task<string> ExportQueueExcelAsync(CancellationToken ct = default)
+    {
+        var context = CaptureExcelExportSnapshotContext(WorkspacePath.Trim());
+        return Task.Run(() =>
+        {
+            ct.ThrowIfCancellationRequested();
+            return ExportQueueExcelCore(context);
+        }, ct);
+    }
+
+    private string ExportQueueExcelCore(ExcelExportSnapshotContext context)
+    {
+        if (string.IsNullOrEmpty(context.ActiveWorkspace))
             throw new InvalidOperationException("请先选择工作目录");
         var settings = ClientSettingsStore.Load();
-        var snapshot = BuildExcelExportSnapshot(root);
+        var snapshot = BuildExcelExportSnapshot(context);
         if (snapshot.Items.Count == 0)
             throw new InvalidOperationException("没有可导出的队列项目");
 
-        return TikTokExcelExportService.Export(root, snapshot.Items, account: null, settings, snapshot.WorkspaceByProject, _store.Accounts);
+        return TikTokExcelExportService.Export(
+            context.ActiveWorkspace,
+            snapshot.Items,
+            account: null,
+            settings,
+            snapshot.WorkspaceByProject,
+            context.Accounts);
     }
 
     private void OnQueueStatePersisted(string workspaceRoot)
@@ -3537,7 +3568,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return;
         }
 
-        AutoExportQueueExcelForWorkspaceNow(workspaceRoot);
+        _ = Task.Run(() => AutoExportQueueExcelForWorkspaceNow(workspaceRoot));
     }
 
     private void AutoExportQueueExcelForWorkspaceNow(string workspaceRoot)
@@ -3548,10 +3579,17 @@ public sealed partial class MainViewModel : ViewModelBase
             if (!settings.TiktokExcelAutoExportEnabled) return;
             if (string.IsNullOrWhiteSpace(workspaceRoot)) return;
 
-            var snapshot = BuildExcelExportSnapshot(workspaceRoot);
+            var context = CaptureExcelExportSnapshotContext(workspaceRoot);
+            var snapshot = BuildExcelExportSnapshot(context);
             if (snapshot.Items.Count == 0) return;
 
-            TikTokExcelExportService.Export(workspaceRoot, snapshot.Items, account: null, settings, snapshot.WorkspaceByProject, _store.Accounts);
+            TikTokExcelExportService.Export(
+                context.ActiveWorkspace,
+                snapshot.Items,
+                account: null,
+                settings,
+                snapshot.WorkspaceByProject,
+                context.Accounts);
         }
         catch (Exception ex)
         {
@@ -3559,10 +3597,36 @@ public sealed partial class MainViewModel : ViewModelBase
         }
     }
 
-    private (IReadOnlyList<QueueProjectItem> Items, IReadOnlyDictionary<string, string> WorkspaceByProject) BuildExcelExportSnapshot(string activeWorkspace)
+    private ExcelExportSnapshotContext CaptureExcelExportSnapshotContext(string activeWorkspace)
     {
-        var activeRoot = SafeFullPath(activeWorkspace);
-        var displayedRoot = string.IsNullOrWhiteSpace(WorkspacePath) ? "" : SafeFullPath(WorkspacePath);
+        if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            return Avalonia.Threading.Dispatcher.UIThread
+                .InvokeAsync(() => CaptureExcelExportSnapshotContext(activeWorkspace))
+                .GetTask()
+                .GetAwaiter()
+                .GetResult();
+        }
+
+        var accounts = _store.Accounts.Select(CloneAccountProfileForExport).ToList();
+        var selectedAccount = SelectedAccount?.Model is { } account
+            ? CloneAccountProfileForExport(account)
+            : null;
+        var targets = BuildAccountWorkspaceTargets(accounts, skipMissingWorkspace: true, out _);
+
+        return new ExcelExportSnapshotContext(
+            activeWorkspace.Trim(),
+            WorkspacePath,
+            CloneQueueItems(_queueItems),
+            accounts,
+            targets,
+            selectedAccount);
+    }
+
+    private (IReadOnlyList<QueueProjectItem> Items, IReadOnlyDictionary<string, string> WorkspaceByProject) BuildExcelExportSnapshot(ExcelExportSnapshotContext context)
+    {
+        var activeRoot = SafeFullPath(context.ActiveWorkspace);
+        var displayedRoot = string.IsNullOrWhiteSpace(context.DisplayedWorkspace) ? "" : SafeFullPath(context.DisplayedWorkspace);
         var workspaces = new Dictionary<string, TikTokAccountProfile?>(StringComparer.OrdinalIgnoreCase);
 
         void AddWorkspace(string? workspace, TikTokAccountProfile? account)
@@ -3575,16 +3639,16 @@ public sealed partial class MainViewModel : ViewModelBase
                 workspaces[normalized] = account;
         }
 
-        foreach (var target in BuildAccountWorkspaceTargets())
-            AddWorkspace(target.WorkspaceRoot, FindAccount(target.AccountProfileId ?? "")?.Model);
+        foreach (var target in context.WorkspaceTargets)
+            AddWorkspace(target.WorkspaceRoot, FindExportAccount(context.Accounts, target.AccountProfileId));
 
-        AddWorkspace(activeRoot, SelectedAccount?.Model);
+        AddWorkspace(activeRoot, context.SelectedAccount);
 
         var items = new List<QueueProjectItem>();
         var indexByKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var keyByAlias = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var workspaceByProject = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var knownAccountKeys = BuildKnownAccountKeys();
+        var knownAccountKeys = BuildKnownAccountKeys(context.Accounts);
 
         void AddOrMergeItem(QueueProjectItem source, string workspaceRoot, TikTokAccountProfile? account, bool preferSource)
         {
@@ -3642,7 +3706,7 @@ public sealed partial class MainViewModel : ViewModelBase
         foreach (var snapshot in TikTokExecutionHistoryService.LoadProjectSnapshots())
         {
             var item = snapshot.Item;
-            var account = ResolveAccountForExportItem(item);
+            var account = ResolveAccountForExportItem(item, context.Accounts);
             var snapshotWorkspace = ResolveHistorySnapshotWorkspace(snapshot, account, workspaces);
             if (!ShouldExportHistorySnapshot(snapshotWorkspace, item, workspaces.Keys, knownAccountKeys))
                 continue;
@@ -3654,7 +3718,7 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             var sourceItems = !string.IsNullOrWhiteSpace(displayedRoot) &&
                               string.Equals(workspaceRoot, displayedRoot, StringComparison.OrdinalIgnoreCase)
-                ? _queueItems
+                ? context.DisplayedItems
                 : WorkspaceQueueService.ScanProjects(workspaceRoot);
 
             foreach (var source in sourceItems)
@@ -3667,10 +3731,10 @@ public sealed partial class MainViewModel : ViewModelBase
         return (items, workspaceByProject);
     }
 
-    private HashSet<string> BuildKnownAccountKeys()
+    private static HashSet<string> BuildKnownAccountKeys(IReadOnlyList<TikTokAccountProfile> accounts)
     {
         var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var account in _store.Accounts)
+        foreach (var account in accounts)
         {
             AddAccountKey(keys, account.Id);
             AddAccountKey(keys, account.Name);
@@ -3683,21 +3747,39 @@ public sealed partial class MainViewModel : ViewModelBase
         return keys;
     }
 
-    private TikTokAccountProfile? ResolveAccountForExportItem(QueueProjectItem item)
+    private static TikTokAccountProfile? ResolveAccountForExportItem(
+        QueueProjectItem item,
+        IReadOnlyList<TikTokAccountProfile> accounts)
     {
         if (!string.IsNullOrWhiteSpace(item.AccountProfileId))
         {
-            var account = FindAccount(item.AccountProfileId)?.Model;
+            var account = FindExportAccount(accounts, item.AccountProfileId);
             if (account is not null) return account;
         }
 
         if (!string.IsNullOrWhiteSpace(item.AccountProfileName))
         {
-            var account = FindAccount(item.AccountProfileName)?.Model;
+            var account = FindExportAccount(accounts, item.AccountProfileName);
             if (account is not null) return account;
         }
 
         return null;
+    }
+
+    private static TikTokAccountProfile? FindExportAccount(
+        IReadOnlyList<TikTokAccountProfile> accounts,
+        string? nameOrId)
+    {
+        var text = (nameOrId ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(text)) return null;
+
+        return accounts.FirstOrDefault(account =>
+            string.Equals(account.Id, text, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(account.Name, text, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(account.DisplayName, text, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(account.ResolveTikTokAccountName(), text, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(account.TiktokLoginEmail, text, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(account.TiktokLastLoginEmail, text, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string ResolveHistorySnapshotWorkspace(
@@ -3908,6 +3990,32 @@ public sealed partial class MainViewModel : ViewModelBase
         (projectDir ?? "").Trim().Replace('\\', '/').ToLowerInvariant();
 
     private void AutoExportQueueExcel() => AutoExportQueueExcelForWorkspace(WorkspacePath);
+
+    private sealed class ExcelExportSnapshotContext
+    {
+        public ExcelExportSnapshotContext(
+            string activeWorkspace,
+            string displayedWorkspace,
+            IReadOnlyList<QueueProjectItem> displayedItems,
+            IReadOnlyList<TikTokAccountProfile> accounts,
+            IReadOnlyList<WorkspaceQueueTarget> workspaceTargets,
+            TikTokAccountProfile? selectedAccount)
+        {
+            ActiveWorkspace = activeWorkspace;
+            DisplayedWorkspace = displayedWorkspace;
+            DisplayedItems = displayedItems;
+            Accounts = accounts;
+            WorkspaceTargets = workspaceTargets;
+            SelectedAccount = selectedAccount;
+        }
+
+        public string ActiveWorkspace { get; }
+        public string DisplayedWorkspace { get; }
+        public IReadOnlyList<QueueProjectItem> DisplayedItems { get; }
+        public IReadOnlyList<TikTokAccountProfile> Accounts { get; }
+        public IReadOnlyList<WorkspaceQueueTarget> WorkspaceTargets { get; }
+        public TikTokAccountProfile? SelectedAccount { get; }
+    }
 
     private sealed class WorkspaceQueueSnapshot
     {

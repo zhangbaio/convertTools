@@ -1590,13 +1590,16 @@ public partial class TikTokQueueView : UserControl
         await vm.DeleteSelectedQueueProjectsAsync(rows);
     }
 
-    private void OnExportExcelClick(object? sender, RoutedEventArgs e)
+    private async void OnExportExcelClick(object? sender, RoutedEventArgs e)
     {
         var vm = _vm;
         if (vm is null) return;
+        var button = sender as Button;
+        if (button is not null) button.IsEnabled = false;
         try
         {
-            var path = vm.ExportQueueExcel();
+            vm.StatusMessage = "正在导出 Excel...";
+            var path = await vm.ExportQueueExcelAsync();
             vm.StatusMessage = $"已导出 Excel：{path}";
             vm.AppendLog(vm.StatusMessage);
         }
@@ -1604,15 +1607,22 @@ public partial class TikTokQueueView : UserControl
         {
             vm.StatusMessage = $"导出 Excel 失败：{ex.Message}";
         }
+        finally
+        {
+            if (button is not null) button.IsEnabled = true;
+        }
     }
 
-    private void OnOpenExcelClick(object? sender, RoutedEventArgs e)
+    private async void OnOpenExcelClick(object? sender, RoutedEventArgs e)
     {
         var vm = _vm;
         if (vm is null) return;
+        var button = sender as Button;
+        if (button is not null) button.IsEnabled = false;
         try
         {
-            var path = vm.ExportQueueExcel();
+            vm.StatusMessage = "正在导出 Excel...";
+            var path = await vm.ExportQueueExcelAsync();
             Process.Start(new ProcessStartInfo
             {
                 FileName = path,
@@ -1623,6 +1633,10 @@ public partial class TikTokQueueView : UserControl
         catch (Exception ex)
         {
             vm.StatusMessage = $"打开 Excel 失败：{ex.Message}";
+        }
+        finally
+        {
+            if (button is not null) button.IsEnabled = true;
         }
     }
 

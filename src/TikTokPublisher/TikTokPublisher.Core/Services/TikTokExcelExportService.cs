@@ -9,7 +9,6 @@ namespace TikTokPublisher.Core.Services;
 public static class TikTokExcelExportService
 {
     private const string SummarySheet = "汇总";
-    private const int MaxSheetNameLength = 31;
 
     public static string ResolveReportPath(TikTokAccountProfile? account, ClientSettings? settings = null)
     {
@@ -33,7 +32,8 @@ public static class TikTokExcelExportService
         settings ??= ClientSettingsStore.Load();
         var outputPath = ResolveReportPath(account, settings);
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
-        var manualValues = LoadManualValues(outputPath);
+        var projectKeys = BuildProjectKeySet(items);
+        var manualValues = LoadManualValues(outputPath, projectKeys);
         var accountLookup = BuildAccountLookup(accountProfiles);
 
         using var document = SpreadsheetDocument.Create(outputPath, SpreadsheetDocumentType.Workbook);
@@ -44,75 +44,10 @@ public static class TikTokExcelExportService
         stylesPart.Stylesheet.Save();
 
         var sheets = workbookPart.Workbook.AppendChild(new Sheets());
-        var usedSheetNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var sheetId = 1U;
-
-        AppendSheet(workbookPart, sheets, ReserveSheetName(SummarySheet, usedSheetNames), sheetId++, BuildCurrentQueueRows(workspace, items, manualValues, workspaceByProject, accountLookup));
-
-        foreach (var group in BuildAccountGroups(items))
-        {
-            var sheetName = ReserveSheetName(group.SheetName, usedSheetNames);
-            AppendSheet(workbookPart, sheets, sheetName, sheetId++, BuildCurrentQueueRows(workspace, group.Items, manualValues, workspaceByProject, accountLookup));
-        }
+        AppendSheet(workbookPart, sheets, SummarySheet, 1U, BuildCurrentQueueRows(workspace, items, manualValues, workspaceByProject, accountLookup));
 
         workbookPart.Workbook.Save();
         return outputPath;
-    }
-
-    private static IReadOnlyList<AccountSheetGroup> BuildAccountGroups(IReadOnlyList<QueueProjectItem> items)
-    {
-        var groups = new List<AccountSheetGroup>();
-        var indexByKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var item in items)
-        {
-            var key = FirstNonEmpty(item.AccountProfileId, item.AccountProfileName, "未绑定");
-            if (!indexByKey.TryGetValue(key, out var index))
-            {
-                index = groups.Count;
-                indexByKey[key] = index;
-                groups.Add(new AccountSheetGroup(FirstNonEmpty(item.AccountProfileName, item.AccountProfileId, "未绑定"), new List<QueueProjectItem>()));
-            }
-
-            groups[index].Items.Add(item);
-        }
-
-        return groups;
-    }
-
-    private static string ReserveSheetName(string rawName, ISet<string> usedNames)
-    {
-        var baseName = SanitizeSheetName(rawName);
-        var sheetName = TruncateSheetName(baseName, suffix: "");
-        var suffixIndex = 2;
-
-        while (usedNames.Contains(sheetName))
-        {
-            var suffix = $" ({suffixIndex++})";
-            sheetName = TruncateSheetName(baseName, suffix);
-        }
-
-        usedNames.Add(sheetName);
-        return sheetName;
-    }
-
-    private static string SanitizeSheetName(string rawName)
-    {
-        var text = (rawName ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(text)) return "账号";
-
-        var chars = text
-            .Select(ch => ch is ':' or '\\' or '/' or '?' or '*' or '[' or ']' ? '_' : ch)
-            .ToArray();
-        var sanitized = new string(chars).Trim().Trim('\'');
-        return string.IsNullOrWhiteSpace(sanitized) ? "账号" : sanitized;
-    }
-
-    private static string TruncateSheetName(string baseName, string suffix)
-    {
-        var limit = Math.Max(1, MaxSheetNameLength - suffix.Length);
-        var prefix = baseName.Length <= limit ? baseName : baseName[..limit];
-        return prefix + suffix;
     }
 
     private static IReadOnlyList<IReadOnlyList<object?>> BuildCurrentQueueRows(
@@ -233,7 +168,15 @@ public static class TikTokExcelExportService
                 new CellFormat { FontId = 1, FillId = 2, BorderId = 0, ApplyFill = true, ApplyFont = true }));
     }
 
-    private static IReadOnlyDictionary<string, ManualReviewValue> LoadManualValues(string outputPath)
+    private static HashSet<string> BuildProjectKeySet(IEnumerable<QueueProjectItem> items) =>
+        items
+            .Select(item => ProjectKey(item.ProjectDir))
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static IReadOnlyDictionary<string, ManualReviewValue> LoadManualValues(
+        string outputPath,
+        IReadOnlySet<string> targetProjectKeys)
     {
         var values = new Dictionary<string, ManualReviewValue>(StringComparer.OrdinalIgnoreCase);
         if (!File.Exists(outputPath)) return values;
@@ -244,8 +187,21 @@ public static class TikTokExcelExportService
             var workbookPart = document.WorkbookPart;
             if (workbookPart?.Workbook.Sheets is null) return values;
 
-            foreach (var sheet in workbookPart.Workbook.Sheets.OfType<Sheet>())
-                LoadManualValuesFromSheet(workbookPart, sheet, values);
+            var sheets = workbookPart.Workbook.Sheets.OfType<Sheet>().ToList();
+            var summarySheet = sheets.FirstOrDefault(sheet =>
+                string.Equals(sheet.Name?.Value, SummarySheet, StringComparison.Ordinal));
+            if (summarySheet is not null &&
+                LoadManualValuesFromSheet(workbookPart, summarySheet, values, targetProjectKeys))
+            {
+                return values;
+            }
+
+            foreach (var sheet in sheets)
+            {
+                if (ReferenceEquals(sheet, summarySheet)) continue;
+                if (LoadManualValuesFromSheet(workbookPart, sheet, values, targetProjectKeys))
+                    break;
+            }
         }
         catch
         {
@@ -255,25 +211,26 @@ public static class TikTokExcelExportService
         return values;
     }
 
-    private static void LoadManualValuesFromSheet(
+    private static bool LoadManualValuesFromSheet(
         WorkbookPart workbookPart,
         Sheet sheet,
-        IDictionary<string, ManualReviewValue> values)
+        IDictionary<string, ManualReviewValue> values,
+        IReadOnlySet<string> targetProjectKeys)
     {
         if (sheet.Id?.Value is null)
         {
-            return;
+            return false;
         }
 
         var worksheetPart = (WorksheetPart)workbookPart.GetPartById(sheet.Id.Value);
         var rows = worksheetPart.Worksheet.Descendants<Row>().ToList();
-        if (rows.Count <= 1) return;
+        if (rows.Count <= 1) return false;
 
         var headers = rows[0].Elements<Cell>().Select(ReadCell).ToList();
         var projectIndex = headers.IndexOf("项目目录");
         var reviewIndex = headers.IndexOf("审核状态");
         var notesIndex = headers.IndexOf("备注");
-        if (projectIndex < 0 || (reviewIndex < 0 && notesIndex < 0)) return;
+        if (projectIndex < 0 || (reviewIndex < 0 && notesIndex < 0)) return false;
 
         foreach (var row in rows.Skip(1))
         {
@@ -281,11 +238,13 @@ public static class TikTokExcelExportService
             var project = CellAt(cells, projectIndex);
             if (string.IsNullOrWhiteSpace(project)) continue;
 
+            var key = ProjectKey(project);
+            if (targetProjectKeys.Count > 0 && !targetProjectKeys.Contains(key)) continue;
+
             var review = CellAt(cells, reviewIndex);
             var notes = CellAt(cells, notesIndex);
             if (string.IsNullOrWhiteSpace(review) && string.IsNullOrWhiteSpace(notes)) continue;
 
-            var key = ProjectKey(project);
             if (values.TryGetValue(key, out var existing))
             {
                 values[key] = new ManualReviewValue(
@@ -296,7 +255,12 @@ public static class TikTokExcelExportService
             {
                 values[key] = new ManualReviewValue(review, notes);
             }
+
+            if (targetProjectKeys.Count > 0 && values.Count >= targetProjectKeys.Count)
+                return true;
         }
+
+        return false;
     }
 
     private static string ReadCell(Cell cell)
@@ -375,8 +339,6 @@ public static class TikTokExcelExportService
 
         return "";
     }
-
-    private sealed record AccountSheetGroup(string SheetName, List<QueueProjectItem> Items);
 
     private sealed record ManualReviewValue(string ReviewStatus, string Notes);
 }

@@ -10,7 +10,7 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokExcelExportServiceTests
 {
     [Fact]
-    public void Export_Creates_Summary_And_Per_Account_Sheets()
+    public void Export_Creates_Only_Summary_Sheet()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"tiktok-excel-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
@@ -44,14 +44,12 @@ public sealed class TikTokExcelExportServiceTests
                 .Select(sheet => sheet.Name?.Value)
                 .ToList();
 
-            sheetNames.Should().Equal("汇总", "账号_一", "账号二");
+            sheetNames.Should().Equal("汇总");
             ReadColumn(workbookPart, "汇总", "原剧名").Should().Equal("剧一", "剧二", "剧三");
             ReadColumn(workbookPart, "汇总", "工作目录").Should().Equal(tempDir, accountTwoWorkspace, tempDir);
             ReadColumn(workbookPart, "汇总", "TIKTOK用户名").Should().Equal("tt-one@example.com", "tt-two@example.com", "tt-one@example.com");
             ReadHeaders(workbookPart, "汇总").Should().Contain("上传");
             ReadHeaders(workbookPart, "汇总").Should().NotContain(["账号ID", "下载", "改写", "海报", "小文件修复", "静音检测", "静音修复", "素材校验", "删源"]);
-            ReadColumn(workbookPart, "账号_一", "原剧名").Should().Equal("剧一", "剧三");
-            ReadColumn(workbookPart, "账号二", "原剧名").Should().Equal("剧二");
         }
         finally
         {
