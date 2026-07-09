@@ -306,6 +306,11 @@ public static class ClientSettingsStore
         settings.FeishuCommandHelpText = DefaultIfBlank(settings.FeishuCommandHelpText, ClientSettingsDefaults.FeishuCommandHelpText);
         settings.FeishuTiktokUploadEnabledStepsJson = TikTokRemoteRunOptions.DumpFeishuTikTokUploadEnabledSteps(
             TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings));
+        settings.XingeServerUrl = (settings.XingeServerUrl ?? "").Trim().TrimEnd('/');
+        settings.XingeClientId = (settings.XingeClientId ?? "").Trim();
+        settings.XingeClientToken = (settings.XingeClientToken ?? "").Trim();
+        settings.XingeClientName = DefaultIfBlank(settings.XingeClientName, "TikTokPublisher");
+        settings.XingePollIntervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
         return settings;
     }
 

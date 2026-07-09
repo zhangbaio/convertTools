@@ -106,6 +106,12 @@ public sealed class ClientSettings
     public bool FeishuTiktokUploadAutoArchiveAfterUpload { get; set; }
     public bool FeishuTiktokUploadForceRerunCompletedSteps { get; set; }
     public bool FeishuTiktokUploadPreferUploadWhenReady { get; set; }
+    public bool XingeRemoteEnabled { get; set; }
+    public string XingeServerUrl { get; set; } = "";
+    public string XingeClientId { get; set; } = "";
+    public string XingeClientToken { get; set; } = "";
+    public string XingeClientName { get; set; } = "TikTokPublisher";
+    public int XingePollIntervalSeconds { get; set; } = 3;
 
     public ClientSettings Clone() => new()
     {
@@ -203,5 +209,11 @@ public sealed class ClientSettings
         FeishuTiktokUploadAutoArchiveAfterUpload = FeishuTiktokUploadAutoArchiveAfterUpload,
         FeishuTiktokUploadForceRerunCompletedSteps = FeishuTiktokUploadForceRerunCompletedSteps,
         FeishuTiktokUploadPreferUploadWhenReady = FeishuTiktokUploadPreferUploadWhenReady,
+        XingeRemoteEnabled = XingeRemoteEnabled,
+        XingeServerUrl = XingeServerUrl,
+        XingeClientId = XingeClientId,
+        XingeClientToken = XingeClientToken,
+        XingeClientName = XingeClientName,
+        XingePollIntervalSeconds = XingePollIntervalSeconds,
     };
 }

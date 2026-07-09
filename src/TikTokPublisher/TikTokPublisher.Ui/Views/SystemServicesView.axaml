@@ -143,6 +143,46 @@
                     </StackPanel>
                 </TabItem>
 
+                <TabItem Header="XINGE">
+                    <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
+                        <TextBlock Text="{Binding XingeRemoteStatus}" Classes="pageSummary" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="9"
+                              ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="监听开关" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="0" Grid.Column="1" IsChecked="{Binding XingeRemoteEnabled}" Content="启用 XINGE 远程命令" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="XINGE 地址" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding XingeServerUrl}" Watermark="http://127.0.0.1:8080" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="客户端 ID" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding XingeClientId}" Watermark="在 XINGE 远程客户端中创建后填写" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="客户端 Token" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding XingeClientToken}" PasswordChar="*" RevealPassword="False" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="客户端名称" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding XingeClientName}" Watermark="TikTokPublisher" />
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="轮询间隔" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5"
+                                           Grid.Column="1"
+                                           Value="{Binding XingePollIntervalSeconds}"
+                                           Minimum="1"
+                                           Maximum="60"
+                                           Increment="1"
+                                           Width="120"
+                                           HorizontalAlignment="Left"
+                                           FormatString="0 秒" />
+                        </Grid>
+
+                        <TextBlock Text="启用后客户端会向 XINGE 注册当前工作目录和 TikTok 账号列表，并接收 XINGE 下发的 TikTok 上传命令。"
+                                   Classes="compactHint"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </TabItem>
+
                 <TabItem Header="远程命令">
                     <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
                         <TextBlock Text="飞书上传 TikTok 剧集" FontWeight="SemiBold" />

@@ -75,6 +75,7 @@ public partial class MainWindow : Window
         _viewModel.NavigatePageRequested += NavigateTo;
         _viewModel.RemoteQueueRunRequested += QueueView.StartQueueRunFromRemoteAsync;
         _viewModel.RemoteAllQueueRunRequested += QueueView.StartAllQueueRunFromRemoteAsync;
+        _viewModel.StartXingeRemoteCommandService();
         _viewModel.AccountProfileNetworkChanged += profile => _browserHost.InvalidateHostIfNetworkChanged(profile);
         AccountSidebar.NavigatePageRequested += (_, _) => NavigateTo("accounts");
         _viewModel.AccountSwitchRequested += OnAccountSwitchRequested;
@@ -119,6 +120,7 @@ public partial class MainWindow : Window
     {
         _licenseVerifyTimer?.Stop();
         _licenseVerifyTimer = null;
+        _viewModel.StopXingeRemoteCommandService();
     }
 
     public void StartLicenseVerifyTimer()
@@ -213,6 +215,7 @@ public partial class MainWindow : Window
         LicenseGate.SaveLoginResult(result);
         _viewModel.SystemServices.Load();
         _viewModel.SystemServices.RefreshLicenseSummaryDisplay();
+        _viewModel.StartXingeRemoteCommandService();
     }
 
     private void SaveVerifiedLicenseState(LicenseState state)
@@ -220,6 +223,7 @@ public partial class MainWindow : Window
         LicenseGate.SaveVerifiedState(state);
         _viewModel.SystemServices.Load();
         _viewModel.SystemServices.RefreshLicenseSummaryDisplay();
+        _viewModel.StartXingeRemoteCommandService();
     }
 
     private void HideForLicenseGate()

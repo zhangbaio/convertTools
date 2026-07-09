@@ -15,6 +15,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
 {
     public event Action<string>? StatusRequested;
     public event Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>>? RemoteCommandRequested;
+    public event Action? SettingsSaved;
 
     [ObservableProperty] private string _authServerUrl = "";
     [ObservableProperty] private string _licenseSummary = "未登录";
@@ -36,6 +37,13 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private int _feishuCommandCommandTtlSeconds = 60;
     [ObservableProperty] private string _feishuCommandHelpText = ClientSettingsDefaults.FeishuCommandHelpText;
     [ObservableProperty] private string _feishuCommandStatus = "未启用";
+    [ObservableProperty] private bool _xingeRemoteEnabled;
+    [ObservableProperty] private string _xingeServerUrl = "";
+    [ObservableProperty] private string _xingeClientId = "";
+    [ObservableProperty] private string _xingeClientToken = "";
+    [ObservableProperty] private string _xingeClientName = "TikTokPublisher";
+    [ObservableProperty] private int _xingePollIntervalSeconds = 3;
+    [ObservableProperty] private string _xingeRemoteStatus = "未启用";
     [ObservableProperty] private string _remoteCommandPreviewText = "";
     [ObservableProperty] private string _remoteCommandPreviewResult = "";
     [ObservableProperty] private bool _remoteDownloadEnabled;
@@ -73,11 +81,18 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         FeishuCommandHelpText = string.IsNullOrWhiteSpace(settings.FeishuCommandHelpText)
             ? ClientSettingsDefaults.FeishuCommandHelpText
             : settings.FeishuCommandHelpText;
+        XingeRemoteEnabled = settings.XingeRemoteEnabled;
+        XingeServerUrl = FirstNonEmpty(settings.XingeServerUrl, settings.AuthServerUrl, state.ServerUrl);
+        XingeClientId = settings.XingeClientId ?? "";
+        XingeClientToken = settings.XingeClientToken ?? "";
+        XingeClientName = string.IsNullOrWhiteSpace(settings.XingeClientName) ? "TikTokPublisher" : settings.XingeClientName;
+        XingePollIntervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
         RemoteAutoArchiveAfterUpload = settings.FeishuTiktokUploadAutoArchiveAfterUpload;
         RemoteForceRerunCompletedSteps = settings.FeishuTiktokUploadForceRerunCompletedSteps;
         RemotePreferUploadWhenReady = settings.FeishuTiktokUploadPreferUploadWhenReady;
         ApplyRemoteSteps(TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings));
         FeishuCommandStatus = FeishuCommandEnabled ? "已启用" : "未启用";
+        XingeRemoteStatus = XingeRemoteEnabled ? "等待连接" : "未启用";
         RefreshLicenseSummary();
     }
 
@@ -148,7 +163,9 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         ApplyUiToSettings(settings);
         ClientSettingsStore.Save(settings);
         FeishuCommandStatus = settings.FeishuCommandEnabled ? "已启用" : "未启用";
+        XingeRemoteStatus = settings.XingeRemoteEnabled ? "等待连接" : "未启用";
         StatusRequested?.Invoke("系统服务配置已保存");
+        SettingsSaved?.Invoke();
     }
 
     [RelayCommand]
@@ -215,6 +232,12 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.FeishuTiktokUploadAutoArchiveAfterUpload = RemoteAutoArchiveAfterUpload;
         settings.FeishuTiktokUploadForceRerunCompletedSteps = RemoteForceRerunCompletedSteps;
         settings.FeishuTiktokUploadPreferUploadWhenReady = RemotePreferUploadWhenReady;
+        settings.XingeRemoteEnabled = XingeRemoteEnabled;
+        settings.XingeServerUrl = XingeServerUrl.Trim();
+        settings.XingeClientId = XingeClientId.Trim();
+        settings.XingeClientToken = XingeClientToken.Trim();
+        settings.XingeClientName = string.IsNullOrWhiteSpace(XingeClientName) ? "TikTokPublisher" : XingeClientName.Trim();
+        settings.XingePollIntervalSeconds = Math.Clamp(XingePollIntervalSeconds <= 0 ? 3 : XingePollIntervalSeconds, 1, 60);
     }
 
     private IReadOnlyList<string> ReadRemoteSteps()

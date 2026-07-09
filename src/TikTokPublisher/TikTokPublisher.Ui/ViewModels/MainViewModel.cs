@@ -45,6 +45,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly AccountContextService _context;
     private readonly WorkspaceQueueOrchestrator _queueOrchestrator = new();
     private readonly QueueStatePersistService _queueStatePersist = new();
+    private readonly XingeRemoteCommandService _xingeRemoteCommandService = new();
     private CancellationTokenSource? _queueCts;
     private string? _manualInterventionWorkspaceRoot;
     private bool _applyingQueueStepToggles;
@@ -169,6 +170,7 @@ public sealed partial class MainViewModel : ViewModelBase
         WireSystemSettings();
         SystemServices.StatusRequested += message => StatusMessage = message;
         SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
+        WireXingeRemoteCommandService();
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
         ArchivedProjects.AccountResolver = ResolveAccountForQueueItem;
@@ -207,6 +209,7 @@ public sealed partial class MainViewModel : ViewModelBase
         WireSystemSettings();
         SystemServices.StatusRequested += message => StatusMessage = message;
         SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
+        WireXingeRemoteCommandService();
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
         ArchivedProjects.AccountResolver = ResolveAccountForQueueItem;
@@ -220,6 +223,94 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         _queueOrchestrator.ManualInterventionPending += OnOrchestratorManualInterventionPending;
         _queueStatePersist.SetOnPersisted(OnQueueStatePersisted);
+    }
+
+    private void WireXingeRemoteCommandService()
+    {
+        SystemServices.SettingsSaved += RestartXingeRemoteCommandService;
+        _xingeRemoteCommandService.StatusChanged += OnXingeRemoteStatusChanged;
+    }
+
+    public void StartXingeRemoteCommandService() => RestartXingeRemoteCommandService();
+
+    public void StopXingeRemoteCommandService() => _xingeRemoteCommandService.Stop();
+
+    private void RestartXingeRemoteCommandService()
+    {
+        _xingeRemoteCommandService.Restart(
+            ExecuteXingeRemoteCommandAsync,
+            BuildXingeRemoteRegistrationSnapshotThreadSafe,
+            AppendLog);
+    }
+
+    private void OnXingeRemoteStatusChanged(string message)
+    {
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            ApplyXingeRemoteStatus(message);
+            return;
+        }
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => ApplyXingeRemoteStatus(message));
+    }
+
+    private void ApplyXingeRemoteStatus(string message)
+    {
+        SystemServices.XingeRemoteStatus = message;
+        if (!string.IsNullOrWhiteSpace(message))
+            StatusMessage = message;
+    }
+
+    private Task<TikTokRemoteCommandResult> ExecuteXingeRemoteCommandAsync(TikTokRemoteCommand command)
+    {
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            return ExecuteRemoteCommandAsync(command);
+
+        return Avalonia.Threading.Dispatcher.UIThread
+            .InvokeAsync(() => ExecuteRemoteCommandAsync(command))
+            .GetTask();
+    }
+
+    private XingeRemoteRegistrationSnapshot BuildXingeRemoteRegistrationSnapshotThreadSafe()
+    {
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            return BuildXingeRemoteRegistrationSnapshot();
+
+        return Avalonia.Threading.Dispatcher.UIThread
+            .InvokeAsync(BuildXingeRemoteRegistrationSnapshot)
+            .GetTask()
+            .GetAwaiter()
+            .GetResult();
+    }
+
+    private XingeRemoteRegistrationSnapshot BuildXingeRemoteRegistrationSnapshot()
+    {
+        var activeId = SelectedAccount?.Id ?? "";
+        var accounts = Accounts
+            .Select(account => new XingeRemoteAccountSnapshot(
+                account.Id,
+                account.DisplayName,
+                HasAccountAuthFile(account.Model),
+                string.Equals(account.Id, activeId, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+
+        return new XingeRemoteRegistrationSnapshot(
+            WorkspacePath ?? "",
+            activeId,
+            accounts);
+    }
+
+    private static bool HasAccountAuthFile(TikTokAccountProfile profile)
+    {
+        try
+        {
+            var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(profile);
+            return !string.IsNullOrWhiteSpace(authPath) && File.Exists(authPath);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void OnOrchestratorManualInterventionPending(QueueProjectItem item, string errorMessage, string workspaceRoot)

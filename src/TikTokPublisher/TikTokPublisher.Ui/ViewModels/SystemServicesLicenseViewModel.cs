@@ -14,11 +14,17 @@ public sealed partial class SystemServicesViewModel
             var state = LicenseStore.Load();
             var licenseStatus = state.IsActivated() ? "已登录" : "未登录";
             var feishuStatus = FeishuCommandEnabled ? "已启用" : "未启用";
-            return $"授权：{licenseStatus} | 飞书命令：{feishuStatus} | 联网校验：启动时 + 每 {LicenseAuthService.VerifyIntervalHours} 小时";
+            var xingeStatus = XingeRemoteEnabled ? "已启用" : "未启用";
+            return $"授权：{licenseStatus} | 飞书命令：{feishuStatus} | XINGE：{xingeStatus} | 联网校验：启动时 + 每 {LicenseAuthService.VerifyIntervalHours} 小时";
         }
     }
 
     partial void OnFeishuCommandEnabledChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ServiceSummaryText));
+    }
+
+    partial void OnXingeRemoteEnabledChanged(bool value)
     {
         OnPropertyChanged(nameof(ServiceSummaryText));
     }
