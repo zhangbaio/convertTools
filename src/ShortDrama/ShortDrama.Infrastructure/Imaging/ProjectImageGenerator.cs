@@ -7,6 +7,8 @@ using SixLabors.Fonts;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.Formats.Png.Chunks;
+using SixLabors.ImageSharp.Metadata;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using System.Net.Http.Headers;
@@ -166,11 +168,16 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                     episodeDurations,
                     episodeFrames,
                     ffmpeg,
+                    count,
                     index + 1,
                     portrait,
                     cancellationToken);
 
-                composite.Save(outputPath, new PngEncoder());
+                PrepareScreenshotMetadata(composite);
+                composite.Save(outputPath, new PngEncoder
+                {
+                    ColorType = PngColorType.Rgb
+                });
                 outputs.Add(outputPath);
                 _logger.LogInformation("Generated project image {Index}/{Count}: {Path}", index + 1, count, outputPath);
             }
@@ -184,6 +191,18 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                 frame.Dispose();
             }
         }
+    }
+
+    private static void PrepareScreenshotMetadata(Image<Rgba32> image)
+    {
+        image.Metadata.HorizontalResolution = 96.012;
+        image.Metadata.VerticalResolution = 96.012;
+        image.Metadata.ResolutionUnits = PixelResolutionUnit.PixelsPerInch;
+
+        var pngMetadata = image.Metadata.GetPngMetadata();
+        pngMetadata.TextData.Clear();
+        pngMetadata.TextData.Add(new PngTextData("Software", "Snipaste", string.Empty, string.Empty));
+        pngMetadata.TextData.Add(new PngTextData("User Comment", "Screenshot", string.Empty, string.Empty));
     }
 
     private static bool SupportsModernTemplate(ProjectImageTemplatePage page)
@@ -207,6 +226,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         IReadOnlyList<double> episodeDurations,
         IReadOnlyList<Image<Rgba32>> episodeFrames,
         string ffmpeg,
+        int outputCount,
         int currentIndex,
         bool portrait,
         CancellationToken cancellationToken)
@@ -215,23 +235,28 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         var pageIndex = ResolvePageIndex(manifest, page);
         var videoTrackRects = page.GetRegions("video_track_images");
         var trackEpisodeIndex = ResolveTrackEpisodeIndex(pageIndex, currentIndex, episodeNames.Count, episodeFrames.Count, videoTrackRects);
-        var singleEpisodeTrackFrames = videoTrackRects.Count > 0 && NoteInt(videoTrackRects[0], "single_episode_track", 0, 0, 1) > 0
+        var trackEpisodeFrames = videoTrackRects.Count > 0
             ? await ExtractTrackFramesAsync(
                 ffmpeg,
                 sourceVideos[Math.Clamp(trackEpisodeIndex, 0, sourceVideos.Count - 1)],
                 episodeDurations[Math.Clamp(trackEpisodeIndex, 0, episodeDurations.Count - 1)],
                 videoTrackRects[0],
+                currentIndex,
+                outputCount,
                 cancellationToken)
             : null;
 
         try
         {
-            var displayFrames = ResolveVideoTrackDisplayFrames(videoTrackRects, episodeFrames, trackEpisodeIndex + 1, singleEpisodeTrackFrames);
+            var displayFrames = ResolveVideoTrackDisplayFrames(videoTrackRects, episodeFrames, trackEpisodeIndex + 1, trackEpisodeFrames);
             var previewFrame = SelectTrackPlayheadFrame(videoTrackRects, displayFrames)
                 ?? episodeFrames[Math.Clamp(trackEpisodeIndex, 0, episodeFrames.Count - 1)];
             var playerRect = ResolvePlayerRegion(page, portrait);
             using var subtitleProbe = playerRect is not null
-                ? BuildPlayerImage(previewFrame, playerRect)
+                ? BuildPlayerImage(
+                    previewFrame,
+                    playerRect,
+                    portrait ? new Rgba32(0, 0, 0, 255) : SampleRectColor(canvas, playerRect))
                 : previewFrame.Clone();
             var subtitleText = await ResolveSubtitleTextAsync(
                 projectDir,
@@ -246,21 +271,21 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                 trackEpisodeIndex,
                 cancellationToken);
 
-            RenderAutosaveStatus(canvas, page);
+            RenderAutosaveStatus(canvas, page, pageIndex, manifest.Templates.Count);
             RenderTopTitle(canvas, page, projectInfo.Title);
             RenderPlayer(canvas, page, previewFrame, portrait);
             RenderRightSubtitle(canvas, page, portrait, subtitleText);
             RenderMaterialPanel(canvas, page, episodeFrames, episodeNames, episodeDurations, projectInfo.Title);
-            RenderVideoTrackImages(canvas, videoTrackRects, episodeFrames, trackEpisodeIndex + 1, singleEpisodeTrackFrames);
+            RenderVideoTrackImages(canvas, videoTrackRects, episodeFrames, trackEpisodeIndex + 1, trackEpisodeFrames);
             RenderTrackTexts(canvas, page, pageIndex, currentIndex, episodeNames, episodeDurations, projectInfo.Title, episodeFrames.Count, videoTrackRects, subtitleText);
 
             return canvas;
         }
         finally
         {
-            if (singleEpisodeTrackFrames is not null)
+            if (trackEpisodeFrames is not null)
             {
-                foreach (var frame in singleEpisodeTrackFrames)
+                foreach (var frame in trackEpisodeFrames)
                 {
                     frame.Dispose();
                 }
@@ -282,7 +307,11 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         return 0;
     }
 
-    private static void RenderAutosaveStatus(Image<Rgba32> canvas, ProjectImageTemplatePage page)
+    private static void RenderAutosaveStatus(
+        Image<Rgba32> canvas,
+        ProjectImageTemplatePage page,
+        int pageIndex,
+        int pageCount)
     {
         var rect = page.GetRegion("autosave_status");
         if (rect is null)
@@ -292,8 +321,10 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
 
         FillRect(canvas, rect, SampleSurroundingColor(canvas, rect));
 
-        var generatedAt = DateTime.Now;
-        var timeFormat = NoteValue(rect, "format") ?? "HH:mm:ss";
+        var lastIndex = Math.Max(0, pageCount - 1);
+        var minutesAgo = (lastIndex - Math.Max(0, pageIndex)) * 7 + Math.Max(0, pageIndex) % 3 * 2;
+        var generatedAt = DateTime.Now.AddMinutes(-minutesAgo);
+        var timeFormat = ConvertPythonTimeFormat(NoteValue(rect, "format") ?? "%H:%M:%S");
         string timeText;
         try
         {
@@ -310,15 +341,31 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         var fontSize = NoteInt(rect, "font_size", 12, 8, 28);
         var offsetX = NoteInt(rect, "text_x_offset", 0, -80, 180);
 
-        DrawSingleLineText(
-            canvas,
-            new ProjectImageTemplateRegion(rect.X + offsetX, rect.Y, Math.Max(1, rect.Width - offsetX), rect.Height, rect.Note),
-            text,
-            fill,
-            fontSize,
-            false,
-            "left",
-            truncateMiddle: false);
+        var x = Math.Clamp(rect.X + offsetX, 0, Math.Max(0, canvas.Width - 1));
+        var maximumWidth = Math.Max(1, rect.X + rect.Width - x - 2);
+        var font = GetFont(fontSize, false);
+        var finalText = FitTextEnd(text, font, maximumWidth);
+        var bounds = TextMeasurer.MeasureBounds(finalText, new TextOptions(font));
+        var textHeight = (int)Math.Ceiling(bounds.Height);
+        var y = rect.Y + Math.Max(0, (rect.Height - textHeight) / 2) - (float)Math.Floor(bounds.Top);
+        canvas.Mutate(ctx => ctx.DrawText(finalText, font, fill, new PointF(x, y)));
+    }
+
+    private static string ConvertPythonTimeFormat(string format)
+    {
+        if (string.IsNullOrWhiteSpace(format) || !format.Contains('%'))
+        {
+            return string.IsNullOrWhiteSpace(format) ? "HH:mm:ss" : format;
+        }
+
+        return format
+            .Replace("%Y", "yyyy", StringComparison.Ordinal)
+            .Replace("%y", "yy", StringComparison.Ordinal)
+            .Replace("%m", "MM", StringComparison.Ordinal)
+            .Replace("%d", "dd", StringComparison.Ordinal)
+            .Replace("%H", "HH", StringComparison.Ordinal)
+            .Replace("%M", "mm", StringComparison.Ordinal)
+            .Replace("%S", "ss", StringComparison.Ordinal);
     }
 
     private static void RenderTopTitle(Image<Rgba32> canvas, ProjectImageTemplatePage page, string title)
@@ -349,9 +396,12 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             return;
         }
 
-        FillRect(canvas, rect, new Rgba32(0, 0, 0, 255));
-        using var playerImage = BuildPlayerImage(previewFrame, rect);
-        canvas.Mutate(ctx => ctx.DrawImage(playerImage, new Point(rect.X, rect.Y + 2), 1f));
+        var letterboxColor = portrait
+            ? new Rgba32(0, 0, 0, 255)
+            : SampleRectColor(canvas, rect);
+        FillRect(canvas, rect, SampleRectColor(canvas, rect));
+        using var playerImage = BuildPlayerImage(previewFrame, rect, letterboxColor);
+        canvas.Mutate(ctx => ctx.DrawImage(playerImage, new Point(rect.X, rect.Y), 1f));
     }
 
     private static ProjectImageTemplateRegion? ResolvePlayerRegion(ProjectImageTemplatePage page, bool portrait)
@@ -466,7 +516,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         var clipWidth = Math.Max(28, Math.Min(72, (int)Math.Round(thumbHeight * 1.35)));
         var clipCount = Math.Max(1, (int)Math.Ceiling(rect.Width / (double)clipWidth));
 
-        using var strip = new Image<Rgba32>(rect.Width, rect.Height, SampleRectColor(canvas, rect));
+        using var strip = new Image<Rgba32>(rect.Width, rect.Height, SampleVideoTrackBackground(canvas, rect, thumbY, thumbHeight));
         for (var index = 0; index < clipCount; index++)
         {
             var x = index * clipWidth;
@@ -511,40 +561,68 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         var trackEpisodeIndex = ResolveTrackEpisodeIndex(pageIndex, currentIndex, episodeNames.Count, episodeFrameCount, videoTrackRects);
         var trackText = ResolveTrackEpisodeText(trackEpisodeIndex, episodeNames, projectTitle);
         var trackTextWithDuration = ResolveTrackEpisodeTextWithDuration(trackEpisodeIndex, episodeNames, episodeDurations, projectTitle);
-
-        foreach (var rect in page.GetRegions("video_track_texts"))
-        {
-            FillRect(canvas, rect, SampleSurroundingColor(canvas, rect));
-            DrawSingleLineText(
-                canvas,
-                ExtendTrackTextRect(rect, videoTrackRects, canvas.Width),
-                trackTextWithDuration,
-                new Rgba32(245, 245, 245, 255),
-                11,
-                false,
-                "left",
-                truncateMiddle: false);
-        }
-
-        foreach (var rect in page.GetRegions("audio_track_texts"))
-        {
-            FillRect(canvas, rect, SampleSurroundingColor(canvas, rect));
-            DrawSingleLineText(
-                canvas,
-                ExtendTrackTextRect(rect, videoTrackRects, canvas.Width),
-                trackText,
-                new Rgba32(245, 245, 245, 255),
-                11,
-                false,
-                "left",
-                truncateMiddle: false);
-        }
+        var videoTrackTextRects = page.GetRegions("video_track_texts");
+        var audioTrackTextRects = page.GetRegions("audio_track_texts");
+        var hideTrackText = ShouldHideTrackText(videoTrackRects);
 
         foreach (var rect in page.GetRegions("subtitle_track_texts"))
         {
             FillRect(canvas, rect, SampleSurroundingColor(canvas, rect));
             DrawSingleLineText(canvas, rect, subtitleText, new Rgba32(245, 245, 245, 255), 11, false, "left", truncateMiddle: false);
         }
+
+        foreach (var rect in videoTrackTextRects)
+        {
+            EraseVideoTrackTextRect(canvas, rect, videoTrackRects);
+        }
+
+        foreach (var rect in audioTrackTextRects)
+        {
+            EraseAudioTrackTextRect(canvas, rect);
+        }
+
+        if (videoTrackRects.Count > 0 && videoTrackTextRects.Count > 0)
+        {
+            RestoreVideoTrackSegmentBoundaries(canvas, videoTrackRects, videoTrackTextRects, audioTrackTextRects);
+        }
+
+        if (hideTrackText)
+        {
+            RestoreVideoTrackPlayheadOverlay(canvas, videoTrackRects);
+            return;
+        }
+
+        foreach (var rect in videoTrackTextRects)
+        {
+            var drawRect = ShiftRect(
+                canvas,
+                ExtendTrackTextRect(rect, videoTrackRects, canvas.Width),
+                dy: NoteInt(rect, "draw_dy", -4, -40, 40));
+            DrawTrackSingleLineText(
+                canvas,
+                drawRect,
+                trackTextWithDuration,
+                new Rgba32(245, 245, 245, 255),
+                11,
+                false);
+        }
+
+        foreach (var rect in audioTrackTextRects)
+        {
+            var drawRect = ShiftRect(
+                canvas,
+                ExtendTrackTextRect(rect, videoTrackRects, canvas.Width),
+                dy: NoteInt(rect, "draw_dy", -3, -40, 40));
+            DrawTrackSingleLineText(
+                canvas,
+                drawRect,
+                trackText,
+                new Rgba32(245, 245, 245, 255),
+                11,
+                false);
+        }
+
+        RestoreVideoTrackPlayheadOverlay(canvas, videoTrackRects);
     }
 
     private async Task<List<Image<Rgba32>>> ExtractTrackFramesAsync(
@@ -552,22 +630,92 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         string videoPath,
         double durationSeconds,
         ProjectImageTemplateRegion rect,
+        int currentPage,
+        int pageCount,
         CancellationToken cancellationToken)
     {
         var thumbHeight = GetTrackThumbnailHeight(rect);
         var clipWidth = Math.Max(28, Math.Min(72, (int)Math.Round(thumbHeight * 1.35)));
         var clipCount = Math.Max(1, (int)Math.Ceiling(rect.Width / (double)clipWidth));
-        var frames = new List<Image<Rgba32>>(clipCount);
-
-        for (var index = 0; index < clipCount; index++)
+        var sampleCount = Math.Max(14, clipCount);
+        var focusTime = pageCount <= 1
+            ? Math.Max(0.1, durationSeconds * 0.5)
+            : Math.Max(0.1, durationSeconds * currentPage / (pageCount + 1d));
+        var playheadSlot = ResolveVideoTrackPlayheadSlot(rect, sampleCount);
+        var sampleTimes = BuildTrackSampleTimes(durationSeconds, sampleCount, focusTime, playheadSlot);
+        var frames = new Image<Rgba32>?[sampleTimes.Count];
+        using var semaphore = new SemaphoreSlim(Math.Min(4, sampleTimes.Count));
+        var tasks = sampleTimes.Select(async (time, index) =>
         {
-            var time = clipCount <= 1
-                ? ResolveEpisodePreviewTime(durationSeconds)
-                : Math.Max(0.1, durationSeconds * (index + 1d) / (clipCount + 1d));
-            frames.Add(await ExtractFrameAsync(ffmpeg, videoPath, time, cancellationToken));
+            await semaphore.WaitAsync(cancellationToken);
+            try
+            {
+                frames[index] = await ExtractFrameAsync(ffmpeg, videoPath, time, cancellationToken);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        }).ToArray();
+
+        try
+        {
+            await Task.WhenAll(tasks);
+            return frames.Where(static frame => frame is not null).Select(static frame => frame!).ToList();
+        }
+        catch
+        {
+            foreach (var frame in frames)
+            {
+                frame?.Dispose();
+            }
+
+            throw;
+        }
+    }
+
+    private static IReadOnlyList<double> BuildTrackSampleTimes(
+        double durationSeconds,
+        int sampleCount,
+        double focusTimeSeconds,
+        int? playheadSlot)
+    {
+        var duration = Math.Max(0.1, durationSeconds);
+        var count = Math.Clamp(sampleCount <= 0 ? 18 : sampleCount, 4, 72);
+        var maximumTime = Math.Max(0.1, duration - 0.1);
+        var focus = Math.Clamp(focusTimeSeconds, 0.1, maximumTime);
+        var slot = Math.Clamp(playheadSlot ?? count / 2, 0, count - 1);
+        var localWindow = Math.Min(Math.Max(18d, duration * 0.32), 72d);
+        var step = Math.Max(0.8, localWindow / Math.Max(1, count - 1));
+        var startTime = focus - slot * step;
+        var sampleTimes = new double[count];
+
+        for (var index = 0; index < count; index++)
+        {
+            sampleTimes[index] = Math.Clamp(startTime + index * step, 0.1, maximumTime);
         }
 
-        return frames;
+        sampleTimes[slot] = focus;
+        return sampleTimes;
+    }
+
+    private static int? ResolveVideoTrackPlayheadSlot(ProjectImageTemplateRegion rect, int frameCount)
+    {
+        if (frameCount <= 0 || rect.Width < rect.Height * 3)
+        {
+            return null;
+        }
+
+        var playheadX = ResolveConfiguredPlayheadX(rect);
+        if (playheadX is null || playheadX.Value < rect.X || playheadX.Value >= rect.X + rect.Width)
+        {
+            return null;
+        }
+
+        var thumbHeight = GetTrackThumbnailHeight(rect);
+        var clipWidth = Math.Max(28, Math.Min(72, (int)Math.Round(thumbHeight * 1.35)));
+        var localX = Math.Clamp(playheadX.Value - rect.X, 0, rect.Width - 1);
+        return localX / clipWidth % frameCount;
     }
 
     private static IReadOnlyList<Image<Rgba32>> ResolveVideoTrackDisplayFrames(
@@ -584,11 +732,6 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         if (episodeFrames.Count == 0)
         {
             return Array.Empty<Image<Rgba32>>();
-        }
-
-        if (rects.Count == 0 || NoteInt(rects[0], "single_episode_track", 0, 0, 1) == 0)
-        {
-            return episodeFrames;
         }
 
         return new[] { episodeFrames[Math.Clamp(currentIndex - 1, 0, episodeFrames.Count - 1)] };
@@ -623,7 +766,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
 
         var thumbHeight = GetTrackThumbnailHeight(rect);
         var clipWidth = Math.Max(28, Math.Min(72, (int)Math.Round(thumbHeight * 1.35)));
-        var frameIndex = Math.Clamp((playheadX - rect.X) / clipWidth, 0, frames.Count - 1);
+        var frameIndex = ((playheadX - rect.X) / clipWidth) % frames.Count;
         return frames[frameIndex];
     }
 
@@ -640,28 +783,137 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         return rect with { X = x, Width = targetWidth };
     }
 
-    private static Image<Rgba32> BuildPlayerImage(Image<Rgba32> previewFrame, ProjectImageTemplateRegion rect)
+    private static Image<Rgba32> BuildPlayerImage(
+        Image<Rgba32> previewFrame,
+        ProjectImageTemplateRegion rect,
+        Rgba32 letterboxColor)
     {
         var canvas = new Image<Rgba32>(rect.Width, rect.Height, new Rgba32(0, 0, 0, 255));
-        if (previewFrame.Width > previewFrame.Height)
+        using var sourceFrame = CropPlayerHorizontalMargins(previewFrame, letterboxColor);
+        if (sourceFrame.Width <= sourceFrame.Height)
         {
-            var ratio = previewFrame.Width / (double)Math.Max(1, previewFrame.Height);
-            var targetWidth = rect.Width;
-            var targetHeight = Math.Max(1, Math.Min(rect.Height, (int)Math.Round(targetWidth / ratio)));
-            if (targetHeight < Math.Max(1, rect.Height / 4))
-            {
-                targetHeight = Math.Max(1, rect.Height / 4);
-                targetWidth = Math.Max(1, Math.Min(rect.Width, (int)Math.Round(targetHeight * ratio)));
-            }
-
-            using var content = ResizeBoxPad(previewFrame, targetWidth, targetHeight, new Rgba32(0, 0, 0, 255));
-            canvas.Mutate(ctx => ctx.DrawImage(content, new Point((rect.Width - targetWidth) / 2, (rect.Height - targetHeight) / 2), 1f));
+            using var portraitContent = ResizeCrop(sourceFrame, rect.Width, rect.Height);
+            canvas.Mutate(ctx => ctx.DrawImage(portraitContent, Point.Empty, 1f));
             return canvas;
         }
 
-        using var portraitContent = ResizeBoxPad(previewFrame, rect.Width, rect.Height, new Rgba32(0, 0, 0, 255));
-        canvas.Mutate(ctx => ctx.DrawImage(portraitContent, Point.Empty, 1f));
+        var fitMode = (NoteValue(rect, "fit") ?? NoteValue(rect, "player_fit") ?? string.Empty).Trim().ToLowerInvariant();
+        if (fitMode is "crop" or "cover" or "fill")
+        {
+            using var croppedContent = ResizeCrop(sourceFrame, rect.Width, rect.Height);
+            canvas.Mutate(ctx => ctx.DrawImage(croppedContent, Point.Empty, 1f));
+            return canvas;
+        }
+
+        var ratio = sourceFrame.Width / (double)Math.Max(1, sourceFrame.Height);
+        var targetWidth = rect.Width;
+        var targetHeight = Math.Max(1, Math.Min(rect.Height, (int)Math.Round(targetWidth / ratio)));
+        if (targetHeight < Math.Max(1, rect.Height / 4))
+        {
+            targetHeight = Math.Max(1, rect.Height / 4);
+            targetWidth = Math.Max(1, Math.Min(rect.Width, (int)Math.Round(targetHeight * ratio)));
+        }
+
+        using var content = sourceFrame.Clone(ctx => ctx.Resize(new ResizeOptions
+        {
+            Size = new Size(targetWidth, targetHeight),
+            Mode = ResizeMode.Stretch,
+            Sampler = KnownResamplers.Lanczos3
+        }));
+        var x = (rect.Width - targetWidth) / 2;
+        var y = (rect.Height - targetHeight) / 2;
+        if (y > 0)
+        {
+            canvas.Mutate(ctx =>
+            {
+                ctx.Fill(letterboxColor, new RectangleF(0, 0, rect.Width, y));
+                var bottomHeight = rect.Height - y - targetHeight;
+                if (bottomHeight > 0)
+                {
+                    ctx.Fill(letterboxColor, new RectangleF(0, y + targetHeight, rect.Width, bottomHeight));
+                }
+            });
+        }
+
+        canvas.Mutate(ctx => ctx.DrawImage(content, new Point(x, y), 1f));
         return canvas;
+    }
+
+    private static Image<Rgba32> CropPlayerHorizontalMargins(Image<Rgba32> previewFrame, Rgba32 letterboxColor)
+    {
+        var leftMargin = GetPlayerHorizontalMarginWidth(previewFrame, letterboxColor, fromLeft: true);
+        var rightMargin = GetPlayerHorizontalMarginWidth(previewFrame, letterboxColor, fromLeft: false);
+        if (leftMargin <= 0 && rightMargin <= 0)
+        {
+            return previewFrame.Clone();
+        }
+
+        var left = Math.Min(previewFrame.Width - 1, leftMargin);
+        var right = Math.Max(left + 1, previewFrame.Width - rightMargin);
+        if (right - left < Math.Max(24, previewFrame.Width / 4))
+        {
+            return previewFrame.Clone();
+        }
+
+        return previewFrame.Clone(ctx => ctx.Crop(new Rectangle(left, 0, right - left, previewFrame.Height)));
+    }
+
+    private static int GetPlayerHorizontalMarginWidth(Image<Rgba32> image, Rgba32 letterboxColor, bool fromLeft)
+    {
+        var maximumScan = Math.Max(0, Math.Min(image.Width / 3, 240));
+        if (maximumScan <= 0)
+        {
+            return 0;
+        }
+
+        var yStep = Math.Max(1, image.Height / 80);
+        var result = maximumScan;
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var offset = 0; offset < maximumScan; offset++)
+            {
+                var x = fromLeft ? offset : image.Width - 1 - offset;
+                var total = 0;
+                var matched = 0;
+                for (var y = 0; y < image.Height; y += yStep)
+                {
+                    if (IsPlayerMarginPixel(accessor.GetRowSpan(y)[x], letterboxColor))
+                    {
+                        matched++;
+                    }
+
+                    total++;
+                }
+
+                if (total > 0 && matched / (double)total < 0.86)
+                {
+                    result = offset;
+                    return;
+                }
+            }
+        });
+
+        return result;
+    }
+
+    private static bool IsPlayerMarginPixel(Rgba32 pixel, Rgba32 letterboxColor)
+    {
+        if (pixel.A <= 12)
+        {
+            return true;
+        }
+
+        if (Math.Abs(pixel.R - letterboxColor.R) +
+            Math.Abs(pixel.G - letterboxColor.G) +
+            Math.Abs(pixel.B - letterboxColor.B) <= 42)
+        {
+            return true;
+        }
+
+        var minimum = Math.Min(pixel.R, Math.Min(pixel.G, pixel.B));
+        var maximum = Math.Max(pixel.R, Math.Max(pixel.G, pixel.B));
+        var average = (pixel.R + pixel.G + pixel.B) / 3d;
+        return maximum - minimum <= 14 && average is >= 12 and <= 72;
     }
 
     private async Task<string> ResolveSubtitleTextAsync(
@@ -1164,7 +1416,349 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         return rect with { Width = rightEdge - rect.X };
     }
 
+    private static bool ShouldHideTrackText(IReadOnlyList<ProjectImageTemplateRegion> trackRects)
+    {
+        if (trackRects.Count == 0 || NoteInt(trackRects[0], "single_episode_track", 0, 0, 1) <= 0)
+        {
+            return false;
+        }
+
+        return NoteInt(trackRects[0], "hide_track_text", 1, 0, 1) > 0;
+    }
+
+    private static void EraseVideoTrackTextRect(
+        Image<Rgba32> canvas,
+        ProjectImageTemplateRegion rect,
+        IReadOnlyList<ProjectImageTemplateRegion> videoTrackRects)
+    {
+        FillRect(canvas, rect, SampleVideoTrackTextBackground(canvas, rect, videoTrackRects));
+    }
+
+    private static void EraseAudioTrackTextRect(Image<Rgba32> canvas, ProjectImageTemplateRegion rect)
+    {
+        var eraseLeft = NoteInt(rect, "erase_left", 0, 0, 80);
+        var eraseRight = NoteInt(rect, "erase_right", 0, 0, 120);
+        var eraseRect = ExpandRect(canvas, rect, top: 2, right: eraseRight, bottom: 0, left: eraseLeft);
+        FillRect(canvas, eraseRect, SampleAudioTrackBackground(canvas, rect));
+    }
+
+    private static Rgba32 SampleVideoTrackTextBackground(
+        Image<Rgba32> canvas,
+        ProjectImageTemplateRegion rect,
+        IReadOnlyList<ProjectImageTemplateRegion> videoTrackRects)
+    {
+        var trackRect = FindOverlappingTrackRect(rect, videoTrackRects);
+        if (trackRect is null)
+        {
+            return SampleSurroundingColor(canvas, rect);
+        }
+
+        var thumbHeight = GetTrackThumbnailHeight(trackRect);
+        var thumbY = Math.Max(0, (trackRect.Height - thumbHeight) / 2);
+        return SampleVideoTrackBackground(canvas, trackRect, thumbY, thumbHeight);
+    }
+
+    private static Rgba32 SampleVideoTrackBackground(Image<Rgba32> canvas, ProjectImageTemplateRegion rect, int thumbY, int thumbHeight)
+    {
+        var top = Math.Clamp(rect.Y, 0, canvas.Height);
+        var bottom = Math.Clamp(rect.Y + rect.Height, top, canvas.Height);
+        var left = Math.Clamp(rect.X, 0, canvas.Width);
+        var right = Math.Clamp(rect.X + rect.Width, left, canvas.Width);
+        var thumbTop = Math.Clamp(rect.Y + thumbY, top, bottom);
+        var thumbBottom = Math.Clamp(rect.Y + thumbY + thumbHeight, thumbTop, bottom);
+        var samples = new List<Rgba32>();
+
+        AddSampleBox(canvas, left, top, right - left, thumbTop - top, samples);
+        AddSampleBox(canvas, left, thumbBottom, right - left, bottom - thumbBottom, samples);
+
+        return samples.Count > 0 ? MedianColor(samples) : SampleRectColor(canvas, rect);
+    }
+
+    private static Rgba32 SampleAudioTrackBackground(Image<Rgba32> canvas, ProjectImageTemplateRegion rect)
+    {
+        var sampleRect = InsetRect(canvas, rect, top: Math.Max(1, rect.Height / 4), bottom: 1);
+        var samples = CollectPixels(canvas, sampleRect, static pixel =>
+            pixel.A > 0 && pixel.R + pixel.G + pixel.B < 560);
+        return samples.Count > 0 ? MedianColor(samples) : SampleSurroundingColor(canvas, rect);
+    }
+
+    private static ProjectImageTemplateRegion? FindOverlappingTrackRect(
+        ProjectImageTemplateRegion rect,
+        IReadOnlyList<ProjectImageTemplateRegion> trackRects)
+    {
+        ProjectImageTemplateRegion? bestRect = null;
+        var bestArea = 0;
+        var rectLeft = rect.X;
+        var rectTop = rect.Y;
+        var rectRight = rect.X + rect.Width;
+        var rectBottom = rect.Y + rect.Height;
+
+        foreach (var trackRect in trackRects)
+        {
+            var left = Math.Max(rectLeft, trackRect.X);
+            var top = Math.Max(rectTop, trackRect.Y);
+            var right = Math.Min(rectRight, trackRect.X + trackRect.Width);
+            var bottom = Math.Min(rectBottom, trackRect.Y + trackRect.Height);
+            var area = Math.Max(0, right - left) * Math.Max(0, bottom - top);
+            if (area <= bestArea)
+            {
+                continue;
+            }
+
+            bestArea = area;
+            bestRect = trackRect;
+        }
+
+        return bestRect;
+    }
+
+    private static ProjectImageTemplateRegion ExpandRect(
+        Image<Rgba32> canvas,
+        ProjectImageTemplateRegion rect,
+        int top = 0,
+        int right = 0,
+        int bottom = 0,
+        int left = 0)
+    {
+        var x = Math.Max(0, rect.X - Math.Max(0, left));
+        var y = Math.Max(0, rect.Y - Math.Max(0, top));
+        var rightEdge = Math.Min(canvas.Width, rect.X + rect.Width + Math.Max(0, right));
+        var bottomEdge = Math.Min(canvas.Height, rect.Y + rect.Height + Math.Max(0, bottom));
+        return rect with
+        {
+            X = x,
+            Y = y,
+            Width = Math.Max(1, rightEdge - x),
+            Height = Math.Max(1, bottomEdge - y)
+        };
+    }
+
+    private static ProjectImageTemplateRegion InsetRect(
+        Image<Rgba32> canvas,
+        ProjectImageTemplateRegion rect,
+        int top = 0,
+        int right = 0,
+        int bottom = 0,
+        int left = 0)
+    {
+        var x = Math.Max(0, rect.X + Math.Max(0, left));
+        var y = Math.Max(0, rect.Y + Math.Max(0, top));
+        var rightEdge = Math.Min(canvas.Width, rect.X + rect.Width - Math.Max(0, right));
+        var bottomEdge = Math.Min(canvas.Height, rect.Y + rect.Height - Math.Max(0, bottom));
+        if (rightEdge <= x)
+        {
+            rightEdge = Math.Min(canvas.Width, x + 1);
+        }
+
+        if (bottomEdge <= y)
+        {
+            bottomEdge = Math.Min(canvas.Height, y + 1);
+        }
+
+        return rect with
+        {
+            X = x,
+            Y = y,
+            Width = Math.Max(1, rightEdge - x),
+            Height = Math.Max(1, bottomEdge - y)
+        };
+    }
+
+    private static ProjectImageTemplateRegion ShiftRect(
+        Image<Rgba32> canvas,
+        ProjectImageTemplateRegion rect,
+        int dx = 0,
+        int dy = 0)
+    {
+        var x = Math.Clamp(rect.X + dx, 0, Math.Max(0, canvas.Width - 1));
+        var y = Math.Clamp(rect.Y + dy, 0, Math.Max(0, canvas.Height - 1));
+        return rect with
+        {
+            X = x,
+            Y = y,
+            Width = Math.Max(1, Math.Min(rect.Width, canvas.Width - x)),
+            Height = Math.Max(1, Math.Min(rect.Height, canvas.Height - y))
+        };
+    }
+
+    private static void RestoreVideoTrackSegmentBoundaries(
+        Image<Rgba32> canvas,
+        IReadOnlyList<ProjectImageTemplateRegion> videoTrackRects,
+        IReadOnlyList<ProjectImageTemplateRegion> textRects,
+        IReadOnlyList<ProjectImageTemplateRegion> audioTextRects)
+    {
+        foreach (var trackRect in videoTrackRects)
+        {
+            if (NoteInt(trackRect, "segment_boundary", 0, 0, 1) <= 0)
+            {
+                continue;
+            }
+
+            var width = NoteInt(trackRect, "segment_boundary_width", 4, 1, 20);
+            var alpha = NoteInt(trackRect, "segment_boundary_alpha", 190, 40, 255);
+            var edgeAlpha = NoteInt(trackRect, "segment_boundary_edge_alpha", 80, 0, 255);
+            var xOffset = NoteInt(trackRect, "segment_boundary_x_offset", 0, -20, 20);
+            var absoluteX = NoteInt(trackRect, "segment_boundary_x", -1, -1, Math.Max(0, canvas.Width - 1));
+            var topOffset = NoteInt(trackRect, "segment_boundary_top_offset", 0, 0, Math.Max(0, canvas.Height));
+            var bottomOffset = NoteInt(trackRect, "segment_boundary_bottom_offset", 0, 0, Math.Max(0, canvas.Height));
+            var top = Math.Clamp(trackRect.Y - topOffset, 0, canvas.Height);
+            var bottom = Math.Max(top, Math.Min(Math.Max(0, canvas.Height - 1), trackRect.Y + trackRect.Height - 1 + bottomOffset));
+            var leftLimit = Math.Max(0, trackRect.X);
+            var rightLimit = Math.Min(Math.Max(0, canvas.Width - 1), trackRect.X + trackRect.Width - 1);
+            if (bottom <= top || rightLimit <= leftLimit)
+            {
+                continue;
+            }
+
+            DrawSegmentBoundaries(
+                canvas,
+                textRects,
+                leftLimit,
+                rightLimit,
+                top,
+                bottom,
+                width,
+                alpha,
+                edgeAlpha,
+                xOffset,
+                absoluteX >= 0 ? absoluteX : null);
+
+            if (audioTextRects.Count == 0)
+            {
+                continue;
+            }
+
+            var audioHeight = NoteInt(trackRect, "audio_segment_boundary_height", trackRect.Height, 1, Math.Max(1, canvas.Height));
+            var audioTopOffset = NoteInt(trackRect, "audio_segment_boundary_top_offset", 0, 0, 80);
+            var audioBottomOffset = NoteInt(trackRect, "audio_segment_boundary_bottom_offset", 0, 0, 80);
+            foreach (var audioRect in audioTextRects)
+            {
+                var audioTop = Math.Clamp(audioRect.Y - audioTopOffset, 0, Math.Max(0, canvas.Height - 1));
+                var audioBottom = Math.Max(audioTop, Math.Min(Math.Max(0, canvas.Height - 1), audioTop + audioHeight - 1 + audioBottomOffset));
+                DrawSegmentBoundaries(
+                    canvas,
+                    [audioRect],
+                    leftLimit,
+                    rightLimit,
+                    audioTop,
+                    audioBottom,
+                    width,
+                    alpha,
+                    edgeAlpha,
+                    xOffset,
+                    absoluteX >= 0 ? absoluteX : null);
+            }
+        }
+    }
+
+    private static void DrawSegmentBoundaries(
+        Image<Rgba32> canvas,
+        IReadOnlyList<ProjectImageTemplateRegion> textRects,
+        int leftLimit,
+        int rightLimit,
+        int top,
+        int bottom,
+        int width,
+        int alpha,
+        int edgeAlpha,
+        int xOffset,
+        int? absoluteX)
+    {
+        foreach (var textRect in textRects)
+        {
+            var sourceX = absoluteX ?? textRect.X + xOffset;
+            var x = Math.Clamp(sourceX, leftLimit, rightLimit);
+            var left = Math.Max(leftLimit, x - width);
+            var right = Math.Min(rightLimit, x - 1);
+            if (right < left)
+            {
+                continue;
+            }
+
+            var fill = new Rgba32(12, 48, 52, (byte)Math.Clamp(alpha, 0, 255));
+            var edge = new Rgba32(82, 112, 116, (byte)Math.Clamp(edgeAlpha, 0, 255));
+            canvas.Mutate(ctx =>
+            {
+                ctx.Fill(fill, new RectangleF(left, top, right - left + 1, bottom - top + 1));
+                if (edgeAlpha > 0)
+                {
+                    ctx.Fill(edge, new RectangleF(Math.Min(rightLimit, x), top, 1, bottom - top + 1));
+                }
+            });
+        }
+    }
+
+    private static void RestoreVideoTrackPlayheadOverlay(Image<Rgba32> canvas, IReadOnlyList<ProjectImageTemplateRegion> videoTrackRects)
+    {
+        foreach (var rect in videoTrackRects)
+        {
+            if (rect.Width < rect.Height * 3)
+            {
+                continue;
+            }
+
+            using var overlay = CapturePlayheadOverlay(canvas, rect);
+            if (overlay is null)
+            {
+                continue;
+            }
+
+            var left = Math.Clamp(rect.X, 0, canvas.Width);
+            var top = Math.Clamp(rect.Y, 0, canvas.Height);
+            canvas.Mutate(ctx => ctx.DrawImage(overlay, new Point(left, top), 1f));
+        }
+    }
+
     private static Image<Rgba32>? CapturePlayheadOverlay(Image<Rgba32> canvas, ProjectImageTemplateRegion rect)
+    {
+        var left = Math.Clamp(rect.X, 0, canvas.Width);
+        var top = Math.Clamp(rect.Y, 0, canvas.Height);
+        var right = Math.Clamp(rect.X + rect.Width, left, canvas.Width);
+        var bottom = Math.Clamp(rect.Y + rect.Height, top, canvas.Height);
+        if (right <= left || bottom <= top)
+        {
+            return null;
+        }
+
+        var playheadX = ResolveConfiguredPlayheadX(rect);
+        if (playheadX is not null && playheadX.Value >= left && playheadX.Value < right)
+        {
+            return BuildPlayheadOverlay(canvas, rect, playheadX.Value);
+        }
+
+        var detectedX = DetectPlayheadXFromSurrounding(canvas, rect);
+        return detectedX is not null && detectedX.Value >= left && detectedX.Value < right
+            ? BuildPlayheadOverlay(canvas, rect, detectedX.Value)
+            : null;
+    }
+
+    private static Image<Rgba32>? BuildPlayheadOverlay(Image<Rgba32> canvas, ProjectImageTemplateRegion rect, int playheadX)
+    {
+        var left = Math.Clamp(rect.X, 0, canvas.Width);
+        var top = Math.Clamp(rect.Y, 0, canvas.Height);
+        var right = Math.Clamp(rect.X + rect.Width, left, canvas.Width);
+        var bottom = Math.Clamp(rect.Y + rect.Height, top, canvas.Height);
+        if (right <= left || bottom <= top)
+        {
+            return null;
+        }
+
+        var overlay = new Image<Rgba32>(right - left, bottom - top, new Rgba32(0, 0, 0, 0));
+        var localX = playheadX - left;
+        var lineLeft = Math.Max(0, localX - 1);
+        var lineRight = Math.Min(overlay.Width - 1, localX);
+        if (lineRight < lineLeft)
+        {
+            overlay.Dispose();
+            return null;
+        }
+
+        var color = SamplePlayheadColor(canvas, playheadX, rect);
+        overlay.Mutate(ctx => ctx.Fill(color, new RectangleF(lineLeft, 0, lineRight - lineLeft + 1, overlay.Height)));
+        return overlay;
+    }
+
+    private static int? ResolveConfiguredPlayheadX(ProjectImageTemplateRegion rect)
     {
         var playheadX = NoteInt(rect, "playhead_x", int.MinValue, -10000, 10000);
         if (playheadX == int.MinValue)
@@ -1172,12 +1766,195 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             return null;
         }
 
-        playheadX += NoteInt(rect, "playhead_x_offset", 0, -20, 20);
-        var localX = Math.Clamp(playheadX - rect.X - 4, 0, Math.Max(0, rect.Width - 1));
-        var overlayWidth = Math.Min(10, rect.Width - localX);
-        return overlayWidth <= 0
-            ? null
-            : canvas.Clone(ctx => ctx.Crop(new Rectangle(rect.X + localX, rect.Y, overlayWidth, rect.Height)));
+        return playheadX + NoteInt(rect, "playhead_x_offset", 0, -20, 20);
+    }
+
+    private static int? DetectPlayheadXFromSurrounding(Image<Rgba32> canvas, ProjectImageTemplateRegion rect)
+    {
+        var left = Math.Clamp(rect.X, 0, canvas.Width);
+        var right = Math.Clamp(rect.X + rect.Width, left, canvas.Width);
+        var topBandTop = Math.Max(0, rect.Y - 260);
+        var topBandBottom = Math.Max(topBandTop, Math.Min(canvas.Height, rect.Y));
+        var bottomBandTop = Math.Max(0, Math.Min(canvas.Height, rect.Y + rect.Height));
+        var bottomBandBottom = Math.Max(bottomBandTop, Math.Min(canvas.Height, rect.Y + rect.Height + 260));
+        if (right <= left || (topBandBottom <= topBandTop && bottomBandBottom <= bottomBandTop))
+        {
+            return null;
+        }
+
+        var scores = new List<(int Score, int X)>();
+        canvas.ProcessPixelRows(accessor =>
+        {
+            for (var x = left; x < right; x++)
+            {
+                var topCount = 0;
+                for (var y = topBandTop; y < topBandBottom; y += 2)
+                {
+                    if (IsPlayheadPixel(accessor.GetRowSpan(y)[x]))
+                    {
+                        topCount++;
+                    }
+                }
+
+                var bottomCount = 0;
+                for (var y = bottomBandTop; y < bottomBandBottom; y += 2)
+                {
+                    if (IsPlayheadPixel(accessor.GetRowSpan(y)[x]))
+                    {
+                        bottomCount++;
+                    }
+                }
+
+                if (topCount >= 18 && bottomCount >= 18)
+                {
+                    scores.Add((topCount + bottomCount, x));
+                }
+            }
+        });
+
+        if (scores.Count == 0)
+        {
+            return null;
+        }
+
+        scores.Sort(static (first, second) => second.Score != first.Score
+            ? second.Score.CompareTo(first.Score)
+            : first.X.CompareTo(second.X));
+
+        var bestScore = scores[0].Score;
+        var candidateXs = scores
+            .Where(score => score.Score >= Math.Max(1, bestScore - 8))
+            .Select(score => score.X)
+            .Distinct()
+            .OrderBy(static x => x)
+            .ToList();
+        if (candidateXs.Count == 0)
+        {
+            return scores[0].X;
+        }
+
+        var groups = new List<List<int>>();
+        foreach (var x in candidateXs)
+        {
+            if (groups.Count == 0 || x - groups[^1][^1] > 2)
+            {
+                groups.Add([x]);
+            }
+            else
+            {
+                groups[^1].Add(x);
+            }
+        }
+
+        var selected = groups
+            .OrderByDescending(static group => group.Count)
+            .ThenByDescending(group => scores.Where(score => group.Contains(score.X)).Sum(score => score.Score))
+            .First();
+        return selected[selected.Count / 2];
+    }
+
+    private static Rgba32 SamplePlayheadColor(Image<Rgba32> canvas, int x, ProjectImageTemplateRegion rect)
+    {
+        var clampedX = Math.Clamp(x, 0, Math.Max(0, canvas.Width - 1));
+        var ranges = new[]
+        {
+            (Start: Math.Max(0, rect.Y - 260), End: Math.Max(0, Math.Min(canvas.Height, rect.Y))),
+            (Start: Math.Max(0, Math.Min(canvas.Height, rect.Y + rect.Height)), End: Math.Max(0, Math.Min(canvas.Height, rect.Y + rect.Height + 260)))
+        };
+        var samples = new List<Rgba32>();
+
+        canvas.ProcessPixelRows(accessor =>
+        {
+            foreach (var range in ranges)
+            {
+                for (var y = range.Start; y < range.End; y++)
+                {
+                    var pixel = accessor.GetRowSpan(y)[clampedX];
+                    if (IsPlayheadPixel(pixel))
+                    {
+                        samples.Add(pixel);
+                    }
+                }
+            }
+        });
+
+        int red;
+        int green;
+        int blue;
+        int alpha;
+        if (samples.Count == 0)
+        {
+            red = 170;
+            green = 170;
+            blue = 170;
+            alpha = 165;
+        }
+        else
+        {
+            red = MedianByte(samples.Select(static pixel => pixel.R));
+            green = MedianByte(samples.Select(static pixel => pixel.G));
+            blue = MedianByte(samples.Select(static pixel => pixel.B));
+            alpha = MedianByte(samples.Select(static pixel => pixel.A));
+        }
+
+        var brightnessLimit = NoteInt(rect, "playhead_brightness", 178, 80, 255);
+        var alphaLimit = NoteInt(rect, "playhead_alpha", 170, 40, 255);
+        var peak = Math.Max(red, Math.Max(green, blue));
+        if (peak > brightnessLimit)
+        {
+            var scale = brightnessLimit / (double)peak;
+            red = Math.Clamp((int)Math.Round(red * scale), 0, 255);
+            green = Math.Clamp((int)Math.Round(green * scale), 0, 255);
+            blue = Math.Clamp((int)Math.Round(blue * scale), 0, 255);
+        }
+
+        var minAlpha = Math.Min(120, alphaLimit);
+        alpha = Math.Max(minAlpha, Math.Min(alphaLimit, alpha));
+        return new Rgba32((byte)red, (byte)green, (byte)blue, (byte)alpha);
+    }
+
+    private static bool IsPlayheadPixel(Rgba32 pixel)
+    {
+        if (pixel.A <= 0)
+        {
+            return false;
+        }
+
+        var max = Math.Max(pixel.R, Math.Max(pixel.G, pixel.B));
+        var min = Math.Min(pixel.R, Math.Min(pixel.G, pixel.B));
+        return pixel.R >= 150 && pixel.G >= 150 && pixel.B >= 150 && max - min <= 55;
+    }
+
+    private static List<Rgba32> CollectPixels(Image<Rgba32> canvas, ProjectImageTemplateRegion rect, Func<Rgba32, bool> predicate)
+    {
+        var left = Math.Clamp(rect.X, 0, Math.Max(0, canvas.Width - 1));
+        var top = Math.Clamp(rect.Y, 0, Math.Max(0, canvas.Height - 1));
+        var right = Math.Clamp(rect.X + rect.Width, left + 1, canvas.Width);
+        var bottom = Math.Clamp(rect.Y + rect.Height, top + 1, canvas.Height);
+        var samples = new List<Rgba32>((right - left) * (bottom - top));
+
+        canvas.ProcessPixelRows(accessor =>
+        {
+            for (var y = top; y < bottom; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = left; x < right; x++)
+                {
+                    if (predicate(row[x]))
+                    {
+                        samples.Add(row[x]);
+                    }
+                }
+            }
+        });
+
+        return samples;
+    }
+
+    private static byte MedianByte(IEnumerable<byte> values)
+    {
+        var ordered = values.OrderBy(static value => value).ToArray();
+        return ordered.Length == 0 ? (byte)0 : ordered[ordered.Length / 2];
     }
 
     private static int GetTrackThumbnailHeight(ProjectImageTemplateRegion rect)
@@ -1390,6 +2167,37 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             : rect.X + paddingX;
         var y = rect.Y + Math.Max(0, (rect.Height - textHeight) / 2) - 1;
         canvas.Mutate(ctx => ctx.DrawText(finalText, font, fill, new PointF(x, y)));
+    }
+
+    private static void DrawTrackSingleLineText(
+        Image<Rgba32> canvas,
+        ProjectImageTemplateRegion rect,
+        string text,
+        Rgba32 fill,
+        int fontSize,
+        bool bold)
+    {
+        text = (text ?? string.Empty).Trim();
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        var paddingX = Math.Min(8, Math.Max(2, rect.Width / 18));
+        var maxWidth = Math.Max(1, rect.Width - paddingX * 2);
+        var size = Math.Max(8, fontSize);
+        var font = GetFont(size, bold);
+        while (size > 8 && TextMeasurer.MeasureBounds(text, new TextOptions(font)).Width > maxWidth)
+        {
+            size--;
+            font = GetFont(size, bold);
+        }
+
+        var bounds = TextMeasurer.MeasureBounds(text, new TextOptions(font));
+        var textHeight = (int)Math.Ceiling(bounds.Height);
+        var x = rect.X + paddingX;
+        var y = rect.Y + Math.Max(0, (rect.Height - textHeight) / 2) - (float)Math.Floor(bounds.Top);
+        canvas.Mutate(ctx => ctx.DrawText(text, font, fill, new PointF(x, y)));
     }
 
     private static List<string> WrapText(string text, Font font, int maxWidth, int maxLines)
