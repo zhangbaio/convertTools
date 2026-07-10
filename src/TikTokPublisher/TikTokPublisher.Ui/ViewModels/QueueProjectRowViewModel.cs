@@ -116,6 +116,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public string DownloadStatus => StepOf(QueueStepKeys.Download);
     public string RewriteStatus => StepOf(QueueStepKeys.RewriteInfo);
     public string PosterStatus => StepOf(QueueStepKeys.GeneratePoster);
+    public string ProjectImageStatus => StepOf(QueueStepKeys.GenerateProjectImages);
     public string RepairStatus => StepOf(QueueStepKeys.SmallVideoRepair);
     public string SilenceDetectStatus => StepOf(QueueStepKeys.SilenceDetect);
     public string SilenceRepairStatus => StepOf(QueueStepKeys.SilenceRepair);
@@ -127,6 +128,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush DownloadStatusBrush => BrushOf(DownloadStatus);
     public IBrush RewriteStatusBrush => BrushOf(RewriteStatus);
     public IBrush PosterStatusBrush => BrushOf(PosterStatus);
+    public IBrush ProjectImageStatusBrush => BrushOf(ProjectImageStatus);
     public IBrush RepairStatusBrush => BrushOf(RepairStatus);
     public IBrush SilenceDetectStatusBrush => BrushOf(SilenceDetectStatus);
     public IBrush SilenceRepairStatusBrush => BrushOf(SilenceRepairStatus);
@@ -144,6 +146,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush DownloadStatusBackgroundBrush => BackgroundOf(DownloadStatus);
     public IBrush RewriteStatusBackgroundBrush => BackgroundOf(RewriteStatus);
     public IBrush PosterStatusBackgroundBrush => BackgroundOf(PosterStatus);
+    public IBrush ProjectImageStatusBackgroundBrush => BackgroundOf(ProjectImageStatus);
     public IBrush RepairStatusBackgroundBrush => BackgroundOf(RepairStatus);
     public IBrush SilenceDetectStatusBackgroundBrush => BackgroundOf(SilenceDetectStatus);
     public IBrush SilenceRepairStatusBackgroundBrush => BackgroundOf(SilenceRepairStatus);
@@ -154,6 +157,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush DownloadStatusBorderBrush => BorderOf(DownloadStatus);
     public IBrush RewriteStatusBorderBrush => BorderOf(RewriteStatus);
     public IBrush PosterStatusBorderBrush => BorderOf(PosterStatus);
+    public IBrush ProjectImageStatusBorderBrush => BorderOf(ProjectImageStatus);
     public IBrush RepairStatusBorderBrush => BorderOf(RepairStatus);
     public IBrush SilenceDetectStatusBorderBrush => BorderOf(SilenceDetectStatus);
     public IBrush SilenceRepairStatusBorderBrush => BorderOf(SilenceRepairStatus);

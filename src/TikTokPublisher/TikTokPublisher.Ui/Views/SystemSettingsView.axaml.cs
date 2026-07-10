@@ -37,6 +37,7 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.PosterMode)
                 or nameof(SystemSettingsViewModel.ImageProvider)
                 or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
+                or nameof(SystemSettingsViewModel.TiktokProjectImageSubtitleAiMode)
                 or nameof(SystemSettingsViewModel.ManagementDedupScope))
             {
                 SyncCombosFromVm();
@@ -115,6 +116,12 @@ public partial class SystemSettingsView : UserControl
         PosterTitleVerifyModeCombo.Items.Add(CreateItem("阻断失败", "blocking"));
         PosterTitleVerifyModeCombo.SelectionChanged += OnPosterTitleVerifyModeChanged;
 
+        ProjectImageSubtitleAiModeCombo.Items.Clear();
+        ProjectImageSubtitleAiModeCombo.Items.Add(CreateItem("快速（推荐）", "fast"));
+        ProjectImageSubtitleAiModeCombo.Items.Add(CreateItem("准确", "accurate"));
+        ProjectImageSubtitleAiModeCombo.Items.Add(CreateItem("关闭", "off"));
+        ProjectImageSubtitleAiModeCombo.SelectionChanged += OnProjectImageSubtitleAiModeChanged;
+
         ManagementDedupScopeCombo.Items.Clear();
         ManagementDedupScopeCombo.Items.Add(CreateItem("按 TIKTOK用户名", "tiktok_username"));
         ManagementDedupScopeCombo.Items.Add(CreateItem("按软件账号", "software_user"));
@@ -135,6 +142,7 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(PosterModeCombo, _vm.PosterMode);
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
         SelectComboItem(PosterTitleVerifyModeCombo, _vm.PosterTitleVerifyMode);
+        SelectComboItem(ProjectImageSubtitleAiModeCombo, _vm.TiktokProjectImageSubtitleAiMode);
         SelectComboItem(ManagementDedupScopeCombo, _vm.ManagementDedupScope);
     }
 
@@ -190,6 +198,12 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || PosterTitleVerifyModeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.PosterTitleVerifyMode = item.Tag as string ?? "fallback_repaint";
+    }
+
+    private void OnProjectImageSubtitleAiModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ProjectImageSubtitleAiModeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.TiktokProjectImageSubtitleAiMode = item.Tag as string ?? "fast";
     }
 
     private void OnManagementDedupScopeChanged(object? sender, SelectionChangedEventArgs e)

@@ -20,6 +20,12 @@ public static class ClientSettingsDefaults
     public const string PosterTitleVerifyMode = "fallback_repaint";
     public const bool TiktokAllowOverLimitUploadImport = true;
     public const int TiktokOverLimitDownloadEpisodeCount = 120;
+    public const string TiktokProjectImageGenerationMode = "image_template";
+    public const string TiktokProjectImageTemplateId = "image-template-project-image-3";
+    public const string TiktokProjectImageTemplateName = "图片模板工程图3";
+    public const int TiktokProjectImageCount = 4;
+    public const int TiktokProjectImageRenderEpisodeLimit = 16;
+    public const string TiktokProjectImageSubtitleAiMode = "fast";
 
     public const string FeishuCommandHelpText = """
         【飞书 TikTok 上传命令教程】
@@ -39,7 +45,7 @@ public static class ClientSettingsDefaults
         账号: 默认
         账号: 账号A,账号B
         账号: 全部
-        步骤: download,rewrite_info,generate_poster,upload_series
+        步骤: download,rewrite_info,generate_poster,generate_project_images,upload_series
         自动执行: 是
 
         多账号说明：多账号执行时使用每个账号「基础设置」中保存的工作目录。

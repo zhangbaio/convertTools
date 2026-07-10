@@ -283,6 +283,24 @@ public static class ClientSettingsStore
         settings.PosterGenerationSafeRetryPrompt = DefaultIfBlank(settings.PosterGenerationSafeRetryPrompt, ClientSettingsDefaults.PosterGenerationSafeRetryPrompt);
         settings.PosterNameSystemPrompt = DefaultIfBlank(settings.PosterNameSystemPrompt, ClientSettingsDefaults.PosterNameSystemPrompt);
         settings.PosterNameUserPrompt = DefaultIfBlank(settings.PosterNameUserPrompt, ClientSettingsDefaults.PosterNameUserPrompt);
+        settings.TiktokProjectImageGenerationMode = ClientSettingsDefaults.TiktokProjectImageGenerationMode;
+        settings.TiktokProjectImageTemplateRoot = (settings.TiktokProjectImageTemplateRoot ?? "").Trim();
+        settings.TiktokProjectImageTemplateId = DefaultIfBlank(
+            settings.TiktokProjectImageTemplateId,
+            ClientSettingsDefaults.TiktokProjectImageTemplateId);
+        settings.TiktokProjectImageCount = Math.Clamp(
+            settings.TiktokProjectImageCount <= 0
+                ? ClientSettingsDefaults.TiktokProjectImageCount
+                : settings.TiktokProjectImageCount,
+            1,
+            20);
+        settings.TiktokProjectImageRenderEpisodeLimit = Math.Clamp(
+            settings.TiktokProjectImageRenderEpisodeLimit <= 0
+                ? ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit
+                : settings.TiktokProjectImageRenderEpisodeLimit,
+            1,
+            200);
+        settings.TiktokProjectImageSubtitleAiMode = NormalizeProjectImageSubtitleAiMode(settings.TiktokProjectImageSubtitleAiMode);
         settings.AuthServerUrl = (settings.AuthServerUrl ?? "").Trim().TrimEnd('/');
         settings.AuthAccount = (settings.AuthAccount ?? "").Trim();
         settings.AuthPassword ??= "";
@@ -370,6 +388,13 @@ public static class ClientSettingsStore
         {
             "3:4" => ClientSettingsDefaults.DoubaoImageRatio,
             _ => ClientSettingsDefaults.DoubaoImageRatio
+        };
+
+    private static string NormalizeProjectImageSubtitleAiMode(string? value) =>
+        (value ?? ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode).Trim().ToLowerInvariant() switch
+        {
+            "accurate" or "fast" or "off" => (value ?? ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode).Trim().ToLowerInvariant(),
+            _ => ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode
         };
 
     private static string NormalizeManagementDedupScope(string? value)

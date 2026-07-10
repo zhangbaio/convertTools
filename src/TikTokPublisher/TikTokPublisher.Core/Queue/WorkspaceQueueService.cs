@@ -411,6 +411,12 @@ public static class WorkspaceQueueService
         if (IsPending(item, QueueStepKeys.GeneratePoster) && HasGeneratedPoster(sourceProjectDir, workflowProjectDir))
             item.StepStates[QueueStepKeys.GeneratePoster] = QueueStepStatus.Completed;
 
+        if (IsPending(item, QueueStepKeys.GenerateProjectImages) &&
+            TikTokProjectImageService.HasCurrentProjectImages(sourceProjectDir))
+        {
+            item.StepStates[QueueStepKeys.GenerateProjectImages] = QueueStepStatus.Completed;
+        }
+
         var manifestExists = HasTikTokUploadManifest(context);
         if (IsPending(item, QueueStepKeys.SmallVideoRepair) && (manifestExists || hasStagedUploadVideos))
             item.StepStates[QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed;
@@ -460,6 +466,7 @@ public static class WorkspaceQueueService
             item.CurrentStep = "";
             item.StatusText = QueueStepStatus.Completed;
             item.LastError = "";
+            item.StepStates[QueueStepKeys.GenerateProjectImages] = QueueStepStatus.Completed;
             item.StepStates[QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed;
             item.StepStates[QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed;
             item.StepStates[QueueStepKeys.UploadSeries] = QueueStepStatus.Completed;
@@ -469,6 +476,7 @@ public static class WorkspaceQueueService
         if (StateBool(uploadState, "upload_step_attempted"))
         {
             item.UploadCompletedAt = "";
+            CompleteIfPending(item, QueueStepKeys.GenerateProjectImages);
             CompleteIfPending(item, QueueStepKeys.SmallVideoRepair);
             CompleteIfPending(item, QueueStepKeys.MaterialValidate);
 

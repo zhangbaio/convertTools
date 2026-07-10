@@ -100,6 +100,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _posterGenerationSafeRetryPrompt = "";
     [ObservableProperty] private string _posterNameSystemPrompt = "";
     [ObservableProperty] private string _posterNameUserPrompt = "";
+    [ObservableProperty] private string _tiktokProjectImageGenerationMode = ClientSettingsDefaults.TiktokProjectImageGenerationMode;
+    [ObservableProperty] private string _tiktokProjectImageTemplateRoot = "";
+    [ObservableProperty] private string _tiktokProjectImageTemplateId = ClientSettingsDefaults.TiktokProjectImageTemplateId;
+    [ObservableProperty] private int _tiktokProjectImageCount = ClientSettingsDefaults.TiktokProjectImageCount;
+    [ObservableProperty] private int _tiktokProjectImageRenderEpisodeLimit = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
+    [ObservableProperty] private string _tiktokProjectImageSubtitleAiMode = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
     [ObservableProperty] private bool _tiktokExcelAutoExportEnabled = true;
     [ObservableProperty] private bool _managementDedupEnabled;
     [ObservableProperty] private string _managementDedupScope = "tiktok_username";
@@ -119,6 +125,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> PosterModeOptions { get; } = ["original", "poster_ai_erase_pil_title", "poster_ai_edit"];
     public IReadOnlyList<string> ImageProviderOptions { get; } = ["doubao", "ofox_image2"];
     public IReadOnlyList<string> PosterTitleVerifyModeOptions { get; } = ["fallback_repaint", "warn", "blocking"];
+    public IReadOnlyList<string> ProjectImageSubtitleAiModeOptions { get; } = ["fast", "accurate", "off"];
     public IReadOnlyList<string> ManagementDedupScopeOptions { get; } = ["tiktok_username", "software_user", "all_series"];
 
     public void Load(string? workspacePath = null)
@@ -198,6 +205,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PosterGenerationSafeRetryPrompt = PosterGenerationSafeRetryPrompt,
         PosterNameSystemPrompt = PosterNameSystemPrompt,
         PosterNameUserPrompt = PosterNameUserPrompt,
+        TiktokProjectImageGenerationMode = TiktokProjectImageGenerationMode,
+        TiktokProjectImageTemplateRoot = TiktokProjectImageTemplateRoot.Trim(),
+        TiktokProjectImageTemplateId = TiktokProjectImageTemplateId.Trim(),
+        TiktokProjectImageCount = TiktokProjectImageCount,
+        TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit,
+        TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode,
         TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled,
         ManagementDedupEnabled = ManagementDedupEnabled,
         ManagementDedupScope = ManagementDedupScope,
@@ -624,6 +637,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PosterGenerationSafeRetryPrompt = settings.PosterGenerationSafeRetryPrompt;
         PosterNameSystemPrompt = settings.PosterNameSystemPrompt;
         PosterNameUserPrompt = settings.PosterNameUserPrompt;
+        TiktokProjectImageGenerationMode = settings.TiktokProjectImageGenerationMode;
+        TiktokProjectImageTemplateRoot = settings.TiktokProjectImageTemplateRoot;
+        TiktokProjectImageTemplateId = settings.TiktokProjectImageTemplateId;
+        TiktokProjectImageCount = settings.TiktokProjectImageCount;
+        TiktokProjectImageRenderEpisodeLimit = settings.TiktokProjectImageRenderEpisodeLimit;
+        TiktokProjectImageSubtitleAiMode = settings.TiktokProjectImageSubtitleAiMode;
         TiktokExcelAutoExportEnabled = settings.TiktokExcelAutoExportEnabled;
         ManagementDedupEnabled = settings.ManagementDedupEnabled;
         ManagementDedupScope = settings.ManagementDedupScope;

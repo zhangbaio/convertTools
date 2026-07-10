@@ -94,6 +94,11 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             .Where(path => SupportedExtensions.Contains(Path.GetExtension(path)))
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        var renderEpisodeLimit = LoadProjectImageRenderEpisodeLimit(configMap);
+        if (renderEpisodeLimit is > 0 && sourceVideos.Length > renderEpisodeLimit.Value)
+        {
+            sourceVideos = sourceVideos.Take(renderEpisodeLimit.Value).ToArray();
+        }
         if (sourceVideos.Length == 0)
         {
             throw new InvalidOperationException($"未在目录中找到可用视频文件: {request.InputDir}");
@@ -1564,6 +1569,15 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         var config = KeyValueConfigReader.Read(configFile);
         return config.TryGetValue("ProjectImageCount", out var rawCount) &&
                int.TryParse(rawCount, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static int? LoadProjectImageRenderEpisodeLimit(IReadOnlyDictionary<string, string> configMap)
+    {
+        return configMap.TryGetValue("ProjectImageRenderEpisodeLimit", out var rawLimit) &&
+               int.TryParse(rawLimit, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) &&
+               parsed > 0
             ? parsed
             : null;
     }

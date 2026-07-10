@@ -17,6 +17,12 @@
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="..\..\ShortDrama\templates\project-image\image_template_project_image_3\**\*">
+      <Link>templates\project-image\image_template_project_image_3\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="TikTokPublisher.Core.Tests" />
   </ItemGroup>
 </Project>

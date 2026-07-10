@@ -42,7 +42,7 @@ public static class TikTokRemoteHelpCardBuilder
                     **常用参数**
                     工作目录: E:\tiktok
                     账号: 默认
-                    步骤: download,rewrite_info,generate_poster,upload_series
+                    步骤: download,rewrite_info,generate_poster,generate_project_images,upload_series
                     自动执行: 是
                     """),
                 Markdown("""

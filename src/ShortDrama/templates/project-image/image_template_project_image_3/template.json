@@ -2,7 +2,7 @@
   "id": "image-template-project-image-3",
   "name": "图片模板工程图3",
   "mode": "image_template",
-  "asset_version": 2026060103,
+  "asset_version": 2026060104,
   "count": 4,
   "description": "Coordinates are maintained by scripts/project_image_template_region_tool.py.",
   "templates": [
@@ -35,9 +35,9 @@
           "height": 459
         },
         "player_landscape": {
-          "x": 826,
+          "x": 797,
           "y": 78,
-          "width": 560,
+          "width": 600,
           "height": 443
         },
         "video_track_images": [
@@ -96,9 +96,9 @@
           "height": 459
         },
         "player_landscape": {
-          "x": 826,
+          "x": 797,
           "y": 78,
-          "width": 560,
+          "width": 600,
           "height": 443
         },
         "video_track_images": [
@@ -157,9 +157,9 @@
           "height": 459
         },
         "player_landscape": {
-          "x": 826,
+          "x": 797,
           "y": 78,
-          "width": 560,
+          "width": 600,
           "height": 443
         },
         "video_track_images": [
@@ -218,9 +218,9 @@
           "height": 459
         },
         "player_landscape": {
-          "x": 826,
+          "x": 797,
           "y": 78,
-          "width": 560,
+          "width": 600,
           "height": 443
         },
         "video_track_images": [

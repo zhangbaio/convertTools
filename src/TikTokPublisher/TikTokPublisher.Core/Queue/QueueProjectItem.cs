@@ -5,6 +5,7 @@ public static class QueueStepKeys
     public const string Download = "download";
     public const string RewriteInfo = "rewrite_info";
     public const string GeneratePoster = "generate_poster";
+    public const string GenerateProjectImages = "generate_project_images";
     public const string SmallVideoRepair = "small_video_repair";
     public const string SilenceDetect = "silence_detect";
     public const string SilenceRepair = "silence_repair";
@@ -66,6 +67,7 @@ public sealed class QueueProjectItem
                      QueueStepKeys.Download,
                      QueueStepKeys.RewriteInfo,
                      QueueStepKeys.GeneratePoster,
+                     QueueStepKeys.GenerateProjectImages,
                      QueueStepKeys.DeleteSourceVideos,
                      QueueStepKeys.UploadSeries,
                      QueueStepKeys.MaterialValidate,
@@ -79,6 +81,8 @@ public sealed class QueueProjectItem
         {
             if (StepStates.GetValueOrDefault(QueueStepKeys.MaterialValidate) == QueueStepStatus.Pending)
                 StepStates[QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed;
+            if (StepStates.GetValueOrDefault(QueueStepKeys.GenerateProjectImages) == QueueStepStatus.Pending)
+                StepStates[QueueStepKeys.GenerateProjectImages] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.SmallVideoRepair) == QueueStepStatus.Pending)
                 StepStates[QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.SilenceDetect) == QueueStepStatus.Pending)

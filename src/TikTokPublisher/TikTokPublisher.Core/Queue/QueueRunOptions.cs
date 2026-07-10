@@ -7,6 +7,7 @@ public static class QueueStepRegistry
     public const string Download = QueueStepKeys.Download;
     public const string RewriteInfo = QueueStepKeys.RewriteInfo;
     public const string GeneratePoster = QueueStepKeys.GeneratePoster;
+    public const string GenerateProjectImages = QueueStepKeys.GenerateProjectImages;
     public const string DeleteSourceVideos = QueueStepKeys.DeleteSourceVideos;
 
     public const string SmallVideoRepair = QueueStepKeys.SmallVideoRepair;
@@ -19,6 +20,7 @@ public static class QueueStepRegistry
         new QueueStepDefinition(QueueStepKeys.Download, "下载剧集", true),
         new QueueStepDefinition(QueueStepKeys.RewriteInfo, "改写信息", true),
         new QueueStepDefinition(QueueStepKeys.GeneratePoster, "生成海报", true),
+        new QueueStepDefinition(QueueStepKeys.GenerateProjectImages, "生成工程图", true),
         new QueueStepDefinition(SmallVideoRepair, "小文件修复", true),
         new QueueStepDefinition(SilenceDetect, "静音检测", true),
         new QueueStepDefinition(SilenceRepair, "静音修复", true),

@@ -46,6 +46,13 @@ public static class ClientSettingsWorkflowConfigWriter
             ["PosterTitleVerifyEnabled"] = settings.PosterTitleVerifyEnabled,
             ["PosterTitleVerifyMode"] = settings.PosterTitleVerifyMode,
             ["FrameCoverPrompt"] = settings.FrameCoverPrompt,
+            ["ProjectImageGenerationMode"] = settings.TiktokProjectImageGenerationMode,
+            ["ProjectImageTemplateRoot"] = settings.TiktokProjectImageTemplateRoot,
+            ["ProjectImageTemplateId"] = settings.TiktokProjectImageTemplateId,
+            ["ProjectImageTemplateName"] = ClientSettingsDefaults.TiktokProjectImageTemplateName,
+            ["ProjectImageCount"] = settings.TiktokProjectImageCount,
+            ["ProjectImageRenderEpisodeLimit"] = settings.TiktokProjectImageRenderEpisodeLimit,
+            ["ProjectImageSubtitleAiMode"] = settings.TiktokProjectImageSubtitleAiMode,
         };
         PosterImageConfigHelper.ApplyPosterRuntimeConfig(payload, settings);
 

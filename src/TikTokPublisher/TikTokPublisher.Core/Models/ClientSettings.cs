@@ -76,6 +76,12 @@ public sealed class ClientSettings
     public string PosterGenerationSafeRetryPrompt { get; set; } = ClientSettingsDefaults.PosterGenerationSafeRetryPrompt;
     public string PosterNameSystemPrompt { get; set; } = ClientSettingsDefaults.PosterNameSystemPrompt;
     public string PosterNameUserPrompt { get; set; } = ClientSettingsDefaults.PosterNameUserPrompt;
+    public string TiktokProjectImageGenerationMode { get; set; } = ClientSettingsDefaults.TiktokProjectImageGenerationMode;
+    public string TiktokProjectImageTemplateRoot { get; set; } = "";
+    public string TiktokProjectImageTemplateId { get; set; } = ClientSettingsDefaults.TiktokProjectImageTemplateId;
+    public int TiktokProjectImageCount { get; set; } = ClientSettingsDefaults.TiktokProjectImageCount;
+    public int TiktokProjectImageRenderEpisodeLimit { get; set; } = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
+    public string TiktokProjectImageSubtitleAiMode { get; set; } = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
 
     public string LastDownloadWorkspace { get; set; } = "";
     public string ArchiveRootDir { get; set; } = "";
@@ -183,6 +189,12 @@ public sealed class ClientSettings
         PosterGenerationSafeRetryPrompt = PosterGenerationSafeRetryPrompt,
         PosterNameSystemPrompt = PosterNameSystemPrompt,
         PosterNameUserPrompt = PosterNameUserPrompt,
+        TiktokProjectImageGenerationMode = TiktokProjectImageGenerationMode,
+        TiktokProjectImageTemplateRoot = TiktokProjectImageTemplateRoot,
+        TiktokProjectImageTemplateId = TiktokProjectImageTemplateId,
+        TiktokProjectImageCount = TiktokProjectImageCount,
+        TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit,
+        TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode,
         LastDownloadWorkspace = LastDownloadWorkspace,
         ArchiveRootDir = ArchiveRootDir,
         AuthServerUrl = AuthServerUrl,
