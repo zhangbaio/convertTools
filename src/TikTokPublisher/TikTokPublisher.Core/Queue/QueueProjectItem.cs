@@ -113,6 +113,8 @@ public sealed class QueueProjectItem
             ["manual_upload_status"] = ManualUploadStatus,
             ["step_states"] = new Dictionary<string, string>(StepStates),
             ["archived"] = Archived,
+            ["primary_video_path"] = PrimaryVideoPath,
+            ["cover_path"] = CoverPath,
         };
     }
 
@@ -140,6 +142,8 @@ public sealed class QueueProjectItem
             ManualUploadStatus = GetString(payload, "manual_upload_status"),
             Archived = GetBool(payload, "archived"),
             StepStates = GetStepStates(payload),
+            PrimaryVideoPath = GetString(payload, "primary_video_path"),
+            CoverPath = GetString(payload, "cover_path"),
         };
         item.NormalizeStepStates();
         return item;

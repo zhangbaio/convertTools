@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
@@ -9,6 +10,8 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class QueueWorkerRunnerTests
 {
+    private static readonly Lazy<byte[]> TinyMp4Bytes = new(CreateTinyMp4Bytes);
+
     [Fact]
     public async Task RunAsync_uploads_all_projects_when_preupload_steps_complete_synchronously()
     {
@@ -173,13 +176,65 @@ public sealed class QueueWorkerRunnerTests
         }
     }
 
+    [Fact]
+    public async Task RunAsync_appends_existing_completed_project_while_queue_is_running()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-test",
+            Name = "test",
+        };
+        var store = CreateAccountStore(account);
+        var runningItem = CreateReadyToUploadItem(1, account);
+        var completedItem = CreateCompletedItem(2, account);
+        var appendItem = CreateReadyToUploadItem(2, account);
+        appendItem.ProjectDir = completedItem.ProjectDir;
+        appendItem.DisplayName = completedItem.DisplayName;
+        appendItem.OriginalTitle = completedItem.OriginalTitle;
+        appendItem.NewTitle = completedItem.NewTitle;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var host = new BlockingPublishHost();
+        var runner = new QueueWorkerRunner();
+        var runTask = runner.RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-append-existing-test"),
+            [runningItem, completedItem],
+            new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            cts.Token);
+
+        await host.WaitForPublishCountAsync(1).WaitAsync(cts.Token);
+        runner.AddItems([appendItem]).Should().Be(1);
+
+        host.ReleaseNext();
+        await host.WaitForPublishCountAsync(2).WaitAsync(cts.Token);
+        host.ReleaseNext();
+
+        var summary = await runTask.WaitAsync(cts.Token);
+
+        summary.FailedCount.Should().Be(0);
+        host.PublishedProjectDirs.Should().Equal(runningItem.ProjectDir, completedItem.ProjectDir);
+        completedItem.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
+    }
+
     private static QueueProjectItem CreateReadyToUploadItem(int index, TikTokAccountProfile account)
     {
+        var projectDir = Path.Combine(Path.GetTempPath(), $"tiktok-ready-upload-{Guid.NewGuid():N}-{index}");
+        Directory.CreateDirectory(projectDir);
+        var videoPath = Path.Combine(projectDir, "episode-1.mp4");
+        File.WriteAllBytes(videoPath, TinyMp4Bytes.Value);
+
         var item = new QueueProjectItem
         {
-            ProjectDir = Path.Combine(Path.GetTempPath(), $"tiktok-ready-upload-{index}"),
+            ProjectDir = projectDir,
             OriginalTitle = $"original-{index}",
             NewTitle = $"title-{index}",
+            EpisodeCount = 1,
+            PrimaryVideoPath = videoPath,
             AccountProfileId = account.Id,
             AccountProfileName = account.DisplayName,
             Enabled = true,
@@ -190,6 +245,99 @@ public sealed class QueueWorkerRunnerTests
             item.StepStates[step.Key] = step.Key == QueueStepRegistry.UploadSeries
                 ? QueueStepStatus.Pending
                 : QueueStepStatus.Completed;
+        return item;
+    }
+
+    private static byte[] CreateTinyMp4Bytes()
+    {
+        var ffmpeg = ResolveFfmpegForTests();
+        var binDir = Path.GetDirectoryName(ffmpeg);
+        if (!string.IsNullOrWhiteSpace(binDir))
+            PrependPath(binDir);
+
+        var dir = Path.Combine(Path.GetTempPath(), $"tiktok-runner-video-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var output = Path.Combine(dir, "tiny.mp4");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpeg,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        foreach (var arg in new[]
+                 {
+                     "-y",
+                     "-f", "lavfi",
+                     "-i", "color=c=black:s=16x16:r=1:d=16",
+                     "-an",
+                     "-c:v", "libx264",
+                     "-pix_fmt", "yuv420p",
+                     output,
+                 })
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Unable to start ffmpeg for queue runner tests.");
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0 || !File.Exists(output))
+            throw new InvalidOperationException($"ffmpeg failed to create test video: {stderr}");
+
+        var minSize = 5L * 1024 * 1024 + 4096;
+        var info = new FileInfo(output);
+        if (info.Length < minSize)
+        {
+            using var stream = new FileStream(output, FileMode.Append, FileAccess.Write, FileShare.None);
+            stream.SetLength(minSize);
+        }
+
+        return File.ReadAllBytes(output);
+    }
+
+    private static string ResolveFfmpegForTests()
+    {
+        var root = FindRepositoryRoot();
+        var bundled = Path.Combine(root, "packaging", "dependencies", "tools", "win-x64", "ffmpeg", "ffmpeg.exe");
+        return File.Exists(bundled) ? bundled : "ffmpeg";
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var current = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "convertTools.sln")) ||
+                Directory.Exists(Path.Combine(current.FullName, ".git")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        return Directory.GetCurrentDirectory();
+    }
+
+    private static void PrependPath(string dir)
+    {
+        var path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        var parts = path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Any(part => string.Equals(Path.GetFullPath(part), Path.GetFullPath(dir), StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        Environment.SetEnvironmentVariable("PATH", dir + Path.PathSeparator + path);
+    }
+
+    private static QueueProjectItem CreateCompletedItem(int index, TikTokAccountProfile account)
+    {
+        var item = CreateReadyToUploadItem(index, account);
+        item.StatusText = QueueStepStatus.Completed;
+        item.UploadCompletedAt = DateTimeOffset.Now.ToString("o");
+        foreach (var step in QueueStepRegistry.All)
+            item.StepStates[step.Key] = QueueStepStatus.Completed;
         return item;
     }
 
@@ -237,6 +385,80 @@ public sealed class QueueWorkerRunnerTests
             PublishedProjectDirs.Add(project.ProjectDir);
             PublishedAccountIds.Add(account.Id);
             return Task.FromResult(PublishResult.Success("ok"));
+        }
+    }
+
+    private sealed class BlockingPublishHost : IQueuePublishHost
+    {
+        private readonly object _lock = new();
+        private readonly Queue<TaskCompletionSource> _releaseQueue = new();
+        private readonly List<(int Count, TaskCompletionSource Source)> _waiters = new();
+
+        public List<string> PublishedProjectDirs { get; } = new();
+
+        public Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
+            TikTokAccountProfile account,
+            Action<string>? log,
+            CancellationToken ct) =>
+            Task.FromResult(QueueBrowserReadyResult.Ready());
+
+        public async Task<PublishResult> PublishProjectAsync(
+            TikTokAccountProfile account,
+            QueueProjectItem project,
+            FinalAction finalAction,
+            QueueRunOptions options,
+            Action<string> log,
+            CancellationToken ct)
+        {
+            TaskCompletionSource release;
+            lock (_lock)
+            {
+                PublishedProjectDirs.Add(project.ProjectDir);
+                release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _releaseQueue.Enqueue(release);
+                CompleteSatisfiedWaiters();
+            }
+
+            await release.Task.WaitAsync(ct);
+            return PublishResult.Success("ok");
+        }
+
+        public Task WaitForPublishCountAsync(int count)
+        {
+            lock (_lock)
+            {
+                if (PublishedProjectDirs.Count >= count)
+                    return Task.CompletedTask;
+
+                var source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _waiters.Add((count, source));
+                return source.Task;
+            }
+        }
+
+        public void ReleaseNext()
+        {
+            TaskCompletionSource? release = null;
+            lock (_lock)
+            {
+                if (_releaseQueue.Count > 0)
+                    release = _releaseQueue.Dequeue();
+            }
+
+            release?.SetResult();
+        }
+
+        private void CompleteSatisfiedWaiters()
+        {
+            for (var index = _waiters.Count - 1; index >= 0; index--)
+            {
+                var (count, source) = _waiters[index];
+                if (PublishedProjectDirs.Count < count)
+                    continue;
+
+                _waiters.RemoveAt(index);
+                source.SetResult();
+            }
         }
     }
 }

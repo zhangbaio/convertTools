@@ -104,9 +104,15 @@ public sealed class QueueWorkerRunner
         var workspace = Path.GetFullPath(workspaceRoot);
         var filterOrder = BuildProjectDirOrder(projectDirFilter);
         var filter = filterOrder?.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var projectConcurrency = Math.Clamp(options.ProjectConcurrency, 1, ProjectConcurrencyHardMax);
+        var orderedSteps = options.OrderedEnabledSteps();
+        var preUploadSteps = orderedSteps.Where(s => s != QueueStepRegistry.UploadSeries).ToList();
+        var uploadEnabled = options.IsStepEnabled(QueueStepRegistry.UploadSeries);
+
         var candidateQuery = items
             .Where(i => i.Enabled && !i.Archived)
-            .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)));
+            .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)))
+            .Where(i => orderedSteps.Any(stepKey => ShouldRunStep(i, stepKey, options, ResolveAccount(accountStore, i))));
         var candidates = filterOrder is not null
             ? candidateQuery
                 .OrderBy(i => filterOrder.GetValueOrDefault(Path.GetFullPath(i.ProjectDir), int.MaxValue))
@@ -116,11 +122,6 @@ public sealed class QueueWorkerRunner
                 .OrderBy(i => string.IsNullOrWhiteSpace(i.QueuedAt) ? "9999" : i.QueuedAt, StringComparer.Ordinal)
                 .ThenBy(i => i.ProjectDir, StringComparer.OrdinalIgnoreCase)
                 .ToList();
-
-        var projectConcurrency = Math.Clamp(options.ProjectConcurrency, 1, ProjectConcurrencyHardMax);
-        var orderedSteps = options.OrderedEnabledSteps();
-        var preUploadSteps = orderedSteps.Where(s => s != QueueStepRegistry.UploadSeries).ToList();
-        var uploadEnabled = options.IsStepEnabled(QueueStepRegistry.UploadSeries);
 
         ManualIntervention.Reset();
         var settings = ClientSettingsStore.Load();
@@ -318,6 +319,9 @@ public sealed class QueueWorkerRunner
                     items,
                     candidates,
                     pendingPreUpload,
+                    readyForUpload,
+                    preUploadTasks.Values,
+                    uploadTasks.Values.Select(ctx => ctx.Item),
                     stateLock,
                     orderedSteps,
                     options,
@@ -390,11 +394,32 @@ public sealed class QueueWorkerRunner
                         }
                     });
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException ex)
                 {
-                    Mutate(() => MarkStopped(preItem, preItem.CurrentStep));
-                    stopped = true;
-                    DrainPendingAsStopped();
+                    var failedStep = string.IsNullOrWhiteSpace(preItem.CurrentStep)
+                        ? preUploadSteps.LastOrDefault() ?? QueueStepRegistry.UploadSeries
+                        : preItem.CurrentStep;
+                    if (ct.IsCancellationRequested)
+                    {
+                        Mutate(() => MarkStopped(preItem, failedStep));
+                        stopped = true;
+                        DrainPendingAsStopped();
+                    }
+                    else
+                    {
+                        var message = BuildNonQueueCancellationMessage(QueueStepRegistry.LabelOf(failedStep), ex);
+                        Mutate(() =>
+                        {
+                            MarkFailed(preItem, failedStep, message);
+                            failed++;
+                        });
+                        Report(
+                            onProgress,
+                            workspace,
+                            preItem,
+                            $"{message} 已标记此项目失败并继续后续队列。",
+                            failedStep);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -468,11 +493,29 @@ public sealed class QueueWorkerRunner
                         $"队列已停止：{ex.Message}", QueueStepRegistry.UploadSeries);
                     DrainPendingAsStopped();
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException ex)
                 {
-                    Mutate(() => MarkStopped(uploadCtx.Item, QueueStepRegistry.UploadSeries));
-                    stopped = true;
-                    DrainPendingAsStopped();
+                    if (ct.IsCancellationRequested)
+                    {
+                        Mutate(() => MarkStopped(uploadCtx.Item, QueueStepRegistry.UploadSeries));
+                        stopped = true;
+                        DrainPendingAsStopped();
+                    }
+                    else
+                    {
+                        var message = BuildNonQueueCancellationMessage(QueueStepRegistry.LabelOf(QueueStepRegistry.UploadSeries), ex);
+                        Mutate(() =>
+                        {
+                            MarkFailed(uploadCtx.Item, QueueStepRegistry.UploadSeries, message);
+                            failed++;
+                        });
+                        Report(
+                            onProgress,
+                            workspace,
+                            uploadCtx.Item,
+                            $"{message} 已标记此项目失败并继续后续队列。",
+                            QueueStepRegistry.UploadSeries);
+                    }
                 }
             }
         }
@@ -512,7 +555,8 @@ public sealed class QueueWorkerRunner
             ct.ThrowIfCancellationRequested();
 
             var wasCompletedBeforeRun = item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed;
-            if (!ShouldRunStep(item, stepKey, options))
+            var stepAccount = ResolveAccount(accountStore, item);
+            if (!ShouldRunStep(item, stepKey, options, stepAccount))
             {
                 Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 已完成，跳过", stepKey);
                 continue;
@@ -528,7 +572,6 @@ public sealed class QueueWorkerRunner
             mutate(() => MarkRunning(item, stepKey));
             Report(onProgress, workspace, item, $"开始 {QueueStepRegistry.LabelOf(stepKey)}…", stepKey);
 
-            var stepAccount = ResolveAccount(accountStore, item);
             var useSummaryLog = wasCompletedBeforeRun && options.ForceRerunCompletedSteps;
             Action<string> stepLog = useSummaryLog
                 ? QueueStepLogFilters.SummaryOnly(msg => Report(onProgress, workspace, item, msg, stepKey))
@@ -572,6 +615,16 @@ public sealed class QueueWorkerRunner
         {
             mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, consistency.Message));
             Report(onProgress, workspace, item, consistency.Message, QueueStepRegistry.UploadSeries);
+            return false;
+        }
+
+        var preflight = await TikTokUploadFilePreflightService
+            .ValidateAsync(item, uploadLog, ct)
+            .ConfigureAwait(false);
+        if (!preflight.Ok)
+        {
+            mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, preflight.Message));
+            Report(onProgress, workspace, item, preflight.Message, QueueStepRegistry.UploadSeries);
             return false;
         }
 
@@ -622,13 +675,19 @@ public sealed class QueueWorkerRunner
                 skipManualIntervention = result.SkipManualIntervention;
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
-            mutate(() => MarkStopped(item, QueueStepRegistry.UploadSeries));
-            Report(onProgress, workspace, item,
-                "上传中断：队列收到停止信号（手动停止或程序退出），重新执行时将自动续传已有草稿",
-                QueueStepRegistry.UploadSeries);
-            throw;
+            if (ct.IsCancellationRequested)
+            {
+                mutate(() => MarkStopped(item, QueueStepRegistry.UploadSeries));
+                Report(onProgress, workspace, item,
+                    "上传中断：队列收到停止信号（手动停止或程序退出），重新执行时将自动续传已有草稿",
+                    QueueStepRegistry.UploadSeries);
+                throw;
+            }
+
+            failure = ex;
+            failureMessage = BuildNonQueueCancellationMessage(QueueStepRegistry.LabelOf(QueueStepRegistry.UploadSeries), ex);
         }
         catch (Exception ex)
         {
@@ -787,17 +846,29 @@ public sealed class QueueWorkerRunner
         }
     }
 
-    private static bool ShouldRunStep(QueueProjectItem item, string stepKey, QueueRunOptions options)
+    private static bool ShouldRunStep(
+        QueueProjectItem item,
+        string stepKey,
+        QueueRunOptions options,
+        TikTokAccountProfile? account = null)
     {
         if (options.ForceRerunCompletedSteps) return true;
         if (stepKey == QueueStepRegistry.RewriteInfo &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
-            QueueMaterialStepService.NeedsAiRewrite(item))
+            QueueMaterialStepService.NeedsAiRewrite(item, account))
         {
             return true;
         }
 
         return item.StepStates.GetValueOrDefault(stepKey) != QueueStepStatus.Completed;
+    }
+
+    private static string BuildNonQueueCancellationMessage(string stepLabel, OperationCanceledException ex)
+    {
+        var detail = (ex.Message ?? "").Trim();
+        return string.IsNullOrWhiteSpace(detail)
+            ? $"{stepLabel} 被取消或超时。"
+            : $"{stepLabel} 被取消或超时：{detail}";
     }
 
     private static Task MakeUniqueTask(Task task)
@@ -1004,6 +1075,9 @@ public sealed class QueueWorkerRunner
         IList<QueueProjectItem> items,
         List<QueueProjectItem> candidates,
         Queue<(int Index, QueueProjectItem Item)> pendingPreUpload,
+        Queue<QueueProjectItem> readyForUpload,
+        IEnumerable<QueueProjectItem> activePreUploadItems,
+        IEnumerable<QueueProjectItem> activeUploadItems,
         object stateLock,
         IReadOnlyList<string> orderedSteps,
         QueueRunOptions options,
@@ -1027,8 +1101,21 @@ public sealed class QueueWorkerRunner
                     continue;
 
                 var projectDir = Path.GetFullPath(item.ProjectDir);
-                if (candidates.Any(existing => SameProjectDir(existing, projectDir)))
+                var existingCandidate = candidates.FirstOrDefault(existing => SameProjectDir(existing, projectDir));
+                if (existingCandidate is not null)
+                {
+                    if (IsProjectScheduledOrActive(projectDir, pendingPreUpload, readyForUpload, activePreUploadItems, activeUploadItems))
+                        continue;
+
+                    CopyQueueItemForAppend(existingCandidate, item);
+                    MarkQueuedForRun(existingCandidate, orderedSteps, options);
+                    if (!orderedSteps.Any(stepKey => ShouldRunStep(existingCandidate, stepKey, options)))
+                        continue;
+
+                    pendingPreUpload.Enqueue((candidates.IndexOf(existingCandidate) + 1, existingCandidate));
+                    added = true;
                     continue;
+                }
 
                 var queueItem = items.FirstOrDefault(existing => SameProjectDir(existing, projectDir));
                 if (queueItem is null)
@@ -1038,6 +1125,7 @@ public sealed class QueueWorkerRunner
                 }
 
                 queueItem.Enabled = true;
+                CopyQueueItemForAppend(queueItem, item);
                 MarkQueuedForRun(queueItem, orderedSteps, options);
                 candidates.Add(queueItem);
                 pendingPreUpload.Enqueue((candidates.Count, queueItem));
@@ -1047,6 +1135,43 @@ public sealed class QueueWorkerRunner
             if (added)
                 Persist(workspace, items, onPersist);
         }
+    }
+
+    private static bool IsProjectScheduledOrActive(
+        string projectDir,
+        Queue<(int Index, QueueProjectItem Item)> pendingPreUpload,
+        Queue<QueueProjectItem> readyForUpload,
+        IEnumerable<QueueProjectItem> activePreUploadItems,
+        IEnumerable<QueueProjectItem> activeUploadItems) =>
+        pendingPreUpload.Any(entry => SameProjectDir(entry.Item, projectDir)) ||
+        readyForUpload.Any(item => SameProjectDir(item, projectDir)) ||
+        activePreUploadItems.Any(item => SameProjectDir(item, projectDir)) ||
+        activeUploadItems.Any(item => SameProjectDir(item, projectDir));
+
+    private static void CopyQueueItemForAppend(QueueProjectItem target, QueueProjectItem source)
+    {
+        target.DisplayName = source.DisplayName;
+        target.OriginalTitle = source.OriginalTitle;
+        target.NewTitle = source.NewTitle;
+        target.EpisodeCount = source.EpisodeCount;
+        target.GenreCategory = source.GenreCategory;
+        target.Description = source.Description;
+        target.QueueEntryDramaType = source.QueueEntryDramaType;
+        target.AccountProfileId = source.AccountProfileId;
+        target.AccountProfileName = source.AccountProfileName;
+        target.QueuedAt = source.QueuedAt;
+        target.UploadCompletedAt = source.UploadCompletedAt;
+        target.Enabled = source.Enabled;
+        target.CurrentStep = source.CurrentStep;
+        target.StatusText = source.StatusText;
+        target.LastError = source.LastError;
+        target.Remark = source.Remark;
+        target.ManualUploadStatus = source.ManualUploadStatus;
+        target.StepStates = new Dictionary<string, string>(source.StepStates);
+        target.Archived = source.Archived;
+        target.PrimaryVideoPath = source.PrimaryVideoPath;
+        target.CoverPath = source.CoverPath;
+        target.NormalizeStepStates();
     }
 
     private static QueueProjectItem CloneQueueItem(QueueProjectItem item) =>
