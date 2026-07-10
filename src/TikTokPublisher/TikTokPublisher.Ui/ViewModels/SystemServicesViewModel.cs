@@ -39,6 +39,8 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private string _feishuCommandStatus = "未启用";
     [ObservableProperty] private bool _xingeRemoteEnabled;
     [ObservableProperty] private string _xingeServerUrl = "";
+    [ObservableProperty] private string _xingeAccount = "";
+    [ObservableProperty] private string _xingePassword = "";
     [ObservableProperty] private string _xingeClientId = "";
     [ObservableProperty] private string _xingeClientToken = "";
     [ObservableProperty] private string _xingeClientName = "TikTokPublisher";
@@ -83,6 +85,10 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
             : settings.FeishuCommandHelpText;
         XingeRemoteEnabled = settings.XingeRemoteEnabled;
         XingeServerUrl = FirstNonEmpty(settings.XingeServerUrl, settings.AuthServerUrl, state.ServerUrl);
+        XingeAccount = FirstNonEmpty(settings.XingeAccount, settings.AuthAccount);
+        XingePassword = !string.IsNullOrEmpty(settings.XingePassword)
+            ? settings.XingePassword
+            : settings.AuthPassword ?? "";
         XingeClientId = settings.XingeClientId ?? "";
         XingeClientToken = settings.XingeClientToken ?? "";
         XingeClientName = string.IsNullOrWhiteSpace(settings.XingeClientName) ? "TikTokPublisher" : settings.XingeClientName;
@@ -169,6 +175,38 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task TestXingeLoginAsync()
+    {
+        if (IsBusy) return;
+        IsBusy = true;
+        XingeRemoteStatus = "正在使用用户名和密码登录 XINGE...";
+        try
+        {
+            var settings = ClientSettingsStore.Load();
+            ApplyUiToSettings(settings);
+            var credentials = await XingeRemoteAccountService.ProvisionAsync(settings);
+            XingeClientId = credentials.ClientId;
+            XingeClientToken = credentials.ClientToken;
+            settings.XingeClientId = credentials.ClientId;
+            settings.XingeClientToken = credentials.ClientToken;
+            settings.XingeCredentialFingerprint = credentials.CredentialFingerprint;
+            ClientSettingsStore.Save(settings);
+            XingeRemoteStatus = $"账号登录成功：{credentials.Username}，远程客户端凭证已生成";
+            StatusRequested?.Invoke(XingeRemoteStatus);
+            SettingsSaved?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            XingeRemoteStatus = $"XINGE 登录失败：{ex.Message}";
+            StatusRequested?.Invoke(XingeRemoteStatus);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
     private void SelectAllRemoteSteps() => ApplyRemoteSteps(QueueStepRegistry.All.Select(step => step.Key));
 
     [RelayCommand]
@@ -234,6 +272,8 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.FeishuTiktokUploadPreferUploadWhenReady = RemotePreferUploadWhenReady;
         settings.XingeRemoteEnabled = XingeRemoteEnabled;
         settings.XingeServerUrl = XingeServerUrl.Trim();
+        settings.XingeAccount = XingeAccount.Trim();
+        settings.XingePassword = XingePassword;
         settings.XingeClientId = XingeClientId.Trim();
         settings.XingeClientToken = XingeClientToken.Trim();
         settings.XingeClientName = string.IsNullOrWhiteSpace(XingeClientName) ? "TikTokPublisher" : XingeClientName.Trim();

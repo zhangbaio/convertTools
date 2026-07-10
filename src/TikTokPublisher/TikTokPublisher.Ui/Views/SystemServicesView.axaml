@@ -147,7 +147,7 @@
                     <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
                         <TextBlock Text="{Binding XingeRemoteStatus}" Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="9"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="监听开关" VerticalAlignment="Center" />
@@ -156,11 +156,11 @@
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="XINGE 地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding XingeServerUrl}" Watermark="http://127.0.0.1:8080" />
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="客户端 ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding XingeClientId}" Watermark="在 XINGE 远程客户端中创建后填写" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="用户名/邮箱" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding XingeAccount}" Watermark="填写 XINGE 登录账号" />
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="客户端 Token" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding XingeClientToken}" PasswordChar="*" RevealPassword="False" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="密码" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding XingePassword}" PasswordChar="*" RevealPassword="False" Watermark="填写 XINGE 登录密码" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="客户端名称" VerticalAlignment="Center" />
                             <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding XingeClientName}" Watermark="TikTokPublisher" />
@@ -175,9 +175,23 @@
                                            Width="120"
                                            HorizontalAlignment="Left"
                                            FormatString="0 秒" />
+
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="客户端 ID（兼容）" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding XingeClientId}" Watermark="账号登录后自动生成，也可手工填写" />
+
+                            <TextBlock Grid.Row="7" Grid.Column="0" Text="客户端 Token（兼容）" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding XingeClientToken}" PasswordChar="*" RevealPassword="False" Watermark="账号登录后自动生成，也可手工填写" />
                         </Grid>
 
-                        <TextBlock Text="启用后客户端会向 XINGE 注册当前工作目录和 TikTok 账号列表，并接收 XINGE 下发的 TikTok 上传命令。"
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="测试账号并生成凭证" Command="{Binding TestXingeLoginCommand}" />
+                            <TextBlock Text="保存配置后也会自动登录；账号或密码变化时自动重新签发客户端凭证。"
+                                       Classes="compactHint"
+                                       VerticalAlignment="Center"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <TextBlock Text="启用后客户端会用账号登录 XINGE，注册当前工作目录和 TikTok 账号列表，并接收 XINGE 下发的 TikTok 上传命令。客户端 ID/Token 仅用于兼容旧配置。"
                                    Classes="compactHint"
                                    TextWrapping="Wrap" />
                     </StackPanel>

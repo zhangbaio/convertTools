@@ -50,7 +50,7 @@ public sealed class XingeRemoteCommandService
         var config = XingeRemoteConfig.FromSettings(settings);
         if (!config.IsReady)
         {
-            Notify("XINGE 未配置客户端 ID/Token 或服务地址");
+            Notify("XINGE 未配置用户名/密码、客户端 ID/Token 或服务地址");
             return;
         }
 
@@ -61,7 +61,7 @@ public sealed class XingeRemoteCommandService
             _worker = Task.Run(() => RunAsync(config, executeAsync, snapshotProvider, log, cts.Token));
         }
 
-        Notify("XINGE 正在连接...");
+        Notify(config.NeedsProvisioning ? "XINGE 正在登录账号..." : "XINGE 正在连接...");
     }
 
     public void Stop()
@@ -108,6 +108,9 @@ public sealed class XingeRemoteCommandService
         {
             try
             {
+                if (config.NeedsProvisioning)
+                    await ProvisionAndSaveAsync(config, ct).ConfigureAwait(false);
+
                 if (DateTimeOffset.UtcNow - lastRegisteredAt >= TimeSpan.FromSeconds(30))
                 {
                     var snapshot = snapshotProvider();
@@ -128,6 +131,21 @@ public sealed class XingeRemoteCommandService
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 break;
+            }
+            catch (XingeRemoteAuthenticationException) when (config.CanProvision)
+            {
+                try
+                {
+                    await ProvisionAndSaveAsync(config, ct).ConfigureAwait(false);
+                    lastRegisteredAt = DateTimeOffset.MinValue;
+                }
+                catch (Exception ex)
+                {
+                    var text = $"XINGE 重新登录失败：{ex.Message}";
+                    Notify(text);
+                    log?.Invoke(text);
+                    await Task.Delay(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
+                }
             }
             catch (Exception ex)
             {
@@ -202,7 +220,7 @@ public sealed class XingeRemoteCommandService
         return envelope.Data;
     }
 
-    private static async Task HandleCommandAsync(
+    private async Task HandleCommandAsync(
         HttpClient http,
         XingeRemoteConfig config,
         XingeRemoteMessage message,
@@ -227,8 +245,31 @@ public sealed class XingeRemoteCommandService
             result = await executeAsync(command).ConfigureAwait(false);
         }
 
-        await CompleteAsync(http, config, message.ID, result, ct).ConfigureAwait(false);
+        try
+        {
+            await CompleteAsync(http, config, message.ID, result, ct).ConfigureAwait(false);
+        }
+        catch (XingeRemoteAuthenticationException) when (config.CanProvision)
+        {
+            await ProvisionAndSaveAsync(config, ct).ConfigureAwait(false);
+            await CompleteAsync(http, config, message.ID, result, ct).ConfigureAwait(false);
+        }
         log?.Invoke($"XINGE 远程命令完成：{result.SummaryText}");
+    }
+
+    private async Task ProvisionAndSaveAsync(XingeRemoteConfig config, CancellationToken ct)
+    {
+        var credentials = await XingeRemoteAccountService
+            .ProvisionAsync(config.Settings, ct)
+            .ConfigureAwait(false);
+
+        var persisted = ClientSettingsStore.Load();
+        persisted.XingeClientId = credentials.ClientId;
+        persisted.XingeClientToken = credentials.ClientToken;
+        persisted.XingeCredentialFingerprint = credentials.CredentialFingerprint;
+        ClientSettingsStore.Save(persisted);
+        config.ApplyCredentials(credentials);
+        Notify($"XINGE 账号已登录：{credentials.Username}");
     }
 
     private static async Task CompleteAsync(
@@ -291,6 +332,8 @@ public sealed class XingeRemoteCommandService
         if (!response.IsSuccessStatusCode)
         {
             var preview = text.Length > 240 ? text[..240] : text;
+            if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+                throw new XingeRemoteAuthenticationException($"HTTP {(int)response.StatusCode}: {preview}");
             throw new InvalidOperationException($"HTTP {(int)response.StatusCode}: {preview}");
         }
 
@@ -304,28 +347,47 @@ public sealed class XingeRemoteCommandService
         values.Select(value => value?.Trim() ?? "")
             .FirstOrDefault(value => value.Length > 0) ?? "";
 
-    private sealed record XingeRemoteConfig(
-        string BaseUrl,
-        string ClientId,
-        string ClientToken,
-        string ClientName,
-        TimeSpan PollInterval)
+    private sealed class XingeRemoteConfig
     {
+        private XingeRemoteConfig(ClientSettings settings, string baseUrl, TimeSpan pollInterval)
+        {
+            Settings = settings;
+            BaseUrl = baseUrl;
+            ClientId = settings.XingeClientId?.Trim() ?? "";
+            ClientToken = settings.XingeClientToken?.Trim() ?? "";
+            ClientName = FirstNonEmpty(settings.XingeClientName, "TikTokPublisher");
+            PollInterval = pollInterval;
+        }
+
+        public ClientSettings Settings { get; }
+        public string BaseUrl { get; }
+        public string ClientId { get; private set; }
+        public string ClientToken { get; private set; }
+        public string ClientName { get; }
+        public TimeSpan PollInterval { get; }
+        public bool CanProvision => XingeRemoteAccountService.HasPasswordCredentials(Settings);
+        public bool NeedsProvisioning => XingeRemoteAccountService.NeedsProvisioning(Settings);
+        public bool HasClientCredentials =>
+            !string.IsNullOrWhiteSpace(ClientId) && !string.IsNullOrWhiteSpace(ClientToken);
+
         public bool IsReady =>
             !string.IsNullOrWhiteSpace(BaseUrl) &&
-            !string.IsNullOrWhiteSpace(ClientId) &&
-            !string.IsNullOrWhiteSpace(ClientToken);
+            (HasClientCredentials || CanProvision);
 
         public static XingeRemoteConfig FromSettings(ClientSettings settings)
         {
             var baseUrl = NormalizeBaseUrl(FirstNonEmpty(settings.XingeServerUrl, settings.AuthServerUrl));
             var intervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
-            return new XingeRemoteConfig(
-                baseUrl,
-                settings.XingeClientId?.Trim() ?? "",
-                settings.XingeClientToken?.Trim() ?? "",
-                FirstNonEmpty(settings.XingeClientName, "TikTokPublisher"),
-                TimeSpan.FromSeconds(intervalSeconds));
+            return new XingeRemoteConfig(settings, baseUrl, TimeSpan.FromSeconds(intervalSeconds));
+        }
+
+        public void ApplyCredentials(XingeRemoteClientCredentials credentials)
+        {
+            ClientId = credentials.ClientId;
+            ClientToken = credentials.ClientToken;
+            Settings.XingeClientId = credentials.ClientId;
+            Settings.XingeClientToken = credentials.ClientToken;
+            Settings.XingeCredentialFingerprint = credentials.CredentialFingerprint;
         }
 
         private static string NormalizeBaseUrl(string? value)
@@ -338,6 +400,8 @@ public sealed class XingeRemoteCommandService
             return text.TrimEnd('/');
         }
     }
+
+    private sealed class XingeRemoteAuthenticationException(string message) : Exception(message);
 
     private sealed class XingeApiEnvelope<T>
     {

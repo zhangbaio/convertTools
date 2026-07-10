@@ -307,8 +307,11 @@ public static class ClientSettingsStore
         settings.FeishuTiktokUploadEnabledStepsJson = TikTokRemoteRunOptions.DumpFeishuTikTokUploadEnabledSteps(
             TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings));
         settings.XingeServerUrl = (settings.XingeServerUrl ?? "").Trim().TrimEnd('/');
+        settings.XingeAccount = (settings.XingeAccount ?? "").Trim();
+        settings.XingePassword ??= "";
         settings.XingeClientId = (settings.XingeClientId ?? "").Trim();
         settings.XingeClientToken = (settings.XingeClientToken ?? "").Trim();
+        settings.XingeCredentialFingerprint = (settings.XingeCredentialFingerprint ?? "").Trim();
         settings.XingeClientName = DefaultIfBlank(settings.XingeClientName, "TikTokPublisher");
         settings.XingePollIntervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
         return settings;
