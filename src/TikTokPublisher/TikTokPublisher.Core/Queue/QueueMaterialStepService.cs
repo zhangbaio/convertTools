@@ -263,7 +263,7 @@ public static class QueueMaterialStepService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         EnsureRewriteInputDefaults(infoPath, item, context, episodeCount);
         var originalTitle = ResolveOriginalTitle(infoPath, item, context);
-        var sourceSynopsis = ResolveSynopsis(infoPath, item);
+        var sourceSynopsis = ResolveSynopsis(infoPath, item, context);
         var rewriteHistory = AiRewriteHistoryService.LoadForOriginalTitle(originalTitle);
         var otherHistory = rewriteHistory
             .Where(record => !IsCurrentProjectHistory(record, context))
@@ -572,14 +572,16 @@ public static class QueueMaterialStepService
             Path.GetFileName(context.SourceProjectDir));
     }
 
-    private static string ResolveSynopsis(string infoPath, QueueProjectItem item)
+    private static string ResolveSynopsis(string infoPath, QueueProjectItem item, ProjectWorkspaceContext context)
     {
         var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        var metadata = ReadDownloadMetadata(context.SourceProjectDir);
         return FirstNonEmpty(
             info.GetValueOrDefault("简介"),
             info.GetValueOrDefault("描述"),
             info.GetValueOrDefault("剧情简介"),
-            item.Description);
+            item.Description,
+            metadata.Intro);
     }
 
     private static IReadOnlyList<string> BuildForbiddenTitles(
@@ -782,6 +784,7 @@ public static class QueueMaterialStepService
         int episodeCount)
     {
         var existing = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        var metadata = ReadDownloadMetadata(context.SourceProjectDir);
         var originalTitle = FirstNonEmpty(
             existing.GetValueOrDefault("原剧名"),
             item.OriginalTitle,
@@ -793,6 +796,12 @@ public static class QueueMaterialStepService
             item.NewTitle,
             item.Title,
             originalTitle);
+        var synopsis = FirstNonEmpty(
+            existing.GetValueOrDefault("简介"),
+            existing.GetValueOrDefault("描述"),
+            existing.GetValueOrDefault("剧情简介"),
+            item.Description,
+            metadata.Intro);
         var totalMinutes = Math.Max(1, episodeCount);
         var costWan = Math.Max(1, (int)Math.Round(totalMinutes * 1500d / 10000d, MidpointRounding.AwayFromZero));
 
@@ -804,8 +813,11 @@ public static class QueueMaterialStepService
         AddIfMissing(existing, updates, "时长", $"{totalMinutes} 分钟");
         AddIfMissing(existing, updates, "成本", $"{costWan} 万元");
         AddIfMissing(existing, updates, "制作公司", "未填写公司");
+        AddIfMissing(existing, updates, "简介", synopsis);
 
         ProjectInfoTextHelper.UpdateFields(infoPath, updates);
+        if (!string.IsNullOrWhiteSpace(synopsis))
+            item.Description = synopsis;
     }
 
     private static bool NeedsAiRewrite(
@@ -978,12 +990,12 @@ public static class QueueMaterialStepService
     private static DownloadMetadata ReadDownloadMetadata(string sourceProjectDir)
     {
         var path = Path.Combine(sourceProjectDir, "shortdrama-project.json");
-        if (!File.Exists(path)) return new DownloadMetadata("", "all", "", "", "");
+        if (!File.Exists(path)) return new DownloadMetadata("", "all", "", "", "", "");
         try
         {
             using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
             if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
-                return new DownloadMetadata("", "all", "", "", "");
+                return new DownloadMetadata("", "all", "", "", "", "");
 
             var root = doc.RootElement;
             return new DownloadMetadata(
@@ -991,11 +1003,12 @@ public static class QueueMaterialStepService
                 GetString(root, "episodes") ?? "all",
                 GetString(root, "quality") ?? "",
                 GetString(root, "title") ?? GetString(root, "displayName") ?? "",
-                GetString(root, "episodeNumberMode") ?? GetString(root, "episode_number_mode") ?? "");
+                GetString(root, "episodeNumberMode") ?? GetString(root, "episode_number_mode") ?? "",
+                GetString(root, "intro") ?? GetString(root, "description") ?? "");
         }
         catch
         {
-            return new DownloadMetadata("", "all", "", "", "");
+            return new DownloadMetadata("", "all", "", "", "", "");
         }
     }
 
@@ -1098,5 +1111,11 @@ public static class QueueMaterialStepService
         public bool IsComplete => !IsUnknown && Missing.Count == 0;
     }
 
-    private sealed record DownloadMetadata(string BookId, string Episodes, string Quality, string Title, string EpisodeNumberMode);
+    private sealed record DownloadMetadata(
+        string BookId,
+        string Episodes,
+        string Quality,
+        string Title,
+        string EpisodeNumberMode,
+        string Intro);
 }

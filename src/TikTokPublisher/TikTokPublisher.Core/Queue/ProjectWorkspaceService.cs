@@ -117,10 +117,13 @@ public static class ProjectWorkspaceService
         var context = LoadContext(projectDir);
         var workflowDir = PrepareWorkflowProject(context.SourceProjectDir, log);
         var infoPath = Path.Combine(workflowDir, "短剧信息.txt");
+        var metadata = ReadMetadata(context.SourceProjectDir);
+        var synopsis = FirstNonEmpty(
+            metadata.GetValueOrDefault("intro"),
+            metadata.GetValueOrDefault("description"));
 
         if (!File.Exists(infoPath))
         {
-            var metadata = ReadMetadata(context.SourceProjectDir);
             var originalTitle = FirstNonEmpty(
                 metadata.GetValueOrDefault("title"),
                 metadata.GetValueOrDefault("originalTitle"),
@@ -129,12 +132,13 @@ public static class ProjectWorkspaceService
             var newTitle = FirstNonEmpty(
                 metadata.GetValueOrDefault("newTitle"),
                 originalTitle);
-            WriteMinimalProjectInfo(infoPath, newTitle, originalTitle, Math.Max(1, episodeCount));
+            WriteMinimalProjectInfo(infoPath, newTitle, originalTitle, Math.Max(1, episodeCount), synopsis);
             log?.Invoke("已生成短剧信息.txt");
         }
         else
         {
             UpdateProjectInfoField(infoPath, "集数", Math.Max(1, episodeCount).ToString());
+            UpdateProjectInfoFieldIfBlank(infoPath, "简介", synopsis);
         }
 
         return workflowDir;
@@ -481,21 +485,30 @@ public static class ProjectWorkspaceService
         }
     }
 
-    private static void WriteMinimalProjectInfo(string infoPath, string newTitle, string originalTitle, int episodeCount)
+    private static void WriteMinimalProjectInfo(
+        string infoPath,
+        string newTitle,
+        string originalTitle,
+        int episodeCount,
+        string synopsis)
     {
         var totalMinutes = Math.Max(1, episodeCount);
         var costWan = Math.Max(1, (int)Math.Round(totalMinutes * 1500d / 10000d, MidpointRounding.AwayFromZero));
-        var lines = new[]
+        var lines = new List<string>
         {
             $"新剧名: {newTitle}",
             $"原剧名: {originalTitle}",
             $"短标题: {newTitle}",
             "标签: 短视频",
+        };
+        if (!string.IsNullOrWhiteSpace(synopsis))
+            lines.Add($"简介: {synopsis.Trim()}");
+        lines.AddRange([
             $"集数: {episodeCount}",
             $"时长: {totalMinutes} 分钟",
             $"成本: {costWan} 万元",
             "制作公司: 未填写公司",
-        };
+        ]);
         File.WriteAllText(infoPath, string.Join(Environment.NewLine, lines) + Environment.NewLine);
     }
 
@@ -519,6 +532,17 @@ public static class ProjectWorkspaceService
 
         lines.Add($"{key}: {value}");
         File.WriteAllLines(infoPath, lines);
+    }
+
+    private static void UpdateProjectInfoFieldIfBlank(string infoPath, string key, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        var existing = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        if (existing.TryGetValue(key, out var current) && !string.IsNullOrWhiteSpace(current))
+            return;
+
+        UpdateProjectInfoField(infoPath, key, value);
     }
 
     private static void LinkOrCopy(string sourcePath, string targetPath)
