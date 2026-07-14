@@ -243,6 +243,9 @@ public sealed class AccountStore
         account.TiktokProofCopyrightCompanyName = (account.TiktokProofCopyrightCompanyName ?? "").Trim();
         account.TiktokProofDeclarantCompanyName = (account.TiktokProofDeclarantCompanyName ?? "").Trim();
         account.TiktokProofSealPath = (account.TiktokProofSealPath ?? "").Trim();
+        account.TiktokCopyrightMaterialTypes = TikTokPublishConstants
+            .NormalizeCopyrightMaterialTypes(account.TiktokCopyrightMaterialTypes)
+            .ToList();
         account.ManagementDedupScope = NormalizeManagementDedupScope(account.ManagementDedupScope);
     }
 

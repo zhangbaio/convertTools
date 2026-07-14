@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
@@ -89,6 +90,7 @@ public sealed class TikTokProofMaterialService
         cancellationToken.ThrowIfCancellationRequested();
 
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        ProjectWorkspaceService.ValidateContextOwnership(context);
         Directory.CreateDirectory(context.WorkflowProjectDir);
         var request = CreateQueueRequest(item, settings, account, context.WorkflowProjectDir);
         var fingerprint = ComputeFingerprint(request);
@@ -120,6 +122,81 @@ public sealed class TikTokProofMaterialService
 
         SaveState(context, request, fingerprint, result);
         return result;
+    }
+
+    public static async Task<string> EnsureCurrentForUploadAsync(
+        QueueProjectItem item,
+        TikTokAccountProfile? account,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+            var expectedPath = GetPdfPath(context.WorkflowProjectDir);
+            var result = await GenerateAsync(
+                item,
+                ClientSettingsStore.Load(),
+                account,
+                forceRerun: false,
+                log,
+                cancellationToken).ConfigureAwait(false);
+            var resultPath = Path.GetFullPath(result.PdfPath);
+            if (!string.Equals(resultPath, expectedPath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    $"证明材料生成到了非当前项目目录：{resultPath}；预期路径：{expectedPath}。");
+            }
+
+            TikTokProofMaterialPdfRenderService.ValidatePdf(expectedPath);
+            return expectedPath;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"上传合作协议前准备证明材料失败：{ex.Message}", ex);
+        }
+    }
+
+    public static async Task<string> EnsureCurrentForUploadAsync(
+        PublishItem item,
+        TikTokAccountProfile? account,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var materialTypes = TikTokPublishConstants.ValidateCopyrightMaterialTypes(
+            account?.TiktokCopyrightMaterialTypes);
+        if (!TikTokPublishConstants.RequiresGeneratedProofMaterial(materialTypes))
+            return string.Empty;
+
+        if (string.IsNullOrWhiteSpace(item.ProjectDir))
+        {
+            throw new InvalidOperationException(
+                "上传合作协议前准备证明材料失败：未提供当前项目目录，无法定位 workflow/证明材料.pdf。");
+        }
+
+        var payload = TikTokProjectPayloadFactory.BuildFromPublishItem(item);
+        var queueItem = new QueueProjectItem
+        {
+            ProjectDir = Path.GetFullPath(item.ProjectDir),
+            DisplayName = item.ProjectKey ?? string.Empty,
+            OriginalTitle = payload.OriginalTitle,
+            NewTitle = payload.Title,
+            Description = payload.Description,
+            EpisodeCount = payload.EpisodeCount,
+            PrimaryVideoPath = item.VideoPath,
+        };
+        return await EnsureCurrentForUploadAsync(queueItem, account, log, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public static bool NeedsGenerateProofMaterial(

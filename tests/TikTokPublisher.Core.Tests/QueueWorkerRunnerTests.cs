@@ -19,6 +19,7 @@ public sealed class QueueWorkerRunnerTests
         {
             Id = "acct-test",
             Name = "test",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
         };
         var store = CreateAccountStore(account);
         var items = Enumerable.Range(1, 7)
@@ -53,17 +54,101 @@ public sealed class QueueWorkerRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_upload_only_prepares_current_project_proof_before_browser()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-proof",
+            Name = "proof",
+            TiktokCopyrightMaterialTypes = ["production_agreement"],
+        };
+        var store = CreateAccountStore(account);
+        var item = CreateReadyToUploadItem(1, account);
+        var host = new ImmediatePublishHost();
+        var ensureCalls = 0;
+        string? ensuredPath = null;
+        QueueProofMaterialPrerequisite ensure = (project, _, _, _) =>
+        {
+            ensureCalls++;
+            var workflow = ProjectWorkspaceService.EnsureWorkflowProjectDir(project.ProjectDir);
+            ensuredPath = TikTokProofMaterialService.GetPdfPath(workflow);
+            File.WriteAllBytes(ensuredPath, "%PDF-1.7\nproof"u8.ToArray());
+            return Task.FromResult(ensuredPath);
+        };
+        var progress = new List<string>();
+
+        var summary = await new QueueWorkerRunner(ensure).RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-proof-dependency-test"),
+            [item],
+            new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: update => progress.Add(update.Message),
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.SuccessCount.Should().Be(1, string.Join(Environment.NewLine, progress));
+        summary.FailedCount.Should().Be(0);
+        ensureCalls.Should().Be(1);
+        ensuredPath.Should().Be(TikTokProofMaterialService.GetPdfPath(
+            ProjectWorkspaceService.LoadContext(item.ProjectDir).WorkflowProjectDir));
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
+        item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
+        host.BrowserReadyCalls.Should().Be(1);
+        progress.Should().Contain(message => message.Contains("上传前检查当前项目证明材料", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task RunAsync_upload_only_fails_clearly_when_proof_preparation_fails()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-proof-failure",
+            Name = "proof-failure",
+            TiktokCopyrightMaterialTypes = ["production_agreement"],
+        };
+        var store = CreateAccountStore(account);
+        var item = CreateReadyToUploadItem(1, account);
+        var host = new ImmediatePublishHost();
+        QueueProofMaterialPrerequisite ensure = (_, _, _, _) =>
+            Task.FromException<string>(new InvalidOperationException("PDF renderer unavailable"));
+
+        var summary = await new QueueWorkerRunner(ensure).RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-proof-failure-test"),
+            [item],
+            new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.SuccessCount.Should().Be(0);
+        summary.FailedCount.Should().Be(1);
+        host.BrowserReadyCalls.Should().Be(0);
+        host.PublishedProjectDirs.Should().BeEmpty();
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial].Should().Be(QueueStepStatus.Failed);
+        item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Failed);
+        item.LastError.Should().Contain("上传合作协议前准备证明材料失败")
+            .And.Contain("PDF renderer unavailable");
+    }
+
+    [Fact]
     public async Task RunAsync_repairs_stale_account_id_by_profile_name_instead_of_active_account()
     {
         var activeAccount = new TikTokAccountProfile
         {
             Id = "acct-active",
             Name = "账号1",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
         };
         var targetAccount = new TikTokAccountProfile
         {
             Id = "acct-current-3",
             Name = "账号3",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
         };
         var store = CreateAccountStore([activeAccount, targetAccount], activeAccount.Id);
         var item = CreateReadyToUploadItem(1, targetAccount);
@@ -96,6 +181,7 @@ public sealed class QueueWorkerRunnerTests
         {
             Id = "acct-active",
             Name = "账号1",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
         };
         var store = CreateAccountStore(activeAccount);
         var item = CreateReadyToUploadItem(1, activeAccount);
@@ -137,6 +223,7 @@ public sealed class QueueWorkerRunnerTests
             {
                 Id = "acct-test",
                 Name = "test",
+                TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
             };
             var store = CreateAccountStore(account);
             var item = CreateReadyToUploadItem(1, account);
@@ -183,6 +270,7 @@ public sealed class QueueWorkerRunnerTests
         {
             Id = "acct-test",
             Name = "test",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
         };
         var store = CreateAccountStore(account);
         var runningItem = CreateReadyToUploadItem(1, account);

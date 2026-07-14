@@ -43,6 +43,67 @@ public static class ProjectWorkspaceService
         return new ProjectWorkspaceContext(resolved, workflowDir, workspaceRoot2);
     }
 
+    /// <summary>
+    /// 校验 source/workflow 的双向归属，避免陈旧或复制来的元数据把当前项目指向另一项目目录。
+    /// </summary>
+    public static void ValidateContextOwnership(ProjectWorkspaceContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        var source = Path.GetFullPath(context.SourceProjectDir);
+        var workflow = Path.GetFullPath(context.WorkflowProjectDir);
+        var workspace = Path.GetFullPath(context.WorkspaceRoot);
+        var workflowRoot = Path.Combine(workspace, "workflow");
+        if (!IsDirectChildOf(workflow, workflowRoot))
+        {
+            throw new InvalidDataException(
+                $"当前项目 workflow 目录越界：{workflow}；预期位于：{workflowRoot}。");
+        }
+
+        // 直接以 workflow 项目作为入口时，它本身就是本次操作的边界，不存在 source 跨项目映射。
+        if (PathsEqual(source, workflow))
+            return;
+
+        if (!IsDirectChildOf(source, workspace))
+        {
+            throw new InvalidDataException(
+                $"当前项目源目录不属于工作区：{source}；工作区：{workspace}。");
+        }
+
+        var sourceMetadata = ReadMetadata(source);
+        var sourceDeclaredBySource = sourceMetadata.GetValueOrDefault("sourceProjectDir");
+        if (!string.IsNullOrWhiteSpace(sourceDeclaredBySource) &&
+            !PathsEqual(ResolveMetadataPath(sourceDeclaredBySource, source), source))
+        {
+            throw new InvalidDataException(
+                $"当前项目元数据中的 sourceProjectDir 与实际目录不一致：{sourceDeclaredBySource}；实际：{source}。");
+        }
+
+        if (!Directory.Exists(workflow))
+            return;
+
+        var workflowMetadata = ReadMetadata(workflow);
+        var sourceDeclaredByWorkflow = workflowMetadata.GetValueOrDefault("sourceProjectDir");
+        if (!string.IsNullOrWhiteSpace(sourceDeclaredByWorkflow))
+        {
+            var declaredSource = ResolveMetadataPath(sourceDeclaredByWorkflow, workflow);
+            if (!PathsEqual(declaredSource, source))
+            {
+                throw new InvalidDataException(
+                    $"workflow 目录属于另一项目：{workflow}；其 sourceProjectDir 为 {declaredSource}，" +
+                    $"当前项目为 {source}。");
+            }
+            return;
+        }
+
+        var defaultWorkflow = Path.Combine(workflowRoot, Path.GetFileName(source));
+        if (!PathsEqual(workflow, defaultWorkflow))
+        {
+            throw new InvalidDataException(
+                $"自定义 workflow 目录缺少项目归属元数据：{workflow}。请重新同步当前项目后再上传证明材料。");
+        }
+    }
+
     public static string ResolveWorkflowProjectDir(string? projectDir)
     {
         if (string.IsNullOrWhiteSpace(projectDir)) return "";
@@ -280,6 +341,20 @@ public static class ProjectWorkspaceService
 
     private static string ResolveWorkflowRoot(string sourceProjectDir) =>
         Path.Combine(ResolveWorkspaceRoot(sourceProjectDir), "workflow");
+
+    private static bool IsDirectChildOf(string path, string parent) =>
+        PathsEqual(Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty, Path.GetFullPath(parent));
+
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    private static string ResolveMetadataPath(string value, string metadataDirectory) =>
+        Path.IsPathFullyQualified(value)
+            ? Path.GetFullPath(value)
+            : Path.GetFullPath(value, metadataDirectory);
 
     private static string? ResolveSourceFromWorkflowMetadata(string workflowProjectDir, string workspaceRoot)
     {

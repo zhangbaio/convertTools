@@ -362,6 +362,8 @@ public sealed class TikTokPublishDefaultsTests
             var options = TikTokPublishOptionsBuilder.FromAccount(account, workflow, logs.Add);
 
             options.CopyrightMaterialFilePath.Should().Be(proofFile);
+            options.ResolveCopyrightMaterialFilePath("production_agreement").Should().Be(proofFile);
+            options.ResolveCopyrightMaterialFilePath("filing_or_distribution_license").Should().BeEmpty();
             logs.Should().ContainSingle(message => message.Contains("项目生成文件", StringComparison.Ordinal));
         }
         finally
@@ -371,7 +373,7 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
-    public void Publish_options_builder_keeps_account_file_and_never_uses_poster_when_proof_is_missing()
+    public void Publish_options_builder_binds_missing_canonical_proof_and_ignores_account_file()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-proof-publish-{Guid.NewGuid():N}");
         Directory.CreateDirectory(workflow);
@@ -385,9 +387,95 @@ public sealed class TikTokPublishDefaultsTests
                 new TikTokAccountProfile { TiktokCopyrightMaterialFilePath = accountFile },
                 workflow);
             var unconfigured = TikTokPublishOptionsBuilder.FromAccount(new TikTokAccountProfile(), workflow);
+            var withoutWorkflow = TikTokPublishOptionsBuilder.FromAccount(
+                new TikTokAccountProfile { TiktokCopyrightMaterialFilePath = accountFile });
 
-            configured.CopyrightMaterialFilePath.Should().Be(accountFile);
-            unconfigured.CopyrightMaterialFilePath.Should().BeEmpty();
+            var canonicalProof = TikTokProofMaterialService.GetPdfPath(workflow);
+            configured.CopyrightMaterialFilePath.Should().Be(canonicalProof);
+            configured.ResolveCopyrightMaterialFilePath("production_agreement").Should().Be(canonicalProof);
+            unconfigured.CopyrightMaterialFilePath.Should().Be(canonicalProof);
+            withoutWorkflow.CopyrightMaterialFilePath.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Copyright_material_types_default_invalid_values_but_preserve_explicit_auxiliary_values()
+    {
+        TikTokPublishConstants.NormalizeCopyrightMaterialTypes(null)
+            .Should().Equal("production_agreement");
+        TikTokPublishConstants.NormalizeCopyrightMaterialTypes(["", "unknown"])
+            .Should().Equal("production_agreement");
+        TikTokPublishConstants.NormalizeCopyrightMaterialTypes(
+                [" FILing_or_distribution_license ", "unknown"])
+            .Should().Equal("filing_or_distribution_license");
+
+        var oneAuxiliary = () => TikTokPublishConstants.ValidateCopyrightMaterialTypes(
+            ["filing_or_distribution_license"]);
+        oneAuxiliary.Should().Throw<InvalidOperationException>()
+            .WithMessage("*至少选择 1 个核心材料，或至少 2 个辅助材料*");
+
+        TikTokPublishConstants.ValidateCopyrightMaterialTypes(
+                ["filing_or_distribution_license", "opening_ending_rights_notice"])
+            .Should().Equal("filing_or_distribution_license", "opening_ending_rights_notice");
+        TikTokPublishConstants.ValidateCopyrightMaterialTypes(["work_registration_certificate"])
+            .Should().Equal("work_registration_certificate");
+    }
+
+    [Fact]
+    public void Publish_options_builder_does_not_assign_generated_proof_to_auxiliary_materials()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-proof-aux-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            var proofFile = TikTokProofMaterialService.GetPdfPath(workflow);
+            File.WriteAllBytes(proofFile, "%PDF-1.7\nproof"u8.ToArray());
+            var account = new TikTokAccountProfile
+            {
+                TiktokCopyrightMaterialTypes =
+                [
+                    "production_agreement",
+                    "filing_or_distribution_license",
+                    "opening_ending_rights_notice",
+                ],
+            };
+
+            var options = TikTokPublishOptionsBuilder.FromAccount(account, workflow);
+
+            options.CopyrightMaterialFilePaths.Keys.Should().Equal("production_agreement");
+            options.ResolveCopyrightMaterialFilePath("production_agreement").Should().Be(proofFile);
+            options.ResolveCopyrightMaterialFilePath("filing_or_distribution_license").Should().BeEmpty();
+            options.ResolveCopyrightMaterialFilePath("opening_ending_rights_notice").Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Publish_options_builder_rejects_invalid_existing_generated_proof_without_fallback()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-invalid-proof-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            var accountFile = Path.Combine(workflow, "account-material.pdf");
+            File.WriteAllBytes(accountFile, "%PDF-1.7\naccount"u8.ToArray());
+            File.WriteAllBytes(TikTokProofMaterialService.GetPdfPath(workflow), [1, 2, 3]);
+            var account = new TikTokAccountProfile
+            {
+                TiktokCopyrightMaterialFilePath = accountFile,
+            };
+
+            var action = () => TikTokPublishOptionsBuilder.FromAccount(account, workflow);
+
+            action.Should().Throw<InvalidDataException>()
+                .WithMessage("*证明材料 PDF*");
         }
         finally
         {

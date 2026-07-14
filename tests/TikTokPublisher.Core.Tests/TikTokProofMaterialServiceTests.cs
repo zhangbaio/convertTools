@@ -3,6 +3,7 @@ using DocumentFormat.OpenXml.Packaging;
 using System.Text.Json;
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 using A = DocumentFormat.OpenXml.Drawing;
@@ -31,6 +32,34 @@ public sealed class TikTokProofMaterialServiceTests
             .Should().Be(TikTokProofMaterialPdfRendererPreference.Wps);
         TikTokProofMaterialPdfRendererPreferenceExtensions.Parse("libreoffice")
             .Should().Be(TikTokProofMaterialPdfRendererPreference.LibreOffice);
+    }
+
+    [Fact]
+    public async Task Publish_item_prerequisite_skips_generation_when_cooperation_agreement_is_not_selected()
+    {
+        var account = new TikTokAccountProfile
+        {
+            TiktokCopyrightMaterialTypes =
+            [
+                "filing_or_distribution_license",
+                "opening_ending_rights_notice",
+            ],
+        };
+
+        var result = await TikTokProofMaterialService.EnsureCurrentForUploadAsync(
+            new PublishItem(), account, log: null, CancellationToken.None);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Publish_item_prerequisite_requires_current_project_directory_for_cooperation_agreement()
+    {
+        Func<Task<string>> action = () => TikTokProofMaterialService.EnsureCurrentForUploadAsync(
+            new PublishItem(), new TikTokAccountProfile(), log: null, CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*未提供当前项目目录*workflow/证明材料.pdf*");
     }
 
     [Fact]
@@ -204,6 +233,23 @@ public sealed class TikTokProofMaterialServiceTests
         await action.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*WPS*LibreOffice*");
         File.ReadAllBytes(outputPath).Should().Equal(originalBytes);
+    }
+
+    [Fact]
+    public void Pdf_validation_rejects_files_over_platform_limit()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var outputPath = Path.Combine(fixture.DirectoryPath, TikTokProofMaterialService.ProofPdfFileName);
+        using (var stream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            stream.Write("%PDF-"u8);
+            stream.SetLength(TikTokProofMaterialPdfRenderService.MaxPlatformPdfBytes + 1);
+        }
+
+        var action = () => TikTokProofMaterialPdfRenderService.ValidatePdf(outputPath);
+
+        action.Should().Throw<InvalidDataException>()
+            .WithMessage("*超过 TikTok 平台 10 MB 限制*");
     }
 
     [Fact]

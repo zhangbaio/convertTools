@@ -20,23 +20,31 @@ public static class TikTokPublishOptionsBuilder
         }
 
         var options = TikTokPublishOptions.FromAccount(account);
+        options.CopyrightMaterialTypes = TikTokPublishConstants.ValidateCopyrightMaterialTypes(
+            options.CopyrightMaterialTypes);
         options.TargetAudienceMode = NormalizeTargetAudienceMode(account.TiktokTargetAudienceMode);
         options.PaidEnabled = TikTokPaidRatioService.DecidePaidForUpload(account, workflowProjectDir, log);
-        if (!string.IsNullOrWhiteSpace(workflowProjectDir))
+        options.CopyrightMaterialFilePath = string.Empty;
+        options.CopyrightMaterialFilePaths = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (TikTokPublishConstants.RequiresGeneratedProofMaterial(options.CopyrightMaterialTypes) &&
+            !string.IsNullOrWhiteSpace(workflowProjectDir))
         {
             var proofMaterial = TikTokProofMaterialService.GetPdfPath(workflowProjectDir);
+            options.CopyrightMaterialFilePath = proofMaterial;
+            options.CopyrightMaterialFilePaths = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [TikTokPublishConstants.ProductionAgreementMaterialType] = proofMaterial,
+            };
+
             if (File.Exists(proofMaterial))
             {
-                try
-                {
-                    TikTokProofMaterialPdfRenderService.ValidatePdf(proofMaterial);
-                    options.CopyrightMaterialFilePath = proofMaterial;
-                    log?.Invoke($"TikTok 版权材料使用项目生成文件：{proofMaterial}");
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
-                {
-                    // 项目证明材料无效或暂不可读时，保留账号手工配置的材料文件。
-                }
+                TikTokProofMaterialPdfRenderService.ValidatePdf(proofMaterial);
+                log?.Invoke($"TikTok 版权材料使用项目生成文件：{proofMaterial}");
+            }
+            else
+            {
+                // 上传清单等准备阶段也会构建参数；此处仅绑定规范路径，实际上传前会强制生成并校验。
+                log?.Invoke($"TikTok 合作协议等待生成项目证明材料：{proofMaterial}");
             }
         }
         return options;

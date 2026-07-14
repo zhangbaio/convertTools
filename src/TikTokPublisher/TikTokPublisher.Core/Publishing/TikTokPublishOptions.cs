@@ -5,6 +5,7 @@ namespace TikTokPublisher.Core.Publishing;
 
 public static class TikTokPublishConstants
 {
+    public const string ProductionAgreementMaterialType = "production_agreement";
     public const string ContractIdModeManual = "manual";
     public const string ContractIdModeFirstAvailable = "first_available";
 
@@ -18,6 +19,56 @@ public static class TikTokPublishConstants
         ["editing_project_files"] = "剪辑工程文件",
         ["source_file_information"] = "原始文件或素材文件信息",
     };
+
+    public static readonly IReadOnlySet<string> CoreCopyrightMaterialTypes = new HashSet<string>(StringComparer.Ordinal)
+    {
+        ProductionAgreementMaterialType,
+        "work_registration_certificate",
+    };
+
+    public static readonly IReadOnlySet<string> AuxiliaryCopyrightMaterialTypes = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "filing_or_distribution_license",
+        "opening_ending_rights_notice",
+        "ai_generation_screenshots",
+        "editing_project_files",
+        "source_file_information",
+    };
+
+    public static IReadOnlyList<string> NormalizeCopyrightMaterialTypes(IEnumerable<string>? materialTypes)
+    {
+        var normalized = new List<string>();
+        foreach (var value in materialTypes ?? [])
+        {
+            var candidate = (value ?? string.Empty).Trim();
+            var canonical = CopyrightMaterialLabels.Keys.FirstOrDefault(key =>
+                string.Equals(key, candidate, StringComparison.OrdinalIgnoreCase));
+            if (canonical is not null && !normalized.Contains(canonical, StringComparer.Ordinal))
+                normalized.Add(canonical);
+        }
+
+        return normalized.Count > 0
+            ? normalized
+            : [ProductionAgreementMaterialType];
+    }
+
+    public static IReadOnlyList<string> ValidateCopyrightMaterialTypes(IEnumerable<string>? materialTypes)
+    {
+        var normalized = NormalizeCopyrightMaterialTypes(materialTypes);
+        var coreCount = normalized.Count(CoreCopyrightMaterialTypes.Contains);
+        var auxiliaryCount = normalized.Count(AuxiliaryCopyrightMaterialTypes.Contains);
+        if (coreCount == 0 && auxiliaryCount < 2)
+        {
+            throw new InvalidOperationException(
+                "TikTok 上传材料类型配置无效：请至少选择 1 个核心材料，或至少 2 个辅助材料。");
+        }
+
+        return normalized;
+    }
+
+    public static bool RequiresGeneratedProofMaterial(IEnumerable<string>? materialTypes) =>
+        NormalizeCopyrightMaterialTypes(materialTypes)
+            .Contains(ProductionAgreementMaterialType, StringComparer.Ordinal);
 
     public static readonly IReadOnlyDictionary<string, string> PublishModeLabels = new Dictionary<string, string>
     {
@@ -78,7 +129,10 @@ public sealed class TikTokPublishOptions
     public bool IsAiDrama { get; set; } = true;
     public bool IsOriginalRightsHolder { get; set; } = true;
     public string ContentOriginalityType { get; set; } = "original";
-    public IReadOnlyList<string> CopyrightMaterialTypes { get; set; } = new[] { "production_agreement" };
+    public IReadOnlyList<string> CopyrightMaterialTypes { get; set; } = new[] { TikTokPublishConstants.ProductionAgreementMaterialType };
+    public IReadOnlyDictionary<string, string> CopyrightMaterialFilePaths { get; set; } =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+    /// <summary>旧版单文件字段，仅兼容合作协议；其他材料不得复用此路径。</summary>
     public string CopyrightMaterialFilePath { get; set; } = "";
     public string PublishMode { get; set; } = "auto_after_review";
     public bool ConsignmentEnabled { get; set; } = true;
@@ -97,6 +151,23 @@ public sealed class TikTokPublishOptions
 
     public bool UseBatchUpload =>
         string.Equals(UploadStrategy?.Trim(), "batch", StringComparison.OrdinalIgnoreCase);
+
+    public string ResolveCopyrightMaterialFilePath(string? materialType)
+    {
+        var key = (materialType ?? string.Empty).Trim();
+        if (CopyrightMaterialFilePaths.TryGetValue(key, out var configured) &&
+            !string.IsNullOrWhiteSpace(configured))
+        {
+            return configured.Trim();
+        }
+
+        return string.Equals(
+                key,
+                TikTokPublishConstants.ProductionAgreementMaterialType,
+                StringComparison.Ordinal)
+            ? CopyrightMaterialFilePath?.Trim() ?? string.Empty
+            : string.Empty;
+    }
 
     public string PublishModeLabel =>
         TikTokPublishConstants.PublishModeLabels.TryGetValue(PublishMode, out var label)
@@ -131,11 +202,10 @@ public sealed class TikTokPublishOptions
         ContentOriginalityType = string.IsNullOrWhiteSpace(account.TiktokContentOriginalityType)
             ? "original"
             : account.TiktokContentOriginalityType.Trim(),
-        CopyrightMaterialTypes = (account.TiktokCopyrightMaterialTypes ?? [])
-            .Where(TikTokPublishConstants.CopyrightMaterialLabels.ContainsKey)
-            .Distinct(StringComparer.Ordinal)
-            .ToList(),
-        CopyrightMaterialFilePath = account.TiktokCopyrightMaterialFilePath?.Trim() ?? "",
+        CopyrightMaterialTypes = TikTokPublishConstants.NormalizeCopyrightMaterialTypes(
+            account.TiktokCopyrightMaterialTypes),
+        // 账号级测试文件不再参与正式上传。合作协议只能由当前项目生成的证明材料提供。
+        CopyrightMaterialFilePath = "",
         PublishMode = string.IsNullOrWhiteSpace(account.TiktokPublishMode) ? "auto_after_review" : account.TiktokPublishMode,
         ConsignmentEnabled = account.TiktokConsignmentEnabled,
         PaidEnabled = account.TiktokPaidEnabled,

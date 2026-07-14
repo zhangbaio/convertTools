@@ -417,7 +417,9 @@ public partial class AccountProfileEditor : UserControl
 
     private void LoadCopyrightMaterialTypes(IEnumerable<string>? values)
     {
-        var selected = new HashSet<string>(values ?? [], StringComparer.Ordinal);
+        var selected = new HashSet<string>(
+            TikTokPublishConstants.NormalizeCopyrightMaterialTypes(values),
+            StringComparer.Ordinal);
         ProductionAgreementMaterialBox.IsChecked = selected.Contains("production_agreement");
         WorkRegistrationMaterialBox.IsChecked = selected.Contains("work_registration_certificate");
         FilingLicenseMaterialBox.IsChecked = selected.Contains("filing_or_distribution_license");

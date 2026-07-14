@@ -38,18 +38,35 @@ public interface IQueuePublishHost
         CancellationToken ct);
 }
 
+internal delegate Task<string> QueueProofMaterialPrerequisite(
+    QueueProjectItem item,
+    TikTokAccountProfile? account,
+    Action<string>? log,
+    CancellationToken cancellationToken);
+
 /// <summary>工作目录队列 Worker（预处理步骤 + <c>upload_series</c>，支持项目级并行）。</summary>
 public sealed class QueueWorkerRunner
 {
     private const int ProjectConcurrencyHardMax = 20;
 
     private readonly UploadSlotCoordinator _uploadSlots;
+    private readonly QueueProofMaterialPrerequisite _ensureProofMaterial;
     private readonly List<QueueProjectItem> _incomingItems = new();
     private readonly object _incomingLock = new();
     public ManualInterventionCoordinator ManualIntervention { get; } = new();
 
-    public QueueWorkerRunner(UploadSlotCoordinator? sharedUploadSlots = null) =>
+    public QueueWorkerRunner(UploadSlotCoordinator? sharedUploadSlots = null)
+        : this(TikTokProofMaterialService.EnsureCurrentForUploadAsync, sharedUploadSlots)
+    {
+    }
+
+    internal QueueWorkerRunner(
+        QueueProofMaterialPrerequisite ensureProofMaterial,
+        UploadSlotCoordinator? sharedUploadSlots = null)
+    {
+        _ensureProofMaterial = ensureProofMaterial ?? throw new ArgumentNullException(nameof(ensureProofMaterial));
         _uploadSlots = sharedUploadSlots ?? new UploadSlotCoordinator();
+    }
 
     public int AddItems(IEnumerable<QueueProjectItem> items)
     {
@@ -269,7 +286,8 @@ public sealed class QueueWorkerRunner
                         onProgress,
                         ct,
                         Mutate,
-                        manualInterventionAllowed ? ManualIntervention : null));
+                        manualInterventionAllowed ? ManualIntervention : null,
+                        _ensureProofMaterial));
                     uploadTasks[task] = (capturedItem, accountKey, capturedAccount);
                     started++;
                     rotations = readyForUpload.Count;
@@ -600,7 +618,8 @@ public sealed class QueueWorkerRunner
         Action<QueueWorkerProgress>? onProgress,
         CancellationToken ct,
         Action<Action> mutate,
-        ManualInterventionCoordinator? manualIntervention)
+        ManualInterventionCoordinator? manualIntervention,
+        QueueProofMaterialPrerequisite ensureProofMaterial)
     {
         var wasCompletedBeforeRun =
             item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Completed;
@@ -626,6 +645,64 @@ public sealed class QueueWorkerRunner
             mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, preflight.Message));
             Report(onProgress, workspace, item, preflight.Message, QueueStepRegistry.UploadSeries);
             return false;
+        }
+
+        IReadOnlyList<string> materialTypes;
+        try
+        {
+            materialTypes = TikTokPublishConstants.ValidateCopyrightMaterialTypes(
+                account.TiktokCopyrightMaterialTypes);
+        }
+        catch (InvalidOperationException ex)
+        {
+            mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, ex.Message));
+            Report(onProgress, workspace, item, ex.Message, QueueStepRegistry.UploadSeries);
+            return false;
+        }
+
+        if (TikTokPublishConstants.RequiresGeneratedProofMaterial(materialTypes))
+        {
+            mutate(() => MarkRunning(item, QueueStepRegistry.GenerateProofMaterial));
+            Report(
+                onProgress,
+                workspace,
+                item,
+                "合作协议已选中，上传前检查当前项目证明材料…",
+                QueueStepRegistry.GenerateProofMaterial);
+            try
+            {
+                var proofPath = await ensureProofMaterial(item, account, uploadLog, ct).ConfigureAwait(false);
+                TikTokProofMaterialPdfRenderService.ValidatePdf(proofPath);
+                mutate(() => MarkCompleted(item, QueueStepRegistry.GenerateProofMaterial));
+                Report(
+                    onProgress,
+                    workspace,
+                    item,
+                    $"当前项目证明材料已就绪：{proofPath}",
+                    QueueStepRegistry.GenerateProofMaterial);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                mutate(() =>
+                {
+                    MarkStopped(item, QueueStepRegistry.GenerateProofMaterial);
+                    item.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.Stopped;
+                });
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var message = ex.Message.StartsWith("上传合作协议前准备证明材料失败", StringComparison.Ordinal)
+                    ? ex.Message
+                    : $"上传合作协议前准备证明材料失败：{ex.Message}";
+                mutate(() =>
+                {
+                    MarkFailed(item, QueueStepRegistry.GenerateProofMaterial, message);
+                    item.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.Failed;
+                });
+                Report(onProgress, workspace, item, message, QueueStepRegistry.GenerateProofMaterial);
+                return false;
+            }
         }
 
         mutate(() => MarkRunning(item, QueueStepRegistry.UploadSeries));

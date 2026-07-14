@@ -175,12 +175,12 @@
                                            TextWrapping="Wrap"
                                            Margin="0,2,0,0" />
                                 <WrapPanel>
-                                    <CheckBox x:Name="WorkRegistrationMaterialBox" Content="作品登记证书" IsEnabled="False" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="FilingLicenseMaterialBox" Content="备案/发行许可" IsEnabled="False" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="RightsNoticeMaterialBox" Content="片头片尾权利标识" IsEnabled="False" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="AiScreenshotsMaterialBox" Content="AI 生成截图" IsEnabled="False" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="EditingProjectMaterialBox" Content="剪辑工程文件" IsEnabled="False" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="SourceInfoMaterialBox" Content="原始文件信息" IsEnabled="False" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="WorkRegistrationMaterialBox" Content="作品登记证书" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="FilingLicenseMaterialBox" Content="备案/发行许可" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="RightsNoticeMaterialBox" Content="片头片尾权利标识" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="AiScreenshotsMaterialBox" Content="AI 生成截图" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="EditingProjectMaterialBox" Content="剪辑工程文件" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="SourceInfoMaterialBox" Content="原始文件信息" Margin="0,0,12,6" />
                                 </WrapPanel>
                             </StackPanel>
                         </Grid>

@@ -18,6 +18,7 @@ public interface ITikTokProofMaterialPdfRenderer
 
 public sealed class TikTokProofMaterialPdfRenderService
 {
+    public const long MaxPlatformPdfBytes = 10L * 1024 * 1024;
     private readonly ITikTokProofMaterialPdfRenderer _wpsRenderer;
     private readonly ITikTokProofMaterialPdfRenderer _libreOfficeRenderer;
 
@@ -100,6 +101,12 @@ public sealed class TikTokProofMaterialPdfRenderService
         if (stream.Length < 5)
         {
             throw new InvalidDataException("生成的证明材料 PDF 文件为空或不完整。");
+        }
+
+        if (stream.Length > MaxPlatformPdfBytes)
+        {
+            throw new InvalidDataException(
+                $"生成的证明材料 PDF 超过 TikTok 平台 10 MB 限制：{stream.Length / 1024d / 1024d:F2} MB。");
         }
 
         Span<byte> header = stackalloc byte[5];

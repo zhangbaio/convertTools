@@ -42,8 +42,26 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             ? TikTokUrls.DefaultSeriesDraftUrl
             : account.TiktokSeriesUrl.Trim();
 
-        var workflowDir = TikTokUploadStateStore.ResolveWorkflowProjectDir(item.ProjectDir);
-        var options = TikTokPublishOptionsBuilder.FromAccount(account, workflowDir, L);
+        string workflowDir;
+        TikTokPublishOptions options;
+        try
+        {
+            // Queue uploads normally prepare this dependency before acquiring a browser slot.
+            // Keep the guard here as well so scheduled/manual publish entry points cannot bypass it.
+            await TikTokProofMaterialService
+                .EnsureCurrentForUploadAsync(item, account, L, ct)
+                .ConfigureAwait(false);
+            workflowDir = TikTokUploadStateStore.ResolveWorkflowProjectDir(item.ProjectDir);
+            options = TikTokPublishOptionsBuilder.FromAccount(account, workflowDir, L);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            return PublishResult.FailAndSkipManualIntervention(ex.Message);
+        }
         var projectPayload = TikTokProjectPayloadFactory.BuildFromPublishItem(item);
         var payload = TikTokPublishPayload.FromPublishItem(item);
         var settings = ClientSettingsStore.Load();
