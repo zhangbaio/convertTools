@@ -8,7 +8,7 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokProofMaterialTemplateProviderTests
 {
     private const string ExpectedTemplateSha256 =
-        "6104B21635CF61BE9F7D06361AE1BC5C2CC6EFA6A1B4068C82180861482F7680";
+        "CDF7A02675BB4FA11F26F5832BDC63107DB3EEFB00F8016F02B3098D92335481";
 
     [Fact]
     public void Embedded_template_is_released_to_data_directory_and_restored_when_corrupted()
@@ -29,6 +29,33 @@ public sealed class TikTokProofMaterialTemplateProviderTests
         TikTokProofMaterialTemplateProvider.EnsureBuiltInTemplate(temp.Path).Should().Be(path);
         ComputeSha256(path).Should().Be(ExpectedTemplateSha256);
         Directory.EnumerateFiles(Path.GetDirectoryName(path)!, "*.tmp").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Embedded_template_satisfies_document_builder_contract()
+    {
+        using var temp = new TemporaryDirectory();
+        var templatePath = TikTokProofMaterialTemplateProvider.EnsureBuiltInTemplate(temp.Path);
+        var builder = new TikTokProofMaterialDocumentBuilder();
+
+        var result = builder.CreateTemporaryDocx(new TikTokProofMaterialRequest(
+            templatePath,
+            Path.Combine(temp.Path, "证明材料.pdf"),
+            "测试版权公司",
+            TikTokProofMaterialDocumentBuilder.TemplateDeclarantCompanyName,
+            "测试剧名",
+            new DateOnly(2026, 7, 14))
+        {
+            TemporaryDirectory = temp.Path,
+        });
+
+        File.Exists(result.DocxPath).Should().BeTrue();
+        result.Replacements.Should().Be(new TikTokProofMaterialReplacementCounts(
+            CopyrightCompany: 1,
+            DeclarantCompany: 2,
+            DramaTitle: 1,
+            StatementDate: 1,
+            SealImages: 0));
     }
 
     [Fact]
