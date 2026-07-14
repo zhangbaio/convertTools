@@ -15,7 +15,7 @@ public sealed class TikTokRemoteCommandParserTests
             剧名A
             工作目录: E:\tiktok
             账号: 默认
-            步骤: download,rewrite_info,upload_series
+            步骤: download,rewrite_info,generate_proof_material,upload_series
             自动执行: 否
             """);
 
@@ -27,6 +27,7 @@ public sealed class TikTokRemoteCommandParserTests
         command.EnabledSteps.Should().Equal(
             QueueStepRegistry.Download,
             QueueStepRegistry.RewriteInfo,
+            QueueStepRegistry.GenerateProofMaterial,
             QueueStepRegistry.UploadSeries);
         command.AutoRun.Should().BeFalse();
     }
@@ -90,6 +91,7 @@ public sealed class TikTokRemoteCommandParserTests
         cardJson.Should().Contain("\"wide_screen_mode\":true");
         cardJson.Should().Contain("TikTok 上传命令教程");
         cardJson.Should().Contain("账号: 全部");
+        cardJson.Should().Contain("generate_proof_material");
     }
 
     [Fact]
@@ -106,23 +108,27 @@ public sealed class TikTokRemoteCommandParserTests
             QueueStepRegistry.SilenceRepair,
             QueueStepRegistry.MaterialValidate,
             QueueStepRegistry.UploadSeries);
+        options.EnabledSteps.Should().NotContain(QueueStepRegistry.GenerateProofMaterial);
         options.AutoArchiveAfterUpload.Should().BeFalse();
         options.ForceRerunCompletedSteps.Should().BeFalse();
         options.PreferUploadWhenReady.Should().BeFalse();
     }
 
     [Fact]
-    public void Load_upload_steps_removes_hidden_project_image_step_from_saved_defaults()
+    public void Load_upload_steps_removes_hidden_project_image_step_and_keeps_explicit_proof()
     {
         var settings = new ClientSettings
         {
             FeishuTiktokUploadEnabledStepsJson =
-                """["download","generate_project_images","upload_series"]""",
+                """["download","generate_project_images","generate_proof_material","upload_series"]""",
         };
 
         var steps = TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings);
 
-        steps.Should().Equal(QueueStepRegistry.Download, QueueStepRegistry.UploadSeries);
+        steps.Should().Equal(
+            QueueStepRegistry.Download,
+            QueueStepRegistry.GenerateProofMaterial,
+            QueueStepRegistry.UploadSeries);
     }
 
     [Fact]
@@ -137,7 +143,12 @@ public sealed class TikTokRemoteCommandParserTests
         };
         var command = new TikTokRemoteCommand(
             TikTokRemoteCommandNames.UploadSeries,
-            EnabledSteps: [QueueStepRegistry.MaterialValidate, QueueStepRegistry.UploadSeries],
+            EnabledSteps:
+            [
+                QueueStepRegistry.MaterialValidate,
+                QueueStepRegistry.GenerateProofMaterial,
+                QueueStepRegistry.UploadSeries,
+            ],
             QueueOptions: new Dictionary<string, object?>
             {
                 ["auto_archive_after_upload"] = true,
@@ -148,7 +159,10 @@ public sealed class TikTokRemoteCommandParserTests
 
         var options = TikTokRemoteRunOptions.BuildFeishuTikTokUploadRunOptions(settings, command);
 
-        options.EnabledSteps.Should().Equal(QueueStepRegistry.MaterialValidate, QueueStepRegistry.UploadSeries);
+        options.EnabledSteps.Should().Equal(
+            QueueStepRegistry.GenerateProofMaterial,
+            QueueStepRegistry.MaterialValidate,
+            QueueStepRegistry.UploadSeries);
         options.AutoArchiveAfterUpload.Should().BeTrue();
         options.ForceRerunCompletedSteps.Should().BeTrue();
         options.PreferUploadWhenReady.Should().BeTrue();

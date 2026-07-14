@@ -14,6 +14,7 @@ public sealed record QueueProjectTitleRenameResult(
     IReadOnlyList<string> UpdatedFiles,
     bool ResetPoster,
     bool ResetMaterialValidate,
+    bool ResetProofMaterial,
     bool ResetUpload);
 
 /// <summary>手动修改队列项目的新剧名，并同步依赖该名称的本地状态。</summary>
@@ -78,6 +79,7 @@ public static class QueueProjectTitleRenameService
         UpdateProjectMetadata(Path.Combine(newWorkflowDir, MetadataFile), title, newWorkflowDir, sourceDir, updatedFiles);
         UpdateUploadState(newWorkflowDir, oldTitle, title, updatedFiles);
         UpdateManifest(root, sourceDir, oldWorkflowDir, newWorkflowDir, title, renamedUploadVideoPaths, updatedFiles);
+        DeleteProofMaterialOutput(newWorkflowDir);
 
         target.NewTitle = title;
         ProjectWorkspaceService.RefreshQueueItemMetadata(target);
@@ -97,6 +99,7 @@ public static class QueueProjectTitleRenameService
             UpdatedFiles: updatedFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             ResetPoster: reset.Poster,
             ResetMaterialValidate: reset.MaterialValidate,
+            ResetProofMaterial: reset.ProofMaterial,
             ResetUpload: reset.Upload);
     }
 
@@ -359,17 +362,18 @@ public static class QueueProjectTitleRenameService
         updatedFiles.Add(path);
     }
 
-    private static (bool Poster, bool MaterialValidate, bool Upload) ResetDependentStepStates(QueueProjectItem item)
+    private static (bool Poster, bool MaterialValidate, bool ProofMaterial, bool Upload) ResetDependentStepStates(QueueProjectItem item)
     {
         var uploadCompleted = item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed;
         item.StepStates[QueueStepKeys.RewriteInfo] = QueueStepStatus.Completed;
+        var resetProofMaterial = ResetStepIfNotPending(item, QueueStepKeys.GenerateProofMaterial);
 
         if (uploadCompleted)
         {
             item.StatusText = QueueStepStatus.Completed;
             item.CurrentStep = "";
             item.LastError = "";
-            return (false, false, false);
+            return (false, false, resetProofMaterial, false);
         }
 
         var resetUpload = ResetStepIfNotPending(item, QueueStepKeys.UploadSeries);
@@ -383,7 +387,14 @@ public static class QueueProjectTitleRenameService
             item.LastError = "";
         }
 
-        return (false, false, resetUpload);
+        return (false, false, resetProofMaterial, resetUpload);
+    }
+
+    private static void DeleteProofMaterialOutput(string workflowDir)
+    {
+        var path = Path.Combine(workflowDir, TikTokProofMaterialService.ProofPdfFileName);
+        if (File.Exists(path))
+            File.Delete(path);
     }
 
     private static bool ResetStepIfNotPending(QueueProjectItem item, string stepKey)

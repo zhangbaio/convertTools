@@ -135,6 +135,67 @@ public sealed class LogService
         ScheduleChanged();
     }
 
+    /// <summary>开始新一轮执行前，清除本轮项目在日志面板中的旧执行记录。</summary>
+    public int ClearProjectEntries(IEnumerable<QueueProjectItem> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+
+        var projectPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var projectNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            var path = NormalizeProjectPath(item.ProjectDir);
+            if (!string.IsNullOrWhiteSpace(path))
+                projectPaths.Add(path);
+
+            AddProjectName(projectNames, item.Title);
+            AddProjectName(projectNames, item.DisplayName);
+            AddProjectName(projectNames, item.NewTitle);
+            AddProjectName(projectNames, item.OriginalTitle);
+        }
+
+        if (projectPaths.Count == 0 && projectNames.Count == 0)
+            return 0;
+
+        var removed = _entries.RemoveAll(entry =>
+        {
+            var entryPath = NormalizeProjectPath(entry.ProjectPath);
+            if (!string.IsNullOrWhiteSpace(entryPath))
+                return projectPaths.Contains(entryPath);
+
+            if (!string.IsNullOrWhiteSpace(entry.ProjectName) &&
+                projectNames.Contains(entry.ProjectName.Trim()))
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(entry.ProjectName) &&
+                   _nameIndex.TryGetValue(entry.ProjectName.Trim(), out var indexedPath) &&
+                   projectPaths.Contains(NormalizeProjectPath(indexedPath));
+        });
+
+        if (removed > 0)
+        {
+            RefreshRendered();
+            ScheduleChanged();
+        }
+
+        return removed;
+    }
+
+    /// <summary>开始“全部账号队列”新一轮执行前，清空日志面板。</summary>
+    public int ClearAllEntries()
+    {
+        var removed = _entries.Count;
+        if (removed == 0)
+            return 0;
+
+        _entries.Clear();
+        RenderedEntries.Clear();
+        ScheduleChanged();
+        return removed;
+    }
+
     public void UpdateSnapshot(IEnumerable<QueueProjectRowViewModel> rows, string? workspacePath, bool queueRunning)
     {
         IsRunning = queueRunning;
@@ -294,6 +355,28 @@ public sealed class LogService
     {
         if (string.IsNullOrWhiteSpace(projectName)) return "";
         return _nameIndex.TryGetValue(projectName.Trim(), out var path) ? path : "";
+    }
+
+    private static void AddProjectName(ISet<string> names, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+            names.Add(value.Trim());
+    }
+
+    private static string NormalizeProjectPath(string? path)
+    {
+        var value = (path ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        try
+        {
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(value));
+        }
+        catch
+        {
+            return value.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
     }
 
     public static string InferLevel(string text)

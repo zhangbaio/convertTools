@@ -22,6 +22,23 @@ public static class TikTokPublishOptionsBuilder
         var options = TikTokPublishOptions.FromAccount(account);
         options.TargetAudienceMode = NormalizeTargetAudienceMode(account.TiktokTargetAudienceMode);
         options.PaidEnabled = TikTokPaidRatioService.DecidePaidForUpload(account, workflowProjectDir, log);
+        if (!string.IsNullOrWhiteSpace(workflowProjectDir))
+        {
+            var proofMaterial = TikTokProofMaterialService.GetPdfPath(workflowProjectDir);
+            if (File.Exists(proofMaterial))
+            {
+                try
+                {
+                    TikTokProofMaterialPdfRenderService.ValidatePdf(proofMaterial);
+                    options.CopyrightMaterialFilePath = proofMaterial;
+                    log?.Invoke($"TikTok 版权材料使用项目生成文件：{proofMaterial}");
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+                {
+                    // 项目证明材料无效或暂不可读时，保留账号手工配置的材料文件。
+                }
+            }
+        }
         return options;
     }
 

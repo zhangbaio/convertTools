@@ -74,6 +74,42 @@ public sealed class TikTokAccountProfile
     public int TiktokGenreCount { get; set; } = 3;
     public string TiktokSourceLanguage { get; set; } = "zh";
     public bool TiktokIsAiDrama { get; set; } = true;
+    public bool TiktokIsOriginalRightsHolder { get; set; } = true;
+    public string TiktokContentOriginalityType { get; set; } = "original";
+    public List<string> TiktokCopyrightMaterialTypes { get; set; } =
+    [
+        "production_agreement",
+    ];
+    public string TiktokCopyrightMaterialFilePath { get; set; } = "";
+    /// <summary>证明材料抬头中的版权公司名称（“致【...】”）。</summary>
+    public string TiktokProofCopyrightCompanyName { get; set; } = "";
+    /// <summary>证明材料正文及声明人位置使用的本公司名称。</summary>
+    public string TiktokProofDeclarantCompanyName { get; set; } = "";
+    /// <summary>与本公司名称匹配的印章图片；留空时仅允许保留模板固定公司的印章。</summary>
+    public string TiktokProofSealPath { get; set; } = "";
+    /// <summary>旧全局证明材料配置是否已迁移为账号级配置。</summary>
+    public bool TiktokProofAccountConfigMigrated { get; set; }
+
+    /// <summary>旧代码兼容别名；新代码请使用 <see cref="TiktokProofCopyrightCompanyName"/>。</summary>
+    [JsonIgnore]
+    public string TiktokProofSubjectCompanyName
+    {
+        get => TiktokProofCopyrightCompanyName;
+        set => TiktokProofCopyrightCompanyName = value ?? "";
+    }
+
+    /// <summary>兼容旧 accounts.json 的 tiktokProofSubjectCompanyName，只读取、不再写出。</summary>
+    [JsonPropertyName("tiktokProofSubjectCompanyName")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TiktokProofLegacySubjectCompanyName
+    {
+        get => null;
+        set
+        {
+            if (string.IsNullOrWhiteSpace(TiktokProofCopyrightCompanyName))
+                TiktokProofCopyrightCompanyName = value ?? "";
+        }
+    }
     public string TiktokPublishMode { get; set; } = "auto_after_review";
     public bool TiktokConsignmentEnabled { get; set; } = true;
     public int TiktokProfilePreviewEpisodes { get; set; } = 3;

@@ -301,6 +301,13 @@ public static class ClientSettingsStore
             1,
             200);
         settings.TiktokProjectImageSubtitleAiMode = NormalizeProjectImageSubtitleAiMode(settings.TiktokProjectImageSubtitleAiMode);
+        settings.TiktokProofTemplateDocxPath = (settings.TiktokProofTemplateDocxPath ?? "").Trim();
+        if (TikTokProofMaterialTemplateProvider.IsLegacyDefaultPath(settings.TiktokProofTemplateDocxPath))
+            settings.TiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
+        settings.TiktokProofDeclarantCompanyName = (settings.TiktokProofDeclarantCompanyName ?? "").Trim();
+        settings.TiktokProofSealPath = (settings.TiktokProofSealPath ?? "").Trim();
+        settings.TiktokProofPdfRenderer = NormalizeProofPdfRenderer(settings.TiktokProofPdfRenderer);
+        settings.TiktokProofWpsPath = (settings.TiktokProofWpsPath ?? "").Trim();
         settings.AuthServerUrl = (settings.AuthServerUrl ?? "").Trim().TrimEnd('/');
         settings.AuthAccount = (settings.AuthAccount ?? "").Trim();
         settings.AuthPassword ??= "";
@@ -395,6 +402,14 @@ public static class ClientSettingsStore
         {
             "accurate" or "fast" or "off" => (value ?? ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode).Trim().ToLowerInvariant(),
             _ => ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode
+        };
+
+    private static string NormalizeProofPdfRenderer(string? value) =>
+        (value ?? ClientSettingsDefaults.TiktokProofPdfRenderer).Trim().ToLowerInvariant() switch
+        {
+            "wps" => "wps",
+            "libreoffice" => "libreoffice",
+            _ => ClientSettingsDefaults.TiktokProofPdfRenderer,
         };
 
     private static string NormalizeManagementDedupScope(string? value)

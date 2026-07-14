@@ -31,6 +31,14 @@ public sealed class TikTokPublishDefaultsTests
         settings.PosterTitleVerifyMode.Should().Be(ClientSettingsDefaults.PosterTitleVerifyMode);
         settings.TiktokAllowOverLimitUploadImport.Should().Be(ClientSettingsDefaults.TiktokAllowOverLimitUploadImport);
         settings.TiktokOverLimitDownloadEpisodeCount.Should().Be(ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
+        settings.TiktokProofTemplateDocxPath.Should().Be(ClientSettingsDefaults.TiktokProofTemplateDocxPath);
+        ClientSettingsDefaults.TiktokProofTemplateDocxPath.Should().BeEmpty();
+        settings.TiktokProofDeclarantCompanyName.Should().BeEmpty();
+        settings.TiktokProofSealPath.Should().BeEmpty();
+        settings.TiktokProofPdfRenderer.Should().Be("wps");
+        settings.TiktokProofWpsPath.Should().BeEmpty();
+        ClientSettingsDefaults.TiktokProofPdfRenderer.Should().Be("wps");
+        settings.TiktokProofKeepDocx.Should().BeFalse();
     }
 
     [Fact]
@@ -60,6 +68,11 @@ public sealed class TikTokPublishDefaultsTests
                 OfoxImage2Size = "",
                 PosterTitleVerifyMode = "",
                 TiktokOverLimitDownloadEpisodeCount = 0,
+                TiktokProofTemplateDocxPath = "",
+                TiktokProofDeclarantCompanyName = "  武汉速视科技有限公司  ",
+                TiktokProofSealPath = "  C:\\proof\\seal.png  ",
+                TiktokProofPdfRenderer = "invalid",
+                TiktokProofWpsPath = "  C:\\WPS\\wps.exe  ",
             }, databasePath);
 
             var loaded = ClientSettingsStore.Load(databasePath);
@@ -84,6 +97,63 @@ public sealed class TikTokPublishDefaultsTests
             loaded.PosterTitleVerifyMode.Should().Be(ClientSettingsDefaults.PosterTitleVerifyMode);
             loaded.TiktokAllowOverLimitUploadImport.Should().Be(ClientSettingsDefaults.TiktokAllowOverLimitUploadImport);
             loaded.TiktokOverLimitDownloadEpisodeCount.Should().Be(ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
+            loaded.TiktokProofTemplateDocxPath.Should().Be(ClientSettingsDefaults.TiktokProofTemplateDocxPath);
+            loaded.TiktokProofDeclarantCompanyName.Should().Be("武汉速视科技有限公司");
+            loaded.TiktokProofSealPath.Should().Be("C:\\proof\\seal.png");
+            loaded.TiktokProofPdfRenderer.Should().Be("wps");
+            loaded.TiktokProofWpsPath.Should().Be("C:\\WPS\\wps.exe");
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(databasePath);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void Client_settings_clone_preserves_proof_material_configuration()
+    {
+        var settings = new ClientSettings
+        {
+            TiktokProofTemplateDocxPath = @"D:\templates\proof.docx",
+            TiktokProofDeclarantCompanyName = "声明公司",
+            TiktokProofSealPath = @"D:\templates\seal.png",
+            TiktokProofPdfRenderer = "libreoffice",
+            TiktokProofWpsPath = @"D:\apps\wps.exe",
+            TiktokProofKeepDocx = true,
+        };
+
+        var clone = settings.Clone();
+
+        clone.TiktokProofTemplateDocxPath.Should().Be(settings.TiktokProofTemplateDocxPath);
+        clone.TiktokProofDeclarantCompanyName.Should().Be(settings.TiktokProofDeclarantCompanyName);
+        clone.TiktokProofSealPath.Should().Be(settings.TiktokProofSealPath);
+        clone.TiktokProofPdfRenderer.Should().Be("libreoffice");
+        clone.TiktokProofWpsPath.Should().Be(settings.TiktokProofWpsPath);
+        clone.TiktokProofKeepDocx.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Client_settings_store_preserves_explicit_libreoffice_renderer()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-proof-{Guid.NewGuid():N}.db");
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                TiktokProofPdfRenderer = " LibreOffice ",
+                TiktokProofKeepDocx = true,
+            }, databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+
+            loaded.TiktokProofPdfRenderer.Should().Be("libreoffice");
+            loaded.TiktokProofKeepDocx.Should().BeTrue();
         }
         finally
         {
@@ -165,6 +235,15 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokGenreCount.Should().Be(3);
         account.TiktokSourceLanguage.Should().Be("zh");
         account.TiktokIsAiDrama.Should().BeTrue();
+        account.TiktokIsOriginalRightsHolder.Should().BeTrue();
+        account.TiktokContentOriginalityType.Should().Be("original");
+        account.TiktokCopyrightMaterialTypes.Should().Equal("production_agreement");
+        account.TiktokCopyrightMaterialFilePath.Should().BeEmpty();
+        account.TiktokProofCopyrightCompanyName.Should().BeEmpty();
+        account.TiktokProofSubjectCompanyName.Should().BeEmpty();
+        account.TiktokProofDeclarantCompanyName.Should().BeEmpty();
+        account.TiktokProofSealPath.Should().BeEmpty();
+        account.TiktokProofAccountConfigMigrated.Should().BeFalse();
         account.TiktokPublishMode.Should().Be("auto_after_review");
         account.TiktokConsignmentEnabled.Should().BeTrue();
         account.TiktokPaidEnabled.Should().BeFalse();
@@ -248,6 +327,9 @@ public sealed class TikTokPublishDefaultsTests
         options.TargetAudienceMode.Should().Be("ai_recommend");
         options.GenreCount.Should().Be(3);
         options.SourceLanguage.Should().Be("zh");
+        options.IsOriginalRightsHolder.Should().BeTrue();
+        options.ContentOriginalityType.Should().Be("original");
+        options.CopyrightMaterialTypes.Should().Equal("production_agreement");
         options.PublishMode.Should().Be("auto_after_review");
         options.ProfilePreviewEpisodes.Should().Be(3);
         options.FreePreviewEpisodes.Should().Be(3);
@@ -258,6 +340,59 @@ public sealed class TikTokPublishDefaultsTests
         options.UploadBatchSize.Should().Be(3);
         options.UploadBatchStallSeconds.Should().Be(75);
         options.UploadBatchMaxRetries.Should().Be(3);
+    }
+
+    [Fact]
+    public void Publish_options_builder_prefers_generated_proof_material_over_account_file()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-proof-publish-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            var accountFile = Path.Combine(workflow, "account-material.pdf");
+            File.WriteAllBytes(accountFile, "%PDF-1.7\naccount"u8.ToArray());
+            var proofFile = TikTokProofMaterialService.GetPdfPath(workflow);
+            File.WriteAllBytes(proofFile, "%PDF-1.7\nproof"u8.ToArray());
+            var account = new TikTokAccountProfile
+            {
+                TiktokCopyrightMaterialFilePath = accountFile,
+            };
+            var logs = new List<string>();
+
+            var options = TikTokPublishOptionsBuilder.FromAccount(account, workflow, logs.Add);
+
+            options.CopyrightMaterialFilePath.Should().Be(proofFile);
+            logs.Should().ContainSingle(message => message.Contains("项目生成文件", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Publish_options_builder_keeps_account_file_and_never_uses_poster_when_proof_is_missing()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-proof-publish-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            var accountFile = Path.Combine(workflow, "account-material.pdf");
+            File.WriteAllBytes(accountFile, "%PDF-1.7\naccount"u8.ToArray());
+            File.WriteAllBytes(Path.Combine(workflow, "海报图片.png"), [1, 2, 3]);
+
+            var configured = TikTokPublishOptionsBuilder.FromAccount(
+                new TikTokAccountProfile { TiktokCopyrightMaterialFilePath = accountFile },
+                workflow);
+            var unconfigured = TikTokPublishOptionsBuilder.FromAccount(new TikTokAccountProfile(), workflow);
+
+            configured.CopyrightMaterialFilePath.Should().Be(accountFile);
+            unconfigured.CopyrightMaterialFilePath.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
     }
 
     [Theory]

@@ -253,6 +253,7 @@
                                 <CheckBox Content="下载剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="生成证明材料" IsChecked="{Binding QueueGenerateProofMaterialEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="静音检测" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="静音修复" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,2" />
@@ -345,8 +346,8 @@
                           HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
                           AllowAutoHide="False">
-                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1676">
-                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,68,68,68,180">
+                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1684">
+                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,76,68,68,68,68,68,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
@@ -357,7 +358,7 @@
                         <TextBlock Grid.Column="7" Text="下载" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="8" Text="改写" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="9" Text="海报" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="10" Text="工程图" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="10" Text="证明材料" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="11" Text="修复" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="12" Text="静音检测" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="13" Text="静音修复" Classes="tableHeader stepTableHeader" />
@@ -394,8 +395,8 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Border Classes="queueTableRow" Width="1676" Height="42" Loaded="OnQueueTableRowLoaded">
-                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,68,68,68,180" ClipToBounds="True">
+                                <Border Classes="queueTableRow" Width="1684" Height="42" Loaded="OnQueueTableRowLoaded">
+                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,76,68,68,68,68,68,68,180" ClipToBounds="True">
                                         <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="4,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -440,8 +441,8 @@
                                         <Border Grid.Column="9" Classes="stepStatusBadge" Background="{Binding PosterStatusBackgroundBrush}" BorderBrush="{Binding PosterStatusBorderBrush}" ToolTip.Tip="{Binding PosterStatus}">
                                             <TextBlock Text="{Binding PosterStatus}" Foreground="{Binding PosterStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="10" Classes="stepStatusBadge" Background="{Binding ProjectImageStatusBackgroundBrush}" BorderBrush="{Binding ProjectImageStatusBorderBrush}" ToolTip.Tip="{Binding ProjectImageStatus}">
-                                            <TextBlock Text="{Binding ProjectImageStatus}" Foreground="{Binding ProjectImageStatusBrush}" Classes="stepStatusText" />
+                                        <Border Grid.Column="10" Classes="stepStatusBadge" Background="{Binding ProofMaterialStatusBackgroundBrush}" BorderBrush="{Binding ProofMaterialStatusBorderBrush}" ToolTip.Tip="{Binding ProofMaterialStatus}">
+                                            <TextBlock Text="{Binding ProofMaterialStatus}" Foreground="{Binding ProofMaterialStatusBrush}" Classes="stepStatusText" />
                                         </Border>
                                         <Border Grid.Column="11" Classes="stepStatusBadge" Background="{Binding RepairStatusBackgroundBrush}" BorderBrush="{Binding RepairStatusBorderBrush}" ToolTip.Tip="{Binding RepairStatus}">
                                             <TextBlock Text="{Binding RepairStatus}" Foreground="{Binding RepairStatusBrush}" Classes="stepStatusText" />

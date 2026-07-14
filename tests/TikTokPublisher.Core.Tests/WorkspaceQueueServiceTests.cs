@@ -212,6 +212,44 @@ public sealed class WorkspaceQueueServiceTests
     }
 
     [Fact]
+    public void ScanProjects_recovers_proof_material_step_from_workflow_pdf()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "first");
+        var workflow = Path.Combine(workspace, "workflow", "_first");
+
+        try
+        {
+            CreateProject(project);
+            Directory.CreateDirectory(workflow);
+            WriteProjectMetadata(project, project, workflow);
+            WriteProjectMetadata(workflow, project, workflow);
+            File.WriteAllBytes(Path.Combine(workflow, "证明材料.pdf"), "%PDF-1.7\n"u8.ToArray());
+            WorkspaceQueueService.SaveProjects(
+                workspace,
+                [
+                    new QueueProjectItem
+                    {
+                        ProjectDir = project,
+                        DisplayName = "first",
+                        StepStates = new Dictionary<string, string>
+                        {
+                            [QueueStepKeys.GenerateProofMaterial] = QueueStepStatus.Pending,
+                        },
+                    },
+                ]);
+
+            var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+
+            item.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
+    [Fact]
     public void MoveProjectsToAccountWorkspace_Moves_Files_Queue_State_And_Rebinds_Account()
     {
         var sourceWorkspace = Path.Combine(Path.GetTempPath(), $"workspace-source-{Guid.NewGuid():N}");

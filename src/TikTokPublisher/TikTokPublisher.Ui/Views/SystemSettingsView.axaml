@@ -329,6 +329,36 @@
                 </ScrollViewer>
             </TabItem>
 
+            <TabItem Header="证明材料">
+                <ScrollViewer>
+                    <StackPanel Spacing="14" Margin="4">
+                        <TextBlock Text="TikTok 证明材料" FontWeight="Bold" />
+                        <TextBlock Text="以 Word 模板生成权利声明 PDF；PDF 渲染器默认使用 WPS。公司与印章信息按账号分别配置。" Classes="pageSummary" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Word 模板" VerticalAlignment="Center" />
+                            <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="*,Auto">
+                                <TextBox Grid.Column="0" Text="{Binding TiktokProofTemplateDocxPath}" Watermark="留空使用软件内置模板" />
+                                <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofTemplateClick" Margin="8,0,0,0" />
+                            </Grid>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="WPS 路径" VerticalAlignment="Center" />
+                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">
+                                <TextBox Grid.Column="0" Text="{Binding TiktokProofWpsPath}" Watermark="留空自动检测 WPS 程序" />
+                                <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofWpsClick" Margin="8,0,0,0" />
+                            </Grid>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="PDF 渲染器" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ProofPdfRendererCombo" Width="220" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="中间文件" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokProofKeepDocx}" Content="保留生成后的 DOCX" />
+                        </Grid>
+                        <TextBlock Text="本公司名称、印章图片和版权公司名称请在账号管理的“证明材料”页签配置；改写后剧名和当天日期由队列自动填入。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem Header="数据存储">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4">

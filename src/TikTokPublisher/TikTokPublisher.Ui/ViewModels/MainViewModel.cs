@@ -100,6 +100,7 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _queueDownloadEnabled;
     [ObservableProperty] private bool _queueRewriteEnabled;
     [ObservableProperty] private bool _queueGeneratePosterEnabled;
+    [ObservableProperty] private bool _queueGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _queueDeleteSourceVideosEnabled;
     [ObservableProperty] private bool _queueSmallVideoRepairEnabled;
     [ObservableProperty] private bool _queueSilenceDetectEnabled;
@@ -465,6 +466,7 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnQueueDownloadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueRewriteEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGeneratePosterEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnQueueGenerateProofMaterialEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueDeleteSourceVideosEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueUploadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueSmallVideoRepairEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -603,6 +605,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueDownloadEnabled = true;
             QueueRewriteEnabled = true;
             QueueGeneratePosterEnabled = true;
+            QueueGenerateProofMaterialEnabled = true;
             QueueDeleteSourceVideosEnabled = true;
             QueueSmallVideoRepairEnabled = true;
             QueueSilenceDetectEnabled = true;
@@ -626,6 +629,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueDownloadEnabled = false;
             QueueRewriteEnabled = false;
             QueueGeneratePosterEnabled = false;
+            QueueGenerateProofMaterialEnabled = false;
             QueueDeleteSourceVideosEnabled = false;
             QueueSmallVideoRepairEnabled = false;
             QueueSilenceDetectEnabled = false;
@@ -949,6 +953,10 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokUploadProfilePath = account.TiktokUploadProfilePath,
         LastWorkspace = account.LastWorkspace,
         TiktokExcelReportPath = account.TiktokExcelReportPath,
+        TiktokProofCopyrightCompanyName = account.TiktokProofCopyrightCompanyName,
+        TiktokProofDeclarantCompanyName = account.TiktokProofDeclarantCompanyName,
+        TiktokProofSealPath = account.TiktokProofSealPath,
+        TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
     };
 
     private void ReconcileQueueProjectRows(IReadOnlyList<QueueProjectItem> items)
@@ -1445,13 +1453,16 @@ public sealed partial class MainViewModel : ViewModelBase
             _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
         CacheWorkspaceQueueSnapshot(root, _queueItems, runOptions);
         MarkQueueExcelExportPending(root);
+        var runItems = _queueItems.Where(item =>
+            item.Enabled &&
+            !item.Archived &&
+            (projectDirFilter is null || projectDirFilter.Contains(Path.GetFullPath(item.ProjectDir))))
+            .ToArray();
+        Logs.ClearProjectEntries(runItems);
         RefreshRunningWorkspacesSummary();
         _currentQueueBatchId = TikTokExecutionHistoryService.NewBatchId();
         var batchId = _currentQueueBatchId;
-        var totalCount = _queueItems.Count(i =>
-            i.Enabled &&
-            !i.Archived &&
-            (projectDirFilter is null || projectDirFilter.Contains(Path.GetFullPath(i.ProjectDir))));
+        var totalCount = runItems.Length;
         var enabledSteps = runOptions.OrderedEnabledSteps();
         var projectConcurrency = runOptions.ProjectConcurrency;
         var uploadEntryMode = runOptions.UploadEntryMode;
@@ -1533,6 +1544,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (targets.Count == 0)
             return Array.Empty<QueueWorkerSummary?>();
 
+        Logs.ClearAllEntries();
         SyncEnabledStepsFromUi();
         _queueStatePersist.Enqueue(WorkspacePath, _queueItems, _queueRunOptions);
         PersistAccountQueueSettings();
@@ -2493,6 +2505,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var resets = new List<string>();
         if (result.ResetPoster) resets.Add("海报");
+        if (result.ResetProofMaterial) resets.Add("证明材料");
         if (result.ResetMaterialValidate) resets.Add("素材校验");
         if (result.ResetUpload) resets.Add("上传");
 
@@ -2537,6 +2550,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueDownloadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.Download);
             QueueRewriteEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RewriteInfo);
             QueueGeneratePosterEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GeneratePoster);
+            QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
             QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
             QueueSmallVideoRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SmallVideoRepair);
             QueueSilenceDetectEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceDetect);
@@ -2556,6 +2570,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueDownloadEnabled) steps.Add(QueueStepRegistry.Download);
         if (QueueRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
         if (QueueGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
+        if (QueueGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (QueueDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);
         if (QueueSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
         if (QueueSilenceDetectEnabled) steps.Add(QueueStepRegistry.SilenceDetect);

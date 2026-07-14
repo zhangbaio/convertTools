@@ -26,6 +26,11 @@ public static class ClientSettingsDefaults
     public const int TiktokProjectImageCount = 4;
     public const int TiktokProjectImageRenderEpisodeLimit = 16;
     public const string TiktokProjectImageSubtitleAiMode = "fast";
+    // Empty means use the DOCX embedded in TikTokPublisher.Core.
+    public const string TiktokProofTemplateDocxPath = "";
+    public const string TiktokProofWpsPath = "";
+    public const string TiktokProofPdfRenderer = "wps";
+    public const bool TiktokProofKeepDocx = false;
 
     public const string FeishuCommandHelpText = """
         【飞书 TikTok 上传命令教程】
@@ -45,7 +50,7 @@ public static class ClientSettingsDefaults
         账号: 默认
         账号: 账号A,账号B
         账号: 全部
-        步骤: download,rewrite_info,generate_poster,generate_project_images,upload_series
+        步骤: download,rewrite_info,generate_poster,generate_project_images,generate_proof_material,upload_series
         自动执行: 是
 
         多账号说明：多账号执行时使用每个账号「基础设置」中保存的工作目录。

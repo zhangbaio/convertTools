@@ -350,7 +350,7 @@ public static class QueueMaterialStepService
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
     }
 
-    public static bool NeedsAiRewrite(QueueProjectItem item)
+    public static bool NeedsAiRewrite(QueueProjectItem item, TikTokAccountProfile? account = null)
     {
         try
         {

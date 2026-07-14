@@ -1,4 +1,6 @@
 using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Ui.ViewModels;
@@ -38,6 +40,7 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.ImageProvider)
                 or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
                 or nameof(SystemSettingsViewModel.TiktokProjectImageSubtitleAiMode)
+                or nameof(SystemSettingsViewModel.TiktokProofPdfRenderer)
                 or nameof(SystemSettingsViewModel.ManagementDedupScope))
             {
                 SyncCombosFromVm();
@@ -122,6 +125,11 @@ public partial class SystemSettingsView : UserControl
         ProjectImageSubtitleAiModeCombo.Items.Add(CreateItem("关闭", "off"));
         ProjectImageSubtitleAiModeCombo.SelectionChanged += OnProjectImageSubtitleAiModeChanged;
 
+        ProofPdfRendererCombo.Items.Clear();
+        ProofPdfRendererCombo.Items.Add(CreateItem("WPS（默认）", "wps"));
+        ProofPdfRendererCombo.Items.Add(CreateItem("LibreOffice", "libreoffice"));
+        ProofPdfRendererCombo.SelectionChanged += OnProofPdfRendererChanged;
+
         ManagementDedupScopeCombo.Items.Clear();
         ManagementDedupScopeCombo.Items.Add(CreateItem("按 TIKTOK用户名", "tiktok_username"));
         ManagementDedupScopeCombo.Items.Add(CreateItem("按软件账号", "software_user"));
@@ -143,6 +151,7 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
         SelectComboItem(PosterTitleVerifyModeCombo, _vm.PosterTitleVerifyMode);
         SelectComboItem(ProjectImageSubtitleAiModeCombo, _vm.TiktokProjectImageSubtitleAiMode);
+        SelectComboItem(ProofPdfRendererCombo, _vm.TiktokProofPdfRenderer);
         SelectComboItem(ManagementDedupScopeCombo, _vm.ManagementDedupScope);
     }
 
@@ -204,6 +213,43 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || ProjectImageSubtitleAiModeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.TiktokProjectImageSubtitleAiMode = item.Tag as string ?? "fast";
+    }
+
+    private void OnProofPdfRendererChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ProofPdfRendererCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.TiktokProofPdfRenderer = item.Tag as string ?? ClientSettingsDefaults.TiktokProofPdfRenderer;
+    }
+
+    private async void OnBrowseProofTemplateClick(object? sender, RoutedEventArgs e)
+    {
+        var path = await PickFileAsync("选择证明材料 Word 模板", "*.docx");
+        if (_vm is not null && !string.IsNullOrWhiteSpace(path))
+            _vm.TiktokProofTemplateDocxPath = path;
+    }
+
+    private async void OnBrowseProofWpsClick(object? sender, RoutedEventArgs e)
+    {
+        var path = await PickFileAsync("选择 WPS 程序", "*.exe");
+        if (_vm is not null && !string.IsNullOrWhiteSpace(path))
+            _vm.TiktokProofWpsPath = path;
+    }
+
+    private async Task<string?> PickFileAsync(string title, params string[] patterns)
+    {
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (storage is null) return null;
+
+        var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = title,
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType(title) { Patterns = patterns },
+            ],
+        });
+        return files.FirstOrDefault()?.TryGetLocalPath();
     }
 
     private void OnManagementDedupScopeChanged(object? sender, SelectionChangedEventArgs e)

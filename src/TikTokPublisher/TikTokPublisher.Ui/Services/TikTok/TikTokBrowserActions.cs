@@ -542,6 +542,9 @@ public static partial class TikTokBrowserActions
             ct);
         await PauseBetweenFieldsAsync(page);
 
+        await ConfigureCopyrightProofAsync(page, options, log, ct);
+        await PauseBetweenFieldsAsync(page);
+
         await AcceptPromiseAsync(page, log, ct);
         await PauseBetweenFieldsAsync(page);
 

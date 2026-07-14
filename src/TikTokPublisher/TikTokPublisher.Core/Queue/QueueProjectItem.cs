@@ -6,6 +6,7 @@ public static class QueueStepKeys
     public const string RewriteInfo = "rewrite_info";
     public const string GeneratePoster = "generate_poster";
     public const string GenerateProjectImages = "generate_project_images";
+    public const string GenerateProofMaterial = "generate_proof_material";
     public const string SmallVideoRepair = "small_video_repair";
     public const string SilenceDetect = "silence_detect";
     public const string SilenceRepair = "silence_repair";
@@ -62,12 +63,18 @@ public sealed class QueueProjectItem
 
     public void NormalizeStepStates()
     {
+        // An explicit pending proof-material state must survive normalization (for example,
+        // after a title rename). Only legacy uploaded records that predate this step are
+        // backfilled as completed.
+        var hadProofMaterialState = StepStates.ContainsKey(QueueStepKeys.GenerateProofMaterial);
+
         foreach (var key in new[]
                  {
                      QueueStepKeys.Download,
                      QueueStepKeys.RewriteInfo,
                      QueueStepKeys.GeneratePoster,
                      QueueStepKeys.GenerateProjectImages,
+                     QueueStepKeys.GenerateProofMaterial,
                      QueueStepKeys.DeleteSourceVideos,
                      QueueStepKeys.UploadSeries,
                      QueueStepKeys.MaterialValidate,
@@ -79,6 +86,8 @@ public sealed class QueueProjectItem
 
         if (StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed)
         {
+            if (!hadProofMaterialState)
+                StepStates[QueueStepKeys.GenerateProofMaterial] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.MaterialValidate) == QueueStepStatus.Pending)
                 StepStates[QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.GenerateProjectImages) == QueueStepStatus.Pending)

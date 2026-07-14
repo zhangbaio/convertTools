@@ -50,6 +50,12 @@ public partial class AccountSettingsDialog : Window
             ? p.TiktokPaidRatioPercent
             : 20);
         AiDramaBox.IsChecked = p.TiktokIsAiDrama;
+        OriginalRightsHolderBox.IsChecked = p.TiktokIsOriginalRightsHolder;
+        SelectByTag(ContentOriginalityCombo, p.TiktokContentOriginalityType, "original");
+        LoadCopyrightMaterialTypes(p.TiktokCopyrightMaterialTypes);
+        ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
+        ProofSealPathBox.Text = p.TiktokProofSealPath;
+        ProofCopyrightCompanyNameBox.Text = p.TiktokProofCopyrightCompanyName;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         AnchorPromotionBox.IsChecked = p.TiktokAnchorPromotionEnabled;
         ProfilePreviewBox.Value = p.TiktokProfilePreviewEpisodes > 0 ? p.TiktokProfilePreviewEpisodes : 3;
@@ -105,6 +111,13 @@ public partial class AccountSettingsDialog : Window
         p.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
         p.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
         p.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
+        p.TiktokIsOriginalRightsHolder = OriginalRightsHolderBox.IsChecked == true;
+        p.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
+        p.TiktokCopyrightMaterialTypes = ReadCopyrightMaterialTypes();
+        p.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
+        p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
+        p.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
+        p.TiktokProofAccountConfigMigrated = true;
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
         p.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
         p.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
@@ -144,6 +157,26 @@ public partial class AccountSettingsDialog : Window
         WorkspaceBox.Text = folder.Path.LocalPath;
     }
 
+    private async void OnBrowseProofSealClick(object? sender, RoutedEventArgs e)
+    {
+        if (Storage is null) return;
+        var files = await Storage.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择公司印章图片",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("印章图片")
+                {
+                    Patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp"],
+                },
+            ],
+        });
+        var path = files.FirstOrDefault()?.TryGetLocalPath();
+        if (!string.IsNullOrWhiteSpace(path))
+            ProofSealPathBox.Text = path;
+    }
+
     private void OnSave(object? sender, RoutedEventArgs e)
     {
         SaveFromUi();
@@ -168,6 +201,31 @@ public partial class AccountSettingsDialog : Window
 
     private static string TagOf(ComboBox combo, string fallback)
         => (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? fallback;
+
+    private void LoadCopyrightMaterialTypes(IEnumerable<string>? values)
+    {
+        var selected = new HashSet<string>(values ?? [], StringComparer.Ordinal);
+        ProductionAgreementMaterialBox.IsChecked = selected.Contains("production_agreement");
+        WorkRegistrationMaterialBox.IsChecked = selected.Contains("work_registration_certificate");
+        FilingLicenseMaterialBox.IsChecked = selected.Contains("filing_or_distribution_license");
+        RightsNoticeMaterialBox.IsChecked = selected.Contains("opening_ending_rights_notice");
+        AiScreenshotsMaterialBox.IsChecked = selected.Contains("ai_generation_screenshots");
+        EditingProjectMaterialBox.IsChecked = selected.Contains("editing_project_files");
+        SourceInfoMaterialBox.IsChecked = selected.Contains("source_file_information");
+    }
+
+    private List<string> ReadCopyrightMaterialTypes()
+    {
+        var result = new List<string>();
+        if (ProductionAgreementMaterialBox.IsChecked == true) result.Add("production_agreement");
+        if (WorkRegistrationMaterialBox.IsChecked == true) result.Add("work_registration_certificate");
+        if (FilingLicenseMaterialBox.IsChecked == true) result.Add("filing_or_distribution_license");
+        if (RightsNoticeMaterialBox.IsChecked == true) result.Add("opening_ending_rights_notice");
+        if (AiScreenshotsMaterialBox.IsChecked == true) result.Add("ai_generation_screenshots");
+        if (EditingProjectMaterialBox.IsChecked == true) result.Add("editing_project_files");
+        if (SourceInfoMaterialBox.IsChecked == true) result.Add("source_file_information");
+        return result;
+    }
 
     private static string NormalizeSubmitAction(string? value, bool? legacyEnabled = null)
     {

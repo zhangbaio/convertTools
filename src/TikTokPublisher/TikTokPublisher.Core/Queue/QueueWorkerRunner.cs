@@ -793,6 +793,15 @@ public sealed class QueueWorkerRunner
                 await TikTokProjectImageService.GenerateAsync(
                     item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
                 break;
+            case QueueStepRegistry.GenerateProofMaterial:
+                await TikTokProofMaterialService.GenerateAsync(
+                    item,
+                    settings,
+                    account,
+                    options.ForceRerunCompletedSteps,
+                    log,
+                    ct).ConfigureAwait(false);
+                break;
             case QueueStepRegistry.DeleteSourceVideos:
                 await QueueMaterialStepService.RunDeleteSourceVideosAsync(item, settings, log, ct).ConfigureAwait(false);
                 break;
@@ -866,6 +875,15 @@ public sealed class QueueWorkerRunner
         if (stepKey == QueueStepRegistry.GenerateProjectImages &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             TikTokProjectImageService.NeedsGenerateProjectImages(item, ClientSettingsStore.Load()))
+        {
+            return true;
+        }
+        if (stepKey == QueueStepRegistry.GenerateProofMaterial &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            TikTokProofMaterialService.NeedsGenerateProofMaterial(
+                item,
+                ClientSettingsStore.Load(),
+                account))
         {
             return true;
         }

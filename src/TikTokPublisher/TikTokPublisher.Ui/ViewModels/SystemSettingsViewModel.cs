@@ -106,6 +106,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokProjectImageCount = ClientSettingsDefaults.TiktokProjectImageCount;
     [ObservableProperty] private int _tiktokProjectImageRenderEpisodeLimit = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
     [ObservableProperty] private string _tiktokProjectImageSubtitleAiMode = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
+    [ObservableProperty] private string _tiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
+    [ObservableProperty] private string _tiktokProofWpsPath = ClientSettingsDefaults.TiktokProofWpsPath;
+    [ObservableProperty] private string _tiktokProofDeclarantCompanyName = "";
+    [ObservableProperty] private string _tiktokProofSealPath = "";
+    [ObservableProperty] private string _tiktokProofPdfRenderer = ClientSettingsDefaults.TiktokProofPdfRenderer;
+    [ObservableProperty] private bool _tiktokProofKeepDocx = ClientSettingsDefaults.TiktokProofKeepDocx;
     [ObservableProperty] private bool _tiktokExcelAutoExportEnabled = true;
     [ObservableProperty] private bool _managementDedupEnabled;
     [ObservableProperty] private string _managementDedupScope = "tiktok_username";
@@ -211,6 +217,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokProjectImageCount = TiktokProjectImageCount,
         TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit,
         TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode,
+        TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath.Trim(),
+        TiktokProofWpsPath = TiktokProofWpsPath.Trim(),
+        TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName.Trim(),
+        TiktokProofSealPath = TiktokProofSealPath.Trim(),
+        TiktokProofPdfRenderer = TiktokProofPdfRenderer,
+        TiktokProofKeepDocx = TiktokProofKeepDocx,
         TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled,
         ManagementDedupEnabled = ManagementDedupEnabled,
         ManagementDedupScope = ManagementDedupScope,
@@ -643,6 +655,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokProjectImageCount = settings.TiktokProjectImageCount;
         TiktokProjectImageRenderEpisodeLimit = settings.TiktokProjectImageRenderEpisodeLimit;
         TiktokProjectImageSubtitleAiMode = settings.TiktokProjectImageSubtitleAiMode;
+        TiktokProofTemplateDocxPath = settings.TiktokProofTemplateDocxPath;
+        TiktokProofWpsPath = settings.TiktokProofWpsPath;
+        TiktokProofDeclarantCompanyName = settings.TiktokProofDeclarantCompanyName;
+        TiktokProofSealPath = settings.TiktokProofSealPath;
+        TiktokProofPdfRenderer = settings.TiktokProofPdfRenderer;
+        TiktokProofKeepDocx = settings.TiktokProofKeepDocx;
         TiktokExcelAutoExportEnabled = settings.TiktokExcelAutoExportEnabled;
         ManagementDedupEnabled = settings.ManagementDedupEnabled;
         ManagementDedupScope = settings.ManagementDedupScope;

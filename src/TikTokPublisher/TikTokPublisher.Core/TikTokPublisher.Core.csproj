@@ -23,6 +23,10 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Resources\权力声明模板.docx"
+                      LogicalName="TikTokPublisher.Core.Resources.ProofMaterialTemplate.docx" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="TikTokPublisher.Core.Tests" />
   </ItemGroup>
 </Project>

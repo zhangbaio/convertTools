@@ -27,6 +27,7 @@ public sealed class QueueProjectTitleRenameServiceTests
             File.WriteAllText(
                 Path.Combine(oldWorkflowDir, "短剧信息.txt"),
                 "新剧名: 旧剧名\n原剧名: 原剧名\n剧名: 旧剧名\n短标题: 旧剧名\n集数: 12\n");
+            File.WriteAllBytes(Path.Combine(oldWorkflowDir, "证明材料.pdf"), "%PDF-1.7\n"u8.ToArray());
             var oldStagingDir = Path.Combine(oldWorkflowDir, TikTokUploadStagingService.StagingDirName);
             Directory.CreateDirectory(oldStagingDir);
             var oldUploadVideo1 = Path.Combine(oldStagingDir, "旧剧名-第1集.mp4");
@@ -51,6 +52,7 @@ public sealed class QueueProjectTitleRenameServiceTests
                     [QueueStepKeys.Download] = QueueStepStatus.Completed,
                     [QueueStepKeys.RewriteInfo] = QueueStepStatus.Failed,
                     [QueueStepKeys.GeneratePoster] = QueueStepStatus.Completed,
+                    [QueueStepKeys.GenerateProofMaterial] = QueueStepStatus.Completed,
                     [QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed,
                     [QueueStepKeys.UploadSeries] = QueueStepStatus.Failed,
                 },
@@ -98,6 +100,7 @@ public sealed class QueueProjectTitleRenameServiceTests
             result.ResetUpload.Should().BeTrue();
             result.ResetPoster.Should().BeFalse();
             result.ResetMaterialValidate.Should().BeFalse();
+            result.ResetProofMaterial.Should().BeTrue();
             Directory.Exists(oldWorkflowDir).Should().BeFalse();
             Directory.Exists(newWorkflowDir).Should().BeTrue();
             var newUploadVideo1 = Path.Combine(newWorkflowDir, TikTokUploadStagingService.StagingDirName, "新剧名-第1集.mp4");
@@ -106,6 +109,7 @@ public sealed class QueueProjectTitleRenameServiceTests
             File.Exists(oldUploadVideo2).Should().BeFalse();
             File.Exists(newUploadVideo1).Should().BeTrue();
             File.Exists(newUploadVideo2).Should().BeTrue();
+            File.Exists(Path.Combine(newWorkflowDir, "证明材料.pdf")).Should().BeFalse();
 
             var workflowInfo = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(newWorkflowDir, "短剧信息.txt"));
             workflowInfo["新剧名"].Should().Be("新剧名");
@@ -126,6 +130,7 @@ public sealed class QueueProjectTitleRenameServiceTests
             renamed.LastError.Should().BeEmpty();
             renamed.StepStates[QueueStepKeys.RewriteInfo].Should().Be(QueueStepStatus.Completed);
             renamed.StepStates[QueueStepKeys.GeneratePoster].Should().Be(QueueStepStatus.Completed);
+            renamed.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Pending);
             renamed.StepStates[QueueStepKeys.MaterialValidate].Should().Be(QueueStepStatus.Completed);
             renamed.StepStates[QueueStepKeys.UploadSeries].Should().Be(QueueStepStatus.Pending);
 
@@ -147,6 +152,61 @@ public sealed class QueueProjectTitleRenameServiceTests
             legacyManifest["workflow_project_dir"].GetString().Should().Be(newWorkflowDir);
             legacyManifest["upload_video_paths"].EnumerateArray().Select(item => item.GetString())
                 .Should().Equal(newUploadVideo1, newUploadVideo2);
+        }
+        finally
+        {
+            DeleteDirectoryWithRetry(workspace);
+        }
+    }
+
+    [Fact]
+    public void RenameNewTitle_resets_proof_but_preserves_completed_upload()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"queue-title-rename-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(workspace, "source-project");
+        var oldWorkflowDir = Path.Combine(workspace, "workflow", "_旧剧名");
+        var newWorkflowDir = Path.Combine(workspace, "workflow", "_新剧名");
+
+        try
+        {
+            WriteMetadata(sourceDir, sourceDir, oldWorkflowDir, "_旧剧名", "旧剧名");
+            WriteMetadata(oldWorkflowDir, sourceDir, oldWorkflowDir, "_旧剧名", "旧剧名");
+            File.WriteAllText(Path.Combine(sourceDir, "短剧信息.txt"), "原剧名: 原剧名\n短标题: 旧剧名\n");
+            File.WriteAllText(
+                Path.Combine(oldWorkflowDir, "短剧信息.txt"),
+                "新剧名: 旧剧名\n原剧名: 原剧名\n剧名: 旧剧名\n短标题: 旧剧名\n集数: 12\n");
+            File.WriteAllBytes(Path.Combine(oldWorkflowDir, "证明材料.pdf"), "%PDF-1.7\n"u8.ToArray());
+
+            WorkspaceQueueDatabase.EnsureDatabase(WorkspaceQueuePaths.QueueDatabasePath(workspace));
+            var item = new QueueProjectItem
+            {
+                ProjectDir = sourceDir,
+                DisplayName = "source-project",
+                OriginalTitle = "原剧名",
+                NewTitle = "旧剧名",
+                EpisodeCount = 12,
+                StatusText = QueueStepStatus.Completed,
+                UploadCompletedAt = "2026-07-14T12:00:00+08:00",
+                StepStates = new Dictionary<string, string>
+                {
+                    [QueueStepKeys.RewriteInfo] = QueueStepStatus.Completed,
+                    [QueueStepKeys.GenerateProofMaterial] = QueueStepStatus.Completed,
+                    [QueueStepKeys.UploadSeries] = QueueStepStatus.Completed,
+                },
+            };
+            item.NormalizeStepStates();
+            WorkspaceQueueDatabase.Save(workspace, [item]);
+
+            var result = QueueProjectTitleRenameService.RenameNewTitle(workspace, sourceDir, "新剧名");
+
+            result.ResetProofMaterial.Should().BeTrue();
+            result.ResetUpload.Should().BeFalse();
+            File.Exists(Path.Combine(newWorkflowDir, "证明材料.pdf")).Should().BeFalse();
+
+            var renamed = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+            renamed.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Pending);
+            renamed.StepStates[QueueStepKeys.UploadSeries].Should().Be(QueueStepStatus.Completed);
+            renamed.UploadCompletedAt.Should().Be("2026-07-14T12:00:00+08:00");
         }
         finally
         {

@@ -8,6 +8,17 @@ public static class TikTokPublishConstants
     public const string ContractIdModeManual = "manual";
     public const string ContractIdModeFirstAvailable = "first_available";
 
+    public static readonly IReadOnlyDictionary<string, string> CopyrightMaterialLabels = new Dictionary<string, string>
+    {
+        ["production_agreement"] = "制作协议、联合出品协议等合作协议",
+        ["work_registration_certificate"] = "作品登记证书",
+        ["filing_or_distribution_license"] = "网络剧片备案、发行许可、监管审批文件",
+        ["opening_ending_rights_notice"] = "片头片尾及权利标识",
+        ["ai_generation_screenshots"] = "AI 生成过程截图",
+        ["editing_project_files"] = "剪辑工程文件",
+        ["source_file_information"] = "原始文件或素材文件信息",
+    };
+
     public static readonly IReadOnlyDictionary<string, string> PublishModeLabels = new Dictionary<string, string>
     {
         ["auto_after_review"] = "过审后自动发布",
@@ -65,6 +76,10 @@ public sealed class TikTokPublishOptions
     public int GenreCount { get; set; } = DefaultGenreCount;
     public string SourceLanguage { get; set; } = "zh";
     public bool IsAiDrama { get; set; } = true;
+    public bool IsOriginalRightsHolder { get; set; } = true;
+    public string ContentOriginalityType { get; set; } = "original";
+    public IReadOnlyList<string> CopyrightMaterialTypes { get; set; } = new[] { "production_agreement" };
+    public string CopyrightMaterialFilePath { get; set; } = "";
     public string PublishMode { get; set; } = "auto_after_review";
     public bool ConsignmentEnabled { get; set; } = true;
     public bool PaidEnabled { get; set; }
@@ -112,6 +127,15 @@ public sealed class TikTokPublishOptions
         GenreCount = NormalizeGenreCount(account.TiktokGenreCount),
         SourceLanguage = string.IsNullOrWhiteSpace(account.TiktokSourceLanguage) ? "zh" : account.TiktokSourceLanguage,
         IsAiDrama = account.TiktokIsAiDrama,
+        IsOriginalRightsHolder = account.TiktokIsOriginalRightsHolder,
+        ContentOriginalityType = string.IsNullOrWhiteSpace(account.TiktokContentOriginalityType)
+            ? "original"
+            : account.TiktokContentOriginalityType.Trim(),
+        CopyrightMaterialTypes = (account.TiktokCopyrightMaterialTypes ?? [])
+            .Where(TikTokPublishConstants.CopyrightMaterialLabels.ContainsKey)
+            .Distinct(StringComparer.Ordinal)
+            .ToList(),
+        CopyrightMaterialFilePath = account.TiktokCopyrightMaterialFilePath?.Trim() ?? "",
         PublishMode = string.IsNullOrWhiteSpace(account.TiktokPublishMode) ? "auto_after_review" : account.TiktokPublishMode,
         ConsignmentEnabled = account.TiktokConsignmentEnabled,
         PaidEnabled = account.TiktokPaidEnabled,

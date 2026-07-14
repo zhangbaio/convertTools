@@ -33,4 +33,47 @@ public sealed class QueueRunOptionsTests
         QueueStepRegistry.DefaultEnabledSteps
             .Should().NotContain(QueueStepRegistry.GenerateProjectImages);
     }
+
+    [Fact]
+    public void Proof_material_generation_follows_project_images_and_is_selectable_but_disabled_by_default()
+    {
+        QueueStepRegistry.All
+            .Select(step => step.Key)
+            .Should().ContainInOrder(
+                QueueStepRegistry.GenerateProjectImages,
+                QueueStepRegistry.GenerateProofMaterial);
+        QueueStepRegistry.UserSelectable
+            .Select(step => step.Key)
+            .Should().Contain(QueueStepRegistry.GenerateProofMaterial);
+        QueueStepRegistry.DefaultEnabledSteps
+            .Should().NotContain(QueueStepRegistry.GenerateProofMaterial);
+        QueueStepRegistry.LabelOf(QueueStepRegistry.GenerateProofMaterial)
+            .Should().Be("生成证明材料");
+    }
+
+    [Fact]
+    public void NormalizeStepStates_backfills_legacy_uploaded_project_without_overwriting_explicit_pending_proof()
+    {
+        var legacyUploaded = new QueueProjectItem
+        {
+            StepStates = new Dictionary<string, string>
+            {
+                [QueueStepKeys.UploadSeries] = QueueStepStatus.Completed,
+            },
+        };
+        var explicitlyReset = new QueueProjectItem
+        {
+            StepStates = new Dictionary<string, string>
+            {
+                [QueueStepKeys.GenerateProofMaterial] = QueueStepStatus.Pending,
+                [QueueStepKeys.UploadSeries] = QueueStepStatus.Completed,
+            },
+        };
+
+        legacyUploaded.NormalizeStepStates();
+        explicitlyReset.NormalizeStepStates();
+
+        legacyUploaded.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
+        explicitlyReset.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Pending);
+    }
 }

@@ -104,6 +104,12 @@ public partial class AccountProfileEditor : UserControl
             ? profile.TiktokPaidRatioPercent
             : 20);
         AiDramaBox.IsChecked = profile.TiktokIsAiDrama;
+        OriginalRightsHolderBox.IsChecked = profile.TiktokIsOriginalRightsHolder;
+        SelectByTag(ContentOriginalityCombo, profile.TiktokContentOriginalityType, "original");
+        LoadCopyrightMaterialTypes(profile.TiktokCopyrightMaterialTypes);
+        ProofDeclarantCompanyNameBox.Text = profile.TiktokProofDeclarantCompanyName;
+        ProofSealPathBox.Text = profile.TiktokProofSealPath;
+        ProofCopyrightCompanyNameBox.Text = profile.TiktokProofCopyrightCompanyName;
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         AnchorPromotionBox.IsChecked = profile.TiktokAnchorPromotionEnabled;
         SilenceValidationBox.IsChecked = profile.TiktokSilenceValidationEnabled;
@@ -192,6 +198,13 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
             profile.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
             profile.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
+            profile.TiktokIsOriginalRightsHolder = OriginalRightsHolderBox.IsChecked == true;
+            profile.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
+            profile.TiktokCopyrightMaterialTypes = ReadCopyrightMaterialTypes();
+            profile.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
+            profile.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
+            profile.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
+            profile.TiktokProofAccountConfigMigrated = true;
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
             profile.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
             profile.TiktokSilenceValidationEnabled = SilenceValidationBox.IsChecked == true;
@@ -400,6 +413,31 @@ public partial class AccountProfileEditor : UserControl
             || normalized.Contains("chinamobile")
             || normalized.Contains("cmcc")
             || normalized.Contains("cmi");
+    }
+
+    private void LoadCopyrightMaterialTypes(IEnumerable<string>? values)
+    {
+        var selected = new HashSet<string>(values ?? [], StringComparer.Ordinal);
+        ProductionAgreementMaterialBox.IsChecked = selected.Contains("production_agreement");
+        WorkRegistrationMaterialBox.IsChecked = selected.Contains("work_registration_certificate");
+        FilingLicenseMaterialBox.IsChecked = selected.Contains("filing_or_distribution_license");
+        RightsNoticeMaterialBox.IsChecked = selected.Contains("opening_ending_rights_notice");
+        AiScreenshotsMaterialBox.IsChecked = selected.Contains("ai_generation_screenshots");
+        EditingProjectMaterialBox.IsChecked = selected.Contains("editing_project_files");
+        SourceInfoMaterialBox.IsChecked = selected.Contains("source_file_information");
+    }
+
+    private List<string> ReadCopyrightMaterialTypes()
+    {
+        var result = new List<string>();
+        if (ProductionAgreementMaterialBox.IsChecked == true) result.Add("production_agreement");
+        if (WorkRegistrationMaterialBox.IsChecked == true) result.Add("work_registration_certificate");
+        if (FilingLicenseMaterialBox.IsChecked == true) result.Add("filing_or_distribution_license");
+        if (RightsNoticeMaterialBox.IsChecked == true) result.Add("opening_ending_rights_notice");
+        if (AiScreenshotsMaterialBox.IsChecked == true) result.Add("ai_generation_screenshots");
+        if (EditingProjectMaterialBox.IsChecked == true) result.Add("editing_project_files");
+        if (SourceInfoMaterialBox.IsChecked == true) result.Add("source_file_information");
+        return result;
     }
 
     private static IpLookupResult ParseIp9(JsonElement root)
@@ -685,6 +723,9 @@ public partial class AccountProfileEditor : UserControl
         DeleteVideosOnArchiveBox.IsChecked = true;
         CdpEndpointBox.Text = "";
         ContractIdBox.Text = "";
+        ProofDeclarantCompanyNameBox.Text = "";
+        ProofSealPathBox.Text = "";
+        ProofCopyrightCompanyNameBox.Text = "";
         SubmitEnabledBox.IsChecked = true;
         MaxContinuousSilenceSecondsBox.Value = 20;
         ExpectedPriceValueBox.Text = "";
@@ -707,6 +748,9 @@ public partial class AccountProfileEditor : UserControl
 
     private async void OnBrowseExcelReportClick(object? sender, RoutedEventArgs e) =>
         await PickFileAsync(ExcelReportBox, "选择 Excel 报表文件", ["xlsx", "xls"]);
+
+    private async void OnBrowseProofSealClick(object? sender, RoutedEventArgs e) =>
+        await PickFileAsync(ProofSealPathBox, "选择公司印章图片", ["png", "jpg", "jpeg", "bmp"]);
 
     private async void OnSyncExpectedPriceClick(object? sender, RoutedEventArgs e)
     {
