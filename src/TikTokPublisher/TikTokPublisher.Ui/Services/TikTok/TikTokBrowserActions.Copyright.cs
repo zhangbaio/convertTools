@@ -7,6 +7,12 @@ public static partial class TikTokBrowserActions
 {
     private const int CopyrightControlTimeoutMs = 15000;
     private const int CopyrightUploadTimeoutMs = 60000;
+    private const string CopyrightMaterialTypeFieldSelector =
+        "[x-field-id='copyrightProof.selectedMaterialTypes']";
+    private const string ProductionAgreementUploadFieldSelector =
+        "[x-field-id='copyrightProof.materialFiles.2']";
+    private const string CopyrightMaterialUploadFieldSelector =
+        "[x-field-id^='copyrightProof.materialFiles.']";
 
     internal static async Task ConfigureCopyrightProofAsync(
         IPage page,
@@ -76,10 +82,12 @@ public static partial class TikTokBrowserActions
             string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase) ? "改编" : "原创",
             ct);
 
-        var combo = await FindComboboxByFieldLabelAsync(page, ["上传材料类型"])
-            ?? throw new InvalidOperationException("未找到 TikTok「上传材料类型」下拉框。");
+        var combo = await WaitForCopyrightMaterialTypeTriggerAsync(
+            page,
+            CopyrightControlTimeoutMs,
+            ct);
         await combo.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 }).WaitAsync(ct);
-        await OpenComboboxAsync(page, combo, ct);
+        await OpenCopyrightMaterialTypePopupAsync(page, combo, ct);
 
         var productionAgreementLabel =
             TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.ProductionAgreementMaterialType];
@@ -126,6 +134,7 @@ public static partial class TikTokBrowserActions
         Log(log, $"TikTok 版权材料上传组件已就绪：{productionAgreementLabel}。");
 
         var fileName = Path.GetFileName(resolvedFilePath);
+        var initialFileCardCount = await CountCopyrightMaterialFileCardsAsync(uploadControl.Field);
         Log(log, $"TikTok 版权材料开始上传：{productionAgreementLabel}（{fileName}）。");
         var networkOutcome = new TaskCompletionSource<CopyrightUploadNetworkOutcome>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -165,13 +174,19 @@ public static partial class TikTokBrowserActions
                     $"向 TikTok「{productionAgreementLabel}」选择文件失败：{ex.Message}", ex);
             }
 
-            await VerifyCopyrightInputFileNameAsync(uploadControl.Input, fileName, ct);
-            Log(log, $"TikTok 版权材料文件已送入上传控件：{fileName}，等待页面确认上传结果。");
+            await VerifyCopyrightMaterialFileAcceptedAsync(
+                uploadControl.Field,
+                uploadControl.Input,
+                fileName,
+                initialFileCardCount,
+                ct);
+            Log(log, $"TikTok 版权材料文件已送入上传组件：{fileName}，等待页面确认上传结果。");
 
             await WaitForCopyrightMaterialUploadResultAsync(
                 uploadControl.Field,
                 productionAgreementLabel,
                 fileName,
+                initialFileCardCount,
                 networkOutcome.Task,
                 log,
                 ct);
@@ -263,7 +278,7 @@ public static partial class TikTokBrowserActions
             return;
         }
 
-        await ClickWithFallbackAsync(option.ClickTarget, ct);
+        await ClickCopyrightMaterialOptionAsync(option, ct);
         var confirmed = await WaitUntilAsync(async () =>
         {
             ct.ThrowIfCancellationRequested();
@@ -303,6 +318,10 @@ public static partial class TikTokBrowserActions
         IPage page,
         string label)
     {
+        var fieldBasedControl = await TryFindCopyrightMaterialUploadControlByFieldIdAsync(page);
+        if (fieldBasedControl is not null)
+            return fieldBasedControl;
+
         var exactLabels = page.Locator(
             $"xpath=//*[normalize-space(translate(text(), '*', ''))={XPathLiteral(label)}]");
         if (await exactLabels.CountAsync() == 0)
@@ -332,12 +351,159 @@ public static partial class TikTokBrowserActions
         return null;
     }
 
-    private static async Task VerifyCopyrightInputFileNameAsync(
+    private static async Task<ILocator> WaitForCopyrightMaterialTypeTriggerAsync(
+        IPage page,
+        int timeoutMs,
+        CancellationToken ct)
+    {
+        ILocator? result = null;
+        var found = await WaitUntilAsync(async () =>
+        {
+            ct.ThrowIfCancellationRequested();
+            result = await TryFindCopyrightMaterialTypeTriggerAsync(page);
+            return result is not null;
+        }, timeoutMs, 300, ct);
+
+        return found && result is not null
+            ? result
+            : throw new InvalidOperationException(
+                $"{timeoutMs / 1000} 秒内未找到 TikTok「上传材料类型」触发器。");
+    }
+
+    private static async Task<ILocator?> TryFindCopyrightMaterialTypeTriggerAsync(IPage page)
+    {
+        // 2026-07 的真实编辑页不是 button[role=combobox]，而是
+        // copyrightProof.selectedMaterialTypes 字段内的 div[aria-haspopup=true]。
+        // 优先使用稳定的表单字段标识，保留旧版按钮定位作为兼容回退。
+        foreach (var selector in new[]
+                 {
+                     $"{CopyrightMaterialTypeFieldSelector} [aria-haspopup='true']",
+                     $"{CopyrightMaterialTypeFieldSelector} [tabindex='0']",
+                 })
+        {
+            var candidate = page.Locator(selector).First;
+            try
+            {
+                if (await candidate.CountAsync() == 0 || !await candidate.IsVisibleAsync())
+                    continue;
+                if (!await candidate.EvaluateAsync<bool>(
+                        "element => element.isConnected && " +
+                        "!element.hasAttribute('disabled') && element.getAttribute('aria-disabled') !== 'true'"))
+                    continue;
+                return candidate;
+            }
+            catch
+            {
+                // 页面异步重绘时重新定位或走旧版回退。
+            }
+        }
+
+        return await FindComboboxByFieldLabelAsync(page, ["上传材料类型"]);
+    }
+
+    private static async Task OpenCopyrightMaterialTypePopupAsync(
+        IPage page,
+        ILocator trigger,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (string.Equals(
+                await trigger.GetAttributeAsync("aria-expanded"),
+                "true",
+                StringComparison.OrdinalIgnoreCase))
+            return;
+
+        await ClickWithFallbackAsync(trigger, ct);
+        await page.WaitForTimeoutAsync(400);
+    }
+
+    private static async Task ClickCopyrightMaterialOptionAsync(
+        (ILocator Input, ILocator ClickTarget) option,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            // 当前页面的 checkbox 与文字分列，ClickTarget 是共同的 option 容器；
+            // 直接触发容器内 Semi checkbox，避免浮层贴近视口边缘时坐标点击超时。
+            await option.ClickTarget.EvaluateAsync(
+                """
+                element => {
+                  const target = element.matches('.semi-checkbox, input[type="checkbox"]')
+                    ? element
+                    : element.querySelector('.semi-checkbox') ||
+                      element.querySelector('input[type="checkbox"]') ||
+                      element;
+                  target.click();
+                }
+                """).WaitAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            await ClickWithFallbackAsync(option.ClickTarget, ct);
+        }
+    }
+
+    private static async Task<(ILocator Field, ILocator Input)?>
+        TryFindCopyrightMaterialUploadControlByFieldIdAsync(IPage page)
+    {
+        foreach (var fieldSelector in new[]
+                 {
+                     ProductionAgreementUploadFieldSelector,
+                     CopyrightMaterialUploadFieldSelector,
+                 })
+        {
+            var fields = page.Locator(fieldSelector);
+            int count;
+            try { count = await fields.CountAsync(); }
+            catch { continue; }
+
+            for (var index = 0; index < count; index++)
+            {
+                var field = fields.Nth(index);
+                try
+                {
+                    if (!await field.IsVisibleAsync()) continue;
+
+                    foreach (var inputSelector in new[]
+                             {
+                                 "input.semi-upload-hidden-input:not(.semi-upload-hidden-input-replace)[accept*='.pdf']",
+                                 "input[type='file'][multiple][accept*='.pdf']",
+                                 "input[type='file'][accept*='.pdf']",
+                                 "input[type='file']",
+                             })
+                    {
+                        var input = field.Locator(inputSelector).First;
+                        if (await input.CountAsync() == 0) continue;
+                        if (!await input.EvaluateAsync<bool>(
+                                "element => element.isConnected && !element.disabled"))
+                            continue;
+                        return (field, input);
+                    }
+                }
+                catch
+                {
+                    // 勾选材料后上传区域会异步创建或重绘，下一轮重新定位。
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task VerifyCopyrightMaterialFileAcceptedAsync(
+        ILocator field,
         ILocator input,
         string expectedFileName,
+        int initialFileCardCount,
         CancellationToken ct)
     {
         string[] actualFileNames = [];
+        var renderedFileCardCount = initialFileCardCount;
         var matched = await WaitUntilAsync(async () =>
         {
             ct.ThrowIfCancellationRequested();
@@ -345,8 +511,14 @@ public static partial class TikTokBrowserActions
             {
                 actualFileNames = await input.EvaluateAsync<string[]>(
                     "element => Array.from(element.files || []).map(file => file.name)");
-                return actualFileNames.Any(name =>
-                    string.Equals(name, expectedFileName, StringComparison.OrdinalIgnoreCase));
+                if (actualFileNames.Any(name =>
+                        string.Equals(name, expectedFileName, StringComparison.OrdinalIgnoreCase)))
+                    return true;
+
+                // Semi Upload 接收文件后会立刻重建 input 并清空 input.files；
+                // 此时真实接收结果是上传区出现 PDF/file card，而不是旧 input 继续持有 File。
+                renderedFileCardCount = await CountCopyrightMaterialFileCardsAsync(field);
+                return renderedFileCardCount > initialFileCardCount;
             }
             catch
             {
@@ -358,14 +530,28 @@ public static partial class TikTokBrowserActions
         {
             var actual = actualFileNames.Length == 0 ? "空" : string.Join("、", actualFileNames);
             throw new InvalidOperationException(
-                $"TikTok 版权材料文件选择校验失败，期望：{expectedFileName}；input.files：{actual}。");
+                $"TikTok 版权材料文件选择校验失败，期望：{expectedFileName}；" +
+                $"input.files：{actual}；文件卡片：{initialFileCardCount} → {renderedFileCardCount}。");
         }
     }
+
+    private static Task<int> CountCopyrightMaterialFileCardsAsync(ILocator field) =>
+        field.EvaluateAsync<int>(
+            """
+            root => {
+              const listCards = root.querySelectorAll(
+                '.semi-upload-file-list-main[role="list"] > *, ' +
+                '.semi-upload-file-list-main [role="list"] > *');
+              if (listCards.length > 0) return listCards.length;
+              return root.querySelectorAll('[class*="pictureCard"]').length;
+            }
+            """);
 
     private static async Task WaitForCopyrightMaterialUploadResultAsync(
         ILocator field,
         string label,
         string fileName,
+        int initialFileCardCount,
         Task<CopyrightUploadNetworkOutcome> networkOutcomeTask,
         Action<string>? log,
         CancellationToken ct)
@@ -380,7 +566,10 @@ public static partial class TikTokBrowserActions
             ct.ThrowIfCancellationRequested();
             try
             {
-                lastProbe = await ProbeCopyrightMaterialUploadStateAsync(field, fileName);
+                lastProbe = await ProbeCopyrightMaterialUploadStateAsync(
+                    field,
+                    fileName,
+                    initialFileCardCount);
             }
             catch (Exception ex)
             {
@@ -444,10 +633,14 @@ public static partial class TikTokBrowserActions
                 $"最后状态：{lastProbe}。");
     }
 
-    private static Task<string> ProbeCopyrightMaterialUploadStateAsync(ILocator field, string fileName) =>
+    private static Task<string> ProbeCopyrightMaterialUploadStateAsync(
+        ILocator field,
+        string fileName,
+        int initialFileCardCount) =>
         field.EvaluateAsync<string>(
             """
-            (root, expectedFileName) => {
+            (root, args) => {
+              const { expectedFileName, initialFileCardCount } = args;
               const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
               const lower = value => normalize(value).toLowerCase();
               const isVisible = element => {
@@ -503,20 +696,26 @@ public static partial class TikTokBrowserActions
                 return `busy:${busyMarker || '文件正在上传'}`;
 
               const fileShown = expected.length > 0 && fieldText.includes(expected);
+              const listCards = root.querySelectorAll(
+                '.semi-upload-file-list-main[role="list"] > *, ' +
+                '.semi-upload-file-list-main [role="list"] > *');
+              const fallbackCards = root.querySelectorAll('[class*="pictureCard"]');
+              const fileCardCount = listCards.length > 0 ? listCards.length : fallbackCards.length;
+              const newFileCardShown = fileCardCount > initialFileCardCount;
               const successMarkers = ['上传成功', '已上传', 'upload success', 'uploaded'];
               const successMarker = successMarkers.find(marker => fieldText.includes(marker));
               const successfulElement = elements.find(element => {
                 const className = lower(typeof element.className === 'string' ? element.className : '');
                 return /(?:upload.*success|success.*upload|upload.*finished|upload.*complete)/.test(className);
               });
-              if (fileShown && (successMarker || successfulElement))
+              if ((fileShown || newFileCardShown) && (successMarker || successfulElement))
                 return `success:${expectedFileName} 已显示且页面无上传中或错误状态`;
-              if (fileShown)
-                return `ready:${expectedFileName} 已显示且页面无上传中或错误状态`;
+              if (fileShown || newFileCardShown)
+                return `ready:${fileShown ? expectedFileName : 'PDF 文件卡片'} 已显示且页面无上传中或错误状态`;
               return `pending:等待上传区域显示 ${expectedFileName}`;
             }
             """,
-            fileName);
+            new { expectedFileName = fileName, initialFileCardCount });
 
     private static bool IsLikelyCopyrightUploadResponse(IResponse response)
     {
