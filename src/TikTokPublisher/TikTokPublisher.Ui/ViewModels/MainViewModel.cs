@@ -807,6 +807,69 @@ public sealed partial class MainViewModel : ViewModelBase
         });
     }
 
+    private async Task RefreshWorkspaceProjectsAfterQueueRunAsync(
+        string workspaceRoot,
+        IReadOnlyList<QueueProjectItem>? terminalItems = null,
+        QueueRunOptions? terminalOptions = null)
+    {
+        var root = (workspaceRoot ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(root))
+            return;
+
+        var shouldRefresh = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (!IsActiveWorkspace(root))
+                return false;
+
+            // 先排空已经进入 200ms 合并区的 onPersist 快照；单工作区运行再用 worker
+            // 持有的完整列表覆盖，确保追加项目也不会因字段列表滞后一拍而遗漏。
+            FlushPendingPersistedQueueItems();
+            var finalItems = terminalItems ?? _queueItems;
+            var finalOptions = terminalOptions ?? ResolveQueueOptionsForPersistedWorkspace(root);
+            CacheWorkspaceQueueSnapshot(root, finalItems, finalOptions);
+            _queueStatePersist.Enqueue(root, finalItems, finalOptions);
+            return true;
+        });
+        if (!shouldRefresh)
+            return;
+
+        Exception? refreshError = null;
+        try
+        {
+            // 保留运行保护，并等待最终扫描完成后再发一次 Reset。
+            await RefreshWorkspaceProjectsAsync(root).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            refreshError = ex;
+        }
+
+        // 无论扫描成功、被同工作区的更新代替，还是扫描失败，都以当前内存终态
+        // 重建一次 ItemsSource；这是停止后修复失效 ListBox 虚拟化容器的关键通知。
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (!IsActiveWorkspace(root))
+                return;
+
+            if (refreshError is not null && terminalItems is not null)
+                _queueItems = terminalItems.ToList();
+            ReconcileQueueProjectRows(_queueItems);
+            ApplyQueueProjectFilter();
+            // 表格只绑定过滤集合；即使项目引用序列没有变化，也要发出一次 Reset，
+            // 让 Avalonia 丢弃停止过程中失效的虚拟化容器与滚动偏移。
+            FilteredQueueProjectRows.ReplaceAll(FilteredQueueProjectRows.ToArray());
+            UpdateQueueSummaryText();
+            RefreshLogSnapshot(force: true);
+        });
+
+        // 刷新失败不能把已经正常完成/停止的队列改报为执行失败。
+        if (refreshError is not null)
+        {
+            var ex = refreshError;
+            AppendLog($"队列结束后刷新表格失败，已保留当前数据：{ex.Message}");
+        }
+    }
+
     private static string SafeFullPath(string path)
     {
         try { return Path.GetFullPath(path); }
@@ -1453,7 +1516,8 @@ public sealed partial class MainViewModel : ViewModelBase
             _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
         CacheWorkspaceQueueSnapshot(root, _queueItems, runOptions);
         MarkQueueExcelExportPending(root);
-        var runItems = _queueItems.Where(item =>
+        var queueItemsForRun = _queueItems;
+        var runItems = queueItemsForRun.Where(item =>
             item.Enabled &&
             !item.Archived &&
             (projectDirFilter is null || projectDirFilter.Contains(Path.GetFullPath(item.ProjectDir))))
@@ -1487,7 +1551,7 @@ public sealed partial class MainViewModel : ViewModelBase
             var label = $"{SelectedAccount?.DisplayName ?? "当前账号"} · {root}";
             var summary = await _queueOrchestrator.RunWorkspaceAsync(
                 root,
-                _queueItems,
+                queueItemsForRun,
                 runOptions,
                 host,
                 _store,
@@ -1519,13 +1583,16 @@ public sealed partial class MainViewModel : ViewModelBase
                     ["stopped"] = summary?.Stopped ?? false,
                 },
                 account: SelectedAccount?.Model);
-            if (string.Equals(Path.GetFullPath(root), Path.GetFullPath(WorkspacePath), StringComparison.OrdinalIgnoreCase))
-                RefreshWorkspaceProjects(root);
             return summary;
         }
         finally
         {
             RefreshRunningWorkspacesSummary();
+            // 队列结束（尤其是手动停止）时必须发送一次 Reset 通知。
+            // 高频运行刷新采用逐项协调；Avalonia ListBox 偶尔会保留失效的虚拟化容器，
+            // 表现为汇总仍有数据但表格空白，直到切换账号触发整表重建。
+            await RefreshWorkspaceProjectsAfterQueueRunAsync(root, queueItemsForRun, runOptions)
+                .ConfigureAwait(true);
             RefreshLogSnapshot();
         }
     }
@@ -1606,7 +1673,8 @@ public sealed partial class MainViewModel : ViewModelBase
         finally
         {
             RefreshRunningWorkspacesSummary();
-            RefreshWorkspaceProjects(WorkspacePath);
+            await RefreshWorkspaceProjectsAfterQueueRunAsync(WorkspacePath)
+                .ConfigureAwait(true);
             RefreshLogSnapshot();
         }
     }
