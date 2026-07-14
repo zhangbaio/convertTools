@@ -16,9 +16,14 @@ public sealed class AccountStore
 
     private readonly List<TikTokAccountProfile> _accounts = new();
     private string _activeAccountId = "";
+    private static string AccountSnapshotQuarantineFile =>
+        AppPaths.AccountsFile + ".sync-quarantine";
 
     public IReadOnlyList<TikTokAccountProfile> Accounts => _accounts;
     public string ActiveAccountId => _activeAccountId;
+    public bool CanSyncAccountSnapshot { get; private set; } = true;
+
+    public event Action? AccountsChanged;
 
     public TikTokAccountProfile? ActiveAccount =>
         _accounts.FirstOrDefault(a => a.Id == _activeAccountId) ?? _accounts.FirstOrDefault();
@@ -27,6 +32,7 @@ public sealed class AccountStore
     {
         _accounts.Clear();
         _activeAccountId = "";
+        CanSyncAccountSnapshot = !File.Exists(AccountSnapshotQuarantineFile);
         Directory.CreateDirectory(AppPaths.DataRoot);
 
         try
@@ -40,6 +46,15 @@ public sealed class AccountStore
         catch
         {
             // 损坏档案从空列表恢复
+            CanSyncAccountSnapshot = false;
+            try
+            {
+                File.WriteAllText(AccountSnapshotQuarantineFile, DateTimeOffset.UtcNow.ToString("O"));
+            }
+            catch
+            {
+                // 文件隔离标记失败时仍保留当前进程内的保护。
+            }
         }
 
         try
@@ -66,13 +81,14 @@ public sealed class AccountStore
             || _accounts.All(a => a.Id != _activeAccountId))
             _activeAccountId = _accounts[0].Id;
 
+        var migratedProofConfig = MigrateLegacyProofMaterialConfig(_accounts);
         foreach (var account in _accounts)
         {
             NormalizeProfileDefaults(account);
             EnsureProfileDirs(account);
         }
 
-        if (!File.Exists(AppPaths.AccountsFile) && _accounts.Count > 0)
+        if ((!File.Exists(AppPaths.AccountsFile) || migratedProofConfig) && _accounts.Count > 0)
             SaveAccounts();
     }
 
@@ -82,6 +98,7 @@ public sealed class AccountStore
         var account = CreateProfileSkeleton(id, string.IsNullOrWhiteSpace(name) ? id : name.Trim());
         _accounts.Add(account);
         SaveAccounts();
+        NotifyAccountsChanged();
         return account;
     }
 
@@ -102,6 +119,8 @@ public sealed class AccountStore
         {
             // 浏览器占用时会失败，不影响档案删除
         }
+
+        NotifyAccountsChanged();
     }
 
     public void Update(TikTokAccountProfile account)
@@ -110,6 +129,7 @@ public sealed class AccountStore
         account.UpdatedAt = DateTimeOffset.Now.ToString("o");
         EnsureProfileDirs(account);
         SaveAccounts();
+        NotifyAccountsChanged();
     }
 
     public bool Rename(string accountId, string newName)
@@ -140,10 +160,30 @@ public sealed class AccountStore
                ?? _accounts.FirstOrDefault(a => string.Equals(a.DisplayName, key, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>用户确认已修复账号文件后，解除快照同步隔离。</summary>
+    public bool ConfirmAccountSnapshotRecovery()
+    {
+        if (!File.Exists(AccountSnapshotQuarantineFile))
+            return false;
+        File.Delete(AccountSnapshotQuarantineFile);
+        CanSyncAccountSnapshot = true;
+        NotifyAccountsChanged();
+        return true;
+    }
+
     private void SaveAccounts()
     {
         Directory.CreateDirectory(AppPaths.DataRoot);
         File.WriteAllText(AppPaths.AccountsFile, JsonSerializer.Serialize(_accounts, JsonOptions));
+    }
+
+    private void NotifyAccountsChanged()
+    {
+        foreach (var handler in AccountsChanged?.GetInvocationList().Cast<Action>() ?? [])
+        {
+            try { handler(); }
+            catch { /* 同步观察者不得破坏本地账号保存。 */ }
+        }
     }
 
     private void SaveActivePointer()
@@ -173,6 +213,7 @@ public sealed class AccountStore
             TiktokExpectedFullPriceMode = "option_index",
             TiktokDeleteVideosOnArchive = true,
             TiktokDeleteVideosOnArchiveConfigured = true,
+            TiktokProofAccountConfigMigrated = true,
             TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
         };
     }
@@ -199,7 +240,51 @@ public sealed class AccountStore
         if (account.TiktokProfilePreviewEpisodes <= 0) account.TiktokProfilePreviewEpisodes = 3;
         if (account.TiktokFreePreviewEpisodes <= 0) account.TiktokFreePreviewEpisodes = 3;
         if (account.TiktokProjectConcurrency <= 0) account.TiktokProjectConcurrency = 4;
+        account.TiktokProofCopyrightCompanyName = (account.TiktokProofCopyrightCompanyName ?? "").Trim();
+        account.TiktokProofDeclarantCompanyName = (account.TiktokProofDeclarantCompanyName ?? "").Trim();
+        account.TiktokProofSealPath = (account.TiktokProofSealPath ?? "").Trim();
         account.ManagementDedupScope = NormalizeManagementDedupScope(account.ManagementDedupScope);
+    }
+
+    private static bool MigrateLegacyProofMaterialConfig(IEnumerable<TikTokAccountProfile> accounts)
+    {
+        var pending = accounts.Where(account => !account.TiktokProofAccountConfigMigrated).ToArray();
+        if (pending.Length == 0)
+            return false;
+
+        ClientSettings legacySettings;
+        try
+        {
+            legacySettings = ClientSettingsStore.Load();
+        }
+        catch
+        {
+            // Retry the migration on the next load. A transient settings-database error
+            // must not permanently mark legacy values as migrated.
+            return false;
+        }
+
+        return ApplyLegacyProofMaterialConfig(pending, legacySettings);
+    }
+
+    internal static bool ApplyLegacyProofMaterialConfig(
+        IEnumerable<TikTokAccountProfile> accounts,
+        ClientSettings legacySettings)
+    {
+        var pending = accounts.Where(account => !account.TiktokProofAccountConfigMigrated).ToArray();
+        if (pending.Length == 0)
+            return false;
+
+        foreach (var account in pending)
+        {
+            if (string.IsNullOrWhiteSpace(account.TiktokProofDeclarantCompanyName))
+                account.TiktokProofDeclarantCompanyName = legacySettings.TiktokProofDeclarantCompanyName;
+            if (string.IsNullOrWhiteSpace(account.TiktokProofSealPath))
+                account.TiktokProofSealPath = legacySettings.TiktokProofSealPath;
+            account.TiktokProofAccountConfigMigrated = true;
+        }
+
+        return true;
     }
 
     private static string NormalizeSubmitAction(string? value, bool? legacyEnabled = null)

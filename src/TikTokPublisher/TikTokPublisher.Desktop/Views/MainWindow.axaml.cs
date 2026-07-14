@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     private readonly AccountStore _accountStore = new();
     private readonly BrowserSessionHost _browserHost = new();
     private readonly MainViewModel _viewModel;
+    private readonly TikTokAccountInventorySyncCoordinator _accountInventorySync;
     private string _activeNavTag = "queue";
     private bool _isSidebarCollapsed;
     private DispatcherTimer? _licenseVerifyTimer;
@@ -31,6 +32,7 @@ public partial class MainWindow : Window
     {
         var context = new AccountContextService(_accountStore);
         _viewModel = new MainViewModel(_accountStore, context);
+        _accountInventorySync = new TikTokAccountInventorySyncCoordinator(_accountStore);
         InitializeComponent();
         DataContext = _viewModel;
 
@@ -76,6 +78,8 @@ public partial class MainWindow : Window
         _viewModel.RemoteQueueRunRequested += QueueView.StartQueueRunFromRemoteAsync;
         _viewModel.RemoteAllQueueRunRequested += QueueView.StartAllQueueRunFromRemoteAsync;
         _viewModel.StartXingeRemoteCommandService();
+        _accountInventorySync.StatusChanged += _viewModel.AppendLog;
+        _accountInventorySync.Start();
         _viewModel.AccountProfileNetworkChanged += profile => _browserHost.InvalidateHostIfNetworkChanged(profile);
         AccountSidebar.NavigatePageRequested += (_, _) => NavigateTo("accounts");
         _viewModel.AccountSwitchRequested += OnAccountSwitchRequested;
@@ -121,6 +125,8 @@ public partial class MainWindow : Window
         _licenseVerifyTimer?.Stop();
         _licenseVerifyTimer = null;
         _viewModel.StopXingeRemoteCommandService();
+        _accountInventorySync.StatusChanged -= _viewModel.AppendLog;
+        _accountInventorySync.Dispose();
     }
 
     public void StartLicenseVerifyTimer()

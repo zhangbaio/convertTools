@@ -58,6 +58,6 @@ public partial class SystemServicesView : UserControl
         if (!confirmed)
             return;
 
-        vm.ClearLicenseLogin();
+        await vm.ClearLicenseLoginAsync();
     }
 }

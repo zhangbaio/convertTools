@@ -20,6 +20,8 @@ public static class LicenseStore
 
     public static string StatePath => Path.Combine(StateDirectory, "license_state.bin");
 
+    public static event Action? StateChanged;
+
     public static LicenseState Load()
     {
         if (File.Exists(StatePath))
@@ -47,12 +49,14 @@ public static class LicenseStore
         stream.Write(StateMagic);
         stream.Write(protectedBytes);
         File.WriteAllBytes(StatePath, stream.ToArray());
+        NotifyStateChanged();
     }
 
     public static void Clear()
     {
         if (File.Exists(StatePath))
             File.Delete(StatePath);
+        NotifyStateChanged();
     }
 
     public static string MaskLicenseKey(string licenseKey)
@@ -85,5 +89,14 @@ public static class LicenseStore
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             return data;
         return ProtectedData.Unprotect(data, null, DataProtectionScope.CurrentUser);
+    }
+
+    private static void NotifyStateChanged()
+    {
+        foreach (var handler in StateChanged?.GetInvocationList().Cast<Action>() ?? [])
+        {
+            try { handler(); }
+            catch { /* 登录态保存不能被观察者异常打断。 */ }
+        }
     }
 }

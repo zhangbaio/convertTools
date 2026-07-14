@@ -51,6 +51,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private bool _remoteDownloadEnabled;
     [ObservableProperty] private bool _remoteRewriteEnabled;
     [ObservableProperty] private bool _remoteGeneratePosterEnabled;
+    [ObservableProperty] private bool _remoteGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _remoteSmallVideoRepairEnabled;
     [ObservableProperty] private bool _remoteSilenceDetectEnabled;
     [ObservableProperty] private bool _remoteSilenceRepairEnabled;
@@ -148,13 +149,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void Logout()
-    {
-        LicenseAuthService.Logout();
-        LoginStatus = "已退出登录";
-        RefreshLicenseSummary();
-        StatusRequested?.Invoke("已退出授权登录");
-    }
+    private Task LogoutAsync() => ClearLicenseLoginAsync();
 
     [RelayCommand]
     private void SaveAuthServerUrl()
@@ -286,6 +281,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         if (RemoteDownloadEnabled) steps.Add(QueueStepRegistry.Download);
         if (RemoteRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
         if (RemoteGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
+        if (RemoteGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (RemoteSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
         if (RemoteSilenceDetectEnabled) steps.Add(QueueStepRegistry.SilenceDetect);
         if (RemoteSilenceRepairEnabled) steps.Add(QueueStepRegistry.SilenceRepair);
@@ -302,6 +298,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         RemoteDownloadEnabled = selected.Contains(QueueStepRegistry.Download);
         RemoteRewriteEnabled = selected.Contains(QueueStepRegistry.RewriteInfo);
         RemoteGeneratePosterEnabled = selected.Contains(QueueStepRegistry.GeneratePoster);
+        RemoteGenerateProofMaterialEnabled = selected.Contains(QueueStepRegistry.GenerateProofMaterial);
         RemoteSmallVideoRepairEnabled = selected.Contains(QueueStepRegistry.SmallVideoRepair);
         RemoteSilenceDetectEnabled = selected.Contains(QueueStepRegistry.SilenceDetect);
         RemoteSilenceRepairEnabled = selected.Contains(QueueStepRegistry.SilenceRepair);

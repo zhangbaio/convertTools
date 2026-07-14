@@ -82,6 +82,14 @@ public sealed class ClientSettings
     public int TiktokProjectImageCount { get; set; } = ClientSettingsDefaults.TiktokProjectImageCount;
     public int TiktokProjectImageRenderEpisodeLimit { get; set; } = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
     public string TiktokProjectImageSubtitleAiMode { get; set; } = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
+    public string TiktokProofTemplateDocxPath { get; set; } = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
+    public string TiktokProofWpsPath { get; set; } = ClientSettingsDefaults.TiktokProofWpsPath;
+    // Legacy global values retained only for one-time/account-unmigrated compatibility.
+    // New runtime configuration belongs to TikTokAccountProfile.
+    public string TiktokProofDeclarantCompanyName { get; set; } = "";
+    public string TiktokProofSealPath { get; set; } = "";
+    public string TiktokProofPdfRenderer { get; set; } = ClientSettingsDefaults.TiktokProofPdfRenderer;
+    public bool TiktokProofKeepDocx { get; set; } = ClientSettingsDefaults.TiktokProofKeepDocx;
 
     public string LastDownloadWorkspace { get; set; } = "";
     public string ArchiveRootDir { get; set; } = "";
@@ -195,6 +203,12 @@ public sealed class ClientSettings
         TiktokProjectImageCount = TiktokProjectImageCount,
         TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit,
         TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode,
+        TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath,
+        TiktokProofWpsPath = TiktokProofWpsPath,
+        TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName,
+        TiktokProofSealPath = TiktokProofSealPath,
+        TiktokProofPdfRenderer = TiktokProofPdfRenderer,
+        TiktokProofKeepDocx = TiktokProofKeepDocx,
         LastDownloadWorkspace = LastDownloadWorkspace,
         ArchiveRootDir = ArchiveRootDir,
         AuthServerUrl = AuthServerUrl,

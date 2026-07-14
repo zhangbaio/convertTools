@@ -65,12 +65,27 @@ public sealed partial class SystemServicesViewModel
         StatusRequested?.Invoke("授权登录成功");
     }
 
-    public void ClearLicenseLogin()
+    public async Task ClearLicenseLoginAsync()
     {
-        LicenseAuthService.Logout();
-        LoginStatus = "已退出登录";
-        RefreshLicenseSummaryDisplay();
-        StatusRequested?.Invoke("已退出授权登录");
+        if (IsBusy) return;
+        IsBusy = true;
+        LoginStatus = "正在退出登录...";
+        try
+        {
+            await LicenseAuthService.LogoutAsync();
+            LoginStatus = "已退出登录";
+            RefreshLicenseSummaryDisplay();
+            StatusRequested?.Invoke("已退出授权登录");
+        }
+        catch (Exception ex)
+        {
+            LoginStatus = ex.Message;
+            StatusRequested?.Invoke($"退出授权登录失败：{ex.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     private static string FirstNonEmpty(params string?[] values) =>

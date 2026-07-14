@@ -99,9 +99,12 @@ public static class LicenseAuthService
         string password,
         CancellationToken ct = default)
     {
+        var previousState = LicenseStore.Load();
         var baseUrl = CleanBaseUrl(serverUrl);
         var machineId = MachineFingerprintHelper.GetMachineFingerprint();
         var state = await LoginCoreAsync(baseUrl, account, password, machineId, ct);
+        if (previousState.IsActivated() && !IsSameLoginScope(previousState, state))
+            await LogoutStateAsync(previousState, ct);
         LicenseStore.Save(state);
         return state;
     }
@@ -160,10 +163,48 @@ public static class LicenseAuthService
         }
     }
 
-    public static void Logout()
+    public static async Task LogoutAsync(CancellationToken ct = default)
     {
+        var state = LicenseStore.Load();
+        if (state.IsActivated())
+            await LogoutStateAsync(state, ct);
         LicenseStore.Clear();
     }
+
+    private static async Task LogoutStateAsync(LicenseState state, CancellationToken ct)
+    {
+        var baseUrl = CleanBaseUrl(state.ServerUrl);
+        if (baseUrl.Length == 0)
+            throw new LicenseServiceException("旧登录缺少授权服务地址，无法安全退出");
+
+        try
+        {
+            var payload = await PostJsonAsync(
+                $"{baseUrl}/tt/account/logout",
+                new Dictionary<string, object?>
+                {
+                    ["machine_id"] = state.MachineId.Trim(),
+                    ["token"] = state.Token.Trim(),
+                },
+                ct);
+            EnsureSuccess(payload);
+        }
+        catch (LicenseRejectedException)
+        {
+            // An already revoked/expired token is an idempotent logged-out state.
+        }
+    }
+
+    internal static bool IsSameLoginScope(LicenseState left, LicenseState right) =>
+        string.Equals(CleanBaseUrl(left.ServerUrl), CleanBaseUrl(right.ServerUrl), StringComparison.OrdinalIgnoreCase)
+        && string.Equals(left.MachineId?.Trim(), right.MachineId?.Trim(), StringComparison.OrdinalIgnoreCase)
+        && LoginIdentities(left).Any(leftValue =>
+            LoginIdentities(right).Contains(leftValue, StringComparer.OrdinalIgnoreCase));
+
+    private static IEnumerable<string> LoginIdentities(LicenseState state) =>
+        new[] { state.AccountUsername, state.Email, state.LicenseKey }
+            .Select(value => value?.Trim() ?? "")
+            .Where(value => value.Length > 0);
 
     private static async Task<LicenseState> LoginCoreAsync(
         string baseUrl,
