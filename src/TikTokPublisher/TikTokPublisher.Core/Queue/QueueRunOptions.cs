@@ -29,6 +29,9 @@ public static class QueueStepRegistry
         new QueueStepDefinition(UploadSeries, "上传剧集", true),
     };
 
+    public static IReadOnlyList<QueueStepDefinition> UserSelectable { get; } =
+        All.Where(step => step.Key != GenerateProjectImages).ToArray();
+
     public static IReadOnlyList<string> DefaultEnabledSteps { get; } = new[] { UploadSeries };
 
     public static string LabelOf(string stepKey) =>
@@ -39,6 +42,9 @@ public static class QueueStepRegistry
 
     public static IEnumerable<string> OrderEnabledSteps(IEnumerable<string> enabledSteps) =>
         All.Select(s => s.Key).Where(enabledSteps.Contains);
+
+    public static IEnumerable<string> OrderUserSelectableSteps(IEnumerable<string> enabledSteps) =>
+        UserSelectable.Select(s => s.Key).Where(enabledSteps.Contains);
 }
 
 public readonly record struct QueueStepDefinition(string Key, string Label, bool Implemented);

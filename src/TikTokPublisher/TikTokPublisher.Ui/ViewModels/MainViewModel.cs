@@ -100,7 +100,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _queueDownloadEnabled;
     [ObservableProperty] private bool _queueRewriteEnabled;
     [ObservableProperty] private bool _queueGeneratePosterEnabled;
-    [ObservableProperty] private bool _queueGenerateProjectImagesEnabled;
     [ObservableProperty] private bool _queueDeleteSourceVideosEnabled;
     [ObservableProperty] private bool _queueSmallVideoRepairEnabled;
     [ObservableProperty] private bool _queueSilenceDetectEnabled;
@@ -466,7 +465,6 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnQueueDownloadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueRewriteEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGeneratePosterEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueGenerateProjectImagesEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueDeleteSourceVideosEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueUploadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueSmallVideoRepairEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -605,7 +603,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueDownloadEnabled = true;
             QueueRewriteEnabled = true;
             QueueGeneratePosterEnabled = true;
-            QueueGenerateProjectImagesEnabled = true;
             QueueDeleteSourceVideosEnabled = true;
             QueueSmallVideoRepairEnabled = true;
             QueueSilenceDetectEnabled = true;
@@ -629,7 +626,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueDownloadEnabled = false;
             QueueRewriteEnabled = false;
             QueueGeneratePosterEnabled = false;
-            QueueGenerateProjectImagesEnabled = false;
             QueueDeleteSourceVideosEnabled = false;
             QueueSmallVideoRepairEnabled = false;
             QueueSilenceDetectEnabled = false;
@@ -2541,7 +2537,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueDownloadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.Download);
             QueueRewriteEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RewriteInfo);
             QueueGeneratePosterEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GeneratePoster);
-            QueueGenerateProjectImagesEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProjectImages);
             QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
             QueueSmallVideoRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SmallVideoRepair);
             QueueSilenceDetectEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceDetect);
@@ -2561,7 +2556,6 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueDownloadEnabled) steps.Add(QueueStepRegistry.Download);
         if (QueueRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
         if (QueueGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
-        if (QueueGenerateProjectImagesEnabled) steps.Add(QueueStepRegistry.GenerateProjectImages);
         if (QueueDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);
         if (QueueSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
         if (QueueSilenceDetectEnabled) steps.Add(QueueStepRegistry.SilenceDetect);
@@ -2594,6 +2588,12 @@ public sealed partial class MainViewModel : ViewModelBase
             ? NormalizeQueueEnabledSteps(account?.TiktokQueueEnabledSteps)
             : new List<string>();
         var changedAccountSettings = false;
+        if (hasAccountSteps && account is not null &&
+            !account.TiktokQueueEnabledSteps!.SequenceEqual(enabledSteps, StringComparer.Ordinal))
+        {
+            account.TiktokQueueEnabledSteps = enabledSteps.ToList();
+            changedAccountSettings = true;
+        }
         if (!hasAccountSteps)
         {
             enabledSteps = NormalizeQueueEnabledSteps(options.EnabledSteps);
@@ -2675,8 +2675,8 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         if (steps is null) return new List<string>();
 
-        var known = QueueStepRegistry.All.Select(step => step.Key).ToHashSet(StringComparer.Ordinal);
-        return QueueStepRegistry.OrderEnabledSteps(
+        var known = QueueStepRegistry.UserSelectable.Select(step => step.Key).ToHashSet(StringComparer.Ordinal);
+        return QueueStepRegistry.OrderUserSelectableSteps(
                 steps.Select(step => (step ?? "").Trim())
                     .Where(step => known.Contains(step))
                     .Distinct(StringComparer.Ordinal))

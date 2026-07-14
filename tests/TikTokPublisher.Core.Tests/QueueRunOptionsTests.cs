@@ -23,4 +23,14 @@ public sealed class QueueRunOptionsTests
 
         options.EnabledSteps.Should().BeEmpty();
     }
+
+    [Fact]
+    public void Project_image_generation_is_not_user_selectable_or_enabled_by_default()
+    {
+        QueueStepRegistry.UserSelectable
+            .Select(step => step.Key)
+            .Should().NotContain(QueueStepRegistry.GenerateProjectImages);
+        QueueStepRegistry.DefaultEnabledSteps
+            .Should().NotContain(QueueStepRegistry.GenerateProjectImages);
+    }
 }

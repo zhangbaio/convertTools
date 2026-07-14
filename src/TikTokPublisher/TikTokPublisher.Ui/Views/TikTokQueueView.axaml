@@ -253,7 +253,6 @@
                                 <CheckBox Content="下载剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="生成工程图" IsChecked="{Binding QueueGenerateProjectImagesEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="静音检测" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="静音修复" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,2" />

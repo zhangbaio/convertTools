@@ -214,7 +214,6 @@
                             <CheckBox Content="下载剧集" IsChecked="{Binding RemoteDownloadEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="改写信息" IsChecked="{Binding RemoteRewriteEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="生成海报" IsChecked="{Binding RemoteGeneratePosterEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="生成工程图" IsChecked="{Binding RemoteGenerateProjectImagesEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="小文件修复" IsChecked="{Binding RemoteSmallVideoRepairEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="静音检测" IsChecked="{Binding RemoteSilenceDetectEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="静音修复" IsChecked="{Binding RemoteSilenceRepairEnabled}" Margin="0,0,16,10" />

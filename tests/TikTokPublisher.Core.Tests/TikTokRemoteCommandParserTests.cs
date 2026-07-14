@@ -112,6 +112,20 @@ public sealed class TikTokRemoteCommandParserTests
     }
 
     [Fact]
+    public void Load_upload_steps_removes_hidden_project_image_step_from_saved_defaults()
+    {
+        var settings = new ClientSettings
+        {
+            FeishuTiktokUploadEnabledStepsJson =
+                """["download","generate_project_images","upload_series"]""",
+        };
+
+        var steps = TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings);
+
+        steps.Should().Equal(QueueStepRegistry.Download, QueueStepRegistry.UploadSeries);
+    }
+
+    [Fact]
     public void Build_upload_run_options_allows_command_steps_and_option_override()
     {
         var settings = new ClientSettings

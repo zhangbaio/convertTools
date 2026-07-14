@@ -51,7 +51,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private bool _remoteDownloadEnabled;
     [ObservableProperty] private bool _remoteRewriteEnabled;
     [ObservableProperty] private bool _remoteGeneratePosterEnabled;
-    [ObservableProperty] private bool _remoteGenerateProjectImagesEnabled;
     [ObservableProperty] private bool _remoteSmallVideoRepairEnabled;
     [ObservableProperty] private bool _remoteSilenceDetectEnabled;
     [ObservableProperty] private bool _remoteSilenceRepairEnabled;
@@ -208,7 +207,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void SelectAllRemoteSteps() => ApplyRemoteSteps(QueueStepRegistry.All.Select(step => step.Key));
+    private void SelectAllRemoteSteps() => ApplyRemoteSteps(QueueStepRegistry.UserSelectable.Select(step => step.Key));
 
     [RelayCommand]
     private void ResetRemoteSteps() => ApplyRemoteSteps(TikTokRemoteCommandStepDefaults.FullUploadDefaultEnabledSteps);
@@ -287,7 +286,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         if (RemoteDownloadEnabled) steps.Add(QueueStepRegistry.Download);
         if (RemoteRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
         if (RemoteGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
-        if (RemoteGenerateProjectImagesEnabled) steps.Add(QueueStepRegistry.GenerateProjectImages);
         if (RemoteSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
         if (RemoteSilenceDetectEnabled) steps.Add(QueueStepRegistry.SilenceDetect);
         if (RemoteSilenceRepairEnabled) steps.Add(QueueStepRegistry.SilenceRepair);
@@ -304,7 +302,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         RemoteDownloadEnabled = selected.Contains(QueueStepRegistry.Download);
         RemoteRewriteEnabled = selected.Contains(QueueStepRegistry.RewriteInfo);
         RemoteGeneratePosterEnabled = selected.Contains(QueueStepRegistry.GeneratePoster);
-        RemoteGenerateProjectImagesEnabled = selected.Contains(QueueStepRegistry.GenerateProjectImages);
         RemoteSmallVideoRepairEnabled = selected.Contains(QueueStepRegistry.SmallVideoRepair);
         RemoteSilenceDetectEnabled = selected.Contains(QueueStepRegistry.SilenceDetect);
         RemoteSilenceRepairEnabled = selected.Contains(QueueStepRegistry.SilenceRepair);

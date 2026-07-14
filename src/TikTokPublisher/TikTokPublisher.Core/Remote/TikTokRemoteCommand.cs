@@ -74,7 +74,6 @@ public static class TikTokRemoteCommandStepDefaults
         QueueStepRegistry.Download,
         QueueStepRegistry.RewriteInfo,
         QueueStepRegistry.GeneratePoster,
-        QueueStepRegistry.GenerateProjectImages,
         QueueStepRegistry.SmallVideoRepair,
         QueueStepRegistry.SilenceDetect,
         QueueStepRegistry.SilenceRepair,

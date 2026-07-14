@@ -50,7 +50,9 @@ public static class TikTokRemoteRunOptions
             if (document.RootElement.ValueKind != JsonValueKind.Array)
                 return TikTokRemoteCommandStepDefaults.FullUploadDefaultEnabledSteps;
 
-            var normalized = TikTokRemoteCommandParser.NormalizeEnabledSteps(document.RootElement);
+            var normalized = QueueStepRegistry.OrderUserSelectableSteps(
+                    TikTokRemoteCommandParser.NormalizeEnabledSteps(document.RootElement))
+                .ToList();
             return normalized.Count > 0
                 ? normalized
                 : TikTokRemoteCommandStepDefaults.FullUploadDefaultEnabledSteps;
@@ -63,7 +65,9 @@ public static class TikTokRemoteRunOptions
 
     public static string DumpFeishuTikTokUploadEnabledSteps(IEnumerable<string>? enabledSteps)
     {
-        var normalized = NormalizeSteps(enabledSteps).ToList();
+        var normalized = QueueStepRegistry.OrderUserSelectableSteps(
+                NormalizeSteps(enabledSteps))
+            .ToList();
         return JsonSerializer.Serialize(normalized);
     }
 
