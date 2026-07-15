@@ -71,7 +71,7 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="本地直连链路（自建红果 API 服务）" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本地链路地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding HongguoLocalBaseUrl}" />
 
@@ -85,7 +85,14 @@
                                       Width="180"
                                       HorizontalAlignment="Left" />
 
-                            <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="转码引擎" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="3" Grid.Column="1"
+                                      ItemsSource="{Binding HongguoLocalTranscodeEngineOptions}"
+                                      SelectedItem="{Binding HongguoLocalTranscodeEngine}"
+                                      Width="180"
+                                      HorizontalAlignment="Left" />
+
+                            <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8">
                                 <Button Content="测试 hglocal" Command="{Binding ProbeHongguoLocalCommand}" MinWidth="110" />
                                 <TextBlock Text="{Binding HongguoLocalProbeStatus}" VerticalAlignment="Center" Classes="pageSummary" TextWrapping="Wrap" />
                             </StackPanel>

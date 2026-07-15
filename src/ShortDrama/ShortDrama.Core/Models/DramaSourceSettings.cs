@@ -19,6 +19,7 @@ public sealed record DramaSourceSettings
     public string HongguoLocalBaseUrl { get; init; } = "";
     public string HongguoLocalApiKey { get; init; } = "";
     public string HongguoLocalDownloadMode { get; init; } = "fast";
+    public string HongguoLocalTranscodeEngine { get; init; } = "auto";
 
     public string PikachuServerUrl { get; init; } = "https://startvlog.cn/start-prod-api";
     public string PikachuFanqieCookie { get; init; } = "";

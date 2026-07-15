@@ -116,7 +116,8 @@ public sealed class DramaSourceRouterDownloadTests
                 HongguoEpisodeDownloadAttempts = "1",
                 HongguoLocalBaseUrl = "https://local.example.com",
                 HongguoLocalApiKey = "local-key",
-                HongguoLocalDownloadMode = "compatible"
+                HongguoLocalDownloadMode = "compatible",
+                HongguoLocalTranscodeEngine = "cpu"
             };
             var router = new DramaSourceRouter(
                 httpClient,
@@ -149,6 +150,108 @@ public sealed class DramaSourceRouterDownloadTests
                 request.RequestUri!.AbsolutePath.EndsWith("/api/hongguo/stream", StringComparison.OrdinalIgnoreCase));
             handler.Requests.Should().NotContain(request =>
                 string.Equals(request.RequestUri!.Host, "cdn.example.com", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = previousFfmpegResolver;
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
+            DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadAsync_Should_Use_Nvenc_When_Local_Compatible_Mode_Is_Auto_And_Nvenc_Available()
+    {
+        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-hglocal-nvenc-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+        var handler = new LocalStreamRecordingHandler();
+        using var httpClient = new HttpClient(handler);
+        var previousFfmpegResolver = DramaSourceRouter.ResolveFfmpegBinaryForTests.Value;
+        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
+        var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
+        var sawEncoderProbe = false;
+        var sawNvencTranscode = false;
+        var sawCpuTranscode = false;
+
+        try
+        {
+            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = () => "fake-ffmpeg";
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
+            DramaSourceRouter.RunProcessAsyncForTests.Value = async (startInfo, cancellationToken) =>
+            {
+                if (startInfo.FileName == "fake-ffprobe")
+                {
+                    return new DramaSourceRouter.ProcessRunResult(0, """
+                        {
+                          "streams": [
+                            { "codec_type": "video", "codec_name": "hevc" }
+                          ]
+                        }
+                        """, "");
+                }
+
+                startInfo.FileName.Should().Be("fake-ffmpeg");
+                if (startInfo.ArgumentList.Contains("-encoders"))
+                {
+                    sawEncoderProbe = true;
+                    return new DramaSourceRouter.ProcessRunResult(0, " V....D h264_nvenc NVIDIA NVENC H.264 encoder", "");
+                }
+
+                if (startInfo.ArgumentList.Contains("libx264"))
+                {
+                    sawCpuTranscode = true;
+                }
+
+                sawNvencTranscode = true;
+                startInfo.ArgumentList.Should().Contain("hevc_cuvid");
+                startInfo.ArgumentList.Should().Contain("h264_nvenc");
+                startInfo.ArgumentList.Should().Contain("-cq");
+                startInfo.ArgumentList[startInfo.ArgumentList.IndexOf("-cq") + 1].Should().Be("26");
+                startInfo.ArgumentList.Should().Contain("aac");
+                var inputPath = startInfo.ArgumentList[startInfo.ArgumentList.IndexOf("-i") + 1];
+                File.ReadAllBytes(inputPath).Should().Equal(LocalStreamRecordingHandler.StreamBytes);
+                await File.WriteAllBytesAsync(startInfo.ArgumentList[^1], Encoding.UTF8.GetBytes("nvenc-video"), cancellationToken);
+                return new DramaSourceRouter.ProcessRunResult(0, "", "");
+            };
+
+            var settings = new DramaSourceSettings
+            {
+                DramaSourceChain = "hglocal",
+                DramaServiceOrderDownload = "hglocal,hgnew,pikachu",
+                HongguoDownloadTimeoutSeconds = "10",
+                HongguoEpisodeDownloadAttempts = "1",
+                HongguoLocalBaseUrl = "https://local.example.com",
+                HongguoLocalApiKey = "local-key",
+                HongguoLocalDownloadMode = "compatible",
+                HongguoLocalTranscodeEngine = "auto"
+            };
+            var router = new DramaSourceRouter(
+                httpClient,
+                new TestDramaSettingsProvider(settings),
+                new HongguoLocalApiService(httpClient),
+                new HongguoNewApiService(httpClient),
+                new HongguoDramaSearchService(httpClient),
+                new HongguoDramaDownloader(httpClient),
+                new HongguoMemoryReaderService());
+
+            var request = new DramaDownloadRequest(
+                ProjectDir: outputDir,
+                OutputDir: outputDir,
+                DisplayName: "test-drama",
+                BookId: "hglocal:series-1",
+                Episodes: "1",
+                Quality: "1080P+",
+                Concurrent: 1,
+                EpisodeNumberMode: "source");
+
+            var result = await router.DownloadAsync(request, progress: null, CancellationToken.None);
+
+            result.Ok.Should().BeTrue(result.Message);
+            File.ReadAllText(Directory.GetFiles(outputDir, "*.mp4").Should().ContainSingle().Subject).Should().Be("nvenc-video");
+            sawEncoderProbe.Should().BeTrue();
+            sawNvencTranscode.Should().BeTrue();
+            sawCpuTranscode.Should().BeFalse();
         }
         finally
         {

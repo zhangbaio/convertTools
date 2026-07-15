@@ -20,6 +20,7 @@ public sealed class ClientSettings
     public string HongguoLocalBaseUrl { get; set; } = "";
     public string HongguoLocalApiKey { get; set; } = "";
     public string HongguoLocalDownloadMode { get; set; } = "fast";
+    public string HongguoLocalTranscodeEngine { get; set; } = "auto";
 
     public string PikachuServerUrl { get; set; } = "https://startvlog.cn/start-prod-api";
     public string PikachuFanqieCookie { get; set; } = "";
@@ -146,6 +147,7 @@ public sealed class ClientSettings
         HongguoLocalBaseUrl = HongguoLocalBaseUrl,
         HongguoLocalApiKey = HongguoLocalApiKey,
         HongguoLocalDownloadMode = HongguoLocalDownloadMode,
+        HongguoLocalTranscodeEngine = HongguoLocalTranscodeEngine,
         PikachuServerUrl = PikachuServerUrl,
         PikachuFanqieCookie = PikachuFanqieCookie,
         PikachuDramaType = PikachuDramaType,

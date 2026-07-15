@@ -38,6 +38,7 @@ public sealed class GlobalDramaSettingsProvider : IDramaSettingsProvider
         HongguoLocalBaseUrl = settings.HongguoLocalBaseUrl,
         HongguoLocalApiKey = settings.HongguoLocalApiKey,
         HongguoLocalDownloadMode = settings.HongguoLocalDownloadMode,
+        HongguoLocalTranscodeEngine = settings.HongguoLocalTranscodeEngine,
         PikachuServerUrl = settings.PikachuServerUrl,
         PikachuFanqieCookie = settings.PikachuFanqieCookie,
         PikachuDramaType = settings.PikachuDramaType,

@@ -229,6 +229,7 @@ public static class ClientSettingsStore
         settings.HongguoDownloadTimeoutSeconds = Math.Clamp(settings.HongguoDownloadTimeoutSeconds, 10, 300);
         settings.HongguoEpisodeDownloadAttempts = Math.Clamp(settings.HongguoEpisodeDownloadAttempts, 1, 10);
         settings.HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(settings.HongguoLocalDownloadMode);
+        settings.HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine);
         settings.HgnewUdid = NormalizeUdid(settings.HgnewUdid);
         settings.HgnewClientVersion = string.IsNullOrWhiteSpace(settings.HgnewClientVersion)
             ? ClientSettings.DefaultHongguoClientVersion
@@ -347,6 +348,12 @@ public static class ClientSettingsStore
     {
         var normalized = (value ?? "fast").Trim().ToLowerInvariant();
         return normalized is "compatible" ? "compatible" : "fast";
+    }
+
+    private static string NormalizeHongguoLocalTranscodeEngine(string? value)
+    {
+        var normalized = (value ?? "auto").Trim().ToLowerInvariant();
+        return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
     }
 
     private static string DefaultIfBlank(string? value, string fallback)

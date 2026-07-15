@@ -27,6 +27,7 @@ public sealed record GlobalConfigSnapshot(
     string HongguoLocalBaseUrl,
     string HongguoLocalApiKey,
     string HongguoLocalDownloadMode,
+    string HongguoLocalTranscodeEngine,
     string PikachuServerUrl,
     string PikachuFanqieCookie,
     string PikachuDramaType,

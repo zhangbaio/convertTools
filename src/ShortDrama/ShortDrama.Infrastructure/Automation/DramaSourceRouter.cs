@@ -525,7 +525,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         downloadTimeoutSeconds,
                         cancellationToken,
                         detail.PikachuDecryptKey,
-                        detail.EnsureWindowsCompatible);
+                        detail.EnsureWindowsCompatible,
+                        detail.TranscodeEngine);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
                     return;
                 }
@@ -547,7 +548,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     downloadTimeoutSeconds,
                     cancellationToken,
                     detail.PikachuDecryptKey,
-                    detail.EnsureWindowsCompatible);
+                    detail.EnsureWindowsCompatible,
+                    detail.TranscodeEngine);
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -583,7 +585,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             timeoutSeconds,
             cancellationToken,
             pikachuDecryptKey: null,
-            ensureWindowsCompatible: false);
+            ensureWindowsCompatible: false,
+            transcodeEngine: "auto");
 
     private async Task<DownloadFileStats> DownloadVideoFileOnceAsync(
         string url,
@@ -592,7 +595,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int timeoutSeconds,
         CancellationToken cancellationToken,
         string? pikachuDecryptKey,
-        bool ensureWindowsCompatible)
+        bool ensureWindowsCompatible,
+        string transcodeEngine)
     {
         var hasPikachuDecryptKey = !string.IsNullOrWhiteSpace(pikachuDecryptKey);
         var encryptedTempPath = hasPikachuDecryptKey ? BuildEncryptedTempPath(tempPath) : null;
@@ -644,7 +648,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
             if (ensureWindowsCompatible)
             {
-                await EnsureWindowsCompatibleMp4Async(tempPath, timeoutSeconds, cancellationToken);
+                await EnsureWindowsCompatibleMp4Async(tempPath, timeoutSeconds, cancellationToken, transcodeEngine);
             }
 
             await DownloadFileOperations.DelayAfterWriteAsync(cancellationToken);
@@ -729,7 +733,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private static async Task EnsureWindowsCompatibleMp4Async(
         string path,
         int timeoutSeconds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string transcodeEngine)
     {
         var codec = await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(codec, "hevc", StringComparison.OrdinalIgnoreCase) &&
@@ -746,58 +751,42 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(clampedTimeoutSeconds));
 
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = ffmpegPath,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-        startInfo.ArgumentList.Add("-y");
-        startInfo.ArgumentList.Add("-hide_banner");
-        startInfo.ArgumentList.Add("-loglevel");
-        startInfo.ArgumentList.Add("error");
-        startInfo.ArgumentList.Add("-xerror");
-        startInfo.ArgumentList.Add("-i");
-        startInfo.ArgumentList.Add(path);
-        startInfo.ArgumentList.Add("-map");
-        startInfo.ArgumentList.Add("0:v:0");
-        startInfo.ArgumentList.Add("-map");
-        startInfo.ArgumentList.Add("0:a?");
-        startInfo.ArgumentList.Add("-c:v");
-        startInfo.ArgumentList.Add("libx264");
-        startInfo.ArgumentList.Add("-preset");
-        startInfo.ArgumentList.Add("veryfast");
-        startInfo.ArgumentList.Add("-crf");
-        startInfo.ArgumentList.Add("20");
-        startInfo.ArgumentList.Add("-pix_fmt");
-        startInfo.ArgumentList.Add("yuv420p");
-        startInfo.ArgumentList.Add("-c:a");
-        startInfo.ArgumentList.Add("aac");
-        startInfo.ArgumentList.Add("-b:a");
-        startInfo.ArgumentList.Add("128k");
-        startInfo.ArgumentList.Add("-movflags");
-        startInfo.ArgumentList.Add("+faststart");
-        startInfo.ArgumentList.Add("-f");
-        startInfo.ArgumentList.Add("mp4");
-        startInfo.ArgumentList.Add(outputPath);
-
         try
         {
             var runner = RunProcessAsyncForTests.Value ?? RunProcessAsyncDefault;
-            var result = await runner(startInfo, timeoutCts.Token).ConfigureAwait(false);
-            if (result.ExitCode != 0)
-            {
-                throw new InvalidOperationException($"HEVC to H.264 transcode failed: {TrimProcessOutput(result.StandardError)}");
-            }
+            var plans = await ResolveH264TranscodePlansAsync(
+                ffmpegPath,
+                path,
+                outputPath,
+                NormalizeHongguoLocalTranscodeEngine(transcodeEngine),
+                runner,
+                timeoutCts.Token).ConfigureAwait(false);
 
-            if (!HasValidVideoFile(outputPath))
+            for (var index = 0; index < plans.Count; index++)
             {
-                throw new InvalidOperationException("HEVC to H.264 transcode did not produce a playable mp4 file.");
-            }
+                DeleteIfExists(outputPath);
+                var plan = plans[index];
+                try
+                {
+                    var result = await runner(plan.StartInfo, timeoutCts.Token).ConfigureAwait(false);
+                    if (result.ExitCode != 0)
+                    {
+                        throw new InvalidOperationException($"{plan.Name} HEVC to H.264 transcode failed: {TrimProcessOutput(result.StandardError)}");
+                    }
 
-            await DownloadFileOperations.SafeReplaceAsync(outputPath, path, cancellationToken).ConfigureAwait(false);
+                    if (!HasValidVideoFile(outputPath))
+                    {
+                        throw new InvalidOperationException($"{plan.Name} HEVC to H.264 transcode did not produce a playable mp4 file.");
+                    }
+
+                    await DownloadFileOperations.SafeReplaceAsync(outputPath, path, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException && index + 1 < plans.Count)
+                {
+                    // Auto mode falls back from NVENC to CPU when the local driver/runtime rejects hardware transcode.
+                }
+            }
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
         {
@@ -806,6 +795,150 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         finally
         {
             DeleteIfExists(outputPath);
+        }
+    }
+
+    private static async Task<IReadOnlyList<H264TranscodePlan>> ResolveH264TranscodePlansAsync(
+        string ffmpegPath,
+        string inputPath,
+        string outputPath,
+        string transcodeEngine,
+        Func<ProcessStartInfo, CancellationToken, Task<ProcessRunResult>> runner,
+        CancellationToken cancellationToken)
+    {
+        if (transcodeEngine == "cpu")
+        {
+            return [BuildCpuH264TranscodePlan(ffmpegPath, inputPath, outputPath)];
+        }
+
+        if (transcodeEngine == "nvenc")
+        {
+            return [BuildNvencH264TranscodePlan(ffmpegPath, inputPath, outputPath)];
+        }
+
+        if (await FfmpegSupportsEncoderAsync(ffmpegPath, "h264_nvenc", runner, cancellationToken).ConfigureAwait(false))
+        {
+            return
+            [
+                BuildNvencH264TranscodePlan(ffmpegPath, inputPath, outputPath),
+                BuildCpuH264TranscodePlan(ffmpegPath, inputPath, outputPath)
+            ];
+        }
+
+        return [BuildCpuH264TranscodePlan(ffmpegPath, inputPath, outputPath)];
+    }
+
+    private static H264TranscodePlan BuildNvencH264TranscodePlan(string ffmpegPath, string inputPath, string outputPath) =>
+        new("NVIDIA NVENC", CreateFfmpegStartInfo(ffmpegPath,
+        [
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-hwaccel",
+            "cuda",
+            "-hwaccel_output_format",
+            "cuda",
+            "-c:v",
+            "hevc_cuvid",
+            "-i",
+            inputPath,
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a?",
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p4",
+            "-cq",
+            "26",
+            "-b:v",
+            "0",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
+            outputPath
+        ]));
+
+    private static H264TranscodePlan BuildCpuH264TranscodePlan(string ffmpegPath, string inputPath, string outputPath) =>
+        new("CPU libx264", CreateFfmpegStartInfo(ffmpegPath,
+        [
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-xerror",
+            "-i",
+            inputPath,
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a?",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
+            outputPath
+        ]));
+
+    private static ProcessStartInfo CreateFfmpegStartInfo(string ffmpegPath, IReadOnlyList<string> arguments)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        return startInfo;
+    }
+
+    private static async Task<bool> FfmpegSupportsEncoderAsync(
+        string ffmpegPath,
+        string encoderName,
+        Func<ProcessStartInfo, CancellationToken, Task<ProcessRunResult>> runner,
+        CancellationToken cancellationToken)
+    {
+        var startInfo = CreateFfmpegStartInfo(ffmpegPath, ["-hide_banner", "-encoders"]);
+        try
+        {
+            var result = await runner(startInfo, cancellationToken).ConfigureAwait(false);
+            if (result.ExitCode != 0)
+            {
+                return false;
+            }
+
+            var output = $"{result.StandardOutput}\n{result.StandardError}";
+            return output.Contains(encoderName, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -1164,7 +1297,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var detail = await _hglocalApiService.GetVideoPlaybackAsync(settings, prefixedVideoId, quality, cancellationToken);
         return new SourceVideoDetail(
             detail.Url,
-            EnsureWindowsCompatible: IsHongguoLocalCompatibleMode(settings.HongguoLocalDownloadMode));
+            EnsureWindowsCompatible: IsHongguoLocalCompatibleMode(settings.HongguoLocalDownloadMode),
+            TranscodeEngine: NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine));
     }
 
     private async Task<IReadOnlyList<SourceEpisode>> GetPikachuEpisodesAsync(string prefixedBookId, DramaSourceSettings settings, CancellationToken cancellationToken)
@@ -1627,6 +1761,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return string.Equals((value ?? "fast").Trim(), "compatible", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static string NormalizeHongguoLocalTranscodeEngine(string? value)
+    {
+        var normalized = (value ?? "auto").Trim().ToLowerInvariant();
+        return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
+    }
+
     private static IEnumerable<string> ResolveServiceOrder(string configured, IReadOnlyList<string> defaults, string legacyFirst)
     {
         var items = configured.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -1805,9 +1945,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private sealed record SourceVideoDetail(
         string Url,
         string? PikachuDecryptKey = null,
-        bool EnsureWindowsCompatible = false);
+        bool EnsureWindowsCompatible = false,
+        string TranscodeEngine = "auto");
 
     internal sealed record ProcessRunResult(int ExitCode, string StandardOutput, string StandardError);
+
+    private sealed record H264TranscodePlan(string Name, ProcessStartInfo StartInfo);
 
     private sealed record EpisodeTask(
         int Order,

@@ -23,6 +23,7 @@ public static class DramaSourceSettingsMapping
         HongguoLocalBaseUrl = settings.HongguoLocalBaseUrl ?? "",
         HongguoLocalApiKey = settings.HongguoLocalApiKey ?? "",
         HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(settings.HongguoLocalDownloadMode),
+        HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine),
         PikachuServerUrl = settings.PikachuServerUrl ?? "",
         PikachuFanqieCookie = settings.PikachuFanqieCookie ?? "",
         PikachuDramaType = settings.PikachuDramaType ?? "short",
@@ -40,6 +41,12 @@ public static class DramaSourceSettingsMapping
     {
         var normalized = (mode ?? "fast").Trim().ToLowerInvariant();
         return normalized is "compatible" ? "compatible" : "fast";
+    }
+
+    private static string NormalizeHongguoLocalTranscodeEngine(string? value)
+    {
+        var normalized = (value ?? "auto").Trim().ToLowerInvariant();
+        return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
     }
 }
 

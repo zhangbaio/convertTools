@@ -60,6 +60,7 @@ public sealed class GlobalSettingsService
             HongguoLocalBaseUrl = snapshot.HongguoLocalBaseUrl,
             HongguoLocalApiKey = snapshot.HongguoLocalApiKey,
             HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(snapshot.HongguoLocalDownloadMode),
+            HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(snapshot.HongguoLocalTranscodeEngine),
             PikachuServerUrl = snapshot.PikachuServerUrl,
             PikachuFanqieCookie = snapshot.PikachuFanqieCookie,
             PikachuDramaType = snapshot.PikachuDramaType,
@@ -316,6 +317,7 @@ public sealed class GlobalSettingsService
             HongguoLocalBaseUrl = PickString(current.HongguoLocalBaseUrl, "hongguo_local_base_url"),
             HongguoLocalApiKey = PickString(current.HongguoLocalApiKey, "hongguo_local_api_key"),
             HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(PickString(current.HongguoLocalDownloadMode, "hongguo_local_download_mode", "fast")),
+            HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(PickString(current.HongguoLocalTranscodeEngine, "hongguo_local_transcode_engine", "auto")),
             PikachuServerUrl = PickString(current.PikachuServerUrl, "pikachu_server_url", "https://startvlog.cn/start-prod-api"),
             PikachuFanqieCookie = PickString(current.PikachuFanqieCookie, "pikachu_fanqie_cookie"),
             PikachuDramaType = PickString(current.PikachuDramaType, "pikachu_drama_type", "short"),
@@ -393,6 +395,12 @@ public sealed class GlobalSettingsService
         return normalized is "compatible" ? "compatible" : "fast";
     }
 
+    private static string NormalizeHongguoLocalTranscodeEngine(string? value)
+    {
+        var normalized = (value ?? "auto").Trim().ToLowerInvariant();
+        return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
+    }
+
     private static GlobalConfigSnapshot ToSnapshot(string settingsFilePath, GlobalDesktopSettings dto)
     {
         return new GlobalConfigSnapshot(
@@ -422,6 +430,7 @@ public sealed class GlobalSettingsService
             HongguoLocalBaseUrl: dto.HongguoLocalBaseUrl,
             HongguoLocalApiKey: dto.HongguoLocalApiKey,
             HongguoLocalDownloadMode: NormalizeHongguoLocalDownloadMode(dto.HongguoLocalDownloadMode),
+            HongguoLocalTranscodeEngine: NormalizeHongguoLocalTranscodeEngine(dto.HongguoLocalTranscodeEngine),
             PikachuServerUrl: dto.PikachuServerUrl,
             PikachuFanqieCookie: dto.PikachuFanqieCookie,
             PikachuDramaType: dto.PikachuDramaType,
