@@ -3,6 +3,7 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DrawingBlip = DocumentFormat.OpenXml.Drawing.Blip;
+using DrawingPicture = DocumentFormat.OpenXml.Drawing.Pictures.Picture;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -61,9 +62,16 @@ public sealed class TikTokProofMaterialDocumentBuilder
                     match,
                     $"{request.StatementDate.Year}年【{request.StatementDate.Month}】月【{request.StatementDate.Day}】日")),
             ]);
-            var sealCount = string.IsNullOrWhiteSpace(request.SealImagePath)
-                ? 0
-                : ReplaceSealImage(mainPart, request.SealImagePath);
+            int sealCount;
+            if (string.IsNullOrWhiteSpace(request.SealImagePath))
+            {
+                NormalizeSingleTemplateSealRotation(mainPart);
+                sealCount = 0;
+            }
+            else
+            {
+                sealCount = ReplaceSealImage(mainPart, request.SealImagePath);
+            }
 
             mainPart.Document.Save();
             return new TikTokProofMaterialDocumentResult(
@@ -319,6 +327,7 @@ public sealed class TikTokProofMaterialDocumentBuilder
 
         var imagePath = Path.GetFullPath(sealImagePath);
         var preparedImage = TikTokProofSealImageProcessor.Prepare(imagePath);
+        ClearSealImageRotation(blips, relationshipId);
         var imageType = ResolveImagePartType(preparedImage.Extension);
         var sourceContentType = ResolveImageContentType(preparedImage.Extension);
         if (string.Equals(oldImagePart.ContentType, sourceContentType, StringComparison.OrdinalIgnoreCase))
@@ -342,6 +351,41 @@ public sealed class TikTokProofMaterialDocumentBuilder
 
         mainPart.DeletePart(oldImagePart);
         return relationshipIds.Length;
+    }
+
+    private static void NormalizeSingleTemplateSealRotation(MainDocumentPart mainPart)
+    {
+        // A custom template can contain decorative images in addition to its seal. Only
+        // normalize the template image when the seal relationship is unambiguous.
+        var blips = mainPart.Document.Descendants<DrawingBlip>()
+            .Where(blip => blip.Embed?.Value is not null)
+            .ToArray();
+        var relationshipIds = blips
+            .Select(blip => blip.Embed!.Value!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (relationshipIds.Length == 1)
+        {
+            ClearSealImageRotation(blips, relationshipIds[0]);
+        }
+    }
+
+    private static void ClearSealImageRotation(
+        IEnumerable<DrawingBlip> blips,
+        string relationshipId)
+    {
+        foreach (var blip in blips.Where(
+                     blip => string.Equals(blip.Embed?.Value, relationshipId, StringComparison.Ordinal)))
+        {
+            var transform = blip.Ancestors<DrawingPicture>()
+                .FirstOrDefault()?
+                .ShapeProperties?
+                .Transform2D;
+            if (transform is not null)
+            {
+                transform.Rotation = null;
+            }
+        }
     }
 
     private static PartTypeInfo ResolveImagePartType(string path) =>

@@ -17,6 +17,8 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokProofMaterialServiceTests
 {
+    private const int HalfTurnDrawingAngle = 180 * 60_000;
+
     private static readonly byte[] TemplateSealBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
@@ -145,6 +147,91 @@ public sealed class TikTokProofMaterialServiceTests
             outputSnapshot.AnchorXml.Should().Be(sourceSnapshot.AnchorXml);
             outputSnapshot.ImageBytes.Should().Equal(transparentSealBytes);
             outputSnapshot.Text.Split("上海新主体科技有限公司").Length.Should().Be(3);
+        }
+        finally
+        {
+            TikTokProofMaterialDocumentBuilder.TryDeleteDirectory(result.WorkingDirectory);
+        }
+    }
+
+    [Fact]
+    public void Builder_clears_legacy_template_rotation_when_replacing_seal()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var templatePath = fixture.CreateTemplate(sealRotation: HalfTurnDrawingAngle);
+        var sealPath = Path.Combine(fixture.DirectoryPath, "upright-seal.png");
+        var sealBytes = CreateTransparentSealBytes();
+        File.WriteAllBytes(sealPath, sealBytes);
+        var sourceSnapshot = ReadDocumentSnapshot(templatePath);
+        var request = CreateRequest(templatePath, Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
+        {
+            DeclarantCompanyName = "正向印章公司",
+            SealImagePath = sealPath,
+            TemporaryDirectory = fixture.DirectoryPath,
+        };
+
+        var result = new TikTokProofMaterialDocumentBuilder().CreateTemporaryDocx(request);
+        try
+        {
+            var outputSnapshot = ReadDocumentSnapshot(result.DocxPath);
+            sourceSnapshot.SealRotation.Should().Be(HalfTurnDrawingAngle);
+            outputSnapshot.SealRotation.Should().BeNull();
+            outputSnapshot.AnchorXmlWithoutRotation.Should().Be(sourceSnapshot.AnchorXmlWithoutRotation);
+            outputSnapshot.ImageBytes.Should().Equal(sealBytes);
+        }
+        finally
+        {
+            TikTokProofMaterialDocumentBuilder.TryDeleteDirectory(result.WorkingDirectory);
+        }
+    }
+
+    [Fact]
+    public void Builder_clears_legacy_rotation_when_using_the_template_seal()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var templatePath = fixture.CreateTemplate(sealRotation: HalfTurnDrawingAngle);
+        var sourceSnapshot = ReadDocumentSnapshot(templatePath);
+        var request = CreateRequest(templatePath, Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
+        {
+            TemporaryDirectory = fixture.DirectoryPath,
+        };
+
+        var result = new TikTokProofMaterialDocumentBuilder().CreateTemporaryDocx(request);
+        try
+        {
+            var outputSnapshot = ReadDocumentSnapshot(result.DocxPath);
+            result.Replacements.SealImages.Should().Be(0);
+            sourceSnapshot.SealRotation.Should().Be(HalfTurnDrawingAngle);
+            outputSnapshot.SealRotation.Should().BeNull();
+            outputSnapshot.AnchorXmlWithoutRotation.Should().Be(sourceSnapshot.AnchorXmlWithoutRotation);
+            outputSnapshot.ImageBytes.Should().Equal(sourceSnapshot.ImageBytes);
+        }
+        finally
+        {
+            TikTokProofMaterialDocumentBuilder.TryDeleteDirectory(result.WorkingDirectory);
+        }
+    }
+
+    [Fact]
+    public void Builder_normalizes_the_real_built_in_template_and_preserves_its_crop()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var templatePath = TikTokProofMaterialTemplateProvider.EnsureBuiltInTemplate(fixture.DirectoryPath);
+        var sourceSnapshot = ReadDocumentSnapshot(templatePath);
+        var request = CreateRequest(templatePath, Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
+        {
+            TemporaryDirectory = fixture.DirectoryPath,
+        };
+
+        var result = new TikTokProofMaterialDocumentBuilder().CreateTemporaryDocx(request);
+        try
+        {
+            var outputSnapshot = ReadDocumentSnapshot(result.DocxPath);
+            sourceSnapshot.SealRotation.Should().Be(HalfTurnDrawingAngle);
+            sourceSnapshot.AnchorXml.Should().Contain("t=\"1545\"").And.Contain("b=\"1545\"");
+            outputSnapshot.SealRotation.Should().BeNull();
+            outputSnapshot.AnchorXmlWithoutRotation.Should().Be(sourceSnapshot.AnchorXmlWithoutRotation);
+            outputSnapshot.AnchorXml.Should().Contain("t=\"1545\"").And.Contain("b=\"1545\"");
         }
         finally
         {
@@ -746,7 +833,14 @@ public sealed class TikTokProofMaterialServiceTests
         var mainPart = document.MainDocumentPart!;
         var body = mainPart.Document.Body!;
         var text = string.Concat(body.Descendants<W.Text>().Select(node => node.Text));
-        var anchorXml = body.Descendants<DW.Anchor>().Single().OuterXml;
+        var anchor = body.Descendants<DW.Anchor>().Single();
+        var anchorXml = anchor.OuterXml;
+        var anchorWithoutRotation = (DW.Anchor)anchor.CloneNode(true);
+        foreach (var transform in anchorWithoutRotation.Descendants<A.Transform2D>())
+        {
+            transform.Rotation = null;
+        }
+
         var imagePart = mainPart.ImageParts.Single();
         using var imageStream = imagePart.GetStream(FileMode.Open, FileAccess.Read);
         using var imageBuffer = new MemoryStream();
@@ -756,7 +850,9 @@ public sealed class TikTokProofMaterialServiceTests
             anchorXml,
             imageBuffer.ToArray(),
             body.Descendants<W.Bold>().Count(),
-            imagePart.ContentType);
+            imagePart.ContentType,
+            body.Descendants<A.Transform2D>().Single().Rotation?.Value,
+            anchorWithoutRotation.OuterXml);
     }
 
     private static byte[] CreateTransparentSealBytes()
@@ -783,7 +879,9 @@ public sealed class TikTokProofMaterialServiceTests
         string AnchorXml,
         byte[] ImageBytes,
         int BoldCount,
-        string ImageContentType);
+        string ImageContentType,
+        int? SealRotation,
+        string AnchorXmlWithoutRotation);
 
     private sealed class StubRenderer(
         string name,
@@ -814,7 +912,7 @@ public sealed class TikTokProofMaterialServiceTests
 
         public string DirectoryPath { get; }
 
-        public string CreateTemplate(bool includeDramaTitle = true)
+        public string CreateTemplate(bool includeDramaTitle = true, int? sealRotation = null)
         {
             var path = Path.Combine(DirectoryPath, $"template-{Guid.NewGuid():N}.docx");
             using var document = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document);
@@ -841,7 +939,7 @@ public sealed class TikTokProofMaterialServiceTests
                     new W.Run(new W.Text(includeDramaTitle ? "闺蜜反目维权】。" : "模板标题】。"))),
                 new W.Paragraph(
                     new W.Run(new W.Text("声明人：【武汉速视科技有限公司】 ")),
-                    new W.Run(CreateFloatingSeal(imageRelationshipId))),
+                    new W.Run(CreateFloatingSeal(imageRelationshipId, sealRotation))),
                 new W.Paragraph(
                     new W.Run(new W.Text("2026")),
                     new W.Run(new W.Text("年【")),
@@ -864,10 +962,18 @@ public sealed class TikTokProofMaterialServiceTests
             }
         }
 
-        private static W.Drawing CreateFloatingSeal(string relationshipId)
+        private static W.Drawing CreateFloatingSeal(string relationshipId, int? sealRotation)
         {
             const long width = 1_800_000L;
             const long height = 1_800_000L;
+            var transform = new A.Transform2D(
+                new A.Offset { X = 0L, Y = 0L },
+                new A.Extents { Cx = width, Cy = height });
+            if (sealRotation is not null)
+            {
+                transform.Rotation = sealRotation.Value;
+            }
+
             var picture = new PIC.Picture(
                 new PIC.NonVisualPictureProperties(
                     new PIC.NonVisualDrawingProperties { Id = 1U, Name = "template-seal.png" },
@@ -876,9 +982,7 @@ public sealed class TikTokProofMaterialServiceTests
                     new A.Blip { Embed = relationshipId },
                     new A.Stretch(new A.FillRectangle())),
                 new PIC.ShapeProperties(
-                    new A.Transform2D(
-                        new A.Offset { X = 0L, Y = 0L },
-                        new A.Extents { Cx = width, Cy = height }),
+                    transform,
                     new A.PresetGeometry(new A.AdjustValueList())
                     {
                         Preset = A.ShapeTypeValues.Rectangle,

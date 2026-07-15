@@ -367,7 +367,7 @@
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="中间文件" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokProofKeepDocx}" Content="保留生成后的 DOCX" />
                         </Grid>
-                        <TextBlock Text="本公司名称、印章图片和版权公司名称请在账号管理的“证明材料”页签配置；改写后剧名和当天日期由队列自动填入。"
+                        <TextBlock Text="本公司/声明人、印章图片和致贵方名称请在账号管理的“证明材料”页签配置；改写后剧名和当天日期由队列自动填入。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>

@@ -313,7 +313,7 @@
                               RowDefinitions="Auto,Auto,Auto"
                               RowSpacing="10"
                               ColumnSpacing="10">
-                            <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="本公司名称" VerticalAlignment="Center" />
+                            <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="本公司/声明人" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" x:Name="ProofDeclarantCompanyNameBox" Watermark="用于正文和声明人" />
 
                             <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="印章图片" VerticalAlignment="Center" />
@@ -322,7 +322,7 @@
                                 <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofSealClick" Margin="8,0,0,0" />
                             </Grid>
 
-                            <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="版权公司名称" VerticalAlignment="Center" />
+                            <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="致贵方名称" VerticalAlignment="Center" />
                             <TextBox Grid.Row="2" Grid.Column="1" x:Name="ProofCopyrightCompanyNameBox" Watermark="用于“致【…】（下称贵方）”" />
                         </Grid>
                     </StackPanel>
