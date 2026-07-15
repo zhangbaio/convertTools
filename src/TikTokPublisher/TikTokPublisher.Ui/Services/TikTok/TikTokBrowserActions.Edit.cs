@@ -36,11 +36,53 @@ public static partial class TikTokBrowserActions
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        Log(log, "TikTok 已切换到草稿编辑流程，跳过合同、剧名、简介的重新填写。");
+        Log(log, "TikTok 已切换到草稿编辑流程，保留已有合同和剧名；简介为空时自动补全。");
         await EnsureEditFlowVideosCompleteAsync(page, payload, options, log, ct);
         await EnsureEditCoverUploadedAsync(page, coverPath, log, ct);
+        await EnsureEditDescriptionFilledAsync(page, payload.Description, log, ct);
         await FillSharedPublishFieldsAsync(page, payload, options, recommendation, log, ct);
         Log(log, "TikTok 编辑页表单已填写完成。");
+    }
+
+    private static async Task EnsureEditDescriptionFilledAsync(
+        IPage page,
+        string description,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await EnsureEditBaseInfoSectionAsync(page, log, ct);
+
+        var field = page.Locator("#description").First;
+        await field.WaitForAsync(new()
+        {
+            State = WaitForSelectorState.Visible,
+            Timeout = 10000,
+        });
+        await field.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+
+        var currentDescription = await field.InputValueAsync();
+        if (!string.IsNullOrWhiteSpace(currentDescription))
+        {
+            Log(log, "TikTok 编辑页已有剧集简介，保持原内容不变。");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            throw new InvalidOperationException(
+                "TikTok 编辑页剧集简介为空，本地项目也没有可用于补全的简介。请先生成或填写简介后重试。");
+        }
+
+        await field.FillAsync(description);
+        await BlurActiveElementAsync(page);
+        await page.WaitForTimeoutAsync(500);
+
+        var filledDescription = await field.InputValueAsync();
+        if (string.IsNullOrWhiteSpace(filledDescription))
+            throw new InvalidOperationException("TikTok 编辑页剧集简介自动补全失败，请检查页面后重试。");
+
+        Log(log, "TikTok 编辑页原剧集简介为空，已使用本地简介自动补全。");
     }
 
     private static async Task EnsureEditCoverUploadedAsync(
