@@ -59,6 +59,7 @@ public sealed class GlobalSettingsService
                 : 5,
             HongguoLocalBaseUrl = snapshot.HongguoLocalBaseUrl,
             HongguoLocalApiKey = snapshot.HongguoLocalApiKey,
+            HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(snapshot.HongguoLocalDownloadMode),
             PikachuServerUrl = snapshot.PikachuServerUrl,
             PikachuFanqieCookie = snapshot.PikachuFanqieCookie,
             PikachuDramaType = snapshot.PikachuDramaType,
@@ -314,6 +315,7 @@ public sealed class GlobalSettingsService
             HongguoEpisodeDownloadAttempts = PickPositiveInt(current.HongguoEpisodeDownloadAttempts, "hongguo_episode_download_attempts", 5),
             HongguoLocalBaseUrl = PickString(current.HongguoLocalBaseUrl, "hongguo_local_base_url"),
             HongguoLocalApiKey = PickString(current.HongguoLocalApiKey, "hongguo_local_api_key"),
+            HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(PickString(current.HongguoLocalDownloadMode, "hongguo_local_download_mode", "fast")),
             PikachuServerUrl = PickString(current.PikachuServerUrl, "pikachu_server_url", "https://startvlog.cn/start-prod-api"),
             PikachuFanqieCookie = PickString(current.PikachuFanqieCookie, "pikachu_fanqie_cookie"),
             PikachuDramaType = PickString(current.PikachuDramaType, "pikachu_drama_type", "short"),
@@ -385,6 +387,12 @@ public sealed class GlobalSettingsService
         };
     }
 
+    private static string NormalizeHongguoLocalDownloadMode(string? value)
+    {
+        var normalized = (value ?? "fast").Trim().ToLowerInvariant();
+        return normalized is "compatible" ? "compatible" : "fast";
+    }
+
     private static GlobalConfigSnapshot ToSnapshot(string settingsFilePath, GlobalDesktopSettings dto)
     {
         return new GlobalConfigSnapshot(
@@ -413,6 +421,7 @@ public sealed class GlobalSettingsService
             HongguoEpisodeDownloadAttempts: Math.Max(1, dto.HongguoEpisodeDownloadAttempts).ToString(),
             HongguoLocalBaseUrl: dto.HongguoLocalBaseUrl,
             HongguoLocalApiKey: dto.HongguoLocalApiKey,
+            HongguoLocalDownloadMode: NormalizeHongguoLocalDownloadMode(dto.HongguoLocalDownloadMode),
             PikachuServerUrl: dto.PikachuServerUrl,
             PikachuFanqieCookie: dto.PikachuFanqieCookie,
             PikachuDramaType: dto.PikachuDramaType,

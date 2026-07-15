@@ -26,6 +26,7 @@ public sealed class GlobalDesktopSettings
     public int HongguoEpisodeDownloadAttempts { get; set; } = 5;
     public string HongguoLocalBaseUrl { get; set; } = string.Empty;
     public string HongguoLocalApiKey { get; set; } = string.Empty;
+    public string HongguoLocalDownloadMode { get; set; } = "fast";
     public string PikachuServerUrl { get; set; } = "https://startvlog.cn/start-prod-api";
     public string PikachuFanqieCookie { get; set; } = string.Empty;
     public string PikachuDramaType { get; set; } = "short";

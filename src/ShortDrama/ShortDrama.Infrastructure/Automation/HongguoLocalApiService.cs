@@ -188,6 +188,7 @@ public sealed class HongguoLocalApiService
     public async Task<LocalVideoPlayback> GetVideoPlaybackAsync(
         DramaSourceSettings settings,
         string prefixedOrRawVideoId,
+        string quality,
         CancellationToken cancellationToken)
     {
         var baseUrl = NormalizeLocalBaseUrl(settings.HongguoLocalBaseUrl);
@@ -216,7 +217,7 @@ public sealed class HongguoLocalApiService
             throw new InvalidOperationException("hglocal 未返回可用播放链接。");
         }
 
-        return new LocalVideoPlayback(url);
+        return new LocalVideoPlayback(BuildStreamUrl(baseUrl, videoId, settings.HongguoLocalApiKey, quality), url);
     }
 
     private async Task<IReadOnlyList<JsonElement>> FetchLatestItemsAsync(
@@ -386,6 +387,26 @@ public sealed class HongguoLocalApiService
             : $"{baseUrl}/api/hongguo";
     }
 
+    private static string BuildStreamUrl(string baseUrl, string videoId, string apiKey, string quality)
+    {
+        var query = new List<string>
+        {
+            $"vid={Uri.EscapeDataString(videoId)}",
+            "source=hglocal"
+        };
+        if (!string.IsNullOrWhiteSpace(quality))
+        {
+            query.Add($"quality={Uri.EscapeDataString(quality.Trim())}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            query.Add($"api_key={Uri.EscapeDataString(apiKey.Trim())}");
+        }
+
+        return $"{baseUrl}/stream?{string.Join("&", query)}";
+    }
+
     private static string EnsurePrefixed(string? value, string prefix)
     {
         var text = (value ?? string.Empty).Trim();
@@ -438,5 +459,5 @@ public sealed class HongguoLocalApiService
 
     public sealed record LocalEpisodeInfo(int EpisodeNumber, string Title, string VideoId, string PosterUrl);
 
-    public sealed record LocalVideoPlayback(string Url);
+    public sealed record LocalVideoPlayback(string Url, string EncryptedUrl);
 }

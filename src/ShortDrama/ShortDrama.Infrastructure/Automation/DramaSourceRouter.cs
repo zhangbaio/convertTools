@@ -29,6 +29,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private static readonly ProductInfoHeaderValue UserAgentProduct = new("ShortDramaDesktop", "1.0");
     private static readonly string MobileUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
     internal static AsyncLocal<Func<string>?> ResolveFfmpegBinaryForTests { get; } = new();
+    internal static AsyncLocal<Func<string>?> ResolveFfprobeBinaryForTests { get; } = new();
     internal static AsyncLocal<Func<ProcessStartInfo, CancellationToken, Task<ProcessRunResult>>?> RunProcessAsyncForTests { get; } = new();
 
     private readonly HttpClient _httpClient;
@@ -331,7 +332,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 progress,
                 cancellationToken,
                 resolveEpisodes: ct => GetLocalEpisodesAsync(bookId, settings, ct),
-                resolveVideo: (videoId, quality, ct) => GetLocalVideoUrlAsync(videoId, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetLocalVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: HongguoLocalBookPrefix,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
@@ -523,7 +524,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         finalPath,
                         downloadTimeoutSeconds,
                         cancellationToken,
-                        detail.PikachuDecryptKey);
+                        detail.PikachuDecryptKey,
+                        detail.EnsureWindowsCompatible);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
                     return;
                 }
@@ -544,7 +546,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     finalPath,
                     downloadTimeoutSeconds,
                     cancellationToken,
-                    detail.PikachuDecryptKey);
+                    detail.PikachuDecryptKey,
+                    detail.EnsureWindowsCompatible);
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -573,7 +576,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string finalPath,
         int timeoutSeconds,
         CancellationToken cancellationToken)
-        => await DownloadVideoFileOnceAsync(url, tempPath, finalPath, timeoutSeconds, cancellationToken, pikachuDecryptKey: null);
+        => await DownloadVideoFileOnceAsync(
+            url,
+            tempPath,
+            finalPath,
+            timeoutSeconds,
+            cancellationToken,
+            pikachuDecryptKey: null,
+            ensureWindowsCompatible: false);
 
     private async Task<DownloadFileStats> DownloadVideoFileOnceAsync(
         string url,
@@ -581,7 +591,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string finalPath,
         int timeoutSeconds,
         CancellationToken cancellationToken,
-        string? pikachuDecryptKey)
+        string? pikachuDecryptKey,
+        bool ensureWindowsCompatible)
     {
         var hasPikachuDecryptKey = !string.IsNullOrWhiteSpace(pikachuDecryptKey);
         var encryptedTempPath = hasPikachuDecryptKey ? BuildEncryptedTempPath(tempPath) : null;
@@ -629,6 +640,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             if (hasPikachuDecryptKey)
             {
                 await DecryptPikachuCencVideoAsync(pikachuDecryptKey!.Trim(), downloadTargetPath, tempPath, timeoutSeconds, cancellationToken);
+            }
+
+            if (ensureWindowsCompatible)
+            {
+                await EnsureWindowsCompatibleMp4Async(tempPath, timeoutSeconds, cancellationToken);
             }
 
             await DownloadFileOperations.DelayAfterWriteAsync(cancellationToken);
@@ -710,6 +726,139 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
     }
 
+    private static async Task EnsureWindowsCompatibleMp4Async(
+        string path,
+        int timeoutSeconds,
+        CancellationToken cancellationToken)
+    {
+        var codec = await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(codec, "hevc", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(codec, "h265", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var ffmpegPath = ResolveFfmpegBinaryForTests.Value?.Invoke() ?? ResolveFfmpegBinary();
+        var outputPath = $"{path}.h264.mp4";
+        DeleteIfExists(outputPath);
+
+        var clampedTimeoutSeconds = Math.Clamp(timeoutSeconds + 300, 300, 1800);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(clampedTimeoutSeconds));
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add("-y");
+        startInfo.ArgumentList.Add("-hide_banner");
+        startInfo.ArgumentList.Add("-loglevel");
+        startInfo.ArgumentList.Add("error");
+        startInfo.ArgumentList.Add("-xerror");
+        startInfo.ArgumentList.Add("-i");
+        startInfo.ArgumentList.Add(path);
+        startInfo.ArgumentList.Add("-map");
+        startInfo.ArgumentList.Add("0:v:0");
+        startInfo.ArgumentList.Add("-map");
+        startInfo.ArgumentList.Add("0:a?");
+        startInfo.ArgumentList.Add("-c:v");
+        startInfo.ArgumentList.Add("libx264");
+        startInfo.ArgumentList.Add("-preset");
+        startInfo.ArgumentList.Add("veryfast");
+        startInfo.ArgumentList.Add("-crf");
+        startInfo.ArgumentList.Add("20");
+        startInfo.ArgumentList.Add("-pix_fmt");
+        startInfo.ArgumentList.Add("yuv420p");
+        startInfo.ArgumentList.Add("-c:a");
+        startInfo.ArgumentList.Add("aac");
+        startInfo.ArgumentList.Add("-b:a");
+        startInfo.ArgumentList.Add("128k");
+        startInfo.ArgumentList.Add("-movflags");
+        startInfo.ArgumentList.Add("+faststart");
+        startInfo.ArgumentList.Add("-f");
+        startInfo.ArgumentList.Add("mp4");
+        startInfo.ArgumentList.Add(outputPath);
+
+        try
+        {
+            var runner = RunProcessAsyncForTests.Value ?? RunProcessAsyncDefault;
+            var result = await runner(startInfo, timeoutCts.Token).ConfigureAwait(false);
+            if (result.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"HEVC to H.264 transcode failed: {TrimProcessOutput(result.StandardError)}");
+            }
+
+            if (!HasValidVideoFile(outputPath))
+            {
+                throw new InvalidOperationException("HEVC to H.264 transcode did not produce a playable mp4 file.");
+            }
+
+            await DownloadFileOperations.SafeReplaceAsync(outputPath, path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
+        {
+            throw new TimeoutException($"HEVC to H.264 transcode timed out after {clampedTimeoutSeconds} seconds.", ex);
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    private static async Task<string> ProbePrimaryVideoCodecAsync(string path, CancellationToken cancellationToken)
+    {
+        var ffprobePath = ResolveFfprobeBinaryForTests.Value?.Invoke() ?? ResolveFfprobeBinary();
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = ffprobePath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        startInfo.ArgumentList.Add("-v");
+        startInfo.ArgumentList.Add("error");
+        startInfo.ArgumentList.Add("-print_format");
+        startInfo.ArgumentList.Add("json");
+        startInfo.ArgumentList.Add("-show_streams");
+        startInfo.ArgumentList.Add(path);
+
+        try
+        {
+            var runner = RunProcessAsyncForTests.Value ?? RunProcessAsyncDefault;
+            var result = await runner(startInfo, cancellationToken).ConfigureAwait(false);
+            if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.StandardOutput))
+            {
+                return string.Empty;
+            }
+
+            using var document = JsonDocument.Parse(result.StandardOutput);
+            if (!document.RootElement.TryGetProperty("streams", out var streams) ||
+                streams.ValueKind != JsonValueKind.Array)
+            {
+                return string.Empty;
+            }
+
+            foreach (var stream in streams.EnumerateArray())
+            {
+                if (string.Equals(GetString(stream, "codec_type"), "video", StringComparison.OrdinalIgnoreCase))
+                {
+                    return GetString(stream, "codec_name")?.Trim().ToLowerInvariant() ?? string.Empty;
+                }
+            }
+        }
+        catch
+        {
+            return string.Empty;
+        }
+
+        return string.Empty;
+    }
+
     private static async Task<ProcessRunResult> RunProcessAsyncDefault(ProcessStartInfo startInfo, CancellationToken cancellationToken)
     {
         using var process = new System.Diagnostics.Process
@@ -756,6 +905,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     }
 
     private static string ResolveFfmpegBinary() => BundledToolResolver.TryResolveBinary("ffmpeg") ?? "ffmpeg";
+
+    private static string ResolveFfprobeBinary() => BundledToolResolver.TryResolveBinary("ffprobe") ?? "ffprobe";
 
     private static string TrimProcessOutput(string value)
     {
@@ -1006,11 +1157,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private async Task<SourceVideoDetail> GetLocalVideoUrlAsync(
         string prefixedVideoId,
+        string quality,
         DramaSourceSettings settings,
         CancellationToken cancellationToken)
     {
-        var detail = await _hglocalApiService.GetVideoPlaybackAsync(settings, prefixedVideoId, cancellationToken);
-        return new SourceVideoDetail(detail.Url);
+        var detail = await _hglocalApiService.GetVideoPlaybackAsync(settings, prefixedVideoId, quality, cancellationToken);
+        return new SourceVideoDetail(
+            detail.Url,
+            EnsureWindowsCompatible: IsHongguoLocalCompatibleMode(settings.HongguoLocalDownloadMode));
     }
 
     private async Task<IReadOnlyList<SourceEpisode>> GetPikachuEpisodesAsync(string prefixedBookId, DramaSourceSettings settings, CancellationToken cancellationToken)
@@ -1468,6 +1622,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             : defaultValue;
     }
 
+    private static bool IsHongguoLocalCompatibleMode(string? value)
+    {
+        return string.Equals((value ?? "fast").Trim(), "compatible", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static IEnumerable<string> ResolveServiceOrder(string configured, IReadOnlyList<string> defaults, string legacyFirst)
     {
         var items = configured.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -1643,7 +1802,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string VideoId,
         string PosterUrl);
 
-    private sealed record SourceVideoDetail(string Url, string? PikachuDecryptKey = null);
+    private sealed record SourceVideoDetail(
+        string Url,
+        string? PikachuDecryptKey = null,
+        bool EnsureWindowsCompatible = false);
 
     internal sealed record ProcessRunResult(int ExitCode, string StandardOutput, string StandardError);
 

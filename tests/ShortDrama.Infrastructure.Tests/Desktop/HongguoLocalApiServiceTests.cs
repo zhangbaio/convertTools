@@ -150,9 +150,13 @@ public sealed class HongguoLocalApiServiceTests
 
         var service = new HongguoLocalApiService(new HttpClient(handler));
 
-        var playback = await service.GetVideoPlaybackAsync(CreateSettings(), "hglocal_ep:video-1", CancellationToken.None);
+        var playback = await service.GetVideoPlaybackAsync(CreateSettings(), "hglocal_ep:video-1", "1080P+", CancellationToken.None);
 
-        playback.Url.Should().Be("https://example.com/video.mp4");
+        playback.EncryptedUrl.Should().Be("https://example.com/video.mp4");
+        playback.Url.Should().StartWith("https://local.example.com/api/hongguo/stream?");
+        playback.Url.Should().Contain("vid=video-1");
+        playback.Url.Should().Contain("quality=1080P%2B");
+        playback.Url.Should().Contain("api_key=local-key");
         handler.Requests.Single().RequestUri!.ToString().Should().Contain("vid=video-1");
         handler.Requests.Single().RequestUri!.Query.Should().Contain("source=hglocal");
     }

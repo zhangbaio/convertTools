@@ -228,6 +228,7 @@ public static class ClientSettingsStore
             4);
         settings.HongguoDownloadTimeoutSeconds = Math.Clamp(settings.HongguoDownloadTimeoutSeconds, 10, 300);
         settings.HongguoEpisodeDownloadAttempts = Math.Clamp(settings.HongguoEpisodeDownloadAttempts, 1, 10);
+        settings.HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(settings.HongguoLocalDownloadMode);
         settings.HgnewUdid = NormalizeUdid(settings.HgnewUdid);
         settings.HgnewClientVersion = string.IsNullOrWhiteSpace(settings.HgnewClientVersion)
             ? ClientSettings.DefaultHongguoClientVersion
@@ -340,6 +341,12 @@ public static class ClientSettingsStore
         settings.XingeClientName = DefaultIfBlank(settings.XingeClientName, "TikTokPublisher");
         settings.XingePollIntervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
         return settings;
+    }
+
+    private static string NormalizeHongguoLocalDownloadMode(string? value)
+    {
+        var normalized = (value ?? "fast").Trim().ToLowerInvariant();
+        return normalized is "compatible" ? "compatible" : "fast";
     }
 
     private static string DefaultIfBlank(string? value, string fallback)

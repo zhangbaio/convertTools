@@ -38,6 +38,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     [ObservableProperty] private string _hongguoLocalBaseUrl = "";
     [ObservableProperty] private string _hongguoLocalApiKey = "";
+    [ObservableProperty] private string _hongguoLocalDownloadMode = "fast";
 
     [ObservableProperty] private string _pikachuServerUrl = "https://startvlog.cn/start-prod-api";
     [ObservableProperty] private string _pikachuFanqieCookie = "";
@@ -128,6 +129,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> AsrEngineOptions { get; } = ["volcengine", "local", "hybrid"];
     public IReadOnlyList<string> SilenceRepairModeOptions { get; } = ["auto", "trim", "speedup"];
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
+    public IReadOnlyList<string> HongguoLocalDownloadModeOptions { get; } = ["fast", "compatible"];
     public IReadOnlyList<string> PosterModeOptions { get; } = ["original", "poster_ai_erase_pil_title", "poster_ai_edit"];
     public IReadOnlyList<string> ImageProviderOptions { get; } = ["doubao", "ofox_image2"];
     public IReadOnlyList<string> PosterTitleVerifyModeOptions { get; } = ["fallback_repaint", "warn", "blocking"];
@@ -158,6 +160,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             : HgnewClientVersion.Trim(),
         HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
         HongguoLocalApiKey = HongguoLocalApiKey.Trim(),
+        HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(HongguoLocalDownloadMode),
         PikachuServerUrl = PikachuServerUrl.Trim(),
         PikachuFanqieCookie = PikachuFanqieCookie.Trim(),
         PikachuDramaType = PikachuDramaType,
@@ -596,6 +599,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewClientVersion = settings.HgnewClientVersion;
         HongguoLocalBaseUrl = settings.HongguoLocalBaseUrl;
         HongguoLocalApiKey = settings.HongguoLocalApiKey;
+        HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(settings.HongguoLocalDownloadMode);
         PikachuServerUrl = settings.PikachuServerUrl;
         PikachuFanqieCookie = settings.PikachuFanqieCookie;
         PikachuDramaType = settings.PikachuDramaType;
@@ -687,6 +691,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         if (bytes < 1024) return $"{bytes} B";
         if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.#} KB";
         return $"{bytes / (1024.0 * 1024.0):0.##} MB";
+    }
+
+    private static string NormalizeHongguoLocalDownloadMode(string? value)
+    {
+        var normalized = (value ?? "fast").Trim().ToLowerInvariant();
+        return normalized is "compatible" ? "compatible" : "fast";
     }
 
     private static void OpenParentFolder(string path)
