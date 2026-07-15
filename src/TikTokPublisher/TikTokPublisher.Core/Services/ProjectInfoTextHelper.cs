@@ -14,8 +14,7 @@ public static class ProjectInfoTextHelper
             var line = rawLine.Trim();
             if (string.IsNullOrWhiteSpace(line)) continue;
 
-            var sepIndex = line.IndexOf('：');
-            if (sepIndex < 0) sepIndex = line.IndexOf(':');
+            var sepIndex = FindFieldSeparatorIndex(line);
             if (sepIndex <= 0) continue;
 
             var key = line[..sepIndex].Trim();
@@ -55,8 +54,7 @@ public static class ProjectInfoTextHelper
         for (var i = 0; i < lines.Count; i++)
         {
             var line = lines[i].Trim();
-            var sepIndex = line.IndexOf('：');
-            if (sepIndex < 0) sepIndex = line.IndexOf(':');
+            var sepIndex = FindFieldSeparatorIndex(line);
             if (sepIndex <= 0) continue;
 
             var key = line[..sepIndex].Trim();
@@ -73,5 +71,16 @@ public static class ProjectInfoTextHelper
 
         Directory.CreateDirectory(Path.GetDirectoryName(infoPath)!);
         File.WriteAllText(infoPath, string.Join(Environment.NewLine, lines) + Environment.NewLine, Encoding.UTF8);
+    }
+
+    internal static int FindFieldSeparatorIndex(string line)
+    {
+        for (var index = 1; index < line.Length; index++)
+        {
+            if (line[index] is ':' or '：')
+                return index;
+        }
+
+        return -1;
     }
 }

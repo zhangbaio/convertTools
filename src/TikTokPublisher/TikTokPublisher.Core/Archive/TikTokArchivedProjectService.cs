@@ -804,24 +804,11 @@ public static class TikTokArchivedProjectService
 
     private static Dictionary<string, string> ReadInfo(string? dir)
     {
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (string.IsNullOrWhiteSpace(dir)) return result;
-        var path = Path.Combine(dir, "短剧信息.txt");
-        if (!File.Exists(path)) return result;
-        foreach (var rawLine in File.ReadAllLines(path))
-        {
-            var line = rawLine.Trim();
-            if (string.IsNullOrEmpty(line)) continue;
-            var sep = line.IndexOf('：');
-            if (sep < 0) sep = line.IndexOf(':');
-            if (sep <= 0) continue;
-            var key = line[..sep].Trim();
-            var value = line[(sep + 1)..].Trim();
-            if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(value))
-                result[key] = value;
-        }
+        if (string.IsNullOrWhiteSpace(dir))
+            return new Dictionary<string, string>(StringComparer.Ordinal);
 
-        return result;
+        var path = Path.Combine(dir, "短剧信息.txt");
+        return ProjectInfoTextHelper.ParseInfoFile(path);
     }
 
     private static string Pick(IReadOnlyDictionary<string, string> values, IEnumerable<string> keys)

@@ -188,9 +188,7 @@ public static class TikTokUploadEpisodeConsistencyService
         foreach (var rawLine in lines)
         {
             var line = rawLine.Trim();
-            var separator = line.IndexOf('：');
-            if (separator < 0)
-                separator = line.IndexOf(':');
+            var separator = ProjectInfoTextHelper.FindFieldSeparatorIndex(line);
             if (separator <= 0)
                 continue;
 

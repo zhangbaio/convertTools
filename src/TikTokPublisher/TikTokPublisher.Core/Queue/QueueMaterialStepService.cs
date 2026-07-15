@@ -279,19 +279,40 @@ public static class QueueMaterialStepService
         }
 
         var rewriteSynopsis = account?.TiktokAiRewriteSynopsis == true;
+        var rewriteVariantKey = BuildRewriteVariantKey(context, account);
         var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings, account);
+        ProjectInfoRewriteResult? generatedResult = null;
         try
         {
             var outputPath = infoPath;
             var outputExists = File.Exists(outputPath);
-            var rewriteVariantKey = BuildRewriteVariantKey(context, account);
             var duplicatesHistory = outputExists && ExistingInfoDuplicatesHistory(outputPath, item, otherHistory, rewriteSynopsis);
             var needsRewrite = outputExists &&
                                (NeedsAiRewrite(item, context, outputPath, account, rewriteSynopsis) || duplicatesHistory);
+            var recoveredPersistedResult = outputExists &&
+                                           !overwriteExisting &&
+                                           needsRewrite &&
+                                           !duplicatesHistory &&
+                                           CurrentInfoMatchesRewriteHistory(
+                                               item,
+                                               context,
+                                               outputPath,
+                                               rewriteHistory,
+                                               rewriteSynopsis,
+                                               rewriteVariantKey);
+            if (recoveredPersistedResult)
+                needsRewrite = false;
+
             if (outputExists && !overwriteExisting && !needsRewrite)
             {
-                log("短剧信息已存在且新剧名有效，跳过 AI 改写。");
-                AppendCurrentRewriteHistory(item, settings, account, context, outputPath, originalTitle, sourceSynopsis, rewriteVariantKey);
+                log(recoveredPersistedResult
+                    ? "检测到已落盘且经历史核验的 AI 改写结果，将补录完成状态并跳过重复调用。"
+                    : "短剧信息已存在且新剧名有效，跳过 AI 改写。");
+                if (!recoveredPersistedResult)
+                {
+                    AppendCurrentRewriteHistory(
+                        item, settings, account, context, outputPath, originalTitle, sourceSynopsis, rewriteVariantKey);
+                }
             }
             else
             {
@@ -309,7 +330,7 @@ public static class QueueMaterialStepService
                 log("开始 AI 改写短剧信息…");
                 try
                 {
-                    var result = await QueueInfrastructureServices.InfoRewriter.RewriteAsync(
+                    generatedResult = await QueueInfrastructureServices.InfoRewriter.RewriteAsync(
                         new ProjectInfoRewriteRequest(
                             ProjectDir: workflowDir,
                             ConfigFile: configPath,
@@ -320,16 +341,6 @@ public static class QueueMaterialStepService
                             TargetSynopsisLength: TargetSynopsisLength(sourceSynopsis),
                             RewriteVariantKey: rewriteVariantKey),
                         ct);
-                    AppendRewriteHistory(
-                        result,
-                        item,
-                        settings,
-                        account,
-                        context,
-                        originalTitle,
-                        sourceSynopsis,
-                        rewriteVariantKey);
-                    log($"改写完成：{result.Title}");
                 }
                 catch (OperationCanceledException)
                 {
@@ -356,7 +367,22 @@ public static class QueueMaterialStepService
             TryDelete(configPath);
         }
 
-        PersistRewriteCompletionState(context, account, infoPath, rewriteSynopsis);
+        if (generatedResult is not null)
+        {
+            AppendRewriteHistory(
+                generatedResult,
+                item,
+                settings,
+                account,
+                context,
+                originalTitle,
+                sourceSynopsis,
+                rewriteVariantKey);
+        }
+
+        PersistRewriteCompletionState(context, account, infoPath, rewriteSynopsis, rewriteVariantKey);
+        if (generatedResult is not null)
+            log($"改写完成：{generatedResult.Title}");
 
         var newTitle = ResolveNewTitle(infoPath, item, context);
         if (!string.IsNullOrWhiteSpace(newTitle))
@@ -750,6 +776,46 @@ public static class QueueMaterialStepService
                AiRewriteHistoryService.IsSynopsisDuplicate(synopsis, history.Select(record => record.NewSynopsis));
     }
 
+    internal static bool CurrentInfoMatchesRewriteHistory(
+        QueueProjectItem item,
+        ProjectWorkspaceContext context,
+        string infoPath,
+        IReadOnlyList<AiRewriteHistoryRecord> history,
+        bool rewriteSynopsis,
+        string rewriteVariantKey)
+    {
+        if (!File.Exists(infoPath) || history.Count == 0)
+            return false;
+
+        var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        if (!IsProjectInfoRewritten(info, item, context, rewriteSynopsis))
+            return false;
+
+        var title = FirstNonEmpty(
+            info.GetValueOrDefault("新剧名"),
+            info.GetValueOrDefault("剧名"));
+        var normalizedTitle = NormalizeComparableTitle(title);
+        var synopsis = CurrentSynopsis(info);
+        if (string.IsNullOrWhiteSpace(normalizedTitle) ||
+            (rewriteSynopsis && string.IsNullOrWhiteSpace(synopsis)))
+        {
+            return false;
+        }
+
+        var synopsisFingerprint = rewriteSynopsis ? SynopsisFingerprint(synopsis) : string.Empty;
+        return history.Any(record =>
+            IsCurrentProjectHistory(record, context) &&
+            RewriteVariantKeysEqual(record.VariantKey, rewriteVariantKey) &&
+            string.Equals(
+                NormalizeComparableTitle(record.NewTitle),
+                normalizedTitle,
+                StringComparison.OrdinalIgnoreCase) &&
+            (!rewriteSynopsis || string.Equals(
+                SynopsisFingerprint(record.NewSynopsis),
+                synopsisFingerprint,
+                StringComparison.OrdinalIgnoreCase)));
+    }
+
     /// <summary>AI 改写多次失败时的兜底：复用本项目历史生成过的新剧名/简介（避开其它项目已用标题）。</summary>
     private static bool TryApplyRewriteHistoryFallback(
         IReadOnlyList<AiRewriteHistoryRecord> history,
@@ -959,7 +1025,8 @@ public static class QueueMaterialStepService
         ProjectWorkspaceContext context,
         TikTokAccountProfile? account,
         string infoPath,
-        bool rewriteSynopsis)
+        bool rewriteSynopsis,
+        string? rewriteVariantKey = null)
     {
         var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
         var synopsis = CurrentSynopsis(info);
@@ -973,7 +1040,9 @@ public static class QueueMaterialStepService
             new Dictionary<string, object?>
             {
                 ["version"] = AiRewriteStateVersion,
-                ["variant_key"] = BuildRewriteVariantKey(context, account),
+                ["variant_key"] = string.IsNullOrWhiteSpace(rewriteVariantKey)
+                    ? BuildRewriteVariantKey(context, account)
+                    : rewriteVariantKey,
                 ["rewrite_synopsis"] = rewriteSynopsis,
                 ["synopsis_fingerprint"] = rewriteSynopsis ? SynopsisFingerprint(synopsis) : string.Empty,
             },

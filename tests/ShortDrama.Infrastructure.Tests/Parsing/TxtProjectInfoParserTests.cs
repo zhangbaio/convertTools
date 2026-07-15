@@ -36,6 +36,43 @@ public sealed class TxtProjectInfoParserTests
     }
 
     [Fact]
+    public async Task ParseAsync_Should_Use_Earliest_Colon_As_Field_Separator()
+    {
+        var parser = new TxtProjectInfoParser();
+
+        var tempDir = Directory.CreateTempSubdirectory();
+        var filePath = Path.Combine(tempDir.FullName, "短剧信息.txt");
+
+        await File.WriteAllTextAsync(filePath, """
+原剧名：旧梦:归途
+新剧名：重逢:之后
+推荐语: 时间：重启，命运翻盘
+简介：详情见:https://example.com/drama
+时长: 8 分钟
+集数：3
+成本: 1 万元
+制作公司：湖北:云漫科技有限公司
+""");
+
+        var result = await parser.ParseAsync(tempDir.FullName, CancellationToken.None);
+
+        result.OriginalTitle.Should().Be("旧梦:归途");
+        result.Title.Should().Be("重逢:之后");
+        result.Tagline.Should().Be("时间：重启，命运翻盘");
+        result.Synopsis.Should().Be("详情见:https://example.com/drama");
+        result.CompanyName.Should().Be("湖北:云漫科技有限公司");
+    }
+
+    [Theory]
+    [InlineData("简介：https://example.com", 2)]
+    [InlineData("简介: 时间：重启", 2)]
+    [InlineData("无分隔符", -1)]
+    public void FindSeparatorIndex_Should_Return_Earliest_Supported_Colon(string line, int expected)
+    {
+        ProjectInfoLineParser.FindSeparatorIndex(line).Should().Be(expected);
+    }
+
+    [Fact]
     public async Task ParseAsync_Should_Reject_Cost_Over_Or_Equal_100Wan()
     {
         var parser = new TxtProjectInfoParser();

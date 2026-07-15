@@ -508,8 +508,7 @@ public static class ProjectWorkspaceService
         foreach (var line in File.ReadAllLines(infoPath))
         {
             var trimmed = line.Trim();
-            var sepIndex = trimmed.IndexOf('：');
-            if (sepIndex < 0) sepIndex = trimmed.IndexOf(':');
+            var sepIndex = ProjectInfoTextHelper.FindFieldSeparatorIndex(trimmed);
             if (sepIndex <= 0) continue;
             var key = trimmed[..sepIndex].Trim();
             var valuePart = trimmed[(sepIndex + 1)..].Trim();

@@ -239,11 +239,7 @@ public sealed class TxtProjectInfoParser : IProjectInfoParser
                 continue;
             }
 
-            var separatorIndex = line.IndexOf(':');
-            if (separatorIndex < 0)
-            {
-                separatorIndex = line.IndexOf('：');
-            }
+            var separatorIndex = ProjectInfoLineParser.FindSeparatorIndex(line);
 
             if (separatorIndex <= 0 || separatorIndex >= line.Length - 1)
             {

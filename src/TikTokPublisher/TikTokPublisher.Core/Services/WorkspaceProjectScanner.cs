@@ -144,7 +144,7 @@ public static class WorkspaceProjectScanner
     private static WorkspaceProject BuildProjectInternal(string projectDir, List<string>? preloadedVideos = null)
     {
         var metadata = ReadJsonObject(Path.Combine(projectDir, ProjectMetadataFile));
-        var dramaInfo = ParseInfoFile(Path.Combine(projectDir, DramaInfoFile));
+        var dramaInfo = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(projectDir, DramaInfoFile));
         var resolvedWorkflowDir = ResolveWorkflowProjectDir(projectDir);
         var nestedWorkflowDir = Path.Combine(projectDir, "workflow");
         var workflowDir = Directory.Exists(resolvedWorkflowDir)
@@ -152,7 +152,7 @@ public static class WorkspaceProjectScanner
             : Directory.Exists(nestedWorkflowDir)
                 ? nestedWorkflowDir
                 : projectDir;
-        var workflowInfo = ParseInfoFile(Path.Combine(workflowDir, DramaInfoFile));
+        var workflowInfo = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(workflowDir, DramaInfoFile));
 
         var videos = preloadedVideos ?? FindVideoFiles(projectDir);
         if (videos.Count == 0 && workflowDir != projectDir)
@@ -348,25 +348,6 @@ public static class WorkspaceProjectScanner
             return JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
         }
         catch { return null; }
-    }
-
-    private static Dictionary<string, string> ParseInfoFile(string path)
-    {
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (!File.Exists(path)) return result;
-        foreach (var rawLine in File.ReadAllLines(path))
-        {
-            var line = rawLine.Trim();
-            if (string.IsNullOrEmpty(line) || !line.Contains(':') && !line.Contains('：')) continue;
-            var sep = line.Contains('：') ? '：' : ':';
-            var parts = line.Split(sep, 2);
-            if (parts.Length != 2) continue;
-            var key = parts[0].Trim();
-            var value = parts[1].Trim();
-            if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(value))
-                result[key] = value;
-        }
-        return result;
     }
 
     private static string ResolveWorkflowProjectDir(string projectDir)

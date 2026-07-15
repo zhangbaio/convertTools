@@ -5,6 +5,7 @@ using ShortDrama.Infrastructure.Automation;
 using ShortDrama.Infrastructure.Automation.Weixin;
 using ShortDrama.Infrastructure.Config;
 using ShortDrama.Infrastructure.Imaging;
+using ShortDrama.Infrastructure.Parsing;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -1112,11 +1113,7 @@ public sealed class WorkService : IWorkService
                 continue;
             }
 
-            var separatorIndex = line.IndexOf('：');
-            if (separatorIndex < 0)
-            {
-                separatorIndex = line.IndexOf(':');
-            }
+            var separatorIndex = ProjectInfoLineParser.FindSeparatorIndex(line);
 
             if (separatorIndex <= 0)
             {
