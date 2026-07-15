@@ -318,17 +318,18 @@ public sealed class TikTokProofMaterialDocumentBuilder
         }
 
         var imagePath = Path.GetFullPath(sealImagePath);
-        var imageType = ResolveImagePartType(imagePath);
-        var sourceContentType = ResolveImageContentType(imagePath);
+        var preparedImage = TikTokProofSealImageProcessor.Prepare(imagePath);
+        var imageType = ResolveImagePartType(preparedImage.Extension);
+        var sourceContentType = ResolveImageContentType(preparedImage.Extension);
         if (string.Equals(oldImagePart.ContentType, sourceContentType, StringComparison.OrdinalIgnoreCase))
         {
-            using var source = File.OpenRead(imagePath);
+            using var source = new MemoryStream(preparedImage.Bytes, writable: false);
             oldImagePart.FeedData(source);
             return relationshipIds.Length;
         }
 
         var newImagePart = mainPart.AddImagePart(imageType);
-        using (var source = File.OpenRead(imagePath))
+        using (var source = new MemoryStream(preparedImage.Bytes, writable: false))
         {
             newImagePart.FeedData(source);
         }

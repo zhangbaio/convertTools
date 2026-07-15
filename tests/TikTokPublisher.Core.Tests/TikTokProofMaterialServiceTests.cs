@@ -2,6 +2,8 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using System.Text.Json;
 using FluentAssertions;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
@@ -18,8 +20,7 @@ public sealed class TikTokProofMaterialServiceTests
     private static readonly byte[] TemplateSealBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
-    private static readonly byte[] ReplacementSealBytes = Convert.FromBase64String(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z8kAAAAAASUVORK5CYII=");
+    private static readonly byte[] ReplacementSealBytes = CreateTransparentSealBytes();
 
     [Fact]
     public void Request_defaults_to_wps_and_180_second_timeout()
@@ -126,7 +127,8 @@ public sealed class TikTokProofMaterialServiceTests
         using var fixture = new ProofTemplateFixture();
         var templatePath = fixture.CreateTemplate();
         var sealPath = Path.Combine(fixture.DirectoryPath, "new-seal.png");
-        File.WriteAllBytes(sealPath, ReplacementSealBytes);
+        var transparentSealBytes = CreateTransparentSealBytes();
+        File.WriteAllBytes(sealPath, transparentSealBytes);
         var sourceSnapshot = ReadDocumentSnapshot(templatePath);
         var request = CreateRequest(templatePath, Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
         {
@@ -141,13 +143,170 @@ public sealed class TikTokProofMaterialServiceTests
             result.Replacements.SealImages.Should().Be(1);
             var outputSnapshot = ReadDocumentSnapshot(result.DocxPath);
             outputSnapshot.AnchorXml.Should().Be(sourceSnapshot.AnchorXml);
-            outputSnapshot.ImageBytes.Should().Equal(ReplacementSealBytes);
+            outputSnapshot.ImageBytes.Should().Equal(transparentSealBytes);
             outputSnapshot.Text.Split("上海新主体科技有限公司").Length.Should().Be(3);
         }
         finally
         {
             TikTokProofMaterialDocumentBuilder.TryDeleteDirectory(result.WorkingDirectory);
         }
+    }
+
+    [Theory]
+    [InlineData(".png")]
+    [InlineData(".jpg")]
+    public void Builder_makes_opaque_raster_seal_background_transparent(string extension)
+    {
+        using var fixture = new ProofTemplateFixture();
+        var templatePath = fixture.CreateTemplate();
+        var sealPath = Path.Combine(fixture.DirectoryPath, $"opaque-seal{extension}");
+        using (var seal = new Image<Rgba32>(64, 64, Color.White))
+        {
+            seal.ProcessPixelRows(accessor =>
+            {
+                for (var y = 18; y < 46; y++)
+                {
+                    var row = accessor.GetRowSpan(y);
+                    for (var x = 18; x < 46; x++)
+                    {
+                        row[x] = new Rgba32(220, 20, 30, 255);
+                    }
+                }
+
+                accessor.GetRowSpan(32)[17] = new Rgba32(255, 210, 210, 255);
+            });
+            if (string.Equals(extension, ".jpg", StringComparison.Ordinal))
+            {
+                seal.SaveAsJpeg(sealPath);
+            }
+            else
+            {
+                seal.SaveAsPng(sealPath);
+            }
+        }
+
+        var sourceSnapshot = ReadDocumentSnapshot(templatePath);
+        var request = CreateRequest(templatePath, Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
+        {
+            DeclarantCompanyName = "自动透明印章公司",
+            SealImagePath = sealPath,
+            TemporaryDirectory = fixture.DirectoryPath,
+        };
+
+        var result = new TikTokProofMaterialDocumentBuilder().CreateTemporaryDocx(request);
+        try
+        {
+            var outputSnapshot = ReadDocumentSnapshot(result.DocxPath);
+            outputSnapshot.AnchorXml.Should().Be(sourceSnapshot.AnchorXml);
+            outputSnapshot.ImageContentType.Should().Be("image/png");
+            using var outputImage = Image.Load<Rgba32>(outputSnapshot.ImageBytes);
+            outputImage[0, 0].A.Should().Be(0);
+            outputImage[32, 32].A.Should().BeGreaterThan((byte)220);
+            if (string.Equals(extension, ".png", StringComparison.Ordinal))
+            {
+                outputImage[17, 32].A.Should().BeInRange((byte)1, (byte)254);
+                outputImage[17, 32].G.Should().BeLessThan((byte)180);
+            }
+        }
+        finally
+        {
+            TikTokProofMaterialDocumentBuilder.TryDeleteDirectory(result.WorkingDirectory);
+        }
+    }
+
+    [Fact]
+    public void Builder_does_not_treat_a_single_transparent_pixel_as_a_transparent_background()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var templatePath = fixture.CreateTemplate();
+        var sealPath = Path.Combine(fixture.DirectoryPath, "almost-opaque-seal.png");
+        using (var seal = new Image<Rgba32>(64, 64, Color.White))
+        {
+            for (var y = 20; y < 44; y++)
+            {
+                for (var x = 20; x < 44; x++)
+                {
+                    seal[x, y] = new Rgba32(210, 25, 35, 255);
+                }
+            }
+
+            seal[0, 0] = new Rgba32(255, 255, 255, 0);
+            seal.SaveAsPng(sealPath);
+        }
+
+        var request = CreateRequest(templatePath, Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
+        {
+            DeclarantCompanyName = "伪透明印章公司",
+            SealImagePath = sealPath,
+            TemporaryDirectory = fixture.DirectoryPath,
+        };
+
+        var result = new TikTokProofMaterialDocumentBuilder().CreateTemporaryDocx(request);
+        try
+        {
+            var outputSnapshot = ReadDocumentSnapshot(result.DocxPath);
+            outputSnapshot.ImageContentType.Should().Be("image/png");
+            outputSnapshot.ImageBytes.Should().NotEqual(File.ReadAllBytes(sealPath));
+            using var outputImage = Image.Load<Rgba32>(outputSnapshot.ImageBytes);
+            outputImage[1, 1].A.Should().Be(0);
+            outputImage[32, 32].A.Should().BeGreaterThan((byte)220);
+        }
+        finally
+        {
+            TikTokProofMaterialDocumentBuilder.TryDeleteDirectory(result.WorkingDirectory);
+        }
+    }
+
+    [Fact]
+    public void Builder_uses_detected_raster_format_when_filename_extension_is_wrong()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var templatePath = fixture.CreateTemplate();
+        var sealPath = Path.Combine(fixture.DirectoryPath, "transparent-seal.jpg");
+        var transparentPngBytes = CreateTransparentSealBytes();
+        File.WriteAllBytes(sealPath, transparentPngBytes);
+        var request = CreateRequest(templatePath, Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
+        {
+            DeclarantCompanyName = "格式校验印章公司",
+            SealImagePath = sealPath,
+            TemporaryDirectory = fixture.DirectoryPath,
+        };
+
+        var result = new TikTokProofMaterialDocumentBuilder().CreateTemporaryDocx(request);
+        try
+        {
+            var outputSnapshot = ReadDocumentSnapshot(result.DocxPath);
+            outputSnapshot.ImageContentType.Should().Be("image/png");
+            outputSnapshot.ImageBytes.Should().Equal(transparentPngBytes);
+        }
+        finally
+        {
+            TikTokProofMaterialDocumentBuilder.TryDeleteDirectory(result.WorkingDirectory);
+        }
+    }
+
+    [Fact]
+    public void Builder_rejects_blank_opaque_seal_instead_of_embedding_an_empty_image()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var templatePath = fixture.CreateTemplate();
+        var sealPath = Path.Combine(fixture.DirectoryPath, "blank-seal.png");
+        using (var seal = new Image<Rgba32>(64, 64, Color.White))
+        {
+            seal.SaveAsPng(sealPath);
+        }
+
+        var request = CreateRequest(templatePath, Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
+        {
+            DeclarantCompanyName = "空白印章公司",
+            SealImagePath = sealPath,
+            TemporaryDirectory = fixture.DirectoryPath,
+        };
+
+        var action = () => new TikTokProofMaterialDocumentBuilder().CreateTemporaryDocx(request);
+
+        action.Should().Throw<InvalidDataException>()
+            .WithMessage("*未识别到清晰的印章前景和透明背景*");
     }
 
     [Fact]
@@ -345,6 +504,89 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
+    public void Queue_request_resolves_seal_png_from_configured_directory()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var sealDirectory = Path.Combine(fixture.DirectoryPath, "company-seal");
+        Directory.CreateDirectory(sealDirectory);
+        var sealPath = Path.Combine(sealDirectory, "seal.png");
+        File.WriteAllBytes(sealPath, ReplacementSealBytes);
+        File.WriteAllBytes(Path.Combine(sealDirectory, "other.jpg"), ReplacementSealBytes);
+        var settings = new ClientSettings
+        {
+            TiktokProofTemplateDocxPath = fixture.CreateTemplate(),
+        };
+        var account = new TikTokAccountProfile
+        {
+            TiktokProofCopyrightCompanyName = "账号版权公司",
+            TiktokProofDeclarantCompanyName = "账号声明公司",
+            TiktokProofSealPath = sealDirectory,
+            TiktokProofAccountConfigMigrated = true,
+        };
+
+        var request = TikTokProofMaterialService.CreateQueueRequest(
+            new QueueProjectItem { NewTitle = "目录印章剧名" },
+            settings,
+            account,
+            fixture.DirectoryPath,
+            new DateOnly(2026, 7, 14));
+
+        request.SealImagePath.Should().Be(sealPath);
+        TikTokProofMaterialService.ComputeFingerprint(request).Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public void Queue_request_rejects_ambiguous_seal_directory_with_actionable_path()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var sealDirectory = Path.Combine(fixture.DirectoryPath, "ambiguous-seals");
+        Directory.CreateDirectory(sealDirectory);
+        File.WriteAllBytes(Path.Combine(sealDirectory, "first.png"), ReplacementSealBytes);
+        File.WriteAllBytes(Path.Combine(sealDirectory, "second.jpg"), ReplacementSealBytes);
+        var settings = new ClientSettings
+        {
+            TiktokProofTemplateDocxPath = fixture.CreateTemplate(),
+        };
+        var account = new TikTokAccountProfile
+        {
+            TiktokProofSealPath = sealDirectory,
+            TiktokProofAccountConfigMigrated = true,
+        };
+
+        var action = () => TikTokProofMaterialService.CreateQueueRequest(
+            new QueueProjectItem { NewTitle = "多印章剧名" },
+            settings,
+            account,
+            fixture.DirectoryPath,
+            new DateOnly(2026, 7, 14));
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*找到 2 个候选图片*{sealDirectory}*选择具体的印章图片文件*");
+    }
+
+    [Fact]
+    public void Fingerprint_missing_inputs_report_file_kind_and_full_path()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var templatePath = fixture.CreateTemplate();
+        var missingSealPath = Path.Combine(fixture.DirectoryPath, "missing-seal.png");
+        var missingTemplatePath = Path.Combine(fixture.DirectoryPath, "missing-template.docx");
+        var request = CreateRequest(templatePath, Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
+        {
+            SealImagePath = missingSealPath,
+        };
+
+        var sealAction = () => TikTokProofMaterialService.ComputeFingerprint(request);
+        var templateAction = () => TikTokProofMaterialService.ComputeFingerprint(
+            request with { TemplateDocxPath = missingTemplatePath, SealImagePath = string.Empty });
+
+        sealAction.Should().Throw<FileNotFoundException>()
+            .WithMessage($"*证明材料印章图片不存在：{missingSealPath}*");
+        templateAction.Should().Throw<FileNotFoundException>()
+            .WithMessage($"*证明材料 Word 模板不存在：{missingTemplatePath}*");
+    }
+
+    [Fact]
     public void Queue_requests_keep_proof_material_configuration_isolated_between_accounts()
     {
         using var fixture = new ProofTemplateFixture();
@@ -513,14 +755,35 @@ public sealed class TikTokProofMaterialServiceTests
             text,
             anchorXml,
             imageBuffer.ToArray(),
-            body.Descendants<W.Bold>().Count());
+            body.Descendants<W.Bold>().Count(),
+            imagePart.ContentType);
+    }
+
+    private static byte[] CreateTransparentSealBytes()
+    {
+        using var image = new Image<Rgba32>(32, 32, new Rgba32(0, 0, 0, 0));
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 8; y < 24; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 8; x < 24; x++)
+                {
+                    row[x] = new Rgba32(220, 20, 30, 255);
+                }
+            }
+        });
+        using var output = new MemoryStream();
+        image.SaveAsPng(output);
+        return output.ToArray();
     }
 
     private sealed record DocumentSnapshot(
         string Text,
         string AnchorXml,
         byte[] ImageBytes,
-        int BoldCount);
+        int BoldCount,
+        string ImageContentType);
 
     private sealed class StubRenderer(
         string name,

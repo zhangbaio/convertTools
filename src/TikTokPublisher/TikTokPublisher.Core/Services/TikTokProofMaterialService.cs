@@ -13,7 +13,21 @@ public sealed class TikTokProofMaterialService
     public const string ProofDocxFileName = "证明材料.docx";
     public const string StateDocumentType = "tiktok_proof_material_state";
 
-    private const string FingerprintVersion = "v3-embedded-template-wps-path";
+    private const string FingerprintVersion = "v4-seal-cta1";
+    private static readonly IReadOnlySet<string> SupportedSealImageExtensions =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".bmp",
+            ".tif",
+            ".tiff",
+            ".emf",
+            ".wmf",
+            ".svg",
+        };
     private readonly TikTokProofMaterialDocumentBuilder _documentBuilder;
     private readonly TikTokProofMaterialPdfRenderService _pdfRenderService;
 
@@ -241,14 +255,14 @@ public sealed class TikTokProofMaterialService
         var payload = new
         {
             version = FingerprintVersion,
-            template_sha256 = ComputeFileSha256(request.TemplateDocxPath),
+            template_sha256 = ComputeFileSha256(request.TemplateDocxPath, "证明材料 Word 模板"),
             copyright_company = request.CopyrightCompanyName.Trim(),
             declarant_company = request.DeclarantCompanyName.Trim(),
             drama_title = request.DramaTitle.Trim(),
             statement_date = request.StatementDate.ToString("yyyy-MM-dd"),
             seal_sha256 = string.IsNullOrWhiteSpace(request.SealImagePath)
                 ? "template-seal"
-                : ComputeFileSha256(request.SealImagePath),
+                : ComputeFileSha256(request.SealImagePath, "证明材料印章图片"),
             renderer = request.PreferredPdfRenderer == TikTokProofMaterialPdfRendererPreference.Wps
                 ? "wps"
                 : "libreoffice",
@@ -277,6 +291,7 @@ public sealed class TikTokProofMaterialService
         var sealPath = accountConfigMigrated
             ? (account?.TiktokProofSealPath ?? string.Empty).Trim()
             : FirstNonEmpty(account?.TiktokProofSealPath, settings.TiktokProofSealPath);
+        sealPath = ResolveSealImagePath(sealPath);
 
         return new TikTokProofMaterialRequest(
             TikTokProofMaterialTemplateProvider.ResolveTemplatePath(settings.TiktokProofTemplateDocxPath),
@@ -368,14 +383,102 @@ public sealed class TikTokProofMaterialService
         return value.GetString()?.Trim() ?? string.Empty;
     }
 
-    private static string ComputeFileSha256(string path)
+    internal static string ResolveSealImagePath(string? configuredPath)
     {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        var value = (configuredPath ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(value))
         {
-            throw new FileNotFoundException("计算证明材料指纹时未找到文件。", path);
+            return string.Empty;
         }
 
-        using var stream = File.OpenRead(path);
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(value);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw new InvalidDataException($"证明材料印章路径无效：{value}。", ex);
+        }
+
+        if (File.Exists(fullPath))
+        {
+            return fullPath;
+        }
+
+        if (!Directory.Exists(fullPath))
+        {
+            // 保留不存在的文件路径，由指纹校验输出包含完整路径的明确错误。
+            return fullPath;
+        }
+
+        string[] candidates;
+        try
+        {
+            candidates = Directory
+                .EnumerateFiles(fullPath, "*", SearchOption.TopDirectoryOnly)
+                .Where(path => SupportedSealImageExtensions.Contains(Path.GetExtension(path)))
+                .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException($"无法读取证明材料印章目录：{fullPath}。", ex);
+        }
+
+        var preferred = candidates.FirstOrDefault(path =>
+            string.Equals(Path.GetFileName(path), "seal.png", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(preferred))
+        {
+            return Path.GetFullPath(preferred);
+        }
+
+        if (candidates.Length == 1)
+        {
+            return Path.GetFullPath(candidates[0]);
+        }
+
+        if (candidates.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"证明材料印章配置指向目录，但目录中未找到支持的图片：{fullPath}。" +
+                "请在账号配置中选择具体的 PNG、JPG、GIF、BMP、TIFF、EMF、WMF 或 SVG 文件。");
+        }
+
+        throw new InvalidOperationException(
+            $"证明材料印章配置指向目录，且找到 {candidates.Length} 个候选图片：{fullPath}。" +
+            "请在账号配置中选择具体的印章图片文件。");
+    }
+
+    private static string ComputeFileSha256(string path, string displayName)
+    {
+        var value = (path ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new FileNotFoundException($"{displayName}路径为空，无法计算证明材料指纹。", value);
+        }
+
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(value);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw new InvalidDataException($"{displayName}路径无效：{value}。", ex);
+        }
+
+        if (Directory.Exists(fullPath))
+        {
+            throw new InvalidDataException($"{displayName}路径指向目录而不是文件：{fullPath}。");
+        }
+
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException($"{displayName}不存在：{fullPath}。", fullPath);
+        }
+
+        using var stream = File.OpenRead(fullPath);
         return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
     }
 
