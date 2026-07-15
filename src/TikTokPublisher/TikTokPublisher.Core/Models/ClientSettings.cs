@@ -3,7 +3,7 @@ namespace TikTokPublisher.Core.Models;
 /// <summary>与 Python <c>ClientSettings</c> / <c>app_settings.client_settings</c> 对齐的全局配置。</summary>
 public sealed class ClientSettings
 {
-    public const string DefaultHongguoClientVersion = "1.3.8";
+    public const string DefaultHongguoClientVersion = "1.3.9";
 
     public string DramaSourceChain { get; set; } = "hgnew";
     public string DramaDownloadDefaultQuality { get; set; } = "1080P";

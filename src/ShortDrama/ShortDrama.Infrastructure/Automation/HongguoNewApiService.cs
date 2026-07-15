@@ -12,9 +12,12 @@ public sealed class HongguoNewApiService
 {
     private const string BaseUrlTemplate = "https://au.s1o.cc/api/user/1000/win/{0}";
     private const string FallbackDailyUrl = "http://129.211.169.30:996/new.php";
-    private const string AppKey = "c8b9d4a1f3e265c89a0b1d3f4e5a6c7b";
-    private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("asKVK4K5tEPg4inz");
-    private const string DefaultVersion = "1.3.8";
+    // HG Downloader 1.3.9：AES key、APP_KEY（签名尾串）均更换，端点改为 2 字符短码
+    // （/logon->/m4、/cloudFunction->/z9、/info->/j9）。sign=MD5(排序kv明文+AppKey) 结构不变；
+    // 视频防盗链 sign=HMAC-SHA256(HMAC-SHA256(AppKey,token),message) 结构不变，换 key 即通。
+    private const string AppKey = "de0852fd2493377d766f27d8a9f686af";
+    private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("UMgfJjHhMizNdJGl");
+    private const string DefaultVersion = "1.3.9";
     private static readonly string[] AxiosWrapperKeys = ["status", "statusText", "headers", "config", "request"];
     private static readonly HashSet<int> LoginRetryCodes = [46, 141, 401];
     private static readonly string[] LoginRetryHints =
@@ -406,7 +409,7 @@ public sealed class HongguoNewApiService
         string? param,
         CancellationToken cancellationToken)
     {
-        var url = BuildBaseUrl(credentials.ClientVersion) + "/cloudFunction";
+        var url = BuildBaseUrl(credentials.ClientVersion) + "/z9";  // 1.3.9: /cloudFunction -> /z9
         var mappedName = CloudFunctionNameMap.GetValueOrDefault(functionName, functionName);
         var fields = new Dictionary<string, string?>
         {
@@ -515,7 +518,7 @@ public sealed class HongguoNewApiService
             }
         }
 
-        var url = BuildBaseUrl(credentials.ClientVersion) + "/logon";
+        var url = BuildBaseUrl(credentials.ClientVersion) + "/m4";  // 1.3.9: /logon -> /m4
         var response = await PostEncryptedFormAsync(
             url,
             credentials,
@@ -564,7 +567,7 @@ public sealed class HongguoNewApiService
         int timeoutSeconds,
         CancellationToken cancellationToken)
     {
-        var url = BuildBaseUrl(credentials.ClientVersion) + "/info";
+        var url = BuildBaseUrl(credentials.ClientVersion) + "/j9";  // 1.3.9: /info -> /j9
         var response = await PostEncryptedFormAsync(
             url,
             credentials,

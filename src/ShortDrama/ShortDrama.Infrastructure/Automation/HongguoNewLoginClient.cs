@@ -11,9 +11,11 @@ namespace ShortDrama.Infrastructure.Automation;
 public static class HongguoNewLoginClient
 {
     private const string BaseUrlTemplate = "https://au.s1o.cc/api/user/1000/win/{0}";
-    private const string AppKey = "c8b9d4a1f3e265c89a0b1d3f4e5a6c7b";
-    private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("asKVK4K5tEPg4inz");
-    private const string DefaultVersion = "1.3.8";
+    // HG Downloader 1.3.9：AES key、APP_KEY（签名尾串）均更换，端点改为 2 字符短码。
+    // sign = MD5(排序kv明文 + AppKey)，token 用登录返回原值；详见 weixin-channel-tool 逆向文档。
+    private const string AppKey = "de0852fd2493377d766f27d8a9f686af";
+    private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("UMgfJjHhMizNdJGl");
+    private const string DefaultVersion = "1.3.9";
 
     public static async Task<HongguoLoginProbeResult> ProbeLoginAsync(
         HttpClient httpClient,
@@ -57,7 +59,7 @@ public static class HongguoNewLoginClient
         int timeoutSeconds,
         CancellationToken cancellationToken)
     {
-        var url = BuildBaseUrl(credentials.ClientVersion) + "/logon";
+        var url = BuildBaseUrl(credentials.ClientVersion) + "/m4";  // 1.3.9: /logon -> /m4
         var response = await PostEncryptedFormAsync(
             httpClient,
             url,

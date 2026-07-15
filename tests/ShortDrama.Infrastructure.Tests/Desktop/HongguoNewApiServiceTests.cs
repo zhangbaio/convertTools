@@ -11,8 +11,8 @@ namespace ShortDrama.Infrastructure.Tests.Desktop;
 
 public sealed class HongguoNewApiServiceTests
 {
-    private const string AppKey = "c8b9d4a1f3e265c89a0b1d3f4e5a6c7b";
-    private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("asKVK4K5tEPg4inz");
+    private const string AppKey = "de0852fd2493377d766f27d8a9f686af";
+    private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("UMgfJjHhMizNdJGl");
 
     [Fact]
     public async Task SearchAsync_Should_Use_Hgnew_Login_And_Map_Search_Items()
@@ -56,8 +56,8 @@ public sealed class HongguoNewApiServiceTests
         results[0].PosterUrl.Should().Be("https://example.com/poster.jpg");
 
         handler.Requests.Should().HaveCount(2);
-        handler.Requests[0].RequestUri!.AbsolutePath.Should().EndWith("/logon");
-        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/cloudFunction");
+        handler.Requests[0].RequestUri!.AbsolutePath.Should().EndWith("/m4");
+        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/z9");
         handler.Requests[0].Headers.GetValues("X-Client-Version").Single().Should().Be("1.3.6");
     }
 
@@ -179,9 +179,9 @@ public sealed class HongguoNewApiServiceTests
         episodes.Should().HaveCount(1);
         episodes[0].VideoId.Should().Be("video-1");
         handler.Requests.Should().HaveCount(4);
-        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/cloudFunction");
+        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/z9");
         handler.Requests[1].Headers.Authorization?.Parameter.Should().Be("token-1");
-        handler.Requests[3].RequestUri!.AbsolutePath.Should().EndWith("/cloudFunction");
+        handler.Requests[3].RequestUri!.AbsolutePath.Should().EndWith("/z9");
         handler.Requests[3].Headers.Authorization?.Parameter.Should().Be("token-2");
     }
 
@@ -221,8 +221,8 @@ public sealed class HongguoNewApiServiceTests
         detail.Url.Should().Be("https://example.com/video.mp4");
         detail.Size.Should().Be(123456789);
         handler.Requests.Should().HaveCount(3);
-        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/info");
-        handler.Requests[2].RequestUri!.AbsolutePath.Should().EndWith("/cloudFunction");
+        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/j9");
+        handler.Requests[2].RequestUri!.AbsolutePath.Should().EndWith("/z9");
     }
 
     [Fact]
@@ -270,11 +270,11 @@ public sealed class HongguoNewApiServiceTests
 
         detail.Url.Should().Be("https://example.com/video.mp4");
         handler.Requests.Should().HaveCount(5);
-        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/info");
+        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/j9");
         handler.Requests[1].Headers.Authorization?.Parameter.Should().Be("token-1");
-        handler.Requests[3].RequestUri!.AbsolutePath.Should().EndWith("/info");
+        handler.Requests[3].RequestUri!.AbsolutePath.Should().EndWith("/j9");
         handler.Requests[3].Headers.Authorization?.Parameter.Should().Be("token-2");
-        handler.Requests[4].RequestUri!.AbsolutePath.Should().EndWith("/cloudFunction");
+        handler.Requests[4].RequestUri!.AbsolutePath.Should().EndWith("/z9");
         handler.Requests[4].Headers.Authorization?.Parameter.Should().Be("token-2");
     }
 
