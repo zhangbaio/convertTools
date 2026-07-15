@@ -59,7 +59,8 @@ public sealed class WorkspaceQueueOrchestrator
         Action<QueueWorkerProgress> onProgress,
         Action<string, IReadOnlyList<QueueProjectItem>> onPersist,
         CancellationToken ct,
-        IReadOnlyCollection<string>? projectDirFilter = null)
+        IReadOnlyCollection<string>? projectDirFilter = null,
+        Action? onStarted = null)
     {
         var root = Path.GetFullPath(workspaceRoot);
         if (!Directory.Exists(root))
@@ -98,6 +99,10 @@ public sealed class WorkspaceQueueOrchestrator
 
         try
         {
+            // 此时 ActiveRun 已在锁内注册，远程命令可安全返回并允许后续命令追加项目。
+            // 启动通知只用于握手，通知方异常不能中断或遗失已经启动的 worker。
+            try { onStarted?.Invoke(); }
+            catch { }
             return await run.Task.ConfigureAwait(false);
         }
         finally

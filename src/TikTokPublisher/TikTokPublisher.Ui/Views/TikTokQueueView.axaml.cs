@@ -1655,43 +1655,88 @@ public partial class TikTokQueueView : UserControl
     }
 
     private async void OnStartQueueClick(object? sender, RoutedEventArgs e)
-        => await StartQueueRunAsync(confirmForceRerun: true);
+    {
+        await StartQueueRunAsync(confirmForceRerun: true);
+    }
 
-    public Task StartQueueRunFromRemoteAsync(
+    public async Task<bool> StartQueueRunFromRemoteAsync(
         QueueRunOptions? optionsOverride = null,
         IReadOnlyCollection<string>? projectDirFilter = null)
-        => StartQueueRunAsync(optionsOverride, projectDirFilter);
+    {
+        var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runTask = StartQueueRunAsync(
+            optionsOverride,
+            projectDirFilter,
+            onWorkerStarted: () => started.TrySetResult(true));
 
-    private async Task StartQueueRunAsync(
+        // 远程命令只等待 runner 注册成功；完整运行必须被持续观察，避免后台异常成为未观察任务异常。
+        _ = ObserveRemoteQueueRunAsync(runTask, started);
+        return await started.Task;
+    }
+
+    private async Task ObserveRemoteQueueRunAsync(
+        Task<bool> runTask,
+        TaskCompletionSource<bool> started)
+    {
+        try
+        {
+            var completedNormally = await runTask;
+            started.TrySetResult(completedNormally);
+        }
+        catch (OperationCanceledException)
+        {
+            started.TrySetResult(false);
+        }
+        catch (Exception ex)
+        {
+            started.TrySetResult(false);
+            try
+            {
+                var vm = _vm;
+                if (vm is not null)
+                {
+                    vm.StatusMessage = $"远程启动的 TikTok 队列后台执行异常：{ex.Message}";
+                    vm.AppendLog(vm.StatusMessage);
+                }
+            }
+            catch
+            {
+                // 观察器本身不得再产生未观察异常。
+            }
+        }
+    }
+
+    private async Task<bool> StartQueueRunAsync(
         QueueRunOptions? optionsOverride = null,
         IReadOnlyCollection<string>? projectDirFilter = null,
-        bool confirmForceRerun = false)
+        bool confirmForceRerun = false,
+        Action? onWorkerStarted = null)
     {
         var vm = _vm;
-        if (vm is null) return;
+        if (vm is null) return false;
         if (vm.IsCurrentWorkspaceQueueRunning())
         {
             vm.StatusMessage = "当前工作目录队列已在运行中，本次点击未生效；如需按新的步骤勾选重跑，请先点「停止」等待队列结束后再执行";
             vm.AppendLog(vm.StatusMessage);
-            return;
+            return false;
         }
 
         if (string.IsNullOrWhiteSpace(vm.WorkspacePath))
         {
             vm.StatusMessage = "请先选择工作目录";
-            return;
+            return false;
         }
 
         if (projectDirFilter is null && vm.FilteredQueueProjectRows.Count == 0)
         {
             vm.StatusMessage = "队列为空，请先刷新项目";
-            return;
+            return false;
         }
 
         if (projectDirFilter is not null && projectDirFilter.Count == 0)
         {
             vm.StatusMessage = "请先在队列表格中选择项目";
-            return;
+            return false;
         }
 
         var orderedProjectDirFilter = projectDirFilter ?? GetCheckedProjectDirsInDisplayOrder();
@@ -1704,7 +1749,7 @@ public partial class TikTokQueueView : UserControl
                 if (owner is null)
                 {
                     vm.StatusMessage = "无法打开确认弹窗";
-                    return;
+                    return false;
                 }
 
                 var confirmed = await ConfirmAsync(
@@ -1714,7 +1759,7 @@ public partial class TikTokQueueView : UserControl
                 if (!confirmed)
                 {
                     vm.StatusMessage = "已取消执行勾选队列";
-                    return;
+                    return false;
                 }
             }
 
@@ -1727,6 +1772,7 @@ public partial class TikTokQueueView : UserControl
         RefreshQueueRunButtons();
 
         var queueRunStarted = false;
+        var workerReturnedSummary = false;
         vm.StatusMessage = "TikTok 队列执行中…";
         try
         {
@@ -1743,7 +1789,9 @@ public partial class TikTokQueueView : UserControl
                 (root, items) => vm.EnqueuePersistedQueueItems(root, items),
                 ct,
                 optionsOverride,
-                orderedProjectDirFilter);
+                orderedProjectDirFilter,
+                onWorkerStarted);
+            workerReturnedSummary = summary is not null;
             if (summary is not null && !summary.Stopped && summary.StoppedAccountCount > 0)
                 vm.StatusMessage = $"队列结束：成功 {summary.SuccessCount}，失败 {summary.FailedCount}，已按账号停止 {summary.StoppedAccountCount} 个";
             if (summary is not null && !summary.Stopped && summary.StoppedAccountCount == 0)
@@ -1756,6 +1804,7 @@ public partial class TikTokQueueView : UserControl
         catch (Exception ex)
         {
             vm.StatusMessage = $"队列出错：{ex.Message}";
+            vm.AppendLog(vm.StatusMessage);
         }
         finally
         {
@@ -1765,6 +1814,8 @@ public partial class TikTokQueueView : UserControl
                 vm.EndQueueRun();
             RefreshQueueRunButtons();
         }
+
+        return workerReturnedSummary;
     }
 
     private static IReadOnlyCollection<string> BuildUploadTitleImportProjectFilter(UploadTitleImportResult result)

@@ -53,6 +53,8 @@ public sealed class QueueWorkerRunner
     private readonly QueueProofMaterialPrerequisite _ensureProofMaterial;
     private readonly List<QueueProjectItem> _incomingItems = new();
     private readonly object _incomingLock = new();
+    private bool _acceptingItems = true;
+    private bool _runStarted;
     public ManualInterventionCoordinator ManualIntervention { get; } = new();
 
     public QueueWorkerRunner(UploadSlotCoordinator? sharedUploadSlots = null)
@@ -78,14 +80,18 @@ public sealed class QueueWorkerRunner
             return 0;
 
         lock (_incomingLock)
+        {
+            if (!_acceptingItems)
+                return 0;
             _incomingItems.AddRange(added);
+        }
         return added.Count;
     }
 
-    private bool HasIncomingItems()
+    private void StopAcceptingItems()
     {
         lock (_incomingLock)
-            return _incomingItems.Count > 0;
+            _acceptingItems = false;
     }
 
     private static Dictionary<string, int>? BuildProjectDirOrder(IReadOnlyCollection<string>? projectDirFilter)
@@ -107,6 +113,45 @@ public sealed class QueueWorkerRunner
     }
 
     public async Task<QueueWorkerSummary> RunAsync(
+        string workspaceRoot,
+        IList<QueueProjectItem> items,
+        QueueRunOptions options,
+        IQueuePublishHost host,
+        AccountStore accountStore,
+        FinalAction finalAction,
+        Action<QueueWorkerProgress>? onProgress,
+        Action<IReadOnlyList<QueueProjectItem>>? onPersist,
+        CancellationToken ct,
+        IReadOnlyCollection<string>? projectDirFilter = null)
+    {
+        lock (_incomingLock)
+        {
+            if (_runStarted)
+                throw new InvalidOperationException("QueueWorkerRunner instances can only be run once.");
+            _runStarted = true;
+        }
+
+        try
+        {
+            return await RunCoreAsync(
+                workspaceRoot,
+                items,
+                options,
+                host,
+                accountStore,
+                finalAction,
+                onProgress,
+                onPersist,
+                ct,
+                projectDirFilter).ConfigureAwait(false);
+        }
+        finally
+        {
+            StopAcceptingItems();
+        }
+    }
+
+    private async Task<QueueWorkerSummary> RunCoreAsync(
         string workspaceRoot,
         IList<QueueProjectItem> items,
         QueueRunOptions options,
@@ -315,15 +360,59 @@ public sealed class QueueWorkerRunner
             });
         }
 
+        bool TryStopAcceptingWhenIdle()
+        {
+            if (pendingPreUpload.Count > 0 ||
+                preUploadTasks.Count > 0 ||
+                readyForUpload.Count > 0 ||
+                uploadTasks.Count > 0)
+            {
+                return false;
+            }
+
+            lock (_incomingLock)
+            {
+                if (_incomingItems.Count > 0)
+                    return false;
+
+                _acceptingItems = false;
+                return true;
+            }
+        }
+
+        void DrainIncoming()
+        {
+            DrainIncomingItems(
+                workspace,
+                items,
+                candidates,
+                pendingPreUpload,
+                readyForUpload,
+                preUploadTasks.Values,
+                uploadTasks.Values.Select(ctx => ctx.Item),
+                stateLock,
+                orderedSteps,
+                options,
+                onPersist);
+        }
+
         FillPreUploadSlots();
         StartReadyUploads();
 
-        while (pendingPreUpload.Count > 0
-               || preUploadTasks.Count > 0
-               || readyForUpload.Count > 0
-               || uploadTasks.Count > 0
-               || HasIncomingItems())
+        while (true)
         {
+            if (stopped || ct.IsCancellationRequested)
+            {
+                StopAcceptingItems();
+                // AddItems may have succeeded immediately before cancellation. Merge those accepted
+                // items into the runner-owned list before marking pending work as stopped, so a later
+                // run can retry them instead of losing them with the incoming buffer.
+                DrainIncoming();
+            }
+
+            if (TryStopAcceptingWhenIdle())
+                break;
+
             if (ct.IsCancellationRequested && !stopped)
             {
                 stopped = true;
@@ -332,18 +421,7 @@ public sealed class QueueWorkerRunner
 
             if (!stopped)
             {
-                DrainIncomingItems(
-                    workspace,
-                    items,
-                    candidates,
-                    pendingPreUpload,
-                    readyForUpload,
-                    preUploadTasks.Values,
-                    uploadTasks.Values.Select(ctx => ctx.Item),
-                    stateLock,
-                    orderedSteps,
-                    options,
-                    onPersist);
+                DrainIncoming();
                 FillPreUploadSlots();
                 StartReadyUploads();
             }
@@ -374,7 +452,7 @@ public sealed class QueueWorkerRunner
                     continue;
                 }
 
-                break;
+                continue;
             }
 
             Task completed;

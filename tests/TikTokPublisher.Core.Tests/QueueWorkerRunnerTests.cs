@@ -309,6 +309,163 @@ public sealed class QueueWorkerRunnerTests
         completedItem.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
     }
 
+    [Fact]
+    public async Task RunAsync_preserves_fifo_when_multiple_batches_are_appended_to_the_queue_tail()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-test",
+            Name = "test",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var original = CreateReadyToUploadItem(1, account);
+        var firstBatch = new[]
+        {
+            CreateReadyToUploadItem(2, account),
+            CreateReadyToUploadItem(3, account),
+        };
+        var secondBatch = new[]
+        {
+            CreateReadyToUploadItem(4, account),
+            CreateReadyToUploadItem(5, account),
+        };
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var host = new BlockingPublishHost();
+        var runner = new QueueWorkerRunner();
+        var runTask = runner.RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-append-batches-test"),
+            [original],
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ProjectConcurrency = 1,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            cts.Token);
+
+        await host.WaitForPublishCountAsync(1).WaitAsync(cts.Token);
+        runner.AddItems(firstBatch).Should().Be(2);
+        runner.AddItems(secondBatch).Should().Be(2);
+
+        for (var expectedCount = 2; expectedCount <= 5; expectedCount++)
+        {
+            host.ReleaseNext();
+            await host.WaitForPublishCountAsync(expectedCount).WaitAsync(cts.Token);
+        }
+        host.ReleaseNext();
+
+        var summary = await runTask.WaitAsync(cts.Token);
+
+        summary.TotalCount.Should().Be(5);
+        summary.SuccessCount.Should().Be(5);
+        summary.FailedCount.Should().Be(0);
+        host.PublishedProjectDirs.Should().Equal(
+            original.ProjectDir,
+            firstBatch[0].ProjectDir,
+            firstBatch[1].ProjectDir,
+            secondBatch[0].ProjectDir,
+            secondBatch[1].ProjectDir);
+    }
+
+    [Fact]
+    public async Task AddItems_returns_zero_after_the_runner_has_closed_its_queue_tail()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-test",
+            Name = "test",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var original = CreateReadyToUploadItem(1, account);
+        var lateItem = CreateReadyToUploadItem(2, account);
+        var host = new ImmediatePublishHost();
+        var runner = new QueueWorkerRunner();
+
+        var summary = await runner.RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-closed-tail-test"),
+            [original],
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ProjectConcurrency = 1,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None);
+
+        runner.AddItems([lateItem]).Should().Be(0);
+        summary.TotalCount.Should().Be(1);
+        summary.SuccessCount.Should().Be(1);
+        host.PublishedProjectDirs.Should().Equal(original.ProjectDir);
+    }
+
+    [Fact]
+    public async Task RunAsync_keeps_an_accepted_tail_item_retryable_when_the_queue_is_cancelled()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-test",
+            Name = "test",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var original = CreateReadyToUploadItem(1, account);
+        var appended = CreateReadyToUploadItem(2, account);
+        var rejectedAfterStop = CreateReadyToUploadItem(3, account);
+        var items = new List<QueueProjectItem> { original };
+        IReadOnlyList<QueueProjectItem> lastPersisted = [];
+
+        using var queueCts = new CancellationTokenSource();
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var host = new BlockingPublishHost();
+        var runner = new QueueWorkerRunner();
+        var runTask = runner.RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-cancel-appended-tail-test"),
+            items,
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ProjectConcurrency = 1,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: snapshot => lastPersisted = snapshot
+                .Select(item => QueueProjectItem.FromPayload(item.ToPayload()))
+                .ToList(),
+            queueCts.Token);
+
+        await host.WaitForPublishCountAsync(1).WaitAsync(timeoutCts.Token);
+        runner.AddItems([appended]).Should().Be(1);
+
+        queueCts.Cancel();
+        var summary = await runTask.WaitAsync(timeoutCts.Token);
+
+        summary.Stopped.Should().BeTrue();
+        runner.AddItems([rejectedAfterStop]).Should().Be(0);
+
+        var retained = items.Should().ContainSingle(item =>
+            string.Equals(item.ProjectDir, appended.ProjectDir, StringComparison.OrdinalIgnoreCase)).Subject;
+        retained.StatusText.Should().Be(QueueStepStatus.Stopped);
+        retained.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Pending);
+
+        var persisted = lastPersisted.Should().ContainSingle(item =>
+            string.Equals(item.ProjectDir, appended.ProjectDir, StringComparison.OrdinalIgnoreCase)).Subject;
+        persisted.StatusText.Should().Be(QueueStepStatus.Stopped);
+        persisted.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Pending);
+    }
+
     private static QueueProjectItem CreateReadyToUploadItem(int index, TikTokAccountProfile account)
     {
         var projectDir = Path.Combine(Path.GetTempPath(), $"tiktok-ready-upload-{Guid.NewGuid():N}-{index}");

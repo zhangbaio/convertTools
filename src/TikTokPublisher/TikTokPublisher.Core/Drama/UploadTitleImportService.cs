@@ -47,7 +47,8 @@ public static class UploadTitleImportService
         int episodeMax = DefaultEpisodeMax,
         string matchMode = MatchModeTitle,
         Action<string>? log = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool addProjectsToQueue = true)
     {
         var workspace = Path.GetFullPath(workspaceRoot);
         if (!Directory.Exists(workspace))
@@ -156,7 +157,7 @@ public static class UploadTitleImportService
             }
         }
 
-        if (result.ProjectDirs.Count > 0)
+        if (addProjectsToQueue && result.ProjectDirs.Count > 0)
             WorkspaceQueueService.AddProjectsToQueue(workspace, result.ProjectDirs);
         return result;
     }
