@@ -103,6 +103,19 @@ function Ensure-WebView2RuntimeInstaller {
     Invoke-DownloadFile -Url $WebView2DownloadUrl -Destination $installer
 }
 
+function Test-WebView2InstallerLooksStandalone {
+    param([Parameter(Mandatory = $true)][string]$Installer)
+
+    if (-not (Test-Path -LiteralPath $Installer)) {
+        return $false
+    }
+
+    # The Evergreen bootstrapper is tiny and downloads the runtime on the target machine.
+    # A standalone offline installer is much larger. Keep this conservative so packaging
+    # can warn when a "full" installer still depends on target-machine network access.
+    return (Get-Item -LiteralPath $Installer).Length -ge 20MB
+}
+
 function Ensure-FfmpegDependency {
     if (-not $BundleDependencies) {
         return
@@ -509,6 +522,18 @@ elseif (-not (Test-AnyPath -Candidates $ffmpegCandidates)) {
     Write-Warning "ffmpeg.exe is not bundled. Put ffmpeg/ffprobe under packaging\dependencies\tools\$Runtime\ffmpeg before building a fully offline installer."
 }
 
+$webView2LoaderCandidates = @(
+    (Join-Path $PublishDir "WebView2Loader.dll"),
+    (Join-Path $PublishDir "runtimes\$Runtime\native\WebView2Loader.dll")
+)
+$webView2CoreCandidates = @(
+    (Join-Path $PublishDir "Microsoft.Web.WebView2.Core.dll")
+)
+if ($BundleDependencies) {
+    Assert-AnyPath -Name "WebView2Loader.dll" -Candidates $webView2LoaderCandidates
+    Assert-AnyPath -Name "Microsoft.Web.WebView2.Core.dll" -Candidates $webView2CoreCandidates
+}
+
 $defaultParaformerDir = Join-Path $publishModels "sherpa-onnx-paraformer-zh-2023-09-14"
 $localAsrModelCandidates = @(
     (Join-Path $defaultParaformerDir "model.int8.onnx"),
@@ -545,6 +570,9 @@ if ($BundleDependencies -and -not (Test-Path -LiteralPath $webView2Installer)) {
 }
 elseif (-not (Test-Path -LiteralPath $webView2Installer)) {
     Write-Warning "WebView2 Runtime installer is not bundled. Put MicrosoftEdgeWebView2RuntimeInstallerX64.exe under packaging\dependencies for new Windows machines without WebView2."
+}
+elseif (-not (Test-WebView2InstallerLooksStandalone -Installer $webView2Installer)) {
+    Write-Warning "WebView2 installer appears to be the small Evergreen bootstrapper, not the offline standalone installer. The setup will still run it to install/repair WebView2, but target machines need network access to Microsoft during setup."
 }
 
 if ($SkipInstallerCompile) {

@@ -52,7 +52,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\TikTokPublisher.Desktop.exe";
 
 [Run]
 #ifdef WebView2Installer
-Filename: "{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; StatusMsg: "正在安装 WebView2 Runtime..."; Flags: waituntilterminated; Check: NeedsWebView2
+Filename: "{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; StatusMsg: "正在安装/修复 WebView2 Runtime..."; Flags: waituntilterminated
 #endif
 Filename: "{app}\TikTokPublisher.Desktop.exe"; Parameters: "--reset-installer-data-secrets"; StatusMsg: "正在重置敏感配置..."; Flags: waituntilterminated runhidden; Check: ShouldResetData
 Filename: "{app}\TikTokPublisher.Desktop.exe"; Description: "启动 {#AppName}"; Flags: nowait postinstall skipifsilent

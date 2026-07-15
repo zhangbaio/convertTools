@@ -139,8 +139,6 @@ public sealed class ManualMaterialProjectService
         {
             $"新剧名：{newTitle}",
             $"原剧名：{originalTitle}",
-            $"短标题：{newTitle}",
-            "标签：短视频",
             $"集数：{episodeCount}",
             $"时长：{totalMinutes}分钟",
             $"成本：{costWan}万元",

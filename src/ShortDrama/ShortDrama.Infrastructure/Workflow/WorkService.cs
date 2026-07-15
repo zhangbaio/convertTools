@@ -974,8 +974,6 @@ public sealed class WorkService : IWorkService
 新剧名: {{title}}
 推荐语: 
 简介: {{synopsis}}
-短标题: 
-标签: 
 时长: {{totalMinutes}} 分钟
 集数: {{episodeCount}}
 成本: {{costAmountWan:0}} 万元

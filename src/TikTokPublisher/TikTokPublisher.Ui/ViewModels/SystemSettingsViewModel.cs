@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Net.Http.Json;
 using System.Text.Json;
+using ShortDrama.Core.Services;
 using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
@@ -452,7 +453,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             var body = await response.Content.ReadAsStringAsync();
             AiTextProbeStatus = response.IsSuccessStatusCode
                 ? $"AI 文本接口可用：{DateTime.Now:HH:mm:ss}"
-                : $"AI 文本接口失败：{(int)response.StatusCode} {body[..Math.Min(body.Length, 120)]}";
+                : AiApiErrorMessage.Create("AI 文本接口测试", response.StatusCode, response.ReasonPhrase, body);
         }
         catch (Exception ex)
         {

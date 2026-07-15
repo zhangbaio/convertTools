@@ -56,6 +56,7 @@ public partial class AccountSettingsDialog : Window
         ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
         ProofSealPathBox.Text = p.TiktokProofSealPath;
         ProofCopyrightCompanyNameBox.Text = p.TiktokProofCopyrightCompanyName;
+        AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         AnchorPromotionBox.IsChecked = p.TiktokAnchorPromotionEnabled;
         ProfilePreviewBox.Value = p.TiktokProfilePreviewEpisodes > 0 ? p.TiktokProfilePreviewEpisodes : 3;
@@ -118,6 +119,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
         p.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
         p.TiktokProofAccountConfigMigrated = true;
+        p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
         p.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
         p.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);

@@ -424,14 +424,17 @@ public static class WorkspaceQueueService
         }
 
         var manifestExists = HasTikTokUploadManifest(context);
-        if (IsPending(item, QueueStepKeys.SmallVideoRepair) && (manifestExists || hasStagedUploadVideos))
+        if (IsPending(item, QueueStepKeys.SmallVideoRepair) && SmallVideoRepairLooksCompleted(context))
             item.StepStates[QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed;
 
         if (IsPending(item, QueueStepKeys.SilenceDetect) && HasSilenceAsrReport(context))
             item.StepStates[QueueStepKeys.SilenceDetect] = QueueStepStatus.Completed;
 
-        if (IsPending(item, QueueStepKeys.MaterialValidate) && manifestExists)
+        if (IsPending(item, QueueStepKeys.MaterialValidate) &&
+            TikTokMaterialValidationService.HasCurrentValidationState(sourceProjectDir))
+        {
             item.StepStates[QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed;
+        }
 
         if (IsPending(item, QueueStepKeys.DeleteSourceVideos) &&
             !hasSourceVideos &&
@@ -577,10 +580,6 @@ public static class WorkspaceQueueService
         if (!string.IsNullOrWhiteSpace(workflowTitle) && !sourceTitles.Contains(workflowTitle))
             return true;
 
-        var tags = InfoValue(workflowInfo, "\u6807\u7b7e").Trim();
-        if (!string.IsNullOrWhiteSpace(tags) && tags.Replace(" ", "", StringComparison.Ordinal) != "#\u77ed\u5267#\u5267\u60c5")
-            return true;
-
         foreach (var key in new[]
                  {
                      "TikTok\u76ee\u6807\u89c2\u4f17",
@@ -629,6 +628,14 @@ public static class WorkspaceQueueService
         }
 
         return File.Exists(Path.Combine(context.WorkflowProjectDir, "tiktok-upload-manifest.json"));
+    }
+
+    private static bool SmallVideoRepairLooksCompleted(ProjectWorkspaceContext context)
+    {
+        var uploadVideos = ProjectVideoResolver
+            .ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
+            .ToList();
+        return uploadVideos.Count > 0 && uploadVideos.All(path => !TikTokSmallVideoPaddingService.NeedsPadding(path));
     }
 
     private static bool HasGeneratedProofMaterial(string workflowProjectDir)

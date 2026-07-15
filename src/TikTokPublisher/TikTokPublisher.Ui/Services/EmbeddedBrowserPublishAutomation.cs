@@ -12,12 +12,33 @@ namespace TikTokPublisher.Ui.Services;
 /// </summary>
 public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyncDisposable
 {
-    public async Task<PublishResult> PublishAsync(
+    public Task<PublishResult> PublishAsync(
         TikTokAccountProfile account,
         PublishItem item,
         IEmbeddedBrowser browser,
         FinalAction finalAction,
         Action<string>? log,
+        CancellationToken ct) =>
+        PublishCoreAsync(account, item, browser, finalAction, log, uploadFilesPreflighted: false, ct);
+
+    // QueueWorkerRunner always completes the upload-file preflight before invoking the UI host.
+    // Keep this entry point internal so direct/scheduled callers cannot accidentally bypass it.
+    internal Task<PublishResult> PublishPreflightedAsync(
+        TikTokAccountProfile account,
+        PublishItem item,
+        IEmbeddedBrowser browser,
+        FinalAction finalAction,
+        Action<string>? log,
+        CancellationToken ct) =>
+        PublishCoreAsync(account, item, browser, finalAction, log, uploadFilesPreflighted: true, ct);
+
+    private async Task<PublishResult> PublishCoreAsync(
+        TikTokAccountProfile account,
+        PublishItem item,
+        IEmbeddedBrowser browser,
+        FinalAction finalAction,
+        Action<string>? log,
+        bool uploadFilesPreflighted,
         CancellationToken ct)
     {
         void L(string m) => log?.Invoke(m);
@@ -25,6 +46,15 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         var consistency = TikTokUploadEpisodeConsistencyService.ValidateBeforeUpload(item);
         if (!consistency.Ok)
             return PublishResult.FailAndSkipManualIntervention(consistency.Message);
+
+        if (!uploadFilesPreflighted)
+        {
+            var preflight = await TikTokUploadFilePreflightService
+                .ValidateAsync(item, L, ct)
+                .ConfigureAwait(false);
+            if (!preflight.Ok)
+                return PublishResult.FailAndSkipManualIntervention(preflight.Message);
+        }
 
         if (!File.Exists(item.VideoPath))
             return PublishResult.Fail($"视频不存在：{item.VideoPath}");

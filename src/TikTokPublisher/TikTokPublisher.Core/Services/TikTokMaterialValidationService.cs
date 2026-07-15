@@ -52,8 +52,6 @@ public static class TikTokMaterialValidationService
         if (payload.UploadPaths.Count != payload.SourcePaths.Count)
             throw new InvalidOperationException("TikTok 素材校验失败：上传副本数量异常");
 
-        TikTokUploadManifestService.Save(sourceProjectDir, account, payload, log);
-
         var ffprobe = MediaBinaryResolver.ResolveFfprobe();
         var issues = new List<string>();
         for (var index = 0; index < payload.SourcePaths.Count; index++)
@@ -114,6 +112,7 @@ public static class TikTokMaterialValidationService
         }
 
         log?.Invoke($"通过：共 {payload.SourcePaths.Count} 个视频。");
+        TikTokUploadManifestService.Save(sourceProjectDir, account, payload, log);
         SaveValidationState(sourceProjectDir, payload, options);
     }
 
@@ -166,7 +165,7 @@ public static class TikTokMaterialValidationService
     private static string ValidationParamsSignature(Options options) =>
         $"v2|material-only|{options.Concurrency}";
 
-    private static string ComputeMaterialFingerprint(IReadOnlyList<string> uploadVideoPaths)
+    internal static string ComputeMaterialFingerprint(IReadOnlyList<string> uploadVideoPaths)
     {
         var entries = new List<object?[]>();
         foreach (var path in uploadVideoPaths)
@@ -188,5 +187,40 @@ public static class TikTokMaterialValidationService
         entries.Sort((a, b) => string.CompareOrdinal(a[0]?.ToString(), b[0]?.ToString()));
         var text = JsonSerializer.Serialize(entries);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
+    }
+
+    public static bool HasCurrentValidationState(string sourceProjectDir)
+    {
+        try
+        {
+            var uploadPaths = ProjectVideoResolver.ResolveUploadVideos(
+                sourceProjectDir,
+                allowStagedFallback: true);
+            if (uploadPaths.Count == 0)
+                return false;
+
+            var context = ProjectWorkspaceService.LoadContext(sourceProjectDir);
+            var state = ProjectStateDocumentStore.LoadDocument(
+                context.WorkspaceRoot,
+                context.SourceProjectDir,
+                "material_validation_state");
+            if (!state.TryGetValue("fingerprint", out var fingerprintElement))
+                return false;
+
+            var savedFingerprint = fingerprintElement.ValueKind == JsonValueKind.String
+                ? fingerprintElement.GetString()
+                : "";
+            if (string.IsNullOrWhiteSpace(savedFingerprint))
+                return false;
+
+            return string.Equals(
+                savedFingerprint.Trim(),
+                ComputeMaterialFingerprint(uploadPaths),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

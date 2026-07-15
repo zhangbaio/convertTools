@@ -19,9 +19,17 @@ public sealed class HongguoMemoryReaderService
         @"HG[0-9A-Fa-f]{16}(?![0-9A-Fa-f])",
         RegexOptions.Compiled);
 
-    private static readonly Regex CookiePattern = new(
-        @"install_id=[^;\s""'<>\\]+(?:;\s*[^;\r\n""'<>\\=]{1,64}=[^;\r\n""'<>\\]{0,512}){1,16}",
-        RegexOptions.Compiled);
+    private static readonly Regex InstallIdPattern = new(
+        @"(?<![A-Za-z0-9_])install_id=(?<value>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex TtreqPattern = new(
+        @"(?<![A-Za-z0-9_])ttreq=(?<value>1\$[0-9a-f]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex OdinTtPattern = new(
+        @"(?<![A-Za-z0-9_])odin_tt=(?<value>[0-9a-f]{64,})",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public Task<HongguoRuntimeReadResult> ReadRuntimeAsync(CancellationToken cancellationToken)
     {
@@ -97,20 +105,60 @@ public sealed class HongguoMemoryReaderService
 
     public static string? ExtractFanqieCookie(byte[] bytes)
     {
-        var text = Encoding.Latin1.GetString(bytes);
-        foreach (Match match in CookiePattern.Matches(text))
+        return NormalizeFanqieCookie(Encoding.Latin1.GetString(bytes));
+    }
+
+    /// <summary>
+    /// Extracts the three fields required by the Fanqie search endpoint and discards
+    /// Aardio string metadata/control bytes that can trail <c>odin_tt</c> in the executable.
+    /// This also repairs already persisted cookies produced by older builds.
+    /// </summary>
+    public static string? NormalizeFanqieCookie(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
         {
-            var cookie = NormalizeCookie(match.Value);
-            if (cookie.Contains("odin_tt=", StringComparison.OrdinalIgnoreCase) ||
-                cookie.Contains("ttwid=", StringComparison.OrdinalIgnoreCase) ||
-                cookie.Contains("ttreq=", StringComparison.OrdinalIgnoreCase))
+            return null;
+        }
+
+        foreach (var candidate in EnumerateCookieCandidates(value))
+        {
+            var installId = InstallIdPattern.Match(candidate);
+            var ttreq = TtreqPattern.Match(candidate);
+            var odinTt = OdinTtPattern.Match(candidate);
+            if (installId.Success &&
+                ttreq.Success &&
+                odinTt.Success)
             {
-                return cookie;
+                return $"install_id={installId.Groups["value"].Value}; " +
+                       $"ttreq={ttreq.Groups["value"].Value}; " +
+                       $"odin_tt={odinTt.Groups["value"].Value}";
             }
         }
 
         return null;
     }
+
+    private static IEnumerable<string> EnumerateCookieCandidates(string value)
+    {
+        var start = 0;
+        for (var index = 0; index <= value.Length; index++)
+        {
+            if (index < value.Length && !IsCookieCandidateBoundary(value[index]))
+            {
+                continue;
+            }
+
+            if (index > start)
+            {
+                yield return value[start..index];
+            }
+
+            start = index + 1;
+        }
+    }
+
+    private static bool IsCookieCandidateBoundary(char value) =>
+        char.IsControl(value) || value is '"' or '\'' or '<' or '>' or '\\';
 
     private static System.Diagnostics.Process? FindHongguoProcess()
     {
@@ -273,14 +321,6 @@ public sealed class HongguoMemoryReaderService
         }
 
         return protection is 0x02 or 0x04 or 0x08 or 0x20 or 0x40 or 0x80;
-    }
-
-    private static string NormalizeCookie(string value)
-    {
-        return value
-            .Replace("\0", string.Empty, StringComparison.Ordinal)
-            .Trim()
-            .Trim(';');
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -38,6 +38,44 @@ public sealed class PikachuDramaChainTests
     }
 
     [Fact]
+    public async Task SearchAsync_Should_Repair_Cookie_And_Filter_Non_Drama_Results()
+    {
+        var cleanCookie = BuildFanqieCookie();
+        var settings = new DramaSourceSettings
+        {
+            DramaSourceChain = "pikachu",
+            DramaServiceOrderSearch = "pikachu",
+            PikachuFanqieCookie = $"{cleanCookie}\0\b\u0003metadata",
+            PikachuDramaType = "short"
+        };
+        var handler = new PikachuRecordingHandler();
+        using var httpClient = new HttpClient(handler);
+        var router = new DramaSourceRouter(
+            httpClient,
+            new TestDramaSettingsProvider(settings),
+            new HongguoLocalApiService(httpClient),
+            new HongguoNewApiService(httpClient),
+            new HongguoDramaSearchService(httpClient),
+            new HongguoDramaDownloader(httpClient),
+            new HongguoMemoryReaderService());
+
+        var results = await router.SearchAsync("  测试短剧  ", 1, CancellationToken.None);
+
+        results.Select(item => item.Title).Should().Equal("保留短剧", "兼容旧短剧");
+        results.Select(item => item.BookId).Should().Equal(
+            "pikachu:7599558182226119705",
+            "pikachu:7599558182226119708");
+        handler.SearchCookie.Should().Be(cleanCookie);
+        handler.SearchAccept.Should().Contain("*/*");
+        handler.SearchForm["limit"].Should().Be("20");
+        handler.SearchForm["offset"].Should().Be("0");
+        handler.SearchForm["query"].Should().Be("测试短剧");
+
+        using var searchContext = JsonDocument.Parse(handler.SearchForm["search_ctx_info"]);
+        searchContext.RootElement.GetProperty("search_tab_id").GetInt32().Should().Be(10);
+    }
+
+    [Fact]
     public async Task DownloadAsync_Should_Use_Pikachu_DecryptVideo_Endpoint()
     {
         var outputDir = Path.Combine(Path.GetTempPath(), $"pikachu-download-{Guid.NewGuid():N}");
@@ -175,16 +213,86 @@ public sealed class PikachuDramaChainTests
     private sealed class PikachuRecordingHandler(string? decryptKey = null, byte[]? cdnContent = null) : HttpMessageHandler
     {
         public List<HttpRequestMessage> Requests { get; } = [];
+        public string? SearchCookie { get; private set; }
+        public IReadOnlyList<string> SearchAccept { get; private set; } = [];
+        public IReadOnlyDictionary<string, string> SearchForm { get; private set; } =
+            new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly byte[] _cdnContent = cdnContent ?? [0, 0, 0, 24, 102, 116, 121, 112];
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
         {
             Requests.Add(request);
 
             var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/novelfm/bookmall/search/page/v1/", StringComparison.OrdinalIgnoreCase))
+            {
+                SearchCookie = request.Headers.TryGetValues("cookie", out var cookieValues)
+                    ? cookieValues.Single()
+                    : null;
+                SearchAccept = request.Headers.TryGetValues("Accept", out var acceptValues)
+                    ? acceptValues.ToArray()
+                    : [];
+                SearchForm = ParseForm(await request.Content!.ReadAsStringAsync(cancellationToken));
+                return JsonResponse("""
+                    {
+                      "code": 0,
+                      "data": {
+                        "search_data": [
+                          {
+                            "cell_slices": [
+                              {
+                                "book_slice": {
+                                  "book_info": {
+                                    "book_id": "7599558182226119705",
+                                    "book_name": "保留短剧",
+                                    "super_category": "9",
+                                    "genre": "203",
+                                    "serial_count": "12"
+                                  }
+                                }
+                              },
+                              {
+                                "book_slice": {
+                                  "book_info": {
+                                    "book_id": "7599558182226119706",
+                                    "book_name": "剔除音乐",
+                                    "super_category": "1",
+                                    "genre": "10"
+                                  }
+                                }
+                              },
+                              {
+                                "book_slice": {
+                                  "book_info": {
+                                    "book_id": "7599558182226119707",
+                                    "book_name": "剔除旧音乐",
+                                    "genre": "262"
+                                  }
+                                }
+                              },
+                              {
+                                "book_slice": {
+                                  "book_info": {
+                                    "book_id": "7599558182226119708",
+                                    "book_name": "兼容旧短剧",
+                                    "genre": "203",
+                                    "serial_count": 8
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                    """);
+            }
+
             if (path.EndsWith("/api/drama/hongguo/detail", StringComparison.OrdinalIgnoreCase))
             {
-                return Task.FromResult(JsonResponse("""
+                return JsonResponse("""
                     {
                       "code": 200,
                       "data": {
@@ -193,12 +301,12 @@ public sealed class PikachuDramaChainTests
                         ]
                       }
                     }
-                    """));
+                    """);
             }
 
             if (path.EndsWith("/api/drama/hongguo/decryptVideo", StringComparison.OrdinalIgnoreCase))
             {
-                return Task.FromResult(JsonResponse(JsonSerializer.Serialize(new
+                return JsonResponse(JsonSerializer.Serialize(new
                 {
                     code = 200,
                     data = new
@@ -206,22 +314,34 @@ public sealed class PikachuDramaChainTests
                         url = "https://cdn.example.com/video-1.mp4",
                         key = decryptKey
                     }
-                })));
+                }));
             }
 
             if (request.Method == HttpMethod.Get &&
                 string.Equals(request.RequestUri.Host, "cdn.example.com", StringComparison.OrdinalIgnoreCase))
             {
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new ByteArrayContent(_cdnContent)
-                });
+                };
             }
 
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            return new HttpResponseMessage(HttpStatusCode.NotFound)
             {
                 Content = new StringContent($"unexpected request: {request.RequestUri}")
-            });
+            };
+        }
+
+        private static IReadOnlyDictionary<string, string> ParseForm(string body)
+        {
+            return body.Split('&', StringSplitOptions.RemoveEmptyEntries)
+                .Select(pair => pair.Split('=', 2))
+                .ToDictionary(
+                    pair => Uri.UnescapeDataString(pair[0].Replace('+', ' ')),
+                    pair => pair.Length > 1
+                        ? Uri.UnescapeDataString(pair[1].Replace('+', ' '))
+                        : string.Empty,
+                    StringComparer.Ordinal);
         }
 
         private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
@@ -229,6 +349,9 @@ public sealed class PikachuDramaChainTests
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
     }
+
+    private static string BuildFanqieCookie() =>
+        $"install_id=12345; ttreq=1${new string('b', 32)}; odin_tt={new string('a', 160)}";
 
     private sealed class TestDramaSettingsProvider(DramaSourceSettings settings) : IDramaSettingsProvider
     {

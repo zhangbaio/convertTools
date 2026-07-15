@@ -1090,41 +1090,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         DramaSourceSettings settings,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(settings.PikachuFanqieCookie))
-        {
-            throw new InvalidOperationException("未配置 pikachu 搜索 Cookie。");
-        }
-
-        var searchCtx = JsonSerializer.Serialize(new
-        {
-            type = 1,
-            tab_type = 39,
-            default_tab_type = 10,
-            bottom_type = 1,
-            search_tab_id = string.Equals(settings.PikachuDramaType, "manga", StringComparison.OrdinalIgnoreCase) ? 13 : 10
-        });
-
-        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["limit"] = "20",
-            ["offset"] = (Math.Max(0, page - 1) * 20).ToString(CultureInfo.InvariantCulture),
-            ["query"] = keyword,
-            ["search_ctx_info"] = searchCtx
-        });
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api5-sinfonlinea.novelfm.com/novelfm/bookmall/search/page/v1/?device_platform=android&aid=3040&manifest_version_code=628&update_version_code=62832")
-        {
-            Content = content
-        };
-        request.Headers.TryAddWithoutValidation("user-agent", "com.xs.fm/576 (Linux; U; Android 9; zh_CN; BVL-AN16; Build/PQ3B.190801.11191547;tt-ok/3.12.13.4-tiktok)");
-        request.Headers.TryAddWithoutValidation("cookie", settings.PikachuFanqieCookie);
-
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if (GetInt(document.RootElement, "code") != 0)
-        {
-            throw new InvalidOperationException($"皮卡丘搜索失败: {GetString(document.RootElement, "message") ?? GetString(document.RootElement, "msg") ?? "unknown"}");
-        }
+        using var document = await PikachuDramaClient.RequestFanqieSearchAsync(
+            _httpClient,
+            settings.PikachuFanqieCookie,
+            settings.PikachuDramaType,
+            keyword,
+            page,
+            cancellationToken);
 
         if (!document.RootElement.TryGetProperty("data", out var data) ||
             !data.TryGetProperty("search_data", out var searchData) ||
@@ -1156,6 +1128,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     continue;
                 }
 
+                if (!IsPikachuDramaBookInfo(info))
+                {
+                    continue;
+                }
+
                 results.Add(new DramaSearchItem(
                     BookId: EnsurePrefixed(bookId, PikachuBookPrefix),
                     Title: GetString(info, "book_name") ?? string.Empty,
@@ -1170,6 +1147,23 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         return results;
+    }
+
+    private static bool IsPikachuDramaBookInfo(JsonElement info)
+    {
+        var superCategory = GetString(info, "super_category")?.Trim();
+        if (string.Equals(superCategory, "9", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(superCategory))
+        {
+            return false;
+        }
+
+        var genre = GetString(info, "genre")?.Trim();
+        return genre is not ("10" or "262");
     }
 
     private static async Task<IReadOnlyList<DramaSearchItem>> FilterByRecentDaysAsync(

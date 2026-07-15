@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ShortDrama.Core.Services;
 using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Publishing;
@@ -198,7 +199,8 @@ public static class TikTokPublishRecommendationService
         using var response = await client.SendAsync(request, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"AI 接口请求失败: {(int)response.StatusCode} {response.ReasonPhrase}; body: {body}");
+            throw new InvalidOperationException(
+                AiApiErrorMessage.Create("TikTok AI 推荐接口", response.StatusCode, response.ReasonPhrase, body));
 
         using var doc = JsonDocument.Parse(body);
         var content = ExtractChatContent(doc.RootElement);

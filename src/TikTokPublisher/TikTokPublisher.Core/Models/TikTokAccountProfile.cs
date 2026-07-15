@@ -110,6 +110,7 @@ public sealed class TikTokAccountProfile
                 TiktokProofCopyrightCompanyName = value ?? "";
         }
     }
+    public bool TiktokAiRewriteSynopsis { get; set; } = true;
     public string TiktokPublishMode { get; set; } = "auto_after_review";
     public bool TiktokConsignmentEnabled { get; set; } = true;
     public int TiktokProfilePreviewEpisodes { get; set; } = 3;

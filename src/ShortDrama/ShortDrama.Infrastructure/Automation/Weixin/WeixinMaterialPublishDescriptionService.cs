@@ -1,4 +1,5 @@
 using ShortDrama.Core.Models;
+using ShortDrama.Core.Services;
 using ChannelsPublisher.Clip;
 using ShortDrama.Infrastructure.Automation.Weixin.Pages;
 using System.Net.Http.Headers;
@@ -163,7 +164,8 @@ public sealed class WeixinMaterialPublishDescriptionService
         var responseText = await response.Content.ReadAsStringAsync(linkedCts.Token);
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"HTTP {(int)response.StatusCode}: {responseText}");
+            throw new InvalidOperationException(
+                AiApiErrorMessage.Create("AI 视频描述接口", response.StatusCode, response.ReasonPhrase, responseText));
         }
 
         var content = ExtractChatContent(responseText);

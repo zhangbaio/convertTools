@@ -12,7 +12,7 @@ public static class TikTokProjectImageService
 {
     private const string DocumentType = "tiktok_project_image_state";
     private const string InputStagingDirName = ".project_image_inputs";
-    private const string SignatureVersion = "v1";
+    private const string SignatureVersion = "v3";
 
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -55,7 +55,8 @@ public static class TikTokProjectImageService
             throw new InvalidOperationException("生成工程图失败：未找到可用于截图的视频文件。");
         }
 
-        var signature = ComputeSignature(context, normalized, templateDir, sourceVideos, count, renderEpisodeLimit);
+        var episodeNames = ResolveEpisodeNames(sourceVideos);
+        var signature = ComputeSignature(context, normalized, templateDir, sourceVideos, episodeNames, count, renderEpisodeLimit);
         if (!forceRerun && HasEnoughOutputs(workflowDir, count) && IsSavedSignatureCurrentOrMissing(context, signature))
         {
             SaveState(context, signature, templateDir, count, ListProjectImages(workflowDir));
@@ -81,7 +82,8 @@ public static class TikTokProjectImageService
                     TemplateImageDir: templateDir,
                     ConfigFile: configPath,
                     Count: count,
-                    Overwrite: true),
+                    Overwrite: true,
+                    EpisodeNames: episodeNames),
                 ct).ConfigureAwait(false);
 
             if (result.Count < count)
@@ -143,7 +145,15 @@ public static class TikTokProjectImageService
                 return true;
             }
 
-            var signature = ComputeSignature(context, normalized, templateDir, sourceVideos, count, ResolveRenderEpisodeLimit(normalized));
+            var episodeNames = ResolveEpisodeNames(sourceVideos);
+            var signature = ComputeSignature(
+                context,
+                normalized,
+                templateDir,
+                sourceVideos,
+                episodeNames,
+                count,
+                ResolveRenderEpisodeLimit(normalized));
             return IsSavedSignatureCurrentOrMissing(context, signature);
         }
         catch
@@ -276,6 +286,14 @@ public static class TikTokProjectImageService
         target.TiktokProjectImageSubtitleAiMode = source.TiktokProjectImageSubtitleAiMode;
     }
 
+    private static IReadOnlyList<string> ResolveEpisodeNames(IReadOnlyList<string> sourceVideos)
+    {
+        // Python uses ep_path.stem, so keep the exact stem of the selected input video.
+        return sourceVideos
+            .Select(path => Path.GetFileNameWithoutExtension(path) ?? string.Empty)
+            .ToArray();
+    }
+
     private static string PrepareInputDirectory(
         string workflowProjectDir,
         IReadOnlyList<string> sourceVideos,
@@ -350,6 +368,7 @@ public static class TikTokProjectImageService
         ClientSettings settings,
         string templateDir,
         IReadOnlyList<string> sourceVideos,
+        IReadOnlyList<string> episodeNames,
         int count,
         int renderEpisodeLimit)
     {
@@ -363,6 +382,7 @@ public static class TikTokProjectImageService
             subtitle_ai_mode = settings.TiktokProjectImageSubtitleAiMode,
             info = FileSignature(Path.Combine(context.WorkflowProjectDir, "短剧信息.txt")),
             videos = sourceVideos.Select(FileSignature).ToArray(),
+            episode_names = episodeNames,
         };
         var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();

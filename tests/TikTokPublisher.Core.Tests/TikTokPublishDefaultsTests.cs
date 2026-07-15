@@ -1,4 +1,5 @@
 using FluentAssertions;
+using System.Text.Json;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
@@ -235,6 +236,7 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokGenreCount.Should().Be(3);
         account.TiktokSourceLanguage.Should().Be("zh");
         account.TiktokIsAiDrama.Should().BeTrue();
+        account.TiktokAiRewriteSynopsis.Should().BeTrue();
         account.TiktokIsOriginalRightsHolder.Should().BeTrue();
         account.TiktokContentOriginalityType.Should().Be("original");
         account.TiktokCopyrightMaterialTypes.Should().Equal("production_agreement");
@@ -261,6 +263,23 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokMaxContinuousSilenceSeconds.Should().Be(20);
         account.TiktokSilenceThresholdDb.Should().Be(-45.0);
         account.TiktokDeleteVideosOnArchive.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Account_profile_ai_rewrite_synopsis_defaults_enabled_without_overriding_explicit_false()
+    {
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        };
+
+        var unconfigured = JsonSerializer.Deserialize<TikTokAccountProfile>("{}", options)!;
+        var explicitlyDisabled = JsonSerializer.Deserialize<TikTokAccountProfile>(
+            """{"tiktokAiRewriteSynopsis":false}""",
+            options)!;
+
+        unconfigured.TiktokAiRewriteSynopsis.Should().BeTrue();
+        explicitlyDisabled.TiktokAiRewriteSynopsis.Should().BeFalse();
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ShortDrama.Core.Services;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -101,7 +102,8 @@ JSON 格式：
                 var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
                 if (!response.IsSuccessStatusCode)
                 {
-                    return PosterTitleVerifyResult.Fail($"标题校验接口失败：{(int)response.StatusCode} {response.ReasonPhrase}");
+                    return PosterTitleVerifyResult.Fail(
+                        AiApiErrorMessage.Create("AI 海报标题校验接口", response.StatusCode, response.ReasonPhrase, responseText));
                 }
 
                 var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseText, JsonOptions);

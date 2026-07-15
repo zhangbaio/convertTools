@@ -1,5 +1,6 @@
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Core.Services;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
@@ -213,7 +214,8 @@ public sealed class MaterialDirectoryPublishService
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"AI 文本接口请求失败：{(int)response.StatusCode} {response.ReasonPhrase}; {body}");
+            throw new InvalidOperationException(
+                AiApiErrorMessage.Create("AI 文本接口", response.StatusCode, response.ReasonPhrase, body));
         }
 
         return ExtractChatContent(body);

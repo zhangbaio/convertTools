@@ -109,7 +109,11 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         var ffmpeg = ResolveBinary("ffmpeg");
         var ffprobe = ResolveBinary("ffprobe");
         var episodeNames = sourceVideos
-            .Select(path => Path.GetFileNameWithoutExtension(path) ?? string.Empty)
+            .Select((path, index) =>
+                index < (request.EpisodeNames?.Count ?? 0) &&
+                !string.IsNullOrWhiteSpace(request.EpisodeNames![index])
+                    ? request.EpisodeNames[index].Trim()
+                    : Path.GetFileNameWithoutExtension(path) ?? string.Empty)
             .ToArray();
         var episodeDurations = new List<double>(sourceVideos.Length);
         var episodeFrames = new List<Image<Rgba32>>(sourceVideos.Length);
@@ -422,7 +426,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             return;
         }
 
-        FillRect(canvas, rect, SampleSurroundingColor(canvas, rect));
+        FillRect(canvas, rect, SampleRectColor(canvas, rect));
         DrawWrappedText(
             canvas,
             rect,
@@ -2025,9 +2029,9 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
     {
         var samples = new List<Rgba32>();
         var band = Math.Max(2, Math.Min(6, rect.Height / 3));
-        AddSampleBox(canvas, rect.X - band, rect.Y, band, rect.Height, samples);
-        AddSampleBox(canvas, rect.X + rect.Width, rect.Y, band, rect.Height, samples);
-        if (samples.Count == 0)
+        var hasSideBoxes = AddSampleBox(canvas, rect.X - band, rect.Y, band, rect.Height, samples);
+        hasSideBoxes |= AddSampleBox(canvas, rect.X + rect.Width, rect.Y, band, rect.Height, samples);
+        if (!hasSideBoxes)
         {
             AddSampleBox(canvas, rect.X, rect.Y - band, rect.Width, band, samples);
             AddSampleBox(canvas, rect.X, rect.Y + rect.Height, rect.Width, band, samples);
@@ -2036,7 +2040,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         return samples.Count == 0 ? SampleRectColor(canvas, rect) : MedianColor(samples);
     }
 
-    private static void AddSampleBox(Image<Rgba32> canvas, int x, int y, int width, int height, List<Rgba32> samples)
+    private static bool AddSampleBox(Image<Rgba32> canvas, int x, int y, int width, int height, List<Rgba32> samples)
     {
         var left = Math.Clamp(x, 0, canvas.Width);
         var top = Math.Clamp(y, 0, canvas.Height);
@@ -2044,11 +2048,24 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         var bottom = Math.Clamp(y + height, 0, canvas.Height);
         if (right <= left || bottom <= top)
         {
-            return;
+            return false;
         }
 
-        using var crop = canvas.Clone(ctx => ctx.Crop(new Rectangle(left, top, right - left, bottom - top)));
-        samples.Add(MedianColor(crop));
+        canvas.ProcessPixelRows(accessor =>
+        {
+            for (var rowIndex = top; rowIndex < bottom; rowIndex++)
+            {
+                var row = accessor.GetRowSpan(rowIndex);
+                for (var columnIndex = left; columnIndex < right; columnIndex++)
+                {
+                    if (row[columnIndex].A > 0)
+                    {
+                        samples.Add(row[columnIndex]);
+                    }
+                }
+            }
+        });
+        return true;
     }
 
     private static Rgba32 MedianColor(Image<Rgba32> image)

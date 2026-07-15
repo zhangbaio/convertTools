@@ -18,7 +18,8 @@ public sealed class ProjectInfoRewriterTests
         var projectDir = Directory.CreateTempSubdirectory();
         var configPath = WriteConfig(projectDir.FullName);
         var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
-        await WriteProjectInfoAsync(projectDir.FullName, "亲戚别来我家");
+        const string sourceSynopsis = "原始简介保留，不交给 AI 改写。";
+        await WriteProjectInfoAsync(projectDir.FullName, "亲戚别来我家", sourceSynopsis);
 
         var handler = new RecordingHandler(
         [
@@ -37,6 +38,13 @@ public sealed class ProjectInfoRewriterTests
             CancellationToken.None);
 
         result.Title.Should().Be("断亲之后我掀桌改命");
+        result.ShortTitle.Should().BeEmpty();
+        result.Tags.Should().BeEmpty();
+        var outputText = await File.ReadAllTextAsync(outputPath);
+        outputText.Should().NotContain("短标题:");
+        outputText.Should().NotContain("标签:");
+        outputText.Should().Contain($"简介: {sourceSynopsis}");
+        outputText.Should().NotContain("结婚三年我处处忍让");
         handler.RequestBodies.Should().ContainSingle();
 
         using var document = JsonDocument.Parse(handler.RequestBodies[0]);
@@ -49,7 +57,7 @@ public sealed class ProjectInfoRewriterTests
     public async Task RewriteAsync_Should_Also_Accept_Legacy_Items_Array_Response()
     {
         var projectDir = Directory.CreateTempSubdirectory();
-        var configPath = WriteConfig(projectDir.FullName);
+        var configPath = WriteConfig(projectDir.FullName, aiRewriteSynopsis: true);
         var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
         await WriteProjectInfoAsync(projectDir.FullName, "亲戚别来我家");
 
@@ -70,6 +78,8 @@ public sealed class ProjectInfoRewriterTests
             CancellationToken.None);
 
         result.Title.Should().Be("断亲之后我掀桌改命");
+        result.ShortTitle.Should().BeEmpty();
+        result.Tags.Should().BeEmpty();
         File.Exists(outputPath).Should().BeTrue();
     }
 
@@ -77,7 +87,7 @@ public sealed class ProjectInfoRewriterTests
     public async Task RewriteAsync_Should_Retry_When_Title_Or_Synopsis_Matches_Forbidden_History()
     {
         var projectDir = Directory.CreateTempSubdirectory();
-        var configPath = WriteConfig(projectDir.FullName);
+        var configPath = WriteConfig(projectDir.FullName, aiRewriteSynopsis: true);
         var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
         await WriteProjectInfoAsync(projectDir.FullName, "亲戚别来我家");
 
@@ -112,8 +122,8 @@ public sealed class ProjectInfoRewriterTests
 
         result.Title.Should().Be("恶亲登门我反手断供");
         handler.RequestBodies.Should().HaveCount(2);
-        ExtractPrompt(handler.RequestBodies[0]).Should().Contain("forbidden_titles").And.Contain(forbiddenTitle);
-        ExtractPrompt(handler.RequestBodies[0]).Should().Contain("forbidden_synopses").And.Contain(forbiddenSynopsis);
+        ExtractPrompt(handler.RequestBodies[0]).Should().Contain("forbidden_titles");
+        ExtractPrompt(handler.RequestBodies[0]).Should().Contain("forbidden_synopses");
     }
 
     [Fact]
@@ -145,10 +155,11 @@ public sealed class ProjectInfoRewriterTests
         File.Exists(outputPath).Should().BeFalse();
     }
 
-    private static async Task WriteProjectInfoAsync(string projectDir, string originalTitle)
+    private static async Task WriteProjectInfoAsync(string projectDir, string originalTitle, string synopsis = "")
     {
         await File.WriteAllTextAsync(Path.Combine(projectDir, "短剧信息.txt"), $$"""
 原剧名: {{originalTitle}}
+简介: {{synopsis}}
 集数: 41
 时长: 43 分钟
 成本: 6 万元
@@ -156,14 +167,15 @@ public sealed class ProjectInfoRewriterTests
 """);
     }
 
-    private static string WriteConfig(string projectDir)
+    private static string WriteConfig(string projectDir, bool aiRewriteSynopsis = false)
     {
         var configPath = Path.Combine(projectDir, "config.json");
-        File.WriteAllText(configPath, """
+        File.WriteAllText(configPath, $$"""
 {
   "AiTextEndpoint": "https://example.com/api/v3",
   "AiTextApiKey": "test-key",
-  "AiTextModel": "test-model"
+  "AiTextModel": "test-model",
+  "AiRewriteSynopsis": {{JsonSerializer.Serialize(aiRewriteSynopsis)}}
 }
 """);
         return configPath;

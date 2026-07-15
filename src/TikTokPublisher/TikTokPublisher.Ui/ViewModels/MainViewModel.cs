@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
@@ -64,7 +64,7 @@ public sealed partial class MainViewModel : ViewModelBase
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
     public ObservableCollection<AccountItemViewModel> FilteredAccounts { get; } = new();
     public ObservableCollection<PublishTaskItemViewModel> Tasks { get; } = new();
-    public ObservableCollection<QueueProjectRowViewModel> QueueProjectRows { get; } = new();
+    public RangeObservableCollection<QueueProjectRowViewModel> QueueProjectRows { get; } = new();
     public RangeObservableCollection<QueueProjectRowViewModel> FilteredQueueProjectRows { get; } = new();
 
     public event Action<ManualInterventionDialogRequest>? ManualInterventionDialogRequested;
@@ -140,6 +140,14 @@ public sealed partial class MainViewModel : ViewModelBase
         new(StringComparer.OrdinalIgnoreCase);
     private bool _persistFlushScheduled;
     private static readonly TimeSpan PersistCoalesceInterval = TimeSpan.FromMilliseconds(200);
+    private readonly object _todayUploadRefreshLock = new();
+    private QueueProjectItem[] _pendingTodayUploadItems = [];
+    private string _pendingTodayUploadAccountId = "";
+    private string _pendingTodayUploadWorkspace = "";
+    private bool _todayUploadRefreshScheduled;
+    private int _todayUploadRefreshGeneration;
+    private int _pendingTodayUploadGeneration;
+    private static readonly TimeSpan TodayUploadRefreshDelay = TimeSpan.FromMilliseconds(120);
     private readonly Dictionary<string, string> _lastProgressMessageByKey =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _queueSearchTextByAccount =
@@ -703,10 +711,61 @@ public sealed partial class MainViewModel : ViewModelBase
     /// <summary>今日上传完成数：按当前账号隔离统计（对齐 Python <c>_count_today_uploaded_projects</c>）。</summary>
     public void RefreshTodayUploadCount()
     {
-        TodayUploadCount = TikTokTodayUploadCountService.CountTodayUploads(
-            _queueItems,
-            SelectedAccount?.Id,
-            WorkspacePath);
+        lock (_todayUploadRefreshLock)
+        {
+            _pendingTodayUploadItems = _queueItems.ToArray();
+            _pendingTodayUploadAccountId = SelectedAccount?.Id ?? "";
+            _pendingTodayUploadWorkspace = WorkspacePath ?? "";
+            _pendingTodayUploadGeneration = ++_todayUploadRefreshGeneration;
+            if (_todayUploadRefreshScheduled)
+                return;
+
+            _todayUploadRefreshScheduled = true;
+        }
+
+        Avalonia.Threading.DispatcherTimer.RunOnce(
+            FlushPendingTodayUploadCountRefresh,
+            TodayUploadRefreshDelay);
+    }
+
+    private void FlushPendingTodayUploadCountRefresh()
+    {
+        QueueProjectItem[] items;
+        string accountId;
+        string workspace;
+        int generation;
+        lock (_todayUploadRefreshLock)
+        {
+            _todayUploadRefreshScheduled = false;
+            items = _pendingTodayUploadItems;
+            accountId = _pendingTodayUploadAccountId;
+            workspace = _pendingTodayUploadWorkspace;
+            generation = _pendingTodayUploadGeneration;
+        }
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                return TikTokTodayUploadCountService.CountTodayUploads(items, accountId, workspace);
+            }
+            catch
+            {
+                return -1;
+            }
+        }).ContinueWith(task =>
+        {
+            if (task.IsCanceled || task.IsFaulted)
+                return;
+            if (task.Result < 0)
+                return;
+
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (generation == _todayUploadRefreshGeneration)
+                    TodayUploadCount = task.Result;
+            });
+        });
     }
 
     [RelayCommand]
@@ -904,11 +963,19 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void ApplyWorkspaceScanResult(string root, List<QueueProjectItem> items, QueueRunOptions options)
     {
+        var previousDisplayedRoot = _displayedWorkspaceRoot;
+        var nextDisplayedRoot = SafeFullPath(root);
+        var workspaceChanged = !string.Equals(
+            previousDisplayedRoot,
+            nextDisplayedRoot,
+            StringComparison.OrdinalIgnoreCase);
+        var replaceCollections = workspaceChanged || QueueProjectRows.Count == 0;
+
         if (IsWorkspaceQueueRunning(root))
             items = PreserveDisplayedRuntimeState(items);
 
         var currentForceRerunCompletedSteps = ForceRerunCompletedSteps;
-        _displayedWorkspaceRoot = SafeFullPath(root);
+        _displayedWorkspaceRoot = nextDisplayedRoot;
         _queueItems = items;
         _queueRunOptions = options;
         // 传入后台线程已加载的 options，避免在 UI 线程重复读工作目录运行配置。
@@ -921,9 +988,9 @@ public sealed partial class MainViewModel : ViewModelBase
         ApplyQueueStepTogglesFromOptions();
         UpdateWorkspaceBindingSummary(root);
 
-        ReconcileQueueProjectRows(_queueItems);
+        ReconcileQueueProjectRows(_queueItems, replaceCollections: replaceCollections);
 
-        ApplyQueueProjectFilter();
+        ApplyQueueProjectFilter(replaceCollection: replaceCollections);
         UpdateQueueSummaryText();
         RefreshLogSnapshot(force: true);
         CacheWorkspaceQueueSnapshot(root, _queueItems, _queueRunOptions);
@@ -1020,9 +1087,10 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokProofDeclarantCompanyName = account.TiktokProofDeclarantCompanyName,
         TiktokProofSealPath = account.TiktokProofSealPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
+        TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,
     };
 
-    private void ReconcileQueueProjectRows(IReadOnlyList<QueueProjectItem> items)
+    private void ReconcileQueueProjectRows(IReadOnlyList<QueueProjectItem> items, bool replaceCollections = false)
     {
         var nextRows = new List<QueueProjectRowViewModel>(items.Count);
         var nextByDir = new Dictionary<string, QueueProjectRowViewModel>(StringComparer.OrdinalIgnoreCase);
@@ -1050,7 +1118,10 @@ public sealed partial class MainViewModel : ViewModelBase
             _rowVmCache[key] = row;
         }
 
-        ReconcileObservableCollection(QueueProjectRows, nextRows);
+        if (replaceCollections)
+            QueueProjectRows.ReplaceAll(nextRows);
+        else
+            ReconcileObservableCollection(QueueProjectRows, nextRows);
         _queueRowByDir.Clear();
         foreach (var (key, row) in nextByDir)
             _queueRowByDir[key] = row;
@@ -1153,7 +1224,7 @@ public sealed partial class MainViewModel : ViewModelBase
         ApplyQueueProjectFilter();
     }
 
-    private void ApplyQueueProjectFilter()
+    private void ApplyQueueProjectFilter(bool replaceCollection = false)
     {
         var query = (QueueSearchText ?? "").Trim();
         IEnumerable<QueueProjectRowViewModel> rows = QueueProjectRows;
@@ -1197,7 +1268,10 @@ public sealed partial class MainViewModel : ViewModelBase
         var index = 1;
         foreach (var vm in target)
             vm.RowIndex = index++;
-        ReconcileObservableCollection(FilteredQueueProjectRows, target);
+        if (replaceCollection)
+            FilteredQueueProjectRows.ReplaceAll(target);
+        else
+            ReconcileObservableCollection(FilteredQueueProjectRows, target);
     }
 
     public IReadOnlyList<QueueProjectItem> GetPendingUploadProjects() =>

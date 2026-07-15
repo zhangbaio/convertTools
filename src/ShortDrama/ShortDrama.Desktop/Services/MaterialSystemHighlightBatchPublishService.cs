@@ -205,8 +205,6 @@ public sealed class MaterialSystemHighlightBatchPublishService
             ["newTitle"] = title,
             ["originalTitle"] = title,
             ["sourceTitle"] = title,
-            ["shortTitle"] = SanitizeShortTitle(title),
-            ["tags"] = string.Empty,
             ["workflowDirName"] = Path.GetFileName(projectDir),
             ["workflowProjectDir"] = projectDir
         };
@@ -239,8 +237,6 @@ public sealed class MaterialSystemHighlightBatchPublishService
         {
             $"新剧名: {title}",
             $"原剧名: {originalTitle}",
-            $"短标题: {SanitizeShortTitle(title)}",
-            "标签: ",
             $"集数: {Math.Max(1, publishCount)}"
         };
         File.WriteAllText(
@@ -389,12 +385,6 @@ public sealed class MaterialSystemHighlightBatchPublishService
         slug = Regex.Replace(slug, @"\s+", "-");
         slug = Regex.Replace(slug, "-+", "-").Trim('-', '.', '_');
         return (slug.Length == 0 ? fallback : slug)[..Math.Min(slug.Length == 0 ? fallback.Length : slug.Length, 40)];
-    }
-
-    private static string SanitizeShortTitle(string text)
-    {
-        var cleaned = Regex.Replace(text ?? string.Empty, @"[，,!！\s]+", string.Empty);
-        return cleaned.Length <= 15 ? cleaned : cleaned[..15];
     }
 
     private static string SanitizeProfileId(string value)

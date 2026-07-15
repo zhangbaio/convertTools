@@ -573,8 +573,6 @@ public static class ProjectWorkspaceService
         {
             $"新剧名: {newTitle}",
             $"原剧名: {originalTitle}",
-            $"短标题: {newTitle}",
-            "标签: 短视频",
         };
         if (!string.IsNullOrWhiteSpace(synopsis))
             lines.Add($"简介: {synopsis.Trim()}");

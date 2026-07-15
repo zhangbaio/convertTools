@@ -17,6 +17,7 @@ namespace TikTokPublisher.Ui.Views;
 public partial class AccountProfileEditor : UserControl
 {
     private MainViewModel? _vm;
+    private bool _isReloadingFromSelectedAccount;
 
     public event EventHandler? LoginRequested;
     public event EventHandler? ReloginRequested;
@@ -57,10 +58,26 @@ public partial class AccountProfileEditor : UserControl
     private void OnAccountProfileChanged(TikTokAccountProfile profile)
     {
         if (_vm?.SelectedAccount?.Id == profile.Id)
-            SyncWorkspaceBoxFromSelectedAccount();
+            ReloadFromSelectedAccount();
     }
 
     private void ReloadFromSelectedAccount()
+    {
+        if (_isReloadingFromSelectedAccount)
+            return;
+
+        _isReloadingFromSelectedAccount = true;
+        try
+        {
+            ReloadFromSelectedAccountCore();
+        }
+        finally
+        {
+            _isReloadingFromSelectedAccount = false;
+        }
+    }
+
+    private void ReloadFromSelectedAccountCore()
     {
         var profile = _vm?.SelectedAccount?.Model;
         if (profile is null)
@@ -110,6 +127,7 @@ public partial class AccountProfileEditor : UserControl
         ProofDeclarantCompanyNameBox.Text = profile.TiktokProofDeclarantCompanyName;
         ProofSealPathBox.Text = profile.TiktokProofSealPath;
         ProofCopyrightCompanyNameBox.Text = profile.TiktokProofCopyrightCompanyName;
+        AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         AnchorPromotionBox.IsChecked = profile.TiktokAnchorPromotionEnabled;
         SilenceValidationBox.IsChecked = profile.TiktokSilenceValidationEnabled;
@@ -205,6 +223,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
             profile.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
             profile.TiktokProofAccountConfigMigrated = true;
+            profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
             profile.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
             profile.TiktokSilenceValidationEnabled = SilenceValidationBox.IsChecked == true;

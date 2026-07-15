@@ -6,6 +6,7 @@ using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Core.Services;
 using ShortDrama.Infrastructure;
 using ShortDrama.Infrastructure.Config;
 using System.Globalization;
@@ -423,7 +424,7 @@ JSON 结构：
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
-                $"AI 海报布局检测接口请求失败: {(int)response.StatusCode} {response.ReasonPhrase}; body: {responseText}");
+                AiApiErrorMessage.Create("AI 海报布局检测接口", response.StatusCode, response.ReasonPhrase, responseText));
         }
 
         var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseText, JsonOptions);
@@ -759,9 +760,12 @@ JSON 结构：
                 $"{operation}命中内容审核拦截: {(int)response.StatusCode} {response.ReasonPhrase}; url: {requestUrl}; body: {responseText}");
         }
 
-        throw new InvalidOperationException(
-            $"{operation}失败: {(int)response.StatusCode} {response.ReasonPhrase}; url: {requestUrl}; body: {responseText}. " +
-            "请检查 config.json 中的 ImageEditEndpoint / ImageEditPath / ImageEditModelId 配置。");
+        throw new InvalidOperationException(AiApiErrorMessage.Create(
+            operation,
+            response.StatusCode,
+            response.ReasonPhrase,
+            responseText,
+            "请检查 config.json 中的 ImageEditEndpoint / ImageEditPath / ImageEditModelId 配置。"));
     }
 
     private static bool IsSensitiveContentBlocked(string responseText)
@@ -1053,7 +1057,8 @@ JSON 结构：
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"海报名接口请求失败: {(int)response.StatusCode} {response.ReasonPhrase}; body: {responseText}");
+            throw new InvalidOperationException(
+                AiApiErrorMessage.Create("AI 海报名接口", response.StatusCode, response.ReasonPhrase, responseText));
         }
 
         var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseText, JsonOptions)

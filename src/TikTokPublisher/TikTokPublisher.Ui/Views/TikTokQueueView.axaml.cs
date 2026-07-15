@@ -2174,7 +2174,7 @@ public partial class TikTokQueueView : UserControl
         var effectiveAction = ResolveAccountFinalAction(account, finalAction);
         log($"最终动作：{FinalActionLabel(effectiveAction)}（来自账号「{account.DisplayName}」的提交动作配置）");
         var attemptSignature = UploadAttemptSignature(project.ProjectDir);
-        var result = await _automation.PublishAsync(account, item, browser, effectiveAction, log, ct).ConfigureAwait(false);
+        var result = await _automation.PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct).ConfigureAwait(false);
         if (!result.Ok && IsUploadLoginFailure(result.Message))
         {
             var loginReady = await EnsureAutoLoginStateAsync(
@@ -2200,7 +2200,7 @@ public partial class TikTokQueueView : UserControl
                 else
                     browser = _browserHost?.TryGetHost(account.Id) ?? browser;
 
-                result = await _automation.PublishAsync(account, item, browser, effectiveAction, log, ct)
+                result = await _automation.PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
                     .ConfigureAwait(false);
             }
             else
@@ -2228,7 +2228,7 @@ public partial class TikTokQueueView : UserControl
                 if (browser is null)
                     return PublishResult.Fail($"{result.Message}；自动重建后内置浏览器仍未就绪");
 
-                result = await _automation.PublishAsync(account, item, browser, effectiveAction, log, ct)
+                result = await _automation.PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
                     .ConfigureAwait(false);
             }
         }
@@ -2242,6 +2242,8 @@ public partial class TikTokQueueView : UserControl
         return text.Contains("连接浏览器自动化端口", StringComparison.OrdinalIgnoreCase) ||
                text.Contains("CDP", StringComparison.OrdinalIgnoreCase) ||
                text.Contains("WebView2", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("TargetClosedException", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("Target closed", StringComparison.OrdinalIgnoreCase) ||
                text.Contains("Target page, context or browser has been closed", StringComparison.OrdinalIgnoreCase) ||
                text.Contains("Browser closed", StringComparison.OrdinalIgnoreCase) ||
                text.Contains("disconnected", StringComparison.OrdinalIgnoreCase) ||

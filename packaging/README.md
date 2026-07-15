@@ -38,6 +38,6 @@ artifacts\INSTALL\TikTokShortDramaUploader-Setup-<version>.exe
 - 字体：自动复制 `src\ShortDrama\tools\fonts` 到安装目录的 `tools\fonts`。
 - ffmpeg/ffprobe：当前仓库没有内置二进制。需要离线运行时，把文件放到 `packaging\dependencies\tools\win-x64\ffmpeg\ffmpeg.exe` 和 `ffprobe.exe`，脚本会复制进安装包。
 - Playwright Chromium：使用 `-InstallPlaywrightChromium` 下载到发布目录，或预先放到 `packaging\dependencies\ms-playwright`。
-- WebView2 Runtime：把 `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` 放到 `packaging\dependencies`，安装器会在目标机器缺少 WebView2 时静默安装。
+- WebView2 Runtime：把 `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` 放到 `packaging\dependencies`，安装器会在目标机器上静默安装/修复 WebView2。若文件只有约 2MB，则它是 Evergreen bootstrapper，目标机器安装时仍需联网；纯离线完整包请放入 Microsoft 官方 Evergreen Standalone Installer。
 
 `packaging\dependencies` 是本地缓存目录，默认不入库。

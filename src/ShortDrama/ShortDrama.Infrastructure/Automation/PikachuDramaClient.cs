@@ -215,37 +215,13 @@ public static class PikachuDramaClient
         int page,
         CancellationToken cancellationToken)
     {
-        var searchCtx = JsonSerializer.Serialize(new
-        {
-            type = 1,
-            tab_type = 39,
-            default_tab_type = 10,
-            bottom_type = 1,
-            search_tab_id = string.Equals(dramaType, "manga", StringComparison.OrdinalIgnoreCase) ? 13 : 10
-        });
-
-        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["limit"] = "20",
-            ["offset"] = (Math.Max(0, page - 1) * 20).ToString(CultureInfo.InvariantCulture),
-            ["query"] = keyword,
-            ["search_ctx_info"] = searchCtx
-        });
-        using var request = new HttpRequestMessage(HttpMethod.Post, FanqieSearchUrl)
-        {
-            Content = content
-        };
-        request.Headers.TryAddWithoutValidation("user-agent", FanqieUserAgent);
-        request.Headers.TryAddWithoutValidation("cookie", fanqieCookie);
-
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if (GetInt(document.RootElement, "code") != 0)
-        {
-            throw new InvalidOperationException(
-                $"皮卡丘搜索失败: {GetString(document.RootElement, "message") ?? GetString(document.RootElement, "msg") ?? "unknown"}");
-        }
+        using var document = await RequestFanqieSearchAsync(
+            httpClient,
+            fanqieCookie,
+            dramaType,
+            keyword,
+            page,
+            cancellationToken);
 
         if (!document.RootElement.TryGetProperty("data", out var data) ||
             !data.TryGetProperty("search_data", out var searchData) ||
@@ -264,6 +240,79 @@ public static class PikachuDramaClient
         }
 
         return Enumerable.Range(0, count).ToArray();
+    }
+
+    internal static async Task<JsonDocument> RequestFanqieSearchAsync(
+        HttpClient httpClient,
+        string? fanqieCookie,
+        string dramaType,
+        string keyword,
+        int page,
+        CancellationToken cancellationToken)
+    {
+        var normalizedCookie = HongguoMemoryReaderService.NormalizeFanqieCookie(fanqieCookie);
+        if (string.IsNullOrWhiteSpace(normalizedCookie))
+        {
+            throw new InvalidOperationException(
+                "皮卡丘搜索 Cookie 无效，请在系统设置中点击“从红果读取”后保存设置。");
+        }
+
+        var searchCtx = JsonSerializer.Serialize(new
+        {
+            type = 1,
+            tab_type = 39,
+            default_tab_type = 10,
+            bottom_type = 1,
+            search_tab_id = string.Equals(dramaType, "manga", StringComparison.OrdinalIgnoreCase) ? 13 : 10
+        });
+
+        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["limit"] = "20",
+            ["offset"] = (Math.Max(0, page - 1) * 20).ToString(CultureInfo.InvariantCulture),
+            ["query"] = (keyword ?? string.Empty).Trim(),
+            ["search_ctx_info"] = searchCtx
+        });
+        using var request = new HttpRequestMessage(HttpMethod.Post, FanqieSearchUrl)
+        {
+            Content = content
+        };
+        request.Headers.TryAddWithoutValidation("Accept", "*/*");
+        request.Headers.Host = "api5-sinfonlinea.novelfm.com";
+        request.Headers.TryAddWithoutValidation("user-agent", FanqieUserAgent);
+        request.Headers.TryAddWithoutValidation("cookie", normalizedCookie);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"皮卡丘搜索请求失败: HTTP {(int)response.StatusCode} {response.ReasonPhrase}。" +
+                "请在系统设置中重新读取红果 Cookie。");
+        }
+
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(responseText);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("皮卡丘搜索返回了无法解析的数据。", ex);
+        }
+
+        if (GetInt(document.RootElement, "code") != 0)
+        {
+            var code = GetString(document.RootElement, "code") ?? "unknown";
+            var message = GetString(document.RootElement, "message") ??
+                          GetString(document.RootElement, "msg") ??
+                          "unknown";
+            document.Dispose();
+            throw new InvalidOperationException(
+                $"皮卡丘搜索失败: code={code}, {message}（Cookie 可能已过期，请重新读取）。");
+        }
+
+        return document;
     }
 
     private static string NormalizeServerUrl(string? value)

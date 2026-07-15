@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Core.Services;
 using ShortDrama.Infrastructure.Automation;
 using ShortDrama.Infrastructure.Config;
 using System.Net.Http.Headers;
@@ -105,19 +106,16 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
    不要只做同义替换，不要只多加一两个字，不要保留与原标题几乎相同的结构。
 2. tagline：推荐语，8-20 个字。
 3. synopsis：简介，40-90 个字。
-4. short_title：适合短剧传播的短标题，长度 6-15 个字，不能包含空格、逗号、句号、感叹号、问号等特殊字符；不能直接等于 title，也不能只是原剧名或 title 的截断。短标题要像一个独立卖点词组，例如“封墙断供”“为母改命”“大圣不朽”“婚房追偿”。
-5. tags：3-6 个标签，突出题材、关系、情绪或卖点。每个标签不要带 #，程序会自动格式化成 #标签 串联形式；标签不能直接使用完整剧名。标签应尽量像“婆媳”“逆袭”“复仇”“重生”“萌宝”“婚姻”“亲情”“年代”“虐恋”“打脸”这类高复用传播词。
 
 输出要求：
 1. 只输出 JSON。
 2. 当前一次只改写一个项目，请返回单个 JSON 对象，不要返回 items 数组。
 3. JSON 格式固定为：
-{"title":"...","tagline":"...","synopsis":"...","short_title":"...","tags":["...","..."]}
+{"title":"...","tagline":"...","synopsis":"..."}
 4. 新剧名禁止以下偷懒改法：原剧名原样返回；原剧名 + “热播版/新篇/完整版/逆袭版/高能版/爆款版”；只替换一两个字但整体几乎不变；保留原标题主要词序仅在首尾微调。
-5. short_title 必须比 title 更短、更利于传播，但要保持独立表达，不要只删几个字。
-6. tags 必须是题材词、情绪词、人物关系词、剧情卖点词，不要输出完整标题，也不要输出只比标题少几个字的近似词。
-7. 输入中的 forbidden_titles 是历史已用或禁用的新剧名，新的 title 不得与其中任意一项相同或近似。
-8. 输入中的 forbidden_synopses 是历史已用或原始简介，新的 synopsis 不得照抄或高度近似。
+5. 不要生成 short_title/短标题 或 tags/标签 字段。
+6. 输入中的 forbidden_titles 是历史已用或禁用的新剧名，新的 title 不得与其中任意一项相同或近似。
+7. 输入中的 forbidden_synopses 是历史已用或原始简介，新的 synopsis 不得照抄或高度近似。
 
 输入项目：
 {items_json}
@@ -127,11 +125,9 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 上一次结果不合格，请重新生成，并严格遵守：
 1. 新剧名必须和原剧名明显不同，不能只是加“热播版/新篇/新作”等尾巴。
 2. 新剧名要像全新包装标题，优先体现冲突、关系、身份、命运转折。
-3. 短标题必须独立，不得与新剧名相同或近似。
-4. 标签必须是传播词，不得与完整剧名相同或近似。
-5. 上次不合格的新剧名：{previous_bad_title}
-6. 上次不合格的短标题：{previous_bad_short_title}
-7. 必须继续避开输入中的 forbidden_titles 和 forbidden_synopses。
+3. 不要生成 short_title/短标题 或 tags/标签 字段。
+4. 上次不合格的新剧名：{previous_bad_title}
+5. 必须继续避开输入中的 forbidden_titles 和 forbidden_synopses。
 """;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -170,6 +166,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var batchPrompt = GetOptional(config, "AiTextBatchPrompt") ?? DefaultAiTextBatchPrompt;
         var retryPrompt = GetOptional(config, "AiTextRetryPrompt") ?? DefaultAiTextRetryPrompt;
         var timeoutSeconds = GetOptionalInt(config, "AiTextTimeoutSeconds") ?? 120;
+        var rewriteSynopsis = GetOptionalBool(config, "AiRewriteSynopsis") ?? false;
 
         if (File.Exists(request.OutputFilePath) && !request.Overwrite)
         {
@@ -193,19 +190,24 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             project,
             canonicalOriginalTitle,
             request,
+            rewriteSynopsis,
             cancellationToken);
 
         await File.WriteAllTextAsync(
             request.OutputFilePath,
-            BuildOutputText(project with { OriginalTitle = canonicalOriginalTitle }, normalized.Title, normalized.Tagline, normalized.Synopsis, normalized.ShortTitle, normalized.Tags),
+            BuildOutputText(project with { OriginalTitle = canonicalOriginalTitle }, normalized.Title, normalized.Tagline, normalized.Synopsis),
             Encoding.UTF8,
             cancellationToken);
 
         _logger.LogInformation("Rewrote project info to {Path}", request.OutputFilePath);
-        return new ProjectInfoRewriteResult(request.OutputFilePath, normalized.Title, normalized.Tagline, normalized.Synopsis, normalized.ShortTitle, normalized.Tags);
+        return new ProjectInfoRewriteResult(request.OutputFilePath, normalized.Title, normalized.Tagline, normalized.Synopsis, string.Empty, string.Empty);
     }
 
-    private static string BuildPrompt(ProjectInfo project, string batchPrompt, ProjectInfoRewriteRequest request)
+    private static string BuildPrompt(
+        ProjectInfo project,
+        string batchPrompt,
+        ProjectInfoRewriteRequest request,
+        bool rewriteSynopsis)
     {
         var canonicalOriginalTitle = ResolveCanonicalOriginalTitle(project);
         var forbiddenTitles = UniqueTexts(request.ForbiddenTitles);
@@ -214,7 +216,6 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         projectName = projectName.TrimStart('_');
         var existingTitle = FirstNonEmpty(project.Title, canonicalOriginalTitle, projectName) ?? canonicalOriginalTitle;
         var synopsis = FirstNonEmpty(project.Synopsis, $"{projectName}，待补充简介。") ?? string.Empty;
-        var tags = ProjectInfoTextNormalizer.NormalizeTags(project.Tags ?? string.Empty);
         var itemsJson = JsonSerializer.Serialize(new
         {
             items = new[]
@@ -229,12 +230,10 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                     tagline = project.Tagline ?? string.Empty,
                     existing_tagline = project.Tagline ?? string.Empty,
                     synopsis,
-                    short_title = project.ShortTitle ?? string.Empty,
-                    existing_tags = tags,
-                    tags,
+                    rewrite_synopsis = rewriteSynopsis,
                     forbidden_titles = forbiddenTitles,
-                    forbidden_synopses = forbiddenSynopses,
-                    target_synopsis_length = Math.Max(0, request.TargetSynopsisLength),
+                    forbidden_synopses = rewriteSynopsis ? forbiddenSynopses : Array.Empty<string>(),
+                    target_synopsis_length = rewriteSynopsis ? Math.Max(0, request.TargetSynopsisLength) : 0,
                     rewrite_variant_key = request.RewriteVariantKey ?? string.Empty,
                     episode_count = project.EpisodeCount,
                     duration_minutes = project.TotalMinutes,
@@ -249,10 +248,23 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             template += "\n\n输入项目：\n{items_json}";
         }
 
+        template += rewriteSynopsis
+            ? """
+
+当前流程不再使用 short_title/短标题 和 tags/标签。请不要生成这两个字段。
+最终 JSON 只需要 title/new_title、tagline、synopsis；如果返回 items 数组，每个 item 也只需要这些字段。
+"""
+            : """
+
+当前发布配置关闭了 AI 改写简介。请不要生成 synopsis/description/简介 字段，简介将由系统保留原文。
+当前流程不再使用 short_title/短标题 和 tags/标签。请不要生成这两个字段。
+最终 JSON 只需要 title/new_title 和 tagline；如果返回 items 数组，每个 item 也只需要这些字段。
+""";
+
         return template.Replace("{items_json}", itemsJson, StringComparison.Ordinal);
     }
 
-    private static string BuildOutputText(ProjectInfo project, string title, string tagline, string synopsis, string shortTitle, string tags)
+    private static string BuildOutputText(ProjectInfo project, string title, string tagline, string synopsis)
     {
         var originalTitleLine = string.IsNullOrWhiteSpace(project.OriginalTitle)
             ? string.Empty
@@ -263,8 +275,6 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             $"新剧名: {title}\n" +
             $"推荐语: {tagline}\n" +
             $"简介: {synopsis}\n" +
-            $"短标题: {shortTitle}\n" +
-            $"标签: {tags}\n" +
             $"时长: {project.TotalMinutes} 分钟\n" +
             $"集数: {project.EpisodeCount}\n" +
             $"成本: {project.CostAmountWan:0.####} 万元\n" +
@@ -282,18 +292,18 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         ProjectInfo project,
         string canonicalOriginalTitle,
         ProjectInfoRewriteRequest request,
+        bool rewriteSynopsis,
         CancellationToken cancellationToken)
     {
         string? previousBadTitle = null;
-        string? previousBadShortTitle = null;
         string? lastFailureMessage = null;
         NormalizedRewrite? lastNormalized = null;
 
         for (var attempt = 1; attempt <= MaxAiAttempts; attempt++)
         {
             var prompt = attempt == 1
-                ? BuildPrompt(project, batchPrompt, request)
-                : BuildRetryPrompt(project, batchPrompt, retryPromptTemplate, request, previousBadTitle, previousBadShortTitle);
+                ? BuildPrompt(project, batchPrompt, request, rewriteSynopsis)
+                : BuildRetryPrompt(project, batchPrompt, retryPromptTemplate, request, previousBadTitle, rewriteSynopsis);
 
             var rewrite = await RequestRewritePayloadAsync(
                 endpoint,
@@ -307,17 +317,16 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             NormalizedRewrite normalized;
             try
             {
-                normalized = NormalizeRewrite(project, canonicalOriginalTitle, rewrite);
+                normalized = NormalizeRewrite(project, canonicalOriginalTitle, rewrite, rewriteSynopsis);
             }
             catch (InvalidOperationException ex)
             {
                 previousBadTitle = FirstNonEmpty(rewrite.Title, rewrite.NewTitle, rewrite.New_Title, rewrite.新剧名, rewrite.剧名);
-                previousBadShortTitle = FirstNonEmpty(rewrite.ShortTitle, rewrite.Short_Title, rewrite.短标题);
                 lastFailureMessage = ex.Message;
                 continue;
             }
 
-            var qualityIssues = GetRewriteQualityIssues(canonicalOriginalTitle, normalized, request);
+            var qualityIssues = GetRewriteQualityIssues(canonicalOriginalTitle, normalized, request, rewriteSynopsis);
             if (qualityIssues.Count == 0)
             {
                 return normalized;
@@ -325,11 +334,10 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 
             lastNormalized = normalized;
             previousBadTitle = normalized.Title;
-            previousBadShortTitle = normalized.ShortTitle;
             lastFailureMessage = string.Join("；", qualityIssues);
         }
 
-        var fallback = TryBuildRecentTitleFallback(project, canonicalOriginalTitle, request, lastNormalized, previousBadTitle);
+        var fallback = TryBuildRecentTitleFallback(project, canonicalOriginalTitle, request, lastNormalized, previousBadTitle, rewriteSynopsis);
         if (fallback is not null)
         {
             _logger.LogWarning(
@@ -341,7 +349,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         }
 
         throw new InvalidOperationException(
-            $"改写结果生成失败，已重试 {MaxAiAttempts} 次仍未通过。最近一次错误：{lastFailureMessage ?? "未知错误"}；最近一次新剧名：{previousBadTitle ?? "无"}；最近一次短标题：{previousBadShortTitle ?? "无"}");
+            $"改写结果生成失败，已重试 {MaxAiAttempts} 次仍未通过。最近一次错误：{lastFailureMessage ?? "未知错误"}；最近一次新剧名：{previousBadTitle ?? "无"}");
     }
 
     private async Task<RewritePayload> RequestRewritePayloadAsync(
@@ -393,7 +401,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"改写接口请求失败: {(int)response.StatusCode} {response.ReasonPhrase}; body: {responseText}");
+            throw new InvalidOperationException(
+                AiApiErrorMessage.Create("AI 改写接口", response.StatusCode, response.ReasonPhrase, responseText));
         }
 
         var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseText, JsonOptions)
@@ -420,7 +429,11 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         }
     }
 
-    private static NormalizedRewrite NormalizeRewrite(ProjectInfo project, string canonicalOriginalTitle, RewritePayload rewrite)
+    private static NormalizedRewrite NormalizeRewrite(
+        ProjectInfo project,
+        string canonicalOriginalTitle,
+        RewritePayload rewrite,
+        bool rewriteSynopsis)
     {
         var rawTitle = FirstNonEmpty(rewrite.Title, rewrite.NewTitle, rewrite.New_Title, rewrite.新剧名, rewrite.剧名)
             ?? throw new InvalidOperationException("改写结果缺少新剧名。");
@@ -433,32 +446,19 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             throw new InvalidOperationException("改写结果缺少推荐语。");
         }
 
-        var rawSynopsis = FirstNonEmpty(rewrite.Synopsis, rewrite.Description, rewrite.简介)
-            ?? throw new InvalidOperationException("改写结果缺少简介。");
-        var synopsis = NormalizeGeneratedText(project, canonicalOriginalTitle, title, rawTitle, rawSynopsis);
-        if (string.IsNullOrWhiteSpace(synopsis))
+        var synopsis = PreserveSourceSynopsis(project);
+        if (rewriteSynopsis)
         {
-            throw new InvalidOperationException("改写结果缺少简介。");
+            var rawSynopsis = FirstNonEmpty(rewrite.Synopsis, rewrite.Description, rewrite.简介)
+                ?? throw new InvalidOperationException("改写结果缺少简介。");
+            synopsis = NormalizeGeneratedText(project, canonicalOriginalTitle, title, rawTitle, rawSynopsis);
+            if (string.IsNullOrWhiteSpace(synopsis))
+            {
+                throw new InvalidOperationException("改写结果缺少简介。");
+            }
         }
 
-        var shortTitleSource = FirstNonEmpty(rewrite.ShortTitle, rewrite.Short_Title, rewrite.短标题);
-        var shortTitle = NormalizeShortTitle(canonicalOriginalTitle, title, shortTitleSource);
-        if (string.IsNullOrWhiteSpace(shortTitle))
-        {
-            shortTitle = BuildFallbackShortTitle(project, canonicalOriginalTitle, title, synopsis);
-        }
-
-        var rawTags = rewrite.Tags
-            ?? rewrite.Tag_List
-            ?? rewrite.标签
-            ?? [];
-        var tags = NormalizeTags(canonicalOriginalTitle, title, rawTags);
-        if (string.IsNullOrWhiteSpace(tags))
-        {
-            throw new InvalidOperationException("改写结果缺少标签。");
-        }
-
-        return new NormalizedRewrite(title, tagline, synopsis, shortTitle, tags);
+        return new NormalizedRewrite(title, tagline, synopsis, string.Empty, string.Empty);
     }
 
     private static string BuildRetryPrompt(
@@ -467,18 +467,19 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string retryPromptTemplate,
         ProjectInfoRewriteRequest request,
         string? previousBadTitle,
-        string? previousBadShortTitle)
+        bool rewriteSynopsis)
     {
         var retryTemplate = (string.IsNullOrWhiteSpace(retryPromptTemplate) ? DefaultAiTextRetryPrompt : retryPromptTemplate)
             .Replace("{previous_bad_title}", previousBadTitle ?? "无", StringComparison.Ordinal)
-            .Replace("{previous_bad_short_title}", previousBadShortTitle ?? "无", StringComparison.Ordinal);
-        return BuildPrompt(project, retryTemplate, request);
+            .Replace("{previous_bad_short_title}", "无", StringComparison.Ordinal);
+        return BuildPrompt(project, retryTemplate, request, rewriteSynopsis);
     }
 
     private static IReadOnlyList<string> GetRewriteQualityIssues(
         string canonicalOriginalTitle,
         NormalizedRewrite rewrite,
-        ProjectInfoRewriteRequest request)
+        ProjectInfoRewriteRequest request,
+        bool rewriteSynopsis)
     {
         var issues = new List<string>();
         if (TitlesEqual(rewrite.Title, canonicalOriginalTitle) ||
@@ -507,14 +508,6 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             issues.Add("新剧名与历史/禁用标题重复或过于相似");
         }
 
-        if (TitlesEqual(rewrite.ShortTitle, rewrite.Title) ||
-            TitlesTooSimilar(rewrite.ShortTitle, rewrite.Title) ||
-            TitlesEqual(rewrite.ShortTitle, canonicalOriginalTitle) ||
-            IsWeakGenericShortTitle(rewrite.ShortTitle))
-        {
-            issues.Add("短标题与新剧名/原剧名过于相似");
-        }
-
         if (!IsReasonableTaglineLength(rewrite.Tagline))
         {
             issues.Add("推荐语字数不在 8-20 字范围内");
@@ -526,32 +519,13 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             issues.Add($"推荐语{taglineSafetyIssue}");
         }
 
-        issues.AddRange(GetSynopsisIssues(rewrite.Synopsis, request));
-
-        if (HasForbiddenSynopsis(rewrite.Synopsis, request.ForbiddenSynopses))
+        if (rewriteSynopsis)
         {
-            issues.Add("简介与历史/原简介过于相似");
-        }
+            issues.AddRange(GetSynopsisIssues(rewrite.Synopsis, request));
 
-        var tags = ProjectInfoTextNormalizer.NormalizeTags(rewrite.Tags);
-        if (tags.Count < 3)
-        {
-            issues.Add("标签数量不足 3 个");
-        }
-
-        foreach (var tag in tags)
-        {
-            if (TitlesEqual(tag, rewrite.Title) || HasForbiddenTitle(tag, request.ForbiddenTitles))
+            if (HasForbiddenSynopsis(rewrite.Synopsis, request.ForbiddenSynopses))
             {
-                issues.Add("标签与新剧名或禁用标题相同");
-                break;
-            }
-
-            var tagSafetyIssue = ValidateTagSafety(tag);
-            if (!string.IsNullOrWhiteSpace(tagSafetyIssue))
-            {
-                issues.Add($"标签{tagSafetyIssue}");
-                break;
+                issues.Add("简介与历史/原简介过于相似");
             }
         }
 
@@ -563,7 +537,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string canonicalOriginalTitle,
         ProjectInfoRewriteRequest request,
         NormalizedRewrite? lastNormalized,
-        string? previousBadTitle)
+        string? previousBadTitle,
+        bool rewriteSynopsis)
     {
         var title = FirstNonEmpty(lastNormalized?.Title, previousBadTitle);
         if (string.IsNullOrWhiteSpace(title))
@@ -577,12 +552,12 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             return null;
         }
 
-        var synopsis = BuildFallbackSynopsis(project, canonicalOriginalTitle, title, request, lastNormalized?.Synopsis);
+        var synopsis = rewriteSynopsis
+            ? BuildFallbackSynopsis(project, canonicalOriginalTitle, title, request, lastNormalized?.Synopsis)
+            : PreserveSourceSynopsis(project);
         var tagline = BuildFallbackTagline(project, canonicalOriginalTitle, title, synopsis, lastNormalized?.Tagline);
-        var shortTitle = BuildSafeFallbackShortTitle(project, canonicalOriginalTitle, title, synopsis, lastNormalized?.ShortTitle);
-        var tags = BuildFallbackTags(canonicalOriginalTitle, title, synopsis, lastNormalized?.Tags, project.Tags);
 
-        return new NormalizedRewrite(title, tagline, synopsis, shortTitle, tags);
+        return new NormalizedRewrite(title, tagline, synopsis, string.Empty, string.Empty);
     }
 
     private static bool IsFallbackTitleUsable(
@@ -602,6 +577,12 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 
         return true;
     }
+
+    private static string PreserveSourceSynopsis(ProjectInfo project) =>
+        string.Join(' ', (project.Synopsis ?? string.Empty)
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => part.Trim()))
+            .Trim();
 
     private static string BuildFallbackSynopsis(
         ProjectInfo project,
@@ -665,65 +646,6 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         return "逆境翻盘高能来袭";
     }
 
-    private static string BuildSafeFallbackShortTitle(
-        ProjectInfo project,
-        string canonicalOriginalTitle,
-        string title,
-        string synopsis,
-        string? latestShortTitle)
-    {
-        var normalized = NormalizeShortTitle(canonicalOriginalTitle, title, latestShortTitle);
-        if (!string.IsNullOrWhiteSpace(normalized))
-        {
-            return normalized;
-        }
-
-        foreach (var candidate in new[]
-                 {
-                     BuildFallbackShortTitle(project, canonicalOriginalTitle, title, synopsis),
-                     "边关崛起",
-                     "荒境成王",
-                     "逆袭改命",
-                     "命运翻盘",
-                     "强势反击",
-                     "绝境重生"
-                 })
-        {
-            var cleaned = ProjectInfoTextNormalizer.SanitizeShortTitle(candidate, 15);
-            if (!string.IsNullOrWhiteSpace(cleaned) &&
-                !TitlesEqual(cleaned, title) &&
-                !TitlesTooSimilar(cleaned, title) &&
-                !TitlesEqual(cleaned, canonicalOriginalTitle) &&
-                !TitlesTooSimilar(cleaned, canonicalOriginalTitle) &&
-                !IsWeakGenericShortTitle(cleaned))
-            {
-                return cleaned;
-            }
-        }
-
-        return "逆袭改命";
-    }
-
-    private static string BuildFallbackTags(
-        string canonicalOriginalTitle,
-        string title,
-        string synopsis,
-        string? latestTags,
-        string? projectTags)
-    {
-        var tags = NormalizeTags(
-            canonicalOriginalTitle,
-            title,
-            ProjectInfoTextNormalizer.NormalizeTags(latestTags)
-                .Concat(ProjectInfoTextNormalizer.NormalizeTags(projectTags))
-                .Concat(BuildFallbackTagCandidates(title, synopsis))
-                .Concat(["逆袭", "命运", "剧情", "短剧"]));
-
-        return ProjectInfoTextNormalizer.NormalizeTags(tags).Count >= 3
-            ? tags
-            : "#逆袭#命运#剧情";
-    }
-
     private static string GetPreferred(IReadOnlyDictionary<string, string> config, params string[] keys)
     {
         foreach (var key in keys)
@@ -749,6 +671,22 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         return config.TryGetValue(key, out var value) && int.TryParse(value, out var parsed) && parsed > 0
             ? parsed
             : null;
+    }
+
+    private static bool? GetOptionalBool(IReadOnlyDictionary<string, string> config, string key)
+    {
+        if (!config.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var text = value.Trim();
+        if (bool.TryParse(text, out var parsed))
+        {
+            return parsed;
+        }
+
+        return text is "1" or "是" or "启用" or "yes" or "YES" or "on" or "ON";
     }
 
     private static string ExtractJsonValue(string value)
@@ -1194,15 +1132,6 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             : string.Empty;
     }
 
-    private static string ValidateTagSafety(string value)
-    {
-        var normalized = NormalizeTitle(value ?? string.Empty);
-        return !string.IsNullOrWhiteSpace(normalized) &&
-               UnsafeTitleTerms.Any(term => normalized.Contains(term, StringComparison.Ordinal))
-            ? "包含不良价值导向表达"
-            : string.Empty;
-    }
-
     private static bool SynopsesTooSimilar(string? left, string? right)
     {
         if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
@@ -1366,144 +1295,6 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         }
 
         return "命运反转风云录";
-    }
-
-    private static string NormalizeShortTitle(string canonicalOriginalTitle, string title, string? shortTitleSource)
-    {
-        var cleaned = ProjectInfoTextNormalizer.SanitizeShortTitle(shortTitleSource, 15);
-        if (string.IsNullOrWhiteSpace(cleaned) ||
-            TitlesEqual(cleaned, title) ||
-            TitlesTooSimilar(cleaned, title) ||
-            TitlesEqual(cleaned, canonicalOriginalTitle) ||
-            IsWeakGenericShortTitle(cleaned))
-        {
-            return string.Empty;
-        }
-
-        return ProjectInfoTextNormalizer.SanitizeShortTitle(cleaned, 15);
-    }
-
-    private static bool IsWeakGenericShortTitle(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return true;
-        }
-
-        var cleaned = NormalizeTitle(value);
-        return cleaned.Contains("高能短剧", StringComparison.Ordinal) ||
-               cleaned.Contains("爆款短剧", StringComparison.Ordinal) ||
-               cleaned.Contains("热门短剧", StringComparison.Ordinal) ||
-               cleaned == "高能逆袭";
-    }
-
-    private static string BuildFallbackShortTitle(ProjectInfo project, string canonicalOriginalTitle, string title, string synopsis)
-    {
-        var candidates = BuildFallbackTagCandidates(title, synopsis).ToArray();
-        var strongPairs = new[]
-        {
-            ("萌娃", "救父", "萌娃救父"),
-            ("顽娃", "救父", "顽娃救父"),
-            ("重生", "逆袭", "重生逆袭"),
-            ("大院", "娇妻", "大院娇妻"),
-            ("豪门", "认亲", "豪门认亲"),
-            ("离婚", "反杀", "离婚反杀"),
-            ("前夫", "追妻", "前夫追妻"),
-            ("替身", "逆袭", "替身逆袭"),
-            ("逼婚", "反杀", "逼婚反杀"),
-            ("萌宝", "复仇", "萌宝复仇")
-        };
-
-        foreach (var (first, second, result) in strongPairs)
-        {
-            if (candidates.Contains(first, StringComparer.Ordinal) &&
-                candidates.Contains(second, StringComparer.Ordinal))
-            {
-                return result;
-            }
-        }
-
-        if (candidates.Length >= 2)
-        {
-            var combined = ProjectInfoTextNormalizer.SanitizeShortTitle(candidates[0] + candidates[1], 15);
-            if (!string.IsNullOrWhiteSpace(combined) &&
-                !TitlesTooSimilar(combined, title) &&
-                !TitlesTooSimilar(combined, canonicalOriginalTitle))
-            {
-                return combined;
-            }
-        }
-
-        foreach (var candidate in candidates)
-        {
-            if (candidate.Length >= 4 &&
-                !TitlesTooSimilar(candidate, title) &&
-                !TitlesTooSimilar(candidate, canonicalOriginalTitle))
-            {
-                return candidate;
-            }
-        }
-
-        var titleCore = NormalizeTitle(title);
-        return titleCore.Length > 8
-            ? titleCore[..8]
-            : "逆袭改命";
-    }
-
-    private static string NormalizeTags(string canonicalOriginalTitle, string title, IEnumerable<string?> rawTags)
-    {
-        var filtered = ProjectInfoTextNormalizer.NormalizeTags(rawTags)
-            .Where(tag => !TitlesEqual(tag, title) &&
-                          !TitlesTooSimilar(tag, title) &&
-                          !TitlesEqual(tag, canonicalOriginalTitle) &&
-                          !TitlesTooSimilar(tag, canonicalOriginalTitle))
-            .ToList();
-
-        return ProjectInfoTextNormalizer.FormatTags(filtered);
-    }
-
-    private static IEnumerable<string> BuildFallbackTagCandidates(string title, string synopsis)
-    {
-        var text = $"{title} {synopsis}";
-        var candidates = new List<string>();
-
-        void AddIfContains(string tag, params string[] needles)
-        {
-            if (needles.Any(needle => text.Contains(needle, StringComparison.Ordinal)) &&
-                !candidates.Contains(tag, StringComparer.Ordinal))
-            {
-                candidates.Add(tag);
-            }
-        }
-
-        AddIfContains("重生", "重生", "再活一世", "重来一世", "重来一回");
-        AddIfContains("逆袭", "逆袭", "翻身", "改命", "改写命运");
-        AddIfContains("复仇", "复仇", "报复", "反杀");
-        AddIfContains("打脸", "打脸", "反击", "手撕");
-        AddIfContains("前夫", "前夫");
-        AddIfContains("追妻", "追妻", "追回", "回头");
-        AddIfContains("豪门", "豪门", "千金", "总裁");
-        AddIfContains("萌娃", "萌娃", "顽娃", "孩子", "娃");
-        AddIfContains("救父", "救父", "救爹", "救爸");
-        AddIfContains("亲情", "父亲", "母亲", "爷爷", "女儿", "儿子", "亲情");
-        AddIfContains("婚姻", "婚姻", "离婚", "婚礼", "结婚", "婚约");
-        AddIfContains("虐渣", "渣男", "渣女", "净身出户", "背叛");
-        AddIfContains("大院", "大院");
-        AddIfContains("娇妻", "娇妻");
-        AddIfContains("年代", "九零", "八零", "七零", "年代");
-        AddIfContains("替身", "替身");
-        AddIfContains("认亲", "认亲");
-        AddIfContains("宅斗", "侯府", "王府", "后宅", "宅斗");
-        AddIfContains("婆媳", "婆婆", "婆媳", "媳妇");
-        AddIfContains("逼婚", "逼婚", "婚约");
-        AddIfContains("火葬场", "火葬场");
-
-        if (candidates.Count == 0)
-        {
-            candidates.AddRange(["逆袭", "高能", "反转"]);
-        }
-
-        return candidates;
     }
 
     private static string ResolveCanonicalOriginalTitle(ProjectInfo project)

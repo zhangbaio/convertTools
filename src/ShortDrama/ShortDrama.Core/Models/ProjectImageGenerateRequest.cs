@@ -7,4 +7,5 @@ public sealed record ProjectImageGenerateRequest(
     string? TemplateImageDir = null,
     string? ConfigFile = null,
     int? Count = null,
-    bool Overwrite = false);
+    bool Overwrite = false,
+    IReadOnlyList<string>? EpisodeNames = null);
