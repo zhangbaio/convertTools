@@ -22,15 +22,16 @@ public sealed partial class PosterRenamer : IPosterRenamer
 {
     private static readonly string[] SupportedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"];
     private const string DefaultPosterLayoutDetectPrompt = """
-你是短剧海报版式分析助手。请识别海报上“现有主标题文字”的最小覆盖区域，并返回 JSON。
+你是短剧海报版式分析助手。请识别海报上“所有现有剧名/标题相关文字”的整体最小外接矩形，并返回 JSON。
 要求：
 1. 只返回 JSON，不要解释。
 2. 所有坐标和尺寸都用 0 到 1 的比例。
-3. 只能返回现有主标题区域，不要返回海报其他空白区域。
-4. 这个矩形要刚好能覆盖原标题，尽量小，不要影响其他图像元素。
-5. 颜色返回十六进制，如 #F6E85A。
-6. backgroundOpacity 取 0 到 1。若可以仅靠新标题覆盖旧标题，请返回 0。
-7. 新标题风格默认使用短剧海报常见的大号黄色字体、黑色粗描边，位置优先在底部。
+3. 标题相关文字包括主标题、副标题、季数标记（如“第三季”“第X季”），以及与剧名同属一组的宣传短句。
+4. 凡是会随剧名替换而需要一并去掉的旧文字行，都要纳入同一个矩形；不要漏掉季数、副标题或同组短句。
+5. 这个矩形要刚好覆盖全部标题文字行、尽量贴合，不要框进无关画面或空白区域。
+6. 颜色返回十六进制，如 #F6E85A。
+7. backgroundOpacity 取 0 到 1。若可以仅靠新标题覆盖旧标题，请返回 0。
+8. 新标题风格默认使用短剧海报常见的大号黄色字体、黑色粗描边，位置优先在底部。
 
 JSON 结构：
 {
@@ -45,9 +46,15 @@ JSON 结构：
   "align": "center"
 }
 
-只分析当前海报里已经存在的主标题，不要自己设计新位置。
+只分析当前海报里已经存在的标题文字组，不要自己设计新位置。
 需要替换成的新剧名：{title}
 """;
+    private const string PosterLayoutJsonContract = """
+    最终响应必须只包含一个 JSON 对象，且必须完整包含以下字段，禁止省略、禁止返回 null、禁止 Markdown：
+    {"x":0.18,"y":0.73,"width":0.64,"height":0.12,"fontScale":0.08,"textColor":"#F6E85A","backgroundColor":"#1A1A1A","backgroundOpacity":0,"align":"center"}
+    x、y、width、height、fontScale、backgroundOpacity 必须是 0 到 1 的 JSON 数字；width、height 必须大于 0，且 x+width、y+height 不得超出图片边界；align 只能是 left、center 或 right。
+    上述示例数值仅说明格式，必须根据当前图片中的实际标题位置测量后填写，不能照抄示例。
+    """;
     private const string DefaultPosterInpaintPrompt = """
 这是海报局部改字任务，不是重绘海报。
 只允许在遮罩区域内把原有剧名文字替换为“{title}”。
@@ -179,6 +186,10 @@ JSON 结构：
         var posterMode = NormalizePosterMode(GetOptional(config, "PosterMode"));
         switch (posterMode)
         {
+            case "video_frame":
+                await GenerateCoverFromPosterAsync(
+                    request, inputPath, outputPath, posterName, request.ConfigFile, cancellationToken);
+                break;
             case "poster_ai_edit":
                 try
                 {
@@ -375,10 +386,48 @@ JSON 结构：
         var extension = Path.GetExtension(imagePath).TrimStart('.').ToLowerInvariant();
         var mediaType = GuessMediaType(extension);
 
-        var prompt = RenderPromptTemplate(
-            GetOptional(config, "PosterLayoutDetectPrompt") ?? DefaultPosterLayoutDetectPrompt,
-            CreatePosterPromptVariables(title, title, null, null));
+        var configuredPromptTemplate = GetOptional(config, "PosterLayoutDetectPrompt")
+            ?? DefaultPosterLayoutDetectPrompt;
+        var promptVariables = CreatePosterPromptVariables(title, title, null, null);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var promptTemplate = attempt == 0
+                ? configuredPromptTemplate
+                : DefaultPosterLayoutDetectPrompt;
+            var prompt = $"{RenderPromptTemplate(promptTemplate, promptVariables).Trim()}\n\n{PosterLayoutJsonContract.Trim()}";
+            try
+            {
+                var aiLayout = await RequestPosterLayoutAsync(
+                    endpoint,
+                    modelId,
+                    apiKey,
+                    imageBase64,
+                    mediaType,
+                    prompt,
+                    cancellationToken).ConfigureAwait(false);
+                return CreateValidatedPosterLayout(aiLayout);
+            }
+            catch (PosterLayoutResponseException ex) when (attempt == 0)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "AI海报布局响应缺失或不合理，使用内置完整布局提示重试。 image={Image}",
+                    imagePath);
+            }
+        }
 
+        throw new PosterLayoutResponseException("AI 海报布局检测重试后仍未返回有效布局。");
+    }
+
+    private async Task<PosterLayoutResponse> RequestPosterLayoutAsync(
+        string endpoint,
+        string modelId,
+        string apiKey,
+        string imageBase64,
+        string mediaType,
+        string prompt,
+        CancellationToken cancellationToken)
+    {
         var payload = new
         {
             model = modelId,
@@ -431,27 +480,57 @@ JSON 结构：
         var content = parsed?.Choices?.FirstOrDefault()?.Message?.Content;
         if (string.IsNullOrWhiteSpace(content))
         {
-            throw new InvalidOperationException("AI 海报布局检测未返回内容。");
+            throw new PosterLayoutResponseException("AI 海报布局检测未返回内容。");
         }
 
         var json = ExtractJsonObject(content);
         if (string.IsNullOrWhiteSpace(json))
         {
-            throw new InvalidOperationException($"AI 海报布局检测未返回合法 JSON: {content}");
+            throw new PosterLayoutResponseException($"AI 海报布局检测未返回合法 JSON: {content}");
         }
 
-        var aiLayout = JsonSerializer.Deserialize<PosterLayoutResponse>(json, JsonOptions)
-            ?? throw new InvalidOperationException("AI 海报布局检测返回的 JSON 无法解析。");
+        try
+        {
+            return JsonSerializer.Deserialize<PosterLayoutResponse>(json, JsonOptions)
+                ?? throw new PosterLayoutResponseException("AI 海报布局检测返回的 JSON 无法解析。");
+        }
+        catch (JsonException ex)
+        {
+            throw new PosterLayoutResponseException($"AI 海报布局检测返回的 JSON 无法解析：{ex.Message}");
+        }
+    }
 
+    private static PosterLayout CreateValidatedPosterLayout(PosterLayoutResponse aiLayout)
+    {
+        if (!PosterLayoutDetectionPolicy.TryValidateCoordinates(
+                aiLayout.X,
+                aiLayout.Y,
+                aiLayout.Width,
+                aiLayout.Height,
+                out var invalidReason))
+        {
+            throw new PosterLayoutResponseException($"AI 海报布局坐标无效：{invalidReason}");
+        }
+
+        var x = aiLayout.X!.Value;
+        var y = aiLayout.Y!.Value;
+        var width = aiLayout.Width!.Value;
+        var height = aiLayout.Height!.Value;
+        var fontScale = aiLayout.FontScale is { } rawFontScale && float.IsFinite(rawFontScale)
+            ? Clamp(rawFontScale, 0.05f, 0.14f)
+            : 0.08f;
+        var backgroundOpacity = aiLayout.BackgroundOpacity is { } rawOpacity && float.IsFinite(rawOpacity)
+            ? Clamp01(rawOpacity)
+            : 0f;
         return new PosterLayout(
-            Clamp01(aiLayout.X ?? 0.1f),
-            Clamp01(aiLayout.Y ?? 0.78f),
-            Clamp01(aiLayout.Width ?? 0.8f),
-            Clamp01(aiLayout.Height ?? 0.16f),
-            Clamp(aiLayout.FontScale ?? 0.08f, 0.05f, 0.14f),
+            x,
+            y,
+            width,
+            height,
+            fontScale,
             ParseColor(aiLayout.TextColor, new Rgba32(246, 232, 90, 255)),
             ParseColor(aiLayout.BackgroundColor, new Rgba32(26, 26, 26, 255)),
-            Clamp01(aiLayout.BackgroundOpacity ?? 0f),
+            backgroundOpacity,
             string.Equals(aiLayout.Align, "left", StringComparison.OrdinalIgnoreCase) ? HorizontalAlignment.Left :
                 string.Equals(aiLayout.Align, "right", StringComparison.OrdinalIgnoreCase) ? HorizontalAlignment.Right :
                 HorizontalAlignment.Center);
@@ -472,12 +551,14 @@ JSON 结构：
         var requestUrl = BuildApiUrl(endpoint, apiPath);
         var modelId = GetOptional(config, "ImageEditModelId") ?? GetRequired(config, "ImageModelId");
         var apiKey = GetOptional(config, "ImageEditApiKey") ?? GetRequired(config, "ImageModelApiKey");
-        var imageSize = NormalizeImageSize(GetOptional(config, "ImageSize"), provider);
+        var sourceInfo = await Image.IdentifyAsync(inputPath, cancellationToken)
+            ?? throw new InvalidOperationException($"无法读取原海报尺寸信息: {inputPath}");
+        var imageSize = provider == "doubao"
+            ? PosterCoverFrameSizeHelper.ResolveFrameApiSize(sourceInfo.Width, sourceInfo.Height, config)
+            : NormalizeImageSize(GetOptional(config, "ImageSize"), provider);
         var imageQuality = NormalizeImageQuality(GetOptional(config, "ImageQuality"));
         var extension = Path.GetExtension(inputPath).TrimStart('.').ToLowerInvariant();
         var mediaType = GuessMediaType(extension);
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(90));
 
         var useGenerationApi = apiPath.EndsWith("/images/generations", StringComparison.OrdinalIgnoreCase);
         var promptVariables = CreatePosterPromptVariables(title, title, null, null);
@@ -507,7 +588,7 @@ JSON 结构：
                 provider,
                 imageQuality,
                 imageSize,
-                timeoutCts.Token);
+                cancellationToken);
         }
         catch (PosterSensitiveContentException ex)
         {
@@ -529,7 +610,7 @@ JSON 结构：
                     provider,
                     imageQuality,
                     imageSize,
-                    timeoutCts.Token);
+                    cancellationToken);
             }
             catch (PosterSensitiveContentException retryEx)
             {
@@ -560,20 +641,26 @@ JSON 结构：
                     provider,
                     imageQuality,
                     imageSize,
-                    timeoutCts.Token);
+                    cancellationToken);
             }
         }
 
         await using var buffer = new MemoryStream(bytes);
-        var sourceInfo = await Image.IdentifyAsync(inputPath, timeoutCts.Token)
-            ?? throw new InvalidOperationException($"无法读取原海报尺寸信息: {inputPath}");
-        using var generated = await Image.LoadAsync<Rgba32>(buffer, timeoutCts.Token);
+        using var generated = await Image.LoadAsync<Rgba32>(buffer, cancellationToken);
         if (generated.Width != sourceInfo.Width || generated.Height != sourceInfo.Height)
-        {
-            generated.Mutate(ctx => ctx.Resize(sourceInfo.Width, sourceInfo.Height));
-        }
+            ResizeToCanvasPreservingAspect(generated, sourceInfo.Width, sourceInfo.Height);
 
-        await generated.SaveAsync(outputPath, timeoutCts.Token);
+        await generated.SaveAsync(outputPath, cancellationToken);
+    }
+
+    private static void ResizeToCanvasPreservingAspect(Image<Rgba32> image, int targetWidth, int targetHeight)
+    {
+        image.Mutate(context => context.Resize(new ResizeOptions
+        {
+            Size = new Size(Math.Max(1, targetWidth), Math.Max(1, targetHeight)),
+            Mode = ResizeMode.Crop,
+            Position = AnchorPositionMode.Center,
+        }));
     }
 
     private async Task<byte[]> GeneratePosterWithAiPromptAsync(
@@ -658,14 +745,16 @@ JSON 结构：
             Encoding.UTF8,
             "application/json");
 
-        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-        var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
+        using var response = await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
+        var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
         if (!response.IsSuccessStatusCode)
         {
             ThrowPosterApiFailure("AI 海报图片生成", requestUrl, response, responseText);
         }
 
-        return await ReadImageResponseBytesAsync(responseText, cancellationToken)
+        return await ReadImageResponseBytesAsync(responseText, timeoutCts.Token)
             ?? throw new InvalidOperationException(
                 $"AI 海报图片生成成功返回，但响应中没有可解析的图片数据。url: {requestUrl}");
     }
@@ -714,14 +803,16 @@ JSON 结构：
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         httpRequest.Content = form;
 
-        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-        var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
+        using var response = await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
+        var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
         if (!response.IsSuccessStatusCode)
         {
             ThrowPosterApiFailure("AI 海报图片编辑", requestUrl, response, responseText);
         }
 
-        return await ReadImageResponseBytesAsync(responseText, cancellationToken)
+        return await ReadImageResponseBytesAsync(responseText, timeoutCts.Token)
             ?? throw new InvalidOperationException(
                 $"AI 海报图片编辑成功返回，但响应中没有可解析的图片数据。url: {requestUrl}");
     }
@@ -1115,6 +1206,14 @@ JSON 结构：
         return null;
     }
 
+    private sealed class PosterLayoutResponseException : InvalidOperationException
+    {
+        public PosterLayoutResponseException(string message)
+            : base(message)
+        {
+        }
+    }
+
     private sealed record ChatCompletionResponse(IReadOnlyList<Choice>? Choices);
     private sealed record Choice(Message? Message);
     private sealed record Message(string? Content);
@@ -1142,4 +1241,53 @@ JSON 结构：
         string? BackgroundColor,
         float? BackgroundOpacity,
         string? Align);
+}
+
+internal static class PosterLayoutDetectionPolicy
+{
+    internal static bool TryValidateCoordinates(
+        float? x,
+        float? y,
+        float? width,
+        float? height,
+        out string reason)
+    {
+        if (x is null || y is null || width is null || height is null)
+        {
+            reason = "x、y、width、height 必须全部存在且不能为 null";
+            return false;
+        }
+
+        if (!float.IsFinite(x.Value) ||
+            !float.IsFinite(y.Value) ||
+            !float.IsFinite(width.Value) ||
+            !float.IsFinite(height.Value))
+        {
+            reason = "坐标和尺寸必须是有限数字";
+            return false;
+        }
+
+        if (x.Value < 0 || x.Value >= 1 || y.Value < 0 || y.Value >= 1)
+        {
+            reason = "x、y 必须位于 [0, 1) 范围内";
+            return false;
+        }
+
+        if (width.Value < 0.01f || width.Value > 1 || height.Value < 0.01f || height.Value > 1)
+        {
+            reason = "width、height 必须位于 [0.01, 1] 范围内";
+            return false;
+        }
+
+        const float edgeTolerance = 0.001f;
+        if (x.Value + width.Value > 1 + edgeTolerance ||
+            y.Value + height.Value > 1 + edgeTolerance)
+        {
+            reason = "标题矩形超出图片边界";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
 }

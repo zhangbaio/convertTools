@@ -277,8 +277,31 @@ public static class ClientSettingsStore
         settings.OfoxImage2Quality = DefaultIfBlank(settings.OfoxImage2Quality, ClientSettingsDefaults.OfoxImage2Quality);
         settings.OfoxImage2Size = DefaultIfBlank(settings.OfoxImage2Size, ClientSettingsDefaults.OfoxImage2Size);
         settings.PosterTitleVerifyMode = NormalizePosterTitleVerifyMode(settings.PosterTitleVerifyMode);
+        settings.PosterTitleVerifyAiRetryCount = Math.Clamp(settings.PosterTitleVerifyAiRetryCount, 0, 3);
+        settings.FrameExtractEpisodeIndex = Math.Clamp(
+            settings.FrameExtractEpisodeIndex <= 0
+                ? ClientSettingsDefaults.FrameExtractEpisodeIndex
+                : settings.FrameExtractEpisodeIndex,
+            1,
+            999);
+        settings.FrameExtractTime = !double.IsFinite(settings.FrameExtractTime) || settings.FrameExtractTime <= 0
+            ? ClientSettingsDefaults.FrameExtractTime
+            : Math.Clamp(settings.FrameExtractTime, 0.1, 600.0);
+        settings.FrameExtractNeighborOffsetsSeconds = DefaultIfBlank(
+            settings.FrameExtractNeighborOffsetsSeconds,
+            ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds);
+        settings.FrameExtractFallbackPercents = DefaultIfBlank(
+            settings.FrameExtractFallbackPercents,
+            ClientSettingsDefaults.FrameExtractFallbackPercents);
         settings.FrameCoverPrompt = DefaultIfBlank(settings.FrameCoverPrompt, ClientSettingsDefaults.FrameCoverPrompt);
         settings.PosterLayoutDetectPrompt = DefaultIfBlank(settings.PosterLayoutDetectPrompt, ClientSettingsDefaults.PosterLayoutDetectPrompt);
+        if (string.Equals(
+                settings.PosterLayoutDetectPrompt.Trim(),
+                ClientSettingsDefaults.LegacyPosterLayoutDetectPrompt,
+                StringComparison.Ordinal))
+        {
+            settings.PosterLayoutDetectPrompt = ClientSettingsDefaults.PosterLayoutDetectPrompt;
+        }
         settings.PosterInpaintPrompt = DefaultIfBlank(settings.PosterInpaintPrompt, ClientSettingsDefaults.PosterInpaintPrompt);
         settings.PosterInpaintSafeRetryPrompt = DefaultIfBlank(settings.PosterInpaintSafeRetryPrompt, ClientSettingsDefaults.PosterInpaintSafeRetryPrompt);
         settings.PosterGenerationPrompt = DefaultIfBlank(settings.PosterGenerationPrompt, ClientSettingsDefaults.PosterGenerationPrompt);
@@ -385,7 +408,7 @@ public static class ClientSettingsStore
     private static string NormalizePosterMode(string? value) =>
         (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant() switch
         {
-            "original" or "poster_ai_erase_pil_title" or "poster_ai_edit" => (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant(),
+            "original" or "poster_ai_erase_pil_title" or "video_frame" or "poster_ai_edit" => (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant(),
             "ai" => "poster_ai_edit",
             _ => ClientSettingsDefaults.PosterMode
         };

@@ -399,40 +399,70 @@ public static class QueueMaterialStepService
         var workflowDir = ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
         var outputPath = Path.Combine(workflowDir, "海报图片.png");
 
+        var posterMode = (settings.PosterMode ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant();
+        var effectiveSettings = settings;
+        Exception? videoFrameFailure = null;
+        if (posterMode == "video_frame")
+        {
+            if (!HasImageModelConfig(settings))
+                throw new InvalidOperationException("视频抽帧 AI 封面模式需要配置 ImageModel 接口。");
+
+            try
+            {
+                var framePath = await VideoFramePosterSourceService.ExtractBestFrameAsync(
+                    context.SourceProjectDir,
+                    workflowDir,
+                    settings,
+                    log,
+                    ct).ConfigureAwait(false);
+                await GenerateAiPosterAsync(
+                    workflowDir,
+                    framePath,
+                    outputPath,
+                    settings,
+                    posterMode,
+                    log,
+                    ct).ConfigureAwait(false);
+                item.CoverPath = outputPath;
+                return;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                videoFrameFailure = ex;
+                log($"视频抽帧封面生成失败，回退到原始海报模式：{ex.Message}");
+                posterMode = "original";
+                effectiveSettings = settings.Clone();
+                effectiveSettings.PosterMode = posterMode;
+            }
+        }
+
         var inputPath = await QueueMaterialPrepareService.PrepareMaterialInputsAsync(item.ProjectDir, log, ct)
             ?? ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir);
         if (inputPath is null)
-            throw new InvalidOperationException("未找到可用于生成海报的封面图片。请先提供下载海报或本地图片素材。");
+        {
+            if (videoFrameFailure is not null)
+            {
+                throw new InvalidOperationException(
+                    "视频抽帧封面生成失败，且未找到可用于回退的原始海报图片。",
+                    videoFrameFailure);
+            }
 
-        var posterMode = (settings.PosterMode ?? "original").Trim();
+            throw new InvalidOperationException("未找到可用于生成海报的封面图片。请先提供下载海报或本地图片素材。");
+        }
+
         if (IsAiPosterMode(posterMode))
         {
-            if (!HasImageModelConfig(settings))
+            if (!HasImageModelConfig(effectiveSettings))
                 throw new InvalidOperationException("海报 AI 模式需要配置 ImageModel 接口。");
 
-            var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
-            try
-            {
-                log("开始 AI 海报改字…");
-                if (IsHeicLike(inputPath))
-                    log($"海报源图为 {Path.GetExtension(inputPath)}，将先转换为 PNG 再调用 AI。");
-                log("正在检测海报标题区域…");
-                await QueueInfrastructureServices.Poster.RenameAsync(
-                    new PosterRenameRequest(
-                        ProjectDir: workflowDir,
-                        InputFilePath: inputPath,
-                        OutputFilePath: outputPath,
-                        ConfigFile: configPath,
-                        UseAi: false,
-                        Overwrite: true,
-                        Log: log),
-                    ct);
-                log($"海报已生成：{Path.GetFileName(outputPath)}（请使用此 PNG 文件，不会覆盖原 HEIC）");
-            }
-            finally
-            {
-                TryDelete(configPath);
-            }
+            await GenerateAiPosterAsync(
+                workflowDir,
+                inputPath,
+                outputPath,
+                effectiveSettings,
+                posterMode,
+                log,
+                ct).ConfigureAwait(false);
         }
         else
         {
@@ -454,6 +484,56 @@ public static class QueueMaterialStepService
         }
 
         item.CoverPath = outputPath;
+    }
+
+    private static async Task GenerateAiPosterAsync(
+        string workflowDir,
+        string inputPath,
+        string outputPath,
+        ClientSettings settings,
+        string posterMode,
+        Action<string> log,
+        CancellationToken cancellationToken)
+    {
+        var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
+        try
+        {
+            switch (posterMode)
+            {
+                case "video_frame":
+                    log("开始使用视频抽帧画面 AI 生成新封面…");
+                    break;
+                case "poster_ai_edit":
+                    log("开始参考原海报由 AI 重做封面…");
+                    break;
+                case "poster_ai_erase_pil_title":
+                    log("开始使用 AI 去字并程序绘制标题…");
+                    break;
+                default:
+                    log("开始 AI 海报改标题…");
+                    log("正在检测海报标题区域…");
+                    break;
+            }
+
+            if (IsHeicLike(inputPath))
+                log($"海报源图为 {Path.GetExtension(inputPath)}，将先转换为 PNG 再调用 AI。");
+
+            await QueueInfrastructureServices.Poster.RenameAsync(
+                new PosterRenameRequest(
+                    ProjectDir: workflowDir,
+                    InputFilePath: inputPath,
+                    OutputFilePath: outputPath,
+                    ConfigFile: configPath,
+                    UseAi: false,
+                    Overwrite: true,
+                    Log: log),
+                cancellationToken).ConfigureAwait(false);
+            log($"海报已生成：{Path.GetFileName(outputPath)}（请使用此 PNG 文件，不会覆盖原素材）");
+        }
+        finally
+        {
+            TryDelete(configPath);
+        }
     }
 
     public static async Task RunDeleteSourceVideosAsync(
@@ -1179,7 +1259,7 @@ public static class QueueMaterialStepService
     private static bool IsAiPosterMode(string? posterMode)
     {
         var mode = (posterMode ?? "original").Trim().ToLowerInvariant();
-        return mode is "original" or "ai" or "poster_ai_erase_pil_title" or "poster_ai_edit";
+        return mode is "original" or "ai" or "poster_ai_erase_pil_title" or "video_frame" or "poster_ai_edit";
     }
 
     private static bool IsHeicLike(string path)

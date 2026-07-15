@@ -23,6 +23,7 @@ internal sealed class PosterTitleVerificationService
 6. 判断描边和装饰是否克制、审核友好，而不是明显设计化。
 7. 如果某个字虽然看起来接近目标字，但字形像异体字、艺术字、错字或不规范写法，也必须判定为不通过。
 8. 识别结果必须尽量逐字；风格判断可以适度宽松，但字形正确性不能放宽。
+9. 检查标题区域内是否还残留目标标题以外的旧剧名、季数、副标题或同组宣传短句。
 
 JSON 格式：
 {
@@ -34,6 +35,8 @@ JSON 格式：
   "isReadablePrintStyle": true,
   "looksLikeStandardSansTitle": true,
   "usesAggressiveDecorations": false,
+  "hasResidualText": false,
+  "residualText": "",
   "reason": "一句简短说明"
 }
 
@@ -102,18 +105,18 @@ JSON 格式：
                 var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
                 if (!response.IsSuccessStatusCode)
                 {
-                    return PosterTitleVerifyResult.Fail(
+                    return PosterTitleVerifyResult.Inconclusive(
                         AiApiErrorMessage.Create("AI 海报标题校验接口", response.StatusCode, response.ReasonPhrase, responseText));
                 }
 
                 var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseText, JsonOptions);
                 var content = parsed?.Choices?.FirstOrDefault()?.Message?.Content;
                 if (string.IsNullOrWhiteSpace(content))
-                    return PosterTitleVerifyResult.Fail("标题校验未返回内容");
+                    return PosterTitleVerifyResult.Inconclusive("标题校验未返回内容");
 
                 var json = ExtractJsonObject(content);
                 if (string.IsNullOrWhiteSpace(json))
-                    return PosterTitleVerifyResult.Fail($"标题校验未返回合法 JSON：{content}");
+                    return PosterTitleVerifyResult.Inconclusive($"标题校验未返回合法 JSON：{content}");
 
                 var result = JsonSerializer.Deserialize<PosterTitleVerifyPayload>(json, JsonOptions)
                     ?? new PosterTitleVerifyPayload();
@@ -124,34 +127,76 @@ JSON 格式：
                 TryDelete(cropPath);
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            return PosterTitleVerifyResult.Inconclusive("标题校验接口请求超时");
+        }
         catch (Exception ex)
         {
-            return PosterTitleVerifyResult.Fail($"标题校验接口失败：{ex.Message}");
+            return PosterTitleVerifyResult.Inconclusive($"标题校验接口暂不可用：{ex.Message}");
         }
     }
 
     private static PosterTitleVerifyResult NormalizeResult(PosterTitleVerifyPayload result, string title)
     {
         var detectedTitle = NormalizeDetectedTitle(result.DetectedTitle);
-        var matchesTarget = result.MatchesTarget == true && detectedTitle == title;
-        if (result.ContainsTraditional == true)
-            matchesTarget = false;
-        if (result.ContainsVariant == true)
+        // The vision model performs transcription; the exact comparison is deterministic here.
+        // This avoids false negatives when the model transcribes correctly but returns a stale
+        // or missing matchesTarget flag.
+        var matchesTarget = detectedTitle == NormalizeDetectedTitle(title);
+        var containsTraditional = result.ContainsTraditional == true;
+        var containsVariant = result.ContainsVariant == true;
+        var usesArtisticStyle = result.UsesArtisticStyle == true;
+        var usesAggressiveDecorations = result.UsesAggressiveDecorations == true;
+        var hasResidualText = result.HasResidualText == true;
+        var residualText = (result.ResidualText ?? "").Trim();
+        if (containsTraditional || containsVariant)
             matchesTarget = false;
         if (!string.IsNullOrWhiteSpace(detectedTitle) && detectedTitle != title)
             matchesTarget = false;
-        if (matchesTarget && string.IsNullOrWhiteSpace(detectedTitle))
-            matchesTarget = false;
 
-        var reason = (result.Reason ?? "").Trim();
-        if (!matchesTarget && string.IsNullOrWhiteSpace(reason))
-        {
-            reason = string.IsNullOrWhiteSpace(detectedTitle)
-                ? "未检测到主标题文字"
-                : $"识别标题为“{detectedTitle}”";
-        }
+        var titleDetectionMissing = string.IsNullOrWhiteSpace(detectedTitle);
+        var exactTitleMatch = matchesTarget && detectedTitle == title;
+        var reasons = new List<string>();
+        if (!titleDetectionMissing && detectedTitle != title)
+            reasons.Add($"识别标题为“{detectedTitle}”");
+        if (containsTraditional)
+            reasons.Add("检测到繁体字");
+        if (containsVariant)
+            reasons.Add("检测到异体字或异常字符");
+        if (usesArtisticStyle && !exactTitleMatch)
+            reasons.Add("检测到艺术字或变形字");
+        if (usesAggressiveDecorations && !exactTitleMatch)
+            reasons.Add("描边或装饰过强，不够审核友好");
+        if (hasResidualText)
+            reasons.Add(string.IsNullOrWhiteSpace(residualText)
+                ? "检测到目标标题之外的残留文字"
+                : $"检测到残留多余文字：{residualText}");
+        if (titleDetectionMissing && reasons.Count == 0)
+            reasons.Add("未检测到主标题文字，不能确认标题正确");
+        if (reasons.Count == 0 && !string.IsNullOrWhiteSpace(result.Reason))
+            reasons.Add(result.Reason.Trim());
+        if (reasons.Count == 0 && !matchesTarget)
+            reasons.Add("标题与目标不一致");
 
-        return new PosterTitleVerifyResult(matchesTarget, detectedTitle, reason);
+        var styleFailure = (usesArtisticStyle || usesAggressiveDecorations) && !exactTitleMatch;
+        var ok = matchesTarget
+            && !containsTraditional
+            && !containsVariant
+            && !styleFailure
+            && !hasResidualText;
+        var isInconclusive = titleDetectionMissing
+            && !containsTraditional
+            && !containsVariant
+            && !usesArtisticStyle
+            && !usesAggressiveDecorations
+            && !hasResidualText;
+
+        return new PosterTitleVerifyResult(ok, detectedTitle, string.Join('；', reasons), isInconclusive);
     }
 
     private static string CreateTitleCrop(string imagePath, PosterTitleLayout layout)
@@ -172,6 +217,11 @@ JSON 格式：
         var cropRect = new Rectangle(left, top, right - left, bottom - top);
         using var cropped = source.CloneAs<Rgba32>();
         cropped.Mutate(ctx => ctx.Crop(cropRect));
+        if (cropped.Width < 1024)
+        {
+            var scaledHeight = Math.Max(1, (int)Math.Round(cropped.Height * (1024d / cropped.Width)));
+            cropped.Mutate(ctx => ctx.Resize(1024, scaledHeight));
+        }
         var cropPath = Path.Combine(Path.GetTempPath(), $"poster-crop-{Guid.NewGuid():N}.png");
         cropped.SaveAsPng(cropPath);
         return cropPath;
@@ -184,6 +234,22 @@ JSON 格式：
         {
             if (text.StartsWith(prefix, StringComparison.Ordinal))
                 text = text[prefix.Length..].Trim();
+        }
+
+        (string Open, string Close)[] wrappers =
+        [
+            ("“", "”"), ("\"", "\""), ("《", "》"), ("【", "】"),
+            ("[", "]"), ("「", "」"), ("『", "』"),
+        ];
+        foreach (var (open, close) in wrappers)
+        {
+            if (text.StartsWith(open, StringComparison.Ordinal) &&
+                text.EndsWith(close, StringComparison.Ordinal) &&
+                text.Length > open.Length + close.Length)
+            {
+                text = text[open.Length..^close.Length].Trim();
+                break;
+            }
         }
 
         return text;
@@ -242,14 +308,32 @@ JSON 格式：
         [JsonPropertyName("containsVariant")]
         public bool? ContainsVariant { get; set; }
 
+        [JsonPropertyName("usesArtisticStyle")]
+        public bool? UsesArtisticStyle { get; set; }
+
+        [JsonPropertyName("usesAggressiveDecorations")]
+        public bool? UsesAggressiveDecorations { get; set; }
+
+        [JsonPropertyName("hasResidualText")]
+        public bool? HasResidualText { get; set; }
+
+        [JsonPropertyName("residualText")]
+        public string? ResidualText { get; set; }
+
         [JsonPropertyName("reason")]
         public string? Reason { get; set; }
     }
 }
 
-internal readonly record struct PosterTitleVerifyResult(bool Ok, string DetectedTitle, string Reason)
+internal readonly record struct PosterTitleVerifyResult(
+    bool Ok,
+    string DetectedTitle,
+    string Reason,
+    bool IsInconclusive = false)
 {
     public static PosterTitleVerifyResult Fail(string reason) => new(false, "", reason);
+
+    public static PosterTitleVerifyResult Inconclusive(string reason) => new(false, "", reason, true);
 }
 
 internal static class PosterTitleVerifyModeHelper

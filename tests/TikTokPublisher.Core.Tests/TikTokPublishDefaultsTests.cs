@@ -28,8 +28,14 @@ public sealed class TikTokPublishDefaultsTests
         settings.OfoxImage2Quality.Should().Be(ClientSettingsDefaults.OfoxImage2Quality);
         settings.OfoxImage2Size.Should().Be(ClientSettingsDefaults.OfoxImage2Size);
         settings.OfoxImage2ApiKey.Should().BeEmpty();
+        settings.PosterMode.Should().Be(ClientSettingsDefaults.PosterMode);
         settings.PosterTitleVerifyEnabled.Should().Be(ClientSettingsDefaults.PosterTitleVerifyEnabled);
         settings.PosterTitleVerifyMode.Should().Be(ClientSettingsDefaults.PosterTitleVerifyMode);
+        settings.PosterTitleVerifyAiRetryCount.Should().Be(ClientSettingsDefaults.PosterTitleVerifyAiRetryCount);
+        settings.FrameExtractEpisodeIndex.Should().Be(ClientSettingsDefaults.FrameExtractEpisodeIndex);
+        settings.FrameExtractTime.Should().Be(ClientSettingsDefaults.FrameExtractTime);
+        settings.FrameExtractNeighborOffsetsSeconds.Should().Be(ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds);
+        settings.FrameExtractFallbackPercents.Should().Be(ClientSettingsDefaults.FrameExtractFallbackPercents);
         settings.TiktokAllowOverLimitUploadImport.Should().Be(ClientSettingsDefaults.TiktokAllowOverLimitUploadImport);
         settings.TiktokOverLimitDownloadEpisodeCount.Should().Be(ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
         settings.TiktokProofTemplateDocxPath.Should().Be(ClientSettingsDefaults.TiktokProofTemplateDocxPath);
@@ -68,6 +74,10 @@ public sealed class TikTokPublishDefaultsTests
                 OfoxImage2Quality = "",
                 OfoxImage2Size = "",
                 PosterTitleVerifyMode = "",
+                FrameExtractEpisodeIndex = 0,
+                FrameExtractTime = double.NaN,
+                FrameExtractNeighborOffsetsSeconds = "",
+                FrameExtractFallbackPercents = "",
                 TiktokOverLimitDownloadEpisodeCount = 0,
                 TiktokProofTemplateDocxPath = "",
                 TiktokProofDeclarantCompanyName = "  武汉速视科技有限公司  ",
@@ -96,6 +106,10 @@ public sealed class TikTokPublishDefaultsTests
             loaded.OfoxImage2Quality.Should().Be(ClientSettingsDefaults.OfoxImage2Quality);
             loaded.OfoxImage2Size.Should().Be(ClientSettingsDefaults.OfoxImage2Size);
             loaded.PosterTitleVerifyMode.Should().Be(ClientSettingsDefaults.PosterTitleVerifyMode);
+            loaded.FrameExtractEpisodeIndex.Should().Be(ClientSettingsDefaults.FrameExtractEpisodeIndex);
+            loaded.FrameExtractTime.Should().Be(ClientSettingsDefaults.FrameExtractTime);
+            loaded.FrameExtractNeighborOffsetsSeconds.Should().Be(ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds);
+            loaded.FrameExtractFallbackPercents.Should().Be(ClientSettingsDefaults.FrameExtractFallbackPercents);
             loaded.TiktokAllowOverLimitUploadImport.Should().Be(ClientSettingsDefaults.TiktokAllowOverLimitUploadImport);
             loaded.TiktokOverLimitDownloadEpisodeCount.Should().Be(ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
             loaded.TiktokProofTemplateDocxPath.Should().Be(ClientSettingsDefaults.TiktokProofTemplateDocxPath);
@@ -103,6 +117,101 @@ public sealed class TikTokPublishDefaultsTests
             loaded.TiktokProofSealPath.Should().Be("C:\\proof\\seal.png");
             loaded.TiktokProofPdfRenderer.Should().Be("wps");
             loaded.TiktokProofWpsPath.Should().Be("C:\\WPS\\wps.exe");
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(databasePath);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void Client_settings_store_preserves_video_frame_mode_and_normalizes_frame_extract_values()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-video-frame-{Guid.NewGuid():N}.db");
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                PosterMode = " VIDEO_FRAME ",
+                FrameExtractEpisodeIndex = 42,
+                FrameExtractTime = 7.5,
+                FrameExtractNeighborOffsetsSeconds = " 1,3 ",
+                FrameExtractFallbackPercents = " 20,60 ",
+            }, databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+
+            loaded.PosterMode.Should().Be("video_frame");
+            loaded.FrameExtractEpisodeIndex.Should().Be(42);
+            loaded.FrameExtractTime.Should().Be(7.5);
+            loaded.FrameExtractNeighborOffsetsSeconds.Should().Be("1,3");
+            loaded.FrameExtractFallbackPercents.Should().Be("20,60");
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(databasePath);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void Client_settings_store_migrates_legacy_poster_layout_detect_prompt()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-legacy-layout-prompt-{Guid.NewGuid():N}.db");
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                PosterLayoutDetectPrompt = ClientSettingsDefaults.LegacyPosterLayoutDetectPrompt,
+            }, databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+
+            loaded.PosterLayoutDetectPrompt.Should().Be(ClientSettingsDefaults.PosterLayoutDetectPrompt);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(databasePath);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void Client_settings_store_clamps_frame_extract_values_to_supported_ranges()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-video-frame-limits-{Guid.NewGuid():N}.db");
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                PosterMode = "video_frame",
+                PosterTitleVerifyAiRetryCount = 99,
+                FrameExtractEpisodeIndex = 10_000,
+                FrameExtractTime = 1_000,
+            }, databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+
+            loaded.PosterMode.Should().Be("video_frame");
+            loaded.PosterTitleVerifyAiRetryCount.Should().Be(3);
+            loaded.FrameExtractEpisodeIndex.Should().Be(999);
+            loaded.FrameExtractTime.Should().Be(600.0);
         }
         finally
         {

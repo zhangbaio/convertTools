@@ -19,6 +19,11 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
                 var settings = new ClientSettings
                 {
                     AiTextModel = $"model-{index}",
+                    PosterTitleVerifyAiRetryCount = index % 4,
+                    FrameExtractEpisodeIndex = index + 1,
+                    FrameExtractTime = index + 1.5,
+                    FrameExtractNeighborOffsetsSeconds = $"{index + 1},{index + 2}",
+                    FrameExtractFallbackPercents = $"{index + 10},{index + 20}",
                 };
                 var account = new TikTokAccountProfile
                 {
@@ -44,6 +49,14 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
                 using var document = JsonDocument.Parse(File.ReadAllText(result.Path));
                 document.RootElement.GetProperty("AiTextModel").GetString().Should().Be($"model-{result.Index}");
                 document.RootElement.GetProperty("AiRewriteSynopsis").GetBoolean().Should().Be(result.Index % 2 == 0);
+                document.RootElement.GetProperty("PosterTitleVerifyAiRetryCount").GetInt32()
+                    .Should().Be(result.Index % 4);
+                document.RootElement.GetProperty("FrameExtractEpisodeIndex").GetInt32().Should().Be(result.Index + 1);
+                document.RootElement.GetProperty("FrameExtractTime").GetDouble().Should().Be(result.Index + 1.5);
+                document.RootElement.GetProperty("FrameExtractNeighborOffsetsSeconds").GetString()
+                    .Should().Be($"{result.Index + 1},{result.Index + 2}");
+                document.RootElement.GetProperty("FrameExtractFallbackPercents").GetString()
+                    .Should().Be($"{result.Index + 10},{result.Index + 20}");
             }
         }
         finally

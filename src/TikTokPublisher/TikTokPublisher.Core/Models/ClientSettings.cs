@@ -70,6 +70,11 @@ public sealed class ClientSettings
     public string OfoxImage2Size { get; set; } = ClientSettingsDefaults.OfoxImage2Size;
     public bool PosterTitleVerifyEnabled { get; set; } = ClientSettingsDefaults.PosterTitleVerifyEnabled;
     public string PosterTitleVerifyMode { get; set; } = ClientSettingsDefaults.PosterTitleVerifyMode;
+    public int PosterTitleVerifyAiRetryCount { get; set; } = ClientSettingsDefaults.PosterTitleVerifyAiRetryCount;
+    public int FrameExtractEpisodeIndex { get; set; } = ClientSettingsDefaults.FrameExtractEpisodeIndex;
+    public double FrameExtractTime { get; set; } = ClientSettingsDefaults.FrameExtractTime;
+    public string FrameExtractNeighborOffsetsSeconds { get; set; } = ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds;
+    public string FrameExtractFallbackPercents { get; set; } = ClientSettingsDefaults.FrameExtractFallbackPercents;
     public string FrameCoverPrompt { get; set; } = ClientSettingsDefaults.FrameCoverPrompt;
     public string PosterLayoutDetectPrompt { get; set; } = ClientSettingsDefaults.PosterLayoutDetectPrompt;
     public string PosterInpaintPrompt { get; set; } = ClientSettingsDefaults.PosterInpaintPrompt;
@@ -193,6 +198,11 @@ public sealed class ClientSettings
         OfoxImage2Size = OfoxImage2Size,
         PosterTitleVerifyEnabled = PosterTitleVerifyEnabled,
         PosterTitleVerifyMode = PosterTitleVerifyMode,
+        PosterTitleVerifyAiRetryCount = PosterTitleVerifyAiRetryCount,
+        FrameExtractEpisodeIndex = FrameExtractEpisodeIndex,
+        FrameExtractTime = FrameExtractTime,
+        FrameExtractNeighborOffsetsSeconds = FrameExtractNeighborOffsetsSeconds,
+        FrameExtractFallbackPercents = FrameExtractFallbackPercents,
         FrameCoverPrompt = FrameCoverPrompt,
         PosterLayoutDetectPrompt = PosterLayoutDetectPrompt,
         PosterInpaintPrompt = PosterInpaintPrompt,

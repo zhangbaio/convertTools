@@ -18,6 +18,11 @@ public static class ClientSettingsDefaults
     public const string OfoxImage2Size = "auto";
     public const bool PosterTitleVerifyEnabled = true;
     public const string PosterTitleVerifyMode = "fallback_repaint";
+    public const int PosterTitleVerifyAiRetryCount = 1;
+    public const int FrameExtractEpisodeIndex = 1;
+    public const double FrameExtractTime = 5.0;
+    public const string FrameExtractNeighborOffsetsSeconds = "2,4";
+    public const string FrameExtractFallbackPercents = "10,25,50,75";
     public const bool TiktokAllowOverLimitUploadImport = true;
     public const int TiktokOverLimitDownloadEpisodeCount = 120;
     public const string TiktokProjectImageGenerationMode = "image_template";
@@ -136,10 +141,17 @@ public static class ClientSettingsDefaults
         4. 如果候选 new_title 命中上述字，请主动换成更常见、更稳妥的同义表达。
         """;
 
-    public const string PosterLayoutDetectPrompt =
+    public const string LegacyPosterLayoutDetectPrompt =
         "你是短剧海报版式分析助手。请识别海报上“现有主标题文字”的最小覆盖区域，并返回 JSON。" +
         "要求只返回 JSON，坐标和尺寸都用 0 到 1 的比例。" +
         "返回的标题区域需要适合放置标准、清晰、审核友好的中文印刷体标题。";
+
+    public const string PosterLayoutDetectPrompt =
+        "你是短剧海报版式分析助手。请识别海报上“所有现有剧名/标题相关文字”的整体最小外接矩形，并返回 JSON。" +
+        "这些文字包括主标题、副标题、季数标记（如“第三季”“第X季”），以及与剧名同属一组的宣传短句；" +
+        "凡是会随剧名替换而需要一并去掉的旧文字行，都要纳入同一个矩形，不要只框主标题、漏掉季数或副标题。" +
+        "要求只返回 JSON，坐标和尺寸都用 0 到 1 的比例；矩形要刚好覆盖上述全部标题文字行、尽量贴合，不要框进无关画面。" +
+        "返回的区域需要适合放置标准、清晰、审核友好的中文印刷体标题。";
 
     public const string PosterInpaintPrompt =
         "这是海报局部改字任务，不是重绘海报。" +

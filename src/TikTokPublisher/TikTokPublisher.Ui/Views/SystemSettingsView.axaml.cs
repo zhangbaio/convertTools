@@ -103,9 +103,10 @@ public partial class SystemSettingsView : UserControl
         SilenceRepairModeCombo.SelectionChanged += OnSilenceRepairModeChanged;
 
         PosterModeCombo.Items.Clear();
-        PosterModeCombo.Items.Add(CreateItem("原始海报AI改标题", "original"));
-        PosterModeCombo.Items.Add(CreateItem("AI去字+PIL重绘", "poster_ai_erase_pil_title"));
-        PosterModeCombo.Items.Add(CreateItem("原图AI重绘", "poster_ai_edit"));
+        PosterModeCombo.Items.Add(CreateItem("原始海报AI改标题并校验", "original"));
+        PosterModeCombo.Items.Add(CreateItem("原始海报AI消除文字+PIL绘制标题", "poster_ai_erase_pil_title"));
+        PosterModeCombo.Items.Add(CreateItem("视频抽帧AI生成封面", "video_frame"));
+        PosterModeCombo.Items.Add(CreateItem("原始海报AI生成封面", "poster_ai_edit"));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;
 
         ImageProviderCombo.Items.Clear();
@@ -114,9 +115,9 @@ public partial class SystemSettingsView : UserControl
         ImageProviderCombo.SelectionChanged += OnImageProviderChanged;
 
         PosterTitleVerifyModeCombo.Items.Clear();
-        PosterTitleVerifyModeCombo.Items.Add(CreateItem("失败后重绘", "fallback_repaint"));
-        PosterTitleVerifyModeCombo.Items.Add(CreateItem("仅警告", "warn"));
-        PosterTitleVerifyModeCombo.Items.Add(CreateItem("阻断失败", "blocking"));
+        PosterTitleVerifyModeCombo.Items.Add(CreateItem("AI重试后重绘", "fallback_repaint"));
+        PosterTitleVerifyModeCombo.Items.Add(CreateItem("AI重试后仅警告", "warn"));
+        PosterTitleVerifyModeCombo.Items.Add(CreateItem("AI重试后阻断", "blocking"));
         PosterTitleVerifyModeCombo.SelectionChanged += OnPosterTitleVerifyModeChanged;
 
         ProjectImageSubtitleAiModeCombo.Items.Clear();
@@ -153,6 +154,7 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(ProjectImageSubtitleAiModeCombo, _vm.TiktokProjectImageSubtitleAiMode);
         SelectComboItem(ProofPdfRendererCombo, _vm.TiktokProofPdfRenderer);
         SelectComboItem(ManagementDedupScopeCombo, _vm.ManagementDedupScope);
+        UpdatePosterModeUi();
     }
 
     private static void SelectComboItem(ComboBox combo, string? value)
@@ -195,6 +197,23 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || PosterModeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.PosterMode = item.Tag as string ?? "original";
+        UpdatePosterModeUi();
+    }
+
+    private void UpdatePosterModeUi()
+    {
+        var mode = (PosterModeCombo.SelectedItem as ComboBoxItem)?.Tag as string
+                   ?? _vm?.PosterMode
+                   ?? "original";
+        FrameExtractSettingsPanel.IsVisible = string.Equals(mode, "video_frame", StringComparison.OrdinalIgnoreCase);
+        PosterModeHintText.Text = mode switch
+        {
+            "original" => "仅替换原海报标题，并校验标题是否正确。",
+            "poster_ai_erase_pil_title" => "先用 AI 消除原海报标题，再确定性绘制新剧名，标题文字更稳定。",
+            "video_frame" => "从视频中抽取画面并交给 AI 生成封面，更贴近剧集实际内容。",
+            "poster_ai_edit" => "基于原海报重新生成封面，允许整体视觉效果重做。",
+            _ => string.Empty,
+        };
     }
 
     private void OnImageProviderChanged(object? sender, SelectionChangedEventArgs e)

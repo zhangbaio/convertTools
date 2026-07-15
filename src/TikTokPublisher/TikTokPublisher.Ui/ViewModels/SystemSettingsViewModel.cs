@@ -95,6 +95,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _ofoxImage2Size = ClientSettingsDefaults.OfoxImage2Size;
     [ObservableProperty] private bool _posterTitleVerifyEnabled = ClientSettingsDefaults.PosterTitleVerifyEnabled;
     [ObservableProperty] private string _posterTitleVerifyMode = ClientSettingsDefaults.PosterTitleVerifyMode;
+    [ObservableProperty] private int _posterTitleVerifyAiRetryCount = ClientSettingsDefaults.PosterTitleVerifyAiRetryCount;
+    [ObservableProperty] private int _frameExtractEpisodeIndex = ClientSettingsDefaults.FrameExtractEpisodeIndex;
+    [ObservableProperty] private double _frameExtractTime = ClientSettingsDefaults.FrameExtractTime;
+    [ObservableProperty] private string _frameExtractNeighborOffsetsSeconds = ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds;
+    [ObservableProperty] private string _frameExtractFallbackPercents = ClientSettingsDefaults.FrameExtractFallbackPercents;
     [ObservableProperty] private string _frameCoverPrompt = "";
     [ObservableProperty] private string _posterLayoutDetectPrompt = "";
     [ObservableProperty] private string _posterInpaintPrompt = "";
@@ -133,7 +138,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
     public IReadOnlyList<string> HongguoLocalDownloadModeOptions { get; } = ["fast", "compatible"];
     public IReadOnlyList<string> HongguoLocalTranscodeEngineOptions { get; } = ["auto", "nvenc", "cpu"];
-    public IReadOnlyList<string> PosterModeOptions { get; } = ["original", "poster_ai_erase_pil_title", "poster_ai_edit"];
+    public IReadOnlyList<string> PosterModeOptions { get; } = ["original", "poster_ai_erase_pil_title", "video_frame", "poster_ai_edit"];
     public IReadOnlyList<string> ImageProviderOptions { get; } = ["doubao", "ofox_image2"];
     public IReadOnlyList<string> PosterTitleVerifyModeOptions { get; } = ["fallback_repaint", "warn", "blocking"];
     public IReadOnlyList<string> ProjectImageSubtitleAiModeOptions { get; } = ["fast", "accurate", "off"];
@@ -210,6 +215,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         OfoxImage2Size = OfoxImage2Size.Trim(),
         PosterTitleVerifyEnabled = PosterTitleVerifyEnabled,
         PosterTitleVerifyMode = PosterTitleVerifyMode,
+        PosterTitleVerifyAiRetryCount = PosterTitleVerifyAiRetryCount,
+        FrameExtractEpisodeIndex = FrameExtractEpisodeIndex,
+        FrameExtractTime = FrameExtractTime,
+        FrameExtractNeighborOffsetsSeconds = FrameExtractNeighborOffsetsSeconds,
+        FrameExtractFallbackPercents = FrameExtractFallbackPercents,
         FrameCoverPrompt = FrameCoverPrompt,
         PosterLayoutDetectPrompt = PosterLayoutDetectPrompt,
         PosterInpaintPrompt = PosterInpaintPrompt,
@@ -650,6 +660,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         OfoxImage2Size = settings.OfoxImage2Size;
         PosterTitleVerifyEnabled = settings.PosterTitleVerifyEnabled;
         PosterTitleVerifyMode = settings.PosterTitleVerifyMode;
+        PosterTitleVerifyAiRetryCount = settings.PosterTitleVerifyAiRetryCount;
+        FrameExtractEpisodeIndex = settings.FrameExtractEpisodeIndex;
+        FrameExtractTime = settings.FrameExtractTime;
+        FrameExtractNeighborOffsetsSeconds = settings.FrameExtractNeighborOffsetsSeconds;
+        FrameExtractFallbackPercents = settings.FrameExtractFallbackPercents;
         FrameCoverPrompt = settings.FrameCoverPrompt;
         PosterLayoutDetectPrompt = settings.PosterLayoutDetectPrompt;
         PosterInpaintPrompt = settings.PosterInpaintPrompt;

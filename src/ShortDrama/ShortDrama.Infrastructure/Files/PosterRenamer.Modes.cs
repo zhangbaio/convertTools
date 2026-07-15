@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -18,6 +19,14 @@ public sealed partial class PosterRenamer
 不要生成任何新文字、符号、logo、水印、印章或标记。
 遮罩区域外的所有人物、背景、颜色、清晰度和构图必须保持不变。
 """;
+
+    private const string DefaultPosterTitleVerifyAiRetryPrompt = """
+    输入图是当前海报标题区域的局部图。删除其中全部旧文字、错字、重复字和文字残影，然后只写一次以下目标标题：{title}
+    严格保持目标标题中给出的换行，可排成一至三行；保持阅读顺序清楚、间距均匀、位置居中。
+    使用标准、清晰、易识别的简体中文印刷粗体，不要引号、行号、副标题、拼音、英文、logo、水印或其他文字。
+    局部图中的背景、光影、色彩和构图保持不变，输出相同的标题区域局部图。
+    标题必须逐字准确，不得漏字、错字、换字、增字或重复。
+    """;
 
     private readonly PosterTitleVerificationService _titleVerifier = new(new HttpClient { Timeout = TimeSpan.FromMinutes(2) });
 
@@ -48,15 +57,57 @@ public sealed partial class PosterRenamer
         if (!IsPosterTitleVerifyEnabled(config))
             return;
 
+        var verificationLayout = layout;
+        try
+        {
+            verificationLayout = await DetectPosterLayoutAsync(
+                configFile,
+                outputPath,
+                title,
+                cancellationToken).ConfigureAwait(false);
+            Log(request, "已基于AI首图重新识别实际标题位置。");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "AI首图标题位置未重新定位，改用生成前布局继续复核。 output={Output}", outputPath);
+            Log(request, "AI首图标题位置暂未重新定位，改用生成前布局继续复核。");
+        }
+
         var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
-        var titleLayout = ToTitleLayout(layout);
-        var verifyResult = await _titleVerifier.VerifyAsync(config, outputPath, title, titleLayout, cancellationToken);
+        var verifyResult = await VerifyTitleWithFullImageConfirmationAsync(
+            config,
+            outputPath,
+            title,
+            verificationLayout,
+            request,
+            cancellationToken).ConfigureAwait(false);
         if (verifyResult.Ok)
         {
             if (!string.IsNullOrWhiteSpace(verifyResult.DetectedTitle))
                 Log(request, $"AI 海报标题校验通过：{verifyResult.DetectedTitle}");
             else
                 Log(request, $"AI 海报标题校验通过：{title}");
+            return;
+        }
+
+        if (verifyResult.IsInconclusive)
+        {
+            if (verifyMode == "blocking")
+                throw new InvalidOperationException($"AI 海报标题校验无法确认：{verifyResult.Reason}");
+
+            Log(request, "AI标题校验暂未得到确定结果，已保留首张AI海报并跳过自动改字。");
+            return;
+        }
+
+        if (await TryRepairTitleWithAiRetriesAsync(
+                config,
+                outputPath,
+                title,
+                verificationLayout,
+                verifyResult,
+                request,
+                cancellationToken).ConfigureAwait(false))
+        {
             return;
         }
 
@@ -80,11 +131,17 @@ public sealed partial class PosterRenamer
             try
             {
                 await Image2RegenerateVerifiedTitleAsync(
-                    config, outputPath, title, layout, verifyResult, request, cancellationToken);
-                var secondVerify = await _titleVerifier.VerifyAsync(config, outputPath, title, titleLayout, cancellationToken);
+                    config, outputPath, title, verificationLayout, verifyResult, request, cancellationToken);
+                var secondVerify = await VerifyTitleWithFullImageConfirmationAsync(
+                    config,
+                    outputPath,
+                    title,
+                    verificationLayout,
+                    request,
+                    cancellationToken).ConfigureAwait(false);
                 if (secondVerify.Ok)
                 {
-                    Log(request, "AI海报标题初次校验未通过，已通过 Image2 重生成修复");
+                    Log(request, "AI标题已通过 Image2 自动修复并通过校验");
                     return;
                 }
 
@@ -97,7 +154,7 @@ public sealed partial class PosterRenamer
         }
 
         await FallbackRepaintVerifiedTitleAsync(
-            config, outputPath, title, layout, verifyResult, request, cancellationToken);
+            config, outputPath, title, verificationLayout, verifyResult, request, cancellationToken);
     }
 
     private async Task GenerateErasePilTitlePosterAsync(
@@ -164,18 +221,44 @@ public sealed partial class PosterRenamer
                 return;
 
             var layout = await DetectPosterLayoutAsync(configFile, outputPath, title, cancellationToken);
-            var titleLayout = ToTitleLayout(layout);
-            var verifyResult = await _titleVerifier.VerifyAsync(config, outputPath, title, titleLayout, cancellationToken);
+            var verifyResult = await VerifyTitleWithFullImageConfirmationAsync(
+                config,
+                outputPath,
+                title,
+                layout,
+                request,
+                cancellationToken).ConfigureAwait(false);
             if (verifyResult.Ok)
             {
                 Log(request, $"AI 封面标题校验通过：{verifyResult.DetectedTitle ?? title}");
                 return;
             }
 
+            var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
+            if (verifyResult.IsInconclusive)
+            {
+                if (verifyMode == "blocking")
+                    throw new InvalidOperationException($"AI 封面标题校验无法确认：{verifyResult.Reason}");
+
+                Log(request, "AI封面标题校验暂未得到确定结果，已保留首张AI封面并跳过自动改字。");
+                return;
+            }
+
+            if (await TryRepairTitleWithAiRetriesAsync(
+                    config,
+                    outputPath,
+                    title,
+                    layout,
+                    verifyResult,
+                    request,
+                    cancellationToken).ConfigureAwait(false))
+            {
+                return;
+            }
+
             var reason = verifyResult.Reason;
             if (!string.IsNullOrWhiteSpace(verifyResult.DetectedTitle))
                 reason = $"{reason}（识别标题：{verifyResult.DetectedTitle}）";
-            var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
             if (verifyMode == "warn")
             {
                 Log(request, $"AI 封面标题校验失败：{reason}，已按配置跳过阻断。");
@@ -204,47 +287,399 @@ public sealed partial class PosterRenamer
         PosterRenameRequest request,
         CancellationToken cancellationToken)
     {
-        Log(request, "AI海报标题校验未通过，开始AI去字+PIL重绘兜底");
+        Log(request, "标题全图复核确认需要修复，开始AI去字+PIL确定性重绘。");
+        var failedCandidatePath = Path.Combine(
+            Path.GetDirectoryName(outputPath)!,
+            $"{Path.GetFileNameWithoutExtension(outputPath)}.ai_failed.png");
+        var titleMaskPath = Path.Combine(
+            Path.GetDirectoryName(outputPath)!,
+            $"{Path.GetFileNameWithoutExtension(outputPath)}.title_mask.png");
         var erasedPath = Path.Combine(
             Path.GetDirectoryName(outputPath)!,
             $"{Path.GetFileNameWithoutExtension(outputPath)}.title_erased.png");
+        var verifyDebugPath = Path.Combine(
+            Path.GetDirectoryName(outputPath)!,
+            $"{Path.GetFileNameWithoutExtension(outputPath)}.title_verify.json");
+
+        try
+        {
+            using (var failedCandidate = await Image.LoadAsync<Rgba32>(outputPath, cancellationToken).ConfigureAwait(false))
+                await failedCandidate.SaveAsPngAsync(failedCandidatePath, cancellationToken).ConfigureAwait(false);
+            Log(request, $"已保留AI原始候选用于诊断：{Path.GetFileName(failedCandidatePath)}");
+
+            var maskBytes = await CreateTitleMaskAsync(outputPath, layout, cancellationToken).ConfigureAwait(false);
+            if (maskBytes is not null)
+            {
+                await File.WriteAllBytesAsync(titleMaskPath, maskBytes, cancellationToken).ConfigureAwait(false);
+                Log(request, $"已保留标题区域遮罩：{Path.GetFileName(titleMaskPath)}");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log(request, $"保留标题校验失败候选时出错，继续执行兜底：{ex.Message}");
+        }
+
+        await SavePosterTitleVerifyDebugAsync(
+            verifyDebugPath,
+            title,
+            failedCandidatePath,
+            titleMaskPath,
+            erasedPath,
+            layout,
+            initialVerify,
+            finalVerify: null,
+            request,
+            cancellationToken).ConfigureAwait(false);
+
         var erasePrompt = GetOptional(config, "PosterTitleErasePrompt") ?? DefaultPosterTitleErasePrompt;
         var erasedBytes = await GenerateTitleErasedPosterBytesAsync(
             config, outputPath, layout, erasePrompt, cancellationToken);
         await WriteGeneratedPosterCandidateAsync(outputPath, erasedBytes, erasedPath, cancellationToken);
         Log(request, $"已生成AI去字底图：{Path.GetFileName(erasedPath)}");
 
-        var repaintLayout = layout;
-        if (!string.IsNullOrWhiteSpace(request.ConfigFile))
-        {
-            try
-            {
-                repaintLayout = await DetectPosterLayoutAsync(
-                    request.ConfigFile,
-                    erasedPath,
-                    title,
-                    cancellationToken);
-                Log(request, "已在去字底图上重新检测标题区域");
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                Log(request, $"去字后重新检测标题区域失败，沿用原布局：{ex.Message}");
-            }
-        }
-
         PosterTitleProgrammaticRenderer.Render(
             erasedPath,
             outputPath,
             title,
-            ToTitleLayout(repaintLayout));
+            ToTitleLayout(layout));
         Log(request, $"已使用PIL重绘标准标题：{Path.GetFileName(outputPath)}");
 
-        var finalVerify = await _titleVerifier.VerifyAsync(
-            config, outputPath, title, ToTitleLayout(repaintLayout), cancellationToken);
+        var finalVerify = await VerifyTitleWithFullImageConfirmationAsync(
+            config,
+            outputPath,
+            title,
+            layout,
+            request,
+            cancellationToken).ConfigureAwait(false);
+        await SavePosterTitleVerifyDebugAsync(
+            verifyDebugPath,
+            title,
+            failedCandidatePath,
+            titleMaskPath,
+            erasedPath,
+            layout,
+            initialVerify,
+            finalVerify,
+            request,
+            cancellationToken).ConfigureAwait(false);
         if (finalVerify.Ok)
-            Log(request, "AI海报标题初次校验未通过，已通过AI去字+PIL重绘兜底修复");
+            Log(request, "AI标题已自动重绘并通过校验");
         else
-            Log(request, $"AI海报标题已用PIL确定性重绘完成；二次校验未通过但保留兜底结果：{finalVerify.Reason}");
+            Log(request, $"AI海报标题已用PIL确定性重绘完成；复核仍有差异，已保留确定性结果：{finalVerify.Reason}");
+    }
+
+    private static async Task SavePosterTitleVerifyDebugAsync(
+        string debugPath,
+        string title,
+        string failedCandidatePath,
+        string titleMaskPath,
+        string erasedPath,
+        PosterLayout layout,
+        PosterTitleVerifyResult initialVerify,
+        PosterTitleVerifyResult? finalVerify,
+        PosterRenameRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var payload = new
+            {
+                targetTitle = title,
+                failedCandidatePath,
+                titleMaskPath,
+                erasedPath,
+                layout = new
+                {
+                    layout.X,
+                    layout.Y,
+                    layout.Width,
+                    layout.Height,
+                    layout.FontScale,
+                    layout.Align,
+                },
+                initialVerify = new
+                {
+                    initialVerify.Ok,
+                    initialVerify.IsInconclusive,
+                    initialVerify.DetectedTitle,
+                    initialVerify.Reason,
+                },
+                finalVerify = finalVerify is { } final
+                    ? new
+                    {
+                    final.Ok,
+                    final.IsInconclusive,
+                    final.DetectedTitle,
+                    final.Reason,
+                    }
+                    : null,
+            };
+            await File.WriteAllTextAsync(
+                debugPath,
+                JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }),
+                cancellationToken).ConfigureAwait(false);
+            Log(request, $"标题校验诊断已保存：{Path.GetFileName(debugPath)}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log(request, $"保存标题校验诊断时出错，继续执行兜底：{ex.Message}");
+        }
+    }
+
+    private async Task<PosterTitleVerifyResult> VerifyTitleWithFullImageConfirmationAsync(
+        IReadOnlyDictionary<string, string> config,
+        string imagePath,
+        string title,
+        PosterLayout detectedLayout,
+        PosterRenameRequest request,
+        CancellationToken cancellationToken)
+    {
+        var croppedVerify = await _titleVerifier.VerifyAsync(
+            config,
+            imagePath,
+            title,
+            ToTitleLayout(detectedLayout),
+            cancellationToken).ConfigureAwait(false);
+        if (croppedVerify.Ok)
+            return croppedVerify;
+
+        Log(request, croppedVerify.IsInconclusive
+            ? "标题区域校验暂未得到确定结果，改用全图复核。"
+            : "标题区域校验发现文字差异，开始全图复核。");
+        var fullImageLayout = detectedLayout with
+        {
+            X = 0,
+            Y = 0,
+            Width = 1,
+            Height = 1,
+        };
+        var fullImageVerify = await _titleVerifier.VerifyAsync(
+            config,
+            imagePath,
+            title,
+            ToTitleLayout(fullImageLayout),
+            cancellationToken).ConfigureAwait(false);
+        if (fullImageVerify.Ok)
+        {
+            Log(
+                request,
+                $"标题区域裁剪位置不准确，但全图复核通过：{(string.IsNullOrWhiteSpace(fullImageVerify.DetectedTitle) ? title : fullImageVerify.DetectedTitle)}");
+        }
+        else
+        {
+            Log(request, fullImageVerify.IsInconclusive
+                ? "标题全图复核暂未得到确定结果。"
+                : "标题全图复核确认文字需要修复。");
+        }
+
+        return fullImageVerify;
+    }
+
+    private async Task<bool> TryRepairTitleWithAiRetriesAsync(
+        IReadOnlyDictionary<string, string> config,
+        string outputPath,
+        string title,
+        PosterLayout layout,
+        PosterTitleVerifyResult initialVerify,
+        PosterRenameRequest request,
+        CancellationToken cancellationToken)
+    {
+        var retryCount = PosterTitleAiRetryPolicy.ResolveRetryCount(config);
+        if (retryCount <= 0)
+            return false;
+
+        if (!PosterTitleAiRetryPolicy.ShouldRetry(initialVerify))
+        {
+            Log(request, $"标题校验失败属于接口或配置异常，跳过AI改字重试：{initialVerify.Reason}");
+            return false;
+        }
+
+        var previousVerify = initialVerify;
+        var outputDirectory = Path.GetDirectoryName(outputPath)!;
+        var outputStem = Path.GetFileNameWithoutExtension(outputPath);
+
+        for (var attempt = 1; attempt <= retryCount; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var pendingPath = Path.Combine(outputDirectory, $"{outputStem}.ai_retry_{attempt}.pending.png");
+            var failedPath = Path.Combine(outputDirectory, $"{outputStem}.ai_retry_{attempt}_failed.png");
+            TryDeleteFile(pendingPath);
+            TryDeleteFile(failedPath);
+
+            try
+            {
+                Log(
+                    request,
+                    $"AI标题安全修复第 {attempt}/{retryCount} 次：目标逐字 {PosterTitleAiRetryPolicy.BuildTitleCharacterSequence(title)}；" +
+                    $"上次识别“{previousVerify.DetectedTitle}”，原因：{previousVerify.Reason}");
+
+                using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                attemptCts.CancelAfter(TimeSpan.FromSeconds(120));
+                var retryBytes = await GenerateTitleRepairPosterBytesAsync(
+                    config,
+                    outputPath,
+                    title,
+                    layout,
+                    attemptCts.Token).ConfigureAwait(false);
+                await WriteGeneratedPosterCandidateAsync(
+                    outputPath,
+                    retryBytes,
+                    pendingPath,
+                    attemptCts.Token).ConfigureAwait(false);
+
+                var retryVerify = await VerifyTitleWithFullImageConfirmationAsync(
+                    config,
+                    pendingPath,
+                    title,
+                    layout,
+                    request,
+                    cancellationToken).ConfigureAwait(false);
+                if (retryVerify.Ok)
+                {
+                    File.Copy(pendingPath, outputPath, overwrite: true);
+                    TryDeleteFile(pendingPath);
+                    Log(
+                        request,
+                        $"AI标题安全修复第 {attempt} 次通过校验：{(string.IsNullOrWhiteSpace(retryVerify.DetectedTitle) ? title : retryVerify.DetectedTitle)}");
+                    return true;
+                }
+
+                File.Move(pendingPath, failedPath, overwrite: true);
+                Log(
+                    request,
+                    $"AI标题安全修复第 {attempt} 次未通过，候选已留档：{Path.GetFileName(failedPath)}；{retryVerify.Reason}");
+                previousVerify = retryVerify;
+                if (!PosterTitleAiRetryPolicy.ShouldRetry(retryVerify))
+                {
+                    Log(request, "重试候选的校验遇到接口或配置异常，停止继续生成，进入既定校验失败处理模式。");
+                    break;
+                }
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                TryDeleteFile(pendingPath);
+                Log(request, $"AI标题安全修复第 {attempt} 次请求超时，正式海报未被覆盖。");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                TryDeleteFile(pendingPath);
+                Log(request, $"AI标题安全修复第 {attempt} 次执行失败，正式海报未被覆盖：{ex.Message}");
+            }
+        }
+
+        Log(request, $"AI标题安全修复未通过，正式海报保持首次成功出图，继续执行标题校验失败处理模式。");
+        return false;
+    }
+
+    private async Task<byte[]> GenerateTitleRepairPosterBytesAsync(
+        IReadOnlyDictionary<string, string> config,
+        string inputPath,
+        string title,
+        PosterLayout layout,
+        CancellationToken cancellationToken)
+    {
+        var provider = NormalizeImageProvider(GetOptional(config, "ImageProvider"));
+        var endpoint = GetOptional(config, "ImageEditEndpoint") ?? GetRequired(config, "ImageModelEndpoint");
+        var configuredApiPath = GetOptional(config, "ImageEditPath") ?? GetDefaultImageEditPath(endpoint);
+        var apiPath = IsOpenAiImageProvider(provider) ||
+                      configuredApiPath.EndsWith("/images/generations", StringComparison.OrdinalIgnoreCase)
+            ? configuredApiPath
+            : "/images/generations";
+        var requestUrl = BuildApiUrl(endpoint, apiPath);
+        var modelId = GetOptional(config, "ImageEditModelId") ?? GetRequired(config, "ImageModelId");
+        var apiKey = GetOptional(config, "ImageEditApiKey") ?? GetRequired(config, "ImageModelApiKey");
+        var promptTitle = PosterTitleAiRetryPolicy.FormatTitleForPrompt(title);
+        var promptVariables = CreatePosterPromptVariables(promptTitle, title, null, null);
+        var promptTemplate = GetOptional(config, "PosterTitleVerifyAiRetryPrompt")
+            ?? DefaultPosterTitleVerifyAiRetryPrompt;
+        var prompt = RenderPromptTemplate(promptTemplate, promptVariables).Trim();
+
+        using var source = await Image.LoadAsync<Rgba32>(inputPath, cancellationToken).ConfigureAwait(false);
+        var cropRectangle = PosterTitleAiRetryPolicy.ComputeCropRectangle(
+            source.Width,
+            source.Height,
+            layout.X,
+            layout.Y,
+            layout.Width,
+            layout.Height);
+        using var crop = source.Clone(ctx => ctx.Crop(cropRectangle));
+        var cropPath = Path.Combine(Path.GetTempPath(), $"poster-title-roi-{Guid.NewGuid():N}.png");
+        try
+        {
+            await crop.SaveAsPngAsync(cropPath, cancellationToken).ConfigureAwait(false);
+            byte[] repairedCropBytes;
+            if (IsOpenAiImageProvider(provider))
+            {
+                repairedCropBytes = await GeneratePosterWithEditFormNoMaskAsync(
+                    requestUrl,
+                    modelId,
+                    apiKey,
+                    cropPath,
+                    "image/png",
+                    prompt,
+                    provider,
+                    "high",
+                    "auto",
+                    cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var cropApiSize = PosterCoverFrameSizeHelper.ComputeApiSize(cropRectangle.Width, cropRectangle.Height);
+                repairedCropBytes = await GeneratePosterWithGenerationsJsonAsync(
+                    requestUrl,
+                    modelId,
+                    apiKey,
+                    cropPath,
+                    "image/png",
+                    prompt,
+                    provider,
+                    NormalizeImageQuality(GetOptional(config, "ImageQuality")),
+                    cropApiSize,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            await using var repairedBuffer = new MemoryStream(repairedCropBytes);
+            using var repairedCrop = await Image.LoadAsync<Rgba32>(repairedBuffer, cancellationToken).ConfigureAwait(false);
+            if (repairedCrop.Width != cropRectangle.Width || repairedCrop.Height != cropRectangle.Height)
+                ResizeToCanvasPreservingAspect(repairedCrop, cropRectangle.Width, cropRectangle.Height);
+
+            ApplyFeatheredTitlePatch(source, repairedCrop, cropRectangle);
+            await using var outputBuffer = new MemoryStream();
+            await source.SaveAsPngAsync(outputBuffer, cancellationToken).ConfigureAwait(false);
+            return outputBuffer.ToArray();
+        }
+        finally
+        {
+            TryDeleteFile(cropPath);
+        }
+    }
+
+    private static void ApplyFeatheredTitlePatch(
+        Image<Rgba32> source,
+        Image<Rgba32> patch,
+        Rectangle target)
+    {
+        var feather = Math.Clamp(Math.Min(patch.Width, patch.Height) / 18, 4, 24);
+        patch.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var edgeDistance = Math.Min(Math.Min(x, row.Length - 1 - x), Math.Min(y, accessor.Height - 1 - y));
+                    if (edgeDistance >= feather)
+                        continue;
+
+                    var t = Math.Clamp((edgeDistance + 1f) / (feather + 1f), 0f, 1f);
+                    var smoothAlpha = t * t * (3f - 2f * t);
+                    var pixel = row[x];
+                    pixel.A = (byte)Math.Clamp((int)Math.Round(pixel.A * smoothAlpha), 0, 255);
+                    row[x] = pixel;
+                }
+            }
+        });
+        source.Mutate(ctx => ctx.DrawImage(patch, new Point(target.X, target.Y), 1f));
     }
 
     private async Task Image2RegenerateVerifiedTitleAsync(
@@ -275,7 +710,11 @@ public sealed partial class PosterRenamer
         var apiKey = GetOptional(config, "ImageEditApiKey") ?? GetRequired(config, "ImageModelApiKey");
         var provider = NormalizeImageProvider(GetOptional(config, "ImageProvider"));
         var imageQuality = NormalizeImageQuality(GetOptional(config, "ImageQuality"));
-        var imageSize = NormalizeImageSize(GetOptional(config, "ImageSize"), provider);
+        var sourceInfo = await Image.IdentifyAsync(inputPath, cancellationToken)
+            ?? throw new InvalidOperationException($"无法读取待去字海报尺寸: {inputPath}");
+        var imageSize = provider == "doubao"
+            ? PosterCoverFrameSizeHelper.ResolveFrameApiSize(sourceInfo.Width, sourceInfo.Height, config)
+            : NormalizeImageSize(GetOptional(config, "ImageSize"), provider);
         var mediaType = GuessMediaType(Path.GetExtension(inputPath).TrimStart('.'));
 
         return await GeneratePosterWithAiPromptAsync(
@@ -286,7 +725,7 @@ public sealed partial class PosterRenamer
             inputPath,
             mediaType,
             layout,
-            MergePromptWithGuardrails(prompt, Path.GetFileNameWithoutExtension(inputPath)),
+            prompt.Trim(),
             provider,
             imageQuality,
             imageSize,
@@ -430,7 +869,7 @@ public sealed partial class PosterRenamer
         httpRequest.Content = form;
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(90));
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
         using var response = await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
         var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
         if (!response.IsSuccessStatusCode)
@@ -455,7 +894,7 @@ public sealed partial class PosterRenamer
                 ?? throw new InvalidOperationException($"无法读取原海报尺寸: {inputPath}");
             using var generated = await Image.LoadAsync<Rgba32>(tempOut, cancellationToken);
             if (generated.Width != sourceInfo.Width || generated.Height != sourceInfo.Height)
-                generated.Mutate(ctx => ctx.Resize(sourceInfo.Width, sourceInfo.Height));
+                ResizeToCanvasPreservingAspect(generated, sourceInfo.Width, sourceInfo.Height);
             await generated.SaveAsync(outputPath, cancellationToken);
         }
         finally
@@ -480,7 +919,7 @@ public sealed partial class PosterRenamer
                 await img.SaveAsync(outputPath, cancellationToken);
             else
             {
-                img.Mutate(ctx => ctx.Resize(targetW, targetH));
+                ResizeToCanvasPreservingAspect(img, targetW, targetH);
                 await img.SaveAsync(outputPath, cancellationToken);
             }
         }
@@ -533,5 +972,95 @@ public sealed partial class PosterRenamer
         {
             // ignore
         }
+    }
+}
+
+internal static class PosterTitleAiRetryPolicy
+{
+    internal const int DefaultRetryCount = 1;
+    internal const int MaxRetryCount = 3;
+
+    internal static int ResolveRetryCount(IReadOnlyDictionary<string, string> config)
+    {
+        if (!config.TryGetValue("PosterTitleVerifyAiRetryCount", out var value) ||
+            !int.TryParse(value, out var parsed))
+        {
+            return DefaultRetryCount;
+        }
+
+        return Math.Clamp(parsed, 0, MaxRetryCount);
+    }
+
+    internal static bool ShouldRetry(PosterTitleVerifyResult result)
+    {
+        if (result.Ok || result.IsInconclusive)
+            return false;
+        if (!string.IsNullOrWhiteSpace(result.DetectedTitle))
+            return true;
+
+        var reason = result.Reason ?? string.Empty;
+        string[] nonRetryableMarkers =
+        [
+            "接口失败",
+            "配置缺少",
+            "未返回内容",
+            "未返回合法 JSON",
+            "校验未返回",
+            "HTTP ",
+            "timeout",
+            "timed out",
+            "unauthorized",
+            "forbidden",
+            "too many requests",
+        ];
+        return !nonRetryableMarkers.Any(marker =>
+            reason.Contains(marker, StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static string BuildTitleCharacterSequence(string title) =>
+        string.Join(" / ", (title ?? string.Empty).Trim().EnumerateRunes().Select(rune => rune.ToString()));
+
+    internal static string FormatTitleForPrompt(string title)
+    {
+        var characters = (title ?? string.Empty).Trim().EnumerateRunes().Select(rune => rune.ToString()).ToArray();
+        if (characters.Length <= 7)
+            return string.Concat(characters);
+
+        var lineCount = characters.Length <= 14 ? 2 : 3;
+        var baseLength = characters.Length / lineCount;
+        var extra = characters.Length % lineCount;
+        var lines = new List<string>(lineCount);
+        var offset = 0;
+        for (var lineIndex = 0; lineIndex < lineCount; lineIndex++)
+        {
+            var length = baseLength + (lineIndex < extra ? 1 : 0);
+            lines.Add(string.Concat(characters.Skip(offset).Take(length)));
+            offset += length;
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    internal static Rectangle ComputeCropRectangle(
+        int imageWidth,
+        int imageHeight,
+        float normalizedX,
+        float normalizedY,
+        float normalizedWidth,
+        float normalizedHeight)
+    {
+        imageWidth = Math.Max(1, imageWidth);
+        imageHeight = Math.Max(1, imageHeight);
+        var x = Math.Clamp((int)Math.Floor(imageWidth * normalizedX), 0, imageWidth - 1);
+        var y = Math.Clamp((int)Math.Floor(imageHeight * normalizedY), 0, imageHeight - 1);
+        var width = Math.Clamp((int)Math.Ceiling(imageWidth * normalizedWidth), 1, imageWidth - x);
+        var height = Math.Clamp((int)Math.Ceiling(imageHeight * normalizedHeight), 1, imageHeight - y);
+        var padX = Math.Max(24, (int)Math.Ceiling(width * 0.14));
+        var padY = Math.Max(24, (int)Math.Ceiling(height * 0.55));
+        var left = Math.Max(0, x - padX);
+        var top = Math.Max(0, y - padY);
+        var right = Math.Min(imageWidth, x + width + padX);
+        var bottom = Math.Min(imageHeight, y + height + padY);
+        return new Rectangle(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top));
     }
 }

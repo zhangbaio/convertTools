@@ -42,7 +42,18 @@ internal static class PosterCoverFrameSizeHelper
         if (provider == "doubao")
         {
             var configured = (config.GetValueOrDefault("ImageSize") ?? "").Trim();
-            return string.IsNullOrWhiteSpace(configured) ? computed : configured;
+            if (TryParseSize(configured, out var configuredWidth, out var configuredHeight))
+            {
+                var sourceAspect = Math.Max(1, width) / (double)Math.Max(1, height);
+                var configuredAspect = configuredWidth / (double)configuredHeight;
+                var relativeDifference = Math.Abs(configuredAspect - sourceAspect) / sourceAspect;
+                if (relativeDifference <= 0.015)
+                    return configured;
+            }
+
+            // Seedream accepts arbitrary multiples-of-16 sizes. Keeping the source aspect
+            // avoids squeezing generated Chinese glyphs when the configured preset differs.
+            return computed;
         }
 
         return computed;
@@ -57,6 +68,18 @@ internal static class PosterCoverFrameSizeHelper
             "gemini" => "doubao",
             _ => provider is "ofox_image2" ? "ofox_image2" : "doubao",
         };
+    }
+
+    private static bool TryParseSize(string value, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+        var parts = (value ?? string.Empty).Trim().ToLowerInvariant().Split('x');
+        return parts.Length == 2
+            && int.TryParse(parts[0], out width)
+            && int.TryParse(parts[1], out height)
+            && width > 0
+            && height > 0;
     }
 
     private static int RoundUpToMultiple(int value, int multiple) =>
