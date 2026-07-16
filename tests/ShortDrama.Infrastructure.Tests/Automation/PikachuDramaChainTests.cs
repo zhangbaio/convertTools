@@ -44,7 +44,6 @@ public sealed class PikachuDramaChainTests
         var settings = new DramaSourceSettings
         {
             DramaSourceChain = "pikachu",
-            DramaServiceOrderSearch = "pikachu",
             PikachuFanqieCookie = $"{cleanCookie}\0\b\u0003metadata",
             PikachuDramaType = "short"
         };
@@ -76,6 +75,40 @@ public sealed class PikachuDramaChainTests
     }
 
     [Fact]
+    public async Task SearchAsync_Should_Not_Fallback_To_Pikachu_When_Hglocal_Returns_Empty()
+    {
+        var settings = new DramaSourceSettings
+        {
+            DramaSourceChain = "hglocal",
+            HongguoLocalBaseUrl = "https://local.example.com",
+            HongguoLocalApiKey = "local-key",
+            PikachuFanqieCookie = BuildFanqieCookie(),
+            PikachuDramaType = "short"
+        };
+        var handler = new HglocalEmptyRecordingHandler();
+        using var httpClient = new HttpClient(handler);
+        var router = new DramaSourceRouter(
+            httpClient,
+            new TestDramaSettingsProvider(settings),
+            new HongguoLocalApiService(httpClient),
+            new HongguoNewApiService(httpClient),
+            new HongguoDramaSearchService(httpClient),
+            new HongguoDramaDownloader(httpClient),
+            new HongguoMemoryReaderService());
+
+        var results = await router.SearchAsync("本地无结果", 1, CancellationToken.None);
+
+        results.Should().BeEmpty();
+        handler.Requests.Should().Contain(request =>
+            request.RequestUri!.AbsolutePath.EndsWith("/api/hongguo/search", StringComparison.OrdinalIgnoreCase));
+        handler.Requests.Should().OnlyContain(request =>
+            request.RequestUri!.AbsolutePath.StartsWith("/api/hongguo/", StringComparison.OrdinalIgnoreCase));
+        handler.Requests.Should().NotContain(request =>
+            request.RequestUri!.AbsolutePath.Contains("novelfm", StringComparison.OrdinalIgnoreCase) ||
+            request.RequestUri!.AbsolutePath.Contains("/api/drama/hongguo", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task DownloadAsync_Should_Use_Pikachu_DecryptVideo_Endpoint()
     {
         var outputDir = Path.Combine(Path.GetTempPath(), $"pikachu-download-{Guid.NewGuid():N}");
@@ -88,7 +121,6 @@ public sealed class PikachuDramaChainTests
             var settings = new DramaSourceSettings
             {
                 DramaSourceChain = "pikachu",
-                DramaServiceOrderDownload = "pikachu,hglocal,hgnew",
                 HongguoDownloadTimeoutSeconds = "10",
                 HongguoEpisodeDownloadAttempts = "1",
                 PikachuServerUrl = "",
@@ -164,7 +196,6 @@ public sealed class PikachuDramaChainTests
             var settings = new DramaSourceSettings
             {
                 DramaSourceChain = "pikachu",
-                DramaServiceOrderDownload = "pikachu,hglocal,hgnew",
                 HongguoDownloadTimeoutSeconds = "10",
                 HongguoEpisodeDownloadAttempts = "1",
                 PikachuServerUrl = "",
@@ -342,6 +373,38 @@ public sealed class PikachuDramaChainTests
                         ? Uri.UnescapeDataString(pair[1].Replace('+', ' '))
                         : string.Empty,
                     StringComparer.Ordinal);
+        }
+
+        private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+    }
+
+    private sealed class HglocalEmptyRecordingHandler : HttpMessageHandler
+    {
+        public List<HttpRequestMessage> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/api/hongguo/search", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(JsonResponse("""{"results":[]}"""));
+            }
+
+            if (path.EndsWith("/api/hongguo/latest", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(JsonResponse("""{"items":[]}"""));
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                Content = new StringContent($"unexpected request: {request.RequestUri}")
+            });
         }
 
         private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)

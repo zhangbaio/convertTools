@@ -14,13 +14,8 @@ namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 {
-    private const string SearchCapability = "search";
-    private const string DownloadCapability = "download";
-    private const string NewReleaseCapability = "new_release";
-    private static readonly string[] SearchDefaults = ["hgnew", "hglocal", "pikachu"];
-    private static readonly string[] DownloadDefaults = ["hgnew", "hglocal", "pikachu"];
-    private static readonly string[] NewReleaseDefaults = ["hgnew", "hglocal"];
-    private static readonly string[] RankingDefaults = ["hglocal", "pikachu"];
+    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu"];
+    private static readonly string[] NewReleaseServices = ["hgnew", "hglocal"];
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
     private const string EpisodeNumberModeContinuous = "continuous";
     private const int DownloadBufferSize = 128 * 1024;
@@ -64,37 +59,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken)
     {
         var settings = _settingsProvider.Get();
-        Exception? lastError = null;
-
-        foreach (var source in ResolveServiceOrder(settings.DramaServiceOrderSearch, SearchDefaults, settings.DramaSourceChain))
+        var source = ResolveSelectedService(settings.DramaSourceChain, SearchServices);
+        return source switch
         {
-            try
-            {
-                var result = source switch
-                {
-                    "hgnew" => await SearchHgnewAsync(keyword, page, settings, cancellationToken),
-                    "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
-                    "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken),
-                    _ => []
-                };
-
-                if (result.Count > 0)
-                {
-                    return result;
-                }
-            }
-            catch (Exception ex)
-            {
-                lastError = ex;
-            }
-        }
-
-        if (lastError is not null)
-        {
-            throw lastError;
-        }
-
-        return [];
+            "hgnew" => await SearchHgnewAsync(keyword, page, settings, cancellationToken),
+            "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
+            "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken),
+            _ => []
+        };
     }
 
     public async Task<int> ProbePikachuSearchAsync(DramaSourceSettings settings, CancellationToken cancellationToken)
@@ -166,36 +138,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> hglocalLoader,
         CancellationToken cancellationToken)
     {
-        Exception? lastError = null;
-
-        foreach (var source in ResolveServiceOrder(settings.DramaServiceOrderNewRelease, NewReleaseDefaults, settings.DramaSourceChain))
+        var source = ResolveSelectedService(settings.DramaSourceChain, NewReleaseServices);
+        return source switch
         {
-            try
-            {
-                var result = source switch
-                {
-                    "hgnew" => await hgnewLoader(cancellationToken),
-                    "hglocal" => await hglocalLoader(cancellationToken),
-                    _ => []
-                };
-
-                if (result.Count > 0)
-                {
-                    return result;
-                }
-            }
-            catch (Exception ex)
-            {
-                lastError = ex;
-            }
-        }
-
-        if (lastError is not null)
-        {
-            throw lastError;
-        }
-
-        return [];
+            "hgnew" => await hgnewLoader(cancellationToken),
+            "hglocal" => await hglocalLoader(cancellationToken),
+            _ => []
+        };
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> LoadHgnewMangaTodayAsync(
@@ -1761,31 +1710,17 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
     }
 
-    private static IEnumerable<string> ResolveServiceOrder(string configured, IReadOnlyList<string> defaults, string legacyFirst)
+    private static string? ResolveSelectedService(string selected, IReadOnlyList<string> supportedServices)
     {
-        var items = configured.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(item => item.ToLowerInvariant())
-            .Where(item => defaults.Contains(item, StringComparer.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (!string.IsNullOrWhiteSpace(legacyFirst) &&
-            defaults.Contains(legacyFirst, StringComparer.OrdinalIgnoreCase))
+        var normalized = (selected ?? "hgnew").Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(normalized))
         {
-            var preferred = legacyFirst.Trim().ToLowerInvariant();
-            items.RemoveAll(item => string.Equals(item, preferred, StringComparison.OrdinalIgnoreCase));
-            items.Insert(0, preferred);
+            normalized = "hgnew";
         }
 
-        foreach (var item in defaults)
-        {
-            if (!items.Contains(item, StringComparer.OrdinalIgnoreCase))
-            {
-                items.Add(item);
-            }
-        }
-
-        return items;
+        return supportedServices.Contains(normalized, StringComparer.OrdinalIgnoreCase)
+            ? normalized
+            : null;
     }
 
     private static string EnsurePrefixed(string? value, string prefix)
