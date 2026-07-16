@@ -186,9 +186,6 @@ public sealed class QueueWorkerRunner
                 .ToList();
 
         ManualIntervention.Reset();
-        var settings = ClientSettingsStore.Load();
-        var manualInterventionAllowed = uploadEnabled
-            && settings.TiktokManualInterventionOnSingleFailure;
 
         var success = 0;
         var failed = 0;
@@ -331,8 +328,10 @@ public sealed class QueueWorkerRunner
                         onProgress,
                         ct,
                         Mutate,
-                        manualInterventionAllowed ? ManualIntervention : null,
-                        _ensureProofMaterial));
+                        // 队列必须可无人值守执行：单个项目上传失败后直接标记失败并释放上传槽，
+                        // 不能等待人工弹窗而阻塞同账号的后续项目。
+                        manualIntervention: null,
+                        ensureProofMaterial: _ensureProofMaterial));
                     uploadTasks[task] = (capturedItem, accountKey, capturedAccount);
                     started++;
                     rotations = readyForUpload.Count;
@@ -613,6 +612,21 @@ public sealed class QueueWorkerRunner
                             QueueStepRegistry.UploadSeries);
                     }
                 }
+                catch (Exception ex)
+                {
+                    var message = $"{ex.GetType().Name}: {ex.Message}";
+                    Mutate(() =>
+                    {
+                        MarkFailed(uploadCtx.Item, QueueStepRegistry.UploadSeries, message);
+                        failed++;
+                    });
+                    Report(
+                        onProgress,
+                        workspace,
+                        uploadCtx.Item,
+                        $"上传异常，已跳过当前项目并继续后续队列：{message}",
+                        QueueStepRegistry.UploadSeries);
+                }
             }
         }
 
@@ -786,7 +800,6 @@ public sealed class QueueWorkerRunner
         mutate(() => MarkRunning(item, QueueStepRegistry.UploadSeries));
         Report(onProgress, workspace, item, $"[{account.DisplayName}] 准备内置浏览器…", QueueStepRegistry.UploadSeries);
 
-        Exception? failure = null;
         var failureMessage = "";
         var stopQueue = false;
         var skipManualIntervention = false;
@@ -841,12 +854,10 @@ public sealed class QueueWorkerRunner
                 throw;
             }
 
-            failure = ex;
             failureMessage = BuildNonQueueCancellationMessage(QueueStepRegistry.LabelOf(QueueStepRegistry.UploadSeries), ex);
         }
         catch (Exception ex)
         {
-            failure = ex;
             failureMessage = ex.Message;
         }
 
@@ -918,7 +929,9 @@ public sealed class QueueWorkerRunner
         }
 
         mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, failureMessage));
-        if (failure is not null) return false;
+        Report(onProgress, workspace, item,
+            $"上传失败，已跳过当前项目并继续后续队列：{failureMessage}",
+            QueueStepRegistry.UploadSeries);
         return false;
     }
 

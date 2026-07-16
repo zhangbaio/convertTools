@@ -53,6 +53,143 @@ public sealed class QueueWorkerRunnerTests
             item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Completed);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_skips_failed_upload_and_continues_same_account_queue(bool throwException)
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-skip-failure",
+            Name = "skip-failure",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var failedItem = CreateReadyToUploadItem(1, account);
+        var nextItem = CreateReadyToUploadItem(2, account);
+        failedItem.QueuedAt = "2026-01-01T00:00:00";
+        nextItem.QueuedAt = "2026-01-01T00:00:01";
+        var items = new List<QueueProjectItem> { failedItem, nextItem };
+        var host = new FirstUploadFailsHost(throwException);
+        var runner = new QueueWorkerRunner();
+        var progressMessages = new List<string>();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var summary = await runner.RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-skip-upload-failure-test"),
+            items,
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ProjectConcurrency = 2,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: progress => progressMessages.Add(progress.Message),
+            onPersist: null,
+            cts.Token);
+
+        summary.Stopped.Should().BeFalse();
+        summary.SuccessCount.Should().Be(1);
+        summary.FailedCount.Should().Be(1);
+        host.PublishedProjectDirs.Should().Equal(failedItem.ProjectDir, nextItem.ProjectDir);
+        failedItem.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Failed);
+        failedItem.LastError.Should().Contain("TimeoutException");
+        nextItem.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
+        runner.ManualIntervention.HasPending.Should().BeFalse();
+        progressMessages.Should().Contain(message =>
+            message.Contains("已跳过当前项目并继续后续队列", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task RunAsync_still_stops_queue_for_explicit_daily_limit_result()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-daily-limit",
+            Name = "daily-limit",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var firstItem = CreateReadyToUploadItem(1, account);
+        var nextItem = CreateReadyToUploadItem(2, account);
+        firstItem.QueuedAt = "2026-01-01T00:00:00";
+        nextItem.QueuedAt = "2026-01-01T00:00:01";
+        var host = new DailyLimitPublishHost();
+
+        var summary = await new QueueWorkerRunner().RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-daily-limit-test"),
+            [firstItem, nextItem],
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ProjectConcurrency = 2,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.Stopped.Should().BeTrue();
+        summary.SuccessCount.Should().Be(0);
+        summary.FailedCount.Should().Be(1);
+        host.PublishedProjectDirs.Should().Equal(firstItem.ProjectDir);
+        firstItem.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Stopped);
+    }
+
+    [Fact]
+    public async Task RunAsync_skips_unexpected_upload_pipeline_fault_and_continues_queue()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-pipeline-fault",
+            Name = "pipeline-fault",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var failedItem = CreateReadyToUploadItem(1, account);
+        var nextItem = CreateReadyToUploadItem(2, account);
+        failedItem.QueuedAt = "2026-01-01T00:00:00";
+        nextItem.QueuedAt = "2026-01-01T00:00:01";
+        var host = new ImmediatePublishHost();
+        var injectFault = true;
+
+        var summary = await new QueueWorkerRunner().RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-pipeline-fault-test"),
+            [failedItem, nextItem],
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ProjectConcurrency = 2,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: progress =>
+            {
+                if (injectFault &&
+                    ReferenceEquals(progress.Item, failedItem) &&
+                    progress.Message.Contains("准备内置浏览器", StringComparison.Ordinal))
+                {
+                    injectFault = false;
+                    throw new InvalidOperationException("unexpected upload pipeline fault");
+                }
+            },
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.Stopped.Should().BeFalse();
+        summary.SuccessCount.Should().Be(1);
+        summary.FailedCount.Should().Be(1);
+        failedItem.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Failed);
+        failedItem.LastError.Should().Contain("unexpected upload pipeline fault");
+        nextItem.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
+        host.PublishedProjectDirs.Should().Equal(nextItem.ProjectDir);
+    }
+
     [Fact]
     public async Task RunAsync_upload_only_prepares_current_project_proof_before_browser()
     {
@@ -630,6 +767,66 @@ public sealed class QueueWorkerRunnerTests
             PublishedProjectDirs.Add(project.ProjectDir);
             PublishedAccountIds.Add(account.Id);
             return Task.FromResult(PublishResult.Success("ok"));
+        }
+    }
+
+    private sealed class FirstUploadFailsHost : IQueuePublishHost
+    {
+        private readonly bool _throwException;
+        private int _publishAttempts;
+
+        public FirstUploadFailsHost(bool throwException)
+        {
+            _throwException = throwException;
+        }
+
+        public List<string> PublishedProjectDirs { get; } = new();
+
+        public Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
+            TikTokAccountProfile account,
+            Action<string>? log,
+            CancellationToken ct) =>
+            Task.FromResult(QueueBrowserReadyResult.Ready());
+
+        public Task<PublishResult> PublishProjectAsync(
+            TikTokAccountProfile account,
+            QueueProjectItem project,
+            FinalAction finalAction,
+            QueueRunOptions options,
+            Action<string> log,
+            CancellationToken ct)
+        {
+            PublishedProjectDirs.Add(project.ProjectDir);
+            if (Interlocked.Increment(ref _publishAttempts) != 1)
+                return Task.FromResult(PublishResult.Success("ok"));
+
+            const string message = "TimeoutException: Timeout 10000ms exceeded.";
+            return _throwException
+                ? Task.FromException<PublishResult>(new TimeoutException(message))
+                : Task.FromResult(PublishResult.Fail(message));
+        }
+    }
+
+    private sealed class DailyLimitPublishHost : IQueuePublishHost
+    {
+        public List<string> PublishedProjectDirs { get; } = new();
+
+        public Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
+            TikTokAccountProfile account,
+            Action<string>? log,
+            CancellationToken ct) =>
+            Task.FromResult(QueueBrowserReadyResult.Ready());
+
+        public Task<PublishResult> PublishProjectAsync(
+            TikTokAccountProfile account,
+            QueueProjectItem project,
+            FinalAction finalAction,
+            QueueRunOptions options,
+            Action<string> log,
+            CancellationToken ct)
+        {
+            PublishedProjectDirs.Add(project.ProjectDir);
+            return Task.FromResult(PublishResult.FailAndStopQueue("TikTok 单日创建剧集上限：今日额度已用完"));
         }
     }
 

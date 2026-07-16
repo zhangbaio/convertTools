@@ -190,9 +190,9 @@
                             <NumericUpDown Grid.Row="7" Grid.Column="1" Value="{Binding TiktokMaterialValidateConcurrency}" Minimum="1" Maximum="16" Width="120" HorizontalAlignment="Left" />
                         </Grid>
 
-                        <TextBlock Text="人工介入" FontWeight="Bold" />
-                        <CheckBox Content="项目上传失败时弹窗询问人工介入或跳过"
-                                  IsChecked="{Binding TiktokManualInterventionOnSingleFailure}" />
+                        <TextBlock Text="上传异常处理" FontWeight="Bold" />
+                        <TextBlock Text="项目上传异常时自动标记失败并跳过，继续执行后续队列；单日创建上限等明确限制仍会停止队列。"
+                                   TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
