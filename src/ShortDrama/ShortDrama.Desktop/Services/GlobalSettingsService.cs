@@ -30,10 +30,6 @@ public sealed class GlobalSettingsService
         var payload = new GlobalDesktopSettings
         {
             DramaSourceChain = snapshot.DramaSourceChain,
-            DramaServiceOrderSearch = snapshot.DramaServiceOrderSearch,
-            DramaServiceOrderDownload = snapshot.DramaServiceOrderDownload,
-            DramaServiceOrderNewRelease = snapshot.DramaServiceOrderNewRelease,
-            DramaServiceOrderRanking = snapshot.DramaServiceOrderRanking,
             XingeEnabled = snapshot.XingeEnabled,
             XingeServerUrl = snapshot.XingeServerUrl,
             XingeUsername = snapshot.XingeUsername,
@@ -255,16 +251,6 @@ public sealed class GlobalSettingsService
             return currentValue;
         }
 
-        string NormalizeOrder(string raw, params string[] allowed)
-        {
-            var items = raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(item => item.Trim().ToLowerInvariant())
-                .Where(item => allowed.Contains(item, StringComparer.OrdinalIgnoreCase))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            return items.Count == 0 ? string.Join(',', allowed) : string.Join(',', items);
-        }
-
         int PickPositiveInt(int currentValue, string legacyKey, int defaultValue)
         {
             if (!legacy.TryGetValue(legacyKey, out var legacyValue) ||
@@ -293,10 +279,6 @@ public sealed class GlobalSettingsService
         return new GlobalDesktopSettings
         {
             DramaSourceChain = mergedDramaSourceChain,
-            DramaServiceOrderSearch = NormalizeOrder(PickString(current.DramaServiceOrderSearch, "drama_service_order_search", "hgnew,hglocal,pikachu"), "hgnew", "hglocal", "pikachu"),
-            DramaServiceOrderDownload = NormalizeOrder(PickString(current.DramaServiceOrderDownload, "drama_service_order_download", "hgnew,hglocal,pikachu"), "hgnew", "hglocal", "pikachu"),
-            DramaServiceOrderNewRelease = NormalizeOrder(PickString(current.DramaServiceOrderNewRelease, "drama_service_order_new_release", "hgnew,hglocal"), "hgnew", "hglocal"),
-            DramaServiceOrderRanking = NormalizeOrder(PickString(current.DramaServiceOrderRanking, "drama_service_order_ranking", "hglocal,pikachu"), "hglocal", "pikachu"),
             XingeEnabled = current.XingeEnabled,
             XingeServerUrl = current.XingeServerUrl,
             XingeUsername = current.XingeUsername,
@@ -406,10 +388,6 @@ public sealed class GlobalSettingsService
         return new GlobalConfigSnapshot(
             SettingsFilePath: settingsFilePath,
             DramaSourceChain: dto.DramaSourceChain,
-            DramaServiceOrderSearch: dto.DramaServiceOrderSearch,
-            DramaServiceOrderDownload: dto.DramaServiceOrderDownload,
-            DramaServiceOrderNewRelease: dto.DramaServiceOrderNewRelease,
-            DramaServiceOrderRanking: dto.DramaServiceOrderRanking,
             XingeEnabled: dto.XingeEnabled,
             XingeServerUrl: dto.XingeServerUrl,
             XingeUsername: dto.XingeUsername,

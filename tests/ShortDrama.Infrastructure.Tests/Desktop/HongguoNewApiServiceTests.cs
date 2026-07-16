@@ -283,10 +283,6 @@ public sealed class HongguoNewApiServiceTests
         return new DramaSourceSettings
         {
             DramaSourceChain = "hgnew",
-            DramaServiceOrderSearch = "hgnew,hglocal,pikachu",
-            DramaServiceOrderDownload = "hgnew,hglocal,pikachu",
-            DramaServiceOrderNewRelease = "hgnew,hglocal",
-            DramaServiceOrderRanking = "hglocal,pikachu",
             HgnewAccount = "test@example.com",
             HgnewPassword = "secret",
             HgnewUdid = "64437E32-40BB-440C-8300-99232D63E8F7",

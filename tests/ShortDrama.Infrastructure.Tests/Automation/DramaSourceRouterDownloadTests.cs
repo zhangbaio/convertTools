@@ -111,7 +111,6 @@ public sealed class DramaSourceRouterDownloadTests
             var settings = new DramaSourceSettings
             {
                 DramaSourceChain = "hglocal",
-                DramaServiceOrderDownload = "hglocal,hgnew,pikachu",
                 HongguoDownloadTimeoutSeconds = "10",
                 HongguoEpisodeDownloadAttempts = "1",
                 HongguoLocalBaseUrl = "https://local.example.com",
@@ -218,7 +217,6 @@ public sealed class DramaSourceRouterDownloadTests
             var settings = new DramaSourceSettings
             {
                 DramaSourceChain = "hglocal",
-                DramaServiceOrderDownload = "hglocal,hgnew,pikachu",
                 HongguoDownloadTimeoutSeconds = "10",
                 HongguoEpisodeDownloadAttempts = "1",
                 HongguoLocalBaseUrl = "https://local.example.com",
@@ -279,7 +277,6 @@ public sealed class DramaSourceRouterDownloadTests
             var settings = new DramaSourceSettings
             {
                 DramaSourceChain = "hglocal",
-                DramaServiceOrderDownload = "hglocal,hgnew,pikachu",
                 HongguoDownloadTimeoutSeconds = "10",
                 HongguoEpisodeDownloadAttempts = "1",
                 HongguoLocalBaseUrl = "https://local.example.com",

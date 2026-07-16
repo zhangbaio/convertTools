@@ -3,10 +3,6 @@ namespace ShortDrama.Desktop.Models;
 public sealed class GlobalDesktopSettings
 {
     public string DramaSourceChain { get; set; } = "hgnew";
-    public string DramaServiceOrderSearch { get; set; } = "hgnew,hglocal,pikachu";
-    public string DramaServiceOrderDownload { get; set; } = "hgnew,hglocal,pikachu";
-    public string DramaServiceOrderNewRelease { get; set; } = "hgnew,hglocal";
-    public string DramaServiceOrderRanking { get; set; } = "hglocal,pikachu";
     public bool XingeEnabled { get; set; }
     public string XingeServerUrl { get; set; } = string.Empty;
     public string XingeUsername { get; set; } = string.Empty;

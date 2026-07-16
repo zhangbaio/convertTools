@@ -3,10 +3,6 @@ namespace ShortDrama.Desktop.Models;
 public sealed record GlobalConfigSnapshot(
     string SettingsFilePath,
     string DramaSourceChain,
-    string DramaServiceOrderSearch,
-    string DramaServiceOrderDownload,
-    string DramaServiceOrderNewRelease,
-    string DramaServiceOrderRanking,
     bool XingeEnabled,
     string XingeServerUrl,
     string XingeUsername,

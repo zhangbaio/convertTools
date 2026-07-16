@@ -10,10 +10,6 @@ public static class DramaSourceSettingsMapping
     public static DramaSourceSettings FromClientSettings(ClientSettings settings) => new()
     {
         DramaSourceChain = NormalizeChain(settings.DramaSourceChain),
-        DramaServiceOrderSearch = "",
-        DramaServiceOrderDownload = "",
-        DramaServiceOrderNewRelease = "",
-        DramaServiceOrderRanking = "",
         HgnewAccount = settings.HgnewAccount ?? "",
         HgnewPassword = settings.HgnewPassword ?? "",
         HgnewUdid = settings.HgnewUdid ?? "",

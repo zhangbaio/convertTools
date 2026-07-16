@@ -177,18 +177,6 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string dramaSourceChain = "hgnew";
 
     [ObservableProperty]
-    private string dramaServiceOrderSearch = string.Empty;
-
-    [ObservableProperty]
-    private string dramaServiceOrderDownload = string.Empty;
-
-    [ObservableProperty]
-    private string dramaServiceOrderNewRelease = string.Empty;
-
-    [ObservableProperty]
-    private string dramaServiceOrderRanking = string.Empty;
-
-    [ObservableProperty]
     private bool xingeEnabled;
 
     [ObservableProperty]
@@ -534,10 +522,6 @@ public partial class ConfigWindowViewModel : ViewModelBase
         WeixinTrialEpisodes = string.IsNullOrWhiteSpace(merged.WeixinTrialEpisodes) ? "3" : merged.WeixinTrialEpisodes;
         WeixinFillRecommendation = merged.WeixinFillRecommendation;
         DramaSourceChain = string.IsNullOrWhiteSpace(_loadedGlobalConfig.DramaSourceChain) ? "hgnew" : _loadedGlobalConfig.DramaSourceChain;
-        DramaServiceOrderSearch = _loadedGlobalConfig.DramaServiceOrderSearch;
-        DramaServiceOrderDownload = _loadedGlobalConfig.DramaServiceOrderDownload;
-        DramaServiceOrderNewRelease = _loadedGlobalConfig.DramaServiceOrderNewRelease;
-        DramaServiceOrderRanking = _loadedGlobalConfig.DramaServiceOrderRanking;
         XingeEnabled = _loadedGlobalConfig.XingeEnabled;
         XingeServerUrl = _loadedGlobalConfig.XingeServerUrl;
         XingeUsername = _loadedGlobalConfig.XingeUsername;
@@ -646,10 +630,6 @@ public partial class ConfigWindowViewModel : ViewModelBase
         var global = _loadedGlobalConfig with
         {
             DramaSourceChain = DramaSourceChain.Trim(),
-            DramaServiceOrderSearch = DramaServiceOrderSearch.Trim(),
-            DramaServiceOrderDownload = DramaServiceOrderDownload.Trim(),
-            DramaServiceOrderNewRelease = DramaServiceOrderNewRelease.Trim(),
-            DramaServiceOrderRanking = DramaServiceOrderRanking.Trim(),
             XingeEnabled = XingeEnabled,
             XingeServerUrl = XingeServerUrl.Trim(),
             XingeUsername = XingeUsername.Trim(),

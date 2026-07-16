@@ -4,10 +4,6 @@ namespace ShortDrama.Core.Models;
 public sealed record DramaSourceSettings
 {
     public string DramaSourceChain { get; init; } = "hgnew";
-    public string DramaServiceOrderSearch { get; init; } = "hgnew,hglocal,pikachu";
-    public string DramaServiceOrderDownload { get; init; } = "hgnew,hglocal,pikachu";
-    public string DramaServiceOrderNewRelease { get; init; } = "hgnew,hglocal";
-    public string DramaServiceOrderRanking { get; init; } = "hglocal,pikachu";
 
     public string HgnewAccount { get; init; } = "";
     public string HgnewPassword { get; init; } = "";

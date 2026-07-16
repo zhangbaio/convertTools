@@ -166,10 +166,6 @@ public sealed class HongguoLocalApiServiceTests
         return new DramaSourceSettings
         {
             DramaSourceChain = "hglocal",
-            DramaServiceOrderSearch = "hglocal,hgnew,pikachu",
-            DramaServiceOrderDownload = "hglocal,hgnew,pikachu",
-            DramaServiceOrderNewRelease = "hglocal,hgnew",
-            DramaServiceOrderRanking = "hglocal",
             HgnewClientVersion = "1.3.6",
             HongguoLocalBaseUrl = "https://local.example.com",
             HongguoLocalApiKey = "local-key",

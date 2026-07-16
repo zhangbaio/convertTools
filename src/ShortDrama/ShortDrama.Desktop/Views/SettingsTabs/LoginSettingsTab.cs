@@ -36,12 +36,8 @@ public sealed class LoginSettingsTab : UserControl
             Margin = new Thickness(16)
         };
 
-        panel.Children.Add(Hint("登录设置支持 hgnew / hglocal / pikachu 三条链路。"));
+        panel.Children.Add(Hint("登录设置支持 hgnew / hglocal / pikachu 三条链路；短剧搜索、下载和上新只使用当前选择的数据源，不再自动降级。"));
         panel.Children.Add(BuildSourceRow());
-        panel.Children.Add(Row("搜索服务顺序", BindText(nameof(ConfigWindowViewModel.DramaServiceOrderSearch))));
-        panel.Children.Add(Row("下载服务顺序", BindText(nameof(ConfigWindowViewModel.DramaServiceOrderDownload))));
-        panel.Children.Add(Row("上新服务顺序", BindText(nameof(ConfigWindowViewModel.DramaServiceOrderNewRelease))));
-        panel.Children.Add(Row("排名服务顺序", BindText(nameof(ConfigWindowViewModel.DramaServiceOrderRanking))));
 
         panel.Children.Add(SectionTitle("hgnew"));
         panel.Children.Add(Row("账号", BindText(nameof(ConfigWindowViewModel.HgnewAccount))));
