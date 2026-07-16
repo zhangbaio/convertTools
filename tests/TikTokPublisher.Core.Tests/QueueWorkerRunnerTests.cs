@@ -53,6 +53,153 @@ public sealed class QueueWorkerRunnerTests
             item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Completed);
     }
 
+    [Fact]
+    public async Task RunAsync_rejects_empty_or_all_whitespace_explicit_project_filter()
+    {
+        var account = new TikTokAccountProfile { Id = "acct-filter-empty", Name = "filter-empty" };
+        var store = CreateAccountStore(account);
+        var item = CreateReadyToUploadItem(1, account);
+        var host = new ImmediatePublishHost();
+        var options = new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] };
+        IReadOnlyCollection<string>[] invalidFilters =
+        [
+            Array.Empty<string>(),
+            ["", "   "],
+        ];
+
+        foreach (var filter in invalidFilters)
+        {
+            var action = () => new QueueWorkerRunner().RunAsync(
+                Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-empty-filter-test"),
+                [item],
+                options,
+                host,
+                store,
+                FinalAction.None,
+                onProgress: null,
+                onPersist: null,
+                CancellationToken.None,
+                projectDirFilter: filter);
+
+            await action.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*项目筛选*");
+        }
+
+        host.PublishedProjectDirs.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_rejects_explicit_project_filter_with_zero_candidates()
+    {
+        var account = new TikTokAccountProfile { Id = "acct-filter-miss", Name = "filter-miss" };
+        var store = CreateAccountStore(account);
+        var item = CreateReadyToUploadItem(1, account);
+        var host = new ImmediatePublishHost();
+        var nonMatchingProjectDir = Path.Combine(Path.GetTempPath(), $"tiktok-filter-miss-{Guid.NewGuid():N}");
+
+        var action = () => new QueueWorkerRunner().RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-missing-filter-test"),
+            [item],
+            new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None,
+            projectDirFilter: [nonMatchingProjectDir]);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*未匹配到可执行的队列项目*");
+        host.PublishedProjectDirs.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_executes_only_filtered_projects_in_filter_order()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-filter-order",
+            Name = "filter-order",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var first = CreateReadyToUploadItem(1, account);
+        var skipped = CreateReadyToUploadItem(2, account);
+        var last = CreateReadyToUploadItem(3, account);
+        var host = new ImmediatePublishHost();
+
+        var summary = await new QueueWorkerRunner().RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-filter-order-test"),
+            [first, skipped, last],
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ProjectConcurrency = 1,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None,
+            projectDirFilter: [last.ProjectDir, first.ProjectDir]);
+
+        summary.TotalCount.Should().Be(2);
+        host.PublishedProjectDirs.Should().Equal(last.ProjectDir, first.ProjectDir);
+        skipped.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries)
+            .Should().NotBe(QueueStepStatus.Completed);
+    }
+
+    [Fact]
+    public async Task RunAsync_allows_null_filter_when_no_project_needs_work()
+    {
+        var account = new TikTokAccountProfile { Id = "acct-filter-null", Name = "filter-null" };
+        var store = CreateAccountStore(account);
+        var completed = CreateCompletedItem(1, account);
+        var host = new ImmediatePublishHost();
+
+        var summary = await new QueueWorkerRunner().RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-null-filter-test"),
+            [completed],
+            new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None,
+            projectDirFilter: null);
+
+        summary.TotalCount.Should().Be(0);
+        host.PublishedProjectDirs.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_rejects_matching_filter_when_no_selected_step_needs_work()
+    {
+        var account = new TikTokAccountProfile { Id = "acct-filter-complete", Name = "filter-complete" };
+        var store = CreateAccountStore(account);
+        var completed = CreateCompletedItem(1, account);
+        var host = new ImmediatePublishHost();
+
+        var action = () => new QueueWorkerRunner().RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-complete-filter-test"),
+            [completed],
+            new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None,
+            projectDirFilter: [completed.ProjectDir]);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*未匹配到可执行的队列项目*");
+        host.PublishedProjectDirs.Should().BeEmpty();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -430,7 +577,8 @@ public sealed class QueueWorkerRunnerTests
             FinalAction.None,
             onProgress: null,
             onPersist: null,
-            cts.Token);
+            cts.Token,
+            projectDirFilter: [runningItem.ProjectDir]);
 
         await host.WaitForPublishCountAsync(1).WaitAsync(cts.Token);
         runner.AddItems([appendItem]).Should().Be(1);

@@ -54,11 +54,11 @@ public partial class TikTokQueueView : UserControl
     private int _queueResizeColumnIndex = -1;
     private double _queueResizeStartX;
     private double _queueResizeStartWidth;
-    private bool _queueStopRequested;
-    private bool _startQueueRunActive;
-    private string _startQueueRunWorkspaceRoot = "";
+    private readonly HashSet<string> _queueStopRequestedWorkspaces = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _activeQueueRunWorkspaces = new(StringComparer.OrdinalIgnoreCase);
     private bool _uploadTitleImportActive;
     private string _uploadTitleImportWorkspaceRoot = "";
+    private long _uploadTitleImportGeneration;
 
     public event EventHandler? OpenBrowserRequested;
     public event EventHandler? OpenLogsRequested;
@@ -101,12 +101,15 @@ public partial class TikTokQueueView : UserControl
         var currentRunning = IsStartQueueRunActiveForCurrentWorkspace() ||
                              _vm?.IsCurrentWorkspaceQueueRunning() == true;
         var startBusy = currentRunning || IsUploadTitleImportActiveForCurrentWorkspace();
-        if (!currentRunning)
-            _queueStopRequested = false;
+        var currentRoot = NormalizeQueueWorkspaceRoot(_vm?.WorkspacePath ?? "");
+        if (!currentRunning && !string.IsNullOrWhiteSpace(currentRoot))
+            _queueStopRequestedWorkspaces.Remove(currentRoot);
+        var stopRequested = !string.IsNullOrWhiteSpace(currentRoot) &&
+                            _queueStopRequestedWorkspaces.Contains(currentRoot);
         // 仅当前工作目录在跑时才禁用「执行勾选队列」；其他账号的队列不影响本工作目录启动。
         if (StartQueueButton is not null)
         {
-            StartQueueButton.Content = _queueStopRequested && currentRunning
+            StartQueueButton.Content = stopRequested && currentRunning
                 ? "等待停止"
                 : startBusy
                     ? "执行中"
@@ -116,31 +119,18 @@ public partial class TikTokQueueView : UserControl
         if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !anyRunning;
         if (StopQueueButton is not null)
         {
-            StopQueueButton.Content = _queueStopRequested && currentRunning ? "停止中" : "停止";
-            StopQueueButton.IsEnabled = currentRunning && !_queueStopRequested;
+            StopQueueButton.Content = stopRequested && currentRunning ? "停止中" : "停止";
+            StopQueueButton.IsEnabled = currentRunning && !stopRequested;
         }
     }
 
     private bool IsStartQueueRunActiveForCurrentWorkspace()
     {
-        if (!_startQueueRunActive || _vm is null)
+        if (_vm is null)
             return false;
 
-        var workspace = (_vm.WorkspacePath ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(workspace) || string.IsNullOrWhiteSpace(_startQueueRunWorkspaceRoot))
-            return false;
-
-        try
-        {
-            return string.Equals(
-                Path.GetFullPath(workspace),
-                _startQueueRunWorkspaceRoot,
-                StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return string.Equals(workspace, _startQueueRunWorkspaceRoot, StringComparison.OrdinalIgnoreCase);
-        }
+        var workspace = NormalizeQueueWorkspaceRoot(_vm.WorkspacePath ?? "");
+        return !string.IsNullOrWhiteSpace(workspace) && _activeQueueRunWorkspaces.Contains(workspace);
     }
 
     private bool IsUploadTitleImportActiveForCurrentWorkspace()
@@ -606,6 +596,26 @@ public partial class TikTokQueueView : UserControl
     private void OnSelectAllQueueClick(object? sender, RoutedEventArgs e)
     {
         _vm?.SetFilteredQueueRowsEnabled(true);
+    }
+
+    private long BeginUploadTitleImport(string workspaceRoot)
+    {
+        var generation = unchecked(++_uploadTitleImportGeneration);
+        _uploadTitleImportWorkspaceRoot = NormalizeQueueWorkspaceRoot(workspaceRoot);
+        _uploadTitleImportActive = true;
+        RefreshQueueRunButtons();
+        return generation;
+    }
+
+    private void CompleteUploadTitleImport(long generation)
+    {
+        // 导入可在启动长队列前主动释放；旧操作的 finally 不得清掉随后开始的新导入状态。
+        if (_uploadTitleImportGeneration != generation || !_uploadTitleImportActive)
+            return;
+
+        _uploadTitleImportActive = false;
+        _uploadTitleImportWorkspaceRoot = "";
+        RefreshQueueRunButtons();
     }
 
     private void OnClearQueueSelectionClick(object? sender, RoutedEventArgs e)
@@ -1355,94 +1365,131 @@ public partial class TikTokQueueView : UserControl
     {
         var vm = _vm;
         if (vm is null) return;
-        if (string.IsNullOrWhiteSpace(vm.WorkspacePath))
+        if (_uploadTitleImportActive)
+        {
+            vm.StatusMessage = "已有上传短剧导入正在处理，请等待完成";
+            return;
+        }
+
+        // 弹窗和导入都会跨越 await；在任何 await 前固定工作目录、账号和运行配置。
+        var importTarget = vm.CaptureCurrentWorkspaceQueueTarget();
+        if (importTarget is null)
         {
             vm.StatusMessage = "请先选择工作目录";
             return;
         }
+        var runOptions = vm.CreateCurrentQueueRunOptionsSnapshot();
 
         var owner = TopLevel.GetTopLevel(this) as Window;
         if (owner is null) return;
 
-        var request = await ShowUploadTitlesDialogAsync(owner);
-        if (request is null) return;
-        if (string.IsNullOrWhiteSpace(request.RawText))
-        {
-            await ShowMessageAsync(owner, "缺少剧名", "请输入至少一个短剧名称。", warning: true);
-            return;
-        }
-
-        _uploadTitleImportWorkspaceRoot = NormalizeQueueWorkspaceRoot(vm.WorkspacePath);
-        _uploadTitleImportActive = true;
-        RefreshQueueRunButtons();
+        var importGeneration = BeginUploadTitleImport(importTarget.WorkspaceRoot);
         try
         {
-        vm.StatusMessage = "正在按标题导入短剧…";
-        UploadTitleImportResult? result;
-        try
-        {
-            result = await vm.ImportUploadTitlesAsync(
-                request.RawText,
-                UploadTitleImportService.DefaultEpisodeMin,
-                UploadTitleImportService.DefaultEpisodeMax,
-                request.MatchMode,
-                CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            vm.StatusMessage = $"上传短剧导入失败：{ex.Message}";
-            vm.AppendLog(vm.StatusMessage);
-            await ShowMessageAsync(owner, "上传短剧失败", ex.Message, warning: true);
-            return;
-        }
+            var request = await ShowUploadTitlesDialogAsync(owner);
+            if (request is null) return;
+            if (string.IsNullOrWhiteSpace(request.RawText))
+            {
+                await ShowMessageAsync(owner, "缺少剧名", "请输入至少一个短剧名称。", warning: true);
+                return;
+            }
 
-        if (result is null)
-            return;
+            vm.StatusMessage = "正在按标题导入短剧…";
+            UploadTitleImportOutcome? importOutcome;
+            try
+            {
+                importOutcome = await vm.ImportUploadTitlesAsync(
+                    importTarget,
+                    request.RawText,
+                    UploadTitleImportService.DefaultEpisodeMin,
+                    UploadTitleImportService.DefaultEpisodeMax,
+                    request.MatchMode,
+                    CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                vm.StatusMessage = $"上传短剧导入失败：{ex.Message}";
+                vm.AppendLog(vm.StatusMessage);
+                await ShowMessageAsync(owner, "上传短剧失败", ex.Message, warning: true);
+                return;
+            }
 
-        foreach (var failure in result.Failures)
-            vm.AppendLog($"上传短剧未加入：{failure.Title}，{failure.Reason}");
+            if (importOutcome is null)
+                return;
 
-        if (result.Duplicates.Count > 0)
-        {
-            var dupLines = string.Join('\n', result.Duplicates.Take(30).Select(title => $"· {title}"));
-            var dupExtra = result.Duplicates.Count > 30 ? $"\n… 等共 {result.Duplicates.Count} 条" : "";
-            await ShowMessageAsync(
-                owner,
-                "上传短剧 · 已跳过重复",
-                $"以下 {result.Duplicates.Count} 个剧在管理系统已存在，已跳过未上传：\n\n{dupLines}{dupExtra}");
-        }
+            var result = importOutcome.ImportResult;
+            foreach (var failure in result.Failures)
+                vm.AppendLog($"上传短剧未加入：{failure.Title}，{failure.Reason}");
 
-        if (result.Failures.Count > 0)
-        {
-            var lines = string.Join('\n', result.Failures.Take(30).Select(item => $"· {item.Title}：{item.Reason}"));
-            var extra = result.Failures.Count > 30 ? $"\n… 等共 {result.Failures.Count} 条" : "";
-            await ShowMessageAsync(
-                owner,
-                "上传短剧 · 未加入的剧集",
-                $"加入 {result.QueuedCount} 个，未加入 {result.FailedCount} 个：\n\n{lines}{extra}",
-                warning: true);
-        }
-        else if (result.QueuedCount == 0)
-        {
-            await ShowMessageAsync(owner, "上传短剧", "没有可加入的剧集。");
-            return;
-        }
+            if (result.Duplicates.Count > 0)
+            {
+                var dupLines = string.Join('\n', result.Duplicates.Take(30).Select(title => $"· {title}"));
+                var dupExtra = result.Duplicates.Count > 30 ? $"\n… 等共 {result.Duplicates.Count} 条" : "";
+                await ShowMessageAsync(
+                    owner,
+                    "上传短剧 · 已跳过重复",
+                    $"以下 {result.Duplicates.Count} 个剧在管理系统已存在，已跳过未上传：\n\n{dupLines}{dupExtra}");
+            }
 
-        if (vm.ShouldAutoStartQueueAfterUploadTitleImport(result))
-        {
-            var projectFilter = BuildUploadTitleImportProjectFilter(result);
-            vm.AppendLog($"上传短剧导入完成，自动执行勾选队列：{projectFilter.Count} 个项目。");
-            _uploadTitleImportActive = false;
-            _uploadTitleImportWorkspaceRoot = "";
-            RefreshQueueRunButtons();
-            await StartQueueRunAsync(projectDirFilter: projectFilter);
-        }
+            if (result.Failures.Count > 0)
+            {
+                var lines = string.Join('\n', result.Failures.Take(30).Select(item => $"· {item.Title}：{item.Reason}"));
+                var extra = result.Failures.Count > 30 ? $"\n… 等共 {result.Failures.Count} 条" : "";
+                await ShowMessageAsync(
+                    owner,
+                    "上传短剧 · 未加入的剧集",
+                    $"加入 {result.QueuedCount} 个，未加入 {result.FailedCount} 个：\n\n{lines}{extra}",
+                    warning: true);
+            }
+            else if (result.QueuedCount == 0)
+            {
+                await ShowMessageAsync(owner, "上传短剧", "没有可加入的剧集。");
+                return;
+            }
+
+            UploadTitleAutoRunPreparation preparation;
+            try
+            {
+                preparation = await vm.PrepareUploadTitleImportAutoRunAsync(importOutcome);
+            }
+            catch (Exception ex)
+            {
+                vm.StatusMessage = $"短剧已导入，但自动执行未启动：{ex.Message}";
+                vm.AppendLog(vm.StatusMessage);
+                await ShowMessageAsync(owner, "自动执行未启动", vm.StatusMessage, warning: true);
+                return;
+            }
+
+            if (preparation.AppendedCount > 0)
+            {
+                vm.StatusMessage = $"已将 {preparation.AppendedCount} 个导入项目追加到原工作目录的运行队列末尾。";
+                vm.AppendLog(vm.StatusMessage);
+                return;
+            }
+
+            if (preparation.RunTarget is not null)
+            {
+                var projectCount = preparation.RunTarget.ProjectDirFilter?.Count ?? 0;
+                vm.AppendLog($"上传短剧导入完成，自动执行原工作目录队列：{projectCount} 个项目。");
+                CompleteUploadTitleImport(importGeneration);
+                var started = await StartQueueRunAsync(
+                    runOptions,
+                    preparation.RunTarget.ProjectDirFilter,
+                    targetOverride: preparation.RunTarget);
+                if (!started)
+                {
+                    var appended = vm.TryAppendUploadTitleImportToRunningQueue(importOutcome);
+                    if (appended > 0)
+                    {
+                        vm.StatusMessage = $"目标队列已被其它操作启动，已将 {appended} 个导入项目追加到队列末尾。";
+                        vm.AppendLog(vm.StatusMessage);
+                    }
+                }
+            }
         }
         finally
         {
-            _uploadTitleImportActive = false;
-            _uploadTitleImportWorkspaceRoot = "";
-            RefreshQueueRunButtons();
+            CompleteUploadTitleImport(importGeneration);
         }
     }
 
@@ -1660,14 +1707,15 @@ public partial class TikTokQueueView : UserControl
     }
 
     public async Task<bool> StartQueueRunFromRemoteAsync(
-        QueueRunOptions? optionsOverride = null,
-        IReadOnlyCollection<string>? projectDirFilter = null)
+        WorkspaceQueueTarget target,
+        QueueRunOptions? optionsOverride = null)
     {
         var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var runTask = StartQueueRunAsync(
             optionsOverride,
-            projectDirFilter,
-            onWorkerStarted: () => started.TrySetResult(true));
+            target.ProjectDirFilter,
+            onWorkerStarted: () => started.TrySetResult(true),
+            targetOverride: target);
 
         // 远程命令只等待 runner 注册成功；完整运行必须被持续观察，避免后台异常成为未观察任务异常。
         _ = ObserveRemoteQueueRunAsync(runTask, started);
@@ -1710,36 +1758,49 @@ public partial class TikTokQueueView : UserControl
         QueueRunOptions? optionsOverride = null,
         IReadOnlyCollection<string>? projectDirFilter = null,
         bool confirmForceRerun = false,
-        Action? onWorkerStarted = null)
+        Action? onWorkerStarted = null,
+        WorkspaceQueueTarget? targetOverride = null)
     {
         var vm = _vm;
         if (vm is null) return false;
-        if (vm.IsCurrentWorkspaceQueueRunning())
-        {
-            vm.StatusMessage = "当前工作目录队列已在运行中，本次点击未生效；如需按新的步骤勾选重跑，请先点「停止」等待队列结束后再执行";
-            vm.AppendLog(vm.StatusMessage);
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(vm.WorkspacePath))
+        var runTarget = targetOverride ?? vm.CaptureCurrentWorkspaceQueueTarget();
+        if (runTarget is null || string.IsNullOrWhiteSpace(runTarget.WorkspaceRoot))
         {
             vm.StatusMessage = "请先选择工作目录";
             return false;
         }
 
-        if (projectDirFilter is null && vm.FilteredQueueProjectRows.Count == 0)
+        var runWorkspaceRoot = NormalizeQueueWorkspaceRoot(runTarget.WorkspaceRoot);
+        if (_activeQueueRunWorkspaces.Contains(runWorkspaceRoot) ||
+            vm.IsWorkspaceQueueBusy(runWorkspaceRoot))
+        {
+            vm.StatusMessage = "目标工作目录队列正在启动、运行或安全收尾，本次启动未生效；请等待结束后再执行";
+            vm.AppendLog(vm.StatusMessage);
+            return false;
+        }
+
+        if (targetOverride is null && projectDirFilter is null && vm.FilteredQueueProjectRows.Count == 0)
         {
             vm.StatusMessage = "队列为空，请先刷新项目";
             return false;
         }
 
-        if (projectDirFilter is not null && projectDirFilter.Count == 0)
+        var orderedProjectDirFilter = targetOverride is not null
+            ? runTarget.ProjectDirFilter ?? projectDirFilter
+            : projectDirFilter ?? GetCheckedProjectDirsInDisplayOrder();
+        if (orderedProjectDirFilter is not null && orderedProjectDirFilter.Count == 0)
         {
             vm.StatusMessage = "请先在队列表格中选择项目";
             return false;
         }
 
-        var orderedProjectDirFilter = projectDirFilter ?? GetCheckedProjectDirsInDisplayOrder();
+        if (targetOverride is null && orderedProjectDirFilter is null)
+        {
+            vm.StatusMessage = "请先在队列表格中勾选要执行的项目";
+            return false;
+        }
+
+        runTarget = runTarget with { ProjectDirFilter = orderedProjectDirFilter };
         if (confirmForceRerun)
         {
             var confirmedOptions = optionsOverride ?? vm.CreateCurrentQueueRunOptionsSnapshot();
@@ -1766,9 +1827,20 @@ public partial class TikTokQueueView : UserControl
             optionsOverride = confirmedOptions;
         }
 
-        _startQueueRunWorkspaceRoot = NormalizeQueueWorkspaceRoot(vm.WorkspacePath);
-        _startQueueRunActive = true;
-        _queueStopRequested = false;
+        if (!_activeQueueRunWorkspaces.Add(runWorkspaceRoot))
+        {
+            vm.StatusMessage = "目标工作目录已有启动请求正在处理，本次启动未生效";
+            vm.AppendLog(vm.StatusMessage);
+            return false;
+        }
+        if (vm.IsWorkspaceQueueBusy(runWorkspaceRoot))
+        {
+            _activeQueueRunWorkspaces.Remove(runWorkspaceRoot);
+            vm.StatusMessage = "目标工作目录在确认期间已被其它任务启动，本次启动未生效";
+            vm.AppendLog(vm.StatusMessage);
+            return false;
+        }
+        _queueStopRequestedWorkspaces.Remove(runWorkspaceRoot);
         RefreshQueueRunButtons();
 
         var queueRunStarted = false;
@@ -1776,8 +1848,6 @@ public partial class TikTokQueueView : UserControl
         vm.StatusMessage = "TikTok 队列执行中…";
         try
         {
-            await Task.Yield();
-
             var host = CreateQueuePublishHost();
             var ct = vm.BeginQueueRun();
             queueRunStarted = true;
@@ -1790,7 +1860,8 @@ public partial class TikTokQueueView : UserControl
                 ct,
                 optionsOverride,
                 orderedProjectDirFilter,
-                onWorkerStarted);
+                onWorkerStarted,
+                runTarget);
             workerReturnedSummary = summary is not null;
             if (summary is not null && !summary.Stopped && summary.StoppedAccountCount > 0)
                 vm.StatusMessage = $"队列结束：成功 {summary.SuccessCount}，失败 {summary.FailedCount}，已按账号停止 {summary.StoppedAccountCount} 个";
@@ -1808,8 +1879,7 @@ public partial class TikTokQueueView : UserControl
         }
         finally
         {
-            _startQueueRunActive = false;
-            _startQueueRunWorkspaceRoot = "";
+            _activeQueueRunWorkspaces.Remove(runWorkspaceRoot);
             if (queueRunStarted)
                 vm.EndQueueRun();
             RefreshQueueRunButtons();
@@ -1817,13 +1887,6 @@ public partial class TikTokQueueView : UserControl
 
         return workerReturnedSummary;
     }
-
-    private static IReadOnlyCollection<string> BuildUploadTitleImportProjectFilter(UploadTitleImportResult result)
-        => result.ProjectDirs
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(Path.GetFullPath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
 
     private static IReadOnlyCollection<string> BuildLocalManualImportProjectFilter(LocalManualDramaBatchImportResult result)
         => result.ProjectDirs
@@ -1851,45 +1914,74 @@ public partial class TikTokQueueView : UserControl
     private async void OnStartAllQueuesClick(object? sender, RoutedEventArgs e)
         => await StartAllQueueRunAsync();
 
-    public Task StartAllQueueRunFromRemoteAsync(
+    public Task<bool> StartAllQueueRunFromRemoteAsync(
         QueueRunOptions? optionsOverride,
         IReadOnlyList<WorkspaceQueueTarget> targets)
         => StartAllQueueRunAsync(optionsOverride, targets);
 
-    private async Task StartAllQueueRunAsync(
+    private async Task<bool> StartAllQueueRunAsync(
         QueueRunOptions? optionsOverride = null,
         IReadOnlyList<WorkspaceQueueTarget>? targetsOverride = null)
     {
         var vm = _vm;
-        if (vm is null) return;
-        if (vm.IsQueueRunning)
-        {
-            vm.StatusMessage = "已有工作目录队列在运行中";
-            return;
-        }
-
-        var targets = targetsOverride is { Count: > 0 }
-            ? targetsOverride
-            : vm.BuildAccountWorkspaceTargets();
+        if (vm is null) return false;
+        var targets = targetsOverride ?? vm.BuildAccountWorkspaceTargets();
         if (targets.Count == 0)
         {
             vm.StatusMessage = "没有可执行的工作目录（请为账号配置有效工作目录）";
-            return;
+            return false;
         }
 
-        var host = CreateQueuePublishHost();
-        var ct = vm.BeginQueueRun();
-        _queueStopRequested = false;
-        RefreshQueueRunButtons();
-        vm.StatusMessage = $"并行执行 {targets.Count} 个工作目录队列…";
+        if (targetsOverride is null && vm.IsQueueRunning)
+        {
+            vm.StatusMessage = "已有工作目录队列在运行中";
+            return false;
+        }
+
+        var targetRoots = targets
+            .Select(target => NormalizeQueueWorkspaceRoot(target.WorkspaceRoot))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (targetRoots.Length != targets.Count)
+        {
+            vm.StatusMessage = "执行目标中包含重复工作目录，已取消启动";
+            vm.AppendLog(vm.StatusMessage);
+            return false;
+        }
+
+        var occupiedTarget = targets.FirstOrDefault(target =>
+        {
+            var root = NormalizeQueueWorkspaceRoot(target.WorkspaceRoot);
+            return _activeQueueRunWorkspaces.Contains(root) || vm.IsWorkspaceQueueBusy(root);
+        });
+        if (occupiedTarget is not null)
+        {
+            vm.StatusMessage = $"目标工作目录队列正在启动、运行或安全收尾：{occupiedTarget.WorkspaceRoot}";
+            vm.AppendLog(vm.StatusMessage);
+            return false;
+        }
+
+        foreach (var root in targetRoots)
+            _activeQueueRunWorkspaces.Add(root);
+
+        var completed = false;
+        var queueRunBegun = false;
         try
         {
+            var host = CreateQueuePublishHost();
+            var ct = vm.BeginQueueRun();
+            queueRunBegun = true;
+            foreach (var root in targetRoots)
+                _queueStopRequestedWorkspaces.Remove(root);
+            RefreshQueueRunButtons();
+            vm.StatusMessage = $"并行执行 {targets.Count} 个工作目录队列…";
+
             var summaries = await vm.RunAllAccountWorkspaceQueuesAsync(
                 host,
                 p => _queueProgressSink?.Post(p),
                 (root, items) => vm.EnqueuePersistedQueueItems(root, items),
                 ct,
-                targets,
+                targetsOverride,
                 optionsOverride);
 
             var success = summaries.Sum(s => s?.SuccessCount ?? 0);
@@ -1902,6 +1994,7 @@ public partial class TikTokQueueView : UserControl
                 vm.StatusMessage = stopped
                 ? "多工作目录队列已停止"
                 : $"多工作目录队列结束：成功 {success}，失败 {failed}";
+            completed = !stopped;
         }
         catch (OperationCanceledException)
         {
@@ -1913,16 +2006,27 @@ public partial class TikTokQueueView : UserControl
         }
         finally
         {
-            vm.EndQueueRun();
+            if (queueRunBegun)
+                vm.EndQueueRun();
+            foreach (var root in targetRoots)
+                _activeQueueRunWorkspaces.Remove(root);
             RefreshQueueRunButtons();
         }
+
+        return completed;
     }
 
     private void OnStopQueueClick(object? sender, RoutedEventArgs e)
     {
-        _queueStopRequested = true;
-        _vm?.RequestStopQueue();
-        if (_vm is not null) _vm.StatusMessage = "正在停止队列…";
+        var vm = _vm;
+        if (vm is not null)
+        {
+            var root = NormalizeQueueWorkspaceRoot(vm.WorkspacePath);
+            if (!string.IsNullOrWhiteSpace(root))
+                _queueStopRequestedWorkspaces.Add(root);
+            vm.RequestStopQueue(root);
+            vm.StatusMessage = "正在停止队列…";
+        }
         RefreshQueueRunButtons();
     }
 

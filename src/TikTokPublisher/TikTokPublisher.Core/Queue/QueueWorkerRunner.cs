@@ -96,8 +96,10 @@ public sealed class QueueWorkerRunner
 
     private static Dictionary<string, int>? BuildProjectDirOrder(IReadOnlyCollection<string>? projectDirFilter)
     {
-        if (projectDirFilter is null || projectDirFilter.Count == 0)
+        if (projectDirFilter is null)
             return null;
+        if (projectDirFilter.Count == 0)
+            throw new InvalidOperationException("已指定项目筛选，但筛选列表为空，队列未启动。");
 
         var order = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in projectDirFilter)
@@ -109,7 +111,56 @@ public sealed class QueueWorkerRunner
                 order[fullPath] = order.Count;
         }
 
-        return order.Count == 0 ? null : order;
+        if (order.Count == 0)
+            throw new InvalidOperationException("已指定项目筛选，但筛选列表中没有有效的项目路径，队列未启动。");
+
+        return order;
+    }
+
+    public static int ValidateRunSelection(
+        IEnumerable<QueueProjectItem> items,
+        QueueRunOptions options,
+        AccountStore accountStore,
+        IReadOnlyCollection<string>? projectDirFilter = null)
+    {
+        var filterOrder = BuildProjectDirOrder(projectDirFilter);
+        var candidates = BuildInitialCandidates(
+            items,
+            options,
+            accountStore,
+            filterOrder,
+            options.OrderedEnabledSteps());
+        EnsureExplicitFilterMatched(filterOrder, candidates.Count);
+        return candidates.Count;
+    }
+
+    private static List<QueueProjectItem> BuildInitialCandidates(
+        IEnumerable<QueueProjectItem> items,
+        QueueRunOptions options,
+        AccountStore accountStore,
+        Dictionary<string, int>? filterOrder,
+        IReadOnlyList<string> orderedSteps)
+    {
+        var filter = filterOrder?.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var candidateQuery = items
+            .Where(i => i.Enabled && !i.Archived)
+            .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)))
+            .Where(i => orderedSteps.Any(stepKey => ShouldRunStep(i, stepKey, options, ResolveAccount(accountStore, i))));
+        return filterOrder is not null
+            ? candidateQuery
+                .OrderBy(i => filterOrder.GetValueOrDefault(Path.GetFullPath(i.ProjectDir), int.MaxValue))
+                .ThenBy(i => i.ProjectDir, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : candidateQuery
+                .OrderBy(i => string.IsNullOrWhiteSpace(i.QueuedAt) ? "9999" : i.QueuedAt, StringComparer.Ordinal)
+                .ThenBy(i => i.ProjectDir, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+    }
+
+    private static void EnsureExplicitFilterMatched(Dictionary<string, int>? filterOrder, int candidateCount)
+    {
+        if (filterOrder is not null && candidateCount == 0)
+            throw new InvalidOperationException("项目筛选未匹配到可执行的队列项目，队列未启动。");
     }
 
     public async Task<QueueWorkerSummary> RunAsync(
@@ -165,25 +216,13 @@ public sealed class QueueWorkerRunner
     {
         var workspace = Path.GetFullPath(workspaceRoot);
         var filterOrder = BuildProjectDirOrder(projectDirFilter);
-        var filter = filterOrder?.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var projectConcurrency = Math.Clamp(options.ProjectConcurrency, 1, ProjectConcurrencyHardMax);
         var orderedSteps = options.OrderedEnabledSteps();
         var preUploadSteps = orderedSteps.Where(s => s != QueueStepRegistry.UploadSeries).ToList();
         var uploadEnabled = options.IsStepEnabled(QueueStepRegistry.UploadSeries);
 
-        var candidateQuery = items
-            .Where(i => i.Enabled && !i.Archived)
-            .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)))
-            .Where(i => orderedSteps.Any(stepKey => ShouldRunStep(i, stepKey, options, ResolveAccount(accountStore, i))));
-        var candidates = filterOrder is not null
-            ? candidateQuery
-                .OrderBy(i => filterOrder.GetValueOrDefault(Path.GetFullPath(i.ProjectDir), int.MaxValue))
-                .ThenBy(i => i.ProjectDir, StringComparer.OrdinalIgnoreCase)
-                .ToList()
-            : candidateQuery
-                .OrderBy(i => string.IsNullOrWhiteSpace(i.QueuedAt) ? "9999" : i.QueuedAt, StringComparer.Ordinal)
-                .ThenBy(i => i.ProjectDir, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+        var candidates = BuildInitialCandidates(items, options, accountStore, filterOrder, orderedSteps);
+        EnsureExplicitFilterMatched(filterOrder, candidates.Count);
 
         ManualIntervention.Reset();
 

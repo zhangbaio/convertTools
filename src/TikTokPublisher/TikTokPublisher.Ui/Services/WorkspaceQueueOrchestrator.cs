@@ -66,6 +66,9 @@ public sealed class WorkspaceQueueOrchestrator
         if (!Directory.Exists(root))
             throw new DirectoryNotFoundException($"工作目录不存在：{root}");
 
+        // 必须在注册 ActiveRun / 通知远程 started 之前确认筛选确实能产生任务。
+        QueueWorkerRunner.ValidateRunSelection(items, options, store, projectDirFilter);
+
         CancellationTokenSource linkedCts;
         ActiveRun run;
         lock (_lock)
@@ -122,12 +125,11 @@ public sealed class WorkspaceQueueOrchestrator
         IReadOnlyList<WorkspaceQueueTarget> targets,
         IQueuePublishHost host,
         AccountStore store,
-        FinalAction finalAction,
+        FinalAction fallbackFinalAction,
         Func<WorkspaceQueueTarget, QueueRunOptions> optionsFactory,
         Action<QueueWorkerProgress> onProgress,
         Action<string, IReadOnlyList<QueueProjectItem>> onPersist,
-        CancellationToken ct,
-        IReadOnlyCollection<string>? projectDirFilter = null)
+        CancellationToken ct)
     {
         var tasks = targets
             .Select(target =>
@@ -140,11 +142,12 @@ public sealed class WorkspaceQueueOrchestrator
                     options,
                     host,
                     store,
-                    finalAction,
+                    target.FinalActionOverride ?? fallbackFinalAction,
                     target.DisplayLabel,
                     onProgress,
                     onPersist,
-                    ct);
+                    ct,
+                    target.ProjectDirFilter);
             })
             .ToArray();
 
@@ -269,4 +272,9 @@ public sealed class WorkspaceQueueOrchestrator
     }
 }
 
-public sealed record WorkspaceQueueTarget(string WorkspaceRoot, string DisplayLabel, string? AccountProfileId);
+public sealed record WorkspaceQueueTarget(
+    string WorkspaceRoot,
+    string DisplayLabel,
+    string? AccountProfileId,
+    IReadOnlyCollection<string>? ProjectDirFilter = null,
+    FinalAction? FinalActionOverride = null);
