@@ -208,8 +208,8 @@ public partial class SystemSettingsView : UserControl
         FrameExtractSettingsPanel.IsVisible = string.Equals(mode, "video_frame", StringComparison.OrdinalIgnoreCase);
         PosterModeHintText.Text = mode switch
         {
-            "original" => "仅替换原海报标题，并校验标题是否正确。",
-            "poster_ai_erase_pil_title" => "先用 AI 消除原海报标题，再确定性绘制新剧名，标题文字更稳定。",
+            "original" => "替换原海报标题，清除人物名、作者说明等其他文字，并进行全图校验。",
+            "poster_ai_erase_pil_title" => "先用 AI 清除原海报全部文字，再确定性绘制新剧名，标题文字更稳定。",
             "video_frame" => "从视频中抽取画面并交给 AI 生成封面，更贴近剧集实际内容。",
             "poster_ai_edit" => "基于原海报重新生成封面，允许整体视觉效果重做。",
             _ => string.Empty,

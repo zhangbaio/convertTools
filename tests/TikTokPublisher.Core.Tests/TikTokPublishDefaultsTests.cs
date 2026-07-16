@@ -32,6 +32,11 @@ public sealed class TikTokPublishDefaultsTests
         settings.PosterTitleVerifyEnabled.Should().Be(ClientSettingsDefaults.PosterTitleVerifyEnabled);
         settings.PosterTitleVerifyMode.Should().Be(ClientSettingsDefaults.PosterTitleVerifyMode);
         settings.PosterTitleVerifyAiRetryCount.Should().Be(ClientSettingsDefaults.PosterTitleVerifyAiRetryCount);
+        settings.FrameCoverPrompt.Should().Be(ClientSettingsDefaults.FrameCoverPrompt);
+        settings.PosterInpaintPrompt.Should().Be(ClientSettingsDefaults.PosterInpaintPrompt);
+        settings.PosterInpaintSafeRetryPrompt.Should().Be(ClientSettingsDefaults.PosterInpaintSafeRetryPrompt);
+        settings.PosterGenerationPrompt.Should().Be(ClientSettingsDefaults.PosterGenerationPrompt);
+        settings.PosterGenerationSafeRetryPrompt.Should().Be(ClientSettingsDefaults.PosterGenerationSafeRetryPrompt);
         settings.FrameExtractEpisodeIndex.Should().Be(ClientSettingsDefaults.FrameExtractEpisodeIndex);
         settings.FrameExtractTime.Should().Be(ClientSettingsDefaults.FrameExtractTime);
         settings.FrameExtractNeighborOffsetsSeconds.Should().Be(ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds);
@@ -46,6 +51,77 @@ public sealed class TikTokPublishDefaultsTests
         settings.TiktokProofWpsPath.Should().BeEmpty();
         ClientSettingsDefaults.TiktokProofPdfRenderer.Should().Be("wps");
         settings.TiktokProofKeepDocx.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Client_settings_store_fresh_install_uses_single_title_only_poster_defaults()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-fresh-install-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        try
+        {
+            File.Exists(databasePath).Should().BeFalse();
+
+            var settings = ClientSettingsStore.Load(databasePath);
+
+            settings.PosterTitleVerifyEnabled.Should().BeTrue();
+            settings.PosterTitleVerifyMode.Should().Be("fallback_repaint");
+            settings.FrameCoverPrompt.Should().Be(ClientSettingsDefaults.FrameCoverPrompt);
+            settings.PosterInpaintPrompt.Should().Be(ClientSettingsDefaults.PosterInpaintPrompt);
+            settings.PosterInpaintSafeRetryPrompt.Should().Be(ClientSettingsDefaults.PosterInpaintSafeRetryPrompt);
+            settings.PosterGenerationPrompt.Should().Be(ClientSettingsDefaults.PosterGenerationPrompt);
+            settings.PosterGenerationSafeRetryPrompt.Should().Be(ClientSettingsDefaults.PosterGenerationSafeRetryPrompt);
+
+            var prompts = new[]
+            {
+                settings.FrameCoverPrompt,
+                settings.PosterInpaintPrompt,
+                settings.PosterInpaintSafeRetryPrompt,
+                settings.PosterGenerationPrompt,
+                settings.PosterGenerationSafeRetryPrompt,
+            };
+            foreach (var prompt in prompts)
+            {
+                prompt.Should().Contain("{title}");
+                prompt.Should().Contain("人物");
+                prompt.Should().Contain("作者");
+                prompt.Should().Contain("水印");
+            }
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Installer_secret_reset_on_fresh_database_keeps_single_title_only_poster_defaults()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-fresh-reset-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        try
+        {
+            ClientSettingsStore.ResetInstallerDataSecrets(databasePath);
+
+            var settings = ClientSettingsStore.Load(databasePath);
+
+            settings.PosterTitleVerifyEnabled.Should().BeTrue();
+            settings.PosterTitleVerifyMode.Should().Be("fallback_repaint");
+            settings.PosterTitleVerifyAiRetryCount.Should().Be(ClientSettingsDefaults.PosterTitleVerifyAiRetryCount);
+            settings.FrameCoverPrompt.Should().Be(ClientSettingsDefaults.FrameCoverPrompt);
+            settings.PosterInpaintPrompt.Should().Be(ClientSettingsDefaults.PosterInpaintPrompt);
+            settings.PosterInpaintSafeRetryPrompt.Should().Be(ClientSettingsDefaults.PosterInpaintSafeRetryPrompt);
+            settings.PosterGenerationPrompt.Should().Be(ClientSettingsDefaults.PosterGenerationPrompt);
+            settings.PosterGenerationSafeRetryPrompt.Should().Be(ClientSettingsDefaults.PosterGenerationSafeRetryPrompt);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -189,6 +265,98 @@ public sealed class TikTokPublishDefaultsTests
             catch (IOException)
             {
             }
+        }
+    }
+
+    [Fact]
+    public void Client_settings_store_migrates_legacy_poster_text_cleanup_prompts()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-legacy-poster-prompts-{Guid.NewGuid():N}.db");
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                FrameCoverPrompt = ClientSettingsDefaults.LegacyFrameCoverPrompt,
+                PosterInpaintPrompt = ClientSettingsDefaults.LegacyPosterInpaintPrompt,
+                PosterInpaintSafeRetryPrompt = ClientSettingsDefaults.LegacyPosterInpaintSafeRetryPrompt,
+                PosterGenerationPrompt = ClientSettingsDefaults.LegacyPosterGenerationPrompt,
+                PosterGenerationSafeRetryPrompt = ClientSettingsDefaults.LegacyPosterGenerationSafeRetryPrompt,
+            }, databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+
+            loaded.FrameCoverPrompt.Should().Be(ClientSettingsDefaults.FrameCoverPrompt);
+            loaded.PosterInpaintPrompt.Should().Be(ClientSettingsDefaults.PosterInpaintPrompt);
+            loaded.PosterInpaintSafeRetryPrompt.Should().Be(ClientSettingsDefaults.PosterInpaintSafeRetryPrompt);
+            loaded.PosterGenerationPrompt.Should().Be(ClientSettingsDefaults.PosterGenerationPrompt);
+            loaded.PosterGenerationSafeRetryPrompt.Should().Be(ClientSettingsDefaults.PosterGenerationSafeRetryPrompt);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(databasePath);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void Client_settings_store_preserves_custom_poster_text_cleanup_prompts()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-custom-poster-prompts-{Guid.NewGuid():N}.db");
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                FrameCoverPrompt = "自定义抽帧提示 {title}",
+                PosterInpaintPrompt = "自定义局部提示 {title}",
+                PosterInpaintSafeRetryPrompt = "自定义局部重试 {title}",
+                PosterGenerationPrompt = "自定义整图提示 {title}",
+                PosterGenerationSafeRetryPrompt = "自定义整图重试 {title}",
+            }, databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+
+            loaded.FrameCoverPrompt.Should().Be("自定义抽帧提示 {title}");
+            loaded.PosterInpaintPrompt.Should().Be("自定义局部提示 {title}");
+            loaded.PosterInpaintSafeRetryPrompt.Should().Be("自定义局部重试 {title}");
+            loaded.PosterGenerationPrompt.Should().Be("自定义整图提示 {title}");
+            loaded.PosterGenerationSafeRetryPrompt.Should().Be("自定义整图重试 {title}");
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(databasePath);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
+    public void Poster_defaults_require_the_target_title_to_be_the_only_visible_text()
+    {
+        var prompts = new[]
+        {
+            ClientSettingsDefaults.PosterInpaintPrompt,
+            ClientSettingsDefaults.PosterInpaintSafeRetryPrompt,
+            ClientSettingsDefaults.PosterGenerationPrompt,
+            ClientSettingsDefaults.PosterGenerationSafeRetryPrompt,
+            ClientSettingsDefaults.FrameCoverPrompt,
+        };
+
+        foreach (var prompt in prompts)
+        {
+            prompt.Should().Contain("{title}");
+            prompt.Should().ContainAny("所有", "全部");
+            prompt.Should().Contain("人物");
+            prompt.Should().Contain("作者");
+            prompt.Should().Contain("水印");
         }
     }
 

@@ -293,7 +293,10 @@ public static class ClientSettingsStore
         settings.FrameExtractFallbackPercents = DefaultIfBlank(
             settings.FrameExtractFallbackPercents,
             ClientSettingsDefaults.FrameExtractFallbackPercents);
-        settings.FrameCoverPrompt = DefaultIfBlank(settings.FrameCoverPrompt, ClientSettingsDefaults.FrameCoverPrompt);
+        settings.FrameCoverPrompt = UpgradeBuiltInPrompt(
+            settings.FrameCoverPrompt,
+            ClientSettingsDefaults.LegacyFrameCoverPrompt,
+            ClientSettingsDefaults.FrameCoverPrompt);
         settings.PosterLayoutDetectPrompt = DefaultIfBlank(settings.PosterLayoutDetectPrompt, ClientSettingsDefaults.PosterLayoutDetectPrompt);
         if (string.Equals(
                 settings.PosterLayoutDetectPrompt.Trim(),
@@ -302,10 +305,22 @@ public static class ClientSettingsStore
         {
             settings.PosterLayoutDetectPrompt = ClientSettingsDefaults.PosterLayoutDetectPrompt;
         }
-        settings.PosterInpaintPrompt = DefaultIfBlank(settings.PosterInpaintPrompt, ClientSettingsDefaults.PosterInpaintPrompt);
-        settings.PosterInpaintSafeRetryPrompt = DefaultIfBlank(settings.PosterInpaintSafeRetryPrompt, ClientSettingsDefaults.PosterInpaintSafeRetryPrompt);
-        settings.PosterGenerationPrompt = DefaultIfBlank(settings.PosterGenerationPrompt, ClientSettingsDefaults.PosterGenerationPrompt);
-        settings.PosterGenerationSafeRetryPrompt = DefaultIfBlank(settings.PosterGenerationSafeRetryPrompt, ClientSettingsDefaults.PosterGenerationSafeRetryPrompt);
+        settings.PosterInpaintPrompt = UpgradeBuiltInPrompt(
+            settings.PosterInpaintPrompt,
+            ClientSettingsDefaults.LegacyPosterInpaintPrompt,
+            ClientSettingsDefaults.PosterInpaintPrompt);
+        settings.PosterInpaintSafeRetryPrompt = UpgradeBuiltInPrompt(
+            settings.PosterInpaintSafeRetryPrompt,
+            ClientSettingsDefaults.LegacyPosterInpaintSafeRetryPrompt,
+            ClientSettingsDefaults.PosterInpaintSafeRetryPrompt);
+        settings.PosterGenerationPrompt = UpgradeBuiltInPrompt(
+            settings.PosterGenerationPrompt,
+            ClientSettingsDefaults.LegacyPosterGenerationPrompt,
+            ClientSettingsDefaults.PosterGenerationPrompt);
+        settings.PosterGenerationSafeRetryPrompt = UpgradeBuiltInPrompt(
+            settings.PosterGenerationSafeRetryPrompt,
+            ClientSettingsDefaults.LegacyPosterGenerationSafeRetryPrompt,
+            ClientSettingsDefaults.PosterGenerationSafeRetryPrompt);
         settings.PosterNameSystemPrompt = DefaultIfBlank(settings.PosterNameSystemPrompt, ClientSettingsDefaults.PosterNameSystemPrompt);
         settings.PosterNameUserPrompt = DefaultIfBlank(settings.PosterNameUserPrompt, ClientSettingsDefaults.PosterNameUserPrompt);
         settings.TiktokProjectImageGenerationMode = ClientSettingsDefaults.TiktokProjectImageGenerationMode;
@@ -383,6 +398,14 @@ public static class ClientSettingsStore
     {
         var text = value?.Trim() ?? "";
         return string.IsNullOrWhiteSpace(text) ? fallback : text;
+    }
+
+    private static string UpgradeBuiltInPrompt(string? value, string legacyDefault, string currentDefault)
+    {
+        var text = DefaultIfBlank(value, currentDefault);
+        return string.Equals(text.Trim(), legacyDefault.Trim(), StringComparison.Ordinal)
+            ? currentDefault
+            : text;
     }
 
     public static string NormalizeUdid(string? value)

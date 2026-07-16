@@ -20,6 +20,15 @@ public sealed partial class PosterRenamer
 遮罩区域外的所有人物、背景、颜色、清晰度和构图必须保持不变。
 """;
 
+    private const string DefaultPosterAllTextErasePrompt = """
+这是海报全图文字清理任务，不是重新设计或重绘海报。
+请删除图片中所有可读文字和文字残影，包括主标题、副标题、人物或角色姓名、演员名、作者、改编或来源说明、版权或出品信息、宣传语、季数、字幕、水印、Logo文字、角标，以及任何中文、英文、拼音、字母和数字文字。
+用每处文字周围的背景、纹理和光影自然补全被删除区域，不能留下描边、底纹、模糊字或残影。
+不得生成任何新文字、符号、Logo、水印、印章或标记。
+人物、脸部、身体、服装、发型、动作、道具、背景、构图、尺寸、比例、颜色、光影和清晰度必须保持不变。
+最终输出必须是一张完全无文字的干净海报底图。
+""";
+
     private const string DefaultPosterTitleVerifyAiRetryPrompt = """
     输入图是当前海报标题区域的局部图。删除其中全部旧文字、错字、重复字和文字残影，然后只写一次以下目标标题：{title}
     严格保持目标标题中给出的换行，可排成一至三行；保持阅读顺序清楚、间距均匀、位置居中。
@@ -99,6 +108,19 @@ public sealed partial class PosterRenamer
             return;
         }
 
+        if (await TryCleanupDetectedResidualTextAsync(
+                config,
+                outputPath,
+                title,
+                verificationLayout,
+                verifyResult,
+                verifyMode,
+                request,
+                cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
         if (await TryRepairTitleWithAiRetriesAsync(
                 config,
                 outputPath,
@@ -145,6 +167,7 @@ public sealed partial class PosterRenamer
                     return;
                 }
 
+                verifyResult = secondVerify;
                 Log(request, $"Image2 重生成后二次校验未通过，改用AI去字+PIL重绘兜底：{secondVerify.Reason}");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -172,14 +195,23 @@ public sealed partial class PosterRenamer
             var layout = await DetectPosterLayoutAsync(configFile, renderInputPath, title, cancellationToken);
             await WriteGeneratedPosterCandidateAsync(renderInputPath, await File.ReadAllBytesAsync(renderInputPath, cancellationToken), outputPath, cancellationToken);
             var config = KeyValueConfigReader.Read(configFile);
-            await FallbackRepaintVerifiedTitleAsync(
+            var verifyEnabled = IsPosterTitleVerifyEnabled(config);
+            var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
+            var finalVerify = await FallbackRepaintVerifiedTitleAsync(
                 config,
                 outputPath,
                 title,
                 layout,
                 PosterTitleVerifyResult.Fail("封面生成模式：AI消除文字+PIL绘制新标题"),
                 request,
-                cancellationToken);
+                cancellationToken,
+                forceFullTextCleanup: true,
+                verifyEnabled: verifyEnabled,
+                throwOnResidual: verifyMode != "warn");
+            if (verifyEnabled && !finalVerify.Ok && verifyMode == "blocking")
+                throw new InvalidOperationException($"海报文字清理后标题校验仍未通过：{finalVerify.Reason}");
+            if (verifyEnabled && !finalVerify.Ok && verifyMode == "warn")
+                Log(request, $"海报文字清理后复核仍有差异，已按“仅警告”配置保留结果：{finalVerify.Reason}");
             Log(request, $"已生成AI去字+PIL绘制标题封面：{Path.GetFileName(outputPath)}");
         }
         finally
@@ -207,9 +239,10 @@ public sealed partial class PosterRenamer
 
             var config = KeyValueConfigReader.Read(configFile);
             var promptTemplate = GetOptional(config, "FrameCoverPrompt") ?? DefaultPosterGenerationPrompt;
-            var prompt = RenderPromptTemplate(
+            var prompt = MergePromptWithGuardrails(RenderPromptTemplate(
                 promptTemplate,
-                CreatePosterPromptVariables(title, title, null, null));
+                CreatePosterPromptVariables(title, title, null, null)),
+                title);
             var apiSize = PosterCoverFrameSizeHelper.ResolveFrameApiSize(posterW, posterH, config);
             Log(request, $"AI 生成中：请求尺寸 {apiSize}");
 
@@ -241,6 +274,19 @@ public sealed partial class PosterRenamer
                     throw new InvalidOperationException($"AI 封面标题校验无法确认：{verifyResult.Reason}");
 
                 Log(request, "AI封面标题校验暂未得到确定结果，已保留首张AI封面并跳过自动改字。");
+                return;
+            }
+
+            if (await TryCleanupDetectedResidualTextAsync(
+                    config,
+                    outputPath,
+                    title,
+                    layout,
+                    verifyResult,
+                    verifyMode,
+                    request,
+                    cancellationToken).ConfigureAwait(false))
+            {
                 return;
             }
 
@@ -278,14 +324,55 @@ public sealed partial class PosterRenamer
         }
     }
 
-    private async Task FallbackRepaintVerifiedTitleAsync(
+    private async Task<bool> TryCleanupDetectedResidualTextAsync(
+        IReadOnlyDictionary<string, string> config,
+        string outputPath,
+        string title,
+        PosterLayout layout,
+        PosterTitleVerifyResult verifyResult,
+        string verifyMode,
+        PosterRenameRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!verifyResult.HasResidualText)
+            return false;
+
+        Log(request, "检测到目标剧名外的文字，优先执行全图去字并重绘目标剧名。");
+        try
+        {
+            var cleanupVerify = await FallbackRepaintVerifiedTitleAsync(
+                config,
+                outputPath,
+                title,
+                layout,
+                verifyResult,
+                request,
+                cancellationToken,
+                forceFullTextCleanup: true).ConfigureAwait(false);
+            if (!cleanupVerify.Ok && verifyMode == "blocking")
+                throw new InvalidOperationException($"海报文字清理后标题校验仍未通过：{cleanupVerify.Reason}");
+            if (!cleanupVerify.Ok && verifyMode == "warn")
+                Log(request, $"海报文字已自动清理，但标题复核仍有差异，已按“仅警告”配置保留结果：{cleanupVerify.Reason}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && verifyMode == "warn")
+        {
+            Log(request, $"海报其他文字自动清理后仍未通过复核，已按“仅警告”配置保留结果：{ex.Message}");
+        }
+
+        return true;
+    }
+
+    private async Task<PosterTitleVerifyResult> FallbackRepaintVerifiedTitleAsync(
         IReadOnlyDictionary<string, string> config,
         string outputPath,
         string title,
         PosterLayout layout,
         PosterTitleVerifyResult initialVerify,
         PosterRenameRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool forceFullTextCleanup = false,
+        bool verifyEnabled = true,
+        bool throwOnResidual = true)
     {
         Log(request, "标题全图复核确认需要修复，开始AI去字+PIL确定性重绘。");
         var failedCandidatePath = Path.Combine(
@@ -331,9 +418,12 @@ public sealed partial class PosterRenamer
             request,
             cancellationToken).ConfigureAwait(false);
 
-        var erasePrompt = GetOptional(config, "PosterTitleErasePrompt") ?? DefaultPosterTitleErasePrompt;
+        var eraseAllText = forceFullTextCleanup || initialVerify.HasResidualText;
+        var erasePrompt = eraseAllText
+            ? DefaultPosterAllTextErasePrompt
+            : GetOptional(config, "PosterTitleErasePrompt") ?? DefaultPosterTitleErasePrompt;
         var erasedBytes = await GenerateTitleErasedPosterBytesAsync(
-            config, outputPath, layout, erasePrompt, cancellationToken);
+            config, outputPath, layout, erasePrompt, eraseAllText, cancellationToken);
         await WriteGeneratedPosterCandidateAsync(outputPath, erasedBytes, erasedPath, cancellationToken);
         Log(request, $"已生成AI去字底图：{Path.GetFileName(erasedPath)}");
 
@@ -344,6 +434,12 @@ public sealed partial class PosterRenamer
             ToTitleLayout(layout));
         Log(request, $"已使用PIL重绘标准标题：{Path.GetFileName(outputPath)}");
 
+        if (!verifyEnabled)
+        {
+            Log(request, "海报标题校验已关闭，跳过生成后的视觉复核。");
+            return new PosterTitleVerifyResult(true, title, "海报标题校验已关闭");
+        }
+
         var finalVerify = await VerifyTitleWithFullImageConfirmationAsync(
             config,
             outputPath,
@@ -351,6 +447,36 @@ public sealed partial class PosterRenamer
             layout,
             request,
             cancellationToken).ConfigureAwait(false);
+
+        if (finalVerify.HasResidualText)
+        {
+            Log(request, "首次去字后仍检测到其他文字，执行最后一次全图去字重试。");
+            var retryErasedBytes = await GenerateTitleErasedPosterBytesAsync(
+                config,
+                outputPath,
+                layout,
+                DefaultPosterAllTextErasePrompt,
+                eraseAllText: true,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            await WriteGeneratedPosterCandidateAsync(
+                outputPath,
+                retryErasedBytes,
+                erasedPath,
+                cancellationToken).ConfigureAwait(false);
+            PosterTitleProgrammaticRenderer.Render(
+                erasedPath,
+                outputPath,
+                title,
+                ToTitleLayout(layout));
+            finalVerify = await VerifyTitleWithFullImageConfirmationAsync(
+                config,
+                outputPath,
+                title,
+                layout,
+                request,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         await SavePosterTitleVerifyDebugAsync(
             verifyDebugPath,
             title,
@@ -364,8 +490,15 @@ public sealed partial class PosterRenamer
             cancellationToken).ConfigureAwait(false);
         if (finalVerify.Ok)
             Log(request, "AI标题已自动重绘并通过校验");
+        else if (finalVerify.HasResidualText && throwOnResidual)
+        {
+            throw new InvalidOperationException(
+                $"海报全图去字重试后仍存在目标剧名外的文字：{(string.IsNullOrWhiteSpace(finalVerify.ResidualText) ? finalVerify.Reason : finalVerify.ResidualText)}");
+        }
         else
             Log(request, $"AI海报标题已用PIL确定性重绘完成；复核仍有差异，已保留确定性结果：{finalVerify.Reason}");
+
+        return finalVerify;
     }
 
     private static async Task SavePosterTitleVerifyDebugAsync(
@@ -402,6 +535,8 @@ public sealed partial class PosterRenamer
                     initialVerify.Ok,
                     initialVerify.IsInconclusive,
                     initialVerify.DetectedTitle,
+                    initialVerify.HasResidualText,
+                    initialVerify.ResidualText,
                     initialVerify.Reason,
                 },
                 finalVerify = finalVerify is { } final
@@ -410,6 +545,8 @@ public sealed partial class PosterRenamer
                     final.Ok,
                     final.IsInconclusive,
                     final.DetectedTitle,
+                    final.HasResidualText,
+                    final.ResidualText,
                     final.Reason,
                     }
                     : null,
@@ -441,11 +578,16 @@ public sealed partial class PosterRenamer
             ToTitleLayout(detectedLayout),
             cancellationToken).ConfigureAwait(false);
         if (croppedVerify.Ok)
-            return croppedVerify;
+        {
+            Log(request, "标题区域校验通过，继续检查全图是否残留人物名、作者说明等其他文字。");
+        }
+        else
+        {
+            Log(request, croppedVerify.IsInconclusive
+                ? "标题区域校验暂未得到确定结果，改用全图复核。"
+                : "标题区域校验发现文字差异，开始全图复核。");
+        }
 
-        Log(request, croppedVerify.IsInconclusive
-            ? "标题区域校验暂未得到确定结果，改用全图复核。"
-            : "标题区域校验发现文字差异，开始全图复核。");
         var fullImageLayout = detectedLayout with
         {
             X = 0,
@@ -459,20 +601,55 @@ public sealed partial class PosterRenamer
             title,
             ToTitleLayout(fullImageLayout),
             cancellationToken).ConfigureAwait(false);
-        if (fullImageVerify.Ok)
+        var verifyResult = MergeResidualTextEvidence(croppedVerify, fullImageVerify);
+        if (verifyResult.Ok)
         {
-            Log(
-                request,
-                $"标题区域裁剪位置不准确，但全图复核通过：{(string.IsNullOrWhiteSpace(fullImageVerify.DetectedTitle) ? title : fullImageVerify.DetectedTitle)}");
+            Log(request, croppedVerify.Ok
+                ? "海报全图文字复核通过，成品只保留目标新剧名。"
+                : $"标题区域裁剪位置不准确，但全图复核通过：{(string.IsNullOrWhiteSpace(verifyResult.DetectedTitle) ? title : verifyResult.DetectedTitle)}");
         }
         else
         {
-            Log(request, fullImageVerify.IsInconclusive
-                ? "标题全图复核暂未得到确定结果。"
-                : "标题全图复核确认文字需要修复。");
+            Log(request, verifyResult.HasResidualText
+                ? $"海报检测到目标剧名外的残留文字：{(string.IsNullOrWhiteSpace(verifyResult.ResidualText) ? verifyResult.Reason : verifyResult.ResidualText)}"
+                : verifyResult.IsInconclusive
+                    ? "标题全图复核暂未得到确定结果。"
+                    : "标题全图复核确认文字需要修复。");
         }
 
-        return fullImageVerify;
+        return verifyResult;
+    }
+
+    internal static PosterTitleVerifyResult MergeResidualTextEvidence(
+        PosterTitleVerifyResult croppedVerify,
+        PosterTitleVerifyResult fullImageVerify)
+    {
+        if (!croppedVerify.HasResidualText && !fullImageVerify.HasResidualText)
+            return fullImageVerify;
+
+        var residualText = string.Join(
+            '；',
+            new[] { croppedVerify.ResidualText, fullImageVerify.ResidualText }
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.Ordinal));
+        var reason = string.Join(
+            '；',
+            new[] { croppedVerify.Reason, fullImageVerify.Reason }
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.Ordinal));
+        var detectedTitle = string.IsNullOrWhiteSpace(fullImageVerify.DetectedTitle)
+            ? croppedVerify.DetectedTitle
+            : fullImageVerify.DetectedTitle;
+
+        return new PosterTitleVerifyResult(
+            false,
+            detectedTitle,
+            string.IsNullOrWhiteSpace(reason) ? "检测到目标标题之外的残留文字" : reason,
+            IsInconclusive: false,
+            HasResidualText: true,
+            ResidualText: residualText);
     }
 
     private async Task<bool> TryRepairTitleWithAiRetriesAsync(
@@ -484,6 +661,12 @@ public sealed partial class PosterRenamer
         PosterRenameRequest request,
         CancellationToken cancellationToken)
     {
+        if (initialVerify.HasResidualText)
+        {
+            Log(request, "检测到标题区域外的其他文字，跳过局部标题重试，直接进入全图去字处理。");
+            return false;
+        }
+
         var retryCount = PosterTitleAiRetryPolicy.ResolveRetryCount(config);
         if (retryCount <= 0)
             return false;
@@ -701,6 +884,7 @@ public sealed partial class PosterRenamer
         string inputPath,
         PosterLayout layout,
         string prompt,
+        bool eraseAllText,
         CancellationToken cancellationToken)
     {
         var endpoint = GetOptional(config, "ImageEditEndpoint") ?? GetRequired(config, "ImageModelEndpoint");
@@ -716,6 +900,21 @@ public sealed partial class PosterRenamer
             ? PosterCoverFrameSizeHelper.ResolveFrameApiSize(sourceInfo.Width, sourceInfo.Height, config)
             : NormalizeImageSize(GetOptional(config, "ImageSize"), provider);
         var mediaType = GuessMediaType(Path.GetExtension(inputPath).TrimStart('.'));
+
+        if (eraseAllText && !apiPath.EndsWith("/images/generations", StringComparison.OrdinalIgnoreCase))
+        {
+            return await GeneratePosterWithEditFormNoMaskAsync(
+                requestUrl,
+                modelId,
+                apiKey,
+                inputPath,
+                mediaType,
+                prompt.Trim(),
+                provider,
+                imageQuality,
+                imageSize,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         return await GeneratePosterWithAiPromptAsync(
             requestUrl,
@@ -932,14 +1131,14 @@ public sealed partial class PosterRenamer
     private static string BuildImage2TitleRegenerationPrompt(string title)
     {
         var safeTitle = (title ?? "").Trim();
-        return "请编辑这张短剧海报，只修复标题文字区域。"
+        return "请编辑这张短剧海报，清除全部旧文字并修复标题。"
                + "保持人物、背景、构图、比例、色调和光影基本不变，不要重画主体人物，不要改变图片尺寸比例。"
-               + "删除图片中错误、乱码、残缺、重复、方括号、书名号、引号或不完整的标题文字。"
+               + "删除图片中全部现有文字，包括错误或残缺标题、人物名、演员名、作者、改编来源、宣传语、副标题、季数、字幕、水印、Logo文字和角标。"
                + $"重新添加准确的简体中文标题：{safeTitle}。"
                + "标题成品只能包含剧名本身，不要添加 []、《》、“”、拼音、英文、数字、书名号、引号或任何包裹符号。"
                + "必须逐字一致，不能漏字、改字、使用繁体字、异体字、形近字、乱码或艺术变形到难以识别的字。"
                + "标题要清晰、醒目、有短剧海报质感，使用常见、标准、易识别的简体中文海报粗标题。"
-               + "最终画面中只能出现一次完整标题，不得保留旧标题残影、底层文字或重复标题。";
+               + "最终画面中只能出现一次完整目标标题，不得保留任何其他中文、英文、拼音、数字、旧标题残影、底层文字或重复标题。";
     }
 
     private static PosterTitleLayout ToTitleLayout(PosterLayout layout) =>

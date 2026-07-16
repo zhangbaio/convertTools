@@ -15,7 +15,7 @@ public static class TikTokPosterGenerationStateService
     public const string StateDocumentType = "tiktok_poster_generation_state";
     public const string OutputFileName = "海报图片.png";
 
-    private const string FingerprintVersion = "v1-title-input-config";
+    private const string FingerprintVersion = "v2-title-input-config-single-title-only";
 
     public static bool HasCurrentTitleState(QueueProjectItem item)
     {

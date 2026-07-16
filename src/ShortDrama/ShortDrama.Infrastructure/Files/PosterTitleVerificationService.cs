@@ -12,7 +12,7 @@ namespace ShortDrama.Infrastructure.Files;
 internal sealed class PosterTitleVerificationService
 {
     private const string DefaultVerifyPrompt = """
-请检查这张短剧海报标题区域中的主标题文字，并只返回 JSON。
+请检查输入的短剧海报图片，并只返回 JSON。输入可能是标题区域裁剪，也可能是整张海报；只要画面中能看到文字，都必须检查。
 目标标题：{title}
 要求：
 1. 识别海报中主标题的实际文字。
@@ -23,7 +23,9 @@ internal sealed class PosterTitleVerificationService
 6. 判断描边和装饰是否克制、审核友好，而不是明显设计化。
 7. 如果某个字虽然看起来接近目标字，但字形像异体字、艺术字、错字或不规范写法，也必须判定为不通过。
 8. 识别结果必须尽量逐字；风格判断可以适度宽松，但字形正确性不能放宽。
-9. 检查标题区域内是否还残留目标标题以外的旧剧名、季数、副标题或同组宣传短句。
+9. 目标标题是成品中唯一允许出现的可读文字。检查画面任意位置是否还存在目标标题以外的中文、英文、拼音、字母或数字。
+10. 人物或角色姓名、演员名、作者、改编或来源说明、版权或出品信息、宣传语、副标题、季数、字幕、水印、Logo文字、角标以及文字残影，都必须判定为残留文字。
+11. 即使目标标题逐字正确，只要存在上述任何其他可读文字，hasResidualText 也必须返回 true，不能判定通过。
 
 JSON 格式：
 {
@@ -152,8 +154,11 @@ JSON 格式：
         var containsVariant = result.ContainsVariant == true;
         var usesArtisticStyle = result.UsesArtisticStyle == true;
         var usesAggressiveDecorations = result.UsesAggressiveDecorations == true;
-        var hasResidualText = result.HasResidualText == true;
         var residualText = (result.ResidualText ?? "").Trim();
+        // Treat a non-empty transcription as residual evidence even when the
+        // model returns an inconsistent or missing boolean flag.
+        var hasResidualText = result.HasResidualText == true
+            || !string.IsNullOrWhiteSpace(residualText);
         if (containsTraditional || containsVariant)
             matchesTarget = false;
         if (!string.IsNullOrWhiteSpace(detectedTitle) && detectedTitle != title)
@@ -196,7 +201,13 @@ JSON 格式：
             && !usesAggressiveDecorations
             && !hasResidualText;
 
-        return new PosterTitleVerifyResult(ok, detectedTitle, string.Join('；', reasons), isInconclusive);
+        return new PosterTitleVerifyResult(
+            ok,
+            detectedTitle,
+            string.Join('；', reasons),
+            isInconclusive,
+            hasResidualText,
+            residualText);
     }
 
     private static string CreateTitleCrop(string imagePath, PosterTitleLayout layout)
@@ -329,7 +340,9 @@ internal readonly record struct PosterTitleVerifyResult(
     bool Ok,
     string DetectedTitle,
     string Reason,
-    bool IsInconclusive = false)
+    bool IsInconclusive = false,
+    bool HasResidualText = false,
+    string ResidualText = "")
 {
     public static PosterTitleVerifyResult Fail(string reason) => new(false, "", reason);
 

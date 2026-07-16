@@ -56,34 +56,21 @@ JSON 结构：
     上述示例数值仅说明格式，必须根据当前图片中的实际标题位置测量后填写，不能照抄示例。
     """;
     private const string DefaultPosterInpaintPrompt = """
-这是海报局部改字任务，不是重绘海报。
-只允许在遮罩区域内把原有剧名文字替换为“{title}”。
-除了剧名文字本身，图片其余任何内容都不能修改，包括但不限于：
-1. 人物脸部、姿势、服装、发型。
-2. 背景、道具、光影、颜色、清晰度。
-3. 构图、裁切、排版、装饰元素、特效。
-4. 原图中未被文字遮挡的任何像素。
-
-输出要求：
-1. 保持原海报整体视觉完全一致，只做文字替换。
-2. 新文字位置与原剧名区域一致，横向居中。
-3. 字体风格保持短剧海报标题风格，大号黄色粗体，带黑色粗描边。
-4. 不要新增任何其他文字，不要润色，不要改图，不要重画。
+这是海报文字清理与改标题任务。保持人物、脸部、服装、背景、构图、尺寸、比例和光影不变。
+删除原图中除目标新剧名外的全部文字和小字，包括人物名、演员名、作者、改编来源、宣传语、季数、字幕、水印、Logo文字和角标，并用背景自然补全。
+最后只添加一次目标新剧名“{title}”。最终成品中唯一允许出现的可读文字就是这个目标剧名，不得留下其他文字或文字残影。
+目标剧名必须使用标准、清晰、易识别的简体中文印刷粗体，逐字准确。
 """;
     private const string DefaultPosterInpaintSafeRetryPrompt = """
-这是安全合规的局部改字任务。
-只允许在遮罩区域内将现有标题文字替换为“{title}”。
-不要新增任何人物变化、冲突场景、受伤效果、成人暗示、敏感剧情元素。
-不能修改遮罩区域外的任何像素，人物、背景、服装、道具、光影、构图保持与原图一致。
-输出为普通、安全、清晰的中文海报标题，仅完成标题替换。
+这是安全合规的海报文字清理任务。人物、背景、服装、道具、光影和构图保持不变。
+清除旧标题以及人物名、演员名、作者、改编来源、宣传语、季数、字幕、水印、Logo文字和角标等全部其他文字。
+最后只写一次“{title}”，不得出现任何其他可读文字。标题使用普通、标准、清晰的简体中文印刷粗体。
 """;
     private const string DefaultPosterGenerationPrompt = """
-参考输入海报图，执行一次精确的海报改字编辑。
-只把海报中现有的剧名文字替换为“{title}”。
-其余所有内容必须保持不变，包括人物、表情、服装、背景、颜色、光影、构图、比例、清晰度和装饰元素。
-不要重绘角色，不要修改背景，不要新增任何文字。
-新剧名必须是清晰可读的中文，风格保持短剧海报标题样式，大号黄色粗体，黑色粗描边，位置与原剧名区域一致。
-这是局部文字替换任务，不是重新生成整张海报。
+参考输入海报执行精确的文字清理和新标题生成。保持人物、脸部、服装、背景、构图、尺寸、比例、颜色、光影和清晰度不变。
+删除原图中的全部可见文字，包括旧标题、副标题、人物或角色姓名、演员名、作者、改编及来源说明、宣传语、季数、字幕、水印、Logo文字和角标，并用背景自然补全。
+清理后只添加一次新剧名“{title}”。最终成品唯一允许出现的可读文字就是这个新剧名，不得保留或新增其他文字。
+新剧名必须使用标准、清晰、逐字准确的简体中文印刷粗体，位置沿用原主标题区域。
 """;
     private const string PosterTextGuardrails = """
 标题文字必须满足以下硬性要求：
@@ -103,11 +90,15 @@ JSON 结构：
 14. 不能为了保持原海报字体风格而牺牲某个字的标准写法。
 """;
     private const string DefaultPosterGenerationSafeRetryPrompt = """
-参考输入海报，执行一次安全合规的局部标题替换。
-只把现有主标题替换为“{title}”，其余画面保持不变。
-这是普通宣传图编辑任务，不要增加任何暴力、血腥、成人、医疗、政治、未成年人风险或其他敏感元素。
-不要改变人物、背景、服装、动作、表情、光影、构图、装饰和清晰度。
-输出仅需生成安全、合规、清晰的中文标题文字。
+参考输入海报执行安全合规的文字清理。保持人物、背景、服装、动作、表情、光影、构图和清晰度不变。
+删除原图中除目标剧名外的全部文字和小字，包括人物名、演员名、作者、改编来源、宣传语、季数、字幕、水印、Logo文字和角标。
+最后只写一次“{title}”，不得出现任何其他可读文字。标题使用普通、标准、清晰的简体中文印刷粗体。
+""";
+    private const string PosterFinalTextPolicy = """
+最终文字规则（最高优先级）：
+1. 成品中唯一允许出现的可读文字是目标新剧名“{title}”，且只能出现一次。
+2. 必须删除其他所有中文、英文、拼音、字母、数字和文字残影，包括人物或角色姓名、演员名、作者、改编或来源说明、版权或出品信息、宣传语、副标题、季数、字幕、水印、Logo文字和角标。
+3. 文字删除区域必须用周围背景自然补全；不得因此改变人物、脸部、服装、道具、背景、构图、尺寸、比例、颜色、光影和清晰度。
 """;
     private const string DefaultPosterNameSystemPrompt = "你是短剧海报命名助手。请输出一个适合作为海报文件名主标题的短句。不要带扩展名、不要带引号、不要输出解释。";
     private const string DefaultPosterNameUserPrompt = """
@@ -588,7 +579,8 @@ JSON 结构：
                 provider,
                 imageQuality,
                 imageSize,
-                cancellationToken);
+                cancellationToken,
+                editFullImage: true);
         }
         catch (PosterSensitiveContentException ex)
         {
@@ -610,7 +602,8 @@ JSON 结构：
                     provider,
                     imageQuality,
                     imageSize,
-                    cancellationToken);
+                    cancellationToken,
+                    editFullImage: true);
             }
             catch (PosterSensitiveContentException retryEx)
             {
@@ -626,9 +619,10 @@ JSON 结构：
                     title,
                     sanitizedTitle);
                 var sanitizedPromptVariables = CreatePosterPromptVariables(sanitizedTitle, title, null, null);
-                var sanitizedSafeRetryPrompt = useGenerationApi
+                var sanitizedSafeRetryPrompt = MergePromptWithGuardrails(useGenerationApi
                     ? RenderPromptTemplate(GetOptional(config, "PosterGenerationSafeRetryPrompt") ?? DefaultPosterGenerationSafeRetryPrompt, sanitizedPromptVariables)
-                    : RenderPromptTemplate(GetOptional(config, "PosterInpaintSafeRetryPrompt") ?? DefaultPosterInpaintSafeRetryPrompt, sanitizedPromptVariables);
+                    : RenderPromptTemplate(GetOptional(config, "PosterInpaintSafeRetryPrompt") ?? DefaultPosterInpaintSafeRetryPrompt, sanitizedPromptVariables),
+                    sanitizedTitle);
                 bytes = await GeneratePosterWithAiPromptAsync(
                     requestUrl,
                     apiPath,
@@ -641,7 +635,8 @@ JSON 结构：
                     provider,
                     imageQuality,
                     imageSize,
-                    cancellationToken);
+                    cancellationToken,
+                    editFullImage: true);
             }
         }
 
@@ -675,11 +670,27 @@ JSON 结构：
         string provider,
         string imageQuality,
         string imageSize,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool editFullImage = false)
     {
         if (apiPath.EndsWith("/images/generations", StringComparison.OrdinalIgnoreCase))
         {
             return await GeneratePosterWithGenerationsJsonAsync(
+                requestUrl,
+                modelId,
+                apiKey,
+                inputPath,
+                mediaType,
+                prompt,
+                provider,
+                imageQuality,
+                imageSize,
+                cancellationToken);
+        }
+
+        if (editFullImage)
+        {
+            return await GeneratePosterWithEditFormNoMaskAsync(
                 requestUrl,
                 modelId,
                 apiKey,
@@ -940,8 +951,11 @@ JSON 结构：
         return rendered;
     }
 
-    private static string MergePromptWithGuardrails(string prompt, string title) =>
-        $"{prompt.Trim()}\n\n{RenderPromptTemplate(PosterTextGuardrails, CreatePosterPromptVariables(title, title, null, null))}".Trim();
+    private static string MergePromptWithGuardrails(string prompt, string title)
+    {
+        var variables = CreatePosterPromptVariables(title, title, null, null);
+        return $"{prompt.Trim()}\n\n{RenderPromptTemplate(PosterFinalTextPolicy, variables)}\n\n{RenderPromptTemplate(PosterTextGuardrails, variables)}".Trim();
+    }
 
     private static string GuessMediaType(string extension) => extension switch
     {
