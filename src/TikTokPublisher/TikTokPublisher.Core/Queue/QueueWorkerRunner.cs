@@ -1079,6 +1079,12 @@ public sealed class QueueWorkerRunner
         {
             return true;
         }
+        if (stepKey == QueueStepRegistry.GeneratePoster &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, ClientSettingsStore.Load()))
+        {
+            return true;
+        }
         if (stepKey == QueueStepRegistry.GenerateProjectImages &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             TikTokProjectImageService.NeedsGenerateProjectImages(item, ClientSettingsStore.Load()))

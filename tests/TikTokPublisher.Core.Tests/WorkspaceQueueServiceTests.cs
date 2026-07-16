@@ -250,6 +250,42 @@ public sealed class WorkspaceQueueServiceTests
     }
 
     [Fact]
+    public void ScanProjects_keeps_legacy_non_local_poster_recovery_compatible()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "legacy-project");
+
+        try
+        {
+            CreateProject(project);
+            File.WriteAllBytes(Path.Combine(project, "海报图片.jpg"), [1, 2, 3]);
+            WorkspaceQueueService.SaveProjects(
+                workspace,
+                [
+                    new QueueProjectItem
+                    {
+                        ProjectDir = project,
+                        DisplayName = "legacy-project",
+                        StepStates = new Dictionary<string, string>
+                        {
+                            [QueueStepKeys.GeneratePoster] = QueueStepStatus.Pending,
+                        },
+                    },
+                ]);
+
+            var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+
+            item.StepStates[QueueStepKeys.GeneratePoster].Should().Be(QueueStepStatus.Completed);
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, new ClientSettings()).Should().BeFalse(
+                "没有生成状态的普通旧项目仍应沿用历史海报文件兼容逻辑");
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
+    [Fact]
     public void MoveProjectsToAccountWorkspace_Moves_Files_Queue_State_And_Rebinds_Account()
     {
         var sourceWorkspace = Path.Combine(Path.GetTempPath(), $"workspace-source-{Guid.NewGuid():N}");

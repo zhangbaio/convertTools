@@ -57,6 +57,34 @@ public static class LocalManualDramaImportService
         "intro", "description", "desc", "简介", "剧情简介", "介绍",
     };
 
+    public static bool IsLocalManualImportProject(string projectDir)
+    {
+        try
+        {
+            var source = NormalizeFullPath(projectDir);
+            if (string.IsNullOrWhiteSpace(source))
+                return false;
+
+            var metadata = ReadMetadata(Path.Combine(source, MetadataFile));
+            if (metadata.TryGetPropertyValue("localManualImport", out var marker) &&
+                marker is JsonValue markerValue &&
+                markerValue.TryGetValue<bool>(out var enabled) &&
+                enabled)
+            {
+                return true;
+            }
+
+            return string.Equals(
+                ReadString(metadata, "queueEntryDramaType"),
+                "local_manual",
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static IReadOnlyList<LocalManualDramaImportPreview> ListCandidates(string workspaceRoot)
     {
         var workspace = NormalizeFullPath(workspaceRoot);

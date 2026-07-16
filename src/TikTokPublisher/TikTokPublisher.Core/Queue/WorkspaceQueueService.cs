@@ -408,8 +408,22 @@ public static class WorkspaceQueueService
             item.StepStates[QueueStepKeys.RewriteInfo] = QueueStepStatus.Completed;
         }
 
-        if (IsPending(item, QueueStepKeys.GeneratePoster) && HasGeneratedPoster(sourceProjectDir, workflowProjectDir))
+        var posterStatus = item.StepStates.GetValueOrDefault(QueueStepKeys.GeneratePoster, QueueStepStatus.Pending);
+        if (LocalManualDramaImportService.IsLocalManualImportProject(sourceProjectDir))
+        {
+            // Local imports copy the raw source poster into workflow under 海报图片.*. Only a
+            // title-aware generation state proves that the poster step actually ran.
+            var hasCurrentPoster = TikTokPosterGenerationStateService.HasCurrentTitleState(item);
+            if (posterStatus == QueueStepStatus.Completed && !hasCurrentPoster)
+                item.StepStates[QueueStepKeys.GeneratePoster] = QueueStepStatus.Pending;
+            else if (posterStatus == QueueStepStatus.Pending && hasCurrentPoster)
+                item.StepStates[QueueStepKeys.GeneratePoster] = QueueStepStatus.Completed;
+        }
+        else if (posterStatus == QueueStepStatus.Pending &&
+                 HasGeneratedPoster(sourceProjectDir, workflowProjectDir))
+        {
             item.StepStates[QueueStepKeys.GeneratePoster] = QueueStepStatus.Completed;
+        }
 
         if (IsPending(item, QueueStepKeys.GenerateProjectImages) &&
             TikTokProjectImageService.HasCurrentProjectImages(sourceProjectDir))

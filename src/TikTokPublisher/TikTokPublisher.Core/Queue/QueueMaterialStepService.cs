@@ -450,6 +450,7 @@ public static class QueueMaterialStepService
                     log,
                     ct).ConfigureAwait(false);
                 item.CoverPath = outputPath;
+                TikTokPosterGenerationStateService.SaveGeneratedState(item, settings, framePath, outputPath);
                 return;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -510,6 +511,12 @@ public static class QueueMaterialStepService
         }
 
         item.CoverPath = outputPath;
+        TikTokPosterGenerationStateService.SaveGeneratedState(
+            item,
+            settings,
+            inputPath,
+            outputPath,
+            effectivePosterMode: posterMode);
     }
 
     private static async Task GenerateAiPosterAsync(
