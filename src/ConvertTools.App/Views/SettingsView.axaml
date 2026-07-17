@@ -1,0 +1,45 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ConvertTools.App.Views.SettingsView">
+    <ScrollViewer>
+        <StackPanel Margin="24" Spacing="14" MaxWidth="660" HorizontalAlignment="Left">
+            <TextBlock Text="设置" FontSize="18" FontWeight="SemiBold" />
+
+            <StackPanel Spacing="4">
+                <TextBlock Text="ffmpeg 路径" Foreground="#555" />
+                <TextBox x:Name="FfmpegBox" Watermark="ffmpeg（留空则用系统 PATH 中的 ffmpeg）" />
+            </StackPanel>
+
+            <TextBlock Text="AI 描述接口（OpenAI 兼容 chat/completions，如豆包 ark）"
+                       FontWeight="SemiBold" Margin="0,8,0,0" />
+            <StackPanel Spacing="4">
+                <TextBlock Text="Endpoint" Foreground="#555" />
+                <TextBox x:Name="AiEndpointBox" Watermark="https://ark.cn-beijing.volces.com/api/v3" />
+            </StackPanel>
+            <StackPanel Spacing="4">
+                <TextBlock Text="API Key" Foreground="#555" />
+                <TextBox x:Name="AiKeyBox" PasswordChar="•" />
+            </StackPanel>
+            <StackPanel Spacing="4">
+                <TextBlock Text="Model" Foreground="#555" />
+                <TextBox x:Name="AiModelBox" Watermark="doubao-seed-..." />
+            </StackPanel>
+
+            <StackPanel Spacing="4">
+                <TextBlock Text="默认结束动作" Foreground="#555" />
+                <ComboBox x:Name="FinalActionCombo" Width="220">
+                    <ComboBoxItem Tag="none">只填不发（安全）</ComboBoxItem>
+                    <ComboBoxItem Tag="draft">保存草稿</ComboBoxItem>
+                    <ComboBoxItem Tag="publish">直接发表</ComboBoxItem>
+                </ComboBox>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,6,0,0">
+                <Button Content="保存" Click="OnSave" Background="#E67E22" Foreground="White" />
+                <TextBlock x:Name="SaveStatus" VerticalAlignment="Center" Foreground="#4CAF50" />
+            </StackPanel>
+            <TextBlock Text="保存到 %LocalAppData%/ConvertTools/config.json。转码用 ffmpeg 路径；AI 接口供素材准备/描述改写。"
+                       Foreground="#999" FontSize="12" TextWrapping="Wrap" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -1,0 +1,9 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ConvertTools.App.Views.HomeView">
+    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+        <TextBlock Text="ConvertTools" FontSize="26" FontWeight="Bold" Foreground="#E67E22" HorizontalAlignment="Center" />
+        <TextBlock Text="顶部选择功能：素材发布（多账号内嵌浏览器并发发布）已可用" Foreground="#666" HorizontalAlignment="Center" />
+        <TextBlock Text="转码 / 成本报告 / 设置 等原有功能后续按 Tab 接入" Foreground="#999" FontSize="12" HorizontalAlignment="Center" />
+    </StackPanel>
+</UserControl>

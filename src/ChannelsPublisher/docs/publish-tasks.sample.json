@@ -1,0 +1,29 @@
+{
+  "_说明": "发布任务清单契约。Python prep（来源扫描/AI描述/原创度/封面）产出此文件，应用「导入任务(JSON)」消费。account 用账号名或 Id；未匹配的账号会被跳过。",
+  "finalAction": "none",
+  "tasks": [
+    {
+      "account": "账号1",
+      "videoPath": "D:\\material\\百岁永生-第1集-剪辑.mp4",
+      "description": "槐下老翁修仙问长生 精彩片段 #短剧 #修仙",
+      "shortTitle": "修仙问长生",
+      "coverPath": "D:\\material\\cover-01.png",
+      "dramaName": "槐下老翁修仙问长生",
+      "declareOriginal": true
+    },
+    {
+      "account": "账号1",
+      "videoPath": "D:\\material\\百岁永生-第2集-剪辑.mp4",
+      "description": "第2集 #短剧",
+      "shortTitle": "",
+      "dramaName": "槐下老翁修仙问长生",
+      "declareOriginal": false
+    },
+    {
+      "account": "账号2",
+      "videoPath": "D:\\material\\另一部-第1集.mp4",
+      "description": "另一部短剧",
+      "dramaName": "另一部短剧名"
+    }
+  ]
+}

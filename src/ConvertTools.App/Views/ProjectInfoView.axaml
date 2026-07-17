@@ -1,0 +1,15 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ConvertTools.App.Views.ProjectInfoView">
+    <StackPanel Margin="20" Spacing="12" MaxWidth="640" HorizontalAlignment="Left">
+        <TextBlock Text="项目信息" FontSize="18" FontWeight="SemiBold" />
+        <TextBlock Text="解析/AI 改写项目剧集信息（新剧名、简介、海报改名等）。" Foreground="#666" TextWrapping="Wrap" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBox Width="460" Watermark="选择项目目录" IsReadOnly="True" />
+            <Button Content="选择目录" />
+            <Button Content="解析/改写" Background="#E67E22" Foreground="White" />
+        </StackPanel>
+        <TextBlock Text="（脚手架：UI 已就位，后端沿用 shortdrama ProjectInfoParser/Rewrite，接入后可运行）"
+                   Foreground="#AAA" FontSize="12" />
+    </StackPanel>
+</UserControl>

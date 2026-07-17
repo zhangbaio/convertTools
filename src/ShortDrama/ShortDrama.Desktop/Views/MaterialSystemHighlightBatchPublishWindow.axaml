@@ -1,0 +1,144 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ShortDrama.Desktop.Views.MaterialSystemHighlightBatchPublishWindow"
+        Width="700"
+        Height="600"
+        MinWidth="660"
+        MinHeight="540"
+        Title="发布系统高光视频">
+    <Grid Margin="18"
+          RowDefinitions="Auto,*,Auto"
+          RowSpacing="12">
+        <TextBlock Text="输入要发布系统高光的剧名，一行一个。会按输入顺序批量执行；若平台高光视频本身没有带视频描述，则使用下方默认视频描述兜底。"
+                   TextWrapping="Wrap" />
+
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                  ColumnDefinitions="132,*"
+                  RowSpacing="12"
+                  ColumnSpacing="12">
+                <TextBlock VerticalAlignment="Top"
+                           Text="剧名列表" />
+                <TextBox x:Name="TitlesTextBox"
+                         Grid.Column="1"
+                         AcceptsReturn="True"
+                         MinHeight="150"
+                         TextWrapping="Wrap"
+                         Watermark="例如：&#x0a;七零带着空间下乡&#x0a;不嫁火坑&#x0a;巷陌福妻" />
+
+                <TextBlock Grid.Row="1"
+                           VerticalAlignment="Top"
+                           Text="默认视频描述" />
+                <TextBox x:Name="DefaultDescriptionTextBox"
+                         Grid.Row="1"
+                         Grid.Column="1"
+                         AcceptsReturn="True"
+                         MinHeight="92"
+                         TextWrapping="Wrap"
+                         Watermark="高光视频缺少视频描述时，使用这里的默认描述兜底" />
+
+                <TextBlock Grid.Row="2"
+                           VerticalAlignment="Top"
+                           Text="本次发布哪些高光" />
+                <StackPanel Grid.Row="2"
+                            Grid.Column="1"
+                            Spacing="8">
+                    <RadioButton x:Name="PublishByCountRadioButton"
+                                 Content="按编号/数量发布（当前逻辑）"
+                                 GroupName="PublishTargetMode"
+                                 IsChecked="True" />
+                    <RadioButton x:Name="PublishByTypeRadioButton"
+                                 Content="按左下角类型发布"
+                                 GroupName="PublishTargetMode" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="3"
+                           VerticalAlignment="Center"
+                           Text="按编号发布数量" />
+                <NumericUpDown x:Name="PublishCountUpDown"
+                               Grid.Row="3"
+                               Grid.Column="1"
+                               Width="120"
+                               HorizontalAlignment="Left"
+                               Minimum="1"
+                               Maximum="999"
+                               Increment="1"
+                               FormatString="0"
+                               Value="10" />
+
+                <TextBlock Grid.Row="4"
+                           VerticalAlignment="Center"
+                           Text="本次发布类型" />
+                <StackPanel Grid.Row="4"
+                            Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="18">
+                    <CheckBox x:Name="PublishMashupCheckBox"
+                              Content="混剪"
+                              IsChecked="True" />
+                    <CheckBox x:Name="PublishCommentaryCheckBox"
+                              Content="解说"
+                              IsChecked="True" />
+                    <CheckBox x:Name="PublishSliceCheckBox"
+                              Content="切片"
+                              IsChecked="True" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="5"
+                           Grid.Column="1"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                           TextWrapping="Wrap"
+                           Text="按编号/数量：按页面从左到右的高光编号选择；按类型：只发布左下角类型匹配且未显示“已发表”的高光视频。" />
+
+                <CheckBox x:Name="RegenerateAfterPublishCheckBox"
+                          Grid.Row="6"
+                          Grid.Column="1"
+                          Content="发布完成后重新生成高光视频" />
+
+                <TextBlock Grid.Row="7"
+                           VerticalAlignment="Center"
+                           Text="发布后重新生成类型" />
+                <StackPanel Grid.Row="7"
+                            Grid.Column="1"
+                            Orientation="Horizontal"
+                            Spacing="18">
+                    <CheckBox x:Name="RegenerateMashupCheckBox"
+                              Content="混剪"
+                              IsChecked="True" />
+                    <CheckBox x:Name="RegenerateCommentaryCheckBox"
+                              Content="解说"
+                              IsChecked="True" />
+                    <CheckBox x:Name="RegenerateSliceCheckBox"
+                              Content="切片"
+                              IsChecked="True" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="8"
+                           Grid.Column="1"
+                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                           TextWrapping="Wrap"
+                           Text="仅在勾选“发布完成后重新生成高光视频”时生效；不影响本次发布目标选择，网页默认会全选。" />
+
+                <TextBlock x:Name="ValidationMessageTextBlock"
+                           Grid.Row="9"
+                           Grid.ColumnSpan="2"
+                           Foreground="{DynamicResource DesktopDangerBrush}"
+                           TextWrapping="Wrap" />
+            </Grid>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Spacing="10">
+            <Button x:Name="StartButton"
+                    Classes="primary"
+                    MinWidth="88"
+                    Content="开始执行" />
+            <Button x:Name="CancelButton"
+                    MinWidth="72"
+                    Content="取消" />
+        </StackPanel>
+    </Grid>
+</Window>

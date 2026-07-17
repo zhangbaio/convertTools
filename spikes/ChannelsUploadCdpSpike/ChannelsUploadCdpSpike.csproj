@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>ChannelsUploadCdpSpike</AssemblyName>
+    <RootNamespace>ChannelsUploadCdpSpike</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 已在本机 NuGet 全局缓存 (~/.nuget/packages/microsoft.playwright/1.52.0)，可离线还原 -->
+    <PackageReference Include="Microsoft.Playwright" Version="1.52.0" />
+  </ItemGroup>
+</Project>

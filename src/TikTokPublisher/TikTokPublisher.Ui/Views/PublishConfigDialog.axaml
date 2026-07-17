@@ -1,0 +1,41 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="TikTokPublisher.Ui.Views.PublishConfigDialog"
+        Width="560" Height="480"
+        WindowStartupLocation="CenterOwner"
+        Title="TikTok 发布配置">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,12,0,0">
+            <Button Content="取消" Click="OnCancel" />
+            <Button Content="保存" Click="OnSave" Background="#E67E22" Foreground="White" />
+        </StackPanel>
+        <ScrollViewer>
+            <StackPanel Spacing="10">
+                <CheckBox x:Name="EnabledBox" Content="启用发布流程" />
+
+                <TextBlock Text="运行策略" FontWeight="SemiBold" />
+                <ComboBox x:Name="RunStrategyCombo" HorizontalAlignment="Stretch">
+                    <ComboBoxItem Tag="all">全部待发</ComboBoxItem>
+                    <ComboBoxItem Tag="resume">断点续传</ComboBoxItem>
+                    <ComboBoxItem Tag="retry_failed">仅重试失败</ComboBoxItem>
+                </ComboBox>
+
+                <TextBlock Text="默认结束动作" FontWeight="SemiBold" />
+                <ComboBox x:Name="FinalActionCombo" HorizontalAlignment="Stretch">
+                    <ComboBoxItem Tag="none">只填不发（安全）</ComboBoxItem>
+                    <ComboBoxItem Tag="save">保存</ComboBoxItem>
+                    <ComboBoxItem Tag="publish">直接发表</ComboBoxItem>
+                </ComboBox>
+
+                <CheckBox x:Name="PauseOnErrorBox" Content="出错时暂停" />
+
+                <TextBlock Text="默认表单" FontWeight="SemiBold" Margin="0,8,0,0" />
+                <CheckBox x:Name="FillDescriptionBox" Content="自动填充描述" />
+                <TextBox x:Name="DescriptionTemplateBox" Watermark="描述模板" AcceptsReturn="True" MinHeight="60" />
+                <TextBox x:Name="DramaNameBox" Watermark="默认短剧/剧集名称" />
+                <CheckBox x:Name="ReplaceCoverBox" Content="使用默认封面" />
+                <TextBox x:Name="CoverImagePathBox" Watermark="封面图片路径" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

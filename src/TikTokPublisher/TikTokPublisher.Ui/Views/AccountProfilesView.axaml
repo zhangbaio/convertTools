@@ -1,0 +1,7 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:TikTokPublisher.Ui.Views"
+             x:Class="TikTokPublisher.Ui.Views.AccountProfilesView"
+             Background="{StaticResource PythonPageBgBrush}">
+    <views:AccountProfileEditor x:Name="Editor" />
+</UserControl>

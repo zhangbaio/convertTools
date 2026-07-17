@@ -1,0 +1,244 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
+             x:Class="TikTokPublisher.Ui.Views.SystemServicesView"
+             x:DataType="vm:SystemServicesViewModel"
+             Background="{StaticResource PythonPageBgBrush}">
+
+    <ScrollViewer Margin="16,14,16,16">
+        <StackPanel Spacing="12">
+            <TextBlock Text="系统服务" Classes="pageTitle" />
+            <TextBlock Text="{Binding ServiceSummaryText}"
+                       Classes="pageSummary"
+                       TextWrapping="Wrap" />
+
+            <TabControl Classes="secondaryTabs">
+                <TabItem Header="软件授权">
+                    <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
+                        <Grid ColumnDefinitions="120,*"
+                              RowDefinitions="Auto,Auto,Auto"
+                              RowSpacing="10"
+                              ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="授权状态" VerticalAlignment="Top" Margin="0,6,0,0" />
+                            <TextBox Grid.Row="0"
+                                     Grid.Column="1"
+                                     Text="{Binding LicenseSummary}"
+                                     IsReadOnly="True"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     Height="120" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="服务器地址" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1"
+                                     Grid.Column="1"
+                                     Text="{Binding AuthServerUrl}" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="联网校验间隔" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="2"
+                                           Grid.Column="1"
+                                           Value="{Binding LicenseVerifyIntervalHours, Mode=OneWay}"
+                                           Minimum="1"
+                                           Maximum="1"
+                                           IsEnabled="False"
+                                           Width="170"
+                                           HorizontalAlignment="Left"
+                                           FormatString="0 小时（系统固定）" />
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="登录 / 更换账号" Click="OnLicenseLoginClick" Classes="primaryAction" />
+                            <Button Content="退出登录 / 清除本机登录" Click="OnLicenseLogoutClick" />
+                        </StackPanel>
+
+                        <TextBlock Text="软件每次启动都会联网校验账号和设备授权；网络临时失败时会重试，并在离线宽限期内继续使用。未登录、授权过期或设备不匹配时会进入账号登录窗口。登录信息保存在 ~/.tiktok_publisher/license_state.bin。"
+                                   Classes="compactHint"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding LoginStatus}" Classes="pageSummary" TextWrapping="Wrap" />
+                    </StackPanel>
+                </TabItem>
+
+                <TabItem Header="飞书命令">
+                    <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
+                        <TextBlock Text="{Binding FeishuCommandStatus}" Classes="pageSummary" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="9"
+                              ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="监听开关" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="0" Grid.Column="1" IsChecked="{Binding FeishuCommandEnabled}" Content="启用飞书命令监听" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="App ID" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding FeishuCommandAppId}" Watermark="cli_xxx" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="App Secret" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding FeishuCommandAppSecret}" PasswordChar="*" RevealPassword="False" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="机器人名称" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding FeishuCommandBotName}" Watermark="群里 @ 的机器人名称" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="机器人别名" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding FeishuCommandBotAliases}" Watermark="多个别名可用逗号分隔" />
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="群聊规则" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="5" Grid.Column="1" IsChecked="{Binding FeishuCommandRequireBotMention}" Content="群聊必须 @ 机器人后才处理" />
+
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="允许群 ID" VerticalAlignment="Top" Margin="0,6,0,0" />
+                            <TextBox Grid.Row="6" Grid.Column="1"
+                                     Text="{Binding FeishuCommandAllowedChatIds}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     Height="88"
+                                     Watermark="每行一个 chat_id，例如：oc_xxx" />
+
+                            <TextBlock Grid.Row="7" Grid.Column="0" Text="私聊开关" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="7" Grid.Column="1" IsChecked="{Binding FeishuCommandDirectMessageEnabled}" Content="允许机器人私聊命令" />
+
+                            <TextBlock Grid.Row="8" Grid.Column="0" Text="允许私聊 ID" VerticalAlignment="Top" Margin="0,6,0,0" />
+                            <TextBox Grid.Row="8" Grid.Column="1"
+                                     Text="{Binding FeishuCommandAllowedUserIds}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     Height="88"
+                                     Watermark="可选，每行一个私聊 chat_id；也兼容 open_id / user_id" />
+
+                            <TextBlock Grid.Row="9" Grid.Column="0" Text="默认工作目录" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="9" Grid.Column="1"
+                                     Text="{Binding FeishuCommandDefaultWorkspace}"
+                                     Watermark="未在命令里指定时，默认使用这个工作目录" />
+
+                            <TextBlock Grid.Row="10" Grid.Column="0" Text="结果回传" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="10" Grid.Column="1" IsChecked="{Binding FeishuCommandReplyEnabled}" Content="执行结果自动回复到飞书" />
+
+                            <TextBlock Grid.Row="11" Grid.Column="0" Text="命令有效期" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="11" Grid.Column="1"
+                                           Value="{Binding FeishuCommandCommandTtlSeconds}"
+                                           Minimum="10"
+                                           Maximum="3600"
+                                           Increment="10"
+                                           Width="120"
+                                           HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="12" Grid.Column="0" Text="帮助文案" VerticalAlignment="Top" Margin="0,6,0,0" />
+                            <TextBox Grid.Row="12" Grid.Column="1"
+                                     Text="{Binding FeishuCommandHelpText}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     Height="160" />
+                        </Grid>
+
+                        <Border BorderBrush="{StaticResource PythonBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="10">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="本地命令测试" FontWeight="SemiBold" />
+                                <TextBox Text="{Binding RemoteCommandPreviewText}"
+                                         AcceptsReturn="True"
+                                         TextWrapping="Wrap"
+                                         Height="86"
+                                         Watermark="例如：上传剧集 剧名A" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="测试命令" Command="{Binding RunRemoteCommandPreviewCommand}" />
+                                    <TextBlock Text="{Binding RemoteCommandPreviewResult}" VerticalAlignment="Center" Classes="pageSummary" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </TabItem>
+
+                <TabItem Header="XINGE">
+                    <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
+                        <TextBlock Text="{Binding XingeRemoteStatus}" Classes="pageSummary" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="9"
+                              ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="监听开关" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="0" Grid.Column="1" IsChecked="{Binding XingeRemoteEnabled}" Content="启用 XINGE 远程命令" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="XINGE 地址" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding XingeServerUrl}" Watermark="http://127.0.0.1:8080" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="用户名/邮箱" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding XingeAccount}" Watermark="填写 XINGE 登录账号" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="密码" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding XingePassword}" PasswordChar="*" RevealPassword="False" Watermark="填写 XINGE 登录密码" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="客户端名称" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding XingeClientName}" Watermark="TikTokPublisher" />
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="轮询间隔" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5"
+                                           Grid.Column="1"
+                                           Value="{Binding XingePollIntervalSeconds}"
+                                           Minimum="1"
+                                           Maximum="60"
+                                           Increment="1"
+                                           Width="120"
+                                           HorizontalAlignment="Left"
+                                           FormatString="0 秒" />
+
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="客户端 ID（兼容）" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding XingeClientId}" Watermark="账号登录后自动生成，也可手工填写" />
+
+                            <TextBlock Grid.Row="7" Grid.Column="0" Text="客户端 Token（兼容）" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding XingeClientToken}" PasswordChar="*" RevealPassword="False" Watermark="账号登录后自动生成，也可手工填写" />
+                        </Grid>
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="测试账号并生成凭证" Command="{Binding TestXingeLoginCommand}" />
+                            <TextBlock Text="保存配置后也会自动登录；账号或密码变化时自动重新签发客户端凭证。"
+                                       Classes="compactHint"
+                                       VerticalAlignment="Center"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <TextBlock Text="启用后客户端会用账号登录 XINGE，注册当前工作目录和 TikTok 账号列表，并接收 XINGE 下发的 TikTok 上传命令。客户端 ID/Token 仅用于兼容旧配置。"
+                                   Classes="compactHint"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </TabItem>
+
+                <TabItem Header="远程命令">
+                    <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
+                        <TextBlock Text="飞书上传 TikTok 剧集" FontWeight="SemiBold" />
+                        <TextBlock Text="配置飞书命令触发“上传 TikTok 剧集”时默认执行的步骤。命令文本里单独传“步骤”时会优先使用命令里的步骤；下面的队列选项仍按这里的配置生效。"
+                                   Classes="pageSummary"
+                                   TextWrapping="Wrap" />
+
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                            <Button Content="全选步骤" Command="{Binding SelectAllRemoteStepsCommand}" />
+                            <Button Content="恢复默认" Command="{Binding ResetRemoteStepsCommand}" />
+                            <Button Content="取消全选" Command="{Binding ClearRemoteStepsCommand}" />
+                        </StackPanel>
+
+                        <WrapPanel>
+                            <CheckBox Content="下载剧集" IsChecked="{Binding RemoteDownloadEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="改写信息" IsChecked="{Binding RemoteRewriteEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="生成海报" IsChecked="{Binding RemoteGeneratePosterEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="生成证明材料" IsChecked="{Binding RemoteGenerateProofMaterialEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="小文件修复" IsChecked="{Binding RemoteSmallVideoRepairEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="静音检测" IsChecked="{Binding RemoteSilenceDetectEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="静音修复" IsChecked="{Binding RemoteSilenceRepairEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="素材校验" IsChecked="{Binding RemoteMaterialValidateEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="删除源视频" IsChecked="{Binding RemoteDeleteSourceVideosEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="上传剧集" IsChecked="{Binding RemoteUploadEnabled}" Margin="0,0,16,10" />
+                        </WrapPanel>
+
+                        <WrapPanel>
+                            <CheckBox Content="上传完成后自动归档" IsChecked="{Binding RemoteAutoArchiveAfterUpload}" Margin="0,0,18,10" />
+                            <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding RemoteForceRerunCompletedSteps}" Margin="0,0,18,10" />
+                            <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding RemotePreferUploadWhenReady}" Margin="0,0,18,10" />
+                        </WrapPanel>
+
+                        <TextBlock Text="这组配置仅用于飞书远程命令里的“上传 TikTok 剧集”。本地 TikTok 上传页上的勾选步骤不会被这里覆盖。"
+                                   Classes="compactHint"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </TabItem>
+            </TabControl>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="保存系统服务配置" Command="{Binding SaveSystemServicesCommand}" Classes="primaryAction" />
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

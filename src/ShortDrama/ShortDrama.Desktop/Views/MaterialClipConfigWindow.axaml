@@ -1,0 +1,328 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ShortDrama.Desktop.Views.MaterialClipConfigWindow"
+        Width="760"
+        Height="720"
+        MinWidth="700"
+        MinHeight="520"
+        WindowStartupLocation="CenterOwner"
+        Title="全局剪辑配置">
+    <DockPanel Margin="12">
+        <TextBlock DockPanel.Dock="Top"
+                   Margin="0,0,0,10"
+                   TextWrapping="Wrap"
+                   Foreground="#5f6470"
+                   Text="在“基础”里开关高频策略，在高光/混剪/解说/切片标签页里勾选要生成的模式并设置各片时长。这里保存的是本机全局剪辑配置，对当前电脑上的全部剧集生效，不用按剧集单独设置，也不会写入项目配置。" />
+
+        <StackPanel DockPanel.Dock="Bottom"
+                    Margin="0,12,0,0"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Spacing="10">
+            <Button x:Name="SaveButton"
+                    MinWidth="72"
+                    Content="保存" />
+            <Button x:Name="CancelButton"
+                    MinWidth="72"
+                    Content="关闭" />
+        </StackPanel>
+
+        <TabControl>
+            <TabItem Header="基础">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Padding="12"
+                            BorderBrush="#e2d3bd"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              ColumnDefinitions="110,*"
+                              RowSpacing="10"
+                              ColumnSpacing="12">
+                            <TextBlock Grid.ColumnSpan="2"
+                                       FontWeight="SemiBold"
+                                       Text="基础 · 高频开关和成片策略集中在这里。" />
+
+                            <TextBlock Grid.Row="1" Text="集长配额" VerticalAlignment="Center" />
+                            <CheckBox x:Name="EpisodeQuotaCheckBox"
+                                      Grid.Row="1"
+                                      Grid.Column="1"
+                                      Content="按集时长分配选段名额（短集也保留代表）" />
+
+                            <TextBlock Grid.Row="2" Text="候选评分" VerticalAlignment="Center" />
+                            <CheckBox x:Name="EnableLlmScoreCheckBox"
+                                      Grid.Row="2"
+                                      Grid.Column="1"
+                                      Content="启用 AI 复评分（对候选做 LLM 复评分，提升选段质量，需配置 AI 文本接口）" />
+
+                            <TextBlock Grid.Row="3" Text="音频能量" VerticalAlignment="Center" />
+                            <CheckBox x:Name="AudioEnergyCheckBox"
+                                      Grid.Row="3"
+                                      Grid.Column="1"
+                                      Content="音频能量加权（吼叫/哭/打斗/配乐高潮等高能量段加分，分析稍慢）" />
+
+                            <TextBlock Grid.Row="4" Text="镜头密度" VerticalAlignment="Center" />
+                            <CheckBox x:Name="ShotDensityCheckBox"
+                                      Grid.Row="4"
+                                      Grid.Column="1"
+                                      Content="镜头密度加权（剪辑节奏快/动作段加分，需 scenedetect）" />
+
+                            <TextBlock Grid.Row="5" Text="并发集数" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="5"
+                                        Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        Spacing="8">
+                                <NumericUpDown x:Name="PipelineConcurrentUpDown"
+                                               Width="86"
+                                               Minimum="1"
+                                               Maximum="8"
+                                               FormatString="0" />
+                                <TextBlock Text="网络并发" VerticalAlignment="Center" />
+                                <NumericUpDown x:Name="NetConcurrentUpDown"
+                                               Width="94"
+                                               Minimum="0"
+                                               Maximum="16"
+                                               FormatString="0" />
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="6" Text="导出清晰度" VerticalAlignment="Center" />
+                            <ComboBox x:Name="OutputQualityComboBox"
+                                      Grid.Row="6"
+                                      Grid.Column="1"
+                                      Width="220"
+                                      HorizontalAlignment="Left">
+                                <ComboBoxItem Tag="720p" Content="720P（自动适配横屏/竖屏）" />
+                                <ComboBoxItem Tag="1080p" Content="1080P（自动适配横屏/竖屏）" />
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="7" Text="导出码率" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="7"
+                                        Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        Spacing="8">
+                                <NumericUpDown x:Name="VideoBitrateUpDown"
+                                               Width="120"
+                                               Minimum="0.8"
+                                               Maximum="12"
+                                               Increment="0.1"
+                                               FormatString="0.0" />
+                                <TextBlock Text="Mbps" VerticalAlignment="Center" />
+                                <TextBlock Text="编码模式" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                <ComboBox x:Name="EncodeModeComboBox"
+                                          Width="190">
+                                    <ComboBoxItem Tag="bitrate" Content="固定码率（大小可控）" />
+                                    <ComboBoxItem Tag="quality" Content="质量优先（智能体积）" />
+                                </ComboBox>
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="8" Text="视频编码" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="8"
+                                        Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        Spacing="8">
+                                <ComboBox x:Name="VideoCodecComboBox"
+                                          Width="190">
+                                    <ComboBoxItem Tag="h264" Content="H.264（兼容优先）" />
+                                    <ComboBoxItem Tag="h265" Content="H.265/HEVC（更小体积）" />
+                                </ComboBox>
+                                <TextBlock Text="渲染速度" VerticalAlignment="Center" />
+                                <ComboBox x:Name="RenderSpeedComboBox"
+                                          Width="122">
+                                    <ComboBoxItem Tag="fast" Content="快速（推荐）" />
+                                    <ComboBoxItem Tag="balanced" Content="均衡" />
+                                    <ComboBoxItem Tag="quality" Content="高质" />
+                                </ComboBox>
+                                <CheckBox x:Name="HardwareEncodeCheckBox"
+                                          Content="硬件编码（自动回退）" />
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="9" Text="策略" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="9"
+                                        Grid.Column="1"
+                                        Spacing="6">
+                                <CheckBox x:Name="LlmArrangeCheckBox"
+                                          Content="LLM 叙事重排（开头置钩子、剧情更顺，需要配置 AI 文本接口）" />
+                                <CheckBox x:Name="SmoothSelectionCheckBox"
+                                          Content="片段去碎（剔除短片段，衔接更顺）" />
+                                <CheckBox x:Name="PublishMetaCheckBox"
+                                          Content="生成发表信息（凝练视频描述 + 标签，写入成片同名 .publish.json）" />
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="10" Text="开头标题" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="10"
+                                        Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        Spacing="8">
+                                <CheckBox x:Name="TitleCardCheckBox"
+                                          Content="成片开头叠加剧情小标题（含首帧）" />
+                                <NumericUpDown x:Name="TitleCardSecondsUpDown"
+                                               Width="90"
+                                               Minimum="1"
+                                               Maximum="15"
+                                               FormatString="0" />
+                                <TextBlock Text="秒" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="高光">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="HighlightPanel" Margin="12" Spacing="10" />
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="混剪">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="MashupPanel" Margin="12" Spacing="10" />
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="解说">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="12" Spacing="12">
+                        <StackPanel x:Name="CommentaryPanel" Spacing="10" />
+                        <Border Padding="12"
+                                BorderBrush="#e2d3bd"
+                                BorderThickness="1"
+                                CornerRadius="10">
+                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                                  ColumnDefinitions="120,*"
+                                  RowSpacing="10"
+                                  ColumnSpacing="12">
+                                <TextBlock Grid.ColumnSpan="2"
+                                           FontWeight="SemiBold"
+                                           Text="解说 · AI 配音解说成片，并控制配音和字幕。" />
+
+                                <TextBlock Grid.Row="1" Text="解说字幕" VerticalAlignment="Center" />
+                                <CheckBox x:Name="CommentaryBurnSubtitlesCheckBox"
+                                          Grid.Row="1"
+                                          Grid.Column="1"
+                                          Content="解说成片烧录解说字幕" />
+
+                                <TextBlock Grid.Row="2" Text="TTS 引擎" VerticalAlignment="Center" />
+                                <ComboBox x:Name="TtsEngineComboBox"
+                                          Grid.Row="2"
+                                          Grid.Column="1"
+                                          Width="250"
+                                          HorizontalAlignment="Left">
+                                    <ComboBoxItem Tag="volcengine" Content="火山引擎（付费·复用素材ASR账号）" />
+                                    <ComboBoxItem Tag="edge" Content="免费 edge-tts（微软·零密钥）" />
+                                </ComboBox>
+
+                                <TextBlock Grid.Row="3" Text="火山音色" VerticalAlignment="Center" />
+                                <TextBox x:Name="TtsVoiceTypeTextBox"
+                                         Grid.Row="3"
+                                         Grid.Column="1"
+                                         Watermark="留空使用默认音色" />
+
+                                <TextBlock Grid.Row="4" Text="免费音色" VerticalAlignment="Center" />
+                                <TextBox x:Name="TtsEdgeVoiceTextBox"
+                                         Grid.Row="4"
+                                         Grid.Column="1"
+                                         Watermark="zh-CN-YunjianNeural" />
+
+                                <TextBlock Grid.Row="5" Text="TTS 集群" VerticalAlignment="Center" />
+                                <TextBox x:Name="TtsClusterTextBox"
+                                         Grid.Row="5"
+                                         Grid.Column="1"
+                                         Watermark="默认 volcano_tts" />
+
+                                <TextBlock Grid.Row="6" Text="解说语速" VerticalAlignment="Center" />
+                                <StackPanel Grid.Row="6"
+                                            Grid.Column="1"
+                                            Orientation="Horizontal"
+                                            Spacing="8">
+                                    <NumericUpDown x:Name="TtsSpeedUpDown"
+                                                   Width="100"
+                                                   Minimum="0.5"
+                                                   Maximum="2"
+                                                   Increment="0.1"
+                                                   FormatString="0.0" />
+                                    <TextBlock Text="解说风格" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="CommentaryStyleComboBox"
+                                              Width="120">
+                                        <ComboBoxItem Tag="subtle" Content="克制" />
+                                        <ComboBoxItem Tag="standard" Content="标准" />
+                                        <ComboBoxItem Tag="strong" Content="强烈" />
+                                    </ComboBox>
+                                </StackPanel>
+
+                                <TextBlock Grid.Row="7" Text="旁白比例" VerticalAlignment="Center" />
+                                <StackPanel Grid.Row="7"
+                                            Grid.Column="1"
+                                            Orientation="Horizontal"
+                                            Spacing="8">
+                                    <NumericUpDown x:Name="CommentaryNarrationRatioUpDown"
+                                                   Width="100"
+                                                   Minimum="40"
+                                                   Maximum="100"
+                                                   Increment="5"
+                                                   FormatString="0" />
+                                    <TextBlock Text="%" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="切片">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="SlicePanel" Margin="12" Spacing="10" />
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="原创度">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Margin="12"
+                            Padding="12"
+                            BorderBrush="#e2d3bd"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto"
+                              ColumnDefinitions="120,*"
+                              RowSpacing="10"
+                              ColumnSpacing="12">
+                            <TextBlock Grid.ColumnSpan="2"
+                                       FontWeight="SemiBold"
+                                       Text="原创度 · 用于做轻微去重扰动。关闭时不会对成片做额外处理。" />
+
+                            <TextBlock Grid.Row="1" Text="原创度" VerticalAlignment="Center" />
+                            <CheckBox x:Name="OrigEnabledCheckBox"
+                                      Grid.Row="1"
+                                      Grid.Column="1"
+                                      Content="启用原创度处理（成片加随机轻扰动，降低与平台素材重复率）" />
+
+                            <TextBlock Grid.Row="2" Text="去重技法" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="2"
+                                        Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        Spacing="14">
+                                <CheckBox x:Name="OrigZoomCheckBox" Content="微缩放裁剪" />
+                                <CheckBox x:Name="OrigColorCheckBox" Content="调色微调" />
+                                <CheckBox x:Name="OrigSpeedCheckBox" Content="轻微变速" />
+                                <CheckBox x:Name="OrigFadeCheckBox" Content="开闭幕" />
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="3" Text="贴纸目录" VerticalAlignment="Center" />
+                            <Grid Grid.Row="3"
+                                  Grid.Column="1"
+                                  ColumnDefinitions="*,Auto,Auto"
+                                  ColumnSpacing="8">
+                                <TextBox x:Name="OrigStickerDirTextBox"
+                                         Watermark="可选：贴纸/水印 PNG 目录，随机叠一张到随机角落" />
+                                <Button x:Name="BrowseStickerDirButton"
+                                        Grid.Column="1"
+                                        Content="浏览" />
+                                <Button x:Name="ClearStickerDirButton"
+                                        Grid.Column="2"
+                                        Content="清除" />
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

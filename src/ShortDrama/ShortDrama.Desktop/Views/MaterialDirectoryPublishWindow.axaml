@@ -1,0 +1,67 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ShortDrama.Desktop.Views.MaterialDirectoryPublishWindow"
+        Width="650"
+        Height="300"
+        CanResize="False"
+        Title="目录批量发表 - 短剧助手">
+    <Grid Margin="16"
+          RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto"
+          ColumnDefinitions="86,*,Auto"
+          RowSpacing="10"
+          ColumnSpacing="10">
+        <TextBlock Grid.ColumnSpan="3"
+                   Text="选择一个工作目录，其下每个子目录视为一条发表：子目录名 = 视频描述（话题原样保留），子目录内的视频（多个取最大）作为发表视频。逐条发表到视频号。默认【不显示位置】并勾选【声明原创】。"
+                   TextWrapping="Wrap" />
+
+        <TextBlock Grid.Row="1"
+                   VerticalAlignment="Center"
+                   Text="工作目录" />
+        <TextBox x:Name="WorkspaceTextBox"
+                 Grid.Row="1"
+                 Grid.Column="1"
+                 Watermark="例如：E:\短视频素材" />
+        <Button x:Name="BrowseButton"
+                Grid.Row="1"
+                Grid.Column="2"
+                MinWidth="72"
+                Content="浏览..." />
+
+        <CheckBox x:Name="HideLocationCheckBox"
+                  Grid.Row="2"
+                  Grid.ColumnSpan="3"
+                  Content="发表时不显示位置"
+                  IsChecked="True" />
+
+        <CheckBox x:Name="DeclareOriginalCheckBox"
+                  Grid.Row="3"
+                  Grid.ColumnSpan="3"
+                  Content="勾选声明原创"
+                  IsChecked="True" />
+
+        <CheckBox x:Name="AiRewriteDescriptionCheckBox"
+                  Grid.Row="4"
+                  Grid.ColumnSpan="3"
+                  Content="AI 重写视频描述（基于子目录名生成新描述，原描述保留）" />
+
+        <TextBlock x:Name="ValidationMessageTextBlock"
+                   Grid.Row="5"
+                   Grid.ColumnSpan="3"
+                   Foreground="{DynamicResource DesktopDangerBrush}"
+                   TextWrapping="Wrap" />
+
+        <StackPanel Grid.Row="6"
+                    Grid.ColumnSpan="3"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Spacing="10">
+            <Button x:Name="StartButton"
+                    Classes="primary"
+                    MinWidth="88"
+                    Content="开始发表" />
+            <Button x:Name="CancelButton"
+                    MinWidth="72"
+                    Content="取消" />
+        </StackPanel>
+    </Grid>
+</Window>

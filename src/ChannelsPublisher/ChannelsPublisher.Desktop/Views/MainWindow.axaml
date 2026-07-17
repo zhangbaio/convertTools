@@ -1,0 +1,8 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:ChannelsPublisher.Desktop.Views"
+        x:Class="ChannelsPublisher.Desktop.Views.MainWindow"
+        Width="1200" Height="760"
+        Title="视频号多账号发布">
+    <views:MaterialPublishView />
+</Window>

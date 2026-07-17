@@ -7,3 +7,15 @@
 **/.vscode/
 .dotnet/
 .setup-cache/
+
+# 运行/临时产物
+.tmp/
+run-logs/
+
+# 本地 ASR 模型（体积大，不入库；与 Python 客户端共用 layout）
+models/
+
+# Packaging outputs and local redistributables
+artifacts/
+packaging/dependencies/*
+!packaging/dependencies/.gitkeep

@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:services="using:TikTokPublisher.Ui.Services"
+             x:Class="TikTokPublisher.Ui.Views.LogView"
+             Background="{StaticResource PythonPageBgBrush}">
+
+    <DockPanel Margin="16,14,16,16">
+        <TextBlock DockPanel.Dock="Top" Text="TikTok队列" FontWeight="Bold" Margin="0,0,0,8" />
+
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,*" Margin="0,0,0,8">
+            <WrapPanel Grid.Column="0">
+                <CheckBox x:Name="AutoFollowBox" Content="跟随最近活跃项目" IsChecked="True" Margin="0,0,8,8" />
+                <CheckBox x:Name="ProblemsOnlyBox" Content="仅看问题" Margin="0,0,8,8" />
+                <Button x:Name="StopButton" Content="停止" Classes="dangerAction" Click="OnStopClick" IsEnabled="False" Margin="0,0,8,8" />
+                <Button Content="复制日志" Click="OnCopyClick" Margin="0,0,8,8" />
+            </WrapPanel>
+
+            <Button Grid.Column="1"
+                    Content="返回TikTok 上传"
+                    ToolTip.Tip="返回 TikTok 上传页面"
+                    Click="OnReturnClick"
+                    HorizontalAlignment="Center"
+                    Margin="8,0,8,8" />
+        </Grid>
+
+        <TextBlock x:Name="WorkspaceLabel" DockPanel.Dock="Top" Classes="pageSummary" Margin="0,0,0,4" />
+        <TextBlock x:Name="SummaryLabel" DockPanel.Dock="Top" Classes="pageSummary" Margin="0,0,0,8" />
+
+        <Grid ColumnDefinitions="280,*">
+            <ListBox x:Name="ProjectList" Grid.Column="0" Margin="0,0,8,0" MinHeight="300">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="services:LogProjectItem">
+                        <Border Background="{Binding Background}"
+                                CornerRadius="3"
+                                Padding="10,6">
+                            <TextBlock Text="{Binding Title}"
+                                       Foreground="{Binding Foreground}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <Border Grid.Column="1" BorderBrush="#DFD1C0" BorderThickness="1" CornerRadius="6" Padding="8">
+                <ScrollViewer x:Name="LogScroll">
+                    <ItemsControl x:Name="LogItems">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="services:LogEntry">
+                                <SelectableTextBlock Text="{Binding Text}"
+                                                     Foreground="{Binding Foreground}"
+                                                     FontFamily="Consolas,Courier New,monospace"
+                                                     FontSize="12"
+                                                     TextWrapping="Wrap"
+                                                     Margin="0,1" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </DockPanel>
+</UserControl>

@@ -1,0 +1,404 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ShortDrama.Desktop.Views.MaterialPublishConfigWindow"
+        Width="900"
+        Height="720"
+        MinWidth="820"
+        MinHeight="620"
+        WindowStartupLocation="CenterOwner"
+        Title="发表配置">
+    <DockPanel Margin="18">
+        <StackPanel DockPanel.Dock="Bottom"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Spacing="10"
+                    Margin="0,14,0,0">
+            <TextBlock x:Name="ValidationMessageTextBlock"
+                       VerticalAlignment="Center"
+                       Foreground="#B42318"
+                       Margin="0,0,8,0" />
+            <Button x:Name="RevealButton"
+                    Classes="compact"
+                    Content="打开配置文件位置" />
+            <Button x:Name="RestoreDefaultsButton"
+                    Classes="compact"
+                    Content="恢复默认配置" />
+            <Button x:Name="CancelButton"
+                    Classes="compact"
+                    Content="取消" />
+            <Button x:Name="SaveButton"
+                    Classes="primary compact"
+                    MinWidth="100"
+                    Content="保存" />
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top"
+                    Spacing="8">
+            <TextBlock x:Name="ProjectTitleTextBlock"
+                       FontSize="16"
+                       FontWeight="SemiBold" />
+            <TextBlock x:Name="ConfigPathTextBlock"
+                       FontSize="12"
+                       Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                       TextWrapping="Wrap" />
+            <CheckBox x:Name="EnabledCheckBox"
+                      Content="启用当前项目发表素材流程" />
+        </StackPanel>
+
+        <TabControl x:Name="PublishConfigTabs"
+                    Margin="0,14,0,0">
+            <TabItem Header="基础">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="14"
+                                Margin="2,12,12,8">
+                        <Grid ColumnDefinitions="132,*"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="9"
+                              ColumnSpacing="12">
+                            <TextBlock Text="视频来源"
+                                       VerticalAlignment="Center" />
+                            <ComboBox x:Name="VideoSourceModeComboBox"
+                                      Grid.Column="1"
+                                      HorizontalAlignment="Stretch" />
+
+                            <TextBlock x:Name="DramaTitleLabelTextBlock"
+                                       Grid.Row="1"
+                                       Text="新剧名称"
+                                       VerticalAlignment="Center" />
+                            <TextBox x:Name="DramaTitleTextBox"
+                                     Grid.Row="1"
+                                     Grid.Column="1"
+                                     Watermark="新剧挂载模式下输入新剧名称" />
+
+                            <TextBlock Grid.Row="2"
+                                       Grid.Column="1"
+                                       x:Name="DramaTitleHintTextBlock"
+                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                       FontSize="12"
+                                       TextWrapping="Wrap" />
+
+                            <TextBlock Grid.Row="3"
+                                       Text="集数配置方式"
+                                       VerticalAlignment="Center" />
+                            <ComboBox x:Name="EpisodeSelectionModeComboBox"
+                                      Grid.Row="3"
+                                      Grid.Column="1"
+                                      Width="180"
+                                      HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="4"
+                                       Text="起始集数"
+                                       VerticalAlignment="Center" />
+                            <NumericUpDown x:Name="StartEpisodeUpDown"
+                                           Grid.Row="4"
+                                           Grid.Column="1"
+                                           Width="118"
+                                           Minimum="1"
+                                           Maximum="9999"
+                                           Increment="1"
+                                           FormatString="0"
+                                           HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="5"
+                                       Text="发表次数"
+                                       VerticalAlignment="Center" />
+                            <NumericUpDown x:Name="PublishCountUpDown"
+                                           Grid.Row="5"
+                                           Grid.Column="1"
+                                           Width="118"
+                                           Minimum="1"
+                                           Maximum="9999"
+                                           Increment="1"
+                                           FormatString="0"
+                                           HorizontalAlignment="Left" />
+
+                            <TextBlock x:Name="EpisodeIndexesLabelTextBlock"
+                                       Grid.Row="6"
+                                       Text="具体集数"
+                                       VerticalAlignment="Center" />
+                            <TextBox x:Name="EpisodeIndexesTextBox"
+                                     Grid.Row="6"
+                                     Grid.Column="1"
+                                     Watermark="例如: 2,3,4,7" />
+
+                            <TextBlock x:Name="EpisodeIndexesHintTextBlock"
+                                       Grid.Row="7"
+                                       Grid.Column="1"
+                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                       FontSize="12"
+                                       TextWrapping="Wrap" />
+
+                            <CheckBox x:Name="MergePublishCheckBox"
+                                      Grid.Row="8"
+                                      Grid.Column="1"
+                                      Content="启用合并发布" />
+
+                            <TextBlock Grid.Row="9"
+                                       Text="合并频率"
+                                       VerticalAlignment="Center" />
+                            <NumericUpDown x:Name="MergeGroupSizeUpDown"
+                                           Grid.Row="9"
+                                           Grid.Column="1"
+                                           Width="118"
+                                           Minimum="0"
+                                           Maximum="999"
+                                           Increment="1"
+                                           FormatString="0"
+                                           HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="10"
+                                       Text="自选视频"
+                                       VerticalAlignment="Top"
+                                       Margin="0,6,0,0" />
+                            <StackPanel Grid.Row="10"
+                                        Grid.Column="1"
+                                        Spacing="8">
+                                <StackPanel Orientation="Horizontal"
+                                            Spacing="8">
+                                    <Button x:Name="BrowseCustomVideoFilesButton"
+                                            Classes="compact"
+                                            Content="选择视频文件" />
+                                    <Button x:Name="ClearCustomVideoFilesButton"
+                                            Classes="compact"
+                                            Content="清空" />
+                                </StackPanel>
+                                <TextBox x:Name="CustomVideoFilesTextBox"
+                                         Height="105"
+                                         AcceptsReturn="True"
+                                         TextWrapping="Wrap"
+                                         Watermark="每行一个视频文件路径；选择多少个有效视频，就发表多少个视频" />
+                                <TextBlock x:Name="CustomVideoFilesHintTextBlock"
+                                           Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                           FontSize="12"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="11"
+                                       Text="运行策略"
+                                       VerticalAlignment="Center" />
+                            <Grid Grid.Row="11"
+                                  Grid.Column="1"
+                                  ColumnDefinitions="*,*,*"
+                                  ColumnSpacing="10">
+                                <ComboBox x:Name="RunStrategyComboBox" />
+                                <ComboBox x:Name="FinalActionComboBox"
+                                          Grid.Column="1" />
+                                <ComboBox x:Name="SingleTestActionComboBox"
+                                          Grid.Column="2" />
+                            </Grid>
+
+                            <TextBlock Grid.Row="12"
+                                       Text="运行选项"
+                                       VerticalAlignment="Center" />
+                            <WrapPanel Grid.Row="12"
+                                       Grid.Column="1">
+                                <CheckBox x:Name="PauseOnErrorCheckBox"
+                                          Margin="0,0,16,0"
+                                          Content="异常时暂停" />
+                                <CheckBox x:Name="FastModeCheckBox"
+                                          Margin="0,0,16,0"
+                                          Content="快速模式" />
+                                <CheckBox x:Name="AllowDuplicateCheckBox"
+                                          Margin="0,0,16,0"
+                                          Content="允许重复发布" />
+                                <CheckBox x:Name="CaptureScreenshotsCheckBox"
+                                          Margin="0,0,16,0"
+                                          Content="流程截图" />
+                                <CheckBox x:Name="CaptureDebugDumpsCheckBox"
+                                          Margin="0,0,16,0"
+                                          Content="调试落盘" />
+                            </WrapPanel>
+                        </Grid>
+
+                        <TextBlock Text="连续区间模式下，“实际发表集数”会根据起始集数和发表次数自动生成。要手工指定 2,3,4,7 这种离散集数，请切换到“具体集数”。"
+                                   Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="表单">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="14"
+                                Margin="2,12,12,8">
+                        <Grid ColumnDefinitions="132,*"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="9"
+                              ColumnSpacing="12">
+                            <TextBlock Text="描述开关"
+                                       VerticalAlignment="Center" />
+                            <WrapPanel Grid.Column="1">
+                                <CheckBox x:Name="FillDescriptionCheckBox"
+                                          Margin="0,0,16,0"
+                                          Content="填写描述" />
+                                <CheckBox x:Name="AiDescriptionCheckBox"
+                                          Margin="0,0,16,0"
+                                          Content="AI 重写描述" />
+                                <CheckBox x:Name="AiUseDialogueCheckBox"
+                                          Margin="0,0,16,0"
+                                          Content="AI 用台词参考" />
+                                <CheckBox x:Name="PrependHashCheckBox"
+                                          Margin="0,0,16,0"
+                                          Content="首字符补 #" />
+                            </WrapPanel>
+
+                            <TextBlock Grid.Row="1"
+                                       Text="视频描述模板"
+                                       VerticalAlignment="Top"
+                                       Margin="0,6,0,0" />
+                            <TextBox x:Name="DescriptionTemplateTextBox"
+                                     Grid.Row="1"
+                                     Grid.Column="1"
+                                     Height="92"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     Watermark="支持 {剧集名称}、{新剧名}、{原剧名}、{短标题}、{标签}、{视频文件名}" />
+
+                            <TextBlock Grid.Row="2"
+                                       Text="模板预览"
+                                       VerticalAlignment="Center" />
+                            <TextBlock x:Name="DescriptionPreviewTextBlock"
+                                       Grid.Row="2"
+                                       Grid.Column="1"
+                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+
+                            <TextBlock Grid.Row="3"
+                                       Text="位置选项"
+                                       VerticalAlignment="Center" />
+                            <TextBox x:Name="LocationOptionTextBox"
+                                     Grid.Row="3"
+                                     Grid.Column="1"
+                                     Watermark="位置，例如：不显示" />
+
+                            <TextBlock Grid.Row="4"
+                                       Text="链接类型"
+                                       VerticalAlignment="Center" />
+                            <TextBox x:Name="LinkOptionTextBox"
+                                     Grid.Row="4"
+                                     Grid.Column="1"
+                                     Watermark="链接类型，例如：视频号剧集" />
+
+                            <TextBlock Grid.Row="5"
+                                       Text="链接选择按钮"
+                                       VerticalAlignment="Center" />
+                            <TextBox x:Name="LinkPickerButtonTextBox"
+                                     Grid.Row="5"
+                                     Grid.Column="1"
+                                     Watermark="选择按钮文本" />
+
+                            <TextBlock Grid.Row="6"
+                                       Text="链接弹窗标题"
+                                       VerticalAlignment="Center" />
+                            <TextBox x:Name="LinkDialogTitleTextBox"
+                                     Grid.Row="6"
+                                     Grid.Column="1"
+                                     Watermark="弹窗标题" />
+
+                            <TextBlock Grid.Row="7"
+                                       Text="链接搜索占位词"
+                                       VerticalAlignment="Center" />
+                            <TextBox x:Name="LinkSearchPlaceholderTextBox"
+                                     Grid.Row="7"
+                                     Grid.Column="1"
+                                     Watermark="搜索内容" />
+
+                            <TextBlock Grid.Row="8"
+                                       Text="活动选项"
+                                       VerticalAlignment="Center" />
+                            <TextBox x:Name="ActivityOptionTextBox"
+                                     Grid.Row="8"
+                                     Grid.Column="1"
+                                     Watermark="活动，例如：不参与活动" />
+
+                            <TextBlock Grid.Row="9"
+                                       Text="定时发表选项"
+                                       VerticalAlignment="Center" />
+                            <TextBox x:Name="TimingOptionTextBox"
+                                     Grid.Row="9"
+                                     Grid.Column="1"
+                                     Watermark="定时发表，例如：不定时" />
+                        </Grid>
+
+                        <TextBlock Text="这里配置发表页里除封面外的大部分表单。视频描述支持 {剧集名称}、{新剧名}、{原剧名}、{短标题}、{标签}、{视频文件名} 占位符，并可选自动补 #。"
+                                   Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="封面与标题">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="14"
+                                Margin="2,12,12,8">
+                        <Grid ColumnDefinitions="132,*"
+                              RowDefinitions="Auto,Auto,Auto,Auto"
+                              RowSpacing="9"
+                              ColumnSpacing="12">
+                            <TextBlock Text="封面选项"
+                                       VerticalAlignment="Center" />
+                            <CheckBox x:Name="ReplaceCoverCheckBox"
+                                      Grid.Column="1"
+                                      Content="替换本地封面" />
+
+                            <TextBlock Grid.Row="1"
+                                       Text="封面图片"
+                                       VerticalAlignment="Center" />
+                            <Grid Grid.Row="1"
+                                  Grid.Column="1"
+                                  ColumnDefinitions="*,Auto,Auto"
+                                  ColumnSpacing="8">
+                                <TextBox x:Name="CoverImagePathTextBox"
+                                         Watermark="替换封面时使用；留空则自动尝试项目海报" />
+                                <Button x:Name="BrowseCoverButton"
+                                        Grid.Column="1"
+                                        Classes="compact"
+                                        Content="浏览" />
+                                <Button x:Name="ClearCoverButton"
+                                        Grid.Column="2"
+                                        Classes="compact"
+                                        Content="清空" />
+                            </Grid>
+
+                            <TextBlock Grid.Row="2"
+                                       Grid.Column="1"
+                                       x:Name="CoverPathPreviewTextBlock"
+                                       Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                       FontSize="12"
+                                       TextWrapping="Wrap" />
+
+                            <TextBlock Grid.Row="3"
+                                       Text="标题与原创"
+                                       VerticalAlignment="Center" />
+                            <WrapPanel Grid.Row="3"
+                                       Grid.Column="1">
+                                <CheckBox x:Name="FillShortTitleCheckBox"
+                                          Margin="0,0,10,0"
+                                          Content="填写短标题" />
+                                <TextBlock Text="短标题长度"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,8,0" />
+                                <NumericUpDown x:Name="ShortTitleMaxLengthUpDown"
+                                               Width="118"
+                                               Minimum="1"
+                                               Maximum="30"
+                                               Increment="1"
+                                               FormatString="0"
+                                               Margin="0,0,16,0" />
+                                <CheckBox x:Name="DeclareOriginalCheckBox"
+                                          Content="勾选声明原创" />
+                            </WrapPanel>
+                        </Grid>
+
+                        <TextBlock Text="启用本地封面后，流程会在其他表单填写完成后再替换封面。封面图片优先使用这里配置的路径；留空时会自动尝试复用项目海报图。"
+                                   Foreground="{DynamicResource DesktopTextSecondaryBrush}"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

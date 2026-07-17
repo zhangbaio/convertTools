@@ -1,0 +1,109 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ChannelsPublisher.Desktop.Views.ClipConfigDialog"
+        Width="640" Height="720"
+        WindowStartupLocation="CenterOwner"
+        Title="全局剪辑配置">
+    <DockPanel Margin="16">
+        <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Foreground="#888" FontSize="12" Margin="0,0,0,10"
+                   Text="本机全局剪辑配置，对当前电脑上全部剧集生效。原创度/画质/并发喂给 C# 处理管线；剪辑模式/评分项持久化，供一键创作契约消费。" />
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,12,0,0">
+            <Button Content="取消" Click="OnCancel" />
+            <Button Content="保存" Click="OnSave" Background="#E67E22" Foreground="White" />
+        </StackPanel>
+        <ScrollViewer>
+            <StackPanel Spacing="10">
+                <TextBlock Text="剪辑模式（一键创作时参与）" FontWeight="SemiBold" />
+                <Grid ColumnDefinitions="Auto,Auto,80,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="12">
+                    <CheckBox Grid.Row="0" Grid.Column="0" x:Name="HighlightEnabledBox" Content="高光" MinWidth="80" />
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="每集条数" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="0" Grid.Column="2" x:Name="HighlightCountBox" Minimum="1" Maximum="10" />
+                    <CheckBox Grid.Row="0" Grid.Column="3" x:Name="HighlightForceBox" Content="覆盖重生" VerticalAlignment="Center" />
+                    <CheckBox Grid.Row="1" Grid.Column="0" x:Name="MashupEnabledBox" Content="混剪" MinWidth="80" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="每集条数" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="1" Grid.Column="2" x:Name="MashupCountBox" Minimum="1" Maximum="10" />
+                    <CheckBox Grid.Row="1" Grid.Column="3" x:Name="MashupForceBox" Content="覆盖重生" VerticalAlignment="Center" />
+                    <CheckBox Grid.Row="2" Grid.Column="0" x:Name="SliceEnabledBox" Content="切片" MinWidth="80" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="每集条数" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="2" Grid.Column="2" x:Name="SliceCountBox" Minimum="1" Maximum="10" />
+                    <CheckBox Grid.Row="2" Grid.Column="3" x:Name="SliceForceBox" Content="覆盖重生" VerticalAlignment="Center" />
+                    <CheckBox Grid.Row="3" Grid.Column="0" x:Name="CommentaryEnabledBox" Content="解说" MinWidth="80" />
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="每集条数" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="3" Grid.Column="2" x:Name="CommentaryCountBox" Minimum="1" Maximum="10" />
+                    <CheckBox Grid.Row="3" Grid.Column="3" x:Name="CommentaryForceBox" Content="覆盖重生" VerticalAlignment="Center" />
+                </Grid>
+
+                <TextBlock Text="选段质量" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <StackPanel Spacing="4">
+                    <CheckBox x:Name="EpisodeQuotaBox" Content="按集时长分配选段名额（短集也保留代表）" />
+                    <CheckBox x:Name="EnableLlmScoreBox" Content="启用 AI 复评分（需配置 AI 文本接口）" />
+                    <CheckBox x:Name="AudioEnergyBox" Content="音频能量加权（高能量段加分，稍慢）" />
+                    <CheckBox x:Name="ShotDensityBox" Content="镜头密度加权（动作段加分，需 scenedetect）" />
+                    <CheckBox x:Name="LlmArrangeBox" Content="LLM 叙事重排（开头置钩子，需 AI 文本接口）" />
+                    <CheckBox x:Name="SmoothSelectionBox" Content="片段去碎（剔除短片段，衔接更顺）" />
+                    <CheckBox x:Name="PublishMetaBox" Content="生成发表文案（描述 + 标签写入 .publish.json）" />
+                </StackPanel>
+
+                <TextBlock Text="并发 / 导出" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <Grid ColumnDefinitions="90,*,90,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="8">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="并发集数" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="0" Grid.Column="1" x:Name="PipelineConcurrentBox" Minimum="1" Maximum="8" />
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="网络并发" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="0" Grid.Column="3" x:Name="NetConcurrentBox" Minimum="0" Maximum="16" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="导出清晰度" VerticalAlignment="Center" />
+                    <ComboBox Grid.Row="1" Grid.Column="1" x:Name="OutputQualityCombo" HorizontalAlignment="Stretch">
+                        <ComboBoxItem Tag="720P">720P</ComboBoxItem>
+                        <ComboBoxItem Tag="1080P">1080P</ComboBoxItem>
+                    </ComboBox>
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="码率(Mbps)" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="1" Grid.Column="3" x:Name="VideoBitrateBox" Minimum="0" Maximum="20" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="编码模式" VerticalAlignment="Center" />
+                    <ComboBox Grid.Row="2" Grid.Column="1" x:Name="EncodeModeCombo" HorizontalAlignment="Stretch">
+                        <ComboBoxItem Tag="auto">自动</ComboBoxItem>
+                        <ComboBoxItem Tag="cbr">固定码率</ComboBoxItem>
+                        <ComboBoxItem Tag="vbr">质量优先</ComboBoxItem>
+                    </ComboBox>
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="视频编码" VerticalAlignment="Center" />
+                    <ComboBox Grid.Row="2" Grid.Column="3" x:Name="VideoCodecCombo" HorizontalAlignment="Stretch">
+                        <ComboBoxItem Tag="h264">H.264（兼容）</ComboBoxItem>
+                        <ComboBoxItem Tag="h265">H.265（更小）</ComboBoxItem>
+                    </ComboBox>
+                </Grid>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="渲染速度" VerticalAlignment="Center" />
+                    <ComboBox x:Name="RenderSpeedCombo" Width="120">
+                        <ComboBoxItem Tag="fast">快速</ComboBoxItem>
+                        <ComboBoxItem Tag="medium">均衡</ComboBoxItem>
+                        <ComboBoxItem Tag="quality">高质</ComboBoxItem>
+                    </ComboBox>
+                    <CheckBox x:Name="HardwareEncodeBox" Content="硬件编码（自动回退）" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <TextBlock Text="开头标题卡" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <CheckBox x:Name="TitleCardBox" Content="成片开头叠加剧情小标题" VerticalAlignment="Center" />
+                    <TextBlock Text="停留" VerticalAlignment="Center" />
+                    <NumericUpDown x:Name="TitleCardSecondsBox" Minimum="1" Maximum="15" Width="90" />
+                    <TextBlock Text="秒" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <TextBlock Text="原创度扰动（成片后处理）" FontWeight="SemiBold" Margin="0,4,0,0" />
+                <CheckBox x:Name="OrigEnabledBox" Content="启用原创度处理（成片加随机轻扰动，降低重复率）" />
+                <StackPanel Orientation="Horizontal" Spacing="16">
+                    <CheckBox x:Name="OrigZoomBox" Content="微缩放裁剪" />
+                    <CheckBox x:Name="OrigColorBox" Content="调色微调" />
+                    <CheckBox x:Name="OrigSpeedBox" Content="轻微变速" />
+                    <CheckBox x:Name="OrigFadeBox" Content="开闭幕" />
+                </StackPanel>
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                    <TextBlock Grid.Column="0" Text="贴纸目录" VerticalAlignment="Center" />
+                    <TextBox Grid.Column="1" x:Name="OrigStickerDirBox" Watermark="可选：贴纸/水印 PNG 目录，随机叠一张到随机角落" />
+                    <Button Grid.Column="2" Content="浏览" Click="OnBrowseStickerDir" />
+                    <Button Grid.Column="3" Content="清除" Click="OnClearStickerDir" />
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

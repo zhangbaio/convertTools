@@ -1,0 +1,237 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="TikTokPublisher.Ui.Views.AccountSettingsDialog"
+        Width="640" Height="620"
+        WindowStartupLocation="CenterOwner"
+        Title="账号设置">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,12,0,0">
+            <Button Content="取消" Click="OnCancel" />
+            <Button Content="保存" Click="OnSave" Background="#E67E22" Foreground="White" />
+        </StackPanel>
+
+        <TabControl>
+            <TabItem Header="基本信息">
+                <ScrollViewer>
+                    <StackPanel Spacing="8" Margin="4">
+                        <TextBox x:Name="NameBox" Watermark="账号名称" />
+                        <TextBox x:Name="NicknameBox" Watermark="TikTok 昵称" />
+                        <TextBox x:Name="LoginEmailBox" Watermark="登录邮箱/用户名" />
+                        <TextBox x:Name="SeriesUrlBox" />
+                        <TextBox x:Name="StorageStateBox" Watermark="Playwright storage_state 路径" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox x:Name="WorkspaceBox" Watermark="上传工作目录" MinWidth="420" />
+                            <Button Content="浏览…" Click="OnBrowseWorkspaceClick" />
+                        </StackPanel>
+                        <TextBox x:Name="DownloadWorkspaceBox" Watermark="下载工作目录（last_download_workspace，可选）" />
+                        <CheckBox x:Name="DeleteVideosOnArchiveBox" Content="归档时删除视频文件" />
+                        <TextBlock Text="关闭后归档目录会保留视频，占用更多磁盘" Foreground="#6B7280" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="发布">
+                <ScrollViewer>
+                    <StackPanel Spacing="8" Margin="4">
+                        <Grid ColumnDefinitions="130,*"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="8"
+                              ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="ContractModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="manual">指定合同 ID</ComboBoxItem>
+                                <ComboBoxItem Tag="first_available">使用第一个可用合同</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="合同 ID" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="ContractIdBox" Watermark="合同 ID" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="提交动作" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="SubmitActionCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="none">不提交</ComboBoxItem>
+                                <ComboBoxItem Tag="save">保存</ComboBoxItem>
+                                <ComboBoxItem Tag="submit">提交</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="发布模式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="3" Grid.Column="1" x:Name="PublishModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="auto_after_review">过审后自动发布</ComboBoxItem>
+                                <ComboBoxItem Tag="manual">手动发布</ComboBoxItem>
+                                <ComboBoxItem Tag="scheduled">定时发布</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="目标观众" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="4" Grid.Column="1" x:Name="AudienceCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="female">女性</ComboBoxItem>
+                                <ComboBoxItem Tag="male">男性</ComboBoxItem>
+                                <ComboBoxItem Tag="ai_recommend">AI 推荐</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="源语言" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="5" Grid.Column="1" x:Name="SourceLanguageCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="zh">中文</ComboBoxItem>
+                                <ComboBoxItem Tag="en">English</ComboBoxItem>
+                                <ComboBoxItem Tag="id">Indonesian</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="上传方式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="6" Grid.Column="1" x:Name="UploadStrategyCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="classic">经典（一次性上传全部视频）</ComboBoxItem>
+                                <ComboBoxItem Tag="batch">分批（每批 N 个，卡死整批重传）</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="7" Grid.Column="0" Text="付费模式" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="7" Grid.Column="1" x:Name="PaidEnabledBox" Content="启用" />
+
+                            <TextBlock Grid.Row="8" Grid.Column="0" Text="付费比例" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="8" Grid.Column="1" x:Name="PaidRatioEnabledBox" Content="启用" />
+
+                            <TextBlock Grid.Row="9" Grid.Column="0" Text="付费比例 %" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="PaidRatioPercentBox" Minimum="0" Maximum="100" Value="20" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="10" Grid.Column="0" Text="AI 短剧" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="10" Grid.Column="1" x:Name="AiDramaBox" Content="是" IsChecked="True" />
+
+                            <TextBlock Grid.Row="11" Grid.Column="0" Text="AI 改写简介" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="11" Grid.Column="1" x:Name="AiRewriteSynopsisBox" Content="启用" />
+
+                            <TextBlock Grid.Row="12" Grid.Column="0" Text="寄售模式" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="12" Grid.Column="1" x:Name="ConsignmentBox" Content="启用" />
+
+                            <TextBlock Grid.Row="13" Grid.Column="0" Text="锚点推广" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="13" Grid.Column="1" x:Name="AnchorPromotionBox" Content="启用" />
+
+                            <TextBlock Grid.Row="14" Grid.Column="0" Text="个人页预览集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="14" Grid.Column="1" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="3" />
+
+                            <TextBlock Grid.Row="15" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="15" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
+
+                            <TextBlock Grid.Row="16" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="16" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
+
+                            <TextBlock Grid.Row="17" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="17" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
+
+                            <TextBlock Grid.Row="18" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="18" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
+
+                            <TextBlock Grid.Row="19" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="19" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
+
+                            <TextBlock Grid.Row="20" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="20" Grid.Column="1" x:Name="UploadBatchStallBox" Minimum="20" Maximum="600" Value="75" />
+
+                            <TextBlock Grid.Row="21" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="21" Grid.Column="1" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
+
+                            <TextBlock Grid.Row="22" Grid.Column="0" Text="预期价格模式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="22" Grid.Column="1" x:Name="ExpectedPriceModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="manual">手动价格</ComboBoxItem>
+                                <ComboBoxItem Tag="option_index">按选项序号</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="23" Grid.Column="0" Text="预期全集价格" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="23" Grid.Column="1" x:Name="ExpectedPriceValueBox" Watermark="例如：22.33 或 $22.33 | $0.29/EP" />
+
+                            <TextBlock Grid.Row="24" Grid.Column="0" Text="价格选项序号" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="24" Grid.Column="1" x:Name="ExpectedPriceOptionIndexBox" Minimum="1" Maximum="999" Value="1" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="25" Grid.Column="0" Text="静音检测校验" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="25" Grid.Column="1" x:Name="SilenceValidationBox" Content="启用" />
+
+                            <TextBlock Grid.Row="26" Grid.Column="0" Text="静音阈值 dB" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="26" Grid.Column="1" x:Name="SilenceThresholdBox" Minimum="-80" Maximum="0" Value="-45" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="27" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="27" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
+
+                            <TextBlock Grid.Row="28" Grid.Column="0" Text="最大连续静音秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="28" Grid.Column="1" x:Name="MaxContinuousSilenceSecondsBox" Minimum="1" Maximum="300" Value="20" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="29" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="29" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
+                                <ComboBoxItem Tag="playwright">外部浏览器（程序自动打开，可无头）</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="30" Grid.Column="0" Text="外部浏览器无头" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="30" Grid.Column="1" x:Name="PlaywrightHeadlessBox" Content="无头模式（仅程序自动打开的外部浏览器生效）" />
+
+                            <TextBlock Grid.Row="31" Grid.Column="0" Text="原始权利人" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="31" Grid.Column="1" x:Name="OriginalRightsHolderBox" Content="是" IsChecked="True" />
+
+                            <TextBlock Grid.Row="32" Grid.Column="0" Text="内容原创类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="32" Grid.Column="1" x:Name="ContentOriginalityCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="original">原创</ComboBoxItem>
+                                <ComboBoxItem Tag="adapted">改编</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Grid.Row="33" Grid.Column="0" Text="上传材料类型" VerticalAlignment="Top" Margin="0,5,0,0" />
+                            <StackPanel Grid.Row="33" Grid.Column="1" Spacing="6">
+                                <CheckBox x:Name="ProductionAgreementMaterialBox" Content="合作协议（核心）" />
+                                <TextBlock Text="自动上传当前项目生成的“证明材料.pdf”。"
+                                           Foreground="#6B7280"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="以下材料需要各自的独立文件，当前暂不支持自动上传："
+                                           Foreground="#6B7280"
+                                           TextWrapping="Wrap"
+                                           Margin="0,2,0,0" />
+                                <WrapPanel>
+                                    <CheckBox x:Name="WorkRegistrationMaterialBox" Content="作品登记证书" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="FilingLicenseMaterialBox" Content="备案/发行许可" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="RightsNoticeMaterialBox" Content="片头片尾权利标识" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="AiScreenshotsMaterialBox" Content="AI 生成截图" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="EditingProjectMaterialBox" Content="剪辑工程文件" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="SourceInfoMaterialBox" Content="原始文件信息" Margin="0,0,12,6" />
+                                </WrapPanel>
+                            </StackPanel>
+
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="证明材料">
+                <ScrollViewer>
+                    <StackPanel Spacing="12" Margin="4">
+                        <TextBlock Text="这些公司与印章信息仅用于当前账号生成的权利声明。"
+                                   Foreground="#6B7280" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="130,*"
+                              RowDefinitions="Auto,Auto,Auto"
+                              RowSpacing="10"
+                              ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="本公司/声明人" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="ProofDeclarantCompanyNameBox" Watermark="用于正文和声明人" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="印章图片" VerticalAlignment="Center" />
+                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">
+                                <TextBox Grid.Column="0" x:Name="ProofSealPathBox" Watermark="PNG、JPG、JPEG 或 BMP 图片" />
+                                <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofSealClick" Margin="8,0,0,0" />
+                            </Grid>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="致贵方名称" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" x:Name="ProofCopyrightCompanyNameBox" Watermark="用于“致【…】（下称贵方）”" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="代理">
+                <ScrollViewer>
+                    <StackPanel Spacing="8" Margin="4">
+                        <CheckBox x:Name="ProxyEnabledBox" Content="启用代理" />
+                        <ComboBox x:Name="ProxyTypeCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="http">HTTP</ComboBoxItem>
+                            <ComboBoxItem Tag="socks5">SOCKS5</ComboBoxItem>
+                        </ComboBox>
+                        <TextBox x:Name="ProxyHostBox" Watermark="代理主机" />
+                        <NumericUpDown x:Name="ProxyPortBox" Minimum="0" Maximum="65535" Value="0" Width="160" HorizontalAlignment="Left" />
+                        <TextBox x:Name="ProxyUsernameBox" Watermark="代理用户名" />
+                        <TextBox x:Name="ProxyPasswordBox" Watermark="代理密码" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

@@ -1,0 +1,84 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ShortDrama.Desktop.Views.SystemServiceView">
+    <TabControl TabStripPlacement="Top">
+        <TabItem Header="ASR配置">
+            <DockPanel Margin="18">
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,14,0,0">
+                    <TextBlock x:Name="SaveHintLabel" Text="" VerticalAlignment="Center" Foreground="#6b7280" />
+                    <Button x:Name="SaveButton" Content="保存 ASR 配置" />
+                </StackPanel>
+                <ScrollViewer>
+                    <StackPanel Spacing="10" MaxWidth="900" HorizontalAlignment="Left">
+                        <TextBlock Text="语音识别（ASR）引擎" FontWeight="SemiBold" FontSize="15" />
+                        <TextBlock Foreground="#6b7280" TextWrapping="Wrap"
+                                   Text="素材剪辑补齐字幕用的语音识别引擎，三选一：&#10;· 火山（在线）：最准、带标点，收费且有并发限额；&#10;· 本地 SenseVoice（离线免费）：自带标点、极快(约100×实时)，字准接近火山；&#10;· 混合：本地优先，识别可疑的集自动用火山复核。&#10;本地/混合需下载模型（约 240MB），可点下方「下载模型」一键获取。" />
+
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="识别引擎" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="EngineCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="volcengine">火山 ASR（在线）</ComboBoxItem>
+                                <ComboBoxItem Tag="local">本地 SenseVoice（免费离线）</ComboBoxItem>
+                                <ComboBoxItem Tag="hybrid">混合（本地优先 + 火山复核）</ComboBoxItem>
+                            </ComboBox>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="识别语言" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="LanguageCombo" Width="160" HorizontalAlignment="Left">
+                                <ComboBoxItem Tag="zh-CN">中文</ComboBoxItem>
+                                <ComboBoxItem Tag="en">英文</ComboBoxItem>
+                                <ComboBoxItem Tag="ja">日文</ComboBoxItem>
+                                <ComboBoxItem Tag="ko">韩文</ComboBoxItem>
+                            </ComboBox>
+                        </Grid>
+
+                        <TextBlock Text="火山在线（火山/混合引擎使用）" FontWeight="SemiBold" Margin="0,6,0,0" />
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="AppID / Key" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="VolcAppIdBox" Watermark="火山 AppID 或 X-Api-Key" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Access Token" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="VolcTokenBox" PasswordChar="●" Watermark="火山 Access Token" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="火山测试" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                                <Button x:Name="VolcTestButton" Content="测试火山引擎" />
+                                <Button x:Name="VolcTutorialButton" Content="查看填写教程" />
+                                <TextBlock x:Name="VolcTestResultLabel" Text="未测试" VerticalAlignment="Center" Foreground="#6b7280" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Text="本地模型（本地/混合引擎使用）" FontWeight="SemiBold" Margin="0,6,0,0" />
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="本地模型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="LocalModelCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="sensevoice">SenseVoice-Small（带标点·推荐）</ComboBoxItem>
+                                <ComboBoxItem Tag="paraformer">Paraformer-zh（无标点）</ComboBoxItem>
+                            </ComboBox>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="模型目录" VerticalAlignment="Center" />
+                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                <TextBox Grid.Column="0" x:Name="LocalModelDirBox" Watermark="留空=自动在 models/ 下查找；或指定模型目录" />
+                                <Button Grid.Column="1" x:Name="BrowseModelDirButton" Content="浏览" />
+                                <Button Grid.Column="2" x:Name="DownloadModelButton" Content="下载模型" />
+                            </Grid>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="VAD 模型" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" x:Name="LocalVadBox" Watermark="留空=自动查找 silero_vad.onnx；或指定路径" />
+                            <CheckBox Grid.Row="3" Grid.Column="1" x:Name="ItnBox" Content="启用数字逆归一化（ITN，默认关：会把&quot;5000&quot;识别成&quot;五千0&quot;）" />
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="本地测试" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                                <Button x:Name="LocalTestButton" Content="测试本地模型" />
+                                <TextBlock x:Name="LocalTestResultLabel" Text="未测试" VerticalAlignment="Center" Foreground="#6b7280" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto" ColumnSpacing="10" Margin="0,6,0,0">
+                            <TextBlock Grid.Column="0" Text="混合复核阈值" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <NumericUpDown x:Name="HybridThresholdBox" Minimum="0" Maximum="5" Increment="0.1"
+                                               FormatString="0.0" Width="140" />
+                                <TextBlock Text="字/秒语音（本地每秒识别字数低于此值，改用火山复核）"
+                                           VerticalAlignment="Center" Foreground="#6b7280" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </DockPanel>
+        </TabItem>
+    </TabControl>
+</UserControl>

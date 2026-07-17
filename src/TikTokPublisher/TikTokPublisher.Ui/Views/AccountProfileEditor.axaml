@@ -1,0 +1,375 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="TikTokPublisher.Ui.Views.AccountProfileEditor"
+             Background="{StaticResource PythonPageBgBrush}">
+
+    <UserControl.Styles>
+        <Style Selector="Border.accountConfigPanel">
+            <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource PythonPanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14,12" />
+        </Style>
+
+        <Style Selector="Border.accountActionBar">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#E5E7EB" />
+            <Setter Property="BorderThickness" Value="1,1,1,0" />
+            <Setter Property="CornerRadius" Value="8,8,0,0" />
+            <Setter Property="Padding" Value="14,10" />
+        </Style>
+
+        <Style Selector="Grid.profileForm TextBlock.formLabel">
+            <Setter Property="Foreground" Value="#1F2937" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <Style Selector="Grid.profileForm TextBox">
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+
+        <Style Selector="Grid.profileForm ComboBox">
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+
+        <Style Selector="Grid.profileForm NumericUpDown">
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+
+        <Style Selector="TabControl.accountTabs">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+
+        <Style Selector="TabControl.accountTabs TabItem">
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#6B7280" />
+            <Setter Property="Padding" Value="0,0,0,6" />
+            <Setter Property="Margin" Value="0,0,22,8" />
+        </Style>
+
+        <Style Selector="TabControl.accountTabs TabItem:selected">
+            <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel Margin="16,14,16,16">
+        <Border DockPanel.Dock="Bottom" Classes="accountActionBar" Margin="0,12,0,0">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                    <Button Content="登录账号" Click="OnLoginClick" Classes="secondaryAction" />
+                    <Button Content="重新登录账号" Click="OnReloginClick" Classes="secondaryAction" />
+                    <Button Content="退出登录" Click="OnLogoutClick" Classes="dangerAction" />
+                </StackPanel>
+                <Button Grid.Column="1" Content="保存账号配置" Click="OnSaveClick" Classes="primaryAction" MinWidth="140" />
+            </Grid>
+        </Border>
+
+        <TextBlock DockPanel.Dock="Top" Text="账号配置" Classes="pageTitle" Margin="0,0,0,10" />
+
+        <Border Classes="accountConfigPanel">
+            <TabControl Classes="accountTabs">
+                <TabItem Header="登录设置">
+                    <ScrollViewer>
+                        <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
+                        <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="登录状态" VerticalAlignment="Top" Margin="0,4,0,0" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="LoginStatusText" Classes="pageSummary" TextWrapping="Wrap" Text="尚未登录" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="账号昵称" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="NicknameBox" Watermark="用于左侧账号列表显示，可留空" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="TikTok 用户名" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="2" Grid.Column="1" x:Name="LoginEmailBox" Watermark="邮箱或用户名" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="TikTok 密码" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="3" Grid.Column="1" x:Name="PasswordBox" PasswordChar="●" RevealPassword="False" Watermark="可选，仅本地保存" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="登录态文件" VerticalAlignment="Center" />
+                        <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" x:Name="StorageStateBox" Watermark="留空时使用 ~/.tiktok_publisher/profiles/{id}/tiktok_auth_state.json" />
+                            <Button Grid.Column="1" Content="浏览" Click="OnBrowseAuthPathClick" Margin="8,0,0,0" />
+                        </Grid>
+                        </Grid>
+                    </ScrollViewer>
+                </TabItem>
+
+            <TabItem Header="网络 / IP">
+                <ScrollViewer>
+                    <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
+                        <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="登录浏览器" VerticalAlignment="Center" />
+                        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="LoginBrowserModeCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="embedded">内置浏览器</ComboBoxItem>
+                            <ComboBoxItem Tag="cdp">外部浏览器 / CDP</ComboBoxItem>
+                        </ComboBox>
+
+                        <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="CDP 地址" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="CdpEndpointBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="启用代理" VerticalAlignment="Center" />
+                        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="ProxyEnabledBox" Content="启用账号代理" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="代理类型" VerticalAlignment="Center" />
+                        <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ProxyTypeCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="http">HTTP/HTTPS</ComboBoxItem>
+                            <ComboBoxItem Tag="socks5">SOCKS5</ComboBoxItem>
+                            <ComboBoxItem Tag="socks4">SOCKS4</ComboBoxItem>
+                        </ComboBox>
+
+                        <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="代理主机" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="4" Grid.Column="1" x:Name="ProxyHostBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="代理端口" VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="ProxyPortBox" Minimum="0" Maximum="65535" Value="0" Width="160" HorizontalAlignment="Left" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="代理用户名" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="6" Grid.Column="1" x:Name="ProxyUsernameBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="代理密码" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="7" Grid.Column="1" x:Name="ProxyPasswordBox" PasswordChar="●" RevealPassword="False" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="8" Grid.Column="0" Text="代理备注" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="8" Grid.Column="1" x:Name="ProxyLabelBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="9" Grid.Column="0" Text="静态IP备注" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="9" Grid.Column="1" x:Name="StaticIpNoteBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="10" Grid.Column="0" Text="IP 检测" VerticalAlignment="Top" Margin="0,6,0,0" />
+                        <StackPanel Grid.Row="10" Grid.Column="1" Orientation="Vertical" Spacing="6">
+                            <Button x:Name="TestProxyButton" Content="测试IP" Click="OnTestProxyClick" HorizontalAlignment="Left" />
+                            <TextBlock x:Name="ProxyTestResultText" TextWrapping="Wrap" Foreground="#666" Text="点击「测试IP」检测当前代理的实际出口 IP 与归属地。" />
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="发布配置">
+                <ScrollViewer>
+                    <StackPanel Spacing="10" Margin="2,4,2,2">
+                        <Grid Classes="profileForm" ColumnDefinitions="140,*"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowSpacing="8"
+                              ColumnSpacing="10">
+                            <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="ContractModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="manual">指定合同 ID</ComboBoxItem>
+                                <ComboBoxItem Tag="first_available">使用第一个可用合同</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="合同 ID" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="ContractIdBox" Watermark="合同 ID" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="提交动作" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="SubmitActionCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="none">不提交</ComboBoxItem>
+                                <ComboBoxItem Tag="save">保存</ComboBoxItem>
+                                <ComboBoxItem Tag="submit">提交</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="发布模式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="3" Grid.Column="1" x:Name="PublishModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="auto_after_review">过审后自动发布</ComboBoxItem>
+                                <ComboBoxItem Tag="manual">手动发布</ComboBoxItem>
+                                <ComboBoxItem Tag="scheduled">定时发布</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="目标观众" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="4" Grid.Column="1" x:Name="AudienceCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="female">女性</ComboBoxItem>
+                                <ComboBoxItem Tag="male">男性</ComboBoxItem>
+                                <ComboBoxItem Tag="ai_recommend">AI 推荐</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="源语言" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="5" Grid.Column="1" x:Name="SourceLanguageCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="zh">中文</ComboBoxItem>
+                                <ComboBoxItem Tag="en">English</ComboBoxItem>
+                                <ComboBoxItem Tag="id">Indonesian</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="上传方式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="6" Grid.Column="1" x:Name="UploadStrategyCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="classic">经典（一次性上传全部视频）</ComboBoxItem>
+                                <ComboBoxItem Tag="batch">分批（每批 N 个，卡死整批重传）</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="付费模式" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="7" Grid.Column="1" x:Name="PaidEnabledBox" Content="启用" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="8" Grid.Column="0" Text="付费比例" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="8" Grid.Column="1" x:Name="PaidRatioEnabledBox" Content="启用" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="9" Grid.Column="0" Text="付费比例 %" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="PaidRatioPercentBox" Minimum="0" Maximum="100" Value="20" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="10" Grid.Column="0" Text="AI 短剧" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="10" Grid.Column="1" x:Name="AiDramaBox" Content="是" IsChecked="True" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="11" Grid.Column="0" Text="AI 改写简介" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="11" Grid.Column="1" x:Name="AiRewriteSynopsisBox" Content="启用" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="12" Grid.Column="0" Text="寄售模式" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="12" Grid.Column="1" x:Name="ConsignmentBox" Content="启用" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="13" Grid.Column="0" Text="锚点推广" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="13" Grid.Column="1" x:Name="AnchorPromotionBox" Content="启用" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="14" Grid.Column="0" Text="静音检测校验" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="14" Grid.Column="1" x:Name="SilenceValidationBox" Content="启用" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="15" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="15" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="16" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="16" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
+                                <ComboBoxItem Tag="playwright">外部浏览器（程序自动打开，可无头）</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Classes="formLabel" Grid.Row="17" Grid.Column="0" Text="外部浏览器无头" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="17" Grid.Column="1" x:Name="PlaywrightHeadlessBox" Content="无头模式（不显示窗口，仅程序自动打开的外部浏览器生效）" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="18" Grid.Column="0" Text="原始权利人" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="18" Grid.Column="1" x:Name="OriginalRightsHolderBox" Content="是" IsChecked="True" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="19" Grid.Column="0" Text="内容原创类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="19" Grid.Column="1" x:Name="ContentOriginalityCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="original">原创</ComboBoxItem>
+                                <ComboBoxItem Tag="adapted">改编</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Classes="formLabel" Grid.Row="20" Grid.Column="0" Text="上传材料类型" VerticalAlignment="Top" Margin="0,5,0,0" />
+                            <StackPanel Grid.Row="20" Grid.Column="1" Spacing="6">
+                                <CheckBox x:Name="ProductionAgreementMaterialBox" Content="合作协议（核心）" />
+                                <TextBlock Text="自动上传当前项目生成的“证明材料.pdf”。"
+                                           Classes="pageSummary"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="以下材料需要各自的独立文件，当前暂不支持自动上传："
+                                           Classes="pageSummary"
+                                           TextWrapping="Wrap"
+                                           Margin="0,2,0,0" />
+                                <WrapPanel Orientation="Horizontal">
+                                    <CheckBox x:Name="WorkRegistrationMaterialBox" Content="作品登记证书" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="FilingLicenseMaterialBox" Content="备案/发行许可" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="RightsNoticeMaterialBox" Content="片头片尾权利标识" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="AiScreenshotsMaterialBox" Content="AI 生成截图" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="EditingProjectMaterialBox" Content="剪辑工程文件" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="SourceInfoMaterialBox" Content="原始文件信息" Margin="0,0,12,6" />
+                                </WrapPanel>
+                            </StackPanel>
+
+                        </Grid>
+
+                        <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">
+                            <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="预期价格模式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="ExpectedPriceModeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="manual">手动价格</ComboBoxItem>
+                                <ComboBoxItem Tag="option_index">按选项序号</ComboBoxItem>
+                            </ComboBox>
+                            <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="预期全集价格" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <TextBox x:Name="ExpectedPriceValueBox" Watermark="例如：22.33 或 $22.33 | $0.29/EP" MinWidth="280" />
+                                <Button Content="同步价格选项" Click="OnSyncExpectedPriceClick" />
+                            </StackPanel>
+                            <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="价格选项序号" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="ExpectedPriceOptionIndexBox" Minimum="1" Maximum="999" Value="1" Width="160" HorizontalAlignment="Left" />
+                            <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="已同步选项" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ExpectedPriceOptionsCombo" HorizontalAlignment="Stretch" />
+                            <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="个人页预览集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="3" />
+                            <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
+                            <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
+                            <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="7" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
+                            <TextBlock Classes="formLabel" Grid.Row="8" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="8" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
+                            <TextBlock Classes="formLabel" Grid.Row="9" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
+                            <TextBlock Classes="formLabel" Grid.Row="10" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="10" Grid.Column="1" x:Name="UploadBatchStallBox" Minimum="20" Maximum="600" Value="75" />
+                            <TextBlock Classes="formLabel" Grid.Row="11" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="11" Grid.Column="1" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
+                        </Grid>
+                        <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="10">
+                            <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="静音阈值 dB" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" x:Name="SilenceThresholdBox" Minimum="-80" Maximum="0" Value="-45" Width="160" HorizontalAlignment="Left" />
+                            <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="最大连续静音秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="MaxContinuousSilenceSecondsBox" Minimum="1" Maximum="300" Value="20" Width="160" HorizontalAlignment="Left" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="证明材料">
+                <ScrollViewer>
+                    <StackPanel Spacing="14" Margin="2,4,2,2">
+                        <TextBlock Text="证明材料账号配置" FontWeight="SemiBold" />
+                        <TextBlock Text="这些公司与印章信息仅用于当前账号生成的权利声明。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
+                        <Grid Classes="profileForm"
+                              ColumnDefinitions="140,*"
+                              RowDefinitions="Auto,Auto,Auto"
+                              RowSpacing="10"
+                              ColumnSpacing="10">
+                            <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="本公司/声明人" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="ProofDeclarantCompanyNameBox" Watermark="用于正文和声明人" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="印章图片" VerticalAlignment="Center" />
+                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">
+                                <TextBox Grid.Column="0" x:Name="ProofSealPathBox" Watermark="PNG、JPG、JPEG 或 BMP 图片" />
+                                <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofSealClick" Margin="8,0,0,0" />
+                            </Grid>
+
+                            <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="致贵方名称" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" x:Name="ProofCopyrightCompanyNameBox" Watermark="用于“致【…】（下称贵方）”" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="基础设置">
+                <ScrollViewer>
+                    <Grid Classes="profileForm"
+                          Margin="2,4,2,2"
+                          ColumnDefinitions="140,*"
+                          RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                          RowSpacing="10"
+                          ColumnSpacing="10">
+                        <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="短剧中心地址" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="0" Grid.Column="1" x:Name="SeriesUrlBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="上传工作目录" VerticalAlignment="Center" />
+                        <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" x:Name="WorkspaceBox" Watermark="上传工作目录" />
+                            <Button Grid.Column="1" Content="浏览…" Click="OnBrowseWorkspaceClick" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="下载工作目录" VerticalAlignment="Center" />
+                        <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" x:Name="DownloadWorkspaceBox" Watermark="下载工作目录" />
+                            <Button Grid.Column="1" Content="浏览…" Click="OnBrowseDownloadWorkspaceClick" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="Excel 报表路径" VerticalAlignment="Center" />
+                        <Grid Grid.Row="3" Grid.Column="1" ColumnDefinitions="*,Auto">
+                            <TextBox Grid.Column="0" x:Name="ExcelReportBox" Watermark="Excel 报表路径" />
+                            <Button Grid.Column="1" Content="浏览…" Click="OnBrowseExcelReportClick" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="归档视频文件" VerticalAlignment="Center" />
+                        <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <CheckBox x:Name="DeleteVideosOnArchiveBox" Content="归档时删除视频文件" />
+                            <TextBlock Text="关闭后归档目录会保留视频，占用更多磁盘" Foreground="#6B7280" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+        </Border>
+    </DockPanel>
+</UserControl>

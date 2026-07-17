@@ -1,0 +1,5 @@
+# 运行期临时产物（截图/DOM 导出在 bin/ 下，日志在此目录）
+*.log
+screenshots/
+screenshots-extra/
+dump/

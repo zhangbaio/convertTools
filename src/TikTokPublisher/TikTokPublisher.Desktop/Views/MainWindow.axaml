@@ -1,0 +1,113 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:TikTokPublisher.Ui.Views"
+        x:Class="TikTokPublisher.Desktop.Views.MainWindow"
+        Width="1496" Height="860"
+        Title="TikTok 短剧上传助手"
+        Icon="/Assets/tiktok-shortdrama-logo.ico"
+        Background="{StaticResource PythonPageBgBrush}">
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <!-- 顶部：品牌 + 水平一级 TAB -->
+        <Border Grid.Row="0" Classes="topNavFrame">
+            <Grid x:Name="TopLayout">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="198" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border x:Name="BrandPane" Grid.Column="0" BorderBrush="#E5E7EB" BorderThickness="0,0,1,0" Padding="12,0,10,0">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock x:Name="BrandLabel" Grid.Column="0" Text="TikTok 短剧助手" Classes="topBrandLabel" VerticalAlignment="Center" />
+                        <Button x:Name="SidebarToggleButton"
+                                Grid.Column="1"
+                                Content="‹"
+                                Width="30"
+                                Height="30"
+                                MinHeight="30"
+                                Padding="0"
+                                FontSize="16"
+                                FontWeight="Bold"
+                                VerticalAlignment="Center"
+                                ToolTip.Tip="收起左侧面板"
+                                Click="OnSidebarToggleClick" />
+                    </Grid>
+                </Border>
+                <StackPanel Grid.Column="1" x:Name="ModuleNav" Orientation="Horizontal"
+                            VerticalAlignment="Center" Margin="8,0,0,0">
+                    <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="短剧下载" Tag="download" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="TikTok 上传" Tag="queue" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="账号管理" Tag="accounts" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="系统设置" Tag="settings" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="系统服务" Tag="services" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="OnNavItemClick" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 中部：左侧账号 + 右侧内容 -->
+        <Grid x:Name="MainLayout" Grid.Row="1" Background="{StaticResource PythonPageBgBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="198" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <views:AccountSidebarView x:Name="AccountSidebar" Grid.Column="0" />
+            <Border x:Name="CollapsedSidebarRail"
+                    Grid.Column="0"
+                    Classes="accountSidebarFrame"
+                    Padding="6,10"
+                    IsVisible="False">
+                <Button Content="›"
+                        Width="30"
+                        Height="30"
+                        MinHeight="30"
+                        Padding="0"
+                        FontSize="16"
+                        FontWeight="Bold"
+                        ToolTip.Tip="展开左侧面板"
+                        Click="OnSidebarToggleClick" />
+            </Border>
+            <Panel x:Name="ContentHostPanel" Grid.Column="1">
+                <Panel x:Name="BrowserHostMount"
+                       IsHitTestVisible="False"
+                       ClipToBounds="True"
+                       Width="1"
+                       Height="1"
+                       HorizontalAlignment="Left"
+                       VerticalAlignment="Top"
+                       ZIndex="5" />
+                <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" ZIndex="10" />
+                <views:DramaDownloadView x:Name="DownloadView" IsVisible="False" />
+                <views:TikTokQueueView x:Name="QueueView" IsVisible="True" />
+                <views:AccountProfilesView x:Name="AccountsView" IsVisible="False" />
+                <views:LogView x:Name="LogView" IsVisible="False" />
+                <views:SystemSettingsView x:Name="SettingsView" IsVisible="False" />
+                <views:SystemServicesView x:Name="ServicesView" IsVisible="False" />
+                <views:ArchivedProjectsView x:Name="ArchivedView" IsVisible="False" />
+            </Panel>
+        </Grid>
+
+        <Border Grid.Row="2" Classes="statusBarFrame" Height="28">
+            <Grid ColumnDefinitions="560,*,Auto" Margin="12,0">
+                <TextBlock Grid.Column="0"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           Text="{Binding StatusMessage}"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           Margin="12,0,0,0"
+                           Text="{Binding OtherRunningStatusMessage}"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="12" Classes="pageSummary"
+                           Text="{Binding TodayUploadCount, StringFormat='今日上传完成: {0}'}" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

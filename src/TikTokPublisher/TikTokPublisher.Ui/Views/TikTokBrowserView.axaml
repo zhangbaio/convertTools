@@ -1,0 +1,18 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
+             x:Class="TikTokPublisher.Ui.Views.TikTokBrowserView"
+             x:DataType="vm:MainViewModel">
+
+    <Panel x:Name="BrowserArea" Background="#FFFFFF" ClipToBounds="True">
+        <TextBlock x:Name="EmptyHint"
+                   Text="请先在左侧选择或添加账号，然后点击「登录」加载 TikTok 短剧中心。"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   TextWrapping="Wrap"
+                   MaxWidth="520"
+                   TextAlignment="Center"
+                   Classes="pageSummary"
+                   FontSize="15" />
+    </Panel>
+</UserControl>

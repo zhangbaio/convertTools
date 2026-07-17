@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- 库项目：无 App.axaml/Program，供各宿主(Desktop/ConvertTools/ShortDrama)引用，
+         避免跨 Avalonia 可执行项目引用导致的资源重复(AppTheme.axaml) -->
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.12" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4022.49" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.52.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ChannelsPublisher.Core\ChannelsPublisher.Core.csproj" />
+  </ItemGroup>
+</Project>
