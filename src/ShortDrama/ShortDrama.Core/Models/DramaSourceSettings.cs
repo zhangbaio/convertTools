@@ -11,6 +11,7 @@ public sealed record DramaSourceSettings
     public string HgnewClientVersion { get; init; } = "1.5.0";
     public string HongguoDownloadTimeoutSeconds { get; init; } = "60";
     public string HongguoEpisodeDownloadAttempts { get; init; } = "5";
+    public string DownloadFileSegments { get; init; } = "4";
 
     public string HongguoLocalBaseUrl { get; init; } = "";
     public string HongguoLocalApiKey { get; init; } = "";

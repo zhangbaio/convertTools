@@ -206,6 +206,9 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string xingePollIntervalSeconds = "3";
 
     [ObservableProperty]
+    private string downloadFileSegments = "4";
+
+    [ObservableProperty]
     private bool xingeUploadLoginQr = true;
 
     [ObservableProperty]
@@ -520,6 +523,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
         WeixinTrialEpisodes = string.IsNullOrWhiteSpace(merged.WeixinTrialEpisodes) ? "3" : merged.WeixinTrialEpisodes;
         WeixinFillRecommendation = merged.WeixinFillRecommendation;
         DramaSourceChain = string.IsNullOrWhiteSpace(_loadedGlobalConfig.DramaSourceChain) ? "hgnew" : _loadedGlobalConfig.DramaSourceChain;
+        DownloadFileSegments = string.IsNullOrWhiteSpace(_loadedGlobalConfig.DownloadFileSegments) ? "4" : _loadedGlobalConfig.DownloadFileSegments;
         XingeEnabled = _loadedGlobalConfig.XingeEnabled;
         XingeServerUrl = _loadedGlobalConfig.XingeServerUrl;
         XingeUsername = _loadedGlobalConfig.XingeUsername;
@@ -628,6 +632,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
         var global = _loadedGlobalConfig with
         {
             DramaSourceChain = DramaSourceChain.Trim(),
+            DownloadFileSegments = DownloadFileSegments.Trim(),
             XingeEnabled = XingeEnabled,
             XingeServerUrl = XingeServerUrl.Trim(),
             XingeUsername = XingeUsername.Trim(),
@@ -748,6 +753,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
     {
         return _loadedGlobalConfig with
         {
+            DownloadFileSegments = DownloadFileSegments.Trim(),
             HgnewAccount = HgnewAccount.Trim(),
             HgnewPassword = HgnewPassword,
             HgnewUdid = HgnewUdid.Trim().ToUpperInvariant(),

@@ -30,6 +30,7 @@ public sealed class BasicSettingsTab : UserControl
 
         panel.Children.Add(Hint("迁移基础运行参数和工程图模板参数。工程图生成方式固定为图片框选模板。"));
         panel.Children.Add(Row("搜索分页大小", BindText(nameof(ConfigWindowViewModel.SearchPageSize))));
+        panel.Children.Add(Row("单文件分块连接数", BindText(nameof(ConfigWindowViewModel.DownloadFileSegments))));
         panel.Children.Add(BindCheck("无头模式 (Headless)", nameof(ConfigWindowViewModel.WeixinHeadless)));
         panel.Children.Add(Row("操作间隔 (slow_mo_ms)", BindText(nameof(ConfigWindowViewModel.WeixinSlowMoMs))));
         panel.Children.Add(Row("运行结束保持浏览器", BindText(nameof(ConfigWindowViewModel.WeixinKeepOpenSeconds))));

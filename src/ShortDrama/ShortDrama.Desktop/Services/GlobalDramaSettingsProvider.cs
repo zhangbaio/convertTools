@@ -25,6 +25,7 @@ public sealed class GlobalDramaSettingsProvider : IDramaSettingsProvider
     internal static DramaSourceSettings FromGlobal(GlobalConfigSnapshot settings) => new()
     {
         DramaSourceChain = settings.DramaSourceChain,
+        DownloadFileSegments = settings.DownloadFileSegments,
         HgnewAccount = settings.HgnewAccount,
         HgnewPassword = settings.HgnewPassword,
         HgnewUdid = settings.HgnewUdid,

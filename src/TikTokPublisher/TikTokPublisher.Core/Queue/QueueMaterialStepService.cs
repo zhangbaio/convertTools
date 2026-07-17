@@ -37,8 +37,9 @@ public static class QueueMaterialStepService
             4);
         var timeoutSeconds = Math.Clamp(settings.HongguoDownloadTimeoutSeconds, 10, 600);
         var attempts = Math.Clamp(settings.HongguoEpisodeDownloadAttempts, 1, 20);
+        var fileSegments = Math.Clamp(settings.DownloadFileSegments <= 0 ? 4 : settings.DownloadFileSegments, 1, 8);
         var displayName = FirstNonEmpty(item.Title, item.OriginalTitle, metadata.Title, Path.GetFileName(context.SourceProjectDir));
-        log($"分集下载并发: {concurrent}，同时下载剧数: {maxParallelProjects}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
+        log($"分集下载并发: {concurrent}，单集分块连接数: {fileSegments}，同时下载剧数: {maxParallelProjects}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
 
         using var downloadSlot = await QueueDownloadSlotCoordinator.WaitAsync(
             maxParallelProjects,

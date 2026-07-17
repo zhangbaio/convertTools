@@ -35,7 +35,7 @@ internal sealed record ProjectAutomationMetadata(
             PosterUrl: null,
             Episodes: "all",
             Quality: "1080P+",
-            Concurrent: 3,
+            Concurrent: 5,
             UploadConfigName: null,
             WorkflowDirName: null,
             WorkflowProjectDir: null);

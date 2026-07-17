@@ -105,7 +105,7 @@ public sealed class WeixinNewDramaMountService
                 CompanyName: null,
                 Episodes: episodeSelection,
                 Quality: "1080P",
-                Concurrent: 3,
+                Concurrent: 5,
                 EpisodeNumberMode: "source"),
             cancellationToken);
 
@@ -129,7 +129,7 @@ public sealed class WeixinNewDramaMountService
                     BookId: drama.BookId,
                     Episodes: episodeSelection,
                     Quality: "1080P",
-                    Concurrent: 3,
+                    Concurrent: 5,
                     EpisodeNumberMode: "source"),
                 progress,
                 cancellationToken);

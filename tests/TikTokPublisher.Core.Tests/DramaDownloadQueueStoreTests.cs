@@ -16,12 +16,14 @@ public sealed class DramaDownloadQueueStoreTests
         state.AuthorExclude.Should().Contain("ShortTV");
     }
 
-    [Fact]
-    public void Normalize_migrates_legacy_empty_author_exclude_to_system_default()
+    [Theory]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void Normalize_migrates_affected_empty_author_exclude_to_system_default(int version)
     {
         var state = new DramaDownloadQueueState
         {
-            Version = 3,
+            Version = version,
             AuthorExclude = "",
         };
 
@@ -29,6 +31,21 @@ public sealed class DramaDownloadQueueStoreTests
 
         state.Version.Should().Be(DramaDownloadQueueState.CurrentVersion);
         state.AuthorExclude.Should().Be(DramaDownloadQueueState.DefaultAuthorExclude);
+    }
+
+    [Fact]
+    public void Normalize_keeps_version_4_custom_author_exclude()
+    {
+        var state = new DramaDownloadQueueState
+        {
+            Version = 4,
+            AuthorExclude = "自定义作者",
+        };
+
+        DramaDownloadQueueStore.Normalize(state);
+
+        state.Version.Should().Be(DramaDownloadQueueState.CurrentVersion);
+        state.AuthorExclude.Should().Be("自定义作者");
     }
 
     [Fact]

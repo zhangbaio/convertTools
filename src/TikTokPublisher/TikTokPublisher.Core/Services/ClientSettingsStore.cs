@@ -227,6 +227,10 @@ public static class ClientSettingsStore
             settings.DramaDownloadMaxParallelProjects <= 0 ? 1 : settings.DramaDownloadMaxParallelProjects,
             1,
             4);
+        settings.DownloadFileSegments = Math.Clamp(
+            settings.DownloadFileSegments <= 0 ? 4 : settings.DownloadFileSegments,
+            1,
+            8);
         settings.HongguoDownloadTimeoutSeconds = Math.Clamp(settings.HongguoDownloadTimeoutSeconds, 10, 300);
         settings.HongguoEpisodeDownloadAttempts = Math.Clamp(settings.HongguoEpisodeDownloadAttempts, 1, 10);
         settings.HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(settings.HongguoLocalDownloadMode);

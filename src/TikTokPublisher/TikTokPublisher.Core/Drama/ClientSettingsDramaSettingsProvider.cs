@@ -16,6 +16,7 @@ public static class DramaSourceSettingsMapping
         HgnewClientVersion = settings.HgnewClientVersion ?? ClientSettings.DefaultHongguoClientVersion,
         HongguoDownloadTimeoutSeconds = settings.HongguoDownloadTimeoutSeconds.ToString(),
         HongguoEpisodeDownloadAttempts = settings.HongguoEpisodeDownloadAttempts.ToString(),
+        DownloadFileSegments = settings.DownloadFileSegments.ToString(),
         HongguoLocalBaseUrl = settings.HongguoLocalBaseUrl ?? "",
         HongguoLocalApiKey = settings.HongguoLocalApiKey ?? "",
         HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(settings.HongguoLocalDownloadMode),

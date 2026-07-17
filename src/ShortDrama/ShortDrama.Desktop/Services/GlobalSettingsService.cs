@@ -30,6 +30,9 @@ public sealed class GlobalSettingsService
         var payload = new GlobalDesktopSettings
         {
             DramaSourceChain = snapshot.DramaSourceChain,
+            DownloadFileSegments = int.TryParse(snapshot.DownloadFileSegments, out var downloadFileSegments) && downloadFileSegments > 0
+                ? Math.Clamp(downloadFileSegments, 1, 8)
+                : 4,
             XingeEnabled = snapshot.XingeEnabled,
             XingeServerUrl = snapshot.XingeServerUrl,
             XingeUsername = snapshot.XingeUsername,
@@ -279,6 +282,7 @@ public sealed class GlobalSettingsService
         return new GlobalDesktopSettings
         {
             DramaSourceChain = mergedDramaSourceChain,
+            DownloadFileSegments = current.DownloadFileSegments <= 0 ? 4 : Math.Clamp(current.DownloadFileSegments, 1, 8),
             XingeEnabled = current.XingeEnabled,
             XingeServerUrl = current.XingeServerUrl,
             XingeUsername = current.XingeUsername,
@@ -388,6 +392,7 @@ public sealed class GlobalSettingsService
         return new GlobalConfigSnapshot(
             SettingsFilePath: settingsFilePath,
             DramaSourceChain: dto.DramaSourceChain,
+            DownloadFileSegments: Math.Clamp(dto.DownloadFileSegments <= 0 ? 4 : dto.DownloadFileSegments, 1, 8).ToString(),
             XingeEnabled: dto.XingeEnabled,
             XingeServerUrl: dto.XingeServerUrl,
             XingeUsername: dto.XingeUsername,

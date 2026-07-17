@@ -7,8 +7,9 @@ public sealed class ClientSettings
 
     public string DramaSourceChain { get; set; } = "hgnew";
     public string DramaDownloadDefaultQuality { get; set; } = "1080P";
-    public int DramaDownloadConcurrent { get; set; } = 3;
+    public int DramaDownloadConcurrent { get; set; } = 5;
     public int DramaDownloadMaxParallelProjects { get; set; } = 1;
+    public int DownloadFileSegments { get; set; } = 4;
     public int HongguoDownloadTimeoutSeconds { get; set; } = 60;
     public int HongguoEpisodeDownloadAttempts { get; set; } = 5;
 
@@ -143,6 +144,7 @@ public sealed class ClientSettings
         DramaDownloadDefaultQuality = DramaDownloadDefaultQuality,
         DramaDownloadConcurrent = DramaDownloadConcurrent,
         DramaDownloadMaxParallelProjects = DramaDownloadMaxParallelProjects,
+        DownloadFileSegments = DownloadFileSegments,
         HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds,
         HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts,
         HgnewAccount = HgnewAccount,

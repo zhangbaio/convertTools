@@ -17,9 +17,9 @@ public partial class DramaDownloadView : UserControl
     public void Bind(DramaDownloadViewModel vm, Action<string> log)
     {
         _vm = vm;
-        DataContext = vm;
         vm.LogRequested += log;
         vm.LoadState();
+        DataContext = vm;
         SyncComboFromVm();
     }
 

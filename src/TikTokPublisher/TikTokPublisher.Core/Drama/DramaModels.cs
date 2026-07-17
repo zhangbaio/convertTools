@@ -45,7 +45,7 @@ public sealed class DramaDownloadQueueItem
 public sealed class DramaDownloadQueueState
 {
     public const string SettingKey = "drama_download_queue_state";
-    public const int CurrentVersion = 4;
+    public const int CurrentVersion = 6;
     public const string DefaultAuthorExclude =
         "掌玩,九州,河马,红果,快创,麦芽,花生,点众,天桥,中文在线,阅文,起点,红袖,17K,七猫,橙光," +
         "FlickReels,ShortTV,云起剧场,甜柚剧场,听花岛,星辰短剧推荐,星芒剧场,晚风微剧,青禾短剧,桃喜微剧,南栀剧场," +
@@ -57,7 +57,7 @@ public sealed class DramaDownloadQueueState
     public string WorkspacePath { get; set; } = "";
     public List<DramaDownloadQueueItem> QueueItems { get; set; } = new();
     public bool AutoGenerateMaterials { get; set; } = true;
-    public int DownloadConcurrent { get; set; } = 3;
+    public int DownloadConcurrent { get; set; } = 5;
     public string DownloadEpisodeNumberMode { get; set; } = "source";
     public string DefaultQuality { get; set; } = "1080P";
     public string CategoryInclude { get; set; } = "";

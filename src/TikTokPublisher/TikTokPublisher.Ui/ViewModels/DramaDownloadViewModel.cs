@@ -71,6 +71,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private readonly DramaDownloadRunner _runner = new();
     private readonly List<DramaSearchItem> _allSearchResults = new();
     private CancellationTokenSource? _downloadCts;
+    private bool _isLoadingState;
 
     public ObservableCollection<DramaSearchRowViewModel> SearchResults { get; } = new();
     public ObservableCollection<DramaQueueRowViewModel> QueueRows { get; } = new();
@@ -88,13 +89,13 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     [ObservableProperty] private string _episodeRangeMode = "全部";
     [ObservableProperty] private string _episodeCustomRange = "";
     [ObservableProperty] private string _searchViewMode = "列表视图";
-    [ObservableProperty] private int _downloadConcurrent = 3;
+    [ObservableProperty] private int _downloadConcurrent = 5;
     [ObservableProperty] private bool _autoGenerateMaterials = true;
     [ObservableProperty] private string _defaultQuality = "1080P";
     [ObservableProperty] private string _episodeNumberMode = "source";
     [ObservableProperty] private string _categoryInclude = "";
     [ObservableProperty] private string _categoryExclude = "";
-    [ObservableProperty] private string _authorExclude = "";
+    [ObservableProperty] private string _authorExclude = DramaDownloadQueueState.DefaultAuthorExclude;
     [ObservableProperty] private bool _isSearching;
     [ObservableProperty] private bool _isDownloading;
     [ObservableProperty] private string _selectedCountText = "已选 0 项";
@@ -110,23 +111,34 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     public void LoadState()
     {
-        var state = DramaDownloadQueueStore.Load();
-        DownloadWorkspace = state.WorkspacePath;
-        AutoGenerateMaterials = state.AutoGenerateMaterials;
-        DownloadConcurrent = state.DownloadConcurrent;
-        EpisodeNumberMode = state.DownloadEpisodeNumberMode;
-        DefaultQuality = state.DefaultQuality;
-        CategoryInclude = state.CategoryInclude;
-        CategoryExclude = state.CategoryExclude;
-        AuthorExclude = state.AuthorExclude;
+        _isLoadingState = true;
+        try
+        {
+            var state = DramaDownloadQueueStore.Load();
+            DownloadWorkspace = state.WorkspacePath;
+            AutoGenerateMaterials = state.AutoGenerateMaterials;
+            DownloadConcurrent = state.DownloadConcurrent;
+            EpisodeNumberMode = state.DownloadEpisodeNumberMode;
+            DefaultQuality = state.DefaultQuality;
+            CategoryInclude = state.CategoryInclude;
+            CategoryExclude = state.CategoryExclude;
+            AuthorExclude = state.AuthorExclude;
 
-        QueueRows.Clear();
-        foreach (var item in state.QueueItems)
-            QueueRows.Add(new DramaQueueRowViewModel(item));
-        RefreshQueueStats();
+            QueueRows.Clear();
+            foreach (var item in state.QueueItems)
+                QueueRows.Add(new DramaQueueRowViewModel(item));
+            RefreshQueueStats();
 
-        var clientSettings = ClientSettingsStore.Load();
-        ApplyClientSettings(clientSettings, preferSavedWorkspace: string.IsNullOrWhiteSpace(DownloadWorkspace));
+            var clientSettings = ClientSettingsStore.Load();
+            ApplyClientSettings(clientSettings, preferSavedWorkspace: string.IsNullOrWhiteSpace(DownloadWorkspace));
+        }
+        finally
+        {
+            _isLoadingState = false;
+        }
+
+        // 加载期间属性变化不逐项落库；完整初始化后一次性保存迁移结果。
+        SaveState();
     }
 
     public void ApplyClientSettings(ClientSettings settings, bool preferSavedWorkspace = false)
@@ -147,6 +159,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     public void SaveState()
     {
+        if (_isLoadingState) return;
+
         var state = new DramaDownloadQueueState
         {
             WorkspacePath = DownloadWorkspace,

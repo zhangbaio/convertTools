@@ -115,17 +115,12 @@ public sealed class PikachuDramaChainTests
         Directory.CreateDirectory(outputDir);
         var handler = new PikachuRecordingHandler();
         using var httpClient = new HttpClient(handler);
-        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
         var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
 
         try
         {
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
-            DramaSourceRouter.RunProcessAsyncForTests.Value = (startInfo, _) =>
-            {
-                startInfo.FileName.Should().Be("fake-ffprobe");
-                return Task.FromResult(ProbeResult("h264"));
-            };
+            DramaSourceRouter.RunProcessAsyncForTests.Value = (_, _) =>
+                throw new InvalidOperationException("皮卡丘直连下载不应启动编码校验或转码。");
 
             var settings = new DramaSourceSettings
             {
@@ -166,7 +161,6 @@ public sealed class PikachuDramaChainTests
         }
         finally
         {
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
             DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
             Directory.Delete(outputDir, recursive: true);
         }
@@ -192,12 +186,7 @@ public sealed class PikachuDramaChainTests
             DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
             DramaSourceRouter.RunProcessAsyncForTests.Value = async (startInfo, cancellationToken) =>
             {
-                if (startInfo.FileName == "fake-ffprobe")
-                {
-                    return ProbeResult("h264");
-                }
-
-                startInfo.FileName.Should().Be("fake-ffmpeg");
+                startInfo.FileName.Should().Be("fake-ffmpeg", "皮卡丘只应执行 CENC 解密，不应执行 ffprobe 编码校验");
                 var args = startInfo.ArgumentList;
                 args.Should().Contain("-decryption_key");
                 args[args.IndexOf("-decryption_key") + 1].Should().Be(decryptKey);
@@ -431,15 +420,6 @@ public sealed class PikachuDramaChainTests
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
     }
-
-    private static DramaSourceRouter.ProcessRunResult ProbeResult(string codec) =>
-        new(0, $$"""
-            {
-              "streams": [
-                { "codec_type": "video", "codec_name": "{{codec}}" }
-              ]
-            }
-            """, "");
 
     private static string BuildFanqieCookie() =>
         $"install_id=12345; ttreq=1${new string('b', 32)}; odin_tt={new string('a', 160)}";

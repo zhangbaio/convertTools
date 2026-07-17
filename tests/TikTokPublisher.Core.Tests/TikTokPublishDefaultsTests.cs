@@ -541,6 +541,7 @@ public sealed class TikTokPublishDefaultsTests
                 ImageModelEndpoint = "https://image.example.test/v1",
                 OfoxImage2Endpoint = "https://ofox.example.test/v1",
                 DramaDownloadConcurrent = 4,
+                DownloadFileSegments = 7,
             }, databasePath);
 
             ClientSettingsStore.ResetInstallerDataSecrets(databasePath);
@@ -558,6 +559,7 @@ public sealed class TikTokPublishDefaultsTests
             loaded.ImageModelEndpoint.Should().Be("https://image.example.test/v1");
             loaded.OfoxImage2Endpoint.Should().Be("https://ofox.example.test/v1");
             loaded.DramaDownloadConcurrent.Should().Be(4);
+            loaded.DownloadFileSegments.Should().Be(7);
         }
         finally
         {

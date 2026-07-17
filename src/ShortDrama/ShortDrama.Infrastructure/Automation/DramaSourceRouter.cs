@@ -19,6 +19,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
     private const string EpisodeNumberModeContinuous = "continuous";
     private const int DownloadBufferSize = 128 * 1024;
+    private const int DefaultDownloadFileSegments = 4;
+    private const int MaxDownloadFileSegments = 8;
+    private const long MinSegmentedDownloadSize = 4L * 1024 * 1024;
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif"];
     private static readonly ProductInfoHeaderValue UserAgentProduct = new("ShortDramaDesktop", "1.0");
@@ -272,6 +275,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var settings = _settingsProvider.Get();
         var downloadTimeoutSeconds = ParsePositiveInt(settings.HongguoDownloadTimeoutSeconds, 60);
         var downloadAttempts = ParsePositiveInt(settings.HongguoEpisodeDownloadAttempts, 5);
+        var downloadFileSegments = ParseDownloadFileSegments(settings.DownloadFileSegments);
         var bookId = request.BookId?.Trim() ?? string.Empty;
 
         if (bookId.StartsWith(HongguoLocalBookPrefix, StringComparison.OrdinalIgnoreCase))
@@ -283,6 +287,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetLocalEpisodesAsync(bookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetLocalVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: HongguoLocalBookPrefix,
+                validateVideoEncoding: true,
+                downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
         }
@@ -296,6 +302,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetPikachuEpisodesAsync(bookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetPikachuVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: PikachuBookPrefix,
+                validateVideoEncoding: false,
+                downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
         }
@@ -309,6 +317,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetHgnewEpisodesAsync(bookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetHgnewVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: string.Empty,
+                validateVideoEncoding: false,
+                downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
         }
@@ -329,40 +339,40 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
     }
 
-    internal static async Task<DramaDownloadResult?> TryBuildSuccessfulResultWhenVideosExistAsync(
+    internal static Task<DramaDownloadResult?> TryBuildSuccessfulResultWhenVideosExistAsync(
         DramaDownloadRequest request,
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var videoCount = 0;
         if (Directory.Exists(request.OutputDir))
         {
             foreach (var path in Directory.EnumerateFiles(request.OutputDir, "*.*", SearchOption.TopDirectoryOnly)
                          .Where(path => VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)))
             {
-                try
+                if (HasValidVideoFile(path))
                 {
-                    await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
                     videoCount++;
                 }
-                catch (InvalidDataException ex)
+                else
                 {
                     DeleteIfExists(path);
-                    progress?.Report($"检测到无效视频并已清理：{Path.GetFileName(path)}（{ex.Message}）");
+                    progress?.Report($"检测到无效或空视频文件并已清理：{Path.GetFileName(path)}");
                 }
             }
         }
 
         if (videoCount <= 0)
         {
-            return null;
+            return Task.FromResult<DramaDownloadResult?>(null);
         }
 
-        return new DramaDownloadResult(
+        return Task.FromResult<DramaDownloadResult?>(new DramaDownloadResult(
             Ok: true,
             OutputDir: request.OutputDir,
             VideoCount: videoCount,
-            Message: $"已存在 {videoCount} 个视频文件，跳过 legacy 红果下载重试。");
+            Message: $"已存在 {videoCount} 个视频文件，跳过 legacy 红果下载重试。"));
     }
 
     private async Task<DramaDownloadResult> DownloadWithProviderAsync(
@@ -372,6 +382,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         Func<CancellationToken, Task<IReadOnlyList<SourceEpisode>>> resolveEpisodes,
         Func<string, string, CancellationToken, Task<SourceVideoDetail>> resolveVideo,
         string posterPrefix,
+        bool validateVideoEncoding,
+        int downloadFileSegments,
         int downloadTimeoutSeconds,
         int downloadAttempts)
     {
@@ -408,6 +420,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             progress,
             semaphore,
             failures,
+            validateVideoEncoding,
+            downloadFileSegments,
             downloadTimeoutSeconds,
             downloadAttempts,
             cancellationToken));
@@ -450,6 +464,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         IProgress<string>? progress,
         SemaphoreSlim semaphore,
         ICollection<string> failures,
+        bool validateVideoEncoding,
+        int downloadFileSegments,
         int downloadTimeoutSeconds,
         int downloadAttempts,
         CancellationToken cancellationToken)
@@ -463,6 +479,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 outputDir,
                 task,
                 message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"),
+                validateVideoEncoding,
                 cancellationToken);
             if (!string.IsNullOrWhiteSpace(existingVideo))
             {
@@ -493,6 +510,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         downloadTimeoutSeconds,
                         cancellationToken,
                         detail.PikachuDecryptKey,
+                        validateVideoEncoding,
+                        downloadFileSegments,
                         detail.EnsureWindowsCompatible,
                         detail.TranscodeEngine,
                         message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"));
@@ -517,6 +536,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     downloadTimeoutSeconds,
                     cancellationToken,
                     detail.PikachuDecryptKey,
+                    validateVideoEncoding,
+                    downloadFileSegments,
                     detail.EnsureWindowsCompatible,
                     detail.TranscodeEngine,
                     message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"));
@@ -555,6 +576,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             timeoutSeconds,
             cancellationToken,
             pikachuDecryptKey: null,
+            validateVideoEncoding: false,
+            downloadFileSegments: DefaultDownloadFileSegments,
             ensureWindowsCompatible: false,
             transcodeEngine: "auto",
             report: null);
@@ -566,6 +589,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int timeoutSeconds,
         CancellationToken cancellationToken,
         string? pikachuDecryptKey,
+        bool validateVideoEncoding,
+        int downloadFileSegments,
         bool ensureWindowsCompatible,
         string transcodeEngine,
         Action<string>? report)
@@ -586,44 +611,26 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.TryAddWithoutValidation("User-Agent", MobileUserAgent);
-            request.Headers.UserAgent.Add(UserAgentProduct);
-
-            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
-            response.EnsureSuccessStatusCode();
-
-            var mediaType = response.Content.Headers.ContentType?.MediaType;
-            if (IsClearlyNonMediaContentType(mediaType))
-            {
-                throw new InvalidDataException($"下载响应不是视频（Content-Type: {mediaType}）。");
-            }
-
             var stopwatch = Stopwatch.StartNew();
-
-            await using (var source = await response.Content.ReadAsStreamAsync(token))
-            await using (var file = new FileStream(downloadTargetPath, FileMode.Create, FileAccess.Write, FileShare.None, DownloadBufferSize, useAsync: true))
-            {
-                var buffer = new byte[DownloadBufferSize];
-                while (true)
-                {
-                    var read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), token);
-                    if (read <= 0)
-                        break;
-
-                    await file.WriteAsync(buffer.AsMemory(0, read), token);
-                }
-
-                await file.FlushAsync(token);
-            }
+            await DownloadHttpContentAsync(
+                url,
+                downloadTargetPath,
+                downloadFileSegments,
+                message => report?.Invoke(message),
+                token);
 
             if (hasPikachuDecryptKey)
             {
                 await DecryptPikachuCencVideoAsync(pikachuDecryptKey!.Trim(), downloadTargetPath, tempPath, timeoutSeconds, cancellationToken);
             }
 
-            VideoProcessingResult processing;
-            if (ensureWindowsCompatible)
+            if (!HasValidVideoFile(tempPath))
+            {
+                throw new InvalidDataException("下载内容不是有效的视频文件。");
+            }
+
+            VideoProcessingResult? processing = null;
+            if (validateVideoEncoding && ensureWindowsCompatible)
             {
                 processing = await EnsureWindowsCompatibleMp4Async(
                     tempPath,
@@ -632,7 +639,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     transcodeEngine,
                     report);
             }
-            else
+            else if (validateVideoEncoding)
             {
                 var codec = await ProbePrimaryVideoCodecAsync(tempPath, cancellationToken).ConfigureAwait(false);
                 processing = new VideoProcessingResult(codec, Transcoded: false, TranscodeEngine: null);
@@ -648,7 +655,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 finalBytes,
                 stopwatch.Elapsed,
                 finalBytes / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001d),
-                processing.Transcoded
+                processing is null
+                    ? "保留源文件"
+                    : processing.Transcoded
                     ? $"{processing.TranscodeEngine} 已转为 H.264"
                     : $"视频编码 {processing.Codec.ToUpperInvariant()}，无需转码");
         }
@@ -662,7 +671,291 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             {
                 DeleteIfExists(encryptedTempPath);
             }
+
+            DeleteIfExists(tempPath);
         }
+    }
+
+    private async Task DownloadHttpContentAsync(
+        string url,
+        string targetPath,
+        int requestedSegments,
+        Action<string>? report,
+        CancellationToken cancellationToken)
+    {
+        var segments = Math.Clamp(
+            requestedSegments <= 0 ? DefaultDownloadFileSegments : requestedSegments,
+            1,
+            MaxDownloadFileSegments);
+        if (segments <= 1)
+        {
+            await DownloadSingleStreamAsync(url, targetPath, cancellationToken);
+            return;
+        }
+
+        long totalBytes = 0;
+        EntityTagHeaderValue? entityTag = null;
+        DateTimeOffset? lastModified = null;
+        try
+        {
+            using var probeRequest = CreateDownloadRequest(url);
+            probeRequest.Headers.Range = new RangeHeaderValue(0, 0);
+            using var probeResponse = await _httpClient.SendAsync(
+                probeRequest,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
+
+            if (probeResponse.StatusCode == System.Net.HttpStatusCode.PartialContent)
+            {
+                EnsureMediaResponse(probeResponse);
+                var contentRange = probeResponse.Content.Headers.ContentRange;
+                if (contentRange?.From != 0 || contentRange.To != 0 || contentRange.Length is null or <= 0)
+                {
+                    throw new InvalidDataException("Range 探测返回的 Content-Range 无效。");
+                }
+
+                totalBytes = contentRange.Length.Value;
+                if (probeResponse.Headers.ETag is { IsWeak: false } responseEntityTag)
+                {
+                    entityTag = responseEntityTag;
+                }
+                else
+                {
+                    lastModified = probeResponse.Content.Headers.LastModified;
+                }
+            }
+            else if (probeResponse.IsSuccessStatusCode)
+            {
+                EnsureMediaResponse(probeResponse);
+                await WriteResponseBodyAsync(probeResponse, targetPath, cancellationToken);
+                return;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            // Range 探测失败时由单流下载兜底。
+        }
+
+        var segmentCount = PlanDownloadSegmentCount(totalBytes, segments);
+        if (segmentCount > 1)
+        {
+            try
+            {
+                report?.Invoke($"启用 {segmentCount} 路分块下载（{FormatBytes(totalBytes)}）");
+                await DownloadSegmentedAsync(
+                    url,
+                    targetPath,
+                    totalBytes,
+                    segmentCount,
+                    entityTag,
+                    lastModified,
+                    cancellationToken);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                DeleteIfExists(targetPath);
+                report?.Invoke("分块下载失败，已自动回退单流下载");
+            }
+        }
+
+        await DownloadSingleStreamAsync(url, targetPath, cancellationToken);
+    }
+
+    private async Task DownloadSingleStreamAsync(
+        string url,
+        string targetPath,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateDownloadRequest(url);
+        using var response = await _httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        response.EnsureSuccessStatusCode();
+        EnsureMediaResponse(response);
+        await WriteResponseBodyAsync(response, targetPath, cancellationToken);
+    }
+
+    private async Task DownloadSegmentedAsync(
+        string url,
+        string targetPath,
+        long totalBytes,
+        int segmentCount,
+        EntityTagHeaderValue? entityTag,
+        DateTimeOffset? lastModified,
+        CancellationToken cancellationToken)
+    {
+        await using (var file = new FileStream(
+                         targetPath,
+                         FileMode.Create,
+                         FileAccess.Write,
+                         FileShare.ReadWrite,
+                         DownloadBufferSize,
+                         FileOptions.Asynchronous | FileOptions.RandomAccess))
+        {
+            file.SetLength(totalBytes);
+            await file.FlushAsync(cancellationToken);
+        }
+
+        var ranges = BuildDownloadRanges(totalBytes, segmentCount);
+        await Task.WhenAll(ranges.Select(range => DownloadRangeAsync(
+            url,
+            targetPath,
+            range.Start,
+            range.End,
+            totalBytes,
+            entityTag,
+            lastModified,
+            cancellationToken)));
+    }
+
+    private async Task DownloadRangeAsync(
+        string url,
+        string targetPath,
+        long start,
+        long end,
+        long totalBytes,
+        EntityTagHeaderValue? entityTag,
+        DateTimeOffset? lastModified,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateDownloadRequest(url);
+        request.Headers.Range = new RangeHeaderValue(start, end);
+        if (entityTag is not null)
+        {
+            request.Headers.IfRange = new RangeConditionHeaderValue(entityTag);
+        }
+        else if (lastModified.HasValue)
+        {
+            request.Headers.IfRange = new RangeConditionHeaderValue(lastModified.Value);
+        }
+
+        using var response = await _httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        if (response.StatusCode != System.Net.HttpStatusCode.PartialContent)
+        {
+            throw new InvalidDataException($"分块下载要求 HTTP 206，实际为 {(int)response.StatusCode}。");
+        }
+
+        EnsureMediaResponse(response);
+        var contentRange = response.Content.Headers.ContentRange;
+        if (contentRange?.From != start ||
+            contentRange.To != end ||
+            (contentRange.Length.HasValue && contentRange.Length.Value != totalBytes))
+        {
+            throw new InvalidDataException("分块下载返回的 Content-Range 与请求范围不一致。");
+        }
+
+        var expectedBytes = end - start + 1;
+        if (response.Content.Headers.ContentLength is long contentLength && contentLength != expectedBytes)
+        {
+            throw new InvalidDataException("分块下载返回的 Content-Length 与请求范围不一致。");
+        }
+
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var file = new FileStream(
+            targetPath,
+            FileMode.Open,
+            FileAccess.Write,
+            FileShare.ReadWrite,
+            DownloadBufferSize,
+            FileOptions.Asynchronous | FileOptions.RandomAccess);
+        file.Seek(start, SeekOrigin.Begin);
+
+        var buffer = new byte[DownloadBufferSize];
+        var remaining = expectedBytes;
+        while (remaining > 0)
+        {
+            var read = await source.ReadAsync(
+                buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)),
+                cancellationToken);
+            if (read <= 0)
+            {
+                throw new EndOfStreamException("分块下载提前结束，数据不完整。");
+            }
+
+            await file.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+            remaining -= read;
+        }
+
+        if (await source.ReadAsync(buffer.AsMemory(0, 1), cancellationToken) > 0)
+        {
+            throw new InvalidDataException("分块下载返回的数据超过请求范围。");
+        }
+
+        await file.FlushAsync(cancellationToken);
+    }
+
+    private static HttpRequestMessage CreateDownloadRequest(string url)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation("User-Agent", MobileUserAgent);
+        request.Headers.UserAgent.Add(UserAgentProduct);
+        request.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue("identity"));
+        return request;
+    }
+
+    private static void EnsureMediaResponse(HttpResponseMessage response)
+    {
+        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        if (IsClearlyNonMediaContentType(mediaType))
+        {
+            throw new InvalidDataException($"下载响应不是视频（Content-Type: {mediaType}）。");
+        }
+    }
+
+    private static async Task WriteResponseBodyAsync(
+        HttpResponseMessage response,
+        string targetPath,
+        CancellationToken cancellationToken)
+    {
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var file = new FileStream(
+            targetPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            DownloadBufferSize,
+            useAsync: true);
+        await source.CopyToAsync(file, DownloadBufferSize, cancellationToken);
+        await file.FlushAsync(cancellationToken);
+    }
+
+    private static int PlanDownloadSegmentCount(long totalBytes, int requestedSegments)
+    {
+        if (totalBytes < MinSegmentedDownloadSize || requestedSegments <= 1)
+        {
+            return 1;
+        }
+
+        var byMinimumPartSize = (int)Math.Max(1, totalBytes / (1024 * 1024));
+        return Math.Clamp(Math.Min(requestedSegments, byMinimumPartSize), 1, MaxDownloadFileSegments);
+    }
+
+    private static IReadOnlyList<(long Start, long End)> BuildDownloadRanges(long totalBytes, int segmentCount)
+    {
+        var ranges = new List<(long Start, long End)>(segmentCount);
+        var partSize = totalBytes / segmentCount;
+        long start = 0;
+        for (var index = 0; index < segmentCount; index++)
+        {
+            var end = index == segmentCount - 1 ? totalBytes - 1 : start + partSize - 1;
+            ranges.Add((start, end));
+            start = end + 1;
+        }
+
+        return ranges;
     }
 
     private static async Task DecryptPikachuCencVideoAsync(
@@ -1119,7 +1412,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private static bool ShouldRetryDownload(Exception exception)
     {
-        if (exception is TaskCanceledException or TimeoutException or IOException or HttpRequestException)
+        if (exception is TaskCanceledException or TimeoutException or IOException or HttpRequestException or InvalidDataException)
         {
             return true;
         }
@@ -1607,7 +1900,26 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     {
         try
         {
-            return File.Exists(path) && new FileInfo(path).Length > 0;
+            if (!File.Exists(path) || new FileInfo(path).Length <= 0)
+            {
+                return false;
+            }
+
+            Span<byte> header = stackalloc byte[512];
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var read = stream.Read(header);
+            if (read <= 0)
+            {
+                return false;
+            }
+
+            var prefix = Encoding.UTF8.GetString(header[..read])
+                .TrimStart('\uFEFF', ' ', '\t', '\r', '\n');
+            return prefix.Length > 0 &&
+                   !prefix.StartsWith('<') &&
+                   !prefix.StartsWith('{') &&
+                   !prefix.StartsWith('[') &&
+                   !prefix.StartsWith("#EXTM3U", StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
@@ -1656,6 +1968,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string outputDir,
         EpisodeTask task,
         Action<string>? report,
+        bool validateVideoEncoding,
         CancellationToken cancellationToken)
     {
         foreach (var directory in new[] { outputDir, Path.Combine(outputDir, "videos") })
@@ -1677,6 +1990,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 if (string.Equals(stem, Path.GetFileNameWithoutExtension(BuildEpisodeFileName(task)), StringComparison.OrdinalIgnoreCase) ||
                     BuildEpisodeMarkers(task).Any(marker => stem.Contains(marker, StringComparison.OrdinalIgnoreCase)))
                 {
+                    if (!HasValidVideoFile(path))
+                    {
+                        DeleteIfExists(path);
+                        report?.Invoke($"发现无效的已有视频，已清理并重新下载：{Path.GetFileName(path)}");
+                        continue;
+                    }
+
+                    if (!validateVideoEncoding)
+                    {
+                        return path;
+                    }
+
                     try
                     {
                         await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
@@ -1809,6 +2134,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0
             ? parsed
             : defaultValue;
+    }
+
+    private static int ParseDownloadFileSegments(string? value)
+    {
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed > 0
+            ? Math.Clamp(parsed, 1, MaxDownloadFileSegments)
+            : DefaultDownloadFileSegments;
     }
 
     private static bool IsHongguoLocalCompatibleMode(string? value)

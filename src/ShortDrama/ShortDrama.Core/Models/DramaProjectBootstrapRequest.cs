@@ -6,7 +6,7 @@ public sealed record DramaProjectBootstrapRequest(
     string? CompanyName,
     string? Episodes = null,
     string Quality = "1080P",
-    int Concurrent = 3,
+    int Concurrent = 5,
     string EpisodeNumberMode = "source",
     string QueueEntryDramaType = "");
 
