@@ -8,6 +8,7 @@ namespace ShortDrama.Infrastructure.Automation;
 
 internal sealed class HongguoApiClient
 {
+    private const int MaxRequestAttempts = 3;
     private const string ApiUrl = "https://orz.icic.icu/api/hguo/api.php";
     private const string PreviewUrl = "https://orz.icic.icu/api/hguo/hgm.php";
     private const string UserAgentString =
@@ -142,62 +143,116 @@ internal sealed class HongguoApiClient
         CancellationToken cancellationToken)
     {
         var uri = BuildUri(url, query);
-        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        for (var attempt = 1; attempt <= MaxRequestAttempts; attempt++)
+        {
+            try
+            {
+                using var request = CreateRequest(uri);
+                using var response = await _httpClient.SendAsync(
+                    request,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken);
+
+                if (attempt < MaxRequestAttempts && IsTransientStatusCode(response.StatusCode))
+                {
+                    await DelayBeforeRetryAsync(attempt, cancellationToken);
+                    continue;
+                }
+
+                response.EnsureSuccessStatusCode();
+
+                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+                var root = document.RootElement;
+
+                var code = root.TryGetProperty("code", out var codeElement) ? codeElement : default;
+                var message = root.TryGetProperty("msg", out var msgElement) && msgElement.ValueKind == JsonValueKind.String
+                    ? msgElement.GetString() ?? string.Empty
+                    : string.Empty;
+                var ok = IsSuccessCode(code);
+                var data = root.TryGetProperty("data", out var dataElement) ? dataElement.Clone() : default;
+
+                if (!ok)
+                {
+                    throw new InvalidOperationException(string.IsNullOrWhiteSpace(message) ? "红果接口请求失败" : message);
+                }
+
+                return (data, message);
+            }
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested && attempt == MaxRequestAttempts)
+            {
+                throw new InvalidOperationException($"红果接口请求超时（已重试 {MaxRequestAttempts - 1} 次）: {uri}", ex);
+            }
+            catch (Exception ex) when (attempt < MaxRequestAttempts && IsTransientTransportFailure(ex, cancellationToken))
+            {
+                await DelayBeforeRetryAsync(attempt, cancellationToken);
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new InvalidOperationException(BuildRequestErrorMessage(uri, ex, attempt), ex);
+            }
+            catch (IOException ex)
+            {
+                throw new InvalidOperationException(BuildRequestErrorMessage(uri, ex, attempt), ex);
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidOperationException(BuildRequestErrorMessage(uri, ex, attempt), ex);
+            }
+        }
+
+        throw new InvalidOperationException($"红果接口请求失败（已尝试 {MaxRequestAttempts} 次）: {uri}");
+    }
+
+    private static HttpRequestMessage CreateRequest(Uri uri)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, uri);
         request.Headers.TryAddWithoutValidation("User-Agent", UserAgentString);
         request.Version = HttpVersion.Version11;
         request.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
-
-        HttpResponseMessage response;
-        try
-        {
-            response = await _httpClient.SendAsync(
-                request,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
-        }
-        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new InvalidOperationException($"红果接口请求超时: {uri}", ex);
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new InvalidOperationException(BuildRequestErrorMessage(uri, ex), ex);
-        }
-
-        using (response)
-        {
-            response.EnsureSuccessStatusCode();
-
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-            var root = document.RootElement;
-
-            var code = root.TryGetProperty("code", out var codeElement) ? codeElement : default;
-            var message = root.TryGetProperty("msg", out var msgElement) && msgElement.ValueKind == JsonValueKind.String
-                ? msgElement.GetString() ?? string.Empty
-                : string.Empty;
-            var ok = IsSuccessCode(code);
-            var data = root.TryGetProperty("data", out var dataElement) ? dataElement.Clone() : default;
-
-            if (!ok)
-            {
-                throw new InvalidOperationException(string.IsNullOrWhiteSpace(message) ? "红果接口请求失败" : message);
-            }
-
-            return (data, message);
-        }
+        return request;
     }
 
-    private static string BuildRequestErrorMessage(Uri uri, HttpRequestException ex)
+    private static bool IsTransientTransportFailure(Exception exception, CancellationToken cancellationToken)
     {
-        var parts = new List<string> { $"红果接口请求失败: {uri}" };
-
-        if (ex.StatusCode is not null)
+        return exception switch
         {
-            parts.Add($"HTTP {(int)ex.StatusCode.Value}");
+            TaskCanceledException => !cancellationToken.IsCancellationRequested,
+            HttpRequestException httpException =>
+                httpException.StatusCode is null || IsTransientStatusCode(httpException.StatusCode.Value),
+            IOException => true,
+            JsonException => true,
+            _ => false
+        };
+    }
+
+    private static bool IsTransientStatusCode(HttpStatusCode statusCode)
+    {
+        return statusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests ||
+               (int)statusCode >= 500;
+    }
+
+    private static Task DelayBeforeRetryAsync(int failedAttempt, CancellationToken cancellationToken)
+    {
+        var delay = failedAttempt == 1 ? TimeSpan.FromMilliseconds(200) : TimeSpan.FromMilliseconds(600);
+        return Task.Delay(delay, cancellationToken);
+    }
+
+    private static string BuildRequestErrorMessage(Uri uri, Exception ex, int attempts)
+    {
+        var parts = new List<string>
+        {
+            attempts > 1
+                ? $"红果接口请求失败（已尝试 {attempts} 次）: {uri}"
+                : $"红果接口请求失败: {uri}"
+        };
+
+        if (ex is HttpRequestException { StatusCode: not null } httpException)
+        {
+            parts.Add($"HTTP {(int)httpException.StatusCode.Value}");
         }
 
-        var current = ex.InnerException;
+        Exception? current = ex;
         while (current is not null)
         {
             if (!string.IsNullOrWhiteSpace(current.Message))
@@ -206,11 +261,6 @@ internal sealed class HongguoApiClient
             }
 
             current = current.InnerException;
-        }
-
-        if (parts.Count == 1 && !string.IsNullOrWhiteSpace(ex.Message))
-        {
-            parts.Add(ex.Message.Trim());
         }
 
         return string.Join(" | ", parts.Distinct(StringComparer.Ordinal));
