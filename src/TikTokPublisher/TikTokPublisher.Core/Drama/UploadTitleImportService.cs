@@ -25,6 +25,8 @@ public static class UploadTitleImportService
 {
     public const string MatchModeTitle = "title";
     public const string MatchModeTitleEpisode = "title_episode";
+    public const string NoExactMatchReason = "未找到精确匹配结果";
+    public const string EmptySearchResultReason = "红果搜索未返回任何结果，请检查密钥绑定和本地/脱机直连服务状态";
     public const string AuthorExcludedFailurePrefix = "命中作者排除：";
     public const int DefaultEpisodeMin = 10;
     public const int DefaultEpisodeMax = 120;
@@ -97,13 +99,13 @@ public static class UploadTitleImportService
             try
             {
                 DramaSearchItem? matched = null;
-                var reason = "未找到精确匹配结果";
+                var reason = NoExactMatchReason;
                 foreach (var query in TitleSearchQueryVariants(request.Title))
                 {
                     var results = await ShortDramaDramaServices.SearchAsync(query, 1, ct).ConfigureAwait(false);
                     (matched, reason) = PickPreferredSearchMatch(request.Title, results, request.ExpectedEpisodeTotal);
                     if (matched is not null) break;
-                    if (reason != "未找到精确匹配结果") break;
+                    if (reason != NoExactMatchReason && reason != EmptySearchResultReason) break;
                 }
 
                 if (matched is null)
@@ -243,10 +245,11 @@ public static class UploadTitleImportService
         if (normalized.Count > 1) return (null, "命中多条同名短剧，无法唯一确认");
 
         var unique = Dedupe(results).ToList();
+        if (unique.Count == 0) return (null, EmptySearchResultReason);
         if (expectedEpisodeTotal > 0 && unique.Count == 1)
             return PickEpisodeTotalMatch(unique, expectedEpisodeTotal);
         if (unique.Count == 1) return (unique[0], "");
-        return (null, "未找到精确匹配结果");
+        return (null, NoExactMatchReason);
     }
 
     private static (DramaSearchItem? Item, string Reason) PickEpisodeTotalMatch(

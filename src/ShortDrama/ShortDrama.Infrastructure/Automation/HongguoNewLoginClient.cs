@@ -86,7 +86,7 @@ public static class HongguoNewLoginClient
             if (string.Equals(state, "n", StringComparison.OrdinalIgnoreCase))
             {
                 throw new HongguoLoginException(
-                    "账号未绑定当前 DeviceUDID，请在红果客户端/服务端重新绑定后再试",
+                    "账号未绑定当前设备唯一标识，请在红果客户端或服务端重新绑定后再试",
                     76);
             }
 

@@ -7,6 +7,14 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class UploadTitleImportServiceTests
 {
     [Fact]
+    public void PickPreferredSearchMatch_Should_Report_Empty_Upstream_Result()
+    {
+        var (_, reason) = UploadTitleImportService.PickPreferredSearchMatch("亮亮就业", []);
+
+        reason.Should().Be(UploadTitleImportService.EmptySearchResultReason);
+    }
+
+    [Fact]
     public void ResolveEpisodeLimitError_blocks_over_limit_when_global_switch_is_off()
     {
         var item = new DramaSearchItem

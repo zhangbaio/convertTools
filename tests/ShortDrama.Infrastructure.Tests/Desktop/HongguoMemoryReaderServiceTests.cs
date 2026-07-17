@@ -1,5 +1,6 @@
 using FluentAssertions;
 using ShortDrama.Infrastructure.Automation;
+using System.Buffers.Binary;
 using System.Text;
 using Xunit;
 
@@ -34,6 +35,28 @@ public sealed class HongguoMemoryReaderServiceTests
     {
         var expected = BuildCookie();
         var bytes = Encoding.Latin1.GetBytes($"prefix {expected}\0\b\u0003\u00ffmetadata suffix");
+
+        var cookie = HongguoMemoryReaderService.ExtractFanqieCookie(bytes);
+
+        cookie.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ExtractFanqieCookie_Should_Prefer_Aardio_Declared_Value()
+    {
+        var decoy = BuildCookie("11111", 'b', 'a');
+        var expected = BuildCookie("67890", 'c', 'd');
+        var valueBytes = Encoding.ASCII.GetBytes(expected)
+            .Concat(new byte[] { 0, 0xff, 0x08, 0x03 })
+            .Concat(Encoding.ASCII.GetBytes("binary metadata"))
+            .ToArray();
+        var declaredLength = new byte[sizeof(uint)];
+        BinaryPrimitives.WriteUInt32LittleEndian(declaredLength, (uint)valueBytes.Length);
+        var bytes = Encoding.ASCII.GetBytes($"prefix {decoy} suffix")
+            .Concat(Encoding.ASCII.GetBytes("cookie\0\b\u0004"))
+            .Concat(declaredLength)
+            .Concat(valueBytes)
+            .ToArray();
 
         var cookie = HongguoMemoryReaderService.ExtractFanqieCookie(bytes);
 
@@ -87,6 +110,10 @@ public sealed class HongguoMemoryReaderServiceTests
         cookie.Should().BeNull();
     }
 
-    private static string BuildCookie() =>
-        $"install_id=12345; ttreq=1${new string('b', 32)}; odin_tt={new string('a', 160)}";
+    private static string BuildCookie(
+        string installId = "12345",
+        char ttreqCharacter = 'b',
+        char odinTtCharacter = 'a') =>
+        $"install_id={installId}; ttreq=1${new string(ttreqCharacter, 32)}; " +
+        $"odin_tt={new string(odinTtCharacter, 160)}";
 }

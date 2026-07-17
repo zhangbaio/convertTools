@@ -34,6 +34,8 @@ public partial class SystemSettingsView : UserControl
         {
             if (args.PropertyName is nameof(SystemSettingsViewModel.DramaSourceChain)
                 or nameof(SystemSettingsViewModel.PikachuDramaType)
+                or nameof(SystemSettingsViewModel.HongguoLocalDownloadMode)
+                or nameof(SystemSettingsViewModel.HongguoLocalTranscodeEngine)
                 or nameof(SystemSettingsViewModel.TiktokSilenceAsrEngine)
                 or nameof(SystemSettingsViewModel.TiktokSilenceRepairMode)
                 or nameof(SystemSettingsViewModel.PosterMode)
@@ -56,15 +58,15 @@ public partial class SystemSettingsView : UserControl
 
     private async void OnHgnewLoginProbeSucceeded(HongguoLoginProbeResult result)
     {
-        var lines = new List<string> { $"token: {MaskToken(result.Token)}" };
+        var lines = new List<string> { $"登录令牌：{MaskToken(result.Token)}" };
         if (!string.IsNullOrWhiteSpace(result.Email))
         {
-            lines.Add($"email: {result.Email}");
+            lines.Add($"邮箱：{result.Email}");
         }
 
         if (!string.IsNullOrWhiteSpace(result.VipExpiresAt))
         {
-            lines.Add($"VIP 到期: {result.VipExpiresAt}");
+            lines.Add($"会员到期：{result.VipExpiresAt}");
         }
 
         var owner = TopLevel.GetTopLevel(this) as Window;
@@ -86,9 +88,20 @@ public partial class SystemSettingsView : UserControl
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
 
         PikachuTypeCombo.Items.Clear();
-        PikachuTypeCombo.Items.Add(CreateItem("红果短剧 (search_tab_id=10)", "short"));
-        PikachuTypeCombo.Items.Add(CreateItem("红果漫画 (search_tab_id=13)", "manga"));
+        PikachuTypeCombo.Items.Add(CreateItem("红果短剧（类型编号 10）", "short"));
+        PikachuTypeCombo.Items.Add(CreateItem("红果漫画（类型编号 13）", "manga"));
         PikachuTypeCombo.SelectionChanged += OnPikachuTypeChanged;
+
+        HongguoLocalDownloadModeCombo.Items.Clear();
+        HongguoLocalDownloadModeCombo.Items.Add(CreateItem("快速模式（保持原格式）", "fast"));
+        HongguoLocalDownloadModeCombo.Items.Add(CreateItem("兼容模式（必要时转码）", "compatible"));
+        HongguoLocalDownloadModeCombo.SelectionChanged += OnHongguoLocalDownloadModeChanged;
+
+        HongguoLocalTranscodeEngineCombo.Items.Clear();
+        HongguoLocalTranscodeEngineCombo.Items.Add(CreateItem("自动选择（推荐）", "auto"));
+        HongguoLocalTranscodeEngineCombo.Items.Add(CreateItem("英伟达显卡加速", "nvenc"));
+        HongguoLocalTranscodeEngineCombo.Items.Add(CreateItem("处理器转码", "cpu"));
+        HongguoLocalTranscodeEngineCombo.SelectionChanged += OnHongguoLocalTranscodeEngineChanged;
 
         AsrEngineCombo.Items.Clear();
         AsrEngineCombo.Items.Add(CreateItem("火山 ASR（在线，最准）", "volcengine"));
@@ -146,6 +159,8 @@ public partial class SystemSettingsView : UserControl
         if (_vm is null) return;
         SelectComboItem(DramaSourceCombo, _vm.DramaSourceChain);
         SelectComboItem(PikachuTypeCombo, _vm.PikachuDramaType);
+        SelectComboItem(HongguoLocalDownloadModeCombo, _vm.HongguoLocalDownloadMode);
+        SelectComboItem(HongguoLocalTranscodeEngineCombo, _vm.HongguoLocalTranscodeEngine);
         SelectComboItem(AsrEngineCombo, _vm.TiktokSilenceAsrEngine);
         SelectComboItem(SilenceRepairModeCombo, _vm.TiktokSilenceRepairMode);
         SelectComboItem(PosterModeCombo, _vm.PosterMode);
@@ -179,6 +194,18 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || PikachuTypeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.PikachuDramaType = item.Tag as string ?? "short";
+    }
+
+    private void OnHongguoLocalDownloadModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || HongguoLocalDownloadModeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.HongguoLocalDownloadMode = item.Tag as string ?? "fast";
+    }
+
+    private void OnHongguoLocalTranscodeEngineChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || HongguoLocalTranscodeEngineCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.HongguoLocalTranscodeEngine = item.Tag as string ?? "auto";
     }
 
     private void OnAsrEngineChanged(object? sender, SelectionChangedEventArgs e)

@@ -43,7 +43,38 @@ public sealed class HongguoLocalApiServiceTests
         results[0].PosterUrl.Should().Be("https://example.com/poster.jpg");
         handler.Requests.Single().RequestUri!.ToString().Should().Contain("/api/hongguo/search?");
         handler.Requests.Single().RequestUri!.Query.Should().Contain("source=hglocal");
+        handler.Requests.Single().RequestUri!.Query.Should().Contain("live=true");
         handler.Requests.Single().Headers.GetValues("x-api-key").Single().Should().Be("local-key");
+    }
+
+    [Fact]
+    public async Task SearchAsync_Should_Retry_Empty_Result_With_Cache_Bypass()
+    {
+        var handler = new RecordingHandler();
+        handler.EnqueueJson("""{ "results": [] }""");
+        handler.EnqueueJson("""
+            {
+              "results": [
+                {
+                  "series_id": "series-1",
+                  "title": "亮亮就业",
+                  "episode_cnt": 18
+                }
+              ]
+            }
+            """);
+
+        var service = new HongguoLocalApiService(new HttpClient(handler));
+
+        var results = await service.SearchAsync(CreateSettings(), "亮亮就业", 1, CancellationToken.None);
+
+        results.Should().ContainSingle();
+        results[0].Title.Should().Be("亮亮就业");
+        handler.Requests.Should().HaveCount(2);
+        handler.Requests[0].RequestUri!.Query.Should().Contain("live=true");
+        handler.Requests[0].RequestUri!.Query.Should().NotContain("refresh=1");
+        handler.Requests[1].RequestUri!.Query.Should().Contain("live=true");
+        handler.Requests[1].RequestUri!.Query.Should().Contain("refresh=1");
     }
 
     [Fact]
@@ -153,12 +184,30 @@ public sealed class HongguoLocalApiServiceTests
         var playback = await service.GetVideoPlaybackAsync(CreateSettings(), "hglocal_ep:video-1", "1080P+", CancellationToken.None);
 
         playback.EncryptedUrl.Should().Be("https://example.com/video.mp4");
-        playback.Url.Should().StartWith("https://local.example.com/api/hongguo/stream?");
-        playback.Url.Should().Contain("vid=video-1");
-        playback.Url.Should().Contain("quality=1080P%2B");
-        playback.Url.Should().Contain("api_key=local-key");
+        playback.Url.Should().Be("https://example.com/video.mp4");
         handler.Requests.Single().RequestUri!.ToString().Should().Contain("vid=video-1");
         handler.Requests.Single().RequestUri!.Query.Should().Contain("source=hglocal");
+    }
+
+    [Fact]
+    public async Task GetVideoPlaybackAsync_Should_Keep_Returned_Cdn_Host_And_Path()
+    {
+        var handler = new RecordingHandler();
+        handler.EnqueueJson("""
+            {
+              "url": "https://cdn-videos.example.net/media/series-1/episode-2.mp4?token=signed-value"
+            }
+            """);
+
+        var service = new HongguoLocalApiService(new HttpClient(handler));
+
+        var playback = await service.GetVideoPlaybackAsync(CreateSettings(), "hglocal_ep:video-2", "1080P+", CancellationToken.None);
+
+        playback.Url.Should().Be("https://cdn-videos.example.net/media/series-1/episode-2.mp4?token=signed-value");
+        playback.EncryptedUrl.Should().Be(playback.Url);
+        playback.Url.Should().NotStartWith("https://local.example.com/");
+        handler.Requests.Should().ContainSingle();
+        handler.Requests.Single().RequestUri!.AbsolutePath.Should().Be("/api/hongguo/video_url");
     }
 
     private static DramaSourceSettings CreateSettings()

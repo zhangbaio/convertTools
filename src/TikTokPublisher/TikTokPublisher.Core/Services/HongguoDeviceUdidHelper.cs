@@ -11,7 +11,7 @@ public static class HongguoDeviceUdidHelper
 
         if (!OperatingSystem.IsWindows())
         {
-            message = "当前平台不支持从注册表读取 DeviceUDID。";
+            message = "当前平台不支持从注册表读取设备唯一标识。";
             return false;
         }
 
@@ -21,17 +21,17 @@ public static class HongguoDeviceUdidHelper
             var value = key?.GetValue("DeviceUDID")?.ToString()?.Trim();
             if (string.IsNullOrWhiteSpace(value))
             {
-                message = "未在注册表中找到 DeviceUDID。";
+                message = "未在注册表中找到设备唯一标识。";
                 return false;
             }
 
             udid = ClientSettingsStore.NormalizeUdid(value);
-            message = "已从注册表读取 DeviceUDID。";
+            message = "已从注册表读取设备唯一标识。";
             return true;
         }
         catch (Exception ex)
         {
-            message = $"读取 DeviceUDID 失败：{ex.Message}";
+            message = $"读取设备唯一标识失败：{ex.Message}";
             return false;
         }
     }

@@ -543,7 +543,7 @@ public sealed class HongguoNewApiService
             var state = GetStringValue(data, "state");
             if (string.Equals(state, "n", StringComparison.OrdinalIgnoreCase))
             {
-                throw new HongguoNewApiException("账号未绑定当前 DeviceUDID，请在红果客户端/服务端重新绑定后再试", 76, response);
+                throw new HongguoNewApiException("账号未绑定当前设备唯一标识，请在红果客户端或服务端重新绑定后再试", 76, response);
             }
 
             var token = GetStringValue(data, "token");

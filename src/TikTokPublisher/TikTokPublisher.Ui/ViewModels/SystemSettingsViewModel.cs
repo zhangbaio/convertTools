@@ -136,8 +136,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> AsrEngineOptions { get; } = ["volcengine", "local", "hybrid"];
     public IReadOnlyList<string> SilenceRepairModeOptions { get; } = ["auto", "trim", "speedup"];
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
-    public IReadOnlyList<string> HongguoLocalDownloadModeOptions { get; } = ["fast", "compatible"];
-    public IReadOnlyList<string> HongguoLocalTranscodeEngineOptions { get; } = ["auto", "nvenc", "cpu"];
     public IReadOnlyList<string> PosterModeOptions { get; } = ["original", "poster_ai_erase_pil_title", "video_frame", "poster_ai_edit"];
     public IReadOnlyList<string> ImageProviderOptions { get; } = ["doubao", "ofox_image2"];
     public IReadOnlyList<string> PosterTitleVerifyModeOptions { get; } = ["fallback_repaint", "warn", "blocking"];
@@ -375,7 +373,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private void GenerateHgnewUdid()
     {
         HgnewUdid = Guid.NewGuid().ToString().ToUpperInvariant();
-        HgnewProbeStatus = "已生成新的 DeviceUDID。";
+        HgnewProbeStatus = "已生成新的设备唯一标识。";
     }
 
     [RelayCommand]
@@ -390,7 +388,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
         if (string.IsNullOrWhiteSpace(HgnewUdid))
         {
-            HgnewProbeStatus = "请先读取或生成红果新接口 DeviceUDID。";
+            HgnewProbeStatus = "请先读取或生成红果新接口设备唯一标识。";
             return;
         }
 
@@ -427,11 +425,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             var settings = DramaSourceSettingsMapping.FromClientSettings(ToSettings());
             var service = new HongguoLocalApiService(ProbeHttp);
             var results = await service.SearchAsync(settings, "测试", 1, CancellationToken.None);
-            HongguoLocalProbeStatus = $"hglocal 连接成功，返回 {results.Count} 条：{DateTime.Now:HH:mm:ss}";
+            HongguoLocalProbeStatus = $"本地直连服务连接成功，返回 {results.Count} 条：{DateTime.Now:HH:mm:ss}";
         }
         catch (Exception ex)
         {
-            HongguoLocalProbeStatus = $"hglocal 连接失败：{ex.Message}";
+            HongguoLocalProbeStatus = $"本地直连服务连接失败：{ex.Message}";
         }
     }
 

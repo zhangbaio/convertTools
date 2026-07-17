@@ -2889,7 +2889,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private bool ShouldAppendProgressLog(QueueWorkerProgress progress)
     {
         var message = progress.Message ?? "";
-        if (message.Contains("失败", StringComparison.Ordinal)
+        if (QueueStepLogFilters.RequiresLosslessUiDelivery(progress.StepKey)
+            || message.Contains("失败", StringComparison.Ordinal)
             || message.Contains("完成", StringComparison.Ordinal)
             || message.StartsWith("开始", StringComparison.Ordinal)
             || message.Contains('⚠')

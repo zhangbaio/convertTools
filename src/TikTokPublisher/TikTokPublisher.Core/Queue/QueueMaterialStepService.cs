@@ -48,11 +48,7 @@ public static class QueueMaterialStepService
 
         var request = BuildDownloadRequest(context, metadata, settings, displayName, FirstNonEmpty(metadata.Episodes, "all"), concurrent);
 
-        var progress = new Progress<string>(message =>
-        {
-            if (ShouldLogDownloadProgress(message))
-                log(message);
-        });
+        var progress = CreateDownloadProgress(log);
         var result = await ShortDramaDramaServices.Downloader.DownloadAsync(request, progress, ct);
         if (!result.Ok)
         {
@@ -103,6 +99,27 @@ public static class QueueMaterialStepService
         return !(message.Contains("下载中", StringComparison.Ordinal) && message.Contains('%'));
     }
 
+    private static IProgress<string> CreateDownloadProgress(Action<string> log) =>
+        new DownloadProgress(log);
+
+    /// <summary>
+    /// <see cref="Progress{T}"/> 在没有同步上下文的队列线程中会异步投递，可能让逐集日志
+    /// 延迟到下载步骤结束以后。这里同步、串行转发，确保每条生命周期日志在返回前已交给队列。
+    /// </summary>
+    private sealed class DownloadProgress(Action<string> log) : IProgress<string>
+    {
+        private readonly object _lock = new();
+
+        public void Report(string message)
+        {
+            if (!ShouldLogDownloadProgress(message))
+                return;
+
+            lock (_lock)
+                log(message);
+        }
+    }
+
     private static readonly System.Text.RegularExpressions.Regex EpisodeNumberInFileName =
         new(@"第\s*(\d+)\s*集", System.Text.RegularExpressions.RegexOptions.Compiled);
 
@@ -145,11 +162,7 @@ public static class QueueMaterialStepService
             var repairRequest = BuildDownloadRequest(context, metadata, settings, displayName, selection, concurrent: 1);
             var repairResult = await ShortDramaDramaServices.Downloader.DownloadAsync(
                 repairRequest,
-                new Progress<string>(message =>
-                {
-                    if (ShouldLogDownloadProgress(message))
-                        log(message);
-                }),
+                CreateDownloadProgress(log),
                 ct).ConfigureAwait(false);
 
             if (!repairResult.Ok)

@@ -446,6 +446,80 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Client_settings_store_load_repairs_legacy_dirty_pikachu_cookie()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-pikachu-legacy-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var expected = BuildPikachuCookie();
+            var dirty = $"  {expected}\0\b\u0003\u00fflimit offset query metadata  ";
+            AppSettingStore.SaveJson(
+                ClientSettingsStore.SettingsKey,
+                new Dictionary<string, string>
+                {
+                    ["pikachu_fanqie_cookie"] = dirty,
+                },
+                databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+
+            loaded.PikachuFanqieCookie.Should().Be(expected);
+            loaded.PikachuFanqieCookie.All(value => value is >= ' ' and <= '~')
+                .Should().BeTrue();
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Client_settings_store_patch_normalizes_dirty_pikachu_cookie()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-pikachu-patch-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var expected = BuildPikachuCookie();
+
+            ClientSettingsStore.PatchPikachuRuntimeFields(
+                fanqieCookie: $"{expected}\0\b\u0003metadata",
+                databasePath: databasePath);
+
+            ClientSettingsStore.Load(databasePath).PikachuFanqieCookie.Should().Be(expected);
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Client_settings_store_preserves_unrecognized_manual_pikachu_cookie()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-pikachu-manual-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                PikachuFanqieCookie = "  manually-entered-cookie  ",
+            }, databasePath);
+
+            ClientSettingsStore.Load(databasePath).PikachuFanqieCookie
+                .Should().Be("manually-entered-cookie");
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void Reset_installer_data_secrets_clears_sensitive_fields_only()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-reset-{Guid.NewGuid():N}");
@@ -787,5 +861,20 @@ public sealed class TikTokPublishDefaultsTests
     public void Final_action_parser_accepts_python_save_and_legacy_draft(string value)
     {
         FinalActionExtensions.Parse(value).Should().Be(FinalAction.Draft);
+    }
+
+    private static string BuildPikachuCookie() =>
+        $"install_id=12345; ttreq=1${new string('b', 32)}; odin_tt={new string('a', 160)}";
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            Directory.Delete(path, recursive: true);
+        }
+        catch (IOException)
+        {
+            // Microsoft.Data.Sqlite can retain a pooled handle briefly on Windows.
+        }
     }
 }

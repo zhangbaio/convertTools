@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -14,6 +15,11 @@ public sealed class HongguoMemoryReaderService
     private const int ChunkSize = 1024 * 1024;
     private const int ChunkOverlap = 1024;
     private const long MaxReadableRegionBytes = 64L * 1024 * 1024;
+    private const int MinAardioCookieLength = 100;
+    private const int MaxAardioCookieLength = 600;
+
+    private static readonly byte[] AardioCookieAnchor =
+        Encoding.ASCII.GetBytes("cookie\0\b\u0004");
 
     private static readonly Regex DeviceIdPattern = new(
         @"HG[0-9A-Fa-f]{16}(?![0-9A-Fa-f])",
@@ -105,7 +111,66 @@ public sealed class HongguoMemoryReaderService
 
     public static string? ExtractFanqieCookie(byte[] bytes)
     {
-        return NormalizeFanqieCookie(Encoding.Latin1.GetString(bytes));
+        ArgumentNullException.ThrowIfNull(bytes);
+
+        return ExtractAardioCookie(bytes) ??
+               NormalizeFanqieCookie(Encoding.Latin1.GetString(bytes));
+    }
+
+    private static string? ExtractAardioCookie(byte[] bytes)
+    {
+        var searchOffset = 0;
+        while (searchOffset <= bytes.Length - AardioCookieAnchor.Length)
+        {
+            var relativeAnchorOffset = bytes.AsSpan(searchOffset).IndexOf(AardioCookieAnchor);
+            if (relativeAnchorOffset < 0)
+            {
+                return null;
+            }
+
+            var anchorOffset = searchOffset + relativeAnchorOffset;
+            var lengthOffset = anchorOffset + AardioCookieAnchor.Length;
+            if (lengthOffset <= bytes.Length - sizeof(uint))
+            {
+                var declaredLength = BinaryPrimitives.ReadUInt32LittleEndian(
+                    bytes.AsSpan(lengthOffset, sizeof(uint)));
+                var valueOffset = lengthOffset + sizeof(uint);
+                if (declaredLength is >= MinAardioCookieLength and <= MaxAardioCookieLength &&
+                    valueOffset <= bytes.Length - (int)declaredLength)
+                {
+                    var valueBytes = bytes.AsSpan(valueOffset, (int)declaredLength);
+                    var nullOffset = valueBytes.IndexOf((byte)0);
+                    if (nullOffset >= 0)
+                    {
+                        valueBytes = valueBytes[..nullOffset];
+                    }
+
+                    var normalized = NormalizeFanqieCookie(DecodePrintableAscii(valueBytes));
+                    if (!string.IsNullOrWhiteSpace(normalized))
+                    {
+                        return normalized;
+                    }
+                }
+            }
+
+            searchOffset = anchorOffset + 1;
+        }
+
+        return null;
+    }
+
+    private static string DecodePrintableAscii(ReadOnlySpan<byte> bytes)
+    {
+        var result = new StringBuilder(bytes.Length);
+        foreach (var value in bytes)
+        {
+            if (value is >= 0x20 and <= 0x7e)
+            {
+                result.Append((char)value);
+            }
+        }
+
+        return result.ToString();
     }
 
     /// <summary>

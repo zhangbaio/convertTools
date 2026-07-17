@@ -318,7 +318,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
         catch (Exception)
         {
-            var existingResult = TryBuildSuccessfulResultWhenVideosExist(request);
+            var existingResult = await TryBuildSuccessfulResultWhenVideosExistAsync(request, progress, cancellationToken);
             if (existingResult is not null)
             {
                 progress?.Report(existingResult.Message ?? "已存在视频文件，跳过 legacy 红果重复下载。");
@@ -329,9 +329,30 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
     }
 
-    internal static DramaDownloadResult? TryBuildSuccessfulResultWhenVideosExist(DramaDownloadRequest request)
+    internal static async Task<DramaDownloadResult?> TryBuildSuccessfulResultWhenVideosExistAsync(
+        DramaDownloadRequest request,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
     {
-        var videoCount = CountVideoFiles(request.OutputDir);
+        var videoCount = 0;
+        if (Directory.Exists(request.OutputDir))
+        {
+            foreach (var path in Directory.EnumerateFiles(request.OutputDir, "*.*", SearchOption.TopDirectoryOnly)
+                         .Where(path => VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
+                    videoCount++;
+                }
+                catch (InvalidDataException ex)
+                {
+                    DeleteIfExists(path);
+                    progress?.Report($"检测到无效视频并已清理：{Path.GetFileName(path)}（{ex.Message}）");
+                }
+            }
+        }
+
         if (videoCount <= 0)
         {
             return null;
@@ -438,7 +459,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         {
             var finalPath = Path.Combine(outputDir, BuildEpisodeFileName(task));
             var tempPath = $"{finalPath}.part";
-            var existingVideo = FindExistingEpisodeVideo(outputDir, task);
+            var existingVideo = await FindExistingEpisodeVideoAsync(
+                outputDir,
+                task,
+                message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"),
+                cancellationToken);
             if (!string.IsNullOrWhiteSpace(existingVideo))
             {
                 if (!string.Equals(Path.GetFullPath(existingVideo), Path.GetFullPath(finalPath), StringComparison.OrdinalIgnoreCase) &&
@@ -448,12 +473,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     existingVideo = finalPath;
                 }
 
-                progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集已存在，跳过");
-                return;
-            }
-
-            if (HasValidVideoFile(finalPath))
-            {
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集已存在，跳过");
                 return;
             }
@@ -475,8 +494,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         cancellationToken,
                         detail.PikachuDecryptKey,
                         detail.EnsureWindowsCompatible,
-                        detail.TranscodeEngine);
-                    progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
+                        detail.TranscodeEngine,
+                        message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"));
+                    progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s；{stats.MediaSummary}）");
                     return;
                 }
                 catch (Exception ex) when (ShouldRetryDownload(ex))
@@ -498,8 +518,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     cancellationToken,
                     detail.PikachuDecryptKey,
                     detail.EnsureWindowsCompatible,
-                    detail.TranscodeEngine);
-                progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s）");
+                    detail.TranscodeEngine,
+                    message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"));
+                progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s；{stats.MediaSummary}）");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -535,7 +556,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             cancellationToken,
             pikachuDecryptKey: null,
             ensureWindowsCompatible: false,
-            transcodeEngine: "auto");
+            transcodeEngine: "auto",
+            report: null);
 
     private async Task<DownloadFileStats> DownloadVideoFileOnceAsync(
         string url,
@@ -545,7 +567,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken,
         string? pikachuDecryptKey,
         bool ensureWindowsCompatible,
-        string transcodeEngine)
+        string transcodeEngine,
+        Action<string>? report)
     {
         var hasPikachuDecryptKey = !string.IsNullOrWhiteSpace(pikachuDecryptKey);
         var encryptedTempPath = hasPikachuDecryptKey ? BuildEncryptedTempPath(tempPath) : null;
@@ -570,7 +593,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
             response.EnsureSuccessStatusCode();
 
-            var downloadedBytes = 0L;
+            var mediaType = response.Content.Headers.ContentType?.MediaType;
+            if (IsClearlyNonMediaContentType(mediaType))
+            {
+                throw new InvalidDataException($"下载响应不是视频（Content-Type: {mediaType}）。");
+            }
+
             var stopwatch = Stopwatch.StartNew();
 
             await using (var source = await response.Content.ReadAsStreamAsync(token))
@@ -584,7 +612,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         break;
 
                     await file.WriteAsync(buffer.AsMemory(0, read), token);
-                    downloadedBytes += read;
                 }
 
                 await file.FlushAsync(token);
@@ -595,22 +622,35 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 await DecryptPikachuCencVideoAsync(pikachuDecryptKey!.Trim(), downloadTargetPath, tempPath, timeoutSeconds, cancellationToken);
             }
 
+            VideoProcessingResult processing;
             if (ensureWindowsCompatible)
             {
-                await EnsureWindowsCompatibleMp4Async(tempPath, timeoutSeconds, cancellationToken, transcodeEngine);
+                processing = await EnsureWindowsCompatibleMp4Async(
+                    tempPath,
+                    timeoutSeconds,
+                    cancellationToken,
+                    transcodeEngine,
+                    report);
+            }
+            else
+            {
+                var codec = await ProbePrimaryVideoCodecAsync(tempPath, cancellationToken).ConfigureAwait(false);
+                processing = new VideoProcessingResult(codec, Transcoded: false, TranscodeEngine: null);
+                report?.Invoke($"视频校验通过，编码 {codec.ToUpperInvariant()}，快速模式保留原文件");
             }
 
             await DownloadFileOperations.DelayAfterWriteAsync(cancellationToken);
             await DownloadFileOperations.SafeReplaceAsync(tempPath, finalPath, cancellationToken);
 
             stopwatch.Stop();
-            var finalBytes = hasPikachuDecryptKey && HasValidVideoFile(finalPath)
-                ? new FileInfo(finalPath).Length
-                : downloadedBytes;
+            var finalBytes = new FileInfo(finalPath).Length;
             return new DownloadFileStats(
                 finalBytes,
                 stopwatch.Elapsed,
-                finalBytes / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001d));
+                finalBytes / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001d),
+                processing.Transcoded
+                    ? $"{processing.TranscodeEngine} 已转为 H.264"
+                    : $"视频编码 {processing.Codec.ToUpperInvariant()}，无需转码");
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
         {
@@ -679,17 +719,19 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
     }
 
-    private static async Task EnsureWindowsCompatibleMp4Async(
+    private static async Task<VideoProcessingResult> EnsureWindowsCompatibleMp4Async(
         string path,
         int timeoutSeconds,
         CancellationToken cancellationToken,
-        string transcodeEngine)
+        string transcodeEngine,
+        Action<string>? report)
     {
         var codec = await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(codec, "hevc", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(codec, "h265", StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            report?.Invoke($"视频校验通过，编码 {codec.ToUpperInvariant()}，无需转码");
+            return new VideoProcessingResult(codec, Transcoded: false, TranscodeEngine: null);
         }
 
         var ffmpegPath = ResolveFfmpegBinaryForTests.Value?.Invoke() ?? ResolveFfmpegBinary();
@@ -717,22 +759,28 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 var plan = plans[index];
                 try
                 {
+                    report?.Invoke($"检测到 HEVC，开始使用 {plan.Name} 转码为 H.264");
                     var result = await runner(plan.StartInfo, timeoutCts.Token).ConfigureAwait(false);
                     if (result.ExitCode != 0)
                     {
                         throw new InvalidOperationException($"{plan.Name} HEVC to H.264 transcode failed: {TrimProcessOutput(result.StandardError)}");
                     }
 
-                    if (!HasValidVideoFile(outputPath))
+                    var outputCodec = await ProbePrimaryVideoCodecAsync(outputPath, timeoutCts.Token).ConfigureAwait(false);
+                    if (!string.Equals(outputCodec, "h264", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(outputCodec, "avc", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(outputCodec, "avc1", StringComparison.OrdinalIgnoreCase))
                     {
-                        throw new InvalidOperationException($"{plan.Name} HEVC to H.264 transcode did not produce a playable mp4 file.");
+                        throw new InvalidDataException($"{plan.Name} 转码结果编码异常：{outputCodec}。");
                     }
 
                     await DownloadFileOperations.SafeReplaceAsync(outputPath, path, cancellationToken).ConfigureAwait(false);
-                    return;
+                    report?.Invoke($"{plan.Name} 转码完成，输出编码 H.264");
+                    return new VideoProcessingResult("h264", Transcoded: true, TranscodeEngine: plan.Name);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException && index + 1 < plans.Count)
                 {
+                    report?.Invoke($"{plan.Name} 转码失败，改用下一转码引擎：{ex.Message}");
                     // Auto mode falls back from NVENC to CPU when the local driver/runtime rejects hardware transcode.
                 }
             }
@@ -745,6 +793,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         {
             DeleteIfExists(outputPath);
         }
+
+        throw new InvalidOperationException("HEVC 转码失败：没有可用的转码方案。");
     }
 
     private static async Task<IReadOnlyList<H264TranscodePlan>> ResolveH264TranscodePlansAsync(
@@ -762,7 +812,16 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         if (transcodeEngine == "nvenc")
         {
-            return [BuildNvencH264TranscodePlan(ffmpegPath, inputPath, outputPath)];
+            if (await FfmpegSupportsEncoderAsync(ffmpegPath, "h264_nvenc", runner, cancellationToken).ConfigureAwait(false))
+            {
+                return
+                [
+                    BuildNvencH264TranscodePlan(ffmpegPath, inputPath, outputPath),
+                    BuildCpuH264TranscodePlan(ffmpegPath, inputPath, outputPath)
+                ];
+            }
+
+            return [BuildCpuH264TranscodePlan(ffmpegPath, inputPath, outputPath)];
         }
 
         if (await FfmpegSupportsEncoderAsync(ffmpegPath, "h264_nvenc", runner, cancellationToken).ConfigureAwait(false))
@@ -893,6 +952,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private static async Task<string> ProbePrimaryVideoCodecAsync(string path, CancellationToken cancellationToken)
     {
+        if (!File.Exists(path))
+        {
+            throw new InvalidDataException($"视频校验失败：文件不存在（{Path.GetFileName(path)}）。");
+        }
+
         var ffprobePath = ResolveFfprobeBinaryForTests.Value?.Invoke() ?? ResolveFfprobeBinary();
         var startInfo = new ProcessStartInfo
         {
@@ -909,36 +973,62 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         startInfo.ArgumentList.Add("-show_streams");
         startInfo.ArgumentList.Add(path);
 
+        ProcessRunResult result;
         try
         {
             var runner = RunProcessAsyncForTests.Value ?? RunProcessAsyncDefault;
-            var result = await runner(startInfo, cancellationToken).ConfigureAwait(false);
-            if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.StandardOutput))
-            {
-                return string.Empty;
-            }
+            result = await runner(startInfo, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"无法运行 ffprobe 校验视频：{ex.Message}", ex);
+        }
 
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidDataException($"视频校验失败，ffprobe 无法识别媒体：{TrimProcessOutput(result.StandardError)}");
+        }
+
+        if (string.IsNullOrWhiteSpace(result.StandardOutput))
+        {
+            throw new InvalidDataException("视频校验失败：ffprobe 未返回媒体流信息。");
+        }
+
+        try
+        {
             using var document = JsonDocument.Parse(result.StandardOutput);
             if (!document.RootElement.TryGetProperty("streams", out var streams) ||
                 streams.ValueKind != JsonValueKind.Array)
             {
-                return string.Empty;
+                throw new InvalidDataException("视频校验失败：媒体中没有视频流。");
             }
 
             foreach (var stream in streams.EnumerateArray())
             {
-                if (string.Equals(GetString(stream, "codec_type"), "video", StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(GetString(stream, "codec_type"), "video", StringComparison.OrdinalIgnoreCase))
                 {
-                    return GetString(stream, "codec_name")?.Trim().ToLowerInvariant() ?? string.Empty;
+                    continue;
                 }
+
+                var codec = GetString(stream, "codec_name")?.Trim().ToLowerInvariant();
+                if (string.IsNullOrWhiteSpace(codec))
+                {
+                    throw new InvalidDataException("视频校验失败：视频流缺少编码信息。");
+                }
+
+                return codec;
             }
         }
-        catch
+        catch (JsonException ex)
         {
-            return string.Empty;
+            throw new InvalidDataException($"视频校验失败：ffprobe 返回内容无效（{ex.Message}）。", ex);
         }
 
-        return string.Empty;
+        throw new InvalidDataException("视频校验失败：媒体中没有视频流。");
     }
 
     private static async Task<ProcessRunResult> RunProcessAsyncDefault(ProcessStartInfo startInfo, CancellationToken cancellationToken)
@@ -989,6 +1079,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private static string ResolveFfmpegBinary() => BundledToolResolver.TryResolveBinary("ffmpeg") ?? "ffmpeg";
 
     private static string ResolveFfprobeBinary() => BundledToolResolver.TryResolveBinary("ffprobe") ?? "ffprobe";
+
+    private static bool IsClearlyNonMediaContentType(string? mediaType)
+    {
+        if (string.IsNullOrWhiteSpace(mediaType))
+        {
+            return false;
+        }
+
+        return mediaType.StartsWith("text/", StringComparison.OrdinalIgnoreCase) ||
+               mediaType.Contains("json", StringComparison.OrdinalIgnoreCase) ||
+               mediaType.Contains("xml", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string TrimProcessOutput(string value)
     {
@@ -1550,7 +1652,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private static string BuildEpisodeFileName(EpisodeTask task) => $"第{task.EpisodeNumber}集.mp4";
 
-    private static string? FindExistingEpisodeVideo(string outputDir, EpisodeTask task)
+    private static async Task<string?> FindExistingEpisodeVideoAsync(
+        string outputDir,
+        EpisodeTask task,
+        Action<string>? report,
+        CancellationToken cancellationToken)
     {
         foreach (var directory in new[] { outputDir, Path.Combine(outputDir, "videos") })
         {
@@ -1571,9 +1677,15 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 if (string.Equals(stem, Path.GetFileNameWithoutExtension(BuildEpisodeFileName(task)), StringComparison.OrdinalIgnoreCase) ||
                     BuildEpisodeMarkers(task).Any(marker => stem.Contains(marker, StringComparison.OrdinalIgnoreCase)))
                 {
-                    if (HasValidVideoFile(path))
+                    try
                     {
+                        await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
                         return path;
+                    }
+                    catch (InvalidDataException ex)
+                    {
+                        DeleteIfExists(path);
+                        report?.Invoke($"发现无效的已有视频，已清理并重新下载：{Path.GetFileName(path)}（{ex.Message}）");
                     }
                 }
             }
@@ -1881,6 +1993,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private sealed record H264TranscodePlan(string Name, ProcessStartInfo StartInfo);
 
+    private sealed record VideoProcessingResult(
+        string Codec,
+        bool Transcoded,
+        string? TranscodeEngine);
+
     private sealed record EpisodeTask(
         int Order,
         int EpisodeNumber,
@@ -1893,7 +2010,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private sealed record DownloadFileStats(
         long Bytes,
         TimeSpan Elapsed,
-        double BytesPerSecond);
+        double BytesPerSecond,
+        string MediaSummary);
 
     private const string HongguoLocalBookPrefix = "hglocal:";
     private const string HongguoLocalEpisodePrefix = "hglocal_ep:";

@@ -31,7 +31,23 @@ public sealed class HongguoLocalApiService
 
         try
         {
-            var directResults = await SearchDirectAsync(settings, trimmedKeyword, page, cancellationToken);
+            var directResults = await SearchDirectAsync(
+                settings,
+                trimmedKeyword,
+                page,
+                refresh: false,
+                cancellationToken: cancellationToken);
+            if (directResults.Count > 0)
+            {
+                return directResults;
+            }
+
+            directResults = await SearchDirectAsync(
+                settings,
+                trimmedKeyword,
+                page,
+                refresh: true,
+                cancellationToken: cancellationToken);
             if (directResults.Count > 0)
             {
                 return directResults;
@@ -49,17 +65,19 @@ public sealed class HongguoLocalApiService
         DramaSourceSettings settings,
         string keyword,
         int page,
+        bool refresh,
         CancellationToken cancellationToken)
     {
         var baseUrl = NormalizeLocalBaseUrl(settings.HongguoLocalBaseUrl);
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
-            throw new InvalidOperationException("未配置 hglocal 地址。");
+            throw new InvalidOperationException("未配置本地直连服务地址。");
         }
 
+        var refreshQuery = refresh ? "&refresh=1" : string.Empty;
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
-            $"{baseUrl}/search?q={Uri.EscapeDataString(keyword)}&limit=40&page={Math.Max(1, page)}&source=hglocal");
+            $"{baseUrl}/search?q={Uri.EscapeDataString(keyword)}&limit=40&page={Math.Max(1, page)}&source=hglocal&live=true{refreshQuery}");
         ApplyHeaders(request, settings);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
@@ -143,7 +161,7 @@ public sealed class HongguoLocalApiService
         var baseUrl = NormalizeLocalBaseUrl(settings.HongguoLocalBaseUrl);
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
-            throw new InvalidOperationException("未配置 hglocal 地址。");
+            throw new InvalidOperationException("未配置本地直连服务地址。");
         }
 
         var bookId = StripPrefix(prefixedOrRawBookId, HongguoLocalBookPrefix);
@@ -194,7 +212,7 @@ public sealed class HongguoLocalApiService
         var baseUrl = NormalizeLocalBaseUrl(settings.HongguoLocalBaseUrl);
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
-            throw new InvalidOperationException("未配置 hglocal 地址。");
+            throw new InvalidOperationException("未配置本地直连服务地址。");
         }
 
         var videoId = StripPrefix(prefixedOrRawVideoId, HongguoLocalEpisodePrefix);
@@ -214,10 +232,10 @@ public sealed class HongguoLocalApiService
                   ?? GetString(root, "backup");
         if (string.IsNullOrWhiteSpace(url))
         {
-            throw new InvalidOperationException("hglocal 未返回可用播放链接。");
+            throw new InvalidOperationException("本地直连服务未返回可用播放链接。");
         }
 
-        return new LocalVideoPlayback(BuildStreamUrl(baseUrl, videoId, settings.HongguoLocalApiKey, quality), url);
+        return new LocalVideoPlayback(url, url);
     }
 
     private async Task<IReadOnlyList<JsonElement>> FetchLatestItemsAsync(
@@ -229,7 +247,7 @@ public sealed class HongguoLocalApiService
         var baseUrl = NormalizeLocalBaseUrl(settings.HongguoLocalBaseUrl);
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
-            throw new InvalidOperationException("未配置 hglocal 地址。");
+            throw new InvalidOperationException("未配置本地直连服务地址。");
         }
 
         var onlyTodayQuery = onlyToday ? "&only_today=true" : string.Empty;
@@ -385,26 +403,6 @@ public sealed class HongguoLocalApiService
         return baseUrl.EndsWith("/api/hongguo", StringComparison.OrdinalIgnoreCase)
             ? baseUrl
             : $"{baseUrl}/api/hongguo";
-    }
-
-    private static string BuildStreamUrl(string baseUrl, string videoId, string apiKey, string quality)
-    {
-        var query = new List<string>
-        {
-            $"vid={Uri.EscapeDataString(videoId)}",
-            "source=hglocal"
-        };
-        if (!string.IsNullOrWhiteSpace(quality))
-        {
-            query.Add($"quality={Uri.EscapeDataString(quality.Trim())}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            query.Add($"api_key={Uri.EscapeDataString(apiKey.Trim())}");
-        }
-
-        return $"{baseUrl}/stream?{string.Join("&", query)}";
     }
 
     private static string EnsurePrefixed(string? value, string prefix)

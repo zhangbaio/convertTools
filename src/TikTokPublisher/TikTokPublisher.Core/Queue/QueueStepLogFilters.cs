@@ -3,6 +3,13 @@ namespace TikTokPublisher.Core.Queue;
 /// <summary>队列步骤日志过滤：重复执行已完成步骤时只保留概要信息。</summary>
 public static class QueueStepLogFilters
 {
+    /// <summary>
+    /// 下载步骤已经在下载服务层过滤了百分比刷新，剩余消息均为逐集开始、转码、重试、完成等
+    /// 生命周期日志，必须逐条传递，不能按“项目 + 步骤”覆盖或限频。
+    /// </summary>
+    public static bool RequiresLosslessUiDelivery(string? stepKey) =>
+        string.Equals(stepKey, QueueStepRegistry.Download, StringComparison.Ordinal);
+
     public static Action<string> SummaryOnly(Action<string> forward) => message =>
     {
         if (string.IsNullOrWhiteSpace(message))

@@ -115,9 +115,18 @@ public sealed class PikachuDramaChainTests
         Directory.CreateDirectory(outputDir);
         var handler = new PikachuRecordingHandler();
         using var httpClient = new HttpClient(handler);
+        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
+        var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
 
         try
         {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
+            DramaSourceRouter.RunProcessAsyncForTests.Value = (startInfo, _) =>
+            {
+                startInfo.FileName.Should().Be("fake-ffprobe");
+                return Task.FromResult(ProbeResult("h264"));
+            };
+
             var settings = new DramaSourceSettings
             {
                 DramaSourceChain = "pikachu",
@@ -157,6 +166,8 @@ public sealed class PikachuDramaChainTests
         }
         finally
         {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
+            DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
             Directory.Delete(outputDir, recursive: true);
         }
     }
@@ -172,13 +183,20 @@ public sealed class PikachuDramaChainTests
         var handler = new PikachuRecordingHandler(decryptKey, encryptedBytes);
         using var httpClient = new HttpClient(handler);
         var previousFfmpegResolver = DramaSourceRouter.ResolveFfmpegBinaryForTests.Value;
+        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
         var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
 
         try
         {
             DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = () => "fake-ffmpeg";
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
             DramaSourceRouter.RunProcessAsyncForTests.Value = async (startInfo, cancellationToken) =>
             {
+                if (startInfo.FileName == "fake-ffprobe")
+                {
+                    return ProbeResult("h264");
+                }
+
                 startInfo.FileName.Should().Be("fake-ffmpeg");
                 var args = startInfo.ArgumentList;
                 args.Should().Contain("-decryption_key");
@@ -236,6 +254,7 @@ public sealed class PikachuDramaChainTests
         finally
         {
             DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = previousFfmpegResolver;
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
             DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
             Directory.Delete(outputDir, recursive: true);
         }
@@ -412,6 +431,15 @@ public sealed class PikachuDramaChainTests
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         };
     }
+
+    private static DramaSourceRouter.ProcessRunResult ProbeResult(string codec) =>
+        new(0, $$"""
+            {
+              "streams": [
+                { "codec_type": "video", "codec_name": "{{codec}}" }
+              ]
+            }
+            """, "");
 
     private static string BuildFanqieCookie() =>
         $"install_id=12345; ttreq=1${new string('b', 32)}; odin_tt={new string('a', 160)}";

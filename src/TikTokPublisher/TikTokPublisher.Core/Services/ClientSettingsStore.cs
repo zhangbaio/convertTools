@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
+using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Remote;
@@ -198,7 +199,7 @@ public static class ClientSettingsStore
         var settings = Load(databasePath);
         if (!string.IsNullOrWhiteSpace(fanqieCookie))
         {
-            settings.PikachuFanqieCookie = fanqieCookie.Trim();
+            settings.PikachuFanqieCookie = NormalizePikachuFanqieCookie(fanqieCookie);
         }
 
         if (!string.IsNullOrWhiteSpace(deviceId))
@@ -237,6 +238,7 @@ public static class ClientSettingsStore
         settings.PikachuDramaType = string.Equals(settings.PikachuDramaType, "manga", StringComparison.OrdinalIgnoreCase)
             ? "manga"
             : "short";
+        settings.PikachuFanqieCookie = NormalizePikachuFanqieCookie(settings.PikachuFanqieCookie);
         settings.TiktokSilenceAsrEngine = NormalizeAsrEngine(settings.TiktokSilenceAsrEngine);
         settings.TiktokSilenceRepairMode = NormalizeRepairMode(settings.TiktokSilenceRepairMode);
         settings.TiktokSilenceDetectConcurrency = Math.Clamp(settings.TiktokSilenceDetectConcurrency, 1, 16);
@@ -380,6 +382,12 @@ public static class ClientSettingsStore
         settings.XingeClientName = DefaultIfBlank(settings.XingeClientName, "TikTokPublisher");
         settings.XingePollIntervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
         return settings;
+    }
+
+    private static string NormalizePikachuFanqieCookie(string? value)
+    {
+        var trimmed = (value ?? string.Empty).Trim();
+        return HongguoMemoryReaderService.NormalizeFanqieCookie(trimmed) ?? trimmed;
     }
 
     private static string NormalizeHongguoLocalDownloadMode(string? value)
