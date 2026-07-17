@@ -551,7 +551,8 @@ public sealed class TikTokPublishDefaultsTests
             loaded.AiTextApiKey.Should().BeEmpty();
             loaded.ImageModelApiKey.Should().BeEmpty();
             loaded.OfoxImage2ApiKey.Should().BeEmpty();
-            loaded.HgnewUdid.Should().Be("ABC-DEF");
+            // 非 GUID / 非 32hex 的值保持原样（1.5.0 DeviceId 规范化不再一律大写）
+            loaded.HgnewUdid.Should().Be("abc-def");
             loaded.HgnewClientVersion.Should().Be("1.3.8");
             loaded.AiTextEndpoint.Should().Be("https://example.test/v1");
             loaded.ImageModelEndpoint.Should().Be("https://image.example.test/v1");

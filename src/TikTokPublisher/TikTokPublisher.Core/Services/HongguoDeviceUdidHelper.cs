@@ -1,4 +1,4 @@
-using Microsoft.Win32;
+using ShortDrama.Infrastructure.Automation;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -17,11 +17,10 @@ public static class HongguoDeviceUdidHelper
 
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\HongGuoClient", false);
-            var value = key?.GetValue("DeviceUDID")?.ToString()?.Trim();
+            var value = HongguoDeviceId.TryReadFromRegistry();
             if (string.IsNullOrWhiteSpace(value))
             {
-                message = "未在注册表中找到设备唯一标识。";
+                message = "未在注册表中找到 HongGuopy/HongGuoClient\\DeviceUDID。";
                 return false;
             }
 

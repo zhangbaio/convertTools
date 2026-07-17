@@ -62,7 +62,7 @@
                             </Grid>
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="客户端版本" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding HgnewClientVersion}" Watermark="1.3.9" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding HgnewClientVersion}" Watermark="1.5.0" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="测试结果" VerticalAlignment="Center" />
                             <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding HgnewProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />

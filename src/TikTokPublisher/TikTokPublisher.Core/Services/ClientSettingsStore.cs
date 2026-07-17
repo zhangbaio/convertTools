@@ -416,11 +416,8 @@ public static class ClientSettingsStore
             : text;
     }
 
-    public static string NormalizeUdid(string? value)
-    {
-        var trimmed = (value ?? string.Empty).Trim();
-        return trimmed.Length == 0 ? "" : trimmed.ToUpperInvariant();
-    }
+    public static string NormalizeUdid(string? value) =>
+        ShortDrama.Infrastructure.Automation.HongguoDeviceId.Normalize(value);
 
     private static string NormalizeAsrEngine(string? value) =>
         (value ?? "local").Trim().ToLowerInvariant() switch

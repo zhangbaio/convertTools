@@ -8,16 +8,16 @@ using System.Text.Json;
 
 namespace ShortDrama.Infrastructure.Automation;
 
-public sealed class HongguoNewApiService
+public sealed partial class HongguoNewApiService
 {
     private const string BaseUrlTemplate = "https://au.s1o.cc/api/user/1000/win/{0}";
+    private const string RestApiBase = "http://101.35.49.94/api";
     private const string FallbackDailyUrl = "http://129.211.169.30:996/new.php";
-    // HG Downloader 1.3.9：AES key、APP_KEY（签名尾串）均更换，端点改为 2 字符短码
-    // （/logon->/m4、/cloudFunction->/z9、/info->/j9）。sign=MD5(排序kv明文+AppKey) 结构不变；
-    // 视频防盗链 sign=HMAC-SHA256(HMAC-SHA256(AppKey,token),message) 结构不变，换 key 即通。
+    // 1.3.9 AES legacy；1.5.0+ 走 RestApiBase 明文 JSON + JWT（见 HongguoNewApiService.Rest.cs）
     private const string AppKey = "de0852fd2493377d766f27d8a9f686af";
     private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("UMgfJjHhMizNdJGl");
-    private const string DefaultVersion = "1.3.9";
+    private const string DefaultVersion = "1.5.0";
+    private static readonly Version RestMinVersion = new(1, 5, 0);
     private static readonly string[] AxiosWrapperKeys = ["status", "statusText", "headers", "config", "request"];
     private static readonly HashSet<int> LoginRetryCodes = [46, 141, 401];
     private static readonly string[] LoginRetryHints =
@@ -28,9 +28,17 @@ public sealed class HongguoNewApiService
         "登录过期",
         "未登录",
         "请重新登录",
-        "退出重新登录"
+        "退出重新登录",
+        "unauthorized",
+        "jwt"
     ];
     private static readonly string[] DailyModes = ["djnew", "mjnew", "aiju"];
+    private static readonly Dictionary<string, string> RestDailyActionMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["djnew"] = "today_new",
+        ["mjnew"] = "mj_today_new",
+        ["aiju"] = "aiju_today_new"
+    };
     private static readonly string[] PosterKeys =
     [
         "poster", "poster_url", "cover", "cover_url", "thumbnail", "thumbnail_url", "thumb", "thumb_url",
@@ -80,12 +88,15 @@ public sealed class HongguoNewApiService
             return [];
         }
 
-        var items = await CloudFunctionItemsAsync(
-            "search",
-            ResolveCredentials(settings),
-            30,
-            trimmedKeyword,
-            cancellationToken);
+        var credentials = ResolveCredentials(settings);
+        var items = IsRestV15(credentials.ClientVersion)
+            ? await RestSearchItemsAsync(credentials, trimmedKeyword, 30, cancellationToken)
+            : await CloudFunctionItemsAsync(
+                "search",
+                credentials,
+                30,
+                trimmedKeyword,
+                cancellationToken);
         return items.Select(MapSearchItem)
             .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
             .ToArray();
@@ -101,18 +112,20 @@ public sealed class HongguoNewApiService
 
         try
         {
-            var items = await CloudFunctionItemsAsync(
-                mode,
-                credentials,
-                30,
-                null,
-                cancellationToken);
+            var items = IsRestV15(credentials.ClientVersion)
+                ? await RestLatestItemsAsync(credentials, mode, 60, cancellationToken)
+                : await CloudFunctionItemsAsync(
+                    mode,
+                    credentials,
+                    30,
+                    null,
+                    cancellationToken);
             return SortByPublishTime(items)
                 .Select(MapSearchItem)
                 .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
                 .ToArray();
         }
-        catch (HongguoNewApiException ex) when (ex.Code >= 400)
+        catch (HongguoNewApiException ex) when (ex.Code >= 400 && !IsRestV15(credentials.ClientVersion))
         {
             var fallbackItems = await FetchFallbackDailyNewAsync(credentials.ClientVersion, cancellationToken);
             return SortByPublishTime(fallbackItems)
@@ -130,12 +143,14 @@ public sealed class HongguoNewApiService
     {
         ValidateDailyMode(mode);
         var credentials = ResolveCredentials(settings);
-        var rawItems = await CloudFunctionItemsAsync(
-            mode,
-            credentials,
-            30,
-            null,
-            cancellationToken);
+        var rawItems = IsRestV15(credentials.ClientVersion)
+            ? await RestLatestItemsAsync(credentials, mode, 60, cancellationToken)
+            : await CloudFunctionItemsAsync(
+                mode,
+                credentials,
+                30,
+                null,
+                cancellationToken);
 
         var dateSet = dates
             .Select(date => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
@@ -158,21 +173,36 @@ public sealed class HongguoNewApiService
         var credentials = ResolveCredentials(settings);
         var allItems = new List<Dictionary<string, object?>>();
         var seenIds = new HashSet<string>(StringComparer.Ordinal);
+        var today = DateOnly.FromDateTime(DateTime.Now);
 
         foreach (var date in dates)
         {
-            var paramJson = JsonSerializer.Serialize(new
+            IReadOnlyList<Dictionary<string, object?>> items;
+            if (IsRestV15(credentials.ClientVersion))
             {
-                type = HistoryTypeMap.GetValueOrDefault(mode, mode),
-                time = date.ToString("yyyyMMdd", CultureInfo.InvariantCulture)
-            });
+                // 1.5.0 历史上新尚未完整还原；查询今天时复用每日上新
+                if (date != today)
+                {
+                    throw new HongguoNewApiException(
+                        "红果 1.5.0 历史上新接口尚未适配，请改查「今日上新」或将客户端版本临时改为 1.3.9");
+                }
 
-            var items = await CloudFunctionItemsAsync(
-                "getTmDailyData",
-                credentials,
-                30,
-                paramJson,
-                cancellationToken);
+                items = await RestLatestItemsAsync(credentials, mode, 60, cancellationToken);
+            }
+            else
+            {
+                var paramJson = JsonSerializer.Serialize(new
+                {
+                    type = HistoryTypeMap.GetValueOrDefault(mode, mode),
+                    time = date.ToString("yyyyMMdd", CultureInfo.InvariantCulture)
+                });
+                items = await CloudFunctionItemsAsync(
+                    "getTmDailyData",
+                    credentials,
+                    30,
+                    paramJson,
+                    cancellationToken);
+            }
 
             foreach (var item in items)
             {
@@ -204,16 +234,24 @@ public sealed class HongguoNewApiService
         }
 
         var credentials = ResolveCredentials(settings);
-        var paramJson = JsonSerializer.Serialize(new
+        IReadOnlyList<Dictionary<string, object?>> items;
+        if (IsRestV15(credentials.ClientVersion))
         {
-            book_id = trimmedBookId
-        });
-        var items = await CloudFunctionItemsAsync(
-            "book",
-            credentials,
-            30,
-            paramJson,
-            cancellationToken);
+            items = await RestVideoListItemsAsync(credentials, trimmedBookId, 30, cancellationToken);
+        }
+        else
+        {
+            var paramJson = JsonSerializer.Serialize(new
+            {
+                book_id = trimmedBookId
+            });
+            items = await CloudFunctionItemsAsync(
+                "book",
+                credentials,
+                30,
+                paramJson,
+                cancellationToken);
+        }
 
         var episodes = new List<HongguoEpisodeInfo>();
         var index = 1;
@@ -365,6 +403,11 @@ public sealed class HongguoNewApiService
         string quality,
         CancellationToken cancellationToken)
     {
+        if (IsRestV15(credentials.ClientVersion))
+        {
+            return await RestVideoParseAsync(credentials, videoId, quality, 30, cancellationToken);
+        }
+
         var token = await EnsureTokenAsync(credentials, 30, cancellationToken);
         await InfoPingAsync(credentials, token, 30, cancellationToken);
 
@@ -508,7 +551,7 @@ public sealed class HongguoNewApiService
         int timeoutSeconds,
         CancellationToken cancellationToken)
     {
-        var cacheKey = $"{credentials.Account.Trim()}\n{credentials.Udid.Trim().ToUpperInvariant()}\n{credentials.ClientVersion.Trim()}";
+        var cacheKey = BuildTokenCacheKey(credentials);
         lock (_tokenGate)
         {
             if (_tokenCache.TryGetValue(cacheKey, out var cached) &&
@@ -516,6 +559,20 @@ public sealed class HongguoNewApiService
             {
                 return cached.Token;
             }
+        }
+
+        if (IsRestV15(credentials.ClientVersion))
+        {
+            var (token, expiresIn) = await RestLoginAsync(credentials, timeoutSeconds, cancellationToken);
+            lock (_tokenGate)
+            {
+                var ttl = expiresIn > 0 ? TimeSpan.FromSeconds(expiresIn) : TimeSpan.FromHours(1);
+                _tokenCache[cacheKey] = new HongguoTokenCacheEntry(
+                    token,
+                    DateTimeOffset.UtcNow.Add(ttl));
+            }
+
+            return token;
         }
 
         var url = BuildBaseUrl(credentials.ClientVersion) + "/m4";  // 1.3.9: /logon -> /m4
@@ -585,12 +642,15 @@ public sealed class HongguoNewApiService
 
     private void InvalidateToken(HongguoCredentials credentials)
     {
-        var cacheKey = $"{credentials.Account.Trim()}\n{credentials.Udid.Trim().ToUpperInvariant()}\n{credentials.ClientVersion.Trim()}";
+        var cacheKey = BuildTokenCacheKey(credentials);
         lock (_tokenGate)
         {
             _tokenCache.Remove(cacheKey);
         }
     }
+
+    private static string BuildTokenCacheKey(HongguoCredentials credentials) =>
+        $"{credentials.Account.Trim()}\n{credentials.Udid.Trim()}\n{credentials.ClientVersion.Trim()}";
 
     private async Task<Dictionary<string, object?>> PostEncryptedFormAsync(
         string url,
@@ -667,7 +727,34 @@ public sealed class HongguoNewApiService
 
     private static string NormalizeVersion(string clientVersion)
     {
-        return string.IsNullOrWhiteSpace(clientVersion) ? DefaultVersion : clientVersion.Trim();
+        if (string.IsNullOrWhiteSpace(clientVersion))
+        {
+            return DefaultVersion;
+        }
+
+        var trimmed = clientVersion.Trim();
+        // 1.3.x 旧 host 已不可用；配置低于 1.5.0 时自动抬到 REST（与 Python 一致）
+        return IsRestV15(trimmed) ? trimmed : DefaultVersion;
+    }
+
+    private static bool IsRestV15(string clientVersion)
+    {
+        if (!Version.TryParse(NormalizeVersionParts(clientVersion), out var parsed))
+        {
+            return false;
+        }
+
+        return parsed >= RestMinVersion;
+    }
+
+    private static string NormalizeVersionParts(string clientVersion)
+    {
+        var parts = (clientVersion ?? string.Empty)
+            .Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(part => part.All(char.IsDigit))
+            .Take(4)
+            .ToArray();
+        return parts.Length == 0 ? "0" : string.Join('.', parts);
     }
 
     private static string BuildVideoPlaybackParam(string videoId, string quality, string token, string udid)
@@ -832,13 +919,29 @@ public sealed class HongguoNewApiService
     {
         var account = (settings.HgnewAccount ?? string.Empty).Trim();
         var password = (settings.HgnewPassword ?? string.Empty).Trim();
-        var udid = (settings.HgnewUdid ?? string.Empty).Trim().ToUpperInvariant();
         var clientVersion = NormalizeVersion(settings.HgnewClientVersion);
+        var udid = HongguoDeviceId.Normalize(settings.HgnewUdid);
+        if (IsRestV15(clientVersion))
+        {
+            // 设置里若仍是旧 GUID，自动改用 HongGuopy 的 32hex DeviceId
+            if (HongguoDeviceId.LooksLikeGuid(udid) || string.IsNullOrWhiteSpace(udid))
+            {
+                var registryId = HongguoDeviceId.TryReadFromRegistry();
+                if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeHex32(registryId))
+                {
+                    udid = registryId;
+                }
+            }
+        }
+        else if (string.IsNullOrWhiteSpace(udid))
+        {
+            udid = HongguoDeviceId.TryReadFromRegistry() ?? "";
+        }
 
         var missing = new List<string>();
         if (account.Length == 0) missing.Add("账号");
         if (password.Length == 0) missing.Add("密码");
-        if (udid.Length == 0) missing.Add("UDID");
+        if (udid.Length == 0) missing.Add("UDID/DeviceId");
         if (missing.Count > 0)
         {
             throw new HongguoNewApiException($"红果新接口未配置：{string.Join("、", missing)}");

@@ -17,7 +17,7 @@ public sealed class GlobalDesktopSettings
     public string HgnewAccount { get; set; } = string.Empty;
     public string HgnewPassword { get; set; } = string.Empty;
     public string HgnewUdid { get; set; } = string.Empty;
-    public string HgnewClientVersion { get; set; } = "1.3.9";
+    public string HgnewClientVersion { get; set; } = "1.5.0";
     public int HongguoDownloadTimeoutSeconds { get; set; } = 60;
     public int HongguoEpisodeDownloadAttempts { get; set; } = 5;
     public string HongguoLocalBaseUrl { get; set; } = string.Empty;

@@ -1,6 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.Win32;
 using ShortDrama.Desktop.Models;
 using ShortDrama.Desktop.Services;
 using ShortDrama.Infrastructure.Automation;
@@ -411,14 +410,13 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\HongGuoClient", false);
-            var value = key?.GetValue("DeviceUDID")?.ToString()?.Trim();
+            var value = HongguoDeviceId.TryReadFromRegistry();
             HgnewProbeStatus = string.IsNullOrWhiteSpace(value)
-                ? "未在注册表中找到 DeviceUDID。"
+                ? "未在注册表中找到 HongGuopy/HongGuoClient\\DeviceUDID。"
                 : "已从注册表读取 DeviceUDID。";
             if (!string.IsNullOrWhiteSpace(value))
             {
-                HgnewUdid = value.ToUpperInvariant();
+                HgnewUdid = HongguoDeviceId.Normalize(value);
             }
         }
         catch (Exception ex)

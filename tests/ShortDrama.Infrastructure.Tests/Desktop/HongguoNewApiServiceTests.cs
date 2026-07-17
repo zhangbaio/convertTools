@@ -2,7 +2,6 @@ using FluentAssertions;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation;
 using System.Net;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Xunit;
@@ -11,21 +10,22 @@ namespace ShortDrama.Infrastructure.Tests.Desktop;
 
 public sealed class HongguoNewApiServiceTests
 {
-    private const string AppKey = "de0852fd2493377d766f27d8a9f686af";
-    private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("UMgfJjHhMizNdJGl");
-
     [Fact]
-    public async Task SearchAsync_Should_Use_Hgnew_Login_And_Map_Search_Items()
+    public async Task SearchAsync_Should_Use_Rest_Login_And_Map_Search_Items()
     {
         var handler = new RecordingHandler();
-        handler.EnqueueJson(EncryptOuter(new
+        handler.EnqueueJson(RestOk(new
         {
-            state = "y",
-            token = "token-1"
-        }));
-        handler.EnqueueJson(EncryptOuter(new
+            accessToken = "jwt-token-1",
+            email = "test@example.com",
+            isMember = true,
+            memberEndDate = "2026-08-23T06:35:47",
+            expiresIn = 3600
+        }, "登录成功"));
+        handler.EnqueueJson(RestWrapped(new
         {
             code = 200,
+            msg = "综合搜索成功",
             data = new object[]
             {
                 new
@@ -37,12 +37,10 @@ public sealed class HongguoNewApiServiceTests
                     intro = "测试简介",
                     cover = "https://example.com/poster.jpg",
                     author = "测试作者",
-                    publish_time = "2026-06-14 10:20:30",
-                    favorite_count = 1234
+                    publish_time = "2026-06-14 10:20:30"
                 }
-            },
-            message = "ok"
-        }));
+            }
+        }, "综合搜索成功（会员免扣点）"));
 
         var service = new HongguoNewApiService(new HttpClient(handler));
         var settings = CreateSettings();
@@ -56,23 +54,24 @@ public sealed class HongguoNewApiServiceTests
         results[0].PosterUrl.Should().Be("https://example.com/poster.jpg");
 
         handler.Requests.Should().HaveCount(2);
-        handler.Requests[0].RequestUri!.AbsolutePath.Should().EndWith("/m4");
-        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/z9");
-        handler.Requests[0].Headers.GetValues("X-Client-Version").Single().Should().Be("1.3.6");
+        handler.Requests[0].RequestUri!.AbsolutePath.Should().Be("/api/User/login");
+        handler.Requests[1].RequestUri!.AbsolutePath.Should().Be("/api/ThirdParty/unified-search");
+        handler.Requests[0].Headers.GetValues("X-Client-Version").Single().Should().Be("1.5.0");
+        handler.Requests[0].Headers.GetValues("X-Device-Id").Single().Should().Be("42ce0f9242ea893b241749e35cf894be");
+        handler.Requests[1].Headers.Authorization?.Parameter.Should().Be("jwt-token-1");
     }
 
     [Fact]
     public async Task GetDailyByDatesAsync_Should_Filter_By_Publish_Date()
     {
         var handler = new RecordingHandler();
-        handler.EnqueueJson(EncryptOuter(new
-        {
-            state = "y",
-            token = "token-1"
-        }));
-        handler.EnqueueJson(EncryptOuter(new
+        handler.EnqueueJson(RestOk(new { accessToken = "jwt-token-1", expiresIn = 3600 }, "登录成功"));
+        handler.EnqueueJson(RestWrapped(new
         {
             code = 200,
+            message = "今日上新解析成功",
+            warming = false,
+            ready = true,
             data = new object[]
             {
                 new
@@ -91,9 +90,8 @@ public sealed class HongguoNewApiServiceTests
                     episode_cnt = 18,
                     publish_time = "2026-06-13 21:00:00"
                 }
-            },
-            message = "ok"
-        }));
+            }
+        }, "获取最新上架成功（会员免扣点）"));
 
         var service = new HongguoNewApiService(new HttpClient(handler));
         var settings = CreateSettings();
@@ -107,27 +105,24 @@ public sealed class HongguoNewApiServiceTests
         items.Should().HaveCount(1);
         items[0].BookId.Should().Be("today-1");
         items[0].Title.Should().Be("今天的漫剧");
+        handler.Requests[1].RequestUri!.AbsolutePath.Should().Be("/api/ThirdParty/latest");
     }
 
     [Fact]
-    public async Task GetEpisodesAsync_Should_Map_Episodes_From_Book_Data()
+    public async Task GetEpisodesAsync_Should_Map_Episodes_From_VideoList()
     {
         var handler = new RecordingHandler();
-        handler.EnqueueJson(EncryptOuter(new
-        {
-            state = "y",
-            token = "token-1"
-        }));
-        handler.EnqueueJson(EncryptOuter(new
+        handler.EnqueueJson(RestOk(new { accessToken = "jwt-token-1", expiresIn = 3600 }, "登录成功"));
+        handler.EnqueueJson(RestWrapped(new
         {
             code = 200,
+            msg = "获取列表成功",
             data = new object[]
             {
                 new { title = "第01集", video_id = "video-1" },
                 new { title = "第02集", video_id = "video-2" }
-            },
-            message = "ok"
-        }));
+            }
+        }, "获取视频列表成功（会员免扣点）"));
 
         var service = new HongguoNewApiService(new HttpClient(handler));
         var settings = CreateSettings();
@@ -139,37 +134,30 @@ public sealed class HongguoNewApiServiceTests
         episodes[0].VideoId.Should().Be("video-1");
         episodes[1].EpisodeNumber.Should().Be(2);
         episodes[1].VideoId.Should().Be("video-2");
+        handler.Requests[1].RequestUri!.AbsolutePath.Should().Be("/api/ThirdParty/videolist");
     }
 
     [Fact]
-    public async Task GetEpisodesAsync_Should_Relogin_When_Response_Data_Says_Token_Invalid()
+    public async Task GetEpisodesAsync_Should_Relogin_When_Rest_Unauthorized()
     {
         var handler = new RecordingHandler();
-        handler.EnqueueJson(EncryptOuter(new
+        handler.EnqueueJson(RestOk(new { accessToken = "jwt-token-1", expiresIn = 3600 }, "登录成功"));
+        handler.EnqueueJson(JsonSerializer.Serialize(new
         {
-            state = "y",
-            token = "token-1"
+            success = false,
+            message = "请重新登录",
+            data = (object?)null
         }));
-        handler.EnqueueJson(EncryptOuter(new
+        handler.EnqueueJson(RestOk(new { accessToken = "jwt-token-2", expiresIn = 3600 }, "登录成功"));
+        handler.EnqueueJson(RestWrapped(new
         {
             code = 200,
-            data = "Token不存在或已失效，请重启软件",
-            message = "ok"
-        }));
-        handler.EnqueueJson(EncryptOuter(new
-        {
-            state = "y",
-            token = "token-2"
-        }));
-        handler.EnqueueJson(EncryptOuter(new
-        {
-            code = 200,
+            msg = "获取列表成功",
             data = new object[]
             {
                 new { title = "第1集", video_id = "video-1" }
-            },
-            message = "ok"
-        }));
+            }
+        }, "获取视频列表成功（会员免扣点）"));
 
         var service = new HongguoNewApiService(new HttpClient(handler));
         var settings = CreateSettings();
@@ -179,39 +167,31 @@ public sealed class HongguoNewApiServiceTests
         episodes.Should().HaveCount(1);
         episodes[0].VideoId.Should().Be("video-1");
         handler.Requests.Should().HaveCount(4);
-        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/z9");
-        handler.Requests[1].Headers.Authorization?.Parameter.Should().Be("token-1");
-        handler.Requests[3].RequestUri!.AbsolutePath.Should().EndWith("/z9");
-        handler.Requests[3].Headers.Authorization?.Parameter.Should().Be("token-2");
+        handler.Requests[1].RequestUri!.AbsolutePath.Should().Be("/api/ThirdParty/videolist");
+        handler.Requests[1].Headers.Authorization?.Parameter.Should().Be("jwt-token-1");
+        handler.Requests[3].RequestUri!.AbsolutePath.Should().Be("/api/ThirdParty/videolist");
+        handler.Requests[3].Headers.Authorization?.Parameter.Should().Be("jwt-token-2");
     }
 
     [Fact]
     public async Task GetVideoPlaybackAsync_Should_Return_Url_And_Size()
     {
         var handler = new RecordingHandler();
-        handler.EnqueueJson(EncryptOuter(new
-        {
-            state = "y",
-            token = "token-1"
-        }));
-        handler.EnqueueJson(EncryptOuter(new
-        {
-            code = 0,
-            data = new { pong = true }
-        }));
-        handler.EnqueueJson(EncryptOuter(new
+        handler.EnqueueJson(RestOk(new { accessToken = "jwt-token-1", expiresIn = 3600 }, "登录成功"));
+        handler.EnqueueJson(RestWrapped(new
         {
             code = 200,
+            msg = "解析成功",
+            url = "https://example.com/video.mp4",
             data = new
             {
                 url = "https://example.com/video.mp4",
                 info = new
                 {
-                    size = 123456789
+                    size = "12.45MB"
                 }
-            },
-            message = "ok"
-        }));
+            }
+        }, "视频解析成功（会员免扣点）"));
 
         var service = new HongguoNewApiService(new HttpClient(handler));
         var settings = CreateSettings();
@@ -219,63 +199,18 @@ public sealed class HongguoNewApiServiceTests
         var detail = await service.GetVideoPlaybackAsync(settings, "video-1", "1080P+", CancellationToken.None);
 
         detail.Url.Should().Be("https://example.com/video.mp4");
-        detail.Size.Should().Be(123456789);
-        handler.Requests.Should().HaveCount(3);
-        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/j9");
-        handler.Requests[2].RequestUri!.AbsolutePath.Should().EndWith("/z9");
+        detail.Size.Should().Be((long)(12.45 * 1024 * 1024));
+        handler.Requests.Should().HaveCount(2);
+        handler.Requests[1].RequestUri!.AbsolutePath.Should().Be("/api/ThirdParty/videoparse");
     }
 
     [Fact]
-    public async Task GetVideoPlaybackAsync_Should_Relogin_When_Info_Says_Token_Invalid()
+    public void HongguoDeviceId_Normalize_Keeps_Hex_Lowercase_And_Guid_Uppercase()
     {
-        var handler = new RecordingHandler();
-        handler.EnqueueJson(EncryptOuter(new
-        {
-            state = "y",
-            token = "token-1"
-        }));
-        handler.EnqueueJson(EncryptOuter(new
-        {
-            code = 46,
-            message = "Token不存在或已失效，请重启软件"
-        }));
-        handler.EnqueueJson(EncryptOuter(new
-        {
-            state = "y",
-            token = "token-2"
-        }));
-        handler.EnqueueJson(EncryptOuter(new
-        {
-            code = 0,
-            data = new { pong = true }
-        }));
-        handler.EnqueueJson(EncryptOuter(new
-        {
-            code = 200,
-            data = new
-            {
-                url = "https://example.com/video.mp4",
-                info = new
-                {
-                    size = 123456789
-                }
-            },
-            message = "ok"
-        }));
-
-        var service = new HongguoNewApiService(new HttpClient(handler));
-        var settings = CreateSettings();
-
-        var detail = await service.GetVideoPlaybackAsync(settings, "video-1", "1080P+", CancellationToken.None);
-
-        detail.Url.Should().Be("https://example.com/video.mp4");
-        handler.Requests.Should().HaveCount(5);
-        handler.Requests[1].RequestUri!.AbsolutePath.Should().EndWith("/j9");
-        handler.Requests[1].Headers.Authorization?.Parameter.Should().Be("token-1");
-        handler.Requests[3].RequestUri!.AbsolutePath.Should().EndWith("/j9");
-        handler.Requests[3].Headers.Authorization?.Parameter.Should().Be("token-2");
-        handler.Requests[4].RequestUri!.AbsolutePath.Should().EndWith("/z9");
-        handler.Requests[4].Headers.Authorization?.Parameter.Should().Be("token-2");
+        HongguoDeviceId.Normalize("42CE0F9242EA893B241749E35CF894BE")
+            .Should().Be("42ce0f9242ea893b241749e35cf894be");
+        HongguoDeviceId.Normalize("64437e32-40bb-440c-8300-99232d63e8f7")
+            .Should().Be("64437E32-40BB-440C-8300-99232D63E8F7");
     }
 
     private static DramaSourceSettings CreateSettings()
@@ -285,37 +220,33 @@ public sealed class HongguoNewApiServiceTests
             DramaSourceChain = "hgnew",
             HgnewAccount = "test@example.com",
             HgnewPassword = "secret",
-            HgnewUdid = "64437E32-40BB-440C-8300-99232D63E8F7",
-            HgnewClientVersion = "1.3.6",
+            // 1.5.0 DeviceId：32hex 小写（避免测试机注册表 GUID 干扰）
+            HgnewUdid = "42ce0f9242ea893b241749e35cf894be",
+            HgnewClientVersion = "1.5.0",
             PikachuDramaType = "short",
         };
     }
 
-    private static string EncryptOuter(object innerData)
-    {
-        var plainJson = JsonSerializer.Serialize(innerData);
-        using var aes = Aes.Create();
-        aes.Mode = CipherMode.CBC;
-        aes.Padding = PaddingMode.PKCS7;
-        aes.Key = AesKey;
-        aes.GenerateIV();
-
-        using var encryptor = aes.CreateEncryptor();
-        var plainBytes = Encoding.UTF8.GetBytes(plainJson);
-        var encrypted = encryptor.TransformFinalBlock(plainBytes, 0, plainBytes.Length);
-
-        var payload = new byte[aes.IV.Length + encrypted.Length];
-        Buffer.BlockCopy(aes.IV, 0, payload, 0, aes.IV.Length);
-        Buffer.BlockCopy(encrypted, 0, payload, aes.IV.Length, encrypted.Length);
-
-        var outer = new
+    private static string RestOk(object data, string message) =>
+        JsonSerializer.Serialize(new
         {
-            code = 0,
-            msg = "ok",
-            data = Convert.ToBase64String(payload)
-        };
-        return JsonSerializer.Serialize(outer);
-    }
+            success = true,
+            message,
+            data
+        });
+
+    private static string RestWrapped(object inner, string message) =>
+        JsonSerializer.Serialize(new
+        {
+            success = true,
+            message,
+            data = new
+            {
+                success = true,
+                message,
+                rawData = JsonSerializer.Serialize(inner)
+            }
+        });
 
     private sealed class RecordingHandler : HttpMessageHandler
     {
@@ -333,8 +264,20 @@ public sealed class HongguoNewApiServiceTests
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            Requests.Add(request);
+            Requests.Add(CloneRequest(request));
             return Task.FromResult(_responses.Dequeue());
+        }
+
+        private static HttpRequestMessage CloneRequest(HttpRequestMessage request)
+        {
+            // 保留 URI/Headers 供断言；Content 不克隆
+            var clone = new HttpRequestMessage(request.Method, request.RequestUri);
+            foreach (var header in request.Headers)
+            {
+                clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            return clone;
         }
     }
 }

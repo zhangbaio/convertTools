@@ -11,11 +11,12 @@ namespace ShortDrama.Infrastructure.Automation;
 public static class HongguoNewLoginClient
 {
     private const string BaseUrlTemplate = "https://au.s1o.cc/api/user/1000/win/{0}";
-    // HG Downloader 1.3.9：AES key、APP_KEY（签名尾串）均更换，端点改为 2 字符短码。
-    // sign = MD5(排序kv明文 + AppKey)，token 用登录返回原值；详见 weixin-channel-tool 逆向文档。
+    private const string RestApiBase = "http://101.35.49.94/api";
+    // 1.3.9 AES legacy；1.5.0+ 走 REST JWT（与 weixin-channel-tool hongguo_auth_service 对齐）
     private const string AppKey = "de0852fd2493377d766f27d8a9f686af";
     private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("UMgfJjHhMizNdJGl");
-    private const string DefaultVersion = "1.3.9";
+    private const string DefaultVersion = "1.5.0";
+    private static readonly Version RestMinVersion = new(1, 5, 0);
 
     public static async Task<HongguoLoginProbeResult> ProbeLoginAsync(
         HttpClient httpClient,
@@ -38,13 +39,24 @@ public static class HongguoNewLoginClient
     {
         var normalizedAccount = (account ?? string.Empty).Trim();
         var normalizedPassword = password ?? string.Empty;
-        var normalizedUdid = (udid ?? string.Empty).Trim().ToUpperInvariant();
         var version = NormalizeVersion(clientVersion);
+        var normalizedUdid = HongguoDeviceId.Normalize(udid);
+        if (IsRestV15(version))
+        {
+            if (HongguoDeviceId.LooksLikeGuid(normalizedUdid) || string.IsNullOrWhiteSpace(normalizedUdid))
+            {
+                var registryId = HongguoDeviceId.TryReadFromRegistry();
+                if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeHex32(registryId))
+                {
+                    normalizedUdid = registryId;
+                }
+            }
+        }
 
         var missing = new List<string>();
         if (normalizedAccount.Length == 0) missing.Add("账号");
         if (normalizedPassword.Length == 0) missing.Add("密码");
-        if (normalizedUdid.Length == 0) missing.Add("UDID");
+        if (normalizedUdid.Length == 0) missing.Add("UDID/DeviceId");
         if (missing.Count > 0)
         {
             throw new HongguoLoginException($"红果新接口未配置：{string.Join("、", missing)}");
@@ -59,6 +71,11 @@ public static class HongguoNewLoginClient
         int timeoutSeconds,
         CancellationToken cancellationToken)
     {
+        if (IsRestV15(credentials.ClientVersion))
+        {
+            return await RestLoginAsync(httpClient, credentials, timeoutSeconds, cancellationToken);
+        }
+
         var url = BuildBaseUrl(credentials.ClientVersion) + "/m4";  // 1.3.9: /logon -> /m4
         var response = await PostEncryptedFormAsync(
             httpClient,
@@ -177,8 +194,88 @@ public static class HongguoNewLoginClient
         request.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
     }
 
-    private static string NormalizeVersion(string? clientVersion) =>
-        string.IsNullOrWhiteSpace(clientVersion) ? DefaultVersion : clientVersion.Trim();
+    private static string NormalizeVersion(string? clientVersion)
+    {
+        if (string.IsNullOrWhiteSpace(clientVersion))
+        {
+            return DefaultVersion;
+        }
+
+        var trimmed = clientVersion.Trim();
+        return IsRestV15(trimmed) ? trimmed : DefaultVersion;
+    }
+
+    private static bool IsRestV15(string clientVersion)
+    {
+        var parts = clientVersion
+            .Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(part => part.All(char.IsDigit))
+            .Take(4)
+            .ToArray();
+        if (parts.Length == 0 || !Version.TryParse(string.Join('.', parts), out var parsed))
+        {
+            return false;
+        }
+
+        return parsed >= RestMinVersion;
+    }
+
+    private static async Task<HongguoLoginProbeResult> RestLoginAsync(
+        HttpClient httpClient,
+        HongguoCredentials credentials,
+        int timeoutSeconds,
+        CancellationToken cancellationToken)
+    {
+        var url = RestApiBase.TrimEnd('/') + "/User/login";
+        var payload = new Dictionary<string, object?>
+        {
+            ["email"] = credentials.Account,
+            ["password"] = credentials.Password,
+            ["deviceId"] = credentials.Udid,
+            ["deviceInfo"] = $"Windows {Environment.OSVersion.VersionString} | {Environment.MachineName}"
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        var version = credentials.ClientVersion;
+        request.Headers.TryAddWithoutValidation("User-Agent", $"HGXZQ-Client/{version} (Windows)");
+        request.Headers.TryAddWithoutValidation("X-Client-Name", "HGXZQ");
+        request.Headers.TryAddWithoutValidation("X-Client-Version", version);
+        request.Headers.TryAddWithoutValidation("X-Device-Id", credentials.Udid);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        request.Version = HttpVersion.Version11;
+        request.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(Math.Max(10, timeoutSeconds)));
+        using var response = await httpClient.SendAsync(request, cts.Token);
+        var body = await response.Content.ReadAsStringAsync(cts.Token);
+        var outer = ParseJsonObject(body, "REST login");
+        if (outer.TryGetValue("success", out var success) && success is false)
+        {
+            var message = FirstNonEmpty(GetStringValue(outer, "message"), "登录失败");
+            if (message.Contains("当前设备未绑定", StringComparison.Ordinal))
+            {
+                message = "账号未绑定当前设备唯一标识，请在红果客户端或服务端重新绑定后再试";
+            }
+
+            throw new HongguoLoginException(message, (int)response.StatusCode);
+        }
+
+        if (outer.TryGetValue("data", out var dataValue) && dataValue is Dictionary<string, object?> data)
+        {
+            var token = FirstNonEmpty(GetStringValue(data, "accessToken"), GetStringValue(data, "token"));
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                return new HongguoLoginProbeResult(
+                    token.Trim(),
+                    FirstNonEmpty(GetStringValue(data, "email"), credentials.Account),
+                    NormalizeDisplayDate(GetStringValue(data, "memberEndDate")));
+            }
+        }
+
+        throw new HongguoLoginException("Login response does not contain accessToken.");
+    }
 
     private static string BuildSignBaseString(IReadOnlyDictionary<string, string> fields) =>
         string.Join(
