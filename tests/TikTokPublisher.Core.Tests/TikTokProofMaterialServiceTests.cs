@@ -537,6 +537,28 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
+    public void Queue_request_reports_missing_bound_account_before_proof_configuration_fields()
+    {
+        var item = new QueueProjectItem
+        {
+            AccountProfileId = "acct-deleted",
+            AccountProfileName = "已删除账号",
+            NewTitle = "改写后剧名",
+        };
+
+        var action = () => TikTokProofMaterialService.CreateQueueRequest(
+            item,
+            new ClientSettings(),
+            account: null,
+            Path.GetTempPath(),
+            new DateOnly(2026, 7, 17));
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*未找到*绑定账号*")
+            .WithMessage("*acct-deleted*");
+    }
+
+    [Fact]
     public void Account_profile_reads_legacy_subject_json_into_copyright_company_and_writes_only_canonical_name()
     {
         var options = new JsonSerializerOptions
@@ -792,6 +814,18 @@ public sealed class TikTokProofMaterialServiceTests
         var account = (TikTokAccountProfile)method!.Invoke(null, ["acct-test", "测试账号"])!;
 
         account.TiktokProofAccountConfigMigrated.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Account_store_generates_unique_ids_instead_of_reusing_default_after_reset()
+    {
+        var ids = Enumerable.Range(0, 8)
+            .Select(_ => AccountStore.CreateAccountId())
+            .ToArray();
+
+        ids.Should().OnlyContain(id => id.StartsWith("acct-", StringComparison.Ordinal));
+        ids.Should().OnlyHaveUniqueItems();
+        ids.Should().NotContain("default");
     }
 
     [Fact]

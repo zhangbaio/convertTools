@@ -460,6 +460,15 @@ public sealed partial class MainViewModel : ViewModelBase
         return profile is null ? null : Accounts.FirstOrDefault(a => a.Id == profile.Id);
     }
 
+    private AccountItemViewModel? FindAccountById(string? accountId)
+    {
+        var id = (accountId ?? string.Empty).Trim();
+        return string.IsNullOrWhiteSpace(id)
+            ? null
+            : Accounts.FirstOrDefault(account =>
+                string.Equals(account.Id, id, StringComparison.Ordinal));
+    }
+
     partial void OnSelectedAccountChanged(AccountItemViewModel? value)
     {
         if (value is null)
@@ -723,7 +732,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return;
         }
 
-        var account = FindAccount(boundId);
+        var account = FindAccountById(boundId);
         WorkspaceBindingSummary = account is null
             ? $"账号绑定：{boundId}"
             : $"账号绑定：{account.DisplayName}（{boundId}）";
@@ -1671,39 +1680,34 @@ public sealed partial class MainViewModel : ViewModelBase
             return null;
         }
 
-        // 并行多账号时 SelectedAccount 会随 UI 切换，故填充账号优先用「工作目录绑定的账号」，
-        // 仅在工作目录未绑定时回退到当前选中账号，避免把项目绑到错误账号。
+        // 并行多账号时 SelectedAccount 会随 UI 切换，故优先使用本次执行目标账号，
+        // 其次使用工作目录绑定；只有当前页面直接执行时才回退到当前选中账号。
         var boundId = WorkspaceBindingService.ResolveAccountProfileId(root);
-        var boundAccount = string.IsNullOrWhiteSpace(boundId) ? null : FindAccount(boundId);
-        var targetAccount = FindAccount(target.AccountProfileId ?? "");
+        var boundAccount = FindAccountById(boundId);
+        var requestedTargetAccountId = (target.AccountProfileId ?? "").Trim();
+        var targetAccount = FindAccountById(requestedTargetAccountId);
+        if (!string.IsNullOrWhiteSpace(requestedTargetAccountId) && targetAccount is null)
+        {
+            throw new InvalidOperationException(
+                $"本次队列指定的账号已删除或不存在：{requestedTargetAccountId}。请重新选择账号后执行。");
+        }
+
         var effectiveAccount = targetAccount ?? boundAccount ?? (isDisplayedWorkspace ? SelectedAccount : null);
-        var accountBindingChanged = false;
         if (effectiveAccount is not null)
         {
-            if (string.IsNullOrWhiteSpace(boundId))
+            if (string.IsNullOrWhiteSpace(boundId) ||
+                boundAccount is null ||
+                (targetAccount is not null && boundAccount.Id != targetAccount.Id))
             {
                 WorkspaceBindingService.Bind(root, effectiveAccount.Id, effectiveAccount.DisplayName);
                 if (isDisplayedWorkspace)
                     UpdateWorkspaceBindingSummary(root);
-            }
-
-            foreach (var item in queueItemsForRun.Where(i => i.Enabled && string.IsNullOrWhiteSpace(i.AccountProfileId)))
-            {
-                item.AccountProfileId = effectiveAccount.Id;
-                item.AccountProfileName = effectiveAccount.DisplayName;
-                accountBindingChanged = true;
             }
         }
 
         var runOptions = optionsOverride?.Clone() ?? (isDisplayedWorkspace
             ? BuildQueueRunOptionsFromUi()
             : LoadQueueRunOptionsForAccountWorkspace(root, effectiveAccount?.Model));
-        if (optionsOverride is null && isDisplayedWorkspace)
-            _queueStatePersist.Enqueue(root, queueItemsForRun, _queueRunOptions);
-        else if (accountBindingChanged)
-            _queueStatePersist.Enqueue(root, queueItemsForRun, runOptions);
-        CacheWorkspaceQueueSnapshot(root, queueItemsForRun, runOptions);
-        MarkQueueExcelExportPending(root);
 
         IReadOnlyList<string>? normalizedProjectFilter = null;
         HashSet<string>? normalizedProjectFilterSet = null;
@@ -1726,6 +1730,41 @@ public sealed partial class MainViewModel : ViewModelBase
             .ToArray();
         if (runItems.Length == 0)
             throw new InvalidOperationException($"目标工作目录未匹配到可执行项目，已取消启动队列：{root}");
+
+        // 只有拥有明确执行账号的编排层才允许迁移失效绑定；Core Runner 本身保持严格，
+        // 不会把找不到的账号静默回退到当前活动账号。并且只修复本次实际执行的项目。
+        var repairedAccountBindingCount = 0;
+        if (effectiveAccount is not null)
+        {
+            foreach (var item in runItems)
+            {
+                if (!QueueAccountBindingResolver.RepairForWorkspaceDefault(
+                        _store,
+                        item,
+                        effectiveAccount.Model))
+                {
+                    continue;
+                }
+
+                repairedAccountBindingCount++;
+                if (isDisplayedWorkspace)
+                    RefreshQueueRowFor(item);
+            }
+
+            if (repairedAccountBindingCount > 0)
+            {
+                AppendLog($"检测到账号删除、重建或重命名，已校正 {repairedAccountBindingCount} 个队列项目的账号绑定。");
+            }
+        }
+
+        if (optionsOverride is null && isDisplayedWorkspace)
+            _queueStatePersist.Enqueue(root, queueItemsForRun, _queueRunOptions);
+        else if (repairedAccountBindingCount > 0)
+            _queueStatePersist.Enqueue(root, queueItemsForRun, runOptions);
+        if (repairedAccountBindingCount > 0)
+            _queueStatePersist.Flush(root, TimeSpan.FromSeconds(1));
+        CacheWorkspaceQueueSnapshot(root, queueItemsForRun, runOptions);
+        MarkQueueExcelExportPending(root);
 
         var selectedRunCount = QueueWorkerRunner.ValidateRunSelection(
             queueItemsForRun,
@@ -1855,7 +1894,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var targetOptionsByRoot = new Dictionary<string, QueueRunOptions>(StringComparer.OrdinalIgnoreCase);
         foreach (var target in targets)
         {
-            var account = FindAccount(target.AccountProfileId ?? "")?.Model;
+            var account = FindAccountById(target.AccountProfileId)?.Model;
             QueueRunOptions targetOptions;
             if (optionsOverride is not null)
             {
@@ -1890,7 +1929,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var batchId = TikTokExecutionHistoryService.NewBatchId();
         foreach (var target in targets)
         {
-            var account = FindAccount(target.AccountProfileId ?? "")?.Model;
+            var account = FindAccountById(target.AccountProfileId)?.Model;
             SetWorkspaceQueueExecutionContext(target.WorkspaceRoot, batchId, account);
             TikTokExecutionHistoryService.AppendEvent(
                 "run_started",
@@ -2327,7 +2366,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         foreach (var target in targets)
         {
-            var account = FindAccount(target.AccountProfileId ?? "");
+            var account = FindAccountById(target.AccountProfileId);
             if (account is null)
             {
                 failures.Add(new UploadTitleImportFailure(target.DisplayLabel, "未找到账号"));
@@ -3309,7 +3348,8 @@ public sealed partial class MainViewModel : ViewModelBase
         if (account is null || string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
             return;
 
-        if (!string.IsNullOrWhiteSpace(WorkspaceBindingService.ResolveAccountProfileId(workspace)))
+        var boundId = WorkspaceBindingService.ResolveAccountProfileId(workspace);
+        if (!string.IsNullOrWhiteSpace(boundId) && FindAccountById(boundId) is not null)
             return;
 
         WorkspaceBindingService.Bind(workspace, account.Id, account.DisplayName);
@@ -3900,7 +3940,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return null;
         }
 
-        var account = FindAccount(target.AccountProfileId ?? "")?.Model;
+        var account = FindAccountById(target.AccountProfileId)?.Model;
         return await ImportRemoteUploadTitlesAsync(
             Path.GetFullPath(root),
             account,
@@ -3950,7 +3990,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         void PrepareAfterQueueClosed()
         {
-            var account = FindAccount(outcome.RunTarget.AccountProfileId ?? "")?.Model;
+            var account = FindAccountById(outcome.RunTarget.AccountProfileId)?.Model;
             var preparation = PrepareRemoteUploadProjectsWhenIdle(
                 root,
                 applyOutcome.OrderedProjectDirs,

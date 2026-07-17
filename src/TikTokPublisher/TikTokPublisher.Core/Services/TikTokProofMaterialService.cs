@@ -284,19 +284,34 @@ public sealed class TikTokProofMaterialService
             throw new InvalidOperationException("生成证明材料前请先完成改写信息；改写后剧名不能为空。");
         }
 
-        var accountConfigMigrated = account?.TiktokProofAccountConfigMigrated == true;
+        if (account is null)
+        {
+            var savedId = (item.AccountProfileId ?? string.Empty).Trim();
+            var savedName = (item.AccountProfileName ?? string.Empty).Trim();
+            var binding = !string.IsNullOrWhiteSpace(savedName) && !string.IsNullOrWhiteSpace(savedId)
+                ? $"{savedName} ({savedId})"
+                : !string.IsNullOrWhiteSpace(savedName)
+                    ? savedName
+                    : !string.IsNullOrWhiteSpace(savedId)
+                        ? savedId
+                        : "未绑定";
+            throw new InvalidOperationException(
+                $"未找到队列项目绑定账号：{binding}。该账号可能已删除或重新创建，请选择该工作目录对应账号后重新执行。");
+        }
+
+        var accountConfigMigrated = account.TiktokProofAccountConfigMigrated;
         var declarantCompanyName = FirstNonEmpty(
-            account?.TiktokProofDeclarantCompanyName,
+            account.TiktokProofDeclarantCompanyName,
             accountConfigMigrated ? null : settings.TiktokProofDeclarantCompanyName);
         var sealPath = accountConfigMigrated
-            ? (account?.TiktokProofSealPath ?? string.Empty).Trim()
-            : FirstNonEmpty(account?.TiktokProofSealPath, settings.TiktokProofSealPath);
+            ? (account.TiktokProofSealPath ?? string.Empty).Trim()
+            : FirstNonEmpty(account.TiktokProofSealPath, settings.TiktokProofSealPath);
         sealPath = ResolveSealImagePath(sealPath);
 
         return new TikTokProofMaterialRequest(
             TikTokProofMaterialTemplateProvider.ResolveTemplatePath(settings.TiktokProofTemplateDocxPath),
             GetPdfPath(workflowProjectDirectory),
-            account?.TiktokProofCopyrightCompanyName ?? string.Empty,
+            account.TiktokProofCopyrightCompanyName ?? string.Empty,
             declarantCompanyName,
             item.NewTitle.Trim(),
             statementDate ?? GetChinaToday())

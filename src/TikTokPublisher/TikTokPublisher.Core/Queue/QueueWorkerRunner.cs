@@ -145,7 +145,11 @@ public sealed class QueueWorkerRunner
         var candidateQuery = items
             .Where(i => i.Enabled && !i.Archived)
             .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)))
-            .Where(i => orderedSteps.Any(stepKey => ShouldRunStep(i, stepKey, options, ResolveAccount(accountStore, i))));
+            .Where(i => orderedSteps.Any(stepKey => ShouldRunStep(
+                i,
+                stepKey,
+                options,
+                QueueAccountBindingResolver.Resolve(accountStore, i))));
         return filterOrder is not null
             ? candidateQuery
                 .OrderBy(i => filterOrder.GetValueOrDefault(Path.GetFullPath(i.ProjectDir), int.MaxValue))
@@ -310,7 +314,7 @@ public sealed class QueueWorkerRunner
                 while (readyForUpload.Count > 0 && rotations > 0)
                 {
                     var item = readyForUpload.Dequeue();
-                    var account = ResolveAccount(accountStore, item);
+                    var account = QueueAccountBindingResolver.Resolve(accountStore, item);
                     if (account is null)
                     {
                         MarkFailed(
@@ -704,7 +708,7 @@ public sealed class QueueWorkerRunner
             ct.ThrowIfCancellationRequested();
 
             var wasCompletedBeforeRun = item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed;
-            var stepAccount = ResolveAccount(accountStore, item);
+            var stepAccount = QueueAccountBindingResolver.Resolve(accountStore, item);
             if (!ShouldRunStep(item, stepKey, options, stepAccount))
             {
                 Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 已完成，跳过", stepKey);
@@ -1177,32 +1181,6 @@ public sealed class QueueWorkerRunner
                 item.ManualUploadStatus = "";
             item.StepStates[stepKey] = QueueStepStatus.Pending;
         }
-    }
-
-    private static TikTokAccountProfile? ResolveAccount(AccountStore store, QueueProjectItem item)
-    {
-        if (!string.IsNullOrWhiteSpace(item.AccountProfileId))
-        {
-            var bound = store.FindByNameOrId(item.AccountProfileId);
-            if (bound is not null) return bound;
-
-            if (!string.IsNullOrWhiteSpace(item.AccountProfileName))
-            {
-                var renamed = store.FindByNameOrId(item.AccountProfileName);
-                if (renamed is not null) return renamed;
-            }
-
-            return null;
-        }
-
-        if (!string.IsNullOrWhiteSpace(item.AccountProfileName))
-        {
-            var named = store.FindByNameOrId(item.AccountProfileName);
-            if (named is not null) return named;
-        }
-
-        var activeId = store.ActiveAccountId;
-        return store.Accounts.FirstOrDefault(a => a.Id == activeId) ?? store.Accounts.FirstOrDefault();
     }
 
     private static string DescribeBoundAccount(QueueProjectItem item)

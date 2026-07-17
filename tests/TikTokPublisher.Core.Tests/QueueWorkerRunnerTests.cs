@@ -459,6 +459,99 @@ public sealed class QueueWorkerRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_repairs_reused_default_id_by_saved_profile_name_after_account_reset()
+    {
+        var resetDefaultAccount = new TikTokAccountProfile
+        {
+            Id = "default",
+            Name = "重置后默认账号",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var configuredAccount = new TikTokAccountProfile
+        {
+            Id = "acct-new-company",
+            Name = "武汉斑铬科技有限公司",
+            TiktokCopyrightMaterialTypes = ["production_agreement"],
+            TiktokProofCopyrightCompanyName = "武汉斑铬科技有限公司",
+            TiktokProofDeclarantCompanyName = "湖北斑派科技有限公司",
+            TiktokProofSealPath = @"C:\proof\seal.png",
+        };
+        var store = CreateAccountStore(
+            [resetDefaultAccount, configuredAccount],
+            resetDefaultAccount.Id);
+        var item = CreateReadyToUploadItem(1, configuredAccount);
+        item.AccountProfileId = "default";
+        item.AccountProfileName = configuredAccount.DisplayName;
+        var host = new ImmediatePublishHost();
+        TikTokAccountProfile? proofAccount = null;
+        QueueProofMaterialPrerequisite ensure = (project, account, _, _) =>
+        {
+            proofAccount = account;
+            var workflow = ProjectWorkspaceService.EnsureWorkflowProjectDir(project.ProjectDir);
+            var proofPath = TikTokProofMaterialService.GetPdfPath(workflow);
+            File.WriteAllBytes(proofPath, "%PDF-1.7\nproof"u8.ToArray());
+            return Task.FromResult(proofPath);
+        };
+
+        var summary = await new QueueWorkerRunner(ensure).RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-reset-default-account-test"),
+            [item],
+            new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.SuccessCount.Should().Be(1);
+        summary.FailedCount.Should().Be(0);
+        proofAccount.Should().BeSameAs(configuredAccount);
+        proofAccount!.TiktokProofCopyrightCompanyName.Should().Be("武汉斑铬科技有限公司");
+        proofAccount.TiktokProofDeclarantCompanyName.Should().Be("湖北斑派科技有限公司");
+        host.PublishedAccountIds.Should().Equal(configuredAccount.Id);
+        item.AccountProfileId.Should().Be(configuredAccount.Id);
+        item.AccountProfileName.Should().Be(configuredAccount.DisplayName);
+    }
+
+    [Fact]
+    public async Task RunAsync_keeps_stable_account_id_when_saved_name_points_to_another_account()
+    {
+        var idAccount = new TikTokAccountProfile
+        {
+            Id = "acct-stable",
+            Name = "已改名账号",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var nameAccount = new TikTokAccountProfile
+        {
+            Id = "acct-other",
+            Name = "旧账号名",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore([idAccount, nameAccount], idAccount.Id);
+        var item = CreateReadyToUploadItem(1, idAccount);
+        item.AccountProfileName = nameAccount.DisplayName;
+        var host = new ImmediatePublishHost();
+
+        var summary = await new QueueWorkerRunner().RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-stable-account-id-test"),
+            [item],
+            new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.SuccessCount.Should().Be(1);
+        host.PublishedAccountIds.Should().Equal(idAccount.Id);
+        item.AccountProfileId.Should().Be(idAccount.Id);
+        item.AccountProfileName.Should().Be(idAccount.DisplayName);
+    }
+
+    [Fact]
     public async Task RunAsync_fails_stale_account_binding_instead_of_falling_back_to_active_account()
     {
         var activeAccount = new TikTokAccountProfile

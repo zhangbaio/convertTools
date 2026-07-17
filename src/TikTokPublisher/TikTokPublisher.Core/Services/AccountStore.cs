@@ -73,7 +73,9 @@ public sealed class AccountStore
 
         if (_accounts.Count == 0)
         {
-            var defaultAccount = CreateProfileSkeleton("default", "默认账号");
+            // 账号数据被安装器重置后，工作目录里的旧队列仍会保留原账号 ID。
+            // 固定复用 "default" 会让旧项目静默绑定到一个全新的空账号。
+            var defaultAccount = CreateProfileSkeleton(CreateAccountId(), "默认账号");
             _accounts.Add(defaultAccount);
         }
 
@@ -94,13 +96,16 @@ public sealed class AccountStore
 
     public TikTokAccountProfile Add(string name)
     {
-        var id = "acct-" + Guid.NewGuid().ToString("N")[..8];
+        var id = CreateAccountId();
         var account = CreateProfileSkeleton(id, string.IsNullOrWhiteSpace(name) ? id : name.Trim());
         _accounts.Add(account);
         SaveAccounts();
         NotifyAccountsChanged();
         return account;
     }
+
+    internal static string CreateAccountId() =>
+        "acct-" + Guid.NewGuid().ToString("N")[..8];
 
     public void Remove(TikTokAccountProfile account)
     {
