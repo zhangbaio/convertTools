@@ -25,11 +25,33 @@ $InnoScript = Join-Path $Root "packaging\tiktok-publisher.iss"
 $AppIconPath = Join-Path $Root "src\TikTokPublisher\TikTokPublisher.Desktop\Assets\tiktok-shortdrama-logo.ico"
 $DependencyCacheDir = Join-Path $DependenciesDir "cache"
 $ModelsDir = Join-Path $Root "models"
+$VersionFile = Join-Path $Root "packaging\tiktok-installer-version.txt"
 $BundleDependencies = -not $NoBundleDependencies
 $BundleLocalAsrModels = $BundleDependencies -and -not $NoBundleLocalAsrModels
+$ShouldAdvanceVersion = $false
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = "1.0.$(Get-Date -Format 'yyyyMMdd').0"
+    if (Test-Path -LiteralPath $VersionFile) {
+        $Version = (Get-Content -LiteralPath $VersionFile -TotalCount 1).Trim()
+    }
+    else {
+        $Version = "1.0.0"
+    }
+
+    $ShouldAdvanceVersion = $true
+}
+
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Invalid installer version '$Version'. Expected semantic version format like 1.0.0."
+}
+
+function Get-NextInstallerVersion {
+    param([Parameter(Mandatory = $true)][string]$CurrentVersion)
+
+    $parts = $CurrentVersion.Split('.')
+    $major = [int]$parts[0]
+    $minor = [int]$parts[1]
+    return "$major.$($minor + 1).0"
 }
 
 function Assert-UnderDirectory {
@@ -602,3 +624,9 @@ Invoke-Checked -FilePath $iscc -Arguments $isccArgs
 
 $installerPath = Join-Path $InstallerDir "TikTokShortDramaUploader-Setup-$Version.exe"
 Write-Host "Installer created: $installerPath"
+
+if ($ShouldAdvanceVersion) {
+    $nextVersion = Get-NextInstallerVersion -CurrentVersion $Version
+    Set-Content -LiteralPath $VersionFile -Value $nextVersion -Encoding ASCII
+    Write-Host "Next installer version: $nextVersion"
+}
