@@ -82,9 +82,15 @@ public sealed class DramaProjectBootstrapper : IDramaProjectBootstrapper
             createdAt = DateTimeOffset.Now.ToString("O")
         };
 
+        var metadataNode = JsonSerializer.SerializeToNode(metadata, JsonOptions)!.AsObject();
+        if (!created)
+        {
+            MergeExistingMetadata(metadataPath, metadataNode);
+        }
+
         await File.WriteAllTextAsync(
             metadataPath,
-            JsonSerializer.Serialize(metadata, JsonOptions),
+            metadataNode.ToJsonString(JsonOptions),
             cancellationToken);
 
         return new DramaProjectBootstrapResult(
@@ -93,6 +99,50 @@ public sealed class DramaProjectBootstrapper : IDramaProjectBootstrapper
             SourceProjectDir: sourceProjectDir,
             Created: created);
     }
+
+    private static void MergeExistingMetadata(string metadataPath, JsonObject refreshed)
+    {
+        JsonObject? existing;
+        try
+        {
+            existing = JsonNode.Parse(File.ReadAllText(metadataPath)) as JsonObject;
+        }
+        catch
+        {
+            existing = null;
+        }
+
+        if (existing is null)
+        {
+            return;
+        }
+
+        // Re-adding an existing downloaded drama refreshes its source/download data, but it
+        // must not detach a renamed workflow or discard the generated title stored in metadata.
+        // Start with the existing document so fields owned by later workflow steps survive.
+        var refreshedProperties = refreshed.ToArray();
+        refreshed.Clear();
+        foreach (var (key, value) in existing)
+        {
+            refreshed[key] = value?.DeepClone();
+        }
+
+        foreach (var (key, value) in refreshedProperties)
+        {
+            if ((key is "workflowDirName" or "workflowProjectDir" or "createdAt") &&
+                HasNonEmptyValue(existing, key))
+            {
+                continue;
+            }
+
+            refreshed[key] = value?.DeepClone();
+        }
+    }
+
+    private static bool HasNonEmptyValue(JsonObject metadata, string key) =>
+        metadata[key] is JsonValue value &&
+        value.TryGetValue<string>(out var text) &&
+        !string.IsNullOrWhiteSpace(text);
 
     private static string ResolveProjectKey(string rootDir, string title, string bookId)
     {

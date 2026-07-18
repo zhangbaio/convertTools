@@ -10,7 +10,7 @@ public sealed class QueueRunOptionsTests
     {
         var options = QueueRunOptions.FromDictionary(new Dictionary<string, object?>());
 
-        options.EnabledSteps.Should().Equal(QueueStepRegistry.UploadSeries);
+        options.EnabledSteps.Should().BeEmpty();
     }
 
     [Fact]
@@ -32,6 +32,13 @@ public sealed class QueueRunOptionsTests
             .Should().NotContain(QueueStepRegistry.GenerateProjectImages);
         QueueStepRegistry.DefaultEnabledSteps
             .Should().NotContain(QueueStepRegistry.GenerateProjectImages);
+    }
+
+    [Fact]
+    public void All_queue_steps_are_disabled_by_default()
+    {
+        QueueStepRegistry.DefaultEnabledSteps.Should().BeEmpty();
+        new QueueRunOptions().EnabledSteps.Should().BeEmpty();
     }
 
     [Fact]

@@ -685,6 +685,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueSilenceRepairEnabled = false;
             QueueMaterialValidateEnabled = false;
             QueueUploadEnabled = false;
+            ForceRerunCompletedSteps = false;
         }
         finally
         {

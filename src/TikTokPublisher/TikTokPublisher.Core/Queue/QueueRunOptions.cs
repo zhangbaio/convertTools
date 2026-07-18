@@ -34,7 +34,7 @@ public static class QueueStepRegistry
     public static IReadOnlyList<QueueStepDefinition> UserSelectable { get; } =
         All.Where(step => step.Key != GenerateProjectImages).ToArray();
 
-    public static IReadOnlyList<string> DefaultEnabledSteps { get; } = new[] { UploadSeries };
+    public static IReadOnlyList<string> DefaultEnabledSteps { get; } = Array.Empty<string>();
 
     public static string LabelOf(string stepKey) =>
         All.FirstOrDefault(s => s.Key == stepKey).Label ?? stepKey;
