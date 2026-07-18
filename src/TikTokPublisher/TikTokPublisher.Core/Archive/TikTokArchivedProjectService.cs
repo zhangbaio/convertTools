@@ -117,6 +117,11 @@ public static class TikTokArchivedProjectService
         var uploadCompletedAtValue = FirstNonEmpty(
             uploadCompletedAt,
             ResolveUploadCompletedAtFromQueueState(workspaceRoot, sourceProjectDir, workflowProjectDir, projectDir));
+        var (queueOriginalTitle, queueNewTitle) = ResolveTitlesFromQueueState(
+            workspaceRoot,
+            sourceProjectDir,
+            workflowProjectDir,
+            projectDir);
         var archiveRoot = ResolveArchiveRoot(workspaceRoot, archiveRootDir);
         var sourceRoot = Path.Combine(archiveRoot, "source");
         var workflowRoot = Path.Combine(archiveRoot, "workflow");
@@ -217,10 +222,12 @@ public static class TikTokArchivedProjectService
         var sourceInfo = ReadInfo(archivedSourceDir);
         var workflowInfo = ReadInfo(archivedWorkflowDir);
         var originalTitle = FirstNonEmpty(
+            queueOriginalTitle,
             Pick(sourceInfo, OriginalTitleKeys),
             Pick(workflowInfo, OriginalTitleKeys),
             projectKey);
         var newTitle = FirstNonEmpty(
+            queueNewTitle,
             Pick(workflowInfo, NewTitleKeys),
             Pick(sourceInfo, NewTitleKeys),
             Path.GetFileName(workflowProjectDir).TrimStart('_'),
@@ -1178,6 +1185,38 @@ public static class TikTokArchivedProjectService
         }
 
         return "";
+    }
+
+    private static (string OriginalTitle, string NewTitle) ResolveTitlesFromQueueState(
+        string workspaceRoot,
+        params string[] projectDirs)
+    {
+        try
+        {
+            var candidates = projectDirs
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(Path.GetFullPath)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (candidates.Count == 0)
+                return ("", "");
+
+            foreach (var item in WorkspaceQueueDatabase.Load(workspaceRoot).Items)
+            {
+                if (string.IsNullOrWhiteSpace(item.ProjectDir) ||
+                    !candidates.Contains(Path.GetFullPath(item.ProjectDir)))
+                {
+                    continue;
+                }
+
+                return (item.OriginalTitle.Trim(), item.NewTitle.Trim());
+            }
+        }
+        catch
+        {
+            // Archive metadata can still fall back to the project files and directory name.
+        }
+
+        return ("", "");
     }
 
     private static int ResolveArchivedEpisodeCount(ArchivedProjectItem item)

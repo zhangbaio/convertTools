@@ -286,6 +286,41 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         item.Archived.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task Archive_after_restore_preserves_queue_titles_when_project_info_is_missing()
+    {
+        var (sourceDir, _) = CreateProjectDirs("project-folder-name");
+        WorkspaceQueueDatabase.Save(
+            _workspaceRoot,
+            new[]
+            {
+                new QueueProjectItem
+                {
+                    ProjectDir = sourceDir,
+                    DisplayName = "project-folder-name",
+                    OriginalTitle = "哑妃传",
+                    NewTitle = "深宫哑女步步为后",
+                },
+            });
+
+        await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+            _workspaceRoot,
+            sourceDir,
+            _archiveRoot);
+        var firstArchive = TikTokArchivedProjectService.List(_workspaceRoot, _archiveRoot).Single();
+        TikTokArchivedProjectService.Restore(_workspaceRoot, firstArchive.MetadataPath, _archiveRoot);
+
+        // Proof-material regeneration does not guarantee that 短剧信息.txt still exists.
+        await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+            _workspaceRoot,
+            sourceDir,
+            _archiveRoot);
+
+        var secondArchive = TikTokArchivedProjectService.List(_workspaceRoot, _archiveRoot).Single();
+        secondArchive.OriginalTitle.Should().Be("哑妃传");
+        secondArchive.NewTitle.Should().Be("深宫哑女步步为后");
+    }
+
     private (string SourceDir, string WorkflowDir) CreateProjectDirs(string name)
     {
         var sourceDir = Path.Combine(_workspaceRoot, name);
