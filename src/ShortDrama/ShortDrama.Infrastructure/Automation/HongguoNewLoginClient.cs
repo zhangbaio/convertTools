@@ -12,11 +12,10 @@ public static class HongguoNewLoginClient
 {
     private const string BaseUrlTemplate = "https://au.s1o.cc/api/user/1000/win/{0}";
     private const string RestApiBase = "http://101.35.49.94/api";
-    // 1.3.9 AES legacy；1.5.0+ 走 REST JWT（与 weixin-channel-tool hongguo_auth_service 对齐）
+    // AES（default 1.4.x）；>=1.5.0 走 REST JWT（与 weixin-channel-tool hongguo_auth_service 对齐）
     private const string AppKey = "de0852fd2493377d766f27d8a9f686af";
     private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("UMgfJjHhMizNdJGl");
-    private const string DefaultVersion = "1.5.0";
-    private static readonly Version RestMinVersion = new(1, 5, 0);
+    private const string DefaultVersion = HongguoClientVersion.Default;
 
     public static async Task<HongguoLoginProbeResult> ProbeLoginAsync(
         HttpClient httpClient,
@@ -45,11 +44,23 @@ public static class HongguoNewLoginClient
         {
             if (HongguoDeviceId.LooksLikeGuid(normalizedUdid) || string.IsNullOrWhiteSpace(normalizedUdid))
             {
-                var registryId = HongguoDeviceId.TryReadFromRegistry();
+                var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: false);
                 if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeHex32(registryId))
                 {
                     normalizedUdid = registryId;
                 }
+            }
+        }
+        else if (string.IsNullOrWhiteSpace(normalizedUdid))
+        {
+            normalizedUdid = HongguoDeviceId.TryReadFromRegistry(preferAes: true) ?? "";
+        }
+        else if (HongguoDeviceId.LooksLikeHex32(normalizedUdid))
+        {
+            var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: true);
+            if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeGuid(registryId))
+            {
+                normalizedUdid = registryId;
             }
         }
 
@@ -194,31 +205,11 @@ public static class HongguoNewLoginClient
         request.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
     }
 
-    private static string NormalizeVersion(string? clientVersion)
-    {
-        if (string.IsNullOrWhiteSpace(clientVersion))
-        {
-            return DefaultVersion;
-        }
+    private static string NormalizeVersion(string? clientVersion) =>
+        HongguoClientVersion.Normalize(clientVersion);
 
-        var trimmed = clientVersion.Trim();
-        return IsRestV15(trimmed) ? trimmed : DefaultVersion;
-    }
-
-    private static bool IsRestV15(string clientVersion)
-    {
-        var parts = clientVersion
-            .Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(part => part.All(char.IsDigit))
-            .Take(4)
-            .ToArray();
-        if (parts.Length == 0 || !Version.TryParse(string.Join('.', parts), out var parsed))
-        {
-            return false;
-        }
-
-        return parsed >= RestMinVersion;
-    }
+    private static bool IsRestV15(string clientVersion) =>
+        HongguoClientVersion.IsRest(clientVersion);
 
     private static async Task<HongguoLoginProbeResult> RestLoginAsync(
         HttpClient httpClient,

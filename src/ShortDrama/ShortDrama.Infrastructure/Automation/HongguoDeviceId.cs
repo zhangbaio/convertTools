@@ -5,8 +5,8 @@ namespace ShortDrama.Infrastructure.Automation;
 
 /// <summary>
 /// 红果设备号规范化。
-/// 1.5.0 HongGuopy DeviceUDID：无连字符 32hex（必须小写）；
-/// 1.3.x HongGuoClient DeviceUDID：GUID（大写）。
+/// REST（>=1.5.0）HongGuopy DeviceUDID：无连字符 32hex（必须小写）；
+/// AES（&lt;1.5.0）HongGuoClient DeviceUDID：GUID（大写）。
 /// </summary>
 public static partial class HongguoDeviceId
 {
@@ -40,7 +40,10 @@ public static partial class HongguoDeviceId
     public static bool LooksLikeHex32(string? value) =>
         !string.IsNullOrWhiteSpace(value) && Hex32Pattern.IsMatch(value.Trim());
 
-    public static string? TryReadFromRegistry()
+    /// <param name="preferAes">
+    /// true：优先 HongGuoClient GUID（AES）；false/默认：优先 HongGuopy 32hex（REST）。
+    /// </param>
+    public static string? TryReadFromRegistry(bool preferAes = false)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -49,14 +52,20 @@ public static partial class HongguoDeviceId
 
         try
         {
-            string[] subKeys =
+            string[] restFirst =
             [
                 @"Software\HongGuopy",
                 @"Software\HongGuoClient",
                 @"Software\WOW6432Node\HongGuoClient"
             ];
+            string[] aesFirst =
+            [
+                @"Software\HongGuoClient",
+                @"Software\WOW6432Node\HongGuoClient",
+                @"Software\HongGuopy"
+            ];
 
-            foreach (var subKey in subKeys)
+            foreach (var subKey in preferAes ? aesFirst : restFirst)
             {
                 using var key = Registry.CurrentUser.OpenSubKey(subKey, false)
                     ?? Registry.LocalMachine.OpenSubKey(subKey, false);

@@ -213,6 +213,49 @@ public sealed class HongguoNewApiServiceTests
             .Should().Be("64437E32-40BB-440C-8300-99232D63E8F7");
     }
 
+    [Fact]
+    public void HongguoClientVersion_Should_Keep_Aes_Patch_And_Rest_Threshold()
+    {
+        HongguoClientVersion.Default.Should().Be("1.4.1");
+        HongguoClientVersion.IsRest("1.5.0").Should().BeTrue();
+        HongguoClientVersion.IsRest("1.5.1").Should().BeTrue();
+        HongguoClientVersion.IsRest("1.4.1").Should().BeFalse();
+        HongguoClientVersion.IsRest("1.4.2").Should().BeFalse();
+
+        HongguoClientVersion.Normalize("1.5.0").Should().Be("1.5.0");
+        HongguoClientVersion.Normalize("1.4.1").Should().Be("1.4.1");
+        HongguoClientVersion.Normalize("1.4.2").Should().Be("1.4.2");
+        HongguoClientVersion.Normalize("1.3.9").Should().Be("1.4.1");
+        HongguoClientVersion.BuildAesBaseUrl("1.4.2")
+            .Should().Be("https://au.s1o.cc/api/user/1000/win/1.4.2");
+    }
+
+    [Fact]
+    public async Task SearchAsync_Should_Hit_Aes_Host_When_Version_Is_14x()
+    {
+        var handler = new RecordingHandler();
+        // 返回不可解密的假密文即可：只要发出请求就能断言 host/version
+        handler.EnqueueJson("""{"code":0,"data":"not-valid-ciphertext"}""");
+
+        var service = new HongguoNewApiService(new HttpClient(handler));
+        var settings = new DramaSourceSettings
+        {
+            DramaSourceChain = "hgnew",
+            HgnewAccount = "test@example.com",
+            HgnewPassword = "secret",
+            HgnewUdid = "64437E32-40BB-440C-8300-99232D63E8F7",
+            HgnewClientVersion = "1.4.2",
+            PikachuDramaType = "short",
+        };
+
+        var act = async () => await service.SearchAsync(settings, "测试", 1, CancellationToken.None);
+        await act.Should().ThrowAsync<Exception>();
+
+        handler.Requests.Should().NotBeEmpty();
+        handler.Requests[0].RequestUri!.Host.Should().Be("au.s1o.cc");
+        handler.Requests[0].RequestUri!.AbsolutePath.Should().Contain("/win/1.4.2/");
+        handler.Requests[0].Headers.GetValues("X-Client-Version").Single().Should().Be("1.4.2");
+    }
     private static DramaSourceSettings CreateSettings()
     {
         return new DramaSourceSettings

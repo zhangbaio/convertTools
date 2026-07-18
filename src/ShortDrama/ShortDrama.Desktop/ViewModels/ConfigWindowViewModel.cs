@@ -413,7 +413,8 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
         try
         {
-            var value = HongguoDeviceId.TryReadFromRegistry();
+            var preferAes = !HongguoClientVersion.IsRest(HgnewClientVersion);
+            var value = HongguoDeviceId.TryReadFromRegistry(preferAes);
             HgnewProbeStatus = string.IsNullOrWhiteSpace(value)
                 ? "未在注册表中找到 HongGuopy/HongGuoClient\\DeviceUDID。"
                 : "已从注册表读取 DeviceUDID。";

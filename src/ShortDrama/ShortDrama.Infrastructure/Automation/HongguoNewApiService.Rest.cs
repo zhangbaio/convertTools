@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 
 namespace ShortDrama.Infrastructure.Automation;
 
-/// <summary>HG Downloader 1.5.0 REST（明文 JSON + JWT），从 weixin-channel-tool 同步。</summary>
+/// <summary>HG Downloader REST（>=1.5.0，明文 JSON + JWT）；AES 默认见 HongguoClientVersion。</summary>
 public sealed partial class HongguoNewApiService
 {
     private async Task<IReadOnlyList<Dictionary<string, object?>>> RestSearchItemsAsync(

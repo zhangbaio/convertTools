@@ -297,7 +297,7 @@ public sealed class GlobalSettingsService
             HgnewAccount = PickString(current.HgnewAccount, "hgnew_account"),
             HgnewPassword = PickString(current.HgnewPassword, "hgnew_password"),
             HgnewUdid = PickString(current.HgnewUdid, "hgnew_udid"),
-            HgnewClientVersion = PickString(current.HgnewClientVersion, "hgnew_client_version", "1.5.0"),
+            HgnewClientVersion = PickString(current.HgnewClientVersion, "hgnew_client_version", "1.4.1"),
             HongguoDownloadTimeoutSeconds = PickPositiveInt(current.HongguoDownloadTimeoutSeconds, "hongguo_download_timeout_seconds", 60),
             HongguoEpisodeDownloadAttempts = PickPositiveInt(current.HongguoEpisodeDownloadAttempts, "hongguo_episode_download_attempts", 5),
             HongguoLocalBaseUrl = PickString(current.HongguoLocalBaseUrl, "hongguo_local_base_url"),

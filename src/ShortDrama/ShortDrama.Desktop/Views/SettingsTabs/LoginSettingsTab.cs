@@ -40,6 +40,7 @@ public sealed class LoginSettingsTab : UserControl
         panel.Children.Add(BuildSourceRow());
 
         panel.Children.Add(SectionTitle("hgnew"));
+        panel.Children.Add(Hint("客户端版本：默认 1.4.1（AES，可改 1.4.2 等）；填 >=1.5.0 走 REST。UDID：AES 用 HongGuoClient GUID，REST 用 HongGuopy 32hex。"));
         panel.Children.Add(Row("账号", BindText(nameof(ConfigWindowViewModel.HgnewAccount))));
         panel.Children.Add(Row("密码", BindPassword(nameof(ConfigWindowViewModel.HgnewPassword))));
         panel.Children.Add(Row("UDID", BuildHgnewUdidRow()));

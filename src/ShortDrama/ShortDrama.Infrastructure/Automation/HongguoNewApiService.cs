@@ -13,11 +13,10 @@ public sealed partial class HongguoNewApiService
     private const string BaseUrlTemplate = "https://au.s1o.cc/api/user/1000/win/{0}";
     private const string RestApiBase = "http://101.35.49.94/api";
     private const string FallbackDailyUrl = "http://129.211.169.30:996/new.php";
-    // 1.3.9 AES legacy；1.5.0+ 走 RestApiBase 明文 JSON + JWT（见 HongguoNewApiService.Rest.cs）
+    // AES（default 1.4.x，version 原样进 URL）；>=1.5.0 走 REST（见 HongguoNewApiService.Rest.cs）
     private const string AppKey = "de0852fd2493377d766f27d8a9f686af";
     private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("UMgfJjHhMizNdJGl");
-    private const string DefaultVersion = "1.5.0";
-    private static readonly Version RestMinVersion = new(1, 5, 0);
+    private const string DefaultVersion = HongguoClientVersion.Default;
     private static readonly string[] AxiosWrapperKeys = ["status", "statusText", "headers", "config", "request"];
     private static readonly HashSet<int> LoginRetryCodes = [46, 141, 401];
     private static readonly string[] LoginRetryHints =
@@ -184,7 +183,7 @@ public sealed partial class HongguoNewApiService
                 if (date != today)
                 {
                     throw new HongguoNewApiException(
-                        "红果 1.5.0 历史上新接口尚未适配，请改查「今日上新」或将客户端版本临时改为 1.3.9");
+                        "红果 REST（>=1.5.0）历史上新接口尚未适配，请改查「今日上新」或将客户端版本改为 1.4.x（AES）");
                 }
 
                 items = await RestLatestItemsAsync(credentials, mode, 60, cancellationToken);
@@ -725,37 +724,11 @@ public sealed partial class HongguoNewApiService
         request.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
     }
 
-    private static string NormalizeVersion(string clientVersion)
-    {
-        if (string.IsNullOrWhiteSpace(clientVersion))
-        {
-            return DefaultVersion;
-        }
+    private static string NormalizeVersion(string clientVersion) =>
+        HongguoClientVersion.Normalize(clientVersion);
 
-        var trimmed = clientVersion.Trim();
-        // 1.3.x 旧 host 已不可用；配置低于 1.5.0 时自动抬到 REST（与 Python 一致）
-        return IsRestV15(trimmed) ? trimmed : DefaultVersion;
-    }
-
-    private static bool IsRestV15(string clientVersion)
-    {
-        if (!Version.TryParse(NormalizeVersionParts(clientVersion), out var parsed))
-        {
-            return false;
-        }
-
-        return parsed >= RestMinVersion;
-    }
-
-    private static string NormalizeVersionParts(string clientVersion)
-    {
-        var parts = (clientVersion ?? string.Empty)
-            .Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(part => part.All(char.IsDigit))
-            .Take(4)
-            .ToArray();
-        return parts.Length == 0 ? "0" : string.Join('.', parts);
-    }
+    private static bool IsRestV15(string clientVersion) =>
+        HongguoClientVersion.IsRest(clientVersion);
 
     private static string BuildVideoPlaybackParam(string videoId, string quality, string token, string udid)
     {
@@ -926,7 +899,7 @@ public sealed partial class HongguoNewApiService
             // 设置里若仍是旧 GUID，自动改用 HongGuopy 的 32hex DeviceId
             if (HongguoDeviceId.LooksLikeGuid(udid) || string.IsNullOrWhiteSpace(udid))
             {
-                var registryId = HongguoDeviceId.TryReadFromRegistry();
+                var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: false);
                 if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeHex32(registryId))
                 {
                     udid = registryId;
@@ -935,7 +908,16 @@ public sealed partial class HongguoNewApiService
         }
         else if (string.IsNullOrWhiteSpace(udid))
         {
-            udid = HongguoDeviceId.TryReadFromRegistry() ?? "";
+            udid = HongguoDeviceId.TryReadFromRegistry(preferAes: true) ?? "";
+        }
+        else if (HongguoDeviceId.LooksLikeHex32(udid))
+        {
+            // AES 路径误填了 REST 的 32hex 时，改用 HongGuoClient GUID
+            var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: true);
+            if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeGuid(registryId))
+            {
+                udid = registryId;
+            }
         }
 
         var missing = new List<string>();
