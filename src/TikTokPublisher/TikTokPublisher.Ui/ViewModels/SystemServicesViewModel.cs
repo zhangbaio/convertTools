@@ -53,6 +53,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private bool _remoteGeneratePosterEnabled;
     [ObservableProperty] private bool _remoteGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _remoteSmallVideoRepairEnabled;
+    [ObservableProperty] private bool _remoteVideoTranslateEnabled;
     [ObservableProperty] private bool _remoteSilenceDetectEnabled;
     [ObservableProperty] private bool _remoteSilenceRepairEnabled;
     [ObservableProperty] private bool _remoteMaterialValidateEnabled;
@@ -61,6 +62,18 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private bool _remoteAutoArchiveAfterUpload;
     [ObservableProperty] private bool _remoteForceRerunCompletedSteps;
     [ObservableProperty] private bool _remotePreferUploadWhenReady;
+    [ObservableProperty] private string _videoTranslateEngine = "volc";
+    [ObservableProperty] private string _videoTranslateSourceLanguage = "en";
+    [ObservableProperty] private string _videoTranslateTargetLanguage = "zh";
+    [ObservableProperty] private string _videoTranslateVolcAccessKeyId = "";
+    [ObservableProperty] private string _videoTranslateVolcSecretAccessKey = "";
+    [ObservableProperty] private string _videoTranslateLlmBaseUrl = "https://api.deepseek.com/v1";
+    [ObservableProperty] private string _videoTranslateLlmApiKey = "";
+    [ObservableProperty] private string _videoTranslateLlmModel = "deepseek-chat";
+    [ObservableProperty] private string _videoTranslateFont = "微软雅黑";
+    [ObservableProperty] private int _videoTranslateFontSize = 50;
+    [ObservableProperty] private int _videoTranslateMarginV = 160;
+    [ObservableProperty] private bool _videoTranslateBilingual;
 
     public void Load()
     {
@@ -97,6 +110,18 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         RemoteAutoArchiveAfterUpload = settings.FeishuTiktokUploadAutoArchiveAfterUpload;
         RemoteForceRerunCompletedSteps = settings.FeishuTiktokUploadForceRerunCompletedSteps;
         RemotePreferUploadWhenReady = settings.FeishuTiktokUploadPreferUploadWhenReady;
+        VideoTranslateEngine = settings.VideoTranslateEngine;
+        VideoTranslateSourceLanguage = settings.VideoTranslateSourceLanguage;
+        VideoTranslateTargetLanguage = settings.VideoTranslateTargetLanguage;
+        VideoTranslateVolcAccessKeyId = settings.VideoTranslateVolcAccessKeyId;
+        VideoTranslateVolcSecretAccessKey = settings.VideoTranslateVolcSecretAccessKey;
+        VideoTranslateLlmBaseUrl = settings.VideoTranslateLlmBaseUrl;
+        VideoTranslateLlmApiKey = settings.VideoTranslateLlmApiKey;
+        VideoTranslateLlmModel = settings.VideoTranslateLlmModel;
+        VideoTranslateFont = settings.VideoTranslateFont;
+        VideoTranslateFontSize = settings.VideoTranslateFontSize;
+        VideoTranslateMarginV = settings.VideoTranslateMarginV;
+        VideoTranslateBilingual = settings.VideoTranslateBilingual;
         ApplyRemoteSteps(TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings));
         FeishuCommandStatus = FeishuCommandEnabled ? "已启用" : "未启用";
         XingeRemoteStatus = XingeRemoteEnabled ? "等待连接" : "未启用";
@@ -265,6 +290,18 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.FeishuTiktokUploadAutoArchiveAfterUpload = RemoteAutoArchiveAfterUpload;
         settings.FeishuTiktokUploadForceRerunCompletedSteps = RemoteForceRerunCompletedSteps;
         settings.FeishuTiktokUploadPreferUploadWhenReady = RemotePreferUploadWhenReady;
+        settings.VideoTranslateEngine = VideoTranslateEngine == "llm" ? "llm" : "volc";
+        settings.VideoTranslateSourceLanguage = VideoTranslateSourceLanguage.Trim();
+        settings.VideoTranslateTargetLanguage = VideoTranslateTargetLanguage.Trim();
+        settings.VideoTranslateVolcAccessKeyId = VideoTranslateVolcAccessKeyId.Trim();
+        settings.VideoTranslateVolcSecretAccessKey = VideoTranslateVolcSecretAccessKey;
+        settings.VideoTranslateLlmBaseUrl = VideoTranslateLlmBaseUrl.Trim();
+        settings.VideoTranslateLlmApiKey = VideoTranslateLlmApiKey;
+        settings.VideoTranslateLlmModel = VideoTranslateLlmModel.Trim();
+        settings.VideoTranslateFont = VideoTranslateFont.Trim();
+        settings.VideoTranslateFontSize = Math.Clamp(VideoTranslateFontSize, 12, 120);
+        settings.VideoTranslateMarginV = Math.Clamp(VideoTranslateMarginV, 0, 600);
+        settings.VideoTranslateBilingual = VideoTranslateBilingual;
         settings.XingeRemoteEnabled = XingeRemoteEnabled;
         settings.XingeServerUrl = XingeServerUrl.Trim();
         settings.XingeAccount = XingeAccount.Trim();
@@ -283,6 +320,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         if (RemoteGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
         if (RemoteGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (RemoteSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
+        if (RemoteVideoTranslateEnabled) steps.Add(QueueStepRegistry.VideoTranslate);
         if (RemoteSilenceDetectEnabled) steps.Add(QueueStepRegistry.SilenceDetect);
         if (RemoteSilenceRepairEnabled) steps.Add(QueueStepRegistry.SilenceRepair);
         if (RemoteMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);
@@ -300,6 +338,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         RemoteGeneratePosterEnabled = selected.Contains(QueueStepRegistry.GeneratePoster);
         RemoteGenerateProofMaterialEnabled = selected.Contains(QueueStepRegistry.GenerateProofMaterial);
         RemoteSmallVideoRepairEnabled = selected.Contains(QueueStepRegistry.SmallVideoRepair);
+        RemoteVideoTranslateEnabled = selected.Contains(QueueStepRegistry.VideoTranslate);
         RemoteSilenceDetectEnabled = selected.Contains(QueueStepRegistry.SilenceDetect);
         RemoteSilenceRepairEnabled = selected.Contains(QueueStepRegistry.SilenceRepair);
         RemoteMaterialValidateEnabled = selected.Contains(QueueStepRegistry.MaterialValidate);

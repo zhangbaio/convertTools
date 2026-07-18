@@ -119,6 +119,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public string ProjectImageStatus => StepOf(QueueStepKeys.GenerateProjectImages);
     public string ProofMaterialStatus => StepOf(QueueStepKeys.GenerateProofMaterial);
     public string RepairStatus => StepOf(QueueStepKeys.SmallVideoRepair);
+    public string VideoTranslateStatus => StepOf(QueueStepKeys.VideoTranslate);
     public string SilenceDetectStatus => StepOf(QueueStepKeys.SilenceDetect);
     public string SilenceRepairStatus => StepOf(QueueStepKeys.SilenceRepair);
     public string ValidateStatus => StepOf(QueueStepKeys.MaterialValidate);
@@ -132,6 +133,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush ProjectImageStatusBrush => BrushOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBrush => BrushOf(ProofMaterialStatus);
     public IBrush RepairStatusBrush => BrushOf(RepairStatus);
+    public IBrush VideoTranslateStatusBrush => BrushOf(VideoTranslateStatus);
     public IBrush SilenceDetectStatusBrush => BrushOf(SilenceDetectStatus);
     public IBrush SilenceRepairStatusBrush => BrushOf(SilenceRepairStatus);
     public IBrush ValidateStatusBrush => BrushOf(ValidateStatus);
@@ -151,6 +153,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush ProjectImageStatusBackgroundBrush => BackgroundOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBackgroundBrush => BackgroundOf(ProofMaterialStatus);
     public IBrush RepairStatusBackgroundBrush => BackgroundOf(RepairStatus);
+    public IBrush VideoTranslateStatusBackgroundBrush => BackgroundOf(VideoTranslateStatus);
     public IBrush SilenceDetectStatusBackgroundBrush => BackgroundOf(SilenceDetectStatus);
     public IBrush SilenceRepairStatusBackgroundBrush => BackgroundOf(SilenceRepairStatus);
     public IBrush ValidateStatusBackgroundBrush => BackgroundOf(ValidateStatus);
@@ -163,6 +166,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush ProjectImageStatusBorderBrush => BorderOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBorderBrush => BorderOf(ProofMaterialStatus);
     public IBrush RepairStatusBorderBrush => BorderOf(RepairStatus);
+    public IBrush VideoTranslateStatusBorderBrush => BorderOf(VideoTranslateStatus);
     public IBrush SilenceDetectStatusBorderBrush => BorderOf(SilenceDetectStatus);
     public IBrush SilenceRepairStatusBorderBrush => BorderOf(SilenceRepairStatus);
     public IBrush ValidateStatusBorderBrush => BorderOf(ValidateStatus);

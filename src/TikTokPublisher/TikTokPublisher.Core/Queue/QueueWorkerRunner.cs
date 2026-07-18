@@ -1019,6 +1019,10 @@ public sealed class QueueWorkerRunner
             case QueueStepRegistry.SmallVideoRepair:
                 TikTokSmallVideoRepairService.Repair(item.ProjectDir, item.Title, item.OriginalTitle, log, ct);
                 break;
+            case QueueStepRegistry.VideoTranslate:
+                await TikTokVideoTranslateService.TranslateAsync(
+                    item.ProjectDir, item.Title, item.OriginalTitle, settings, log, ct).ConfigureAwait(false);
+                break;
             case QueueStepRegistry.SilenceDetect:
                 await TikTokSilenceDetectService.DetectAsync(
                     item.ProjectDir, item.Title, item.OriginalTitle, materialOptions, log, ct).ConfigureAwait(false);

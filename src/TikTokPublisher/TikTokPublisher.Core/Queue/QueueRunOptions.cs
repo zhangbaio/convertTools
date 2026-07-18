@@ -12,6 +12,7 @@ public static class QueueStepRegistry
     public const string DeleteSourceVideos = QueueStepKeys.DeleteSourceVideos;
 
     public const string SmallVideoRepair = QueueStepKeys.SmallVideoRepair;
+    public const string VideoTranslate = QueueStepKeys.VideoTranslate;
     public const string SilenceDetect = QueueStepKeys.SilenceDetect;
     public const string SilenceRepair = QueueStepKeys.SilenceRepair;
 
@@ -24,6 +25,7 @@ public static class QueueStepRegistry
         new QueueStepDefinition(QueueStepKeys.GenerateProjectImages, "生成工程图", true),
         new QueueStepDefinition(QueueStepKeys.GenerateProofMaterial, "生成证明材料", true),
         new QueueStepDefinition(SmallVideoRepair, "小文件修复", true),
+        new QueueStepDefinition(VideoTranslate, "视频翻译", true),
         new QueueStepDefinition(SilenceDetect, "静音检测", true),
         new QueueStepDefinition(SilenceRepair, "静音修复", true),
         new QueueStepDefinition(MaterialValidate, "素材校验", true),

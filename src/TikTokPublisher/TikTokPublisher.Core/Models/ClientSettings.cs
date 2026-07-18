@@ -46,6 +46,19 @@ public sealed class ClientSettings
     public string TiktokSilenceAsrLanguage { get; set; } = "zh-CN";
     public bool TiktokManualInterventionOnSingleFailure { get; set; } = true;
 
+    public string VideoTranslateEngine { get; set; } = "volc";
+    public string VideoTranslateSourceLanguage { get; set; } = "en";
+    public string VideoTranslateTargetLanguage { get; set; } = "zh";
+    public string VideoTranslateVolcAccessKeyId { get; set; } = "";
+    public string VideoTranslateVolcSecretAccessKey { get; set; } = "";
+    public string VideoTranslateLlmBaseUrl { get; set; } = "https://api.deepseek.com/v1";
+    public string VideoTranslateLlmApiKey { get; set; } = "";
+    public string VideoTranslateLlmModel { get; set; } = "deepseek-chat";
+    public string VideoTranslateFont { get; set; } = "微软雅黑";
+    public int VideoTranslateFontSize { get; set; } = 50;
+    public int VideoTranslateMarginV { get; set; } = 160;
+    public bool VideoTranslateBilingual { get; set; }
+
     public string AiTextEndpoint { get; set; } = ClientSettingsDefaults.AiTextEndpoint;
     public string AiTextApiKey { get; set; } = "";
     public string AiTextModel { get; set; } = ClientSettingsDefaults.AiTextModel;
@@ -176,6 +189,18 @@ public sealed class ClientSettings
         TiktokMaterialValidateConcurrency = TiktokMaterialValidateConcurrency,
         TiktokSilenceAsrLanguage = TiktokSilenceAsrLanguage,
         TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure,
+        VideoTranslateEngine = VideoTranslateEngine,
+        VideoTranslateSourceLanguage = VideoTranslateSourceLanguage,
+        VideoTranslateTargetLanguage = VideoTranslateTargetLanguage,
+        VideoTranslateVolcAccessKeyId = VideoTranslateVolcAccessKeyId,
+        VideoTranslateVolcSecretAccessKey = VideoTranslateVolcSecretAccessKey,
+        VideoTranslateLlmBaseUrl = VideoTranslateLlmBaseUrl,
+        VideoTranslateLlmApiKey = VideoTranslateLlmApiKey,
+        VideoTranslateLlmModel = VideoTranslateLlmModel,
+        VideoTranslateFont = VideoTranslateFont,
+        VideoTranslateFontSize = VideoTranslateFontSize,
+        VideoTranslateMarginV = VideoTranslateMarginV,
+        VideoTranslateBilingual = VideoTranslateBilingual,
         AiTextEndpoint = AiTextEndpoint,
         AiTextApiKey = AiTextApiKey,
         AiTextModel = AiTextModel,

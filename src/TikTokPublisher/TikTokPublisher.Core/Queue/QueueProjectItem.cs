@@ -8,6 +8,7 @@ public static class QueueStepKeys
     public const string GenerateProjectImages = "generate_project_images";
     public const string GenerateProofMaterial = "generate_proof_material";
     public const string SmallVideoRepair = "small_video_repair";
+    public const string VideoTranslate = "video_translate";
     public const string SilenceDetect = "silence_detect";
     public const string SilenceRepair = "silence_repair";
     public const string MaterialValidate = "material_validate";
@@ -79,6 +80,7 @@ public sealed class QueueProjectItem
                      QueueStepKeys.UploadSeries,
                      QueueStepKeys.MaterialValidate,
                      QueueStepKeys.SmallVideoRepair,
+                     QueueStepKeys.VideoTranslate,
                      QueueStepKeys.SilenceDetect,
                      QueueStepKeys.SilenceRepair,
                  })
@@ -94,6 +96,8 @@ public sealed class QueueProjectItem
                 StepStates[QueueStepKeys.GenerateProjectImages] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.SmallVideoRepair) == QueueStepStatus.Pending)
                 StepStates[QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed;
+            if (StepStates.GetValueOrDefault(QueueStepKeys.VideoTranslate) == QueueStepStatus.Pending)
+                StepStates[QueueStepKeys.VideoTranslate] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.SilenceDetect) == QueueStepStatus.Pending)
                 StepStates[QueueStepKeys.SilenceDetect] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.SilenceRepair) == QueueStepStatus.Pending)

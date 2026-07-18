@@ -197,6 +197,28 @@
                     </StackPanel>
                 </TabItem>
 
+                <TabItem Header="翻译配置">
+                    <StackPanel Margin="8" Spacing="10">
+                        <TextBlock Text="视频翻译（ASR 识别 → 翻译 → 中文字幕烧录）" FontWeight="Bold" />
+                        <TextBlock Text="识别凭据沿用“系统设置”中的火山 ASR；这里配置翻译引擎和字幕样式。" Classes="compactHint" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                            <TextBlock Grid.Row="0" Text="翻译引擎" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding VideoTranslateEngine}" Watermark="volc 或 llm" />
+                            <TextBlock Grid.Row="1" Text="源语言" VerticalAlignment="Center" /><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding VideoTranslateSourceLanguage}" Watermark="en" />
+                            <TextBlock Grid.Row="2" Text="目标语言" VerticalAlignment="Center" /><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding VideoTranslateTargetLanguage}" Watermark="zh" />
+                            <TextBlock Grid.Row="3" Text="火山 AccessKeyId" VerticalAlignment="Center" /><TextBox Grid.Row="3" Grid.Column="1" Text="{Binding VideoTranslateVolcAccessKeyId}" />
+                            <TextBlock Grid.Row="4" Text="火山 SecretAccessKey" VerticalAlignment="Center" /><TextBox Grid.Row="4" Grid.Column="1" Text="{Binding VideoTranslateVolcSecretAccessKey}" PasswordChar="●" />
+                            <TextBlock Grid.Row="5" Text="大模型 Base URL" VerticalAlignment="Center" /><TextBox Grid.Row="5" Grid.Column="1" Text="{Binding VideoTranslateLlmBaseUrl}" />
+                            <TextBlock Grid.Row="6" Text="大模型 API Key" VerticalAlignment="Center" /><TextBox Grid.Row="6" Grid.Column="1" Text="{Binding VideoTranslateLlmApiKey}" PasswordChar="●" />
+                            <TextBlock Grid.Row="7" Text="大模型名称" VerticalAlignment="Center" /><TextBox Grid.Row="7" Grid.Column="1" Text="{Binding VideoTranslateLlmModel}" />
+                            <TextBlock Grid.Row="8" Text="字幕字体" VerticalAlignment="Center" /><TextBox Grid.Row="8" Grid.Column="1" Text="{Binding VideoTranslateFont}" />
+                            <TextBlock Grid.Row="9" Text="字幕字号" VerticalAlignment="Center" /><NumericUpDown Grid.Row="9" Grid.Column="1" Value="{Binding VideoTranslateFontSize}" Minimum="12" Maximum="120" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="10" Text="底部边距" VerticalAlignment="Center" /><NumericUpDown Grid.Row="10" Grid.Column="1" Value="{Binding VideoTranslateMarginV}" Minimum="0" Maximum="600" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="11" Text="双语字幕" VerticalAlignment="Center" /><CheckBox Grid.Row="11" Grid.Column="1" IsChecked="{Binding VideoTranslateBilingual}" Content="译文下方保留原文" />
+                        </Grid>
+                    </StackPanel>
+                </TabItem>
+
                 <TabItem Header="远程命令">
                     <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
                         <TextBlock Text="飞书上传 TikTok 剧集" FontWeight="SemiBold" />
@@ -216,6 +238,7 @@
                             <CheckBox Content="生成海报" IsChecked="{Binding RemoteGeneratePosterEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="生成证明材料" IsChecked="{Binding RemoteGenerateProofMaterialEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="小文件修复" IsChecked="{Binding RemoteSmallVideoRepairEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="视频翻译" IsChecked="{Binding RemoteVideoTranslateEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="静音检测" IsChecked="{Binding RemoteSilenceDetectEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="静音修复" IsChecked="{Binding RemoteSilenceRepairEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="素材校验" IsChecked="{Binding RemoteMaterialValidateEnabled}" Margin="0,0,16,10" />

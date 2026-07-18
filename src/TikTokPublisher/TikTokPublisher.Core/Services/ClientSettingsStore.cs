@@ -250,6 +250,16 @@ public static class ClientSettingsStore
         settings.TiktokSilenceAsrLanguage = string.IsNullOrWhiteSpace(settings.TiktokSilenceAsrLanguage)
             ? "zh-CN"
             : settings.TiktokSilenceAsrLanguage.Trim();
+        settings.VideoTranslateEngine = string.Equals(settings.VideoTranslateEngine, "llm", StringComparison.OrdinalIgnoreCase)
+            ? "llm"
+            : "volc";
+        settings.VideoTranslateSourceLanguage = DefaultIfBlank(settings.VideoTranslateSourceLanguage, "en");
+        settings.VideoTranslateTargetLanguage = DefaultIfBlank(settings.VideoTranslateTargetLanguage, "zh");
+        settings.VideoTranslateLlmBaseUrl = DefaultIfBlank(settings.VideoTranslateLlmBaseUrl, "https://api.deepseek.com/v1");
+        settings.VideoTranslateLlmModel = DefaultIfBlank(settings.VideoTranslateLlmModel, "deepseek-chat");
+        settings.VideoTranslateFont = DefaultIfBlank(settings.VideoTranslateFont, "微软雅黑");
+        settings.VideoTranslateFontSize = Math.Clamp(settings.VideoTranslateFontSize <= 0 ? 50 : settings.VideoTranslateFontSize, 12, 120);
+        settings.VideoTranslateMarginV = Math.Clamp(settings.VideoTranslateMarginV, 0, 600);
         settings.AiTextEndpoint = DefaultIfBlank(settings.AiTextEndpoint, ClientSettingsDefaults.AiTextEndpoint);
         settings.AiTextApiKey ??= "";
         settings.AiTextModel = DefaultIfBlank(settings.AiTextModel, ClientSettingsDefaults.AiTextModel);
