@@ -148,68 +148,95 @@ public static class TikTokVideoDubbingService
         }
         log?.Invoke($"火山视频翻译批量提交完成，共 {episodes.Count(e => !string.IsNullOrWhiteSpace(e.VolcTranslationTaskId))} 集，开始轮询结果。");
 
-        for (var i = 0; i < payload.UploadPaths.Count; i++)
+        // Translation tasks are independent. Poll and download several completed outputs at
+        // once, while serializing state-file writes so cancellation remains safely resumable.
+        using var downloadStateLock = new SemaphoreSlim(1, 1);
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, payload.UploadPaths.Count),
+            new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct },
+            async (i, token) =>
+            {
+                var episode = episodes[i];
+                if (episode.DubbedVideoDownloaded) return;
+                await CompleteVolcTranslationEpisodeAsync(
+                    projectDir, payload.UploadPaths[i], i, episode, state, downloadStateLock,
+                    new VolcengineVodClient(settings), settings, log, token).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+    }
+
+    private static async Task CompleteVolcTranslationEpisodeAsync(
+        string projectDir,
+        string path,
+        int index,
+        VideoLocalizationEpisodeState episode,
+        VideoLocalizationState state,
+        SemaphoreSlim stateLock,
+        VolcengineVodClient client,
+        ClientSettings settings,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(episode.VolcTranslationTaskId))
+            throw new InvalidOperationException($"第 {index + 1} 集缺少火山视频翻译任务 ID。");
+
+        while (string.IsNullOrWhiteSpace(episode.VolcTranslationTargetVid) &&
+               string.IsNullOrWhiteSpace(episode.VolcTranslationOutputUrl))
         {
-            ct.ThrowIfCancellationRequested();
-            var path = payload.UploadPaths[i];
-            var episode = VideoLocalizationStateStore.GetEpisode(state, path);
-            if (!episode.SubtitleRemoved)
-                throw new InvalidOperationException($"第 {i + 1} 集尚未完成去字幕，不能开始视频翻译。");
-
-            if (string.IsNullOrWhiteSpace(episode.VolcTranslationTaskId))
+            var result = await client.GetAideoTranslationResultAsync(episode.VolcTranslationTaskId, ct)
+                .ConfigureAwait(false);
+            await stateLock.WaitAsync(ct).ConfigureAwait(false);
+            try
             {
-                var inputVid = episode.VolcOutputVid;
-                if (string.IsNullOrWhiteSpace(inputVid))
-                {
-                    log?.Invoke($"第 {i + 1} 集：上传无字幕视频到火山 VOD…");
-                    inputVid = await client.UploadMediaAsync(path, null, ct).ConfigureAwait(false);
-                }
-                log?.Invoke($"第 {i + 1} 集：提交火山声影智译（字幕翻译＋语音翻译）任务…");
-                episode.VolcTranslationTaskId = await client.StartAideoTranslationAsync(inputVid, ct).ConfigureAwait(false);
-                episode.DubbingProvider = "volc";
-                episode.DubbingStatus = "Processing";
-                VideoLocalizationStateStore.Save(projectDir, state);
-            }
-
-            while (true)
-            {
-                var result = await client.GetAideoTranslationResultAsync(episode.VolcTranslationTaskId, ct)
-                    .ConfigureAwait(false);
                 episode.DubbingStatus = result.Status;
                 if (!string.IsNullOrWhiteSpace(result.TargetVid)) episode.VolcTranslationTargetVid = result.TargetVid;
                 if (!string.IsNullOrWhiteSpace(result.OutputUrl)) episode.VolcTranslationOutputUrl = result.OutputUrl;
                 VideoLocalizationStateStore.Save(projectDir, state);
-                if (string.Equals(result.Status, "Completed", StringComparison.OrdinalIgnoreCase)) break;
-                if (string.Equals(result.Status, "Failed", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException($"第 {i + 1} 集火山视频翻译失败：{result.Error}");
-                log?.Invoke($"第 {i + 1} 集：火山视频翻译状态 {result.Status}…");
+            }
+            finally { stateLock.Release(); }
+
+            if (string.Equals(result.Status, "Failed", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(result.Status, "Error", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"第 {index + 1} 集火山视频翻译失败：{result.Error}");
+
+            if (string.IsNullOrWhiteSpace(episode.VolcTranslationTargetVid) &&
+                string.IsNullOrWhiteSpace(episode.VolcTranslationOutputUrl))
+            {
+                var completed = string.Equals(result.Status, "Completed", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(result.Status, "Success", StringComparison.OrdinalIgnoreCase);
+                log?.Invoke(completed
+                    ? $"第 {index + 1} 集：火山视频翻译已完成，等待成片信息回填…"
+                    : $"第 {index + 1} 集：火山视频翻译状态 {result.Status}…");
                 await Task.Delay(TimeSpan.FromSeconds(settings.VolcSubtitlePollSeconds), ct).ConfigureAwait(false);
             }
+        }
 
-            if (string.IsNullOrWhiteSpace(episode.VolcTranslationTargetVid))
-                throw new InvalidOperationException($"第 {i + 1} 集火山视频翻译已完成，但未返回 TargetVid。");
-            var url = !string.IsNullOrWhiteSpace(episode.VolcTranslationOutputUrl)
-                ? episode.VolcTranslationOutputUrl
-                : await client.GetPlayUrlAsync(episode.VolcTranslationTargetVid, ct).ConfigureAwait(false);
-            var temp = Path.Combine(Path.GetDirectoryName(path)!, $".{Path.GetFileNameWithoutExtension(path)}.volc-translated.mp4");
+        var url = !string.IsNullOrWhiteSpace(episode.VolcTranslationOutputUrl)
+            ? episode.VolcTranslationOutputUrl
+            : await client.GetPlayUrlAsync(episode.VolcTranslationTargetVid, ct).ConfigureAwait(false);
+        var temp = Path.Combine(Path.GetDirectoryName(path)!, $".{Path.GetFileNameWithoutExtension(path)}.volc-translated.mp4");
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+            using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            await using var input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            await using (var output = File.Create(temp)) await input.CopyToAsync(output, ct).ConfigureAwait(false);
+            await ValidateVideoAsync(path, temp, ct).ConfigureAwait(false);
+            File.Move(temp, path, true);
+
+            await stateLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
-                using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-                await using var input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-                await using (var output = File.Create(temp)) await input.CopyToAsync(output, ct).ConfigureAwait(false);
-                await ValidateVideoAsync(path, temp, ct).ConfigureAwait(false);
-                File.Move(temp, path, true);
                 episode.DubbedVideoDownloaded = true;
                 episode.SubtitlesBurned = true;
                 episode.EnglishSrtDownloaded = true;
                 episode.CleanDubbedVideoPath = "";
                 VideoLocalizationStateStore.Save(projectDir, state);
-                log?.Invoke($"第 {i + 1} 集：火山视频翻译完成（已包含目标语言配音和硬字幕）。");
             }
-            finally { TryDelete(temp); }
+            finally { stateLock.Release(); }
+            log?.Invoke($"第 {index + 1} 集：火山视频翻译完成（已包含目标语言配音和硬字幕）。");
         }
+        finally { TryDelete(temp); }
     }
 
     private static async Task ValidateVideoAsync(string input, string output, CancellationToken ct)
