@@ -6,6 +6,11 @@ public static class TikTokUploadStagingService
 {
     public const string StagingDirName = "tiktok_upload_videos";
     private static readonly Regex ForbiddenChars = new(@"[<>:""/\\|?*\x00-\x1f]", RegexOptions.Compiled);
+    private static readonly Regex EpisodePattern = new(@"第\s*0*(\d+)\s*集", RegexOptions.Compiled);
+    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".flv", ".wmv",
+    };
 
     public sealed record StagingResult(IReadOnlyList<string> SourcePaths, IReadOnlyList<string> UploadPaths);
 
@@ -55,6 +60,7 @@ public static class TikTokUploadStagingService
 
         if (!rebuildStaging)
         {
+            NormalizeExistingNames(stagingRoot, safeTitle, log);
             var existing = ResolveExisting(stagingRoot, safeTitle, videoPaths);
             if (existing.Count > 0) return existing;
             return Array.Empty<string>();
@@ -94,6 +100,48 @@ public static class TikTokUploadStagingService
         if (staged.Count > 0)
             log?.Invoke($"TikTok 上传副本已生成，共 {staged.Count} 个：{Path.GetFileName(staged[0])}");
         return staged;
+    }
+
+    private static void NormalizeExistingNames(string stagingRoot, string safeTitle, Action<string>? log)
+    {
+        if (!Directory.Exists(stagingRoot)) return;
+
+        var videos = Directory.EnumerateFiles(stagingRoot, "*.*", SearchOption.TopDirectoryOnly)
+            .Where(path => VideoExtensions.Contains(Path.GetExtension(path)))
+            .OrderBy(path => ResolveEpisode(path))
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (videos.Count == 0) return;
+
+        var plan = new List<(string Source, string Temp, string Target)>();
+        for (var index = 0; index < videos.Count; index++)
+        {
+            var source = videos[index];
+            var episode = ResolveEpisode(source);
+            if (episode == int.MaxValue) episode = index + 1;
+            var extension = Path.GetExtension(source);
+            if (string.IsNullOrWhiteSpace(extension)) extension = ".mp4";
+            var target = Path.Combine(stagingRoot, $"{safeTitle}-第{episode}集{extension.ToLowerInvariant()}");
+            if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (File.Exists(target) && !videos.Contains(target, StringComparer.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"无法同步上传视频名称，目标文件已存在：{target}");
+            var temp = Path.Combine(stagingRoot, $".title-sync-{Guid.NewGuid():N}{extension}");
+            plan.Add((source, temp, target));
+        }
+
+        foreach (var step in plan) File.Move(step.Source, step.Temp);
+        foreach (var step in plan) File.Move(step.Temp, step.Target);
+        if (plan.Count > 0)
+            log?.Invoke($"已按当前新剧名同步上传视频文件名，共 {plan.Count} 个。");
+    }
+
+    private static int ResolveEpisode(string path)
+    {
+        var match = EpisodePattern.Match(Path.GetFileNameWithoutExtension(path));
+        return match.Success && int.TryParse(match.Groups[1].Value, out var episode) && episode > 0
+            ? episode
+            : int.MaxValue;
     }
 
     private static List<string> ResolveExisting(string stagingRoot, string safeTitle, IReadOnlyList<string> videoPaths)

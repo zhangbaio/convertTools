@@ -49,7 +49,7 @@ public sealed class TikTokSmallVideoRepairServiceTests
                 CancellationToken.None);
 
             action.Should().Throw<InvalidOperationException>()
-                .WithMessage($"*{Path.GetFileName(stagingPath)}*");
+                .WithMessage("*NewTitle-第1集.avi*");
         }
         finally
         {
