@@ -95,6 +95,15 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private int _baiduSubtitleTypeIndex;
     [ObservableProperty] private string _baiduSubtitleMediaManifestPath = "";
     [ObservableProperty] private int _baiduSubtitlePollSeconds = 10;
+    [ObservableProperty] private string _aliyunSubtitleAccessKeyId = "";
+    [ObservableProperty] private string _aliyunSubtitleAccessKeySecret = "";
+    [ObservableProperty] private string _aliyunSubtitleRegion = "cn-shanghai";
+    [ObservableProperty] private string _aliyunSubtitleOssBucket = "";
+    [ObservableProperty] private string _aliyunSubtitleOssPrefix = "tiktok-subtitle-removal";
+    [ObservableProperty] private bool _aliyunSubtitleAdvancedModel = true;
+    [ObservableProperty] private string _aliyunSubtitleLimitRegion = "";
+    [ObservableProperty] private string _aliyunSubtitleObjectManifestPath = "";
+    [ObservableProperty] private int _aliyunSubtitlePollSeconds = 10;
     [ObservableProperty] private string _elevenLabsApiKey = "";
     [ObservableProperty] private string _elevenLabsSourceLanguage = "zh";
     [ObservableProperty] private string _elevenLabsTargetLanguage = "en";
@@ -154,7 +163,12 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         VideoTranslateMarginV = settings.VideoTranslateMarginV;
         VideoTranslateBilingual = settings.VideoTranslateBilingual;
         SubtitleRemovalProvider = settings.SubtitleRemovalProvider;
-        SubtitleRemovalProviderIndex = settings.SubtitleRemovalProvider == "baidu" ? 1 : 0;
+        SubtitleRemovalProviderIndex = settings.SubtitleRemovalProvider switch
+        {
+            "baidu" => 1,
+            "aliyun" => 2,
+            _ => 0,
+        };
         VolcSubtitleEraseModeIndex = settings.VolcSubtitleEraseMode == "aideo" ? 1 : 0;
         VolcSubtitleAccessKeyId = settings.VolcSubtitleAccessKeyId;
         VolcSubtitleSecretAccessKey = settings.VolcSubtitleSecretAccessKey;
@@ -172,6 +186,15 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         BaiduSubtitleTypeIndex = settings.BaiduSubtitleType == "global" ? 1 : 0;
         BaiduSubtitleMediaManifestPath = settings.BaiduSubtitleMediaManifestPath;
         BaiduSubtitlePollSeconds = settings.BaiduSubtitlePollSeconds;
+        AliyunSubtitleAccessKeyId = settings.AliyunSubtitleAccessKeyId;
+        AliyunSubtitleAccessKeySecret = settings.AliyunSubtitleAccessKeySecret;
+        AliyunSubtitleRegion = settings.AliyunSubtitleRegion;
+        AliyunSubtitleOssBucket = settings.AliyunSubtitleOssBucket;
+        AliyunSubtitleOssPrefix = settings.AliyunSubtitleOssPrefix;
+        AliyunSubtitleAdvancedModel = settings.AliyunSubtitleAdvancedModel;
+        AliyunSubtitleLimitRegion = settings.AliyunSubtitleLimitRegion;
+        AliyunSubtitleObjectManifestPath = settings.AliyunSubtitleObjectManifestPath;
+        AliyunSubtitlePollSeconds = settings.AliyunSubtitlePollSeconds;
         ElevenLabsApiKey = settings.ElevenLabsApiKey;
         ElevenLabsSourceLanguage = settings.ElevenLabsSourceLanguage;
         ElevenLabsTargetLanguage = settings.ElevenLabsTargetLanguage;
@@ -362,7 +385,12 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.VideoTranslateFontSize = Math.Clamp(VideoTranslateFontSize, 12, 120);
         settings.VideoTranslateMarginV = Math.Clamp(VideoTranslateMarginV, 0, 600);
         settings.VideoTranslateBilingual = VideoTranslateBilingual;
-        settings.SubtitleRemovalProvider = SubtitleRemovalProviderIndex == 1 ? "baidu" : "volc";
+        settings.SubtitleRemovalProvider = SubtitleRemovalProviderIndex switch
+        {
+            1 => "baidu",
+            2 => "aliyun",
+            _ => "volc",
+        };
         settings.VolcSubtitleEraseMode = VolcSubtitleEraseModeIndex == 1 ? "aideo" : "start_execution";
         settings.VolcSubtitleAccessKeyId = VolcSubtitleAccessKeyId.Trim();
         settings.VolcSubtitleSecretAccessKey = VolcSubtitleSecretAccessKey;
@@ -378,6 +406,15 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.BaiduSubtitleType = BaiduSubtitleTypeIndex == 1 ? "global" : "dialog";
         settings.BaiduSubtitleMediaManifestPath = BaiduSubtitleMediaManifestPath.Trim();
         settings.BaiduSubtitlePollSeconds = Math.Clamp(BaiduSubtitlePollSeconds, 3, 60);
+        settings.AliyunSubtitleAccessKeyId = AliyunSubtitleAccessKeyId.Trim();
+        settings.AliyunSubtitleAccessKeySecret = AliyunSubtitleAccessKeySecret;
+        settings.AliyunSubtitleRegion = AliyunSubtitleRegion.Trim();
+        settings.AliyunSubtitleOssBucket = AliyunSubtitleOssBucket.Trim();
+        settings.AliyunSubtitleOssPrefix = AliyunSubtitleOssPrefix.Trim().Trim('/');
+        settings.AliyunSubtitleAdvancedModel = AliyunSubtitleAdvancedModel;
+        settings.AliyunSubtitleLimitRegion = AliyunSubtitleLimitRegion.Trim();
+        settings.AliyunSubtitleObjectManifestPath = AliyunSubtitleObjectManifestPath.Trim();
+        settings.AliyunSubtitlePollSeconds = Math.Clamp(AliyunSubtitlePollSeconds, 3, 60);
         settings.ElevenLabsApiKey = ElevenLabsApiKey;
         settings.ElevenLabsSourceLanguage = ElevenLabsSourceLanguage.Trim();
         settings.ElevenLabsTargetLanguage = ElevenLabsTargetLanguage.Trim();

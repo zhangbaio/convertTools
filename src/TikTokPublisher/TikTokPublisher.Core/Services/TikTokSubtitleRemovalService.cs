@@ -14,7 +14,106 @@ public static class TikTokSubtitleRemovalService
             await RemoveWithBaiduAsync(projectDir, title, originalTitle, settings, log, ct).ConfigureAwait(false);
             return;
         }
+        if (string.Equals(settings.SubtitleRemovalProvider, "aliyun", StringComparison.OrdinalIgnoreCase))
+        {
+            await RemoveWithAliyunAsync(projectDir, title, originalTitle, settings, log, ct).ConfigureAwait(false);
+            return;
+        }
         await RemoveWithVolcAsync(projectDir, title, originalTitle, settings, log, ct).ConfigureAwait(false);
+    }
+
+    private static async Task RemoveWithAliyunAsync(string projectDir, string title, string originalTitle,
+        ClientSettings settings, Action<string>? log, CancellationToken ct)
+    {
+        ValidateAliyunSettings(settings);
+        var payload = TikTokUploadStagingService.BuildPayload(projectDir, title, originalTitle,
+            rebuildStaging: false, repairSmallVideos: false, log, ct);
+        if (payload.UploadPaths.Count == 0)
+            throw new InvalidOperationException("去字幕失败：未找到上传视频。");
+
+        var (manifest, manifestPath) = LoadAliyunManifest(projectDir, settings.AliyunSubtitleObjectManifestPath);
+        var state = VideoLocalizationStateStore.Load(projectDir);
+        var client = new AliyunImsSubtitleClient(settings);
+        for (var i = 0; i < payload.UploadPaths.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var path = payload.UploadPaths[i];
+            var episode = VideoLocalizationStateStore.GetEpisode(state, path);
+            if (episode.SubtitleRemoved) continue;
+
+            var fileName = Path.GetFileName(path);
+            if (!manifest.TryGetValue(fileName, out var inputKey) || string.IsNullOrWhiteSpace(inputKey))
+            {
+                inputKey = BuildAliyunObjectKey(settings.AliyunSubtitleOssPrefix, "input", fileName);
+                log?.Invoke($"第 {i + 1} 集：上传到阿里云 OSS。");
+                await client.UploadAsync(path, inputKey, progress =>
+                {
+                    if (progress >= 1) log?.Invoke($"第 {i + 1} 集：OSS 上传 100%。");
+                }, ct).ConfigureAwait(false);
+                manifest[fileName] = inputKey;
+                SaveMediaManifest(manifestPath, manifest);
+            }
+            episode.AliyunInputObjectKey = inputKey;
+            if (string.IsNullOrWhiteSpace(episode.AliyunOutputObjectKey))
+                episode.AliyunOutputObjectKey = BuildAliyunObjectKey(settings.AliyunSubtitleOssPrefix,
+                    "output", Path.GetFileNameWithoutExtension(fileName) + ".mp4");
+
+            if (string.IsNullOrWhiteSpace(episode.AliyunTaskId))
+            {
+                var model = settings.AliyunSubtitleAdvancedModel ? "高级版" : "普通版";
+                log?.Invoke($"第 {i + 1} 集：提交阿里云 IMS {model}字幕擦除任务。");
+                episode.AliyunTaskId = await client.StartSubtitleRemovalAsync(inputKey,
+                    episode.AliyunOutputObjectKey, ct).ConfigureAwait(false);
+                VideoLocalizationStateStore.Save(projectDir, state);
+            }
+
+            string outputUrl;
+            while (true)
+            {
+                var result = await client.GetSubtitleRemovalAsync(episode.AliyunTaskId, ct).ConfigureAwait(false);
+                if (string.Equals(result.Status, "Success", StringComparison.OrdinalIgnoreCase))
+                {
+                    outputUrl = string.IsNullOrWhiteSpace(result.OutputUrl)
+                        ? client.CreateDownloadUri(episode.AliyunOutputObjectKey).ToString()
+                        : result.OutputUrl;
+                    break;
+                }
+                if (string.Equals(result.Status, "Failed", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(result.Status, "Error", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"第 {i + 1} 集阿里云字幕擦除失败：{result.Error}");
+                log?.Invoke($"第 {i + 1} 集：阿里云字幕擦除状态 {result.Status}。");
+                await Task.Delay(TimeSpan.FromSeconds(settings.AliyunSubtitlePollSeconds), ct).ConfigureAwait(false);
+            }
+
+            var temp = Path.Combine(Path.GetDirectoryName(path)!,
+                $".{Path.GetFileNameWithoutExtension(path)}.aliyun-subtitle-erased.mp4");
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+                using var response = await http.GetAsync(outputUrl, HttpCompletionOption.ResponseHeadersRead, ct)
+                    .ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode && !string.IsNullOrWhiteSpace(episode.AliyunOutputObjectKey))
+                {
+                    response.Dispose();
+                    outputUrl = client.CreateDownloadUri(episode.AliyunOutputObjectKey).ToString();
+                    using var retry = await http.GetAsync(outputUrl, HttpCompletionOption.ResponseHeadersRead, ct)
+                        .ConfigureAwait(false);
+                    retry.EnsureSuccessStatusCode();
+                    await CopyResponseToFileAsync(retry, temp, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    response.EnsureSuccessStatusCode();
+                    await CopyResponseToFileAsync(response, temp, ct).ConfigureAwait(false);
+                }
+                await ValidateVideoAsync(path, temp, ct).ConfigureAwait(false);
+                File.Move(temp, path, true);
+                episode.SubtitleRemoved = true;
+                VideoLocalizationStateStore.Save(projectDir, state);
+                log?.Invoke($"第 {i + 1} 集：阿里云字幕擦除完成。");
+            }
+            finally { try { if (File.Exists(temp)) File.Delete(temp); } catch { } }
+        }
     }
 
     private static async Task RemoveWithVolcAsync(string projectDir, string title, string originalTitle,
@@ -235,6 +334,41 @@ public static class TikTokSubtitleRemovalService
     }
     private static void SaveMediaManifest(string path, Dictionary<string, string> manifest) =>
         SaveVidManifest(path, manifest);
+
+    private static (Dictionary<string, string> Manifest, string Path) LoadAliyunManifest(
+        string projectDir, string configuredPath)
+    {
+        var path = string.IsNullOrWhiteSpace(configuredPath)
+            ? Path.Combine(projectDir, ".tiktok", "aliyun-oss-objects.json")
+            : (Path.IsPathRooted(configuredPath) ? configuredPath : Path.Combine(projectDir, configuredPath));
+        if (!File.Exists(path)) return (new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), path);
+        var loaded = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(path),
+                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                     ?? new Dictionary<string, string>();
+        return (new Dictionary<string, string>(loaded, StringComparer.OrdinalIgnoreCase), path);
+    }
+
+    private static string BuildAliyunObjectKey(string prefix, string category, string fileName) =>
+        $"{prefix.Trim('/')}/{category}/{Guid.NewGuid():N}-{fileName}".Replace('\\', '/');
+
+    private static async Task CopyResponseToFileAsync(HttpResponseMessage response, string path, CancellationToken ct)
+    {
+        await using var input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        await using var output = File.Create(path);
+        await input.CopyToAsync(output, ct).ConfigureAwait(false);
+    }
+
+    private static void ValidateAliyunSettings(ClientSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(settings.AliyunSubtitleAccessKeyId) ||
+            string.IsNullOrWhiteSpace(settings.AliyunSubtitleAccessKeySecret))
+            throw new InvalidOperationException("阿里云去字幕需要配置 AccessKeyId 和 AccessKeySecret。");
+        if (string.IsNullOrWhiteSpace(settings.AliyunSubtitleRegion))
+            throw new InvalidOperationException("阿里云去字幕需要配置地域，例如 cn-shanghai。");
+        if (string.IsNullOrWhiteSpace(settings.AliyunSubtitleOssBucket))
+            throw new InvalidOperationException("阿里云去字幕需要配置与 IMS 同地域的 OSS Bucket。");
+        _ = AliyunImsSubtitleClient.BuildJobParams(settings.AliyunSubtitleLimitRegion);
+    }
 
     private static void ValidateBaiduSettings(ClientSettings settings)
     {

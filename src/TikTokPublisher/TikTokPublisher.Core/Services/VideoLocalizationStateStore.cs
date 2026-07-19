@@ -18,6 +18,9 @@ public sealed class VideoLocalizationEpisodeState
     public string BaiduMediaId { get; set; } = "";
     public string BaiduTaskId { get; set; } = "";
     public string BaiduOutputUrl { get; set; } = "";
+    public string AliyunInputObjectKey { get; set; } = "";
+    public string AliyunOutputObjectKey { get; set; } = "";
+    public string AliyunTaskId { get; set; } = "";
     public bool SubtitleRemoved { get; set; }
     public string ElevenLabsDubbingId { get; set; } = "";
     public string DubbingStatus { get; set; } = "";

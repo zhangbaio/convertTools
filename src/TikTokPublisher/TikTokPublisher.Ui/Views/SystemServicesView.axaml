@@ -205,6 +205,7 @@
                             <ComboBox Grid.Row="0" Grid.Column="1" SelectedIndex="{Binding SubtitleRemovalProviderIndex}">
                                 <ComboBoxItem Content="火山引擎" Tag="volc" />
                                 <ComboBoxItem Content="百度智能云 VOD" Tag="baidu" />
+                                <ComboBoxItem Content="阿里云 IMS" Tag="aliyun" />
                             </ComboBox>
                         </Grid>
                         <TextBlock Text="火山引擎字幕擦除配置" FontWeight="SemiBold" />
@@ -253,6 +254,19 @@
                             <TextBlock Grid.Row="6" Text="百度轮询秒数" VerticalAlignment="Center" /><NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding BaiduSubtitlePollSeconds}" Minimum="3" Maximum="60" Width="120" HorizontalAlignment="Left" />
                         </Grid>
                         <TextBlock Text="所选服务缺少媒资映射时会自动上传到对应 VOD；百度需开通字幕擦除白名单，默认使用 V4 对白字幕模式。" Classes="compactHint" TextWrapping="Wrap" />
+                        <TextBlock Text="阿里云 IMS 字幕擦除配置" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                            <TextBlock Grid.Row="0" Text="阿里 AccessKeyId" VerticalAlignment="Center" /><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AliyunSubtitleAccessKeyId}" />
+                            <TextBlock Grid.Row="1" Text="阿里 AccessKeySecret" VerticalAlignment="Center" /><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding AliyunSubtitleAccessKeySecret}" PasswordChar="●" />
+                            <TextBlock Grid.Row="2" Text="IMS/OSS 地域" VerticalAlignment="Center" /><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding AliyunSubtitleRegion}" Watermark="cn-shanghai" />
+                            <TextBlock Grid.Row="3" Text="OSS Bucket" VerticalAlignment="Center" /><TextBox Grid.Row="3" Grid.Column="1" Text="{Binding AliyunSubtitleOssBucket}" Watermark="必须与 IMS 同地域" />
+                            <TextBlock Grid.Row="4" Text="OSS 对象前缀" VerticalAlignment="Center" /><TextBox Grid.Row="4" Grid.Column="1" Text="{Binding AliyunSubtitleOssPrefix}" Watermark="tiktok-subtitle-removal" />
+                            <TextBlock Grid.Row="5" Text="擦除模型" VerticalAlignment="Center" /><CheckBox Grid.Row="5" Grid.Column="1" IsChecked="{Binding AliyunSubtitleAdvancedModel}" Content="高级版（效果更好，0.8 元/分钟刊例价）" />
+                            <TextBlock Grid.Row="6" Text="字幕检测区域" VerticalAlignment="Center" /><TextBox Grid.Row="6" Grid.Column="1" Text="{Binding AliyunSubtitleLimitRegion}" Watermark="留空检测底部 30%；例如 [[0,0.65,1,0.35]]" />
+                            <TextBlock Grid.Row="7" Text="对象映射文件" VerticalAlignment="Center" /><TextBox Grid.Row="7" Grid.Column="1" Text="{Binding AliyunSubtitleObjectManifestPath}" Watermark="默认 .tiktok/aliyun-oss-objects.json" />
+                            <TextBlock Grid.Row="8" Text="阿里云轮询秒数" VerticalAlignment="Center" /><NumericUpDown Grid.Row="8" Grid.Column="1" Value="{Binding AliyunSubtitlePollSeconds}" Minimum="3" Maximum="60" Width="120" HorizontalAlignment="Left" />
+                        </Grid>
+                        <TextBlock Text="阿里云会把本地视频上传到 OSS，再通过 IMS VideoDetext 异步擦除；OSS Bucket、IMS 项目必须位于同一地域。" Classes="compactHint" TextWrapping="Wrap" />
                         <Separator Margin="0,8" />
                         <TextBlock Text="添加字幕样式" FontWeight="Bold" />
                         <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">

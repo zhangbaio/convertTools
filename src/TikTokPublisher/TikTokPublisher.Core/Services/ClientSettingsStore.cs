@@ -260,9 +260,12 @@ public static class ClientSettingsStore
         settings.VideoTranslateFont = DefaultIfBlank(settings.VideoTranslateFont, "微软雅黑");
         settings.VideoTranslateFontSize = Math.Clamp(settings.VideoTranslateFontSize <= 0 ? 50 : settings.VideoTranslateFontSize, 12, 120);
         settings.VideoTranslateMarginV = Math.Clamp(settings.VideoTranslateMarginV, 0, 600);
-        settings.SubtitleRemovalProvider = string.Equals(settings.SubtitleRemovalProvider, "baidu", StringComparison.OrdinalIgnoreCase)
-            ? "baidu"
-            : "volc";
+        settings.SubtitleRemovalProvider = settings.SubtitleRemovalProvider?.Trim().ToLowerInvariant() switch
+        {
+            "baidu" => "baidu",
+            "aliyun" => "aliyun",
+            _ => "volc",
+        };
         settings.VolcSubtitleEraseMode = string.Equals(settings.VolcSubtitleEraseMode, "aideo", StringComparison.OrdinalIgnoreCase)
             ? "aideo"
             : "start_execution";
@@ -276,6 +279,12 @@ public static class ClientSettingsStore
         settings.BaiduSubtitleType = string.Equals(settings.BaiduSubtitleType, "global", StringComparison.OrdinalIgnoreCase) ? "global" : "dialog";
         settings.BaiduSubtitleMediaManifestPath = settings.BaiduSubtitleMediaManifestPath?.Trim() ?? "";
         settings.BaiduSubtitlePollSeconds = Math.Clamp(settings.BaiduSubtitlePollSeconds <= 0 ? 10 : settings.BaiduSubtitlePollSeconds, 3, 60);
+        settings.AliyunSubtitleRegion = DefaultIfBlank(settings.AliyunSubtitleRegion, "cn-shanghai");
+        settings.AliyunSubtitleOssBucket = settings.AliyunSubtitleOssBucket?.Trim() ?? "";
+        settings.AliyunSubtitleOssPrefix = DefaultIfBlank(settings.AliyunSubtitleOssPrefix, "tiktok-subtitle-removal").Trim('/');
+        settings.AliyunSubtitleLimitRegion = settings.AliyunSubtitleLimitRegion?.Trim() ?? "";
+        settings.AliyunSubtitleObjectManifestPath = settings.AliyunSubtitleObjectManifestPath?.Trim() ?? "";
+        settings.AliyunSubtitlePollSeconds = Math.Clamp(settings.AliyunSubtitlePollSeconds <= 0 ? 10 : settings.AliyunSubtitlePollSeconds, 3, 60);
         settings.ElevenLabsSourceLanguage = DefaultIfBlank(settings.ElevenLabsSourceLanguage, "zh");
         settings.ElevenLabsTargetLanguage = DefaultIfBlank(settings.ElevenLabsTargetLanguage, "en");
         settings.ElevenLabsPollSeconds = Math.Clamp(settings.ElevenLabsPollSeconds <= 0 ? 8 : settings.ElevenLabsPollSeconds, 3, 60);
