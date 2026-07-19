@@ -43,6 +43,21 @@ public sealed class QueueProgressBatchBufferTests
         buffer.Enqueue(CreateProgress(QueueStepRegistry.Download, "第二批")).Should().BeTrue();
     }
 
+    [Fact]
+    public void Drain_preserves_daily_limit_notification_even_when_a_later_upload_message_arrives()
+    {
+        var buffer = new QueueProgressBatchBuffer();
+
+        buffer.Enqueue(CreateProgress(
+            QueueStepRegistry.UploadSeries,
+            "已达单日创建剧集上限，任务队列已停止，请明天再继续上传"));
+        buffer.Enqueue(CreateProgress(QueueStepRegistry.UploadSeries, "队列收尾完成"));
+
+        buffer.Drain().Select(progress => progress.Message).Should().Equal(
+            "已达单日创建剧集上限，任务队列已停止，请明天再继续上传",
+            "队列收尾完成");
+    }
+
     private static QueueWorkerProgress CreateProgress(string stepKey, string message) => new()
     {
         WorkspaceRoot = @"D:\work",

@@ -22,7 +22,8 @@ public sealed class QueueProgressBatchBuffer
         lock (_lock)
         {
             var pending = new PendingProgress(++_sequence, progress);
-            if (QueueStepLogFilters.RequiresLosslessUiDelivery(progress.StepKey))
+            if (QueueStepLogFilters.RequiresLosslessUiDelivery(progress.StepKey) ||
+                IsCriticalUiNotification(progress.Message))
                 _lossless.Add(pending);
             else
                 _latestByKey[BuildKey(progress)] = pending;
@@ -59,6 +60,13 @@ public sealed class QueueProgressBatchBuffer
         var project = progress.Item?.ProjectDir ?? "";
         var step = progress.StepKey ?? "";
         return $"{workspace}|{project}|{step}";
+    }
+
+    private static bool IsCriticalUiNotification(string? message)
+    {
+        var text = message ?? "";
+        return text.Contains("单日创建剧集上限", StringComparison.Ordinal) ||
+               text.Contains("任务队列已停止", StringComparison.Ordinal);
     }
 
     private readonly record struct PendingProgress(long Sequence, QueueWorkerProgress Progress);

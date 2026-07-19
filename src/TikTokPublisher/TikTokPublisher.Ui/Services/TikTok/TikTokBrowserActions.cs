@@ -218,6 +218,26 @@ public static partial class TikTokBrowserActions
 
     public static async Task<string?> DetectDailyEpisodeLimitAsync(IPage page)
     {
+        // The limit toast may only live for a fraction of a second while CDP is injecting files.
+        // Reading the rendered page text once is substantially faster than crossing the CDP
+        // boundary for every candidate container, and includes portal-mounted toast content.
+        // Callers start continuous detection only after entering the current create flow, so an
+        // old page from the previous queue item cannot cause a false positive here.
+        try
+        {
+            var bodyText = await page.Locator("body").InnerTextAsync(new()
+            {
+                Timeout = 1000,
+            }).ConfigureAwait(false);
+            var bodyDetected = DetectDailyLimitText(bodyText);
+            if (bodyDetected is not null)
+                return bodyDetected;
+        }
+        catch
+        {
+            // The page can be busy during file injection; fall back to focused containers.
+        }
+
         foreach (var selector in DailyLimitVisibleSelectors)
         {
             try
