@@ -285,6 +285,9 @@ public static class ClientSettingsStore
         settings.AliyunSubtitleLimitRegion = settings.AliyunSubtitleLimitRegion?.Trim() ?? "";
         settings.AliyunSubtitleObjectManifestPath = settings.AliyunSubtitleObjectManifestPath?.Trim() ?? "";
         settings.AliyunSubtitlePollSeconds = Math.Clamp(settings.AliyunSubtitlePollSeconds <= 0 ? 10 : settings.AliyunSubtitlePollSeconds, 3, 60);
+        settings.VideoDubbingProvider = string.Equals(settings.VideoDubbingProvider, "volc", StringComparison.OrdinalIgnoreCase)
+            ? "volc"
+            : "elevenlabs";
         settings.ElevenLabsSourceLanguage = DefaultIfBlank(settings.ElevenLabsSourceLanguage, "zh");
         settings.ElevenLabsTargetLanguage = DefaultIfBlank(settings.ElevenLabsTargetLanguage, "en");
         settings.ElevenLabsPollSeconds = Math.Clamp(settings.ElevenLabsPollSeconds <= 0 ? 8 : settings.ElevenLabsPollSeconds, 3, 60);

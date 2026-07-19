@@ -23,6 +23,9 @@ public sealed class VideoLocalizationEpisodeState
     public string AliyunTaskId { get; set; } = "";
     public bool SubtitleRemoved { get; set; }
     public string ElevenLabsDubbingId { get; set; } = "";
+    public string VolcTranslationTaskId { get; set; } = "";
+    public string VolcTranslationTargetVid { get; set; } = "";
+    public string DubbingProvider { get; set; } = "";
     public string DubbingStatus { get; set; } = "";
     public bool DubbedVideoDownloaded { get; set; }
     public bool SpeechRateChecked { get; set; }

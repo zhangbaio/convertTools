@@ -13,6 +13,22 @@ public static partial class TikTokSubtitleAddService
     public static async Task AddAsync(string projectDir, string title, string originalTitle,
         ClientSettings settings, Action<string>? log, CancellationToken ct)
     {
+        if (string.Equals(settings.VideoDubbingProvider, "volc", StringComparison.OrdinalIgnoreCase))
+        {
+            var volcPayload = TikTokUploadStagingService.BuildPayload(
+                projectDir, title, originalTitle, rebuildStaging: false, repairSmallVideos: false, log, ct);
+            var volcState = VideoLocalizationStateStore.Load(projectDir);
+            foreach (var (video, index) in volcPayload.UploadPaths.Select((path, index) => (path, index)))
+            {
+                var episode = VideoLocalizationStateStore.GetEpisode(volcState, video);
+                if (!episode.DubbedVideoDownloaded || !episode.SubtitlesBurned ||
+                    !string.Equals(episode.DubbingProvider, "volc", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException($"第 {index + 1} 集尚未完成火山视频翻译，不能确认字幕步骤。");
+                log?.Invoke($"第 {index + 1} 集：火山译制视频已包含目标语言硬字幕，跳过重复烧录。");
+            }
+            VideoLocalizationStateStore.Save(projectDir, volcState);
+            return;
+        }
         if (string.IsNullOrWhiteSpace(settings.ElevenLabsApiKey))
             throw new InvalidOperationException("添加字幕需要 ElevenLabs API Key（系统服务 → 视频本地化）。");
         var payload = TikTokUploadStagingService.BuildPayload(

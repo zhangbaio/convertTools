@@ -128,6 +128,38 @@ public static class TikTokSubtitleRemovalService
         var state = VideoLocalizationStateStore.Load(projectDir);
         var client = new VolcengineVodClient(settings);
         var useAideo = string.Equals(settings.VolcSubtitleEraseMode, "aideo", StringComparison.OrdinalIgnoreCase);
+        if (useAideo)
+        {
+            log?.Invoke("Aideo Agent 批量提交阶段开始。");
+            for (var i = 0; i < payload.UploadPaths.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var path = payload.UploadPaths[i];
+                var episode = VideoLocalizationStateStore.GetEpisode(state, path);
+                if (episode.SubtitleRemoved || !string.IsNullOrWhiteSpace(episode.VolcAideoTaskId)) continue;
+                if (!manifest.TryGetValue(Path.GetFileName(path), out var vid) || string.IsNullOrWhiteSpace(vid))
+                {
+                    log?.Invoke($"第 {i + 1} 集：未找到 Vid，开始自动上传火山 VOD。");
+                    var lastPercent = -1;
+                    vid = await client.UploadMediaAsync(path, progress =>
+                    {
+                        var percent = (int)Math.Floor(progress * 10) * 10;
+                        if (percent != lastPercent)
+                        {
+                            lastPercent = percent;
+                            log?.Invoke($"第 {i + 1} 集：VOD 上传 {Math.Clamp(percent, 0, 100)}%。");
+                        }
+                    }, ct).ConfigureAwait(false);
+                    manifest[Path.GetFileName(path)] = vid;
+                    SaveVidManifest(manifestPath, manifest);
+                    log?.Invoke($"第 {i + 1} 集：VOD 上传完成，Vid 已缓存。");
+                }
+                log?.Invoke($"第 {i + 1} 集：提交火山 Aideo Agent 字幕擦除任务。");
+                episode.VolcAideoTaskId = await client.StartAideoSubtitleEraseAsync(vid, ct).ConfigureAwait(false);
+                VideoLocalizationStateStore.Save(projectDir, state);
+            }
+            log?.Invoke("Aideo Agent 批量提交阶段完成，开始轮询并下载产物。");
+        }
         for (var i = 0; i < payload.UploadPaths.Count; i++)
         {
             ct.ThrowIfCancellationRequested();

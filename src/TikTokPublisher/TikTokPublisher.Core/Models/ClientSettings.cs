@@ -83,6 +83,7 @@ public sealed class ClientSettings
     public string AliyunSubtitleLimitRegion { get; set; } = "";
     public string AliyunSubtitleObjectManifestPath { get; set; } = "";
     public int AliyunSubtitlePollSeconds { get; set; } = 10;
+    public string VideoDubbingProvider { get; set; } = "elevenlabs";
     public string ElevenLabsApiKey { get; set; } = "";
     public string ElevenLabsSourceLanguage { get; set; } = "zh";
     public string ElevenLabsTargetLanguage { get; set; } = "en";
@@ -261,6 +262,7 @@ public sealed class ClientSettings
         AliyunSubtitleLimitRegion = AliyunSubtitleLimitRegion,
         AliyunSubtitleObjectManifestPath = AliyunSubtitleObjectManifestPath,
         AliyunSubtitlePollSeconds = AliyunSubtitlePollSeconds,
+        VideoDubbingProvider = VideoDubbingProvider,
         ElevenLabsApiKey = ElevenLabsApiKey,
         ElevenLabsSourceLanguage = ElevenLabsSourceLanguage,
         ElevenLabsTargetLanguage = ElevenLabsTargetLanguage,

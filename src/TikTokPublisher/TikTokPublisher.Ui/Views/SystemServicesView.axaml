@@ -199,13 +199,20 @@
 
                 <TabItem Header="翻译配置">
                     <StackPanel Margin="8" Spacing="10">
-                        <TextBlock Text="视频本地化（可切换字幕擦除服务 → ElevenLabs 配音 → 添加英文字幕）" FontWeight="Bold" />
+                        <TextBlock Text="视频本地化（可切换字幕擦除服务 → 可切换视频配音/翻译服务 → 添加目标语言字幕）" FontWeight="Bold" />
                         <Grid ColumnDefinitions="150,*" RowDefinitions="Auto" RowSpacing="8">
                             <TextBlock Grid.Row="0" Text="去字幕服务" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="0" Grid.Column="1" SelectedIndex="{Binding SubtitleRemovalProviderIndex}">
                                 <ComboBoxItem Content="火山引擎" Tag="volc" />
                                 <ComboBoxItem Content="百度智能云 VOD" Tag="baidu" />
                                 <ComboBoxItem Content="阿里云 IMS" Tag="aliyun" />
+                            </ComboBox>
+                        </Grid>
+                        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto" RowSpacing="8">
+                            <TextBlock Grid.Row="0" Text="视频配音服务" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" SelectedIndex="{Binding VideoDubbingProviderIndex}">
+                                <ComboBoxItem Content="ElevenLabs Dubbing V1" />
+                                <ComboBoxItem Content="火山声影智译（字幕＋语音翻译，¥4/分钟）" />
                             </ComboBox>
                         </Grid>
                         <TextBlock Text="火山引擎字幕擦除配置" FontWeight="SemiBold" />
@@ -225,8 +232,8 @@
                             <TextBlock Grid.Row="5" Text="Vid 映射文件" VerticalAlignment="Center" /><TextBox Grid.Row="5" Grid.Column="1" Text="{Binding VolcSubtitleVidManifestPath}" Watermark="默认自动维护 .tiktok/volc-vod-vids.json" />
                             <TextBlock Grid.Row="6" Text="火山轮询秒数" VerticalAlignment="Center" /><NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding VolcSubtitlePollSeconds}" Minimum="3" Maximum="60" Width="120" HorizontalAlignment="Left" />
                             <TextBlock Grid.Row="7" Text="ElevenLabs API Key" VerticalAlignment="Center" /><TextBox Grid.Row="7" Grid.Column="1" Text="{Binding ElevenLabsApiKey}" PasswordChar="●" />
-                            <TextBlock Grid.Row="8" Text="源语言" VerticalAlignment="Center" /><TextBox Grid.Row="8" Grid.Column="1" Text="{Binding ElevenLabsSourceLanguage}" Watermark="zh" />
-                            <TextBlock Grid.Row="9" Text="目标语言" VerticalAlignment="Center" /><TextBox Grid.Row="9" Grid.Column="1" Text="{Binding ElevenLabsTargetLanguage}" Watermark="en" />
+                            <TextBlock Grid.Row="8" Text="配音源语言" VerticalAlignment="Center" /><TextBox Grid.Row="8" Grid.Column="1" Text="{Binding ElevenLabsSourceLanguage}" Watermark="zh" />
+                            <TextBlock Grid.Row="9" Text="配音目标语言" VerticalAlignment="Center" /><TextBox Grid.Row="9" Grid.Column="1" Text="{Binding ElevenLabsTargetLanguage}" Watermark="en" />
                             <TextBlock Grid.Row="10" Text="ElevenLabs 轮询" VerticalAlignment="Center" /><NumericUpDown Grid.Row="10" Grid.Column="1" Value="{Binding ElevenLabsPollSeconds}" Minimum="3" Maximum="60" Width="120" HorizontalAlignment="Left" />
                             <TextBlock Grid.Row="11" Text="背景音策略" VerticalAlignment="Center" /><CheckBox Grid.Row="11" Grid.Column="1" IsChecked="{Binding ElevenLabsDropBackgroundAudio}" Content="移除原背景音" />
                             <TextBlock Grid.Row="12" Text="声音克隆" VerticalAlignment="Center" /><CheckBox Grid.Row="12" Grid.Column="1" IsChecked="{Binding ElevenLabsDisableVoiceCloning}" Content="禁用声音克隆" />

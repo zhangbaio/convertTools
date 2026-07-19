@@ -70,6 +70,55 @@ internal sealed class VolcengineVodClient
         return ReadRequired(json, "Result", "TaskId");
     }
 
+    public async Task<string> StartAideoTranslationAsync(string vid, CancellationToken ct)
+    {
+        var skillParams = JsonSerializer.Serialize(new
+        {
+            TranslationConfig = new
+            {
+                SourceLanguage = _settings.ElevenLabsSourceLanguage,
+                TargetLanguage = _settings.ElevenLabsTargetLanguage,
+                TranslationTypeList = new[] { "SubtitleTranslation", "VoiceTranslation" },
+            },
+            OperatorConfig = new
+            {
+                SubtitleRecognitionConfig = new { RecognitionType = "ASR" },
+            },
+            SubtitleConfig = new
+            {
+                IsHardSubtitle = true,
+                IsEraseSource = false,
+                FontSize = _settings.VideoTranslateFontSize,
+                MarginV = Math.Clamp(_settings.VideoTranslateMarginV / 1280.0, 0, 0.45),
+            },
+        });
+        var body = new JsonObject
+        {
+            ["SpaceName"] = _settings.VolcSubtitleSpaceName,
+            ["MultiInputs"] = new JsonArray(new JsonObject { ["Type"] = "Vid", ["Vid"] = vid }),
+            ["SkillType"] = "AITranslation",
+            ["SkillParams"] = skillParams,
+        };
+        var json = await SendAsync(HttpMethod.Post, "SubmitAideoTaskAsync", "2025-03-03", body, null, ct)
+            .ConfigureAwait(false);
+        return ReadRequired(json, "Result", "TaskId");
+    }
+
+    public async Task<VolcTranslationResult> GetAideoTranslationResultAsync(string taskId, CancellationToken ct)
+    {
+        var json = await SendAsync(HttpMethod.Get, "GetAideoTaskResult", "2025-03-03", null,
+            new Dictionary<string, string>
+            {
+                ["SpaceName"] = _settings.VolcSubtitleSpaceName,
+                ["TaskId"] = taskId,
+            }, ct).ConfigureAwait(false);
+        var result = json["Result"] as JsonObject ?? throw ApiError(json, "火山视频翻译查询响应缺少 Result");
+        var status = result["Status"]?.GetValue<string>() ?? "";
+        var targetVid = FindString(result, "TargetVid") ?? FindTranslationOutputVid(result) ?? "";
+        return new VolcTranslationResult(status, targetVid,
+            FindString(result, "ErrorMsg") ?? FindString(result, "Message") ?? FindString(result, "Error") ?? "");
+    }
+
     public async Task<VolcAideoResult> GetAideoTaskResultAsync(string taskId, CancellationToken ct)
     {
         var json = await SendAsync(HttpMethod.Get, "GetAideoTaskResult", "2025-03-03", null,
@@ -153,7 +202,7 @@ internal sealed class VolcengineVodClient
                 ["SpaceName"] = _settings.VolcSubtitleSpaceName,
                 ["FileSize"] = info.Length.ToString(CultureInfo.InvariantCulture),
                 ["FileType"] = "media",
-                ["FileName"] = Path.GetFileNameWithoutExtension(filePath),
+                ["FileName"] = $"{Path.GetFileNameWithoutExtension(filePath)}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid():N}",
                 ["FileExtension"] = info.Extension.ToLowerInvariant(),
                 ["StorageClass"] = "1",
                 ["UploadHostPrefer"] = "",
@@ -400,6 +449,28 @@ internal sealed class VolcengineVodClient
         return null;
     }
 
+    private static string? FindTranslationOutputVid(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            foreach (var key in new[] { "OutputVid", "ExportVid", "TranslatedVid" })
+                if (obj[key] is JsonValue value && value.TryGetValue<string>(out var text) && !string.IsNullOrWhiteSpace(text))
+                    return text;
+            foreach (var pair in obj)
+            {
+                var found = FindTranslationOutputVid(pair.Value);
+                if (found is not null) return found;
+            }
+        }
+        else if (node is JsonArray array)
+            foreach (var child in array)
+            {
+                var found = FindTranslationOutputVid(child);
+                if (found is not null) return found;
+            }
+        return null;
+    }
+
     private static JsonObject? FindObject(JsonNode? node, string key)
     {
         if (node is JsonObject obj)
@@ -424,3 +495,4 @@ internal sealed class VolcengineVodClient
 
 internal sealed record VolcExecutionResult(string Status, string Vid, string FileName, string Error);
 internal sealed record VolcAideoResult(string Status, string Vid, string FileName, string Error);
+internal sealed record VolcTranslationResult(string Status, string TargetVid, string Error);

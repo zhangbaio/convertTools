@@ -104,6 +104,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private string _aliyunSubtitleLimitRegion = "";
     [ObservableProperty] private string _aliyunSubtitleObjectManifestPath = "";
     [ObservableProperty] private int _aliyunSubtitlePollSeconds = 10;
+    [ObservableProperty] private int _videoDubbingProviderIndex;
     [ObservableProperty] private string _elevenLabsApiKey = "";
     [ObservableProperty] private string _elevenLabsSourceLanguage = "zh";
     [ObservableProperty] private string _elevenLabsTargetLanguage = "en";
@@ -195,6 +196,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         AliyunSubtitleLimitRegion = settings.AliyunSubtitleLimitRegion;
         AliyunSubtitleObjectManifestPath = settings.AliyunSubtitleObjectManifestPath;
         AliyunSubtitlePollSeconds = settings.AliyunSubtitlePollSeconds;
+        VideoDubbingProviderIndex = settings.VideoDubbingProvider == "volc" ? 1 : 0;
         ElevenLabsApiKey = settings.ElevenLabsApiKey;
         ElevenLabsSourceLanguage = settings.ElevenLabsSourceLanguage;
         ElevenLabsTargetLanguage = settings.ElevenLabsTargetLanguage;
@@ -415,6 +417,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.AliyunSubtitleLimitRegion = AliyunSubtitleLimitRegion.Trim();
         settings.AliyunSubtitleObjectManifestPath = AliyunSubtitleObjectManifestPath.Trim();
         settings.AliyunSubtitlePollSeconds = Math.Clamp(AliyunSubtitlePollSeconds, 3, 60);
+        settings.VideoDubbingProvider = VideoDubbingProviderIndex == 1 ? "volc" : "elevenlabs";
         settings.ElevenLabsApiKey = ElevenLabsApiKey;
         settings.ElevenLabsSourceLanguage = ElevenLabsSourceLanguage.Trim();
         settings.ElevenLabsTargetLanguage = ElevenLabsTargetLanguage.Trim();
