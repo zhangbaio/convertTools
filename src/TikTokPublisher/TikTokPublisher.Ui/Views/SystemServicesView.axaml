@@ -215,6 +215,27 @@
                                 <ComboBoxItem Content="火山声影智译（字幕＋语音翻译，¥4/分钟）" />
                             </ComboBox>
                         </Grid>
+                        <TextBlock Text="火山视频翻译配置" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                            <TextBlock Grid.Row="0" Text="翻译源语言" VerticalAlignment="Center" /><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ElevenLabsSourceLanguage}" Watermark="zh" />
+                            <TextBlock Grid.Row="1" Text="翻译目标语言" VerticalAlignment="Center" /><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ElevenLabsTargetLanguage}" Watermark="en" />
+                            <TextBlock Grid.Row="2" Text="翻译方式" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                                <CheckBox IsChecked="{Binding VolcVideoTranslateVoice}" Content="语音翻译" />
+                                <CheckBox IsChecked="{Binding VolcVideoTranslateFacial}" Content="面容翻译（Beta）" />
+                                <TextBlock Text="字幕翻译（必选）" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <TextBlock Grid.Row="3" Text="字幕来源" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="3" Grid.Column="1" SelectedIndex="{Binding VolcVideoTranslateSubtitleSourceIndex}">
+                                <ComboBoxItem Content="识别画面文字（OCR）" />
+                                <ComboBoxItem Content="自动语音识别（ASR）" />
+                                <ComboBoxItem Content="上传字幕文件（VOD FileName）" />
+                            </ComboBox>
+                            <TextBlock Grid.Row="4" Text="字幕 FileName" VerticalAlignment="Center" /><TextBox Grid.Row="4" Grid.Column="1" Text="{Binding VolcVideoTranslateSubtitleFileName}" Watermark="仅字幕来源为上传文件时填写，文件须已上传到同一 VOD 空间" />
+                            <TextBlock Grid.Row="5" Text="开启双字幕" VerticalAlignment="Center" /><CheckBox Grid.Row="5" Grid.Column="1" IsChecked="{Binding VideoTranslateBilingual}" Content="保留源语言和目标语言字幕" />
+                            <TextBlock Grid.Row="6" Text="压制字幕" VerticalAlignment="Center" /><CheckBox Grid.Row="6" Grid.Column="1" IsChecked="{Binding VolcVideoTranslateHardSubtitle}" Content="将翻译字幕压制到成片" />
+                            <TextBlock Grid.Row="7" Text="擦除原字幕" VerticalAlignment="Center" /><CheckBox Grid.Row="7" Grid.Column="1" IsChecked="{Binding VolcVideoTranslateEraseSourceSubtitle}" Content="识别并擦除视频中的原字幕" />
+                        </Grid>
                         <TextBlock Text="火山引擎字幕擦除配置" FontWeight="SemiBold" />
                         <Grid ColumnDefinitions="150,*" RowDefinitions="Auto" RowSpacing="8">
                             <TextBlock Grid.Row="0" Text="火山擦除方式" VerticalAlignment="Center" />

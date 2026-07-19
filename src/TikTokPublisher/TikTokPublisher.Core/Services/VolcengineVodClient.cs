@@ -70,25 +70,47 @@ internal sealed class VolcengineVodClient
         return ReadRequired(json, "Result", "TaskId");
     }
 
-    public async Task<string> StartAideoTranslationAsync(string vid, CancellationToken ct)
+    public async Task<string> StartAideoTranslationAsync(string vid, CancellationToken ct,
+        string? recognitionType = null, int? hardSubtitleFontSize = null,
+        bool? hardSubtitle = null, bool? eraseSourceSubtitle = null)
     {
+        var subtitleSource = string.IsNullOrWhiteSpace(recognitionType)
+            ? _settings.VolcVideoTranslateSubtitleSource
+            : recognitionType;
+        var translationTypes = new List<string> { "SubtitleTranslation" };
+        if (_settings.VolcVideoTranslateVoice) translationTypes.Add("VoiceTranslation");
+        if (_settings.VolcVideoTranslateFacial) translationTypes.Add("FacialTranslation");
+        var recognitionConfig = new Dictionary<string, object?>
+        {
+            ["RecognitionType"] = string.Equals(subtitleSource, "OCR", StringComparison.OrdinalIgnoreCase)
+                ? "OCR"
+                : "ASR",
+        };
+        if (string.Equals(subtitleSource, "SubtitleFile", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(_settings.VolcVideoTranslateSubtitleFileName))
+                throw new InvalidOperationException("火山视频翻译选择了上传字幕文件，但未配置 VOD 字幕 FileName。");
+            recognitionConfig["RecognitionType"] = "SubtitleFile";
+            recognitionConfig["SubtitleFileName"] = _settings.VolcVideoTranslateSubtitleFileName.Trim();
+        }
         var skillParams = JsonSerializer.Serialize(new
         {
             TranslationConfig = new
             {
                 SourceLanguage = _settings.ElevenLabsSourceLanguage,
                 TargetLanguage = _settings.ElevenLabsTargetLanguage,
-                TranslationTypeList = new[] { "SubtitleTranslation", "VoiceTranslation" },
+                TranslationTypeList = translationTypes,
             },
             OperatorConfig = new
             {
-                SubtitleRecognitionConfig = new { RecognitionType = "ASR" },
+                SubtitleRecognitionConfig = recognitionConfig,
             },
             SubtitleConfig = new
             {
-                IsHardSubtitle = true,
-                IsEraseSource = false,
-                FontSize = _settings.VideoTranslateFontSize,
+                IsHardSubtitle = hardSubtitle ?? _settings.VolcVideoTranslateHardSubtitle,
+                IsEraseSource = eraseSourceSubtitle ?? _settings.VolcVideoTranslateEraseSourceSubtitle,
+                IsBilingualSubtitle = _settings.VideoTranslateBilingual,
+                FontSize = hardSubtitleFontSize ?? _settings.VideoTranslateFontSize,
                 MarginV = Math.Clamp(_settings.VideoTranslateMarginV / 1280.0, 0, 0.45),
             },
         });

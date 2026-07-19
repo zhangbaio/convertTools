@@ -58,6 +58,12 @@ public sealed class ClientSettings
     public int VideoTranslateFontSize { get; set; } = 50;
     public int VideoTranslateMarginV { get; set; } = 160;
     public bool VideoTranslateBilingual { get; set; }
+    public bool VolcVideoTranslateVoice { get; set; } = true;
+    public bool VolcVideoTranslateFacial { get; set; }
+    public string VolcVideoTranslateSubtitleSource { get; set; } = "OCR";
+    public string VolcVideoTranslateSubtitleFileName { get; set; } = "";
+    public bool VolcVideoTranslateHardSubtitle { get; set; } = true;
+    public bool VolcVideoTranslateEraseSourceSubtitle { get; set; }
     public string SubtitleRemovalProvider { get; set; } = "volc";
     public string VolcSubtitleEraseMode { get; set; } = "start_execution";
     public string VolcSubtitleAccessKeyId { get; set; } = "";
@@ -237,6 +243,12 @@ public sealed class ClientSettings
         VideoTranslateFontSize = VideoTranslateFontSize,
         VideoTranslateMarginV = VideoTranslateMarginV,
         VideoTranslateBilingual = VideoTranslateBilingual,
+        VolcVideoTranslateVoice = VolcVideoTranslateVoice,
+        VolcVideoTranslateFacial = VolcVideoTranslateFacial,
+        VolcVideoTranslateSubtitleSource = VolcVideoTranslateSubtitleSource,
+        VolcVideoTranslateSubtitleFileName = VolcVideoTranslateSubtitleFileName,
+        VolcVideoTranslateHardSubtitle = VolcVideoTranslateHardSubtitle,
+        VolcVideoTranslateEraseSourceSubtitle = VolcVideoTranslateEraseSourceSubtitle,
         SubtitleRemovalProvider = SubtitleRemovalProvider,
         VolcSubtitleEraseMode = VolcSubtitleEraseMode,
         VolcSubtitleAccessKeyId = VolcSubtitleAccessKeyId,

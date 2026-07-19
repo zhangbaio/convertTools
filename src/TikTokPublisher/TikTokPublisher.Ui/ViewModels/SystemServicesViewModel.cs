@@ -76,6 +76,12 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private int _videoTranslateFontSize = 50;
     [ObservableProperty] private int _videoTranslateMarginV = 160;
     [ObservableProperty] private bool _videoTranslateBilingual;
+    [ObservableProperty] private bool _volcVideoTranslateVoice = true;
+    [ObservableProperty] private bool _volcVideoTranslateFacial;
+    [ObservableProperty] private int _volcVideoTranslateSubtitleSourceIndex;
+    [ObservableProperty] private string _volcVideoTranslateSubtitleFileName = "";
+    [ObservableProperty] private bool _volcVideoTranslateHardSubtitle = true;
+    [ObservableProperty] private bool _volcVideoTranslateEraseSourceSubtitle;
     [ObservableProperty] private string _subtitleRemovalProvider = "volc";
     [ObservableProperty] private int _subtitleRemovalProviderIndex;
     [ObservableProperty] private int _volcSubtitleEraseModeIndex;
@@ -163,6 +169,17 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         VideoTranslateFontSize = settings.VideoTranslateFontSize;
         VideoTranslateMarginV = settings.VideoTranslateMarginV;
         VideoTranslateBilingual = settings.VideoTranslateBilingual;
+        VolcVideoTranslateVoice = settings.VolcVideoTranslateVoice;
+        VolcVideoTranslateFacial = settings.VolcVideoTranslateFacial;
+        VolcVideoTranslateSubtitleSourceIndex = settings.VolcVideoTranslateSubtitleSource.ToUpperInvariant() switch
+        {
+            "ASR" => 1,
+            "SUBTITLEFILE" => 2,
+            _ => 0,
+        };
+        VolcVideoTranslateSubtitleFileName = settings.VolcVideoTranslateSubtitleFileName;
+        VolcVideoTranslateHardSubtitle = settings.VolcVideoTranslateHardSubtitle;
+        VolcVideoTranslateEraseSourceSubtitle = settings.VolcVideoTranslateEraseSourceSubtitle;
         SubtitleRemovalProvider = settings.SubtitleRemovalProvider;
         SubtitleRemovalProviderIndex = settings.SubtitleRemovalProvider switch
         {
@@ -387,6 +404,17 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.VideoTranslateFontSize = Math.Clamp(VideoTranslateFontSize, 12, 120);
         settings.VideoTranslateMarginV = Math.Clamp(VideoTranslateMarginV, 0, 600);
         settings.VideoTranslateBilingual = VideoTranslateBilingual;
+        settings.VolcVideoTranslateVoice = VolcVideoTranslateVoice;
+        settings.VolcVideoTranslateFacial = VolcVideoTranslateFacial;
+        settings.VolcVideoTranslateSubtitleSource = VolcVideoTranslateSubtitleSourceIndex switch
+        {
+            1 => "ASR",
+            2 => "SubtitleFile",
+            _ => "OCR",
+        };
+        settings.VolcVideoTranslateSubtitleFileName = VolcVideoTranslateSubtitleFileName.Trim();
+        settings.VolcVideoTranslateHardSubtitle = VolcVideoTranslateHardSubtitle;
+        settings.VolcVideoTranslateEraseSourceSubtitle = VolcVideoTranslateEraseSourceSubtitle;
         settings.SubtitleRemovalProvider = SubtitleRemovalProviderIndex switch
         {
             1 => "baidu",
