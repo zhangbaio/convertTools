@@ -99,6 +99,11 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         root.GetProperty("accountProfileName").GetString().Should().Be("账号3");
         root.GetProperty("uploadCompletedAt").GetString().Should().Be(uploadCompletedAt);
         root.GetProperty("upload_completed_at").GetString().Should().Be(uploadCompletedAt);
+        root.GetProperty("queueProjectState")
+            .GetProperty("step_states")
+            .GetProperty(QueueStepKeys.UploadSeries)
+            .GetString()
+            .Should().Be(QueueStepStatus.Completed);
 
         var archivedItem = TikTokArchivedProjectService.List(_workspaceRoot, _archiveRoot).Single();
         archivedItem.QueuedAt.Should().Be(queuedAt);
@@ -262,6 +267,48 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         restored.Archived.Should().BeFalse();
         restored.Enabled.Should().BeTrue();
         restored.QueuedAt.Should().NotBe("2026-01-01 00:00:00");
+    }
+
+    [Fact]
+    public async Task Restore_recovers_completed_step_states_when_queue_row_was_removed()
+    {
+        var (sourceDir, _) = CreateProjectDirs("restore-state");
+        var original = new QueueProjectItem
+        {
+            ProjectDir = sourceDir,
+            DisplayName = "restore-state",
+            OriginalTitle = "原剧名",
+            NewTitle = "新剧名",
+            Enabled = true,
+            StepStates = new Dictionary<string, string>
+            {
+                [QueueStepKeys.Download] = QueueStepStatus.Completed,
+                [QueueStepKeys.RewriteInfo] = QueueStepStatus.Completed,
+                [QueueStepKeys.GeneratePoster] = QueueStepStatus.Completed,
+            },
+        };
+        WorkspaceQueueDatabase.Save(_workspaceRoot, new[] { original });
+
+        await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+            _workspaceRoot,
+            sourceDir,
+            _archiveRoot,
+            deleteSourceVideos: false,
+            deleteWorkflowVideos: false,
+            deleteMaterialVideos: false);
+        var metadataPath = Directory.EnumerateFiles(Path.Combine(_archiveRoot, "meta"), "*.json").Single();
+        WorkspaceQueueDatabase.Save(_workspaceRoot, Array.Empty<QueueProjectItem>());
+
+        TikTokArchivedProjectService.Restore(_workspaceRoot, metadataPath, _archiveRoot);
+
+        var restored = WorkspaceQueueDatabase.Load(_workspaceRoot).Items.Single();
+        restored.Enabled.Should().BeFalse();
+        restored.Archived.Should().BeFalse();
+        restored.OriginalTitle.Should().Be("原剧名");
+        restored.NewTitle.Should().Be("新剧名");
+        restored.StepStates[QueueStepKeys.Download].Should().Be(QueueStepStatus.Completed);
+        restored.StepStates[QueueStepKeys.RewriteInfo].Should().Be(QueueStepStatus.Completed);
+        restored.StepStates[QueueStepKeys.GeneratePoster].Should().Be(QueueStepStatus.Completed);
     }
 
     [Fact]

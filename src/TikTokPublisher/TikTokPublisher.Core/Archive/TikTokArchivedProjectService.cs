@@ -111,17 +111,21 @@ public static class TikTokArchivedProjectService
         var context = ProjectWorkspaceService.LoadContext(projectDir);
         var sourceProjectDir = Path.GetFullPath(context.SourceProjectDir);
         var workflowProjectDir = Path.GetFullPath(context.WorkflowProjectDir);
-        var queuedAtValue = FirstNonEmpty(
-            queuedAt,
-            ResolveQueuedAtFromQueueState(workspaceRoot, sourceProjectDir, workflowProjectDir, projectDir));
-        var uploadCompletedAtValue = FirstNonEmpty(
-            uploadCompletedAt,
-            ResolveUploadCompletedAtFromQueueState(workspaceRoot, sourceProjectDir, workflowProjectDir, projectDir));
-        var (queueOriginalTitle, queueNewTitle) = ResolveTitlesFromQueueState(
+        var queueProject = ResolveQueueProjectFromState(
             workspaceRoot,
             sourceProjectDir,
             workflowProjectDir,
             projectDir);
+        var queuedAtValue = FirstNonEmpty(
+            queuedAt,
+            queueProject?.QueuedAt,
+            ResolveQueuedAtFromQueueState(workspaceRoot, sourceProjectDir, workflowProjectDir, projectDir));
+        var uploadCompletedAtValue = FirstNonEmpty(
+            uploadCompletedAt,
+            queueProject?.UploadCompletedAt,
+            ResolveUploadCompletedAtFromQueueState(workspaceRoot, sourceProjectDir, workflowProjectDir, projectDir));
+        var queueOriginalTitle = queueProject?.OriginalTitle ?? "";
+        var queueNewTitle = queueProject?.NewTitle ?? "";
         var archiveRoot = ResolveArchiveRoot(workspaceRoot, archiveRootDir);
         var sourceRoot = Path.Combine(archiveRoot, "source");
         var workflowRoot = Path.Combine(archiveRoot, "workflow");
@@ -265,6 +269,7 @@ public static class TikTokArchivedProjectService
             ["deletedWorkflowVideoFileCount"] = deletedWorkflowVideoCount,
             ["deletedMaterialVideoFileCount"] = deletedMaterialVideoCount,
             ["deletedMaterialClipVideoFileCount"] = deletedMaterialClipVideoCount,
+            ["queueProjectState"] = queueProject?.ToPayload(),
         };
         await File.WriteAllTextAsync(
             metadataPath,
@@ -306,7 +311,7 @@ public static class TikTokArchivedProjectService
         }
 
         UpdateRestoredMetadata(restoredSource, restoredWorkflow);
-        UpdateQueueStateForRestoredProject(workspaceRoot, restoredSource);
+        UpdateQueueStateForRestoredProject(workspaceRoot, restoredSource, payload);
         CleanupArchiveReference(metadataPath, archiveDir);
         RemoveArchiveFromDatabase(workspaceRoot, metadataPath);
     }
@@ -600,7 +605,10 @@ public static class TikTokArchivedProjectService
             Directory.Delete(archiveDir);
     }
 
-    private static void UpdateQueueStateForRestoredProject(string workspaceRoot, string? restoredSourceDir)
+    private static void UpdateQueueStateForRestoredProject(
+        string workspaceRoot,
+        string? restoredSourceDir,
+        IReadOnlyDictionary<string, object?> archivePayload)
     {
         if (string.IsNullOrWhiteSpace(restoredSourceDir) || !Directory.Exists(restoredSourceDir))
             return;
@@ -631,22 +639,34 @@ public static class TikTokArchivedProjectService
 
         if (restoredItem is null)
         {
-            var scanned = WorkspaceProjectScanner.BuildProject(normalized);
-            restoredItem = new QueueProjectItem
+            if (archivePayload.TryGetValue("queueProjectState", out var rawQueueState) &&
+                rawQueueState is Dictionary<string, object?> queueState)
             {
-                ProjectDir = scanned.ProjectDir,
-                DisplayName = scanned.DisplayName,
-                OriginalTitle = scanned.OriginalTitle,
-                NewTitle = scanned.NewTitle,
-                Description = scanned.Description,
-                GenreCategory = scanned.GenreCategory,
-                EpisodeCount = scanned.EpisodeCount,
-                PrimaryVideoPath = scanned.PrimaryVideoPath,
-                CoverPath = scanned.CoverPath,
-                Archived = false,
-                Enabled = false,
-                QueuedAt = timestamp,
-            };
+                restoredItem = QueueProjectItem.FromPayload(queueState);
+                restoredItem.ProjectDir = normalized;
+                restoredItem.Archived = false;
+                restoredItem.Enabled = false;
+                restoredItem.QueuedAt = timestamp;
+            }
+            else
+            {
+                var scanned = WorkspaceProjectScanner.BuildProject(normalized);
+                restoredItem = new QueueProjectItem
+                {
+                    ProjectDir = scanned.ProjectDir,
+                    DisplayName = scanned.DisplayName,
+                    OriginalTitle = scanned.OriginalTitle,
+                    NewTitle = scanned.NewTitle,
+                    Description = scanned.Description,
+                    GenreCategory = scanned.GenreCategory,
+                    EpisodeCount = scanned.EpisodeCount,
+                    PrimaryVideoPath = scanned.PrimaryVideoPath,
+                    CoverPath = scanned.CoverPath,
+                    Archived = false,
+                    Enabled = false,
+                    QueuedAt = timestamp,
+                };
+            }
         }
         else
         {
@@ -657,6 +677,27 @@ public static class TikTokArchivedProjectService
         remaining.Add(restoredItem);
 
         WorkspaceQueueService.SaveRunOptions(workspaceRoot, remaining, options);
+    }
+
+    private static QueueProjectItem? ResolveQueueProjectFromState(string workspaceRoot, params string[] projectDirs)
+    {
+        try
+        {
+            var candidates = projectDirs
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(Path.GetFullPath)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (candidates.Count == 0)
+                return null;
+
+            return WorkspaceQueueDatabase.Load(workspaceRoot).Items.FirstOrDefault(item =>
+                !string.IsNullOrWhiteSpace(item.ProjectDir) &&
+                candidates.Contains(Path.GetFullPath(item.ProjectDir)));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static void UpdateRestoredMetadata(string? restoredSourceDir, string? restoredWorkflowDir)

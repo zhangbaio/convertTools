@@ -5,13 +5,37 @@ namespace TikTokPublisher.Core.Services;
 /// <summary>确保应用主 SQLite 库存在（全局设置、执行历史等）。</summary>
 public static class AppDatabaseInitializer
 {
+    internal static object WriteSyncRoot { get; } = new();
+
     public static void EnsureInitialized(string databasePath)
+    {
+        lock (WriteSyncRoot)
+        {
+            EnsureInitializedCore(databasePath);
+        }
+    }
+
+    internal static SqliteConnection OpenConnection(string databasePath, bool readOnly = false)
+    {
+        var path = Path.GetFullPath(databasePath);
+        var mode = readOnly ? ";Mode=ReadOnly" : "";
+        var connection = new SqliteConnection($"Data Source={path}{mode};Default Timeout=30");
+        connection.Open();
+
+        using var pragma = connection.CreateCommand();
+        pragma.CommandText = readOnly
+            ? "PRAGMA busy_timeout=30000; PRAGMA foreign_keys=ON;"
+            : "PRAGMA busy_timeout=30000; PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;";
+        pragma.ExecuteNonQuery();
+        return connection;
+    }
+
+    private static void EnsureInitializedCore(string databasePath)
     {
         var path = Path.GetFullPath(databasePath);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
-        using var conn = new SqliteConnection($"Data Source={path}");
-        conn.Open();
+        using var conn = OpenConnection(path);
 
         using var tx = conn.BeginTransaction();
         conn.ExecuteNonQuery(

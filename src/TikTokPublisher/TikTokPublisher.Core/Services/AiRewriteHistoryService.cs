@@ -51,9 +51,12 @@ public static class AiRewriteHistoryService
     {
         if (string.IsNullOrWhiteSpace(record.OriginalTitle)) return;
 
-        var path = ClientSettingsStore.MainDatabasePath;
-        AppDatabaseInitializer.EnsureInitialized(path);
-        SaveToDatabase(path, NormalizeRecord(record));
+        lock (AppDatabaseInitializer.WriteSyncRoot)
+        {
+            var path = ClientSettingsStore.MainDatabasePath;
+            AppDatabaseInitializer.EnsureInitialized(path);
+            SaveToDatabase(path, NormalizeRecord(record));
+        }
     }
 
     public static bool IsTitleDuplicate(string title, IEnumerable<string> candidates)
@@ -191,8 +194,7 @@ public static class AiRewriteHistoryService
         };
         var json = JsonSerializer.Serialize(payload, JsonOptions);
 
-        using var conn = new SqliteConnection($"Data Source={databasePath}");
-        conn.Open();
+        using var conn = AppDatabaseInitializer.OpenConnection(databasePath);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO ai_rewrite_history (

@@ -162,22 +162,24 @@ public static class TikTokExecutionHistoryService
 
     private static void AppendPayload(Dictionary<string, object?> payload)
     {
-        var path = ClientSettingsStore.MainDatabasePath;
-        AppDatabaseInitializer.EnsureInitialized(path);
+        lock (AppDatabaseInitializer.WriteSyncRoot)
+        {
+            var path = ClientSettingsStore.MainDatabasePath;
+            AppDatabaseInitializer.EnsureInitialized(path);
 
-        var json = JsonSerializer.Serialize(payload, JsonOptions);
-        var createdAt = payload.GetValueOrDefault("timestamp")?.ToString() ?? DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
-        using var conn = new SqliteConnection($"Data Source={path}");
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO upload_task_events(event_id, payload_json, created_at)
-            VALUES($event_id, $payload_json, $created_at)
-            """;
-        cmd.Parameters.AddWithValue("$event_id", payload["event_id"]?.ToString() ?? Guid.NewGuid().ToString("N"));
-        cmd.Parameters.AddWithValue("$payload_json", json);
-        cmd.Parameters.AddWithValue("$created_at", createdAt);
-        cmd.ExecuteNonQuery();
+            var json = JsonSerializer.Serialize(payload, JsonOptions);
+            var createdAt = payload.GetValueOrDefault("timestamp")?.ToString() ?? DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
+            using var conn = AppDatabaseInitializer.OpenConnection(path);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO upload_task_events(event_id, payload_json, created_at)
+                VALUES($event_id, $payload_json, $created_at)
+                """;
+            cmd.Parameters.AddWithValue("$event_id", payload["event_id"]?.ToString() ?? Guid.NewGuid().ToString("N"));
+            cmd.Parameters.AddWithValue("$payload_json", json);
+            cmd.Parameters.AddWithValue("$created_at", createdAt);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     private static bool TryBuildProjectSnapshot(
