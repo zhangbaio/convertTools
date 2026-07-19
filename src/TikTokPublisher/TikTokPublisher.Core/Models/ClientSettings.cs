@@ -58,6 +58,23 @@ public sealed class ClientSettings
     public int VideoTranslateFontSize { get; set; } = 50;
     public int VideoTranslateMarginV { get; set; } = 160;
     public bool VideoTranslateBilingual { get; set; }
+    public string VolcSubtitleAccessKeyId { get; set; } = "";
+    public string VolcSubtitleSecretAccessKey { get; set; } = "";
+    public string VolcSubtitleRegion { get; set; } = "cn-north-1";
+    public string VolcSubtitleSpaceName { get; set; } = "";
+    public string VolcSubtitlePlaybackDomain { get; set; } = "";
+    public string VolcSubtitleVidManifestPath { get; set; } = "";
+    public int VolcSubtitlePollSeconds { get; set; } = 10;
+    public string ElevenLabsApiKey { get; set; } = "";
+    public string ElevenLabsSourceLanguage { get; set; } = "zh";
+    public string ElevenLabsTargetLanguage { get; set; } = "en";
+    public int ElevenLabsPollSeconds { get; set; } = 8;
+    public bool ElevenLabsDropBackgroundAudio { get; set; }
+    public bool ElevenLabsDisableVoiceCloning { get; set; }
+    public string ElevenLabsSpeechRateMode { get; set; } = "off";
+    public double ElevenLabsSpeechRateTarget { get; set; } = 3.2;
+    public double ElevenLabsSpeechRateThreshold { get; set; } = 3.6;
+    public double ElevenLabsSpeechRateMaxStretch { get; set; } = 1.2;
 
     public string AiTextEndpoint { get; set; } = ClientSettingsDefaults.AiTextEndpoint;
     public string AiTextApiKey { get; set; } = "";
@@ -201,6 +218,23 @@ public sealed class ClientSettings
         VideoTranslateFontSize = VideoTranslateFontSize,
         VideoTranslateMarginV = VideoTranslateMarginV,
         VideoTranslateBilingual = VideoTranslateBilingual,
+        VolcSubtitleAccessKeyId = VolcSubtitleAccessKeyId,
+        VolcSubtitleSecretAccessKey = VolcSubtitleSecretAccessKey,
+        VolcSubtitleRegion = VolcSubtitleRegion,
+        VolcSubtitleSpaceName = VolcSubtitleSpaceName,
+        VolcSubtitlePlaybackDomain = VolcSubtitlePlaybackDomain,
+        VolcSubtitleVidManifestPath = VolcSubtitleVidManifestPath,
+        VolcSubtitlePollSeconds = VolcSubtitlePollSeconds,
+        ElevenLabsApiKey = ElevenLabsApiKey,
+        ElevenLabsSourceLanguage = ElevenLabsSourceLanguage,
+        ElevenLabsTargetLanguage = ElevenLabsTargetLanguage,
+        ElevenLabsPollSeconds = ElevenLabsPollSeconds,
+        ElevenLabsDropBackgroundAudio = ElevenLabsDropBackgroundAudio,
+        ElevenLabsDisableVoiceCloning = ElevenLabsDisableVoiceCloning,
+        ElevenLabsSpeechRateMode = ElevenLabsSpeechRateMode,
+        ElevenLabsSpeechRateTarget = ElevenLabsSpeechRateTarget,
+        ElevenLabsSpeechRateThreshold = ElevenLabsSpeechRateThreshold,
+        ElevenLabsSpeechRateMaxStretch = ElevenLabsSpeechRateMaxStretch,
         AiTextEndpoint = AiTextEndpoint,
         AiTextApiKey = AiTextApiKey,
         AiTextModel = AiTextModel,

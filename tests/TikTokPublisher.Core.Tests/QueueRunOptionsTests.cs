@@ -83,4 +83,42 @@ public sealed class QueueRunOptionsTests
         legacyUploaded.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
         explicitlyReset.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Pending);
     }
+
+    [Fact]
+    public void Legacy_video_translate_option_migrates_to_the_complete_localization_chain()
+    {
+        var options = QueueRunOptions.FromDictionary(new Dictionary<string, object?>
+        {
+            ["enabled_steps"] = new List<object?> { QueueStepKeys.LegacyVideoTranslate },
+        });
+
+        options.EnabledSteps.Should().ContainInOrder(
+            QueueStepKeys.RemoveSubtitles,
+            QueueStepKeys.DubVideo,
+            QueueStepKeys.AddSubtitles);
+    }
+
+    [Theory]
+    [InlineData(QueueStepStatus.Completed, QueueStepStatus.Completed, QueueStepStatus.Completed, QueueStepStatus.Completed)]
+    [InlineData(QueueStepStatus.Failed, QueueStepStatus.Failed, QueueStepStatus.Pending, QueueStepStatus.Pending)]
+    public void Legacy_video_translate_state_migrates_without_skipping_prerequisites(
+        string legacyStatus, string removeStatus, string dubStatus, string addStatus)
+    {
+        var item = new QueueProjectItem
+        {
+            CurrentStep = QueueStepKeys.LegacyVideoTranslate,
+            StepStates = new Dictionary<string, string>
+            {
+                [QueueStepKeys.LegacyVideoTranslate] = legacyStatus,
+            },
+        };
+
+        item.NormalizeStepStates();
+
+        item.CurrentStep.Should().Be(QueueStepKeys.RemoveSubtitles);
+        item.StepStates.Should().NotContainKey(QueueStepKeys.LegacyVideoTranslate);
+        item.StepStates[QueueStepKeys.RemoveSubtitles].Should().Be(removeStatus);
+        item.StepStates[QueueStepKeys.DubVideo].Should().Be(dubStatus);
+        item.StepStates[QueueStepKeys.AddSubtitles].Should().Be(addStatus);
+    }
 }

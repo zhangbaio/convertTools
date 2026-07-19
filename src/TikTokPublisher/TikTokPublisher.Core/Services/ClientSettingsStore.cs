@@ -260,6 +260,18 @@ public static class ClientSettingsStore
         settings.VideoTranslateFont = DefaultIfBlank(settings.VideoTranslateFont, "微软雅黑");
         settings.VideoTranslateFontSize = Math.Clamp(settings.VideoTranslateFontSize <= 0 ? 50 : settings.VideoTranslateFontSize, 12, 120);
         settings.VideoTranslateMarginV = Math.Clamp(settings.VideoTranslateMarginV, 0, 600);
+        settings.VolcSubtitleRegion = DefaultIfBlank(settings.VolcSubtitleRegion, "cn-north-1");
+        settings.VolcSubtitleSpaceName = settings.VolcSubtitleSpaceName?.Trim() ?? "";
+        settings.VolcSubtitlePlaybackDomain = settings.VolcSubtitlePlaybackDomain?.Trim().TrimEnd('/') ?? "";
+        settings.VolcSubtitleVidManifestPath = settings.VolcSubtitleVidManifestPath?.Trim() ?? "";
+        settings.VolcSubtitlePollSeconds = Math.Clamp(settings.VolcSubtitlePollSeconds <= 0 ? 10 : settings.VolcSubtitlePollSeconds, 3, 60);
+        settings.ElevenLabsSourceLanguage = DefaultIfBlank(settings.ElevenLabsSourceLanguage, "zh");
+        settings.ElevenLabsTargetLanguage = DefaultIfBlank(settings.ElevenLabsTargetLanguage, "en");
+        settings.ElevenLabsPollSeconds = Math.Clamp(settings.ElevenLabsPollSeconds <= 0 ? 8 : settings.ElevenLabsPollSeconds, 3, 60);
+        settings.ElevenLabsSpeechRateMode = string.Equals(settings.ElevenLabsSpeechRateMode, "repair", StringComparison.OrdinalIgnoreCase) ? "repair" : "off";
+        settings.ElevenLabsSpeechRateTarget = Math.Clamp(settings.ElevenLabsSpeechRateTarget <= 0 ? 3.2 : settings.ElevenLabsSpeechRateTarget, 2.0, 4.0);
+        settings.ElevenLabsSpeechRateThreshold = Math.Clamp(settings.ElevenLabsSpeechRateThreshold <= 0 ? 3.6 : settings.ElevenLabsSpeechRateThreshold, settings.ElevenLabsSpeechRateTarget, 5.0);
+        settings.ElevenLabsSpeechRateMaxStretch = Math.Clamp(settings.ElevenLabsSpeechRateMaxStretch <= 0 ? 1.2 : settings.ElevenLabsSpeechRateMaxStretch, 1.0, 1.3);
         settings.AiTextEndpoint = DefaultIfBlank(settings.AiTextEndpoint, ClientSettingsDefaults.AiTextEndpoint);
         settings.AiTextApiKey ??= "";
         settings.AiTextModel = DefaultIfBlank(settings.AiTextModel, ClientSettingsDefaults.AiTextModel);

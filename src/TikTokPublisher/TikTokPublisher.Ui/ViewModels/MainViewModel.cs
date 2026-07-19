@@ -133,7 +133,9 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _queueGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _queueDeleteSourceVideosEnabled;
     [ObservableProperty] private bool _queueSmallVideoRepairEnabled;
-    [ObservableProperty] private bool _queueVideoTranslateEnabled;
+    [ObservableProperty] private bool _queueRemoveSubtitlesEnabled;
+    [ObservableProperty] private bool _queueDubVideoEnabled;
+    [ObservableProperty] private bool _queueAddSubtitlesEnabled;
     [ObservableProperty] private bool _queueSilenceDetectEnabled;
     [ObservableProperty] private bool _queueSilenceRepairEnabled;
     [ObservableProperty] private bool _queueMaterialValidateEnabled;
@@ -520,7 +522,9 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnQueueDeleteSourceVideosEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueUploadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueSmallVideoRepairEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueVideoTranslateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnQueueRemoveSubtitlesEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnQueueDubVideoEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnQueueAddSubtitlesEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueSilenceDetectEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueSilenceRepairEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueMaterialValidateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -659,7 +663,9 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateProofMaterialEnabled = true;
             QueueDeleteSourceVideosEnabled = true;
             QueueSmallVideoRepairEnabled = true;
-            QueueVideoTranslateEnabled = true;
+            QueueRemoveSubtitlesEnabled = true;
+            QueueDubVideoEnabled = true;
+            QueueAddSubtitlesEnabled = true;
             QueueSilenceDetectEnabled = true;
             QueueSilenceRepairEnabled = true;
             QueueMaterialValidateEnabled = true;
@@ -684,7 +690,9 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateProofMaterialEnabled = false;
             QueueDeleteSourceVideosEnabled = false;
             QueueSmallVideoRepairEnabled = false;
-            QueueVideoTranslateEnabled = false;
+            QueueRemoveSubtitlesEnabled = false;
+            QueueDubVideoEnabled = false;
+            QueueAddSubtitlesEnabled = false;
             QueueSilenceDetectEnabled = false;
             QueueSilenceRepairEnabled = false;
             QueueMaterialValidateEnabled = false;
@@ -3177,7 +3185,9 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
             QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
             QueueSmallVideoRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SmallVideoRepair);
-            QueueVideoTranslateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.VideoTranslate);
+            QueueRemoveSubtitlesEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RemoveSubtitles);
+            QueueDubVideoEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DubVideo);
+            QueueAddSubtitlesEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.AddSubtitles);
             QueueSilenceDetectEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceDetect);
             QueueSilenceRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceRepair);
             QueueMaterialValidateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.MaterialValidate);
@@ -3198,7 +3208,9 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (QueueDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);
         if (QueueSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
-        if (QueueVideoTranslateEnabled) steps.Add(QueueStepRegistry.VideoTranslate);
+        if (QueueRemoveSubtitlesEnabled) steps.Add(QueueStepRegistry.RemoveSubtitles);
+        if (QueueDubVideoEnabled) steps.Add(QueueStepRegistry.DubVideo);
+        if (QueueAddSubtitlesEnabled) steps.Add(QueueStepRegistry.AddSubtitles);
         if (QueueSilenceDetectEnabled) steps.Add(QueueStepRegistry.SilenceDetect);
         if (QueueSilenceRepairEnabled) steps.Add(QueueStepRegistry.SilenceRepair);
         if (QueueMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);

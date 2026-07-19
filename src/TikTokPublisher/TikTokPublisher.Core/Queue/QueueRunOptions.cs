@@ -12,7 +12,9 @@ public static class QueueStepRegistry
     public const string DeleteSourceVideos = QueueStepKeys.DeleteSourceVideos;
 
     public const string SmallVideoRepair = QueueStepKeys.SmallVideoRepair;
-    public const string VideoTranslate = QueueStepKeys.VideoTranslate;
+    public const string RemoveSubtitles = QueueStepKeys.RemoveSubtitles;
+    public const string DubVideo = QueueStepKeys.DubVideo;
+    public const string AddSubtitles = QueueStepKeys.AddSubtitles;
     public const string SilenceDetect = QueueStepKeys.SilenceDetect;
     public const string SilenceRepair = QueueStepKeys.SilenceRepair;
 
@@ -25,7 +27,9 @@ public static class QueueStepRegistry
         new QueueStepDefinition(QueueStepKeys.GenerateProjectImages, "生成工程图", true),
         new QueueStepDefinition(QueueStepKeys.GenerateProofMaterial, "生成证明材料", true),
         new QueueStepDefinition(SmallVideoRepair, "小文件修复", true),
-        new QueueStepDefinition(VideoTranslate, "视频翻译", true),
+        new QueueStepDefinition(RemoveSubtitles, "去字幕", true),
+        new QueueStepDefinition(DubVideo, "视频配音", true),
+        new QueueStepDefinition(AddSubtitles, "添加字幕", true),
         new QueueStepDefinition(SilenceDetect, "静音检测", true),
         new QueueStepDefinition(SilenceRepair, "静音修复", true),
         new QueueStepDefinition(MaterialValidate, "素材校验", true),
@@ -117,6 +121,13 @@ public sealed class QueueRunOptions
             foreach (var item in list)
             {
                 var key = (item?.ToString() ?? "").Trim();
+                if (string.Equals(key, QueueStepKeys.LegacyVideoTranslate, StringComparison.Ordinal))
+                {
+                    enabled.Add(QueueStepKeys.RemoveSubtitles);
+                    enabled.Add(QueueStepKeys.DubVideo);
+                    enabled.Add(QueueStepKeys.AddSubtitles);
+                    continue;
+                }
                 if (!string.IsNullOrEmpty(key) && QueueStepRegistry.All.Any(s => s.Key == key))
                     enabled.Add(key);
             }

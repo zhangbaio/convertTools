@@ -8,7 +8,10 @@ public static class QueueStepKeys
     public const string GenerateProjectImages = "generate_project_images";
     public const string GenerateProofMaterial = "generate_proof_material";
     public const string SmallVideoRepair = "small_video_repair";
-    public const string VideoTranslate = "video_translate";
+    public const string RemoveSubtitles = "remove_subtitles";
+    public const string DubVideo = "dub_video";
+    public const string AddSubtitles = "add_subtitles";
+    public const string LegacyVideoTranslate = "video_translate";
     public const string SilenceDetect = "silence_detect";
     public const string SilenceRepair = "silence_repair";
     public const string MaterialValidate = "material_validate";
@@ -64,6 +67,23 @@ public sealed class QueueProjectItem
 
     public void NormalizeStepStates()
     {
+        if (StepStates.Remove(QueueStepKeys.LegacyVideoTranslate, out var legacyTranslateStatus))
+        {
+            if (legacyTranslateStatus == QueueStepStatus.Completed)
+            {
+                StepStates.TryAdd(QueueStepKeys.RemoveSubtitles, QueueStepStatus.Completed);
+                StepStates.TryAdd(QueueStepKeys.DubVideo, QueueStepStatus.Completed);
+                StepStates.TryAdd(QueueStepKeys.AddSubtitles, QueueStepStatus.Completed);
+            }
+            else
+            {
+                StepStates.TryAdd(QueueStepKeys.RemoveSubtitles, legacyTranslateStatus);
+                StepStates.TryAdd(QueueStepKeys.DubVideo, QueueStepStatus.Pending);
+                StepStates.TryAdd(QueueStepKeys.AddSubtitles, QueueStepStatus.Pending);
+            }
+        }
+        if (string.Equals(CurrentStep, QueueStepKeys.LegacyVideoTranslate, StringComparison.Ordinal))
+            CurrentStep = QueueStepKeys.RemoveSubtitles;
         // An explicit pending proof-material state must survive normalization (for example,
         // after a title rename). Only legacy uploaded records that predate this step are
         // backfilled as completed.
@@ -80,7 +100,9 @@ public sealed class QueueProjectItem
                      QueueStepKeys.UploadSeries,
                      QueueStepKeys.MaterialValidate,
                      QueueStepKeys.SmallVideoRepair,
-                     QueueStepKeys.VideoTranslate,
+                     QueueStepKeys.RemoveSubtitles,
+                     QueueStepKeys.DubVideo,
+                     QueueStepKeys.AddSubtitles,
                      QueueStepKeys.SilenceDetect,
                      QueueStepKeys.SilenceRepair,
                  })
@@ -96,8 +118,12 @@ public sealed class QueueProjectItem
                 StepStates[QueueStepKeys.GenerateProjectImages] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.SmallVideoRepair) == QueueStepStatus.Pending)
                 StepStates[QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed;
-            if (StepStates.GetValueOrDefault(QueueStepKeys.VideoTranslate) == QueueStepStatus.Pending)
-                StepStates[QueueStepKeys.VideoTranslate] = QueueStepStatus.Completed;
+            if (StepStates.GetValueOrDefault(QueueStepKeys.RemoveSubtitles) == QueueStepStatus.Pending)
+                StepStates[QueueStepKeys.RemoveSubtitles] = QueueStepStatus.Completed;
+            if (StepStates.GetValueOrDefault(QueueStepKeys.DubVideo) == QueueStepStatus.Pending)
+                StepStates[QueueStepKeys.DubVideo] = QueueStepStatus.Completed;
+            if (StepStates.GetValueOrDefault(QueueStepKeys.AddSubtitles) == QueueStepStatus.Pending)
+                StepStates[QueueStepKeys.AddSubtitles] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.SilenceDetect) == QueueStepStatus.Pending)
                 StepStates[QueueStepKeys.SilenceDetect] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.SilenceRepair) == QueueStepStatus.Pending)
