@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -618,6 +619,7 @@ public static class TikTokArchivedProjectService
         var options = QueueRunOptions.FromDictionary(state.Options);
         var normalized = Path.GetFullPath(restoredSourceDir);
         var timestamp = DateTimeOffset.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        var proofMaterialStatementDate = ResolveProofMaterialStatementDate(archivePayload);
         QueueProjectItem? restoredItem = null;
         var remaining = new List<QueueProjectItem>();
 
@@ -630,6 +632,7 @@ public static class TikTokArchivedProjectService
             {
                 item.Archived = false;
                 item.QueuedAt = timestamp;
+                item.ProofMaterialStatementDate = proofMaterialStatementDate;
                 restoredItem = item;
                 continue;
             }
@@ -647,6 +650,7 @@ public static class TikTokArchivedProjectService
                 restoredItem.Archived = false;
                 restoredItem.Enabled = false;
                 restoredItem.QueuedAt = timestamp;
+                restoredItem.ProofMaterialStatementDate = proofMaterialStatementDate;
             }
             else
             {
@@ -665,6 +669,7 @@ public static class TikTokArchivedProjectService
                     Archived = false,
                     Enabled = false,
                     QueuedAt = timestamp,
+                    ProofMaterialStatementDate = proofMaterialStatementDate,
                 };
             }
         }
@@ -672,11 +677,29 @@ public static class TikTokArchivedProjectService
         {
             restoredItem.Archived = false;
             restoredItem.QueuedAt = timestamp;
+            restoredItem.ProofMaterialStatementDate = proofMaterialStatementDate;
         }
 
         remaining.Add(restoredItem);
 
         WorkspaceQueueService.SaveRunOptions(workspaceRoot, remaining, options);
+    }
+
+    private static string ResolveProofMaterialStatementDate(
+        IReadOnlyDictionary<string, object?> archivePayload)
+    {
+        var archivedAt = FirstNonEmpty(
+            ReadString(archivePayload, "archivedAt"),
+            ReadString(archivePayload, "archived_at"),
+            ReadString(archivePayload, "ArchivedAt"));
+        if (DateTimeOffset.TryParse(
+                archivedAt,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeLocal,
+                out var parsed))
+            return DateOnly.FromDateTime(parsed.DateTime).ToString("yyyy-MM-dd");
+
+        return "";
     }
 
     private static QueueProjectItem? ResolveQueueProjectFromState(string workspaceRoot, params string[] projectDirs)
