@@ -58,6 +58,34 @@ public sealed class ProjectVideoResolverTests
     }
 
     [Fact]
+    public void ResolveSourceVideos_IgnoresGeneratedLocalizationVariants()
+    {
+        var projectDir = Path.Combine(Path.GetTempPath(), $"project-video-resolver-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectDir);
+
+        try
+        {
+            File.WriteAllBytes(Path.Combine(projectDir, "剧名-第9集.mp4"), [1]);
+            File.WriteAllBytes(Path.Combine(projectDir, "剧名-第9集-仅字幕擦除.mp4"), [2]);
+            File.WriteAllBytes(Path.Combine(projectDir, "剧名-第9集-英文配音字幕.mp4"), [3]);
+            File.WriteAllBytes(Path.Combine(projectDir, "剧名-第9集-英文配音字幕-语速修复.mp4"), [4]);
+            File.WriteAllBytes(Path.Combine(projectDir, "剧名-第9集-AideoAgent字幕擦除.mp4"), [5]);
+            File.WriteAllBytes(Path.Combine(projectDir, ".剧名-第9集.subtitle-erased.mp4"), [6]);
+
+            var names = ProjectVideoResolver.ResolveSourceVideos(projectDir)
+                .Select(Path.GetFileName)
+                .ToList();
+
+            names.Should().Equal("剧名-第9集.mp4");
+        }
+        finally
+        {
+            try { Directory.Delete(projectDir, recursive: true); }
+            catch (IOException) { }
+        }
+    }
+
+    [Fact]
     public void BuildPayload_UsesExistingStagedVideos_WhenOriginalVideosAreMissingAndTitleChanged()
     {
         var workspaceDir = Path.Combine(Path.GetTempPath(), $"upload-staging-{Guid.NewGuid():N}");

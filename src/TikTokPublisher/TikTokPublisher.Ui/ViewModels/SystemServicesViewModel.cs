@@ -82,6 +82,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private string _volcVideoTranslateSubtitleFileName = "";
     [ObservableProperty] private bool _volcVideoTranslateHardSubtitle = true;
     [ObservableProperty] private bool _volcVideoTranslateEraseSourceSubtitle;
+    [ObservableProperty] private int _volcVideoTranslateFontSize = 30;
     [ObservableProperty] private string _subtitleRemovalProvider = "volc";
     [ObservableProperty] private int _subtitleRemovalProviderIndex;
     [ObservableProperty] private int _volcSubtitleEraseModeIndex;
@@ -180,6 +181,8 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         VolcVideoTranslateSubtitleFileName = settings.VolcVideoTranslateSubtitleFileName;
         VolcVideoTranslateHardSubtitle = settings.VolcVideoTranslateHardSubtitle;
         VolcVideoTranslateEraseSourceSubtitle = settings.VolcVideoTranslateEraseSourceSubtitle;
+        VolcVideoTranslateFontSize = Math.Clamp(
+            settings.VolcVideoTranslateFontSize <= 0 ? 30 : settings.VolcVideoTranslateFontSize, 16, 36);
         SubtitleRemovalProvider = settings.SubtitleRemovalProvider;
         SubtitleRemovalProviderIndex = settings.SubtitleRemovalProvider switch
         {
@@ -415,6 +418,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.VolcVideoTranslateSubtitleFileName = VolcVideoTranslateSubtitleFileName.Trim();
         settings.VolcVideoTranslateHardSubtitle = VolcVideoTranslateHardSubtitle;
         settings.VolcVideoTranslateEraseSourceSubtitle = VolcVideoTranslateEraseSourceSubtitle;
+        settings.VolcVideoTranslateFontSize = Math.Clamp(VolcVideoTranslateFontSize, 16, 36);
         settings.SubtitleRemovalProvider = SubtitleRemovalProviderIndex switch
         {
             1 => "baidu",

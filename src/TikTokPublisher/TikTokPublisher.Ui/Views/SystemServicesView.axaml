@@ -216,7 +216,7 @@
                             </ComboBox>
                         </Grid>
                         <TextBlock Text="火山视频翻译配置" FontWeight="SemiBold" />
-                        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
                             <TextBlock Grid.Row="0" Text="翻译源语言" VerticalAlignment="Center" /><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ElevenLabsSourceLanguage}" Watermark="zh" />
                             <TextBlock Grid.Row="1" Text="翻译目标语言" VerticalAlignment="Center" /><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding ElevenLabsTargetLanguage}" Watermark="en" />
                             <TextBlock Grid.Row="2" Text="翻译方式" VerticalAlignment="Center" />
@@ -234,7 +234,8 @@
                             <TextBlock Grid.Row="4" Text="字幕 FileName" VerticalAlignment="Center" /><TextBox Grid.Row="4" Grid.Column="1" Text="{Binding VolcVideoTranslateSubtitleFileName}" Watermark="仅字幕来源为上传文件时填写，文件须已上传到同一 VOD 空间" />
                             <TextBlock Grid.Row="5" Text="开启双字幕" VerticalAlignment="Center" /><CheckBox Grid.Row="5" Grid.Column="1" IsChecked="{Binding VideoTranslateBilingual}" Content="保留源语言和目标语言字幕" />
                             <TextBlock Grid.Row="6" Text="压制字幕" VerticalAlignment="Center" /><CheckBox Grid.Row="6" Grid.Column="1" IsChecked="{Binding VolcVideoTranslateHardSubtitle}" Content="将翻译字幕压制到成片" />
-                            <TextBlock Grid.Row="7" Text="擦除原字幕" VerticalAlignment="Center" /><CheckBox Grid.Row="7" Grid.Column="1" IsChecked="{Binding VolcVideoTranslateEraseSourceSubtitle}" Content="识别并擦除视频中的原字幕" />
+                            <TextBlock Grid.Row="7" Text="字幕字号" VerticalAlignment="Center" /><NumericUpDown Grid.Row="7" Grid.Column="1" Value="{Binding VolcVideoTranslateFontSize}" Minimum="16" Maximum="36" Increment="2" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="8" Text="擦除原字幕" VerticalAlignment="Center" /><CheckBox Grid.Row="8" Grid.Column="1" IsChecked="{Binding VolcVideoTranslateEraseSourceSubtitle}" Content="识别并擦除视频中的原字幕" />
                         </Grid>
                         <TextBlock Text="火山引擎字幕擦除配置" FontWeight="SemiBold" />
                         <Grid ColumnDefinitions="150,*" RowDefinitions="Auto" RowSpacing="8">

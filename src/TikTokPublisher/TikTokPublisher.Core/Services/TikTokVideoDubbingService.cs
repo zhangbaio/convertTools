@@ -88,6 +88,66 @@ public static class TikTokVideoDubbingService
 
         var state = VideoLocalizationStateStore.Load(projectDir);
         var client = new VolcengineVodClient(settings);
+        var episodes = payload.UploadPaths
+            .Select(path => VideoLocalizationStateStore.GetEpisode(state, path))
+            .ToArray();
+        for (var i = 0; i < episodes.Length; i++)
+        {
+            if (!episodes[i].SubtitleRemoved)
+                throw new InvalidOperationException($"第 {i + 1} 集尚未完成去字幕，不能开始视频翻译。");
+        }
+
+        // Upload/submit is a separate batch phase. This allows several episodes to enter the
+        // cloud processing queue together instead of waiting for episode N to finish before
+        // episode N+1 is even uploaded. Persist the Vid before task submission so cancellation
+        // between those two operations remains resumable without another upload.
+        using (var stateLock = new SemaphoreSlim(1, 1))
+        {
+            await Parallel.ForEachAsync(
+                Enumerable.Range(0, payload.UploadPaths.Count),
+                new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct },
+                async (i, token) =>
+                {
+                    var episode = episodes[i];
+                    if (!string.IsNullOrWhiteSpace(episode.VolcTranslationTaskId)) return;
+                    var path = payload.UploadPaths[i];
+                    var itemClient = new VolcengineVodClient(settings);
+                    var inputVid = episode.VolcOutputVid;
+                    if (string.IsNullOrWhiteSpace(inputVid))
+                    {
+                        log?.Invoke($"第 {i + 1} 集：上传无字幕视频到火山 VOD…");
+                        inputVid = await itemClient.UploadMediaAsync(path, null, token).ConfigureAwait(false);
+                        await stateLock.WaitAsync(token).ConfigureAwait(false);
+                        try
+                        {
+                            episode.VolcOutputVid = inputVid;
+                            VideoLocalizationStateStore.Save(projectDir, state);
+                        }
+                        finally { stateLock.Release(); }
+                    }
+                }).ConfigureAwait(false);
+
+            // Keep cloud task order deterministic even though the preceding uploads are parallel.
+            for (var i = 0; i < payload.UploadPaths.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var episode = episodes[i];
+                if (!string.IsNullOrWhiteSpace(episode.VolcTranslationTaskId)) continue;
+                if (string.IsNullOrWhiteSpace(episode.VolcOutputVid))
+                    throw new InvalidOperationException($"第 {i + 1} 集缺少火山 VOD Vid，无法提交视频翻译任务。");
+
+                var videoTitle = Path.GetFileName(payload.UploadPaths[i]);
+                await client.SetMediaTitleAsync(episode.VolcOutputVid, videoTitle, ct).ConfigureAwait(false);
+                log?.Invoke($"第 {i + 1} 集：提交火山声影智译（字幕翻译＋语音翻译）任务…");
+                episode.VolcTranslationTaskId = await client
+                    .StartAideoTranslationAsync(episode.VolcOutputVid, ct).ConfigureAwait(false);
+                episode.DubbingProvider = "volc";
+                episode.DubbingStatus = "Processing";
+                VideoLocalizationStateStore.Save(projectDir, state);
+            }
+        }
+        log?.Invoke($"火山视频翻译批量提交完成，共 {episodes.Count(e => !string.IsNullOrWhiteSpace(e.VolcTranslationTaskId))} 集，开始轮询结果。");
+
         for (var i = 0; i < payload.UploadPaths.Count; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -117,6 +177,7 @@ public static class TikTokVideoDubbingService
                     .ConfigureAwait(false);
                 episode.DubbingStatus = result.Status;
                 if (!string.IsNullOrWhiteSpace(result.TargetVid)) episode.VolcTranslationTargetVid = result.TargetVid;
+                if (!string.IsNullOrWhiteSpace(result.OutputUrl)) episode.VolcTranslationOutputUrl = result.OutputUrl;
                 VideoLocalizationStateStore.Save(projectDir, state);
                 if (string.Equals(result.Status, "Completed", StringComparison.OrdinalIgnoreCase)) break;
                 if (string.Equals(result.Status, "Failed", StringComparison.OrdinalIgnoreCase))
@@ -127,7 +188,9 @@ public static class TikTokVideoDubbingService
 
             if (string.IsNullOrWhiteSpace(episode.VolcTranslationTargetVid))
                 throw new InvalidOperationException($"第 {i + 1} 集火山视频翻译已完成，但未返回 TargetVid。");
-            var url = await client.GetPlayUrlAsync(episode.VolcTranslationTargetVid, ct).ConfigureAwait(false);
+            var url = !string.IsNullOrWhiteSpace(episode.VolcTranslationOutputUrl)
+                ? episode.VolcTranslationOutputUrl
+                : await client.GetPlayUrlAsync(episode.VolcTranslationTargetVid, ct).ConfigureAwait(false);
             var temp = Path.Combine(Path.GetDirectoryName(path)!, $".{Path.GetFileNameWithoutExtension(path)}.volc-translated.mp4");
             try
             {

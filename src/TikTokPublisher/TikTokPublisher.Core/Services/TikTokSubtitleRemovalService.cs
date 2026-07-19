@@ -153,11 +153,30 @@ public static class TikTokSubtitleRemovalService
                     SaveVidManifest(manifestPath, manifest);
                     log?.Invoke($"第 {i + 1} 集：VOD 上传完成，Vid 已缓存。");
                 }
+                await client.SetMediaTitleAsync(vid, Path.GetFileName(path), ct).ConfigureAwait(false);
                 log?.Invoke($"第 {i + 1} 集：提交火山 Aideo Agent 字幕擦除任务。");
                 episode.VolcAideoTaskId = await client.StartAideoSubtitleEraseAsync(vid, ct).ConfigureAwait(false);
                 VideoLocalizationStateStore.Save(projectDir, state);
             }
             log?.Invoke("Aideo Agent 批量提交阶段完成，开始轮询并下载产物。");
+
+            // Aideo tasks are independent. Poll and download several completed episodes in
+            // parallel instead of waiting for every download before checking the next task.
+            // State writes stay serialized so stopping the queue remains safely resumable.
+            using var stateLock = new SemaphoreSlim(1, 1);
+            await Parallel.ForEachAsync(
+                Enumerable.Range(0, payload.UploadPaths.Count),
+                new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct },
+                async (i, token) =>
+                {
+                    var path = payload.UploadPaths[i];
+                    var episode = VideoLocalizationStateStore.GetEpisode(state, path);
+                    if (episode.SubtitleRemoved) return;
+                    await CompleteAideoEpisodeAsync(
+                        projectDir, path, i, episode, state, stateLock, client, settings, log, token)
+                        .ConfigureAwait(false);
+                }).ConfigureAwait(false);
+            return;
         }
         for (var i = 0; i < payload.UploadPaths.Count; i++)
         {
@@ -181,6 +200,7 @@ public static class TikTokSubtitleRemovalService
                 SaveVidManifest(manifestPath, manifest);
                 log?.Invoke($"第 {i + 1} 集：VOD 上传完成，Vid 已缓存。");
             }
+            await client.SetMediaTitleAsync(vid, Path.GetFileName(path), ct).ConfigureAwait(false);
             string url;
             if (useAideo)
             {
@@ -253,6 +273,71 @@ public static class TikTokSubtitleRemovalService
             }
             finally { try { if (File.Exists(temp)) File.Delete(temp); } catch { } }
         }
+    }
+
+    private static async Task CompleteAideoEpisodeAsync(
+        string projectDir,
+        string path,
+        int index,
+        VideoLocalizationEpisodeState episode,
+        VideoLocalizationState state,
+        SemaphoreSlim stateLock,
+        VolcengineVodClient client,
+        ClientSettings settings,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(episode.VolcAideoTaskId))
+            throw new InvalidOperationException($"第 {index + 1} 集缺少 Aideo Agent 任务 ID。");
+
+        while (string.IsNullOrWhiteSpace(episode.VolcOutputFileName))
+        {
+            var result = await client.GetAideoTaskResultAsync(episode.VolcAideoTaskId, ct).ConfigureAwait(false);
+            if (string.Equals(result.Status, "Completed", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(result.Status, "Success", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(result.FileName))
+                    throw new InvalidOperationException($"第 {index + 1} 集 Aideo Agent 已完成，但未返回产物 FileName。");
+                await stateLock.WaitAsync(ct).ConfigureAwait(false);
+                try
+                {
+                    episode.VolcOutputVid = result.Vid;
+                    episode.VolcOutputFileName = result.FileName;
+                    VideoLocalizationStateStore.Save(projectDir, state);
+                }
+                finally { stateLock.Release(); }
+                break;
+            }
+            if (string.Equals(result.Status, "Failed", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(result.Status, "Error", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"第 {index + 1} 集 Aideo Agent 字幕擦除失败：{result.Error}");
+            log?.Invoke($"第 {index + 1} 集：Aideo Agent 字幕擦除状态 {result.Status}。");
+            await Task.Delay(TimeSpan.FromSeconds(settings.VolcSubtitlePollSeconds), ct).ConfigureAwait(false);
+        }
+
+        var url = await client.GetDirectUrlAsync(episode.VolcOutputFileName, ct).ConfigureAwait(false);
+        var temp = Path.Combine(Path.GetDirectoryName(path)!, $".{Path.GetFileNameWithoutExtension(path)}.subtitle-erased.mp4");
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+            using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            await using (var input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
+            await using (var output = File.Create(temp))
+                await input.CopyToAsync(output, ct).ConfigureAwait(false);
+            await ValidateVideoAsync(path, temp, ct).ConfigureAwait(false);
+            File.Move(temp, path, true);
+
+            await stateLock.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                episode.SubtitleRemoved = true;
+                VideoLocalizationStateStore.Save(projectDir, state);
+            }
+            finally { stateLock.Release(); }
+            log?.Invoke($"第 {index + 1} 集：字幕擦除完成。");
+        }
+        finally { try { if (File.Exists(temp)) File.Delete(temp); } catch { } }
     }
 
     private static async Task RemoveWithBaiduAsync(string projectDir, string title, string originalTitle,

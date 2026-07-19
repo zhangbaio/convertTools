@@ -18,6 +18,20 @@ public static class ProjectVideoResolver
         "workflow", "archive", UploadStagingDirName,
     };
 
+    private static readonly string[] GeneratedVideoNameSuffixes =
+    {
+        "-仅字幕擦除",
+        "-英文配音字幕",
+        "-英文配音字幕-语速修复",
+        "-AideoAgent字幕擦除",
+        ".dubbed-clean",
+        ".dubbed",
+        ".subtitle-erased",
+        ".aliyun-subtitle-erased",
+        ".baidu-subtitle-erased",
+        ".silencefix",
+    };
+
     public static IReadOnlyList<string> ResolveUploadVideos(string sourceProjectDir, bool allowStagedFallback = false)
     {
         var source = Path.GetFullPath(sourceProjectDir);
@@ -115,8 +129,11 @@ public static class ProjectVideoResolver
     private static bool IsCandidateVideoFile(string path)
     {
         var name = Path.GetFileName(path);
+        var stem = Path.GetFileNameWithoutExtension(name);
         return VideoExtensions.Contains(Path.GetExtension(path))
-            && !name.EndsWith(".silencefix.mp4", StringComparison.OrdinalIgnoreCase);
+            && !name.StartsWith(".", StringComparison.Ordinal)
+            && !GeneratedVideoNameSuffixes.Any(suffix =>
+                stem.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
     }
 
     private static List<string> DedupeAndSort(List<string> paths, Func<string, IComparable[]>? keyFn = null)

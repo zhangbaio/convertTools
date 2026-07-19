@@ -725,7 +725,9 @@ public sealed class QueueWorkerRunner
             mutate(() => MarkRunning(item, stepKey));
             Report(onProgress, workspace, item, $"开始 {QueueStepRegistry.LabelOf(stepKey)}…", stepKey);
 
-            var useSummaryLog = wasCompletedBeforeRun && options.ForceRerunCompletedSteps;
+            var useSummaryLog = wasCompletedBeforeRun &&
+                                options.ForceRerunCompletedSteps &&
+                                !QueueStepLogFilters.RequiresLosslessUiDelivery(stepKey);
             Action<string> stepLog = useSummaryLog
                 ? QueueStepLogFilters.SummaryOnly(msg => Report(onProgress, workspace, item, msg, stepKey))
                 : msg => Report(onProgress, workspace, item, msg, stepKey);

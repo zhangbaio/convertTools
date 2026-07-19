@@ -39,6 +39,22 @@ public static class FfmpegRunner
         return duration;
     }
 
+    public static async Task<(int Width, int Height)> ProbeVideoDimensionsAsync(
+        string ffprobe, string path, CancellationToken ct)
+    {
+        var (_, stdout, stderr) = await RunCaptureAsync(ffprobe, new[]
+        {
+            "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=s=x:p=0", path,
+        }, ct);
+        var parts = stdout.Trim().Split('x', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 || !int.TryParse(parts[0], out var width) ||
+            !int.TryParse(parts[1], out var height) || width <= 0 || height <= 0)
+            throw new InvalidOperationException($"ffprobe 读视频尺寸失败：{stdout.Trim()} {stderr.Trim()}");
+        return (width, height);
+    }
+
     private static Process Start(string binary, IReadOnlyList<string> args, bool captureStdout = false)
     {
         var psi = new ProcessStartInfo

@@ -110,7 +110,8 @@ internal sealed class VolcengineVodClient
                 IsHardSubtitle = hardSubtitle ?? _settings.VolcVideoTranslateHardSubtitle,
                 IsEraseSource = eraseSourceSubtitle ?? _settings.VolcVideoTranslateEraseSourceSubtitle,
                 IsBilingualSubtitle = _settings.VideoTranslateBilingual,
-                FontSize = hardSubtitleFontSize ?? _settings.VideoTranslateFontSize,
+                FontSize = Math.Clamp(
+                    hardSubtitleFontSize ?? _settings.VolcVideoTranslateFontSize, 16, 36),
                 MarginV = Math.Clamp(_settings.VideoTranslateMarginV / 1280.0, 0, 0.45),
             },
         });
@@ -136,8 +137,11 @@ internal sealed class VolcengineVodClient
             }, ct).ConfigureAwait(false);
         var result = json["Result"] as JsonObject ?? throw ApiError(json, "火山视频翻译查询响应缺少 Result");
         var status = result["Status"]?.GetValue<string>() ?? "";
-        var targetVid = FindString(result, "TargetVid") ?? FindTranslationOutputVid(result) ?? "";
-        return new VolcTranslationResult(status, targetVid,
+        var outputVideo = FindObject(result, "OutputVideo");
+        var targetVid = FindString(result, "TargetVid") ??
+                        outputVideo?["Vid"]?.GetValue<string>() ?? FindTranslationOutputVid(result) ?? "";
+        var outputUrl = outputVideo?["Url"]?.GetValue<string>() ?? "";
+        return new VolcTranslationResult(status, targetVid, outputUrl,
             FindString(result, "ErrorMsg") ?? FindString(result, "Message") ?? FindString(result, "Error") ?? "");
     }
 
@@ -242,7 +246,7 @@ internal sealed class VolcengineVodClient
         var functions = JsonSerializer.Serialize(new object[]
         {
             new { Name = "GetMeta" },
-            new { Name = "AddOptionInfo", Input = new { Title = Path.GetFileName(filePath) } },
+            new { Name = "AddOptionInfo", Input = new { FileTitle = Path.GetFileName(filePath) } },
         });
         var commit = await SendAsync(HttpMethod.Get, "CommitUploadInfo", UploadVersion, null,
             new Dictionary<string, string>
@@ -252,6 +256,20 @@ internal sealed class VolcengineVodClient
                 ["Functions"] = functions,
             }, ct).ConfigureAwait(false);
         return ReadRequired(commit, "Result", "Data", "Vid");
+    }
+
+    public async Task SetMediaTitleAsync(string vid, string title, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(vid)) throw new ArgumentException("Vid 不能为空。", nameof(vid));
+        var normalizedTitle = title.Trim();
+        if (normalizedTitle.Length == 0) throw new ArgumentException("媒资标题不能为空。", nameof(title));
+        if (normalizedTitle.Length > 512) normalizedTitle = normalizedTitle[..512];
+        await SendAsync(HttpMethod.Get, "UpdateMediaInfo", "2020-08-01", null,
+            new Dictionary<string, string>
+            {
+                ["Vid"] = vid,
+                ["Title"] = normalizedTitle,
+            }, ct).ConfigureAwait(false);
     }
 
     private async Task UploadFileAsync(string filePath, string host, string oid, string auth,
@@ -475,6 +493,11 @@ internal sealed class VolcengineVodClient
     {
         if (node is JsonObject obj)
         {
+            if (obj["OutputVideo"] is JsonObject outputVideo &&
+                outputVideo["Vid"] is JsonValue outputVidValue &&
+                outputVidValue.TryGetValue<string>(out var outputVid) &&
+                !string.IsNullOrWhiteSpace(outputVid))
+                return outputVid;
             foreach (var key in new[] { "OutputVid", "ExportVid", "TranslatedVid" })
                 if (obj[key] is JsonValue value && value.TryGetValue<string>(out var text) && !string.IsNullOrWhiteSpace(text))
                     return text;
@@ -517,4 +540,4 @@ internal sealed class VolcengineVodClient
 
 internal sealed record VolcExecutionResult(string Status, string Vid, string FileName, string Error);
 internal sealed record VolcAideoResult(string Status, string Vid, string FileName, string Error);
-internal sealed record VolcTranslationResult(string Status, string TargetVid, string Error);
+internal sealed record VolcTranslationResult(string Status, string TargetVid, string OutputUrl, string Error);

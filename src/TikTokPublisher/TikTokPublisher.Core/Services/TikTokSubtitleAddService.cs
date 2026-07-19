@@ -109,7 +109,10 @@ public static partial class TikTokSubtitleAddService
         var output = Path.Combine(dir, $".{stem}.subtitled.mp4");
         try
         {
-            await File.WriteAllTextAsync(ass, BuildAss(cues, settings), new UTF8Encoding(false), ct).ConfigureAwait(false);
+            var (width, height) = await FfmpegRunner.ProbeVideoDimensionsAsync(
+                MediaBinaryResolver.ResolveFfprobe(), video, ct).ConfigureAwait(false);
+            await File.WriteAllTextAsync(ass, BuildAss(cues, settings, width, height),
+                new UTF8Encoding(false), ct).ConfigureAwait(false);
             var filter = $"ass='{ass.Replace("\\", "/").Replace(":", "\\:").Replace("'", "\\'")}'";
             await FfmpegRunner.RunAsync(MediaBinaryResolver.ResolveFfmpeg(),
                 ["-y", "-hide_banner", "-loglevel", "error", "-i", video, "-vf", filter,
@@ -123,9 +126,11 @@ public static partial class TikTokSubtitleAddService
         finally { TryDelete(ass); TryDelete(output); }
     }
 
-    private static string BuildAss(IReadOnlyList<Cue> cues, ClientSettings settings)
+    private static string BuildAss(IReadOnlyList<Cue> cues, ClientSettings settings, int width, int height)
     {
-        var b = new StringBuilder($"[Script Info]\nScriptType: v4.00+\nPlayResX: 720\nPlayResY: 1280\nWrapStyle: 0\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,{settings.VideoTranslateFont},{Math.Clamp(settings.VideoTranslateFontSize, 12, 120)},&H00FFFFFF,&H000000FF,&H00202020,&H64000000,1,0,0,0,100,100,0,0,1,2,1,2,40,40,{Math.Clamp(settings.VideoTranslateMarginV, 0, 600)},1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n");
+        var playResX = width > 0 ? width : 720;
+        var playResY = height > 0 ? height : 1280;
+        var b = new StringBuilder($"[Script Info]\nScriptType: v4.00+\nPlayResX: {playResX}\nPlayResY: {playResY}\nWrapStyle: 0\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,{settings.VideoTranslateFont},{Math.Clamp(settings.VideoTranslateFontSize, 12, 120)},&H00FFFFFF,&H000000FF,&H00202020,&H64000000,1,0,0,0,100,100,0,0,1,2,1,2,40,40,{Math.Clamp(settings.VideoTranslateMarginV, 0, 600)},1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n");
         foreach (var cue in cues)
             b.AppendLine($"Dialogue: 0,{AssTime(cue.Start)},{AssTime(cue.End)},Default,,0,0,0,,{Escape(cue.Text)}");
         return b.ToString();

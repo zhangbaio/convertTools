@@ -8,7 +8,8 @@ public static class QueueStepLogFilters
     /// 生命周期日志，必须逐条传递，不能按“项目 + 步骤”覆盖或限频。
     /// </summary>
     public static bool RequiresLosslessUiDelivery(string? stepKey) =>
-        string.Equals(stepKey, QueueStepRegistry.Download, StringComparison.Ordinal);
+        string.Equals(stepKey, QueueStepRegistry.Download, StringComparison.Ordinal) ||
+        string.Equals(stepKey, QueueStepRegistry.DubVideo, StringComparison.Ordinal);
 
     public static Action<string> SummaryOnly(Action<string> forward) => message =>
     {
