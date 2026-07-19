@@ -27,6 +27,15 @@ public static class TikTokUploadStagingService
         if (sourceVideos.Count == 0)
             return new StagingResult(Array.Empty<string>(), Array.Empty<string>());
 
+        // When the original videos have already been removed, ResolveSourceVideos falls back to
+        // the existing files under the workflow project's tiktok_upload_videos directory. Those
+        // files are already the upload payload. Do not try to reconstruct their names from the
+        // current title: the title may have changed since staging was created, which previously
+        // caused a valid staged set to be reported as "no upload videos found".
+        var stagingRoot = Path.Combine(workflow, StagingDirName);
+        if (!rebuildStaging && sourceVideos.All(path => IsPathUnder(path, stagingRoot)))
+            return new StagingResult(sourceVideos, sourceVideos);
+
         var safeTitle = SanitizeTitle(title, originalTitle, source);
         var uploadPaths = PrepareUploadFiles(
             workflow,
@@ -38,6 +47,14 @@ public static class TikTokUploadStagingService
             ct);
 
         return new StagingResult(sourceVideos, uploadPaths);
+    }
+
+    private static bool IsPathUnder(string path, string directory)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var fullDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+        return fullPath.StartsWith(fullDirectory + Path.DirectorySeparatorChar,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     public static IReadOnlyList<string> PrepareUploadFiles(

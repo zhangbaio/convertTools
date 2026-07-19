@@ -56,4 +56,38 @@ public sealed class ProjectVideoResolverTests
             catch (IOException) { }
         }
     }
+
+    [Fact]
+    public void BuildPayload_UsesExistingStagedVideos_WhenOriginalVideosAreMissingAndTitleChanged()
+    {
+        var workspaceDir = Path.Combine(Path.GetTempPath(), $"upload-staging-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(workspaceDir, "source");
+        var stagingDir = Path.Combine(workspaceDir, "workflow", "source", TikTokUploadStagingService.StagingDirName);
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(stagingDir);
+
+        try
+        {
+            var first = Path.Combine(stagingDir, "Old title-episode-1.mp4");
+            var second = Path.Combine(stagingDir, "Old title-episode-2.mp4");
+            File.WriteAllBytes(first, [1]);
+            File.WriteAllBytes(second, [2]);
+
+            var result = TikTokUploadStagingService.BuildPayload(
+                sourceDir,
+                "New title",
+                "Original title",
+                rebuildStaging: false,
+                repairSmallVideos: false,
+                log: null,
+                CancellationToken.None);
+
+            result.UploadPaths.Should().Equal(first, second);
+        }
+        finally
+        {
+            try { Directory.Delete(workspaceDir, recursive: true); }
+            catch (IOException) { }
+        }
+    }
 }

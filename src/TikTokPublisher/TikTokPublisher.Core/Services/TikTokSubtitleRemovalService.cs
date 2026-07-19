@@ -139,7 +139,6 @@ public static class TikTokSubtitleRemovalService
                 if (episode.SubtitleRemoved || !string.IsNullOrWhiteSpace(episode.VolcAideoTaskId)) continue;
                 if (!manifest.TryGetValue(Path.GetFileName(path), out var vid) || string.IsNullOrWhiteSpace(vid))
                 {
-                    log?.Invoke($"第 {i + 1} 集：未找到 Vid，开始自动上传火山 VOD。");
                     var lastPercent = -1;
                     vid = await client.UploadMediaAsync(path, progress =>
                     {
@@ -168,7 +167,6 @@ public static class TikTokSubtitleRemovalService
             if (episode.SubtitleRemoved) continue;
             if (!manifest.TryGetValue(Path.GetFileName(path), out var vid) || string.IsNullOrWhiteSpace(vid))
             {
-                log?.Invoke($"第 {i + 1} 集：未找到 Vid，开始自动上传火山 VOD。");
                 var lastPercent = -1;
                 vid = await client.UploadMediaAsync(path, progress =>
                 {
