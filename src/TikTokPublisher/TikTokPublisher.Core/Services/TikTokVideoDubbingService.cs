@@ -14,11 +14,11 @@ public static class TikTokVideoDubbingService
             return;
         }
         if (string.IsNullOrWhiteSpace(settings.ElevenLabsApiKey))
-            throw new InvalidOperationException("视频配音需要 ElevenLabs API Key（系统服务 → 视频本地化）。");
+            throw new InvalidOperationException("视频翻译需要 ElevenLabs API Key（系统服务 → 视频本地化）。");
 
         var payload = TikTokUploadStagingService.BuildPayload(
             projectDir, title, originalTitle, rebuildStaging: false, repairSmallVideos: false, log, ct);
-        if (payload.UploadPaths.Count == 0) throw new InvalidOperationException("视频配音失败：未找到上传视频。");
+        if (payload.UploadPaths.Count == 0) throw new InvalidOperationException("视频翻译失败：未找到上传视频。");
 
         var state = VideoLocalizationStateStore.Load(projectDir);
         var client = new ElevenLabsDubbingClient(settings);
@@ -28,7 +28,7 @@ public static class TikTokVideoDubbingService
             var path = payload.UploadPaths[i];
             var episode = VideoLocalizationStateStore.GetEpisode(state, path);
             if (!episode.SubtitleRemoved)
-                throw new InvalidOperationException($"第 {i + 1} 集尚未完成去字幕，不能开始视频配音。");
+                throw new InvalidOperationException($"第 {i + 1} 集尚未完成去字幕，不能开始视频翻译。");
 
             if (string.IsNullOrWhiteSpace(episode.ElevenLabsDubbingId))
             {
@@ -46,7 +46,7 @@ public static class TikTokVideoDubbingService
                 VideoLocalizationStateStore.Save(projectDir, state);
                 if (string.Equals(status, "dubbed", StringComparison.OrdinalIgnoreCase)) break;
                 if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException($"第 {i + 1} 集 ElevenLabs 配音失败：{error}");
+                    throw new InvalidOperationException($"第 {i + 1} 集 ElevenLabs 翻译失败：{error}");
                 log?.Invoke($"第 {i + 1} 集：ElevenLabs 状态 {status}…");
                 await Task.Delay(TimeSpan.FromSeconds(settings.ElevenLabsPollSeconds), ct).ConfigureAwait(false);
             }
@@ -84,7 +84,7 @@ public static class TikTokVideoDubbingService
 
         var payload = TikTokUploadStagingService.BuildPayload(
             projectDir, title, originalTitle, rebuildStaging: false, repairSmallVideos: false, log, ct);
-        if (payload.UploadPaths.Count == 0) throw new InvalidOperationException("视频配音失败：未找到上传视频。");
+        if (payload.UploadPaths.Count == 0) throw new InvalidOperationException("视频翻译失败：未找到上传视频。");
 
         var state = VideoLocalizationStateStore.Load(projectDir);
         var client = new VolcengineVodClient(settings);
@@ -208,7 +208,11 @@ public static class TikTokVideoDubbingService
     internal static bool IsTransientVolcFailure(Exception exception)
     {
         var message = exception.Message;
-        return message.Contains("HTTP 429", StringComparison.OrdinalIgnoreCase) ||
+        var transientServerError = message.Contains("HTTP 500", StringComparison.OrdinalIgnoreCase) &&
+                                   (message.Contains("InternalError", StringComparison.OrdinalIgnoreCase) ||
+                                    message.Contains("fetch failed", StringComparison.OrdinalIgnoreCase));
+        return transientServerError ||
+               message.Contains("HTTP 429", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("HTTP 502", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("HTTP 503", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("HTTP 504", StringComparison.OrdinalIgnoreCase) ||
@@ -301,7 +305,7 @@ public static class TikTokVideoDubbingService
     private static async Task ValidateVideoAsync(string input, string output, CancellationToken ct)
     {
         if (!File.Exists(output) || new FileInfo(output).Length < 1024)
-            throw new InvalidOperationException("配音服务返回的视频为空或不完整。");
+            throw new InvalidOperationException("视频翻译服务返回的视频为空或不完整。");
         var before = await FfmpegRunner.ProbeDurationSecondsAsync(MediaBinaryResolver.ResolveFfprobe(), input, ct).ConfigureAwait(false);
         var after = await FfmpegRunner.ProbeDurationSecondsAsync(MediaBinaryResolver.ResolveFfprobe(), output, ct).ConfigureAwait(false);
         if (after <= 0 || Math.Abs(before - after) > Math.Max(2, before * 0.03))

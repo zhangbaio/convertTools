@@ -42,6 +42,7 @@ public sealed class TikTokVideoDubbingServiceTests
 
     [Theory]
     [InlineData("火山 VOD 返回了无效响应（HTTP 502）：Bad Gateway")]
+    [InlineData("火山 VOD 请求失败（HTTP 500）：{\"Code\":\"InternalError\",\"Message\":\"fetch failed\"}")]
     [InlineData("火山 VOD 请求失败（HTTP 429）")]
     [InlineData("火山 VOD 请求失败（HTTP 503）")]
     [InlineData("火山 VOD 请求失败（HTTP 504）")]

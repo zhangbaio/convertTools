@@ -32,7 +32,7 @@ public static class QueueStepRegistry
         new QueueStepDefinition(MaterialValidate, "素材校验", true),
         new QueueStepDefinition(QueueStepKeys.DeleteSourceVideos, "删除源视频", true),
         new QueueStepDefinition(RemoveSubtitles, "去字幕", true),
-        new QueueStepDefinition(DubVideo, "视频配音", true),
+        new QueueStepDefinition(DubVideo, "视频翻译", true),
         new QueueStepDefinition(AddSubtitles, "添加字幕", true),
         new QueueStepDefinition(UploadSeries, "上传剧集", true),
     };

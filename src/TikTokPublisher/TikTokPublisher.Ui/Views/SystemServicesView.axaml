@@ -202,7 +202,7 @@
                       <TabItem Header="通用配置">
                        <StackPanel Margin="8" Spacing="10">
                         <TextBlock Text="视频本地化处理链路" FontWeight="Bold" />
-                        <TextBlock Text="选择字幕擦除与视频配音服务，并配置最终字幕样式。" Classes="compactHint" TextWrapping="Wrap" />
+                        <TextBlock Text="选择字幕擦除与视频翻译服务，并配置最终字幕样式。" Classes="compactHint" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="150,*" RowDefinitions="Auto" RowSpacing="8">
                             <TextBlock Grid.Row="0" Text="去字幕服务" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="0" Grid.Column="1" SelectedIndex="{Binding SubtitleRemovalProviderIndex}">
@@ -212,7 +212,7 @@
                             </ComboBox>
                         </Grid>
                         <Grid ColumnDefinitions="150,*" RowDefinitions="Auto" RowSpacing="8">
-                            <TextBlock Grid.Row="0" Text="视频配音服务" VerticalAlignment="Center" />
+                            <TextBlock Grid.Row="0" Text="视频翻译服务" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="0" Grid.Column="1" SelectedIndex="{Binding VideoDubbingProviderIndex}">
                                 <ComboBoxItem Content="ElevenLabs Dubbing V1" />
                                 <ComboBoxItem Content="火山声影智译（字幕＋语音翻译，¥4/分钟）" />
@@ -360,7 +360,7 @@
                             <CheckBox Content="素材校验" IsChecked="{Binding RemoteMaterialValidateEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="删除源视频" IsChecked="{Binding RemoteDeleteSourceVideosEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="去字幕" IsChecked="{Binding RemoteRemoveSubtitlesEnabled}" IsVisible="False" Margin="0,0,16,10" />
-                            <CheckBox Content="视频配音" IsChecked="{Binding RemoteDubVideoEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="视频翻译" IsChecked="{Binding RemoteDubVideoEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="添加字幕" IsChecked="{Binding RemoteAddSubtitlesEnabled}" IsVisible="False" Margin="0,0,16,10" />
                             <CheckBox Content="上传剧集" IsChecked="{Binding RemoteUploadEnabled}" Margin="0,0,16,10" />
                         </WrapPanel>

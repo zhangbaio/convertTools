@@ -260,7 +260,7 @@
                                 <CheckBox Content="素材校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="删除源视频" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="去字幕" IsChecked="{Binding QueueRemoveSubtitlesEnabled}" IsVisible="False" Margin="0,0,12,2" />
-                                <CheckBox Content="视频配音" IsChecked="{Binding QueueDubVideoEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="视频翻译" IsChecked="{Binding QueueDubVideoEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="添加字幕" IsChecked="{Binding QueueAddSubtitlesEnabled}" IsVisible="False" Margin="0,0,12,2" />
                                 <CheckBox Content="上传剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
                             </WrapPanel>
@@ -368,7 +368,7 @@
                         <TextBlock Grid.Column="14" Text="校验" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="15" Text="删源" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="16" Text="去字幕" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="17" Text="配音" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="17" Text="翻译" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="18" Text="字幕" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="19" Text="上传" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="20" Text="备注" Classes="tableHeader" />

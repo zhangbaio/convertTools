@@ -43,7 +43,7 @@ public static partial class TikTokSubtitleAddService
             var video = payload.UploadPaths[i];
             var episode = VideoLocalizationStateStore.GetEpisode(state, video);
             if (!episode.DubbedVideoDownloaded || string.IsNullOrWhiteSpace(episode.ElevenLabsDubbingId))
-                throw new InvalidOperationException($"第 {i + 1} 集尚未完成 ElevenLabs 视频配音，不能添加字幕。");
+                throw new InvalidOperationException($"第 {i + 1} 集尚未完成 ElevenLabs 视频翻译，不能添加字幕。");
 
             RestoreCleanDubbedVideo(video, episode);
 
@@ -69,7 +69,7 @@ public static partial class TikTokSubtitleAddService
         if (string.IsNullOrWhiteSpace(episode.CleanDubbedVideoPath) || !File.Exists(episode.CleanDubbedVideoPath))
         {
             if (episode.SubtitlesBurned)
-                throw new InvalidOperationException("已添加过字幕，但未找到干净配音底片；为避免重复烧录，请重新执行视频配音步骤。");
+                throw new InvalidOperationException("已添加过字幕，但未找到干净翻译底片；为避免重复烧录，请重新执行视频翻译步骤。");
 
             var directory = VideoLocalizationStateStore.GetLocalizationDirectory(video);
             Directory.CreateDirectory(directory);
