@@ -27,13 +27,13 @@ public static class QueueStepRegistry
         new QueueStepDefinition(QueueStepKeys.GenerateProjectImages, "生成工程图", true),
         new QueueStepDefinition(QueueStepKeys.GenerateProofMaterial, "生成证明材料", true),
         new QueueStepDefinition(SmallVideoRepair, "小文件修复", true),
-        new QueueStepDefinition(RemoveSubtitles, "去字幕", true),
-        new QueueStepDefinition(DubVideo, "视频配音", true),
-        new QueueStepDefinition(AddSubtitles, "添加字幕", true),
         new QueueStepDefinition(SilenceDetect, "静音检测", true),
         new QueueStepDefinition(SilenceRepair, "静音修复", true),
         new QueueStepDefinition(MaterialValidate, "素材校验", true),
         new QueueStepDefinition(QueueStepKeys.DeleteSourceVideos, "删除源视频", true),
+        new QueueStepDefinition(RemoveSubtitles, "去字幕", true),
+        new QueueStepDefinition(DubVideo, "视频配音", true),
+        new QueueStepDefinition(AddSubtitles, "添加字幕", true),
         new QueueStepDefinition(UploadSeries, "上传剧集", true),
     };
 

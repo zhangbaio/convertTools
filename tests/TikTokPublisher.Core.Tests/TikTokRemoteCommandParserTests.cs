@@ -104,12 +104,12 @@ public sealed class TikTokRemoteCommandParserTests
             QueueStepRegistry.RewriteInfo,
             QueueStepRegistry.GeneratePoster,
             QueueStepRegistry.SmallVideoRepair,
-            QueueStepRegistry.RemoveSubtitles,
-            QueueStepRegistry.DubVideo,
-            QueueStepRegistry.AddSubtitles,
             QueueStepRegistry.SilenceDetect,
             QueueStepRegistry.SilenceRepair,
             QueueStepRegistry.MaterialValidate,
+            QueueStepRegistry.RemoveSubtitles,
+            QueueStepRegistry.DubVideo,
+            QueueStepRegistry.AddSubtitles,
             QueueStepRegistry.UploadSeries);
         options.EnabledSteps.Should().NotContain(QueueStepRegistry.GenerateProofMaterial);
         options.AutoArchiveAfterUpload.Should().BeFalse();

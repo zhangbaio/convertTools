@@ -42,6 +42,19 @@ public sealed class QueueRunOptionsTests
     }
 
     [Fact]
+    public void Localization_steps_run_after_source_video_deletion()
+    {
+        QueueStepRegistry.All
+            .Select(step => step.Key)
+            .Should().ContainInOrder(
+                QueueStepRegistry.DeleteSourceVideos,
+                QueueStepRegistry.RemoveSubtitles,
+                QueueStepRegistry.DubVideo,
+                QueueStepRegistry.AddSubtitles,
+                QueueStepRegistry.UploadSeries);
+    }
+
+    [Fact]
     public void Proof_material_generation_follows_project_images_and_is_selectable_but_disabled_by_default()
     {
         QueueStepRegistry.All
