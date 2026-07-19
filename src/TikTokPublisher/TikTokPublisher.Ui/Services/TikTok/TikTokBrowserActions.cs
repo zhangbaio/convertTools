@@ -526,6 +526,9 @@ public static partial class TikTokBrowserActions
         await VerifyEpisodeCountAsync(page, payload.EpisodeCount, log, ct);
         await PauseBetweenFieldsAsync(page);
 
+        await EnsureAllPublishAccountsSelectedAsync(page, log, ct);
+        await PauseBetweenFieldsAsync(page);
+
         await SelectTuxOptionByFieldAsync(
             page,
             ["是否 AI 短剧", "是否AI短剧"],
