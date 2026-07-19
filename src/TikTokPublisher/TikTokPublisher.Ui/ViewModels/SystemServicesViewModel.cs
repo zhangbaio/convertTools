@@ -83,6 +83,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private bool _volcVideoTranslateHardSubtitle = true;
     [ObservableProperty] private bool _volcVideoTranslateEraseSourceSubtitle;
     [ObservableProperty] private int _volcVideoTranslateFontSize = 30;
+    [ObservableProperty] private int _volcVideoTranslateUploadConcurrency = 4;
     [ObservableProperty] private string _subtitleRemovalProvider = "volc";
     [ObservableProperty] private int _subtitleRemovalProviderIndex;
     [ObservableProperty] private int _volcSubtitleEraseModeIndex;
@@ -183,6 +184,10 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         VolcVideoTranslateEraseSourceSubtitle = settings.VolcVideoTranslateEraseSourceSubtitle;
         VolcVideoTranslateFontSize = Math.Clamp(
             settings.VolcVideoTranslateFontSize <= 0 ? 30 : settings.VolcVideoTranslateFontSize, 16, 36);
+        VolcVideoTranslateUploadConcurrency = Math.Clamp(
+            settings.VolcVideoTranslateUploadConcurrency <= 0 ? 4 : settings.VolcVideoTranslateUploadConcurrency,
+            1,
+            10);
         SubtitleRemovalProvider = settings.SubtitleRemovalProvider;
         SubtitleRemovalProviderIndex = settings.SubtitleRemovalProvider switch
         {
@@ -419,6 +424,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.VolcVideoTranslateHardSubtitle = VolcVideoTranslateHardSubtitle;
         settings.VolcVideoTranslateEraseSourceSubtitle = VolcVideoTranslateEraseSourceSubtitle;
         settings.VolcVideoTranslateFontSize = Math.Clamp(VolcVideoTranslateFontSize, 16, 36);
+        settings.VolcVideoTranslateUploadConcurrency = Math.Clamp(VolcVideoTranslateUploadConcurrency, 1, 10);
         settings.SubtitleRemovalProvider = SubtitleRemovalProviderIndex switch
         {
             1 => "baidu",
@@ -478,9 +484,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         if (RemoteGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
         if (RemoteGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (RemoteSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
-        if (RemoteRemoveSubtitlesEnabled) steps.Add(QueueStepRegistry.RemoveSubtitles);
         if (RemoteDubVideoEnabled) steps.Add(QueueStepRegistry.DubVideo);
-        if (RemoteAddSubtitlesEnabled) steps.Add(QueueStepRegistry.AddSubtitles);
         if (RemoteSilenceDetectEnabled) steps.Add(QueueStepRegistry.SilenceDetect);
         if (RemoteSilenceRepairEnabled) steps.Add(QueueStepRegistry.SilenceRepair);
         if (RemoteMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);
@@ -498,9 +502,9 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         RemoteGeneratePosterEnabled = selected.Contains(QueueStepRegistry.GeneratePoster);
         RemoteGenerateProofMaterialEnabled = selected.Contains(QueueStepRegistry.GenerateProofMaterial);
         RemoteSmallVideoRepairEnabled = selected.Contains(QueueStepRegistry.SmallVideoRepair);
-        RemoteRemoveSubtitlesEnabled = selected.Contains(QueueStepRegistry.RemoveSubtitles);
+        RemoteRemoveSubtitlesEnabled = false;
         RemoteDubVideoEnabled = selected.Contains(QueueStepRegistry.DubVideo);
-        RemoteAddSubtitlesEnabled = selected.Contains(QueueStepRegistry.AddSubtitles);
+        RemoteAddSubtitlesEnabled = false;
         RemoteSilenceDetectEnabled = selected.Contains(QueueStepRegistry.SilenceDetect);
         RemoteSilenceRepairEnabled = selected.Contains(QueueStepRegistry.SilenceRepair);
         RemoteMaterialValidateEnabled = selected.Contains(QueueStepRegistry.MaterialValidate);

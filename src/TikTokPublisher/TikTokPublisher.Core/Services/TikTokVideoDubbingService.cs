@@ -91,10 +91,14 @@ public static class TikTokVideoDubbingService
         var episodes = payload.UploadPaths
             .Select(path => VideoLocalizationStateStore.GetEpisode(state, path))
             .ToArray();
-        for (var i = 0; i < episodes.Length; i++)
+        if (RequiresPriorSubtitleRemoval(settings))
         {
-            if (!episodes[i].SubtitleRemoved)
-                throw new InvalidOperationException($"第 {i + 1} 集尚未完成去字幕，不能开始视频翻译。");
+            for (var i = 0; i < episodes.Length; i++)
+            {
+                if (!episodes[i].SubtitleRemoved)
+                    throw new InvalidOperationException(
+                        $"第 {i + 1} 集尚未完成去字幕；请先执行去字幕，或在火山引擎翻译配置中开启“擦除原字幕”。");
+            }
         }
 
         // Upload/submit is a separate batch phase. This allows several episodes to enter the
@@ -103,9 +107,11 @@ public static class TikTokVideoDubbingService
         // between those two operations remains resumable without another upload.
         using (var stateLock = new SemaphoreSlim(1, 1))
         {
+            var uploadConcurrency = Math.Clamp(settings.VolcVideoTranslateUploadConcurrency, 1, 10);
+            log?.Invoke($"火山 VOD 批量上传开始，并发数 {uploadConcurrency}。");
             await Parallel.ForEachAsync(
                 Enumerable.Range(0, payload.UploadPaths.Count),
-                new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct },
+                new ParallelOptions { MaxDegreeOfParallelism = uploadConcurrency, CancellationToken = ct },
                 async (i, token) =>
                 {
                     var episode = episodes[i];
@@ -115,7 +121,9 @@ public static class TikTokVideoDubbingService
                     var inputVid = episode.VolcOutputVid;
                     if (string.IsNullOrWhiteSpace(inputVid))
                     {
-                        log?.Invoke($"第 {i + 1} 集：上传无字幕视频到火山 VOD…");
+                        log?.Invoke(settings.VolcVideoTranslateEraseSourceSubtitle
+                            ? $"第 {i + 1} 集：上传原视频到火山 VOD（翻译时擦除原字幕）…"
+                            : $"第 {i + 1} 集：上传无字幕视频到火山 VOD…");
                         inputVid = await itemClient.UploadMediaAsync(path, null, token).ConfigureAwait(false);
                         await stateLock.WaitAsync(token).ConfigureAwait(false);
                         try
@@ -136,11 +144,15 @@ public static class TikTokVideoDubbingService
                 if (string.IsNullOrWhiteSpace(episode.VolcOutputVid))
                     throw new InvalidOperationException($"第 {i + 1} 集缺少火山 VOD Vid，无法提交视频翻译任务。");
 
+                // Avoid bursting dozens of task-creation requests into the VOD gateway. The
+                // service can temporarily return 429/5xx while existing tasks are being admitted.
+                if (i > 0)
+                    await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
                 var videoTitle = Path.GetFileName(payload.UploadPaths[i]);
                 await client.SetMediaTitleAsync(episode.VolcOutputVid, videoTitle, ct).ConfigureAwait(false);
                 log?.Invoke($"第 {i + 1} 集：提交火山声影智译（字幕翻译＋语音翻译）任务…");
-                episode.VolcTranslationTaskId = await client
-                    .StartAideoTranslationAsync(episode.VolcOutputVid, ct).ConfigureAwait(false);
+                episode.VolcTranslationTaskId = await SubmitVolcTranslationWithRetryAsync(
+                    client, episode.VolcOutputVid, i, log, ct).ConfigureAwait(false);
                 episode.DubbingProvider = "volc";
                 episode.DubbingStatus = "Processing";
                 VideoLocalizationStateStore.Save(projectDir, state);
@@ -162,6 +174,51 @@ public static class TikTokVideoDubbingService
                     projectDir, payload.UploadPaths[i], i, episode, state, downloadStateLock,
                     new VolcengineVodClient(settings), settings, log, token).ConfigureAwait(false);
             }).ConfigureAwait(false);
+    }
+
+    internal static bool RequiresPriorSubtitleRemoval(ClientSettings settings) =>
+        !string.Equals(settings.VideoDubbingProvider, "volc", StringComparison.OrdinalIgnoreCase) ||
+        !settings.VolcVideoTranslateEraseSourceSubtitle;
+
+    private static async Task<string> SubmitVolcTranslationWithRetryAsync(
+        VolcengineVodClient client,
+        string vid,
+        int episodeIndex,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        const int maxAttempts = 8;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await client.StartAideoTranslationAsync(vid, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (attempt < maxAttempts && IsTransientVolcFailure(ex))
+            {
+                var delaySeconds = Math.Min(60, 3 * (1 << (attempt - 1)));
+                log?.Invoke(
+                    $"第 {episodeIndex + 1} 集：火山接口暂时不可用，{delaySeconds} 秒后重试" +
+                    $"（{attempt}/{maxAttempts - 1}）：{SummarizeError(ex.Message)}");
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct).ConfigureAwait(false);
+            }
+        }
+    }
+
+    internal static bool IsTransientVolcFailure(Exception exception)
+    {
+        var message = exception.Message;
+        return message.Contains("HTTP 429", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("HTTP 502", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("HTTP 503", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("HTTP 504", StringComparison.OrdinalIgnoreCase) ||
+               exception is HttpRequestException or TaskCanceledException;
+    }
+
+    private static string SummarizeError(string message)
+    {
+        var line = message.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return line.Length <= 180 ? line : line[..180] + "…";
     }
 
     private static async Task CompleteVolcTranslationEpisodeAsync(
@@ -230,6 +287,8 @@ public static class TikTokVideoDubbingService
                 episode.DubbedVideoDownloaded = true;
                 episode.SubtitlesBurned = true;
                 episode.EnglishSrtDownloaded = true;
+                if (settings.VolcVideoTranslateEraseSourceSubtitle)
+                    episode.SubtitleRemoved = true;
                 episode.CleanDubbedVideoPath = "";
                 VideoLocalizationStateStore.Save(projectDir, state);
             }

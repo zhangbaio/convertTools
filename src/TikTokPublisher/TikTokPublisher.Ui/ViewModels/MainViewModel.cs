@@ -663,9 +663,9 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateProofMaterialEnabled = true;
             QueueDeleteSourceVideosEnabled = true;
             QueueSmallVideoRepairEnabled = true;
-            QueueRemoveSubtitlesEnabled = true;
+            QueueRemoveSubtitlesEnabled = false;
             QueueDubVideoEnabled = true;
-            QueueAddSubtitlesEnabled = true;
+            QueueAddSubtitlesEnabled = false;
             QueueSilenceDetectEnabled = true;
             QueueSilenceRepairEnabled = true;
             QueueMaterialValidateEnabled = true;
@@ -3185,9 +3185,9 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
             QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
             QueueSmallVideoRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SmallVideoRepair);
-            QueueRemoveSubtitlesEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RemoveSubtitles);
+            QueueRemoveSubtitlesEnabled = false;
             QueueDubVideoEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DubVideo);
-            QueueAddSubtitlesEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.AddSubtitles);
+            QueueAddSubtitlesEnabled = false;
             QueueSilenceDetectEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceDetect);
             QueueSilenceRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceRepair);
             QueueMaterialValidateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.MaterialValidate);
@@ -3208,9 +3208,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (QueueDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);
         if (QueueSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
-        if (QueueRemoveSubtitlesEnabled) steps.Add(QueueStepRegistry.RemoveSubtitles);
         if (QueueDubVideoEnabled) steps.Add(QueueStepRegistry.DubVideo);
-        if (QueueAddSubtitlesEnabled) steps.Add(QueueStepRegistry.AddSubtitles);
         if (QueueSilenceDetectEnabled) steps.Add(QueueStepRegistry.SilenceDetect);
         if (QueueSilenceRepairEnabled) steps.Add(QueueStepRegistry.SilenceRepair);
         if (QueueMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);

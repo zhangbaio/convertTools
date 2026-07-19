@@ -65,6 +65,7 @@ public sealed class ClientSettings
     public bool VolcVideoTranslateHardSubtitle { get; set; } = true;
     public bool VolcVideoTranslateEraseSourceSubtitle { get; set; }
     public int VolcVideoTranslateFontSize { get; set; } = 30;
+    public int VolcVideoTranslateUploadConcurrency { get; set; } = 4;
     public string SubtitleRemovalProvider { get; set; } = "volc";
     public string VolcSubtitleEraseMode { get; set; } = "start_execution";
     public string VolcSubtitleAccessKeyId { get; set; } = "";
@@ -251,6 +252,7 @@ public sealed class ClientSettings
         VolcVideoTranslateHardSubtitle = VolcVideoTranslateHardSubtitle,
         VolcVideoTranslateEraseSourceSubtitle = VolcVideoTranslateEraseSourceSubtitle,
         VolcVideoTranslateFontSize = VolcVideoTranslateFontSize,
+        VolcVideoTranslateUploadConcurrency = VolcVideoTranslateUploadConcurrency,
         SubtitleRemovalProvider = SubtitleRemovalProvider,
         VolcSubtitleEraseMode = VolcSubtitleEraseMode,
         VolcSubtitleAccessKeyId = VolcSubtitleAccessKeyId,

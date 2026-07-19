@@ -260,6 +260,10 @@ public static class ClientSettingsStore
         settings.VideoTranslateFont = DefaultIfBlank(settings.VideoTranslateFont, "微软雅黑");
         settings.VideoTranslateFontSize = Math.Clamp(settings.VideoTranslateFontSize <= 0 ? 50 : settings.VideoTranslateFontSize, 12, 120);
         settings.VideoTranslateMarginV = Math.Clamp(settings.VideoTranslateMarginV, 0, 600);
+        settings.VolcVideoTranslateUploadConcurrency = Math.Clamp(
+            settings.VolcVideoTranslateUploadConcurrency <= 0 ? 4 : settings.VolcVideoTranslateUploadConcurrency,
+            1,
+            10);
         settings.SubtitleRemovalProvider = settings.SubtitleRemovalProvider?.Trim().ToLowerInvariant() switch
         {
             "baidu" => "baidu",

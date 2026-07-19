@@ -259,9 +259,9 @@
                                 <CheckBox Content="静音修复" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="素材校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="删除源视频" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="去字幕" IsChecked="{Binding QueueRemoveSubtitlesEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="去字幕" IsChecked="{Binding QueueRemoveSubtitlesEnabled}" IsVisible="False" Margin="0,0,12,2" />
                                 <CheckBox Content="视频配音" IsChecked="{Binding QueueDubVideoEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="添加字幕" IsChecked="{Binding QueueAddSubtitlesEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="添加字幕" IsChecked="{Binding QueueAddSubtitlesEnabled}" IsVisible="False" Margin="0,0,12,2" />
                                 <CheckBox Content="上传剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
                             </WrapPanel>
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
