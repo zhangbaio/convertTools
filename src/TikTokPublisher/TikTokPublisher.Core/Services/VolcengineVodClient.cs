@@ -56,6 +56,59 @@ internal sealed class VolcengineVodClient
         return ReadRequired(json, "Result", "RunId");
     }
 
+    public async Task<string> StartAideoSubtitleEraseAsync(string vid, CancellationToken ct)
+    {
+        var body = new JsonObject
+        {
+            ["SpaceName"] = _settings.VolcSubtitleSpaceName,
+            ["MultiInputs"] = new JsonArray(new JsonObject { ["Type"] = "Vid", ["Vid"] = vid }),
+            ["SkillType"] = "Erase",
+            ["SkillParams"] = "{\"Mode\":\"Auto\",\"Auto\":{\"Type\":\"Subtitle\"},\"NewVid\":true}",
+        };
+        var json = await SendAsync(HttpMethod.Post, "SubmitAideoTaskAsync", "2025-03-03", body, null, ct)
+            .ConfigureAwait(false);
+        return ReadRequired(json, "Result", "TaskId");
+    }
+
+    public async Task<VolcAideoResult> GetAideoTaskResultAsync(string taskId, CancellationToken ct)
+    {
+        var json = await SendAsync(HttpMethod.Get, "GetAideoTaskResult", "2025-03-03", null,
+            new Dictionary<string, string>
+            {
+                ["SpaceName"] = _settings.VolcSubtitleSpaceName,
+                ["TaskId"] = taskId,
+            }, ct).ConfigureAwait(false);
+        var result = json["Result"] as JsonObject ?? throw ApiError(json, "Aideo 查询响应缺少 Result");
+        var status = result["Status"]?.GetValue<string>() ?? "";
+        var output = FindObjectWithFile(result);
+        return new VolcAideoResult(status,
+            output?["Vid"]?.GetValue<string>() ?? "",
+            output?["FileName"]?.GetValue<string>() ?? "",
+            FindString(result, "Message") ?? FindString(result, "Error") ?? "");
+    }
+
+    public async Task<string> GetDirectUrlAsync(string fileName, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(fileName)) throw new ArgumentException("Aideo 产物 FileName 不能为空。", nameof(fileName));
+        if (string.IsNullOrWhiteSpace(_settings.VolcSubtitlePlaybackDomain))
+            throw new InvalidOperationException("Aideo Agent 下载需要配置 VOD 播放域名。");
+        var config = await SendAsync(HttpMethod.Get, "DescribeDomainConfig", "2023-07-01", null,
+            new Dictionary<string, string>
+            {
+                ["SpaceName"] = _settings.VolcSubtitleSpaceName,
+                ["DomainType"] = "play",
+                ["Domain"] = NormalizeDomainHost(_settings.VolcSubtitlePlaybackDomain),
+            }, ct).ConfigureAwait(false);
+        var signedUrlAuth = FindObject(config, "SignedUrlAuth");
+        var enabled = signedUrlAuth?["Switch"]?.GetValue<bool>() ?? false;
+        if (!enabled) return BuildDirectUrl(_settings.VolcSubtitlePlaybackDomain, fileName);
+        var secret = FindString(config, "MasterSecretKey");
+        if (string.IsNullOrWhiteSpace(secret)) throw ApiError(config, "播放域名已开启 URL 鉴权，但配置响应缺少主 Key");
+        var signName = FindString(config, "SignName") ?? "auth_key";
+        return BuildSignedDirectUrl(_settings.VolcSubtitlePlaybackDomain, fileName, signName, secret,
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds(), Convert.ToHexString(RandomNumberGenerator.GetBytes(8)).ToLowerInvariant());
+    }
+
     public async Task<VolcExecutionResult> GetExecutionAsync(string runId, CancellationToken ct)
     {
         var json = await SendAsync(HttpMethod.Get, "GetExecution", ProcessingVersion, null,
@@ -276,6 +329,98 @@ internal sealed class VolcengineVodClient
         };
         return builder.Uri.AbsoluteUri;
     }
+
+    internal static string BuildSignedDirectUrl(string configuredDomain, string fileName, string signName,
+        string secret, long timestamp, string random)
+    {
+        var baseUrl = BuildDirectUrl(configuredDomain, fileName);
+        var uri = new Uri(baseUrl).AbsolutePath;
+        const string uid = "0";
+        var signatureText = $"{uri}-{timestamp}-{random}-{uid}-{secret}";
+        var signature = Hex(MD5.HashData(Encoding.UTF8.GetBytes(signatureText)));
+        return $"{baseUrl}?{Uri.EscapeDataString(signName)}={timestamp}-{random}-{uid}-{signature}";
+    }
+
+    private static string BuildDirectUrl(string configuredDomain, string fileName)
+    {
+        var domain = configuredDomain.Trim().TrimEnd('/');
+        if (!domain.Contains("://", StringComparison.Ordinal)) domain = "http://" + domain;
+        if (!Uri.TryCreate(domain, UriKind.Absolute, out var parsed) || string.IsNullOrWhiteSpace(parsed.Host))
+            throw new InvalidOperationException($"火山 VOD 播放域名无效：{configuredDomain}");
+        return domain + "/" + fileName.TrimStart('/');
+    }
+
+    private static string NormalizeDomainHost(string configuredDomain)
+    {
+        var value = configuredDomain.Contains("://", StringComparison.Ordinal)
+            ? configuredDomain
+            : "http://" + configuredDomain;
+        return Uri.TryCreate(value, UriKind.Absolute, out var parsed) ? parsed.Host : configuredDomain.Trim().Trim('/');
+    }
+
+    private static JsonObject? FindObjectWithFile(JsonNode? node)
+    {
+        if (node is JsonObject obj)
+        {
+            if (obj["FileName"] is not null && obj["Vid"] is not null) return obj;
+            foreach (var pair in obj)
+            {
+                var found = FindObjectWithFile(pair.Value);
+                if (found is not null) return found;
+            }
+        }
+        else if (node is JsonArray array)
+        {
+            foreach (var child in array)
+            {
+                var found = FindObjectWithFile(child);
+                if (found is not null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static string? FindString(JsonNode? node, string key)
+    {
+        if (node is JsonObject obj)
+        {
+            if (obj[key] is JsonValue value && value.TryGetValue<string>(out var text)) return text;
+            foreach (var pair in obj)
+            {
+                var found = FindString(pair.Value, key);
+                if (found is not null) return found;
+            }
+        }
+        else if (node is JsonArray array)
+            foreach (var child in array)
+            {
+                var found = FindString(child, key);
+                if (found is not null) return found;
+            }
+        return null;
+    }
+
+    private static JsonObject? FindObject(JsonNode? node, string key)
+    {
+        if (node is JsonObject obj)
+        {
+            if (obj[key] is JsonObject value) return value;
+            foreach (var pair in obj)
+            {
+                var found = FindObject(pair.Value, key);
+                if (found is not null) return found;
+            }
+        }
+        else if (node is JsonArray array)
+            foreach (var child in array)
+            {
+                var found = FindObject(child, key);
+                if (found is not null) return found;
+            }
+        return null;
+    }
+
 }
 
 internal sealed record VolcExecutionResult(string Status, string Vid, string FileName, string Error);
+internal sealed record VolcAideoResult(string Status, string Vid, string FileName, string Error);

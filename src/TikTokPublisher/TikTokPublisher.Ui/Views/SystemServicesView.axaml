@@ -199,7 +199,22 @@
 
                 <TabItem Header="翻译配置">
                     <StackPanel Margin="8" Spacing="10">
-                        <TextBlock Text="视频本地化（火山字幕擦除 → ElevenLabs 配音 → 添加英文字幕）" FontWeight="Bold" />
+                        <TextBlock Text="视频本地化（可切换字幕擦除服务 → ElevenLabs 配音 → 添加英文字幕）" FontWeight="Bold" />
+                        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto" RowSpacing="8">
+                            <TextBlock Grid.Row="0" Text="去字幕服务" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" SelectedIndex="{Binding SubtitleRemovalProviderIndex}">
+                                <ComboBoxItem Content="火山引擎" Tag="volc" />
+                                <ComboBoxItem Content="百度智能云 VOD" Tag="baidu" />
+                            </ComboBox>
+                        </Grid>
+                        <TextBlock Text="火山引擎字幕擦除配置" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto" RowSpacing="8">
+                            <TextBlock Grid.Row="0" Text="火山擦除方式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" SelectedIndex="{Binding VolcSubtitleEraseModeIndex}">
+                                <ComboBoxItem Content="StartExecution（精细化字幕擦除）" Tag="start_execution" />
+                                <ComboBoxItem Content="Aideo Agent（低成本自动擦除）" Tag="aideo" />
+                            </ComboBox>
+                        </Grid>
                         <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
                             <TextBlock Grid.Row="0" Text="火山 AccessKeyId" VerticalAlignment="Center" /><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding VolcSubtitleAccessKeyId}" />
                             <TextBlock Grid.Row="1" Text="火山 SecretKey" VerticalAlignment="Center" /><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding VolcSubtitleSecretAccessKey}" PasswordChar="●" />
@@ -219,7 +234,25 @@
                             <TextBlock Grid.Row="15" Text="修复阈值" VerticalAlignment="Center" /><NumericUpDown Grid.Row="15" Grid.Column="1" Value="{Binding ElevenLabsSpeechRateThreshold}" Minimum="2" Maximum="5" Increment="0.1" FormatString="0.0" Width="120" HorizontalAlignment="Left" />
                             <TextBlock Grid.Row="16" Text="最大延长倍率" VerticalAlignment="Center" /><NumericUpDown Grid.Row="16" Grid.Column="1" Value="{Binding ElevenLabsSpeechRateMaxStretch}" Minimum="1" Maximum="1.3" Increment="0.05" FormatString="0.00" Width="120" HorizontalAlignment="Left" />
                         </Grid>
-                        <TextBlock Text="缺少 Vid 时会自动上传到 VOD 并缓存映射；需先开通火山精细化字幕擦除白名单。" Classes="compactHint" TextWrapping="Wrap" />
+                        <TextBlock Text="百度智能云字幕擦除配置" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                            <TextBlock Grid.Row="0" Text="百度 AccessKeyId" VerticalAlignment="Center" /><TextBox Grid.Row="0" Grid.Column="1" Text="{Binding BaiduSubtitleAccessKeyId}" />
+                            <TextBlock Grid.Row="1" Text="百度 SecretKey" VerticalAlignment="Center" /><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding BaiduSubtitleSecretAccessKey}" PasswordChar="●" />
+                            <TextBlock Grid.Row="2" Text="VOD Endpoint" VerticalAlignment="Center" /><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding BaiduSubtitleEndpoint}" Watermark="https://vod.bj.baidubce.com" />
+                            <TextBlock Grid.Row="3" Text="模型版本" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="3" Grid.Column="1" SelectedIndex="{Binding BaiduSubtitleModelTypeIndex}">
+                                <ComboBoxItem Content="V4（推荐，质量更好）" Tag="v4" />
+                                <ComboBoxItem Content="V3（速度较快）" Tag="v3" />
+                            </ComboBox>
+                            <TextBlock Grid.Row="4" Text="擦除类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="4" Grid.Column="1" SelectedIndex="{Binding BaiduSubtitleTypeIndex}">
+                                <ComboBoxItem Content="对白字幕" Tag="dialog" />
+                                <ComboBoxItem Content="全局字幕" Tag="global" />
+                            </ComboBox>
+                            <TextBlock Grid.Row="5" Text="MediaId 映射文件" VerticalAlignment="Center" /><TextBox Grid.Row="5" Grid.Column="1" Text="{Binding BaiduSubtitleMediaManifestPath}" Watermark="默认自动维护 .tiktok/baidu-vod-media-ids.json" />
+                            <TextBlock Grid.Row="6" Text="百度轮询秒数" VerticalAlignment="Center" /><NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding BaiduSubtitlePollSeconds}" Minimum="3" Maximum="60" Width="120" HorizontalAlignment="Left" />
+                        </Grid>
+                        <TextBlock Text="所选服务缺少媒资映射时会自动上传到对应 VOD；百度需开通字幕擦除白名单，默认使用 V4 对白字幕模式。" Classes="compactHint" TextWrapping="Wrap" />
                         <Separator Margin="0,8" />
                         <TextBlock Text="添加字幕样式" FontWeight="Bold" />
                         <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">

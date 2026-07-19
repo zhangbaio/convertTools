@@ -260,11 +260,22 @@ public static class ClientSettingsStore
         settings.VideoTranslateFont = DefaultIfBlank(settings.VideoTranslateFont, "微软雅黑");
         settings.VideoTranslateFontSize = Math.Clamp(settings.VideoTranslateFontSize <= 0 ? 50 : settings.VideoTranslateFontSize, 12, 120);
         settings.VideoTranslateMarginV = Math.Clamp(settings.VideoTranslateMarginV, 0, 600);
+        settings.SubtitleRemovalProvider = string.Equals(settings.SubtitleRemovalProvider, "baidu", StringComparison.OrdinalIgnoreCase)
+            ? "baidu"
+            : "volc";
+        settings.VolcSubtitleEraseMode = string.Equals(settings.VolcSubtitleEraseMode, "aideo", StringComparison.OrdinalIgnoreCase)
+            ? "aideo"
+            : "start_execution";
         settings.VolcSubtitleRegion = DefaultIfBlank(settings.VolcSubtitleRegion, "cn-north-1");
         settings.VolcSubtitleSpaceName = settings.VolcSubtitleSpaceName?.Trim() ?? "";
         settings.VolcSubtitlePlaybackDomain = settings.VolcSubtitlePlaybackDomain?.Trim().TrimEnd('/') ?? "";
         settings.VolcSubtitleVidManifestPath = settings.VolcSubtitleVidManifestPath?.Trim() ?? "";
         settings.VolcSubtitlePollSeconds = Math.Clamp(settings.VolcSubtitlePollSeconds <= 0 ? 10 : settings.VolcSubtitlePollSeconds, 3, 60);
+        settings.BaiduSubtitleEndpoint = DefaultIfBlank(settings.BaiduSubtitleEndpoint, "https://vod.bj.baidubce.com").TrimEnd('/');
+        settings.BaiduSubtitleModelType = string.Equals(settings.BaiduSubtitleModelType, "v3", StringComparison.OrdinalIgnoreCase) ? "v3" : "v4";
+        settings.BaiduSubtitleType = string.Equals(settings.BaiduSubtitleType, "global", StringComparison.OrdinalIgnoreCase) ? "global" : "dialog";
+        settings.BaiduSubtitleMediaManifestPath = settings.BaiduSubtitleMediaManifestPath?.Trim() ?? "";
+        settings.BaiduSubtitlePollSeconds = Math.Clamp(settings.BaiduSubtitlePollSeconds <= 0 ? 10 : settings.BaiduSubtitlePollSeconds, 3, 60);
         settings.ElevenLabsSourceLanguage = DefaultIfBlank(settings.ElevenLabsSourceLanguage, "zh");
         settings.ElevenLabsTargetLanguage = DefaultIfBlank(settings.ElevenLabsTargetLanguage, "en");
         settings.ElevenLabsPollSeconds = Math.Clamp(settings.ElevenLabsPollSeconds <= 0 ? 8 : settings.ElevenLabsPollSeconds, 3, 60);

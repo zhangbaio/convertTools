@@ -12,8 +12,12 @@ public sealed class VideoLocalizationState
 public sealed class VideoLocalizationEpisodeState
 {
     public string VolcRunId { get; set; } = "";
+    public string VolcAideoTaskId { get; set; } = "";
     public string VolcOutputVid { get; set; } = "";
     public string VolcOutputFileName { get; set; } = "";
+    public string BaiduMediaId { get; set; } = "";
+    public string BaiduTaskId { get; set; } = "";
+    public string BaiduOutputUrl { get; set; } = "";
     public bool SubtitleRemoved { get; set; }
     public string ElevenLabsDubbingId { get; set; } = "";
     public string DubbingStatus { get; set; } = "";

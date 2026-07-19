@@ -29,4 +29,15 @@ public sealed class VolcengineVodClientTests
         VolcengineVodClient.ApplyPlaybackDomain("http://origin/video.mp4", "")
             .Should().Be("http://origin/video.mp4");
     }
+
+    [Fact]
+    public void Aideo_direct_url_uses_volc_type_a_signature()
+    {
+        var result = VolcengineVodClient.BuildSignedDirectUrl(
+            "http://play.example.com", "video.mp4", "auth_key", "abc123def456",
+            1644406401, "2e1ca42a1bb248408fc9cf435e5af744");
+
+        result.Should().Be(
+            "http://play.example.com/video.mp4?auth_key=1644406401-2e1ca42a1bb248408fc9cf435e5af744-0-19ac048da47272a73cb635f9a2ccd4eb");
+    }
 }

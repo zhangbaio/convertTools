@@ -58,6 +58,8 @@ public sealed class ClientSettings
     public int VideoTranslateFontSize { get; set; } = 50;
     public int VideoTranslateMarginV { get; set; } = 160;
     public bool VideoTranslateBilingual { get; set; }
+    public string SubtitleRemovalProvider { get; set; } = "volc";
+    public string VolcSubtitleEraseMode { get; set; } = "start_execution";
     public string VolcSubtitleAccessKeyId { get; set; } = "";
     public string VolcSubtitleSecretAccessKey { get; set; } = "";
     public string VolcSubtitleRegion { get; set; } = "cn-north-1";
@@ -65,6 +67,13 @@ public sealed class ClientSettings
     public string VolcSubtitlePlaybackDomain { get; set; } = "";
     public string VolcSubtitleVidManifestPath { get; set; } = "";
     public int VolcSubtitlePollSeconds { get; set; } = 10;
+    public string BaiduSubtitleAccessKeyId { get; set; } = "";
+    public string BaiduSubtitleSecretAccessKey { get; set; } = "";
+    public string BaiduSubtitleEndpoint { get; set; } = "https://vod.bj.baidubce.com";
+    public string BaiduSubtitleModelType { get; set; } = "v4";
+    public string BaiduSubtitleType { get; set; } = "dialog";
+    public string BaiduSubtitleMediaManifestPath { get; set; } = "";
+    public int BaiduSubtitlePollSeconds { get; set; } = 10;
     public string ElevenLabsApiKey { get; set; } = "";
     public string ElevenLabsSourceLanguage { get; set; } = "zh";
     public string ElevenLabsTargetLanguage { get; set; } = "en";
@@ -218,6 +227,8 @@ public sealed class ClientSettings
         VideoTranslateFontSize = VideoTranslateFontSize,
         VideoTranslateMarginV = VideoTranslateMarginV,
         VideoTranslateBilingual = VideoTranslateBilingual,
+        SubtitleRemovalProvider = SubtitleRemovalProvider,
+        VolcSubtitleEraseMode = VolcSubtitleEraseMode,
         VolcSubtitleAccessKeyId = VolcSubtitleAccessKeyId,
         VolcSubtitleSecretAccessKey = VolcSubtitleSecretAccessKey,
         VolcSubtitleRegion = VolcSubtitleRegion,
@@ -225,6 +236,13 @@ public sealed class ClientSettings
         VolcSubtitlePlaybackDomain = VolcSubtitlePlaybackDomain,
         VolcSubtitleVidManifestPath = VolcSubtitleVidManifestPath,
         VolcSubtitlePollSeconds = VolcSubtitlePollSeconds,
+        BaiduSubtitleAccessKeyId = BaiduSubtitleAccessKeyId,
+        BaiduSubtitleSecretAccessKey = BaiduSubtitleSecretAccessKey,
+        BaiduSubtitleEndpoint = BaiduSubtitleEndpoint,
+        BaiduSubtitleModelType = BaiduSubtitleModelType,
+        BaiduSubtitleType = BaiduSubtitleType,
+        BaiduSubtitleMediaManifestPath = BaiduSubtitleMediaManifestPath,
+        BaiduSubtitlePollSeconds = BaiduSubtitlePollSeconds,
         ElevenLabsApiKey = ElevenLabsApiKey,
         ElevenLabsSourceLanguage = ElevenLabsSourceLanguage,
         ElevenLabsTargetLanguage = ElevenLabsTargetLanguage,
