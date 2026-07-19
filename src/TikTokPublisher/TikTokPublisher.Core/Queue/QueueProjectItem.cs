@@ -41,6 +41,7 @@ public sealed class QueueProjectItem
     public string AccountProfileName { get; set; } = "";
     public string QueuedAt { get; set; } = "";
     public string UploadCompletedAt { get; set; } = "";
+    public string ProofMaterialStatementDate { get; set; } = "";
     public bool Enabled { get; set; } = true;
     public string CurrentStep { get; set; } = "";
     public string StatusText { get; set; } = QueueStepStatus.Pending;
@@ -122,6 +123,7 @@ public sealed class QueueProjectItem
             ["account_profile_name"] = AccountProfileName,
             ["queued_at"] = QueuedAt,
             ["upload_completed_at"] = UploadCompletedAt,
+            ["proof_material_statement_date"] = ProofMaterialStatementDate,
             ["enabled"] = Enabled,
             ["current_step"] = CurrentStep,
             ["status_text"] = StatusText,
@@ -151,6 +153,7 @@ public sealed class QueueProjectItem
             AccountProfileName = GetString(payload, "account_profile_name"),
             QueuedAt = GetString(payload, "queued_at"),
             UploadCompletedAt = GetString(payload, "upload_completed_at"),
+            ProofMaterialStatementDate = GetString(payload, "proof_material_statement_date"),
             Enabled = GetBool(payload, "enabled", true),
             CurrentStep = GetString(payload, "current_step"),
             StatusText = GetString(payload, "status_text", QueueStepStatus.Pending),

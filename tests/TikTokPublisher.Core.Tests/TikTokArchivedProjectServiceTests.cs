@@ -267,6 +267,7 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         restored.Archived.Should().BeFalse();
         restored.Enabled.Should().BeTrue();
         restored.QueuedAt.Should().NotBe("2026-01-01 00:00:00");
+        restored.ProofMaterialStatementDate.Should().Be("2026-01-01");
     }
 
     [Fact]

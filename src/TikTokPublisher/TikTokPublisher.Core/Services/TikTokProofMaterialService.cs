@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -314,7 +315,7 @@ public sealed class TikTokProofMaterialService
             account.TiktokProofCopyrightCompanyName ?? string.Empty,
             declarantCompanyName,
             item.NewTitle.Trim(),
-            statementDate ?? GetChinaToday())
+            statementDate ?? ResolveStatementDate(item))
         {
             SealImagePath = sealPath,
             PreferredPdfRenderer = TikTokProofMaterialPdfRendererPreferenceExtensions.Parse(
@@ -322,6 +323,22 @@ public sealed class TikTokProofMaterialService
             WpsExecutablePath = settings.TiktokProofWpsPath,
             KeepIntermediateDocx = settings.TiktokProofKeepDocx,
         };
+    }
+
+    internal static DateOnly ResolveStatementDate(QueueProjectItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (DateOnly.TryParseExact(
+                item.ProofMaterialStatementDate,
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var restoredArchiveDate))
+        {
+            return restoredArchiveDate;
+        }
+
+        return GetChinaToday();
     }
 
     private static bool HasCurrentOutput(

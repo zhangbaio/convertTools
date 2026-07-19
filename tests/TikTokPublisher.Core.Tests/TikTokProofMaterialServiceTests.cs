@@ -741,6 +741,55 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
+    public void Queue_request_uses_restored_archive_date_for_proof_material()
+    {
+        var item = new QueueProjectItem
+        {
+            NewTitle = "归档回退剧名",
+            ProofMaterialStatementDate = "2026-07-18",
+        };
+        var account = new TikTokAccountProfile
+        {
+            TiktokProofCopyrightCompanyName = "版权公司",
+            TiktokProofDeclarantCompanyName = "声明公司",
+            TiktokProofAccountConfigMigrated = true,
+        };
+
+        var request = TikTokProofMaterialService.CreateQueueRequest(
+            item,
+            new ClientSettings(),
+            account,
+            Path.GetTempPath());
+
+        request.StatementDate.Should().Be(new DateOnly(2026, 7, 18));
+    }
+
+    [Fact]
+    public void Explicit_statement_date_overrides_restored_archive_date()
+    {
+        var item = new QueueProjectItem
+        {
+            NewTitle = "测试剧名",
+            ProofMaterialStatementDate = "2026-07-18",
+        };
+        var account = new TikTokAccountProfile
+        {
+            TiktokProofCopyrightCompanyName = "版权公司",
+            TiktokProofDeclarantCompanyName = "声明公司",
+            TiktokProofAccountConfigMigrated = true,
+        };
+
+        var request = TikTokProofMaterialService.CreateQueueRequest(
+            item,
+            new ClientSettings(),
+            account,
+            Path.GetTempPath(),
+            new DateOnly(2026, 7, 17));
+
+        request.StatementDate.Should().Be(new DateOnly(2026, 7, 17));
+    }
+
+    [Fact]
     public void Queue_request_uses_legacy_globals_only_until_account_config_is_migrated()
     {
         using var fixture = new ProofTemplateFixture();
