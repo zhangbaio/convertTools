@@ -125,6 +125,10 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         IPlaywright? pw = null;
         IBrowser? chromium = null;
         IPage? activePage = null;
+        var outerCt = ct;
+        CancellationTokenSource? dailyLimitCts = null;
+        Task? dailyLimitWatcher = null;
+        string? dailyLimitHit = null;
         try
         {
             IPage page;
@@ -210,6 +214,19 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             {
                 await NavigateToCreateDraftPageAsync(page, targetUrl, L, ct).ConfigureAwait(false);
                 ThrowIfLoginRedirect(page);
+
+                // The platform shows this limit as a short-lived toast immediately after the
+                // local-upload action. Point-in-time checks can miss it while Playwright/CDP is
+                // selecting files, so watch continuously after this run has entered a fresh
+                // create page. Starting here (rather than on the leftover page) avoids treating
+                // a previous project's stale toast as a limit hit for the current queue item.
+                dailyLimitCts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
+                ct = dailyLimitCts.Token;
+                dailyLimitWatcher = WatchDailyEpisodeLimitAsync(page, dailyLimitCts, text =>
+                {
+                    dailyLimitHit = text;
+                    L($"检测到 TikTok 创建剧集上限提示：{text}");
+                });
                 RecordUploadStepStarted();
 
                 await TikTokBrowserActions.FillCreateInitialFieldsAsync(page, payload, options, L, ct)
@@ -284,6 +301,13 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 TikTokUploadStateStore.MarkUploadStepCompleted(workflowDir, payload.Title);
             return result;
         }
+        catch (OperationCanceledException) when (dailyLimitHit is not null && !outerCt.IsCancellationRequested)
+        {
+            var message = $"TikTok 单日创建剧集上限：{dailyLimitHit}";
+            if (hasWorkflow)
+                TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title);
+            return PublishResult.FailAndStopQueue(message);
+        }
         catch (OperationCanceledException)
         {
             throw;
@@ -316,9 +340,60 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         }
         finally
         {
+            try { dailyLimitCts?.Cancel(); } catch { /* watcher is already stopping */ }
+            if (dailyLimitWatcher is not null)
+            {
+                try { await dailyLimitWatcher.ConfigureAwait(false); }
+                catch (OperationCanceledException) { /* normal watcher shutdown */ }
+                catch (ObjectDisposedException) { /* linked CTS already released */ }
+            }
+            dailyLimitCts?.Dispose();
             try { await (chromium?.DisposeAsync() ?? ValueTask.CompletedTask).ConfigureAwait(false); }
             catch { /* disconnect CDP only */ }
             pw?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Continuously observes the visible TikTok toast/dialog containers while the current create
+    /// flow is active. The limit toast can disappear before a file chooser/CDP upload call returns.
+    /// </summary>
+    private static async Task WatchDailyEpisodeLimitAsync(
+        IPage page,
+        CancellationTokenSource watcherCts,
+        Action<string> onHit)
+    {
+        try
+        {
+            while (!watcherCts.IsCancellationRequested)
+            {
+                string? text = null;
+                try
+                {
+                    text = await TikTokBrowserActions.DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Navigation/CDP activity can make a single DOM read fail; keep observing.
+                }
+
+                if (text is not null)
+                {
+                    onHit(text);
+                    watcherCts.Cancel();
+                    return;
+                }
+
+                await Task.Delay(250, watcherCts.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal completion when the upload finishes or the queue is stopped.
+        }
+        catch (ObjectDisposedException)
+        {
+            // The owning publish flow has already completed.
         }
     }
 
