@@ -9,7 +9,11 @@ param(
     [switch]$SkipInstallerCompile,
     [string]$InnoSetupCompiler,
     [string]$FfmpegDownloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
-    [string]$WebView2DownloadUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+    # Offline Evergreen Standalone Installer (x64) permanent fwlink (~190MB, installs WebView2 with no
+    # network needed on the target). This is the x64 "accept-and-download" link from the official
+    # WebView2 download page. NOTE: do NOT use the bootstrapper link (fwlink 2124703) here - it is a
+    # tiny online installer that would force new machines to have network access during setup.
+    [string]$WebView2DownloadUrl = "https://go.microsoft.com/fwlink/?linkid=2124701"
 )
 
 Set-StrictMode -Version Latest
@@ -119,6 +123,12 @@ function Ensure-WebView2RuntimeInstaller {
 
     $installer = Join-Path $DependenciesDir "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
     if (Test-Path -LiteralPath $installer) {
+        return
+    }
+
+    if ([string]::IsNullOrWhiteSpace($WebView2DownloadUrl)) {
+        # No local file and no download URL: let the later hard check fail with guidance to place
+        # the offline standalone installer manually.
         return
     }
 
@@ -587,14 +597,20 @@ elseif (-not $hasPlaywrightChromium) {
 }
 
 $webView2Installer = Join-Path $DependenciesDir "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
-if ($BundleDependencies -and -not (Test-Path -LiteralPath $webView2Installer)) {
-    throw "WebView2 Runtime installer is not bundled. The installer would require WebView2 on the target machine."
+$webView2DownloadPage = "https://developer.microsoft.com/microsoft-edge/webview2/"
+if ($BundleDependencies) {
+    # Hard stop: missing OR too small (the online bootstrapper) both fail the build, so we never
+    # ship an installer that requires network access on the target machine.
+    if (-not (Test-Path -LiteralPath $webView2Installer)) {
+        throw "WebView2 Runtime offline installer is missing. Download the Evergreen Standalone Installer (x64) to '$webView2Installer' (download page $webView2DownloadPage), or pass its direct URL via -WebView2DownloadUrl, then re-run packaging."
+    }
+    if (-not (Test-WebView2InstallerLooksStandalone -Installer $webView2Installer)) {
+        $webView2SizeMb = [math]::Round((Get-Item -LiteralPath $webView2Installer).Length / 1MB, 1)
+        throw "WebView2 installer is only $webView2SizeMb MB, which looks like the online Evergreen bootstrapper and would force new machines to have network access during install. Replace it with the offline Evergreen Standalone Installer (x64) (~130MB+). Download page: $webView2DownloadPage"
+    }
 }
 elseif (-not (Test-Path -LiteralPath $webView2Installer)) {
     Write-Warning "WebView2 Runtime installer is not bundled. Put MicrosoftEdgeWebView2RuntimeInstallerX64.exe under packaging\dependencies for new Windows machines without WebView2."
-}
-elseif (-not (Test-WebView2InstallerLooksStandalone -Installer $webView2Installer)) {
-    Write-Warning "WebView2 installer appears to be the small Evergreen bootstrapper, not the offline standalone installer. The setup will still run it to install/repair WebView2, but target machines need network access to Microsoft during setup."
 }
 
 if ($SkipInstallerCompile) {
