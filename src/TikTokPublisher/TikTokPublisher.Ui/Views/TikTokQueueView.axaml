@@ -349,8 +349,8 @@
                           HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
                           AllowAutoHide="False">
-                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1888">
-                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,76,68,68,68,68,68,68,68,68,68,180">
+                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1760">
+                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,76,68,68,68,68,68,0,76,0,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
@@ -367,9 +367,9 @@
                         <TextBlock Grid.Column="13" Text="静音修复" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="14" Text="校验" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="15" Text="删源" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="16" Text="去字幕" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="17" Text="翻译" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="18" Text="字幕" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="16" Text="去字幕" Classes="tableHeader stepTableHeader" IsVisible="False" />
+                        <TextBlock Grid.Column="17" Text="视频翻译" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="18" Text="字幕" Classes="tableHeader stepTableHeader" IsVisible="False" />
                         <TextBlock Grid.Column="19" Text="上传" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="20" Text="备注" Classes="tableHeader" />
                         <Border Grid.Column="0" Classes="queueColumnResizer" Tag="0" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
@@ -388,9 +388,9 @@
                         <Border Grid.Column="13" Classes="queueColumnResizer" Tag="13" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="14" Classes="queueColumnResizer" Tag="14" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="15" Classes="queueColumnResizer" Tag="15" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                        <Border Grid.Column="16" Classes="queueColumnResizer" Tag="16" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="16" Classes="queueColumnResizer" Tag="16" IsVisible="False" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="17" Classes="queueColumnResizer" Tag="17" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                        <Border Grid.Column="18" Classes="queueColumnResizer" Tag="18" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="18" Classes="queueColumnResizer" Tag="18" IsVisible="False" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="19" Classes="queueColumnResizer" Tag="19" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                     </Grid>
 
@@ -403,8 +403,8 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Border Classes="queueTableRow" Width="1888" Height="42" Loaded="OnQueueTableRowLoaded">
-                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,76,68,68,68,68,68,68,68,68,68,180" ClipToBounds="True">
+                                <Border Classes="queueTableRow" Width="1760" Height="42" Loaded="OnQueueTableRowLoaded">
+                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,76,68,68,68,68,68,0,76,0,68,180" ClipToBounds="True">
                                         <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="4,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -467,13 +467,13 @@
                                         <Border Grid.Column="15" Classes="stepStatusBadge" Background="{Binding DeleteSourceStatusBackgroundBrush}" BorderBrush="{Binding DeleteSourceStatusBorderBrush}" ToolTip.Tip="{Binding DeleteSourceStatus}">
                                             <TextBlock Text="{Binding DeleteSourceStatus}" Foreground="{Binding DeleteSourceStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="16" Classes="stepStatusBadge" Background="{Binding RemoveSubtitlesStatusBackgroundBrush}" BorderBrush="{Binding RemoveSubtitlesStatusBorderBrush}" ToolTip.Tip="{Binding RemoveSubtitlesStatus}">
+                                        <Border Grid.Column="16" Classes="stepStatusBadge" Background="{Binding RemoveSubtitlesStatusBackgroundBrush}" BorderBrush="{Binding RemoveSubtitlesStatusBorderBrush}" ToolTip.Tip="{Binding RemoveSubtitlesStatus}" IsVisible="False">
                                             <TextBlock Text="{Binding RemoveSubtitlesStatus}" Foreground="{Binding RemoveSubtitlesStatusBrush}" Classes="stepStatusText" />
                                         </Border>
                                         <Border Grid.Column="17" Classes="stepStatusBadge" Background="{Binding DubVideoStatusBackgroundBrush}" BorderBrush="{Binding DubVideoStatusBorderBrush}" ToolTip.Tip="{Binding DubVideoStatus}">
                                             <TextBlock Text="{Binding DubVideoStatus}" Foreground="{Binding DubVideoStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="18" Classes="stepStatusBadge" Background="{Binding AddSubtitlesStatusBackgroundBrush}" BorderBrush="{Binding AddSubtitlesStatusBorderBrush}" ToolTip.Tip="{Binding AddSubtitlesStatus}">
+                                        <Border Grid.Column="18" Classes="stepStatusBadge" Background="{Binding AddSubtitlesStatusBackgroundBrush}" BorderBrush="{Binding AddSubtitlesStatusBorderBrush}" ToolTip.Tip="{Binding AddSubtitlesStatus}" IsVisible="False">
                                             <TextBlock Text="{Binding AddSubtitlesStatus}" Foreground="{Binding AddSubtitlesStatusBrush}" Classes="stepStatusText" />
                                         </Border>
                                         <Border Grid.Column="19" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding DetailText}">
