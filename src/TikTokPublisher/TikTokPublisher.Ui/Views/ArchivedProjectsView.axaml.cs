@@ -44,11 +44,11 @@ public partial class ArchivedProjectsView : UserControl
         vm.SetArchiveRootDir(folder.Path.LocalPath);
     }
 
-    private void OnOpenArchiveDirClick(object? sender, RoutedEventArgs e) => Vm?.OpenSelectedArchiveDir();
+    private void OnOpenArchiveDirClick(object? sender, RoutedEventArgs e) => Vm?.OpenArchiveRoot();
 
-    private void OnOpenSourceClick(object? sender, RoutedEventArgs e) => Vm?.OpenSelectedSourceDir();
+    private void OnOpenSourceClick(object? sender, RoutedEventArgs e) => Vm?.OpenArchiveSourceRoot();
 
-    private void OnOpenWorkflowClick(object? sender, RoutedEventArgs e) => Vm?.OpenSelectedWorkflowDir();
+    private void OnOpenWorkflowClick(object? sender, RoutedEventArgs e) => Vm?.OpenArchiveWorkflowRoot();
 
     private void OnSelectToCurrentClick(object? sender, RoutedEventArgs e) => Vm?.SelectToCurrentProject();
 

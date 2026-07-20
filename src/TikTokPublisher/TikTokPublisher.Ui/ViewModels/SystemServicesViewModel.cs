@@ -506,6 +506,8 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
     }
 
     public void OpenArchiveRoot() => OpenPath(ArchiveRootDir);
+    public void OpenArchiveSourceRoot() => OpenPath(ArchiveChildRoot("source"));
+    public void OpenArchiveWorkflowRoot() => OpenPath(ArchiveChildRoot("workflow"));
     public void OpenSelectedArchiveDir() => OpenPath(SelectedRow?.ArchiveDisplayPath);
     public void OpenSelectedSourceDir() => OpenPath(SelectedRow?.SourceDir);
     public void OpenSelectedWorkflowDir() => OpenPath(SelectedRow?.WorkflowDir);
@@ -672,6 +674,14 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
         }
 
         return null;
+    }
+
+    private string? ArchiveChildRoot(string childName)
+    {
+        if (string.IsNullOrWhiteSpace(ArchiveRootDir))
+            return null;
+        try { return Path.Combine(Path.GetFullPath(ArchiveRootDir), childName); }
+        catch { return null; }
     }
 
     private void OpenPath(string? path)
