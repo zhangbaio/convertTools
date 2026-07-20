@@ -300,6 +300,7 @@ public partial class MainWindow : Window
                 timeoutSeconds: 300,
                 forceLaunchBrowser: true);
             _viewModel.HandleExternalAuthSaved(account, result);
+            await _browserHost.SyncExternalAuthAsync(account);
         }
         catch (Exception ex)
         {

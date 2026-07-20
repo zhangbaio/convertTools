@@ -91,8 +91,9 @@ public sealed class BrowserSessionHost
         }
     }
 
-    private void OnHostReady(string accountId, WebView2Host host)
+    private async Task OnHostReadyAsync(AccountItemViewModel account, WebView2Host host)
     {
+        await ImportAuthStateCoreAsync(account, host).ConfigureAwait(true);
         Dispatcher.UIThread.Post(() =>
         {
             if (!_presentationVisible)
@@ -101,7 +102,7 @@ public sealed class BrowserSessionHost
                 return;
             }
 
-            if (!string.Equals(_activeAccountId, accountId, StringComparison.Ordinal))
+            if (!string.Equals(_activeAccountId, account.Id, StringComparison.Ordinal))
             {
                 host.SetRenderedVisible(false);
                 return;
@@ -110,6 +111,43 @@ public sealed class BrowserSessionHost
             ApplyHostVisibility(host, rendered: true);
             PresentationLayoutChanged?.Invoke();
         }, DispatcherPriority.Loaded);
+    }
+
+    public async Task SyncExternalAuthAsync(AccountItemViewModel account)
+    {
+        if (!_hosts.TryGetValue(account.Id, out var host) || !host.IsEngineReady)
+            return;
+
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            await ImportAuthStateCoreAsync(account, host).ConfigureAwait(true);
+            return;
+        }
+
+        await Dispatcher.UIThread
+            .InvokeAsync(() => ImportAuthStateCoreAsync(account, host))
+            .ConfigureAwait(false);
+    }
+
+    private async Task ImportAuthStateCoreAsync(AccountItemViewModel account, WebView2Host host)
+    {
+        var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account.Model);
+        if (!File.Exists(authPath))
+            return;
+
+        try
+        {
+            var cookieCount = await host.ImportStorageStateAsync(authPath).ConfigureAwait(true);
+            if (cookieCount <= 0)
+                return;
+
+            host.Navigate(EmbeddedBrowserLoginHelper.ResolveHomeUrl(account.Model));
+            AuthStatusChanged?.Invoke($"已同步外部浏览器授权到内置浏览器（{cookieCount} 个 Cookie）");
+        }
+        catch (Exception ex)
+        {
+            AuthStatusChanged?.Invoke($"同步外部浏览器授权失败：{ex.Message}");
+        }
     }
 
     public void RefreshPresentationBounds()
@@ -384,7 +422,7 @@ public sealed class BrowserSessionHost
         };
         ApplyProxySettings(host, account.Model);
 
-        host.Ready += () => OnHostReady(account.Id, host);
+        host.Ready += () => _ = OnHostReadyAsync(account, host);
         host.NavigationCompleted += url => _ = OnNavigationCompletedAsync(account, url);
         host.ProcessFailed += message => OnHostProcessFailed(account, message);
         _hosts[account.Id] = host;

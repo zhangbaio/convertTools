@@ -2144,6 +2144,8 @@ public partial class TikTokQueueView : UserControl
                     accountVm.Status = AccountStatus.Online;
                     accountVm.RefreshFromModel();
                 }).GetTask().ConfigureAwait(false);
+                if (browserHost is not null)
+                    await browserHost.SyncExternalAuthAsync(accountVm).ConfigureAwait(false);
                 log?.Invoke($"TikTok 外部浏览器登录完成，授权文件已更新：{externalResult.AuthPath}");
                 return QueueBrowserReadyResult.Ready();
             }

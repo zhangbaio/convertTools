@@ -1,5 +1,6 @@
 ﻿using System.Drawing;
 using Avalonia;
+using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Platform;
 using Avalonia.Threading;
@@ -32,6 +33,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     private bool _renderedVisible;
     private bool _nativeHandleAlive;
     private bool _staleProcessRecoveryAttempted;
+    private string? _storageStateInitScriptId;
 
     public string? LastInitError => _lastInitError;
     public string? LastProcessFailure => _lastProcessFailure;
@@ -180,6 +182,83 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         }
 
         return byKey.Values.ToList();
+    }
+
+    public async Task<int> ImportStorageStateAsync(string authPath)
+    {
+        var webView = _controller?.CoreWebView2
+            ?? throw new InvalidOperationException("内置浏览器尚未初始化完成。");
+        if (!File.Exists(authPath))
+            return 0;
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(authPath).ConfigureAwait(true));
+        var root = document.RootElement;
+        var cookieCount = 0;
+        if (root.TryGetProperty("cookies", out var cookies) && cookies.ValueKind == JsonValueKind.Array)
+        {
+            var manager = webView.CookieManager;
+            foreach (var item in cookies.EnumerateArray())
+            {
+                var name = item.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : null;
+                var value = item.TryGetProperty("value", out var valueElement) ? valueElement.GetString() : null;
+                var domain = item.TryGetProperty("domain", out var domainElement) ? domainElement.GetString() : null;
+                var path = item.TryGetProperty("path", out var pathElement) ? pathElement.GetString() : "/";
+                if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(domain))
+                    continue;
+
+                var cookie = manager.CreateCookie(name, value ?? "", domain, string.IsNullOrWhiteSpace(path) ? "/" : path);
+                cookie.IsHttpOnly = item.TryGetProperty("httpOnly", out var httpOnly) && httpOnly.ValueKind == JsonValueKind.True;
+                cookie.IsSecure = item.TryGetProperty("secure", out var secure) && secure.ValueKind == JsonValueKind.True;
+                if (item.TryGetProperty("expires", out var expires) && expires.TryGetDouble(out var epochSeconds) && epochSeconds > 0)
+                    cookie.Expires = DateTimeOffset.FromUnixTimeSeconds((long)epochSeconds).UtcDateTime;
+                if (item.TryGetProperty("sameSite", out var sameSite))
+                {
+                    cookie.SameSite = sameSite.GetString()?.Trim().ToLowerInvariant() switch
+                    {
+                        "strict" => CoreWebView2CookieSameSiteKind.Strict,
+                        "lax" => CoreWebView2CookieSameSiteKind.Lax,
+                        "none" => CoreWebView2CookieSameSiteKind.None,
+                        _ => CoreWebView2CookieSameSiteKind.Lax,
+                    };
+                }
+                manager.AddOrUpdateCookie(cookie);
+                cookieCount++;
+            }
+        }
+
+        var localStorage = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        if (root.TryGetProperty("origins", out var origins) && origins.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var originItem in origins.EnumerateArray())
+            {
+                var origin = originItem.TryGetProperty("origin", out var originElement) ? originElement.GetString() : null;
+                if (string.IsNullOrWhiteSpace(origin) ||
+                    !originItem.TryGetProperty("localStorage", out var entries) ||
+                    entries.ValueKind != JsonValueKind.Array)
+                    continue;
+
+                var values = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var entry in entries.EnumerateArray())
+                {
+                    var key = entry.TryGetProperty("name", out var keyElement) ? keyElement.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(key)) continue;
+                    values[key] = entry.TryGetProperty("value", out var storedValue) ? storedValue.GetString() ?? "" : "";
+                }
+                localStorage[origin] = values;
+            }
+        }
+
+        if (_storageStateInitScriptId is not null)
+            webView.RemoveScriptToExecuteOnDocumentCreated(_storageStateInitScriptId);
+        var stateJson = JsonSerializer.Serialize(localStorage);
+        _storageStateInitScriptId = await webView.AddScriptToExecuteOnDocumentCreatedAsync(
+            "(() => { const states = " + stateJson +
+            "; const values = states[location.origin]; if (!values) return; " +
+            "for (const [key, value] of Object.entries(values)) { try { localStorage.setItem(key, value); } catch {} } })();")
+            .ConfigureAwait(true);
+
+        Log($"imported storage_state udf={UserDataFolder} cookies={cookieCount} origins={localStorage.Count}");
+        return cookieCount;
     }
 
     public void CloseBrowser()
