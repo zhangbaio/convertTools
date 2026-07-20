@@ -227,6 +227,9 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             var options = new CoreWebView2EnvironmentOptions();
             var browserArgs = new List<string>
             {
+                // 部分新装 Windows 机器的显卡驱动/WebView2 GPU 合成会只显示黑色原生窗口。
+                // 内置浏览器以稳定登录和后台自动化为主，使用软件渲染可跨机器可靠显示。
+                "--disable-gpu",
                 // 后台上传依赖持续的定时器与渲染帧；禁用 Chromium 的后台/遮挡节流。
                 "--disable-background-timer-throttling",
                 "--disable-backgrounding-occluded-windows",
@@ -264,6 +267,9 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
                 {
                     if (args.IsSuccess)
                         NavigationCompleted?.Invoke(_controller.CoreWebView2.Source);
+                    else
+                        Log($"navigation-failed udf={UserDataFolder} port={RemoteDebuggingPort} " +
+                            $"status={args.WebErrorStatus} uri={_controller.CoreWebView2.Source}");
                 };
                 _controller.CoreWebView2.ProcessFailed += (_, args) =>
                 {
