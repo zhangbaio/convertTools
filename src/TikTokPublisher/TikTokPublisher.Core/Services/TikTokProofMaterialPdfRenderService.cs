@@ -251,6 +251,7 @@ public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRendere
             $app = $null
             $doc = $null
             $progIds = @('KWPS.Application', 'wps.Application')
+            $comErrors = [System.Collections.Generic.List[string]]::new()
 
             function New-WpsApplication {
                 foreach ($progId in $progIds) {
@@ -258,6 +259,9 @@ public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRendere
                         $candidate = New-Object -ComObject $progId
                         if ($candidate) { return $candidate }
                     } catch {
+                        $message = $_.Exception.Message
+                        $entry = "${progId}: $message"
+                        if ($message -and -not $comErrors.Contains($entry)) { $comErrors.Add($entry) }
                     }
                 }
                 return $null
@@ -267,7 +271,8 @@ public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRendere
                 $app = New-WpsApplication
                 if (-not $app -and $wpsPath -and (Test-Path -LiteralPath $wpsPath)) {
                     Start-Process -FilePath $wpsPath -WindowStyle Hidden | Out-Null
-                    for ($i = 0; $i -lt 20; $i++) {
+                    # Cold start, first-run initialization and post-update startup can exceed 10 seconds.
+                    for ($i = 0; $i -lt 120; $i++) {
                         Start-Sleep -Milliseconds 500
                         $app = New-WpsApplication
                         if ($app) { break }
@@ -275,7 +280,8 @@ public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRendere
                 }
 
                 if (-not $app) {
-                    throw '未找到 WPS COM 组件，请确认已安装并注册 WPS 文字。'
+                    $detail = if ($comErrors.Count -gt 0) { $comErrors -join '; ' } else { '未返回 COM 对象' }
+                    throw "等待 WPS 自动化组件就绪超时（60 秒）：$detail。请先手动打开 WPS 文字并完成首次启动、用户协议或升级提示后重试。"
                 }
 
                 try { $app.Visible = $false } catch {}
@@ -288,23 +294,32 @@ public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRendere
 
                 $wdExportFormatPDF = 17
                 $exported = $false
+                $exportErrors = [System.Collections.Generic.List[string]]::new()
                 try {
                     $doc.ExportAsFixedFormat($pdfPath, $wdExportFormatPDF)
                     $exported = $true
-                } catch {}
+                } catch {
+                    $exportErrors.Add("ExportAsFixedFormat: $($_.Exception.Message)")
+                }
                 if (-not $exported) {
                     try {
                         $doc.SaveAs2($pdfPath, $wdExportFormatPDF)
                         $exported = $true
-                    } catch {}
+                    } catch {
+                        $exportErrors.Add("SaveAs2: $($_.Exception.Message)")
+                    }
                 }
                 if (-not $exported) {
                     try {
                         $doc.SaveAs($pdfPath, $wdExportFormatPDF)
                         $exported = $true
-                    } catch {}
+                    } catch {
+                        $exportErrors.Add("SaveAs: $($_.Exception.Message)")
+                    }
                 }
-                if (-not $exported) { throw '当前 WPS 文档对象不支持 PDF 导出。' }
+                if (-not $exported) {
+                    throw "WPS PDF 导出接口全部失败：$($exportErrors -join '; ')"
+                }
             } finally {
                 if ($doc) {
                     try { $doc.Close(0) } catch {}

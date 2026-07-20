@@ -511,6 +511,11 @@ public sealed class TikTokProofMaterialServiceTests
         script.Should().Contain("$doc.Close(0)");
         script.Should().Contain("$app.Quit()");
         script.Should().Contain("ExportAsFixedFormat");
+        script.Should().Contain("$i -lt 120");
+        script.Should().Contain("等待 WPS 自动化组件就绪超时（60 秒）");
+        script.Should().Contain("ExportAsFixedFormat: $($_.Exception.Message)");
+        script.Should().Contain("SaveAs2: $($_.Exception.Message)");
+        script.Should().Contain("SaveAs: $($_.Exception.Message)");
     }
 
     [Fact]
