@@ -31,6 +31,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     private string? _lastProcessFailure;
     private bool _renderedVisible;
     private bool _nativeHandleAlive;
+    private bool _staleProcessRecoveryAttempted;
 
     public string? LastInitError => _lastInitError;
     public string? LastProcessFailure => _lastProcessFailure;
@@ -224,6 +225,11 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         {
             _lastInitError = null;
             _lastProcessFailure = null;
+            if (!_staleProcessRecoveryAttempted)
+            {
+                _staleProcessRecoveryAttempted = true;
+                WebView2ProcessRecovery.RecoverStaleProcess(UserDataFolder, Log);
+            }
             var options = new CoreWebView2EnvironmentOptions();
             var browserArgs = new List<string>
             {
@@ -251,6 +257,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
             if (_controller.CoreWebView2 is not null)
             {
+                WebView2ProcessRecovery.SaveMarker(UserDataFolder, _controller.CoreWebView2.BrowserProcessId);
                 _controller.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = false;
                 _controller.CoreWebView2.ScriptDialogOpening += OnScriptDialogOpening;
 

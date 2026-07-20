@@ -23,8 +23,9 @@ public partial class App : Application
                 {
                     await StartWithLicenseGateAsync(desktop);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    StartupFailureReporter.Report(ex, "App.StartWithLicenseGateAsync", showMessage: true);
                     desktop.Shutdown();
                 }
             });

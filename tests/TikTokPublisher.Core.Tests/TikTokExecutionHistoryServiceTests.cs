@@ -31,7 +31,7 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
     }
 
     [Fact]
-    public void PruneOldEvents_keeps_all_upload_history()
+    public void PruneOldEvents_removes_expired_normal_events()
     {
         InsertEvent("old", "2026-07-01T23:59:59");
         InsertEvent("before-cutoff", "2026-07-02T11:59:59");
@@ -42,11 +42,27 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
             databasePath: _databasePath,
             now: new DateTime(2026, 7, 5, 12, 0, 0));
 
-        deleted.Should().Be(0);
-        ReadEventIds().Should().Equal("old", "before-cutoff", "at-cutoff", "new");
+        deleted.Should().Be(2);
+        ReadEventIds().Should().Equal("at-cutoff", "new");
     }
 
-    private void InsertEvent(string eventId, string createdAt)
+    [Fact]
+    public void EnsureStorageOptimized_migrates_latest_snapshot_and_removes_redundant_progress()
+    {
+        InsertEvent("progress-1", "2026-07-05T10:00:00", ProjectPayload("queue_progress", "执行中", ""));
+        InsertEvent("progress-2", "2026-07-05T10:01:00", ProjectPayload("queue_progress", "已完成", ""));
+        InsertEvent("failed", "2026-07-05T10:02:00", ProjectPayload("queue_progress", "失败", "network error"));
+        InsertEvent("finished", "2026-07-05T10:03:00", "{\"event_type\":\"run_finished\"}");
+
+        TikTokExecutionHistoryService.EnsureStorageOptimized(_databasePath);
+
+        ReadScalar("SELECT COUNT(*) FROM upload_project_snapshots").Should().Be(1);
+        ReadScalar("SELECT COUNT(*) FROM upload_task_events").Should().Be(2);
+        ReadEventIds().Should().Equal("failed", "finished");
+        ReadScalar("SELECT COUNT(*) FROM app_migrations WHERE migration_key = 'upload-history-snapshots-v1'").Should().Be(1);
+    }
+
+    private void InsertEvent(string eventId, string createdAt, string payloadJson = "{}")
     {
         using var conn = new SqliteConnection($"Data Source={_databasePath}");
         conn.Open();
@@ -56,7 +72,7 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
             VALUES($event_id, $payload_json, $created_at)
             """;
         cmd.Parameters.AddWithValue("$event_id", eventId);
-        cmd.Parameters.AddWithValue("$payload_json", "{}");
+        cmd.Parameters.AddWithValue("$payload_json", payloadJson);
         cmd.Parameters.AddWithValue("$created_at", createdAt);
         cmd.ExecuteNonQuery();
     }
@@ -74,4 +90,30 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
             ids.Add(reader.GetString(0));
         return ids;
     }
+
+    private long ReadScalar(string sql)
+    {
+        using var conn = new SqliteConnection($"Data Source={_databasePath};Mode=ReadOnly");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        return Convert.ToInt64(cmd.ExecuteScalar());
+    }
+
+    private static string ProjectPayload(string eventType, string status, string error) => $$"""
+        {
+          "event_type": "{{eventType}}",
+          "status": "{{status}}",
+          "timestamp": "2026-07-05T10:00:00",
+          "workspace": "E:\\tiktok",
+          "project_dir": "E:\\tiktok\\demo",
+          "original_title": "demo",
+          "account_profile_id": "account-1",
+          "status_text": "{{status}}",
+          "last_error": "{{error}}",
+          "error": "{{error}}",
+          "step_key": "upload_series",
+          "step_states": { "upload_series": "{{status}}" }
+        }
+        """;
 }

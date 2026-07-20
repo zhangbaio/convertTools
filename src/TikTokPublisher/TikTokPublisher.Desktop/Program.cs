@@ -11,13 +11,32 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        if (Array.Exists(args, IsResetInstallerDataSecretsArg))
+        try
         {
-            ClientSettingsStore.ResetInstallerDataSecrets();
-            return 0;
-        }
+            if (Array.Exists(args, IsResetInstallerDataSecretsArg))
+            {
+                ClientSettingsStore.ResetInstallerDataSecrets();
+                return 0;
+            }
 
-        return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
+            {
+                if (eventArgs.ExceptionObject is Exception exception)
+                    StartupFailureReporter.Report(exception, "AppDomain.UnhandledException", showMessage: false);
+            };
+            TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
+            {
+                StartupFailureReporter.Report(eventArgs.Exception, "TaskScheduler.UnobservedTaskException", showMessage: false);
+                eventArgs.SetObserved();
+            };
+
+            return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
+        catch (Exception ex)
+        {
+            StartupFailureReporter.Report(ex, "Program.Main", showMessage: true);
+            return 1;
+        }
     }
 
     private static bool IsResetInstallerDataSecretsArg(string arg) =>

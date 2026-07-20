@@ -127,6 +127,7 @@ public partial class MainWindow : Window
         _viewModel.StopXingeRemoteCommandService();
         _accountInventorySync.StatusChanged -= _viewModel.AppendLog;
         _accountInventorySync.Dispose();
+        _browserHost.CloseAll();
     }
 
     public void StartLicenseVerifyTimer()

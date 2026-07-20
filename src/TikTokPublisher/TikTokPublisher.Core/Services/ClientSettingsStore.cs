@@ -77,7 +77,11 @@ public static class ClientSettingsStore
 
     public static ClientSettings Load(string? databasePath = null)
     {
-        var raw = LoadRawObject(databasePath);
+        var path = ResolvePath(databasePath);
+        AppDatabaseInitializer.EnsureInitialized(path);
+        TikTokExecutionHistoryService.EnsureStorageOptimized(path);
+        TikTokExecutionHistoryService.PruneOldEvents(path);
+        var raw = LoadRawObject(path);
         if (raw is null)
         {
             return new ClientSettings();

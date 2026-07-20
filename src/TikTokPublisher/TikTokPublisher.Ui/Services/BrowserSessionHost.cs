@@ -448,6 +448,17 @@ public sealed class BrowserSessionHost
         _proxyFingerprints.Remove(accountId);
     }
 
+    public void CloseAll()
+    {
+        foreach (var host in _hosts.Values.ToArray())
+        {
+            host.CloseBrowser();
+            _container?.Children.Remove(host);
+        }
+        _hosts.Clear();
+        _proxyFingerprints.Clear();
+    }
+
     private void ApplyProxySettings(WebView2Host host, TikTokAccountProfile account)
     {
         var proxy = TikTokProxyHelper.BuildFromAccount(account);

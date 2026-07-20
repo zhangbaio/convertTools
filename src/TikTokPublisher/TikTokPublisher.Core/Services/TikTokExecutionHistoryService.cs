@@ -8,6 +8,9 @@ namespace TikTokPublisher.Core.Services;
 public static class TikTokExecutionHistoryService
 {
     public const int DefaultRetentionDays = 3;
+    public const int FailureRetentionDays = 90;
+    private const string SnapshotMigrationKey = "upload-history-snapshots-v1";
+    private static readonly HashSet<string> OptimizedDatabases = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -57,7 +60,7 @@ public static class TikTokExecutionHistoryService
         {
             var path = ClientSettingsStore.MainDatabasePath;
             if (!File.Exists(path)) return [];
-            AppDatabaseInitializer.EnsureInitialized(path);
+            EnsureStorageOptimized(path);
 
             using var conn = new SqliteConnection($"Data Source={path};Mode=ReadOnly");
             conn.Open();
@@ -88,27 +91,78 @@ public static class TikTokExecutionHistoryService
 
     public static IReadOnlyList<TikTokExecutionProjectSnapshot> LoadProjectSnapshots()
     {
-        var latestByKey = new Dictionary<string, TikTokExecutionProjectSnapshot>(StringComparer.OrdinalIgnoreCase);
-        foreach (var payload in LoadEvents())
+        try
         {
-            if (!TryBuildProjectSnapshot(payload, out var snapshot))
-                continue;
+            var path = ClientSettingsStore.MainDatabasePath;
+            if (!File.Exists(path)) return [];
+            EnsureStorageOptimized(path);
 
-            latestByKey[BuildSnapshotKey(snapshot.Item)] = snapshot;
+            using var conn = AppDatabaseInitializer.OpenConnection(path, readOnly: true);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                SELECT workspace, updated_at, payload_json
+                FROM upload_project_snapshots
+                ORDER BY updated_at, snapshot_key
+                """;
+            var snapshots = new List<TikTokExecutionProjectSnapshot>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var payload = Deserialize(reader.GetString(2));
+                if (payload.Count == 0) continue;
+                var item = QueueProjectItem.FromPayload(payload);
+                snapshots.Add(new TikTokExecutionProjectSnapshot(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    item));
+            }
+
+            return snapshots
+                .OrderBy(snapshot => FirstNonEmpty(snapshot.Item.QueuedAt, snapshot.Timestamp), StringComparer.Ordinal)
+                .ThenBy(snapshot => snapshot.Item.AccountProfileName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(snapshot => snapshot.Item.Title, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
-
-        return latestByKey.Values
-            .OrderBy(snapshot => FirstNonEmpty(snapshot.Item.QueuedAt, snapshot.Timestamp), StringComparer.Ordinal)
-            .ThenBy(snapshot => snapshot.Item.AccountProfileName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(snapshot => snapshot.Item.Title, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        catch
+        {
+            return [];
+        }
     }
 
     public static int PruneOldEvents(
         string? databasePath = null,
         DateTime? now = null,
         int retentionDays = DefaultRetentionDays)
-        => 0;
+    {
+        var path = string.IsNullOrWhiteSpace(databasePath) ? ClientSettingsStore.MainDatabasePath : databasePath;
+        try
+        {
+            EnsureStorageOptimized(path);
+            var current = now ?? DateTime.Now;
+            var normalCutoff = current.AddDays(-Math.Max(1, retentionDays)).ToString("yyyy-MM-ddTHH:mm:ss");
+            var failureCutoff = current.AddDays(-FailureRetentionDays).ToString("yyyy-MM-ddTHH:mm:ss");
+            using var conn = AppDatabaseInitializer.OpenConnection(path);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                DELETE FROM upload_task_events
+                WHERE (created_at < $normal_cutoff AND
+                       COALESCE(json_extract(payload_json, '$.error'), '') = '' AND
+                       COALESCE(json_extract(payload_json, '$.last_error'), '') = '' AND
+                       COALESCE(json_extract(payload_json, '$.status'), '') NOT IN ($failed, $stopped, 'failed', 'stopped') AND
+                       COALESCE(json_extract(payload_json, '$.status_text'), '') NOT IN ($failed, $stopped, 'failed', 'stopped'))
+                   OR created_at < $failure_cutoff
+                """;
+            cmd.Parameters.AddWithValue("$normal_cutoff", normalCutoff);
+            cmd.Parameters.AddWithValue("$failure_cutoff", failureCutoff);
+            cmd.Parameters.AddWithValue("$failed", QueueStepStatus.Failed);
+            cmd.Parameters.AddWithValue("$stopped", QueueStepStatus.Stopped);
+            return cmd.ExecuteNonQuery();
+        }
+        catch
+        {
+            return 0;
+        }
+    }
 
     private static Dictionary<string, object?> BuildPayload(
         string eventType,
@@ -162,15 +216,24 @@ public static class TikTokExecutionHistoryService
 
     private static void AppendPayload(Dictionary<string, object?> payload)
     {
+        var path = ClientSettingsStore.MainDatabasePath;
+        EnsureStorageOptimized(path);
         lock (AppDatabaseInitializer.WriteSyncRoot)
         {
-            var path = ClientSettingsStore.MainDatabasePath;
-            AppDatabaseInitializer.EnsureInitialized(path);
-
             var json = JsonSerializer.Serialize(payload, JsonOptions);
             var createdAt = payload.GetValueOrDefault("timestamp")?.ToString() ?? DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
             using var conn = AppDatabaseInitializer.OpenConnection(path);
+            using var tx = conn.BeginTransaction();
+            UpsertSnapshot(conn, tx, payload, createdAt);
+
+            if (!ShouldPersistEvent(payload))
+            {
+                tx.Commit();
+                return;
+            }
+
             using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO upload_task_events(event_id, payload_json, created_at)
                 VALUES($event_id, $payload_json, $created_at)
@@ -179,7 +242,145 @@ public static class TikTokExecutionHistoryService
             cmd.Parameters.AddWithValue("$payload_json", json);
             cmd.Parameters.AddWithValue("$created_at", createdAt);
             cmd.ExecuteNonQuery();
+            tx.Commit();
         }
+    }
+
+    public static void EnsureStorageOptimized(string? databasePath = null)
+    {
+        var path = Path.GetFullPath(string.IsNullOrWhiteSpace(databasePath)
+            ? ClientSettingsStore.MainDatabasePath
+            : databasePath);
+
+        lock (AppDatabaseInitializer.WriteSyncRoot)
+        {
+            if (OptimizedDatabases.Contains(path)) return;
+            AppDatabaseInitializer.EnsureInitialized(path);
+
+            using var conn = AppDatabaseInitializer.OpenConnection(path);
+            using (var check = conn.CreateCommand())
+            {
+                check.CommandText = "SELECT 1 FROM app_migrations WHERE migration_key = $key LIMIT 1";
+                check.Parameters.AddWithValue("$key", SnapshotMigrationKey);
+                if (check.ExecuteScalar() is not null)
+                {
+                    OptimizedDatabases.Add(path);
+                    return;
+                }
+            }
+
+            var latestByKey = new Dictionary<string, (Dictionary<string, object?> Payload, string UpdatedAt)>(StringComparer.OrdinalIgnoreCase);
+            using (var read = conn.CreateCommand())
+            {
+                read.CommandText = "SELECT payload_json, created_at FROM upload_task_events ORDER BY created_at, rowid";
+                using var reader = read.ExecuteReader();
+                while (reader.Read())
+                {
+                    var payload = Deserialize(reader.GetString(0));
+                    if (!TryBuildProjectSnapshot(payload, out var snapshot)) continue;
+                    latestByKey[BuildSnapshotKey(snapshot.Item)] = (snapshot.Item.ToPayload(), reader.GetString(1));
+                    latestByKey[BuildSnapshotKey(snapshot.Item)].Payload["workspace"] = snapshot.Workspace;
+                }
+            }
+
+            using (var tx = conn.BeginTransaction())
+            {
+                foreach (var (_, value) in latestByKey)
+                    UpsertSnapshot(conn, tx, value.Payload, value.UpdatedAt);
+
+                using var delete = conn.CreateCommand();
+                delete.Transaction = tx;
+                delete.CommandText = """
+                    DELETE FROM upload_task_events
+                    WHERE json_extract(payload_json, '$.event_type') = 'queue_progress'
+                      AND COALESCE(json_extract(payload_json, '$.error'), '') = ''
+                      AND COALESCE(json_extract(payload_json, '$.last_error'), '') = ''
+                      AND COALESCE(json_extract(payload_json, '$.status'), '') NOT IN ($failed, $stopped, 'failed', 'stopped')
+                      AND COALESCE(json_extract(payload_json, '$.status_text'), '') NOT IN ($failed, $stopped, 'failed', 'stopped')
+                    """;
+                delete.Parameters.AddWithValue("$failed", QueueStepStatus.Failed);
+                delete.Parameters.AddWithValue("$stopped", QueueStepStatus.Stopped);
+                delete.ExecuteNonQuery();
+
+                using var mark = conn.CreateCommand();
+                mark.Transaction = tx;
+                mark.CommandText = """
+                    INSERT INTO app_migrations(migration_key, completed_at)
+                    VALUES($key, $completed_at)
+                    """;
+                mark.Parameters.AddWithValue("$key", SnapshotMigrationKey);
+                mark.Parameters.AddWithValue("$completed_at", DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"));
+                mark.ExecuteNonQuery();
+                tx.Commit();
+            }
+
+            using (var checkpoint = conn.CreateCommand())
+            {
+                checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)";
+                checkpoint.ExecuteNonQuery();
+            }
+            try
+            {
+                using var vacuum = conn.CreateCommand();
+                vacuum.CommandText = "VACUUM";
+                vacuum.CommandTimeout = 300;
+                vacuum.ExecuteNonQuery();
+            }
+            catch
+            {
+                // Compaction needs temporary disk space. The data migration remains valid if it cannot run.
+            }
+            OptimizedDatabases.Add(path);
+        }
+    }
+
+    private static void UpsertSnapshot(
+        SqliteConnection conn,
+        SqliteTransaction tx,
+        IReadOnlyDictionary<string, object?> eventPayload,
+        string updatedAt)
+    {
+        if (!TryBuildProjectSnapshot(eventPayload, out var snapshot)) return;
+        var item = snapshot.Item;
+        var snapshotPayload = JsonSerializer.Serialize(item.ToPayload(), JsonOptions);
+        var snapshotKey = BuildSnapshotKey(item);
+        if (snapshotKey == "|") return;
+
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO upload_project_snapshots(
+                snapshot_key, account_profile_id, workspace, project_dir, payload_json, updated_at)
+            VALUES($snapshot_key, $account_profile_id, $workspace, $project_dir, $payload_json, $updated_at)
+            ON CONFLICT(snapshot_key) DO UPDATE SET
+                account_profile_id = excluded.account_profile_id,
+                workspace = excluded.workspace,
+                project_dir = excluded.project_dir,
+                payload_json = excluded.payload_json,
+                updated_at = excluded.updated_at
+            WHERE upload_project_snapshots.payload_json <> excluded.payload_json
+               OR upload_project_snapshots.workspace <> excluded.workspace
+            """;
+        cmd.Parameters.AddWithValue("$snapshot_key", snapshotKey);
+        cmd.Parameters.AddWithValue("$account_profile_id", item.AccountProfileId ?? "");
+        cmd.Parameters.AddWithValue("$workspace", GetString(eventPayload, "workspace"));
+        cmd.Parameters.AddWithValue("$project_dir", item.ProjectDir ?? "");
+        cmd.Parameters.AddWithValue("$payload_json", snapshotPayload);
+        cmd.Parameters.AddWithValue("$updated_at", updatedAt);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static bool ShouldPersistEvent(IReadOnlyDictionary<string, object?> payload)
+    {
+        if (!string.Equals(GetString(payload, "event_type"), "queue_progress", StringComparison.Ordinal))
+            return true;
+        var status = FirstNonEmpty(GetString(payload, "status"), GetString(payload, "status_text"));
+        return !string.IsNullOrWhiteSpace(GetString(payload, "error")) ||
+               !string.IsNullOrWhiteSpace(GetString(payload, "last_error")) ||
+               string.Equals(status, QueueStepStatus.Failed, StringComparison.Ordinal) ||
+               string.Equals(status, QueueStepStatus.Stopped, StringComparison.Ordinal) ||
+               string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(status, "stopped", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryBuildProjectSnapshot(

@@ -61,6 +61,34 @@ public static class AppDatabaseInitializer
             """, tx);
         conn.ExecuteNonQuery(
             """
+            CREATE TABLE IF NOT EXISTS upload_project_snapshots (
+                snapshot_key TEXT PRIMARY KEY,
+                account_profile_id TEXT NOT NULL DEFAULT '',
+                workspace TEXT NOT NULL DEFAULT '',
+                project_dir TEXT NOT NULL DEFAULT '',
+                payload_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """, tx);
+        conn.ExecuteNonQuery(
+            """
+            CREATE INDEX IF NOT EXISTS idx_upload_project_snapshots_account
+                ON upload_project_snapshots(account_profile_id);
+            """, tx);
+        conn.ExecuteNonQuery(
+            """
+            CREATE INDEX IF NOT EXISTS idx_upload_project_snapshots_updated_at
+                ON upload_project_snapshots(updated_at);
+            """, tx);
+        conn.ExecuteNonQuery(
+            """
+            CREATE TABLE IF NOT EXISTS app_migrations (
+                migration_key TEXT PRIMARY KEY,
+                completed_at TEXT NOT NULL
+            );
+            """, tx);
+        conn.ExecuteNonQuery(
+            """
             CREATE TABLE IF NOT EXISTS ai_rewrite_history (
                 rewrite_id TEXT PRIMARY KEY,
                 account_profile_id TEXT NOT NULL DEFAULT '',
