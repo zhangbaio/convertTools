@@ -101,7 +101,10 @@
                 <ScrollViewer>
                     <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
                         <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="登录浏览器" VerticalAlignment="Center" />
-                        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="LoginBrowserModeCombo" HorizontalAlignment="Stretch">
+                        <TextBlock Grid.Row="0" Grid.Column="1"
+                                   Text="跟随「发布配置 → 上传浏览器」"
+                                   VerticalAlignment="Center" />
+                        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="LoginBrowserModeCombo" HorizontalAlignment="Stretch" IsVisible="False">
                             <ComboBoxItem Tag="embedded">内置浏览器</ComboBoxItem>
                             <ComboBoxItem Tag="cdp">外部浏览器 / CDP</ComboBoxItem>
                         </ComboBox>

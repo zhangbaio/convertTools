@@ -8,6 +8,7 @@ using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Desktop;
 using TikTokPublisher.Ui.Services;
+using TikTokPublisher.Ui.Services.TikTok;
 using TikTokPublisher.Ui.ViewModels;
 using TikTokPublisher.Ui.Views;
 
@@ -22,6 +23,7 @@ public partial class MainWindow : Window
     private readonly BrowserSessionHost _browserHost = new();
     private readonly MainViewModel _viewModel;
     private readonly TikTokAccountInventorySyncCoordinator _accountInventorySync;
+    private readonly HashSet<string> _externalLoginsInProgress = new(StringComparer.Ordinal);
     private string _activeNavTag = "queue";
     private bool _isSidebarCollapsed;
     private DispatcherTimer? _licenseVerifyTimer;
@@ -65,10 +67,10 @@ public partial class MainWindow : Window
             NavigateTo("browser");
         };
         QueueView.OpenLogsRequested += (_, _) => NavigateTo("logs");
-        AccountsView.LoginRequested += (_, _) => BeginEmbeddedAccountLoginAsync(forceRelogin: false);
-        AccountsView.ReloginRequested += (_, _) => BeginEmbeddedAccountLoginAsync(forceRelogin: true);
+        AccountsView.LoginRequested += (_, _) => BeginAccountLogin(forceRelogin: false);
+        AccountsView.ReloginRequested += (_, _) => BeginAccountLogin(forceRelogin: true);
         AccountsView.LogoutRequested += (_, _) => _ = LogoutSelectedTikTokAccountAsync();
-        _viewModel.EmbeddedLoginRequested += OnEmbeddedLoginRequested;
+        _viewModel.AccountLoginRequested += OnAccountLoginRequested;
         _browserHost.AuthSaved += args => _viewModel.HandleEmbeddedAuthSaved(args.Account, args.Result);
         _browserHost.AuthSaveFailed += _viewModel.HandleEmbeddedAuthSaveFailed;
         _browserHost.AuthStatusChanged += _viewModel.HandleEmbeddedAuthStatusChanged;
@@ -247,7 +249,7 @@ public partial class MainWindow : Window
         ShowPage(_activeNavTag);
     }
 
-    private void BeginEmbeddedAccountLoginAsync(bool forceRelogin)
+    private void BeginAccountLogin(bool forceRelogin)
     {
         if (_viewModel.SelectedAccount is null)
         {
@@ -258,8 +260,17 @@ public partial class MainWindow : Window
         _viewModel.BeginAccountLogin(forceRelogin);
     }
 
-    private async void OnEmbeddedLoginRequested(AccountItemViewModel account, bool forceRelogin)
+    private async void OnAccountLoginRequested(AccountItemViewModel account, bool forceRelogin)
     {
+        if (string.Equals(
+                account.Model.TiktokUploadBrowserMode,
+                "playwright",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            await BeginExternalAccountLoginAsync(account);
+            return;
+        }
+
         if (forceRelogin)
         {
             var resetWarning = await _browserHost.ResetAccountAsync(account);
@@ -269,6 +280,38 @@ public partial class MainWindow : Window
 
         NavigateTo("browser");
         _browserHost.BeginLogin(account, forceRelogin);
+    }
+
+    private async Task BeginExternalAccountLoginAsync(AccountItemViewModel account)
+    {
+        if (!_externalLoginsInProgress.Add(account.Id))
+        {
+            _viewModel.StatusMessage = $"[{account.DisplayName}] 外部浏览器登录正在进行中";
+            return;
+        }
+
+        try
+        {
+            _viewModel.AppendLog($"[{account.DisplayName}] 发布配置使用外部浏览器，正在启动可见登录窗口…");
+            var result = await TikTokLoginService.LoginAsync(
+                account.Model,
+                _viewModel.AppendLog,
+                CancellationToken.None,
+                timeoutSeconds: 300,
+                forceLaunchBrowser: true);
+            _viewModel.HandleExternalAuthSaved(account, result);
+        }
+        catch (Exception ex)
+        {
+            account.Status = AccountStatus.Offline;
+            _viewModel.BrowserAuthStatus = "外部浏览器登录失败";
+            _viewModel.StatusMessage = $"[{account.DisplayName}] 外部浏览器登录失败：{ex.Message}";
+            _viewModel.AppendLog(_viewModel.StatusMessage);
+        }
+        finally
+        {
+            _externalLoginsInProgress.Remove(account.Id);
+        }
     }
 
     private async Task LogoutSelectedTikTokAccountAsync()

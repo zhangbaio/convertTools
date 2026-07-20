@@ -19,7 +19,8 @@ public static class TikTokLoginService
         TikTokAccountProfile account,
         Action<string>? log,
         CancellationToken ct,
-        int timeoutSeconds = 90)
+        int timeoutSeconds = 90,
+        bool forceLaunchBrowser = false)
     {
         PlaywrightBrowserRuntime.ConfigureBundledBrowsers(log);
 
@@ -30,7 +31,7 @@ public static class TikTokLoginService
         var authPath = ResolveAuthPath(account);
         Directory.CreateDirectory(Path.GetDirectoryName(authPath)!);
 
-        if (IsCdpMode(account))
+        if (!forceLaunchBrowser && IsCdpMode(account))
             return await LoginWithCdpAsync(account, email, authPath, log, ct, Math.Max(120, timeoutSeconds));
 
         return await LoginWithLaunchAsync(account, email, authPath, log, ct, Math.Max(15, timeoutSeconds));

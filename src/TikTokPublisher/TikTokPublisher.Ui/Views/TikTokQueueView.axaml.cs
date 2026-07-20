@@ -2107,12 +2107,49 @@ public partial class TikTokQueueView : UserControl
 
             var vm = _vm;
             var browserHost = _browserHost;
-            if (vm is null || browserHost is null)
+            if (vm is null)
                 return QueueBrowserReadyResult.NotReady("自动登录失败：内置浏览器尚未初始化。");
 
             var accountVm = vm.FindAccount(account.Id) ?? vm.FindAccount(account.DisplayName);
             if (accountVm is null)
                 return QueueBrowserReadyResult.NotReady($"自动登录失败：未找到账号「{account.DisplayName}」。");
+
+            if (UsesPlaywrightUploadBrowser(account))
+            {
+                if (forceRefresh)
+                    AccountLoginStatusHelper.DeleteAuthState(account);
+                log?.Invoke(string.IsNullOrWhiteSpace(reason)
+                    ? "TikTok 授权文件缺失，正在启动外部浏览器登录…"
+                    : $"{reason}（使用外部浏览器登录）");
+                var externalResult = await TikTokLoginService.LoginAsync(
+                        account,
+                        log,
+                        ct,
+                        timeoutSeconds: 300,
+                        forceLaunchBrowser: true)
+                    .ConfigureAwait(false);
+                account.TiktokStorageStatePath = externalResult.AuthPath;
+                account.TiktokLastLoginEmail = externalResult.Email;
+                account.TiktokLastLoginAt = externalResult.LoggedInAt;
+                if (!ReferenceEquals(accountVm.Model, account))
+                {
+                    accountVm.Model.TiktokStorageStatePath = externalResult.AuthPath;
+                    accountVm.Model.TiktokLastLoginEmail = externalResult.Email;
+                    accountVm.Model.TiktokLastLoginAt = externalResult.LoggedInAt;
+                }
+
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    vm.SaveAccountProfile(account);
+                    accountVm.Status = AccountStatus.Online;
+                    accountVm.RefreshFromModel();
+                }).GetTask().ConfigureAwait(false);
+                log?.Invoke($"TikTok 外部浏览器登录完成，授权文件已更新：{externalResult.AuthPath}");
+                return QueueBrowserReadyResult.Ready();
+            }
+
+            if (browserHost is null)
+                return QueueBrowserReadyResult.NotReady("自动登录失败：内置浏览器尚未初始化。");
 
             log?.Invoke(string.IsNullOrWhiteSpace(reason)
                 ? "检测到 TikTok 授权文件缺失，开始通过内置浏览器自动登录..."
@@ -2141,13 +2178,11 @@ public partial class TikTokQueueView : UserControl
             account.TiktokStorageStatePath = result.AuthPath;
             account.TiktokLastLoginEmail = loginEmail;
             account.TiktokLastLoginAt = result.SavedAt;
-            account.TiktokLoginBrowserMode = "embedded";
             if (!ReferenceEquals(accountVm.Model, account))
             {
                 accountVm.Model.TiktokStorageStatePath = result.AuthPath;
                 accountVm.Model.TiktokLastLoginEmail = loginEmail;
                 accountVm.Model.TiktokLastLoginAt = result.SavedAt;
-                accountVm.Model.TiktokLoginBrowserMode = "embedded";
             }
 
             await Dispatcher.UIThread.InvokeAsync(() =>

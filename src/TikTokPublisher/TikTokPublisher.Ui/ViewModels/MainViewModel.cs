@@ -193,7 +193,7 @@ public sealed partial class MainViewModel : ViewModelBase
     public event Action<AccountItemViewModel, string>? NavigateRequested;
     public event Action<TikTokAccountProfile>? AccountProfileNetworkChanged;
     public event Action<AccountItemViewModel>? AccountSwitchRequested;
-    public event Action<AccountItemViewModel, bool>? EmbeddedLoginRequested;
+    public event Action<AccountItemViewModel, bool>? AccountLoginRequested;
     public event Func<WorkspaceQueueTarget, QueueRunOptions?, Task<bool>>? RemoteQueueRunRequested;
     public event Func<QueueRunOptions?, IReadOnlyList<WorkspaceQueueTarget>, Task<bool>>? RemoteAllQueueRunRequested;
 
@@ -583,18 +583,23 @@ public sealed partial class MainViewModel : ViewModelBase
         if (forceRelogin)
             AccountLoginStatusHelper.DeleteAuthState(SelectedAccount.Model);
 
+        var usesExternalBrowser = string.Equals(
+            SelectedAccount.Model.TiktokUploadBrowserMode,
+            "playwright",
+            StringComparison.OrdinalIgnoreCase);
+        var browserLabel = usesExternalBrowser ? "外部浏览器" : "内置浏览器";
         SelectedAccount.Status = AccountStatus.LoggingIn;
-        SelectedAccount.Model.TiktokLoginBrowserMode = "embedded";
         SaveAccountProfile(SelectedAccount.Model);
         BrowserAuthStatus = forceRelogin
-            ? "请在内置浏览器中重新完成 TikTok 登录"
-            : "请在内置浏览器中完成 TikTok 登录";
+            ? $"请在{browserLabel}中重新完成 TikTok 登录"
+            : $"请在{browserLabel}中完成 TikTok 登录";
         StatusMessage = forceRelogin
-            ? $"[{SelectedAccount.DisplayName}] 已打开内置浏览器，请重新完成 TikTok 登录"
-            : $"[{SelectedAccount.DisplayName}] 已打开内置浏览器，请完成 TikTok 登录";
+            ? $"[{SelectedAccount.DisplayName}] 正在重新打开{browserLabel}，请完成 TikTok 登录"
+            : $"[{SelectedAccount.DisplayName}] 正在打开{browserLabel}，请完成 TikTok 登录";
 
-        EmbeddedLoginRequested?.Invoke(SelectedAccount, forceRelogin);
-        NavigatePageRequested?.Invoke("browser");
+        AccountLoginRequested?.Invoke(SelectedAccount, forceRelogin);
+        if (!usesExternalBrowser)
+            NavigatePageRequested?.Invoke("browser");
     }
 
     public void HandleEmbeddedAuthSaved(AccountItemViewModel account, EmbeddedAuthSaveResult result)
@@ -604,6 +609,19 @@ public sealed partial class MainViewModel : ViewModelBase
         account.RefreshFromModel();
         BrowserAuthStatus = $"授权已保存（{result.CookieCount} 个 Cookie）";
         StatusMessage = $"[{account.DisplayName}] TikTok 登录成功，授权已保存";
+        AppendLog(StatusMessage);
+    }
+
+    public void HandleExternalAuthSaved(AccountItemViewModel account, TikTokLoginResult result)
+    {
+        account.Model.TiktokStorageStatePath = result.AuthPath;
+        account.Model.TiktokLastLoginEmail = result.Email;
+        account.Model.TiktokLastLoginAt = result.LoggedInAt;
+        SaveAccountProfile(account.Model);
+        account.Status = AccountStatus.Online;
+        account.RefreshFromModel();
+        BrowserAuthStatus = "外部浏览器授权已保存";
+        StatusMessage = $"[{account.DisplayName}] TikTok 登录成功，外部浏览器授权已保存";
         AppendLog(StatusMessage);
     }
 
