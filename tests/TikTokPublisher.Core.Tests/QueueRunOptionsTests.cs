@@ -42,6 +42,27 @@ public sealed class QueueRunOptionsTests
     }
 
     [Fact]
+    public void Video_translation_is_unavailable_and_legacy_configuration_cannot_enable_it()
+    {
+        var options = QueueRunOptions.FromDictionary(new Dictionary<string, object?>
+        {
+            ["enabled_steps"] = new List<object?>
+            {
+                QueueStepRegistry.Download,
+                QueueStepRegistry.VideoTranslate,
+            },
+        });
+
+        QueueStepRegistry.UserSelectable.Select(step => step.Key)
+            .Should().NotContain(QueueStepRegistry.VideoTranslate);
+        options.EnabledSteps.Should().Equal(QueueStepRegistry.Download);
+        options.IsStepEnabled(QueueStepRegistry.VideoTranslate).Should().BeFalse();
+        options.OrderedEnabledSteps().Should().NotContain(QueueStepRegistry.VideoTranslate);
+        options.ToDictionary()["enabled_steps"].Should().BeEquivalentTo(
+            new[] { QueueStepRegistry.Download });
+    }
+
+    [Fact]
     public void Proof_material_generation_follows_project_images_and_is_selectable_but_disabled_by_default()
     {
         QueueStepRegistry.All

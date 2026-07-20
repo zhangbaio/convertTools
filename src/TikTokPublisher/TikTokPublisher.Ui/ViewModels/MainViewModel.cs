@@ -677,7 +677,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateProofMaterialEnabled = true;
             QueueDeleteSourceVideosEnabled = true;
             QueueSmallVideoRepairEnabled = true;
-            QueueVideoTranslateEnabled = true;
+            QueueVideoTranslateEnabled = false;
             QueueSilenceDetectEnabled = true;
             QueueSilenceRepairEnabled = true;
             QueueMaterialValidateEnabled = true;

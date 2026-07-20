@@ -34,7 +34,7 @@ public static class QueueStepRegistry
     };
 
     public static IReadOnlyList<QueueStepDefinition> UserSelectable { get; } =
-        All.Where(step => step.Key != GenerateProjectImages).ToArray();
+        All.Where(step => step.Key != GenerateProjectImages && IsAvailable(step.Key)).ToArray();
 
     public static IReadOnlyList<string> DefaultEnabledSteps { get; } = Array.Empty<string>();
 
@@ -44,8 +44,13 @@ public static class QueueStepRegistry
     public static bool IsImplemented(string stepKey) =>
         All.FirstOrDefault(s => s.Key == stepKey).Implemented;
 
+    // Video translation is developed on the dedicated feature branch. Keep the
+    // persisted step key readable on main, but never expose or execute it here.
+    public static bool IsAvailable(string stepKey) =>
+        !string.Equals(stepKey, VideoTranslate, StringComparison.Ordinal);
+
     public static IEnumerable<string> OrderEnabledSteps(IEnumerable<string> enabledSteps) =>
-        All.Select(s => s.Key).Where(enabledSteps.Contains);
+        All.Select(s => s.Key).Where(key => IsAvailable(key) && enabledSteps.Contains(key));
 
     public static IEnumerable<string> OrderUserSelectableSteps(IEnumerable<string> enabledSteps) =>
         UserSelectable.Select(s => s.Key).Where(enabledSteps.Contains);
@@ -64,6 +69,7 @@ public sealed class QueueRunOptions
     public string UploadEntryMode { get; set; } = "";
 
     public bool IsStepEnabled(string stepKey) =>
+        QueueStepRegistry.IsAvailable(stepKey) &&
         EnabledSteps.Contains(stepKey, StringComparer.Ordinal);
 
     public IReadOnlyList<string> OrderedEnabledSteps() =>
@@ -95,7 +101,7 @@ public sealed class QueueRunOptions
 
     public Dictionary<string, object?> ToDictionary() => new()
     {
-        ["enabled_steps"] = EnabledSteps.ToList(),
+        ["enabled_steps"] = OrderedEnabledSteps().ToList(),
         ["auto_archive_after_upload"] = AutoArchiveAfterUpload,
         ["force_rerun_completed_steps"] = ForceRerunCompletedSteps,
         ["prefer_upload_when_ready"] = PreferUploadWhenReady,
@@ -117,7 +123,9 @@ public sealed class QueueRunOptions
             foreach (var item in list)
             {
                 var key = (item?.ToString() ?? "").Trim();
-                if (!string.IsNullOrEmpty(key) && QueueStepRegistry.All.Any(s => s.Key == key))
+                if (!string.IsNullOrEmpty(key) &&
+                    QueueStepRegistry.IsAvailable(key) &&
+                    QueueStepRegistry.All.Any(s => s.Key == key))
                     enabled.Add(key);
             }
         }

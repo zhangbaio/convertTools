@@ -79,7 +79,10 @@ public static class TikTokRemoteCommandParser
 
     public static IReadOnlyList<string> NormalizeEnabledSteps(object? value)
     {
-        var known = QueueStepRegistry.All.Select(step => step.Key).ToHashSet(StringComparer.Ordinal);
+        var known = QueueStepRegistry.All
+            .Where(step => QueueStepRegistry.IsAvailable(step.Key))
+            .Select(step => step.Key)
+            .ToHashSet(StringComparer.Ordinal);
         IEnumerable<object?> rawItems = value switch
         {
             null => Array.Empty<object?>(),

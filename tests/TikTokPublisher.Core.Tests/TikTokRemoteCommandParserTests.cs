@@ -104,7 +104,6 @@ public sealed class TikTokRemoteCommandParserTests
             QueueStepRegistry.RewriteInfo,
             QueueStepRegistry.GeneratePoster,
             QueueStepRegistry.SmallVideoRepair,
-            QueueStepRegistry.VideoTranslate,
             QueueStepRegistry.SilenceDetect,
             QueueStepRegistry.SilenceRepair,
             QueueStepRegistry.MaterialValidate,
