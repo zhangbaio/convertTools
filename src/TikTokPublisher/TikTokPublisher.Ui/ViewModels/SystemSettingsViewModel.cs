@@ -137,7 +137,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> AsrEngineOptions { get; } = ["volcengine", "local", "hybrid"];
     public IReadOnlyList<string> SilenceRepairModeOptions { get; } = ["auto", "trim", "speedup"];
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
-    public IReadOnlyList<string> PosterModeOptions { get; } = ["original", "poster_ai_erase_pil_title", "video_frame", "poster_ai_edit"];
+    public IReadOnlyList<string> PosterModeOptions { get; } = ["original"];
     public IReadOnlyList<string> ImageProviderOptions { get; } = ["doubao", "ofox_image2"];
     public IReadOnlyList<string> PosterTitleVerifyModeOptions { get; } = ["fallback_repaint", "warn", "blocking"];
     public IReadOnlyList<string> ProjectImageSubtitleAiModeOptions { get; } = ["fast", "accurate", "off"];

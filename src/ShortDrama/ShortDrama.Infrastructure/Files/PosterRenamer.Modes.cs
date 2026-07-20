@@ -101,6 +101,20 @@ public sealed partial class PosterRenamer
 
         if (verifyResult.IsInconclusive)
         {
+            if (PosterTitleVerifyModeHelper.ShouldRepaintInconclusive(verifyMode))
+            {
+                Log(request, $"AI标题校验无法确认，按兜底模式进入AI去字+PIL确定性重绘：{verifyResult.Reason}");
+                await FallbackRepaintVerifiedTitleAsync(
+                    config,
+                    outputPath,
+                    title,
+                    verificationLayout,
+                    verifyResult,
+                    request,
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
             if (verifyMode == "blocking")
                 throw new InvalidOperationException($"AI 海报标题校验无法确认：{verifyResult.Reason}");
 
@@ -270,6 +284,20 @@ public sealed partial class PosterRenamer
             var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
             if (verifyResult.IsInconclusive)
             {
+                if (PosterTitleVerifyModeHelper.ShouldRepaintInconclusive(verifyMode))
+                {
+                    Log(request, $"AI封面标题校验无法确认，按兜底模式进入AI去字+PIL确定性重绘：{verifyResult.Reason}");
+                    await FallbackRepaintVerifiedTitleAsync(
+                        config,
+                        outputPath,
+                        title,
+                        layout,
+                        verifyResult,
+                        request,
+                        cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
                 if (verifyMode == "blocking")
                     throw new InvalidOperationException($"AI 封面标题校验无法确认：{verifyResult.Reason}");
 

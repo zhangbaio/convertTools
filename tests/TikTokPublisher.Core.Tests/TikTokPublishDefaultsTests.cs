@@ -207,7 +207,7 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
-    public void Client_settings_store_preserves_video_frame_mode_and_normalizes_frame_extract_values()
+    public void Client_settings_store_migrates_removed_poster_mode_and_normalizes_frame_extract_values()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-video-frame-{Guid.NewGuid():N}.db");
         try
@@ -223,7 +223,7 @@ public sealed class TikTokPublishDefaultsTests
 
             var loaded = ClientSettingsStore.Load(databasePath);
 
-            loaded.PosterMode.Should().Be("video_frame");
+            loaded.PosterMode.Should().Be(ClientSettingsDefaults.PosterMode);
             loaded.FrameExtractEpisodeIndex.Should().Be(42);
             loaded.FrameExtractTime.Should().Be(7.5);
             loaded.FrameExtractNeighborOffsetsSeconds.Should().Be("1,3");
@@ -376,7 +376,7 @@ public sealed class TikTokPublishDefaultsTests
 
             var loaded = ClientSettingsStore.Load(databasePath);
 
-            loaded.PosterMode.Should().Be("video_frame");
+            loaded.PosterMode.Should().Be(ClientSettingsDefaults.PosterMode);
             loaded.PosterTitleVerifyAiRetryCount.Should().Be(3);
             loaded.FrameExtractEpisodeIndex.Should().Be(999);
             loaded.FrameExtractTime.Should().Be(600.0);

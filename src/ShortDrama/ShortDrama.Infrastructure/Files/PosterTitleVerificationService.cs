@@ -351,6 +351,9 @@ internal readonly record struct PosterTitleVerifyResult(
 
 internal static class PosterTitleVerifyModeHelper
 {
+    public static bool ShouldRepaintInconclusive(string? value) =>
+        Normalize(value) == "fallback_repaint";
+
     public static string Normalize(string? value)
     {
         var normalized = (value ?? "fallback_repaint").Trim().ToLowerInvariant();

@@ -7,6 +7,21 @@ namespace ShortDrama.Infrastructure.Tests.Files;
 
 public sealed class PosterTitleAiRetryPolicyTests
 {
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("fallback_repaint", true)]
+    [InlineData("fallback", true)]
+    [InlineData("warn", false)]
+    [InlineData("blocking", false)]
+    [InlineData("image2_regenerate", false)]
+    public void Inconclusive_verification_should_repaint_only_in_fallback_mode(
+        string? mode,
+        bool expected)
+    {
+        PosterTitleVerifyModeHelper.ShouldRepaintInconclusive(mode)
+            .Should().Be(expected);
+    }
+
     [Fact]
     public void ResolveRetryCount_Should_Default_To_One()
     {
