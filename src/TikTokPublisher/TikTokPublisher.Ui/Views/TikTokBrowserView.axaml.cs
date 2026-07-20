@@ -1,3 +1,5 @@
+using System;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -32,6 +34,8 @@ public partial class TikTokBrowserView : UserControl
         _browserHost.AuthSaveFailed += OnAuthSaveFailed;
         if (EmptyHint is not null)
             _browserHost.SetEmptyHint(EmptyHint);
+        if (RuntimeMissingHint is not null)
+            _browserHost.SetRuntimeMissingHint(RuntimeMissingHint);
         vm.NavigateRequested += OnNavigateRequested;
         BindViewModel();
     }
@@ -140,4 +144,44 @@ public partial class TikTokBrowserView : UserControl
     }
 
     private void OnAuthSaveFailed(string message) => _manualAuthSavePromptPending = false;
+
+    private void OnInstallWebView2Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // 打开微软官方 WebView2 运行时下载页，由用户以管理员权限完成安装。
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://developer.microsoft.com/microsoft-edge/webview2/",
+                UseShellExecute = true,
+            });
+            if (_vm is not null)
+                _vm.StatusMessage = "已打开 WebView2 运行时下载页，安装完成后请点「我已安装，重试」。";
+        }
+        catch (Exception ex)
+        {
+            if (_vm is not null)
+                _vm.StatusMessage = $"无法打开下载页面：{ex.Message}，请手动搜索安装 Microsoft Edge WebView2 Runtime。";
+        }
+    }
+
+    private async void OnRetryWebView2Click(object? sender, RoutedEventArgs e)
+    {
+        var account = _vm?.SelectedAccount;
+        if (account is null || _browserHost is null)
+        {
+            if (_vm is not null) _vm.StatusMessage = "请先在左侧选择账号";
+            return;
+        }
+
+        if (RuntimeMissingHint is not null)
+            RuntimeMissingHint.IsVisible = false;
+        if (_vm is not null)
+            _vm.StatusMessage = "正在重新初始化内置浏览器...";
+
+        // 重建 host：若运行时已装好则正常加载，否则会再次触发缺失覆盖层。
+        await _browserHost.RecreateHostAsync(
+            account,
+            navigateUrl: EmbeddedBrowserLoginHelper.ResolveHomeUrl(account.Model));
+    }
 }

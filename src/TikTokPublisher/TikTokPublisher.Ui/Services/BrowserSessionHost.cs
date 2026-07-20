@@ -23,6 +23,7 @@ public sealed class BrowserSessionHost
     private readonly int[] _autofillDelaysMs = [1200, 2200, 3500, 5000, 6500, 8000];
     private Panel? _container;
     private TextBlock? _emptyHint;
+    private Control? _runtimeMissingHint;
 
     public void Attach(Panel container, TextBlock? emptyHint = null)
     {
@@ -31,6 +32,8 @@ public sealed class BrowserSessionHost
     }
 
     public void SetEmptyHint(TextBlock? emptyHint) => _emptyHint = emptyHint;
+
+    public void SetRuntimeMissingHint(Control? hint) => _runtimeMissingHint = hint;
 
     public IReadOnlyDictionary<string, WebView2Host> Hosts => _hosts;
 
@@ -91,6 +94,34 @@ public sealed class BrowserSessionHost
         }
     }
 
+    private void OnHostRuntimeMissing(AccountItemViewModel account, WebView2Host host)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            AuthStatusChanged?.Invoke(
+                "未检测到 WebView2 运行时，内置浏览器无法显示，请在页面中点「下载并安装 WebView2 运行时」后重试。");
+
+            if (_presentationVisible && string.Equals(_activeAccountId, account.Id, StringComparison.Ordinal))
+                ShowRuntimeMissingOverlay(host);
+        });
+    }
+
+    private void ShowRuntimeMissingOverlay(WebView2Host host)
+    {
+        // 运行时缺失时原生宿主 HWND 是一块黑色空窗，移出可视区避免遮挡上方的 Avalonia 覆盖层。
+        ApplyHostVisibility(host, rendered: false);
+        if (_emptyHint is not null)
+            _emptyHint.IsVisible = false;
+        if (_runtimeMissingHint is not null)
+            _runtimeMissingHint.IsVisible = true;
+    }
+
+    private void HideRuntimeMissingOverlay()
+    {
+        if (_runtimeMissingHint is not null)
+            _runtimeMissingHint.IsVisible = false;
+    }
+
     private async Task OnHostReadyAsync(AccountItemViewModel account, WebView2Host host)
     {
         await ImportAuthStateCoreAsync(account, host).ConfigureAwait(true);
@@ -108,6 +139,8 @@ public sealed class BrowserSessionHost
                 return;
             }
 
+            // 活动账号成功就绪，隐藏可能残留的运行时缺失覆盖层。
+            HideRuntimeMissingOverlay();
             ApplyHostVisibility(host, rendered: true);
             PresentationLayoutChanged?.Invoke();
         }, DispatcherPriority.Loaded);
@@ -172,6 +205,7 @@ public sealed class BrowserSessionHost
 
         if (account is null)
         {
+            HideRuntimeMissingOverlay();
             if (_emptyHint is not null)
                 _emptyHint.IsVisible = _presentationVisible && _hosts.Count == 0;
             return;
@@ -181,6 +215,15 @@ public sealed class BrowserSessionHost
         {
             if (_presentationVisible)
             {
+                // 该账号的内置浏览器因缺少运行时初始化失败：显示安装引导覆盖层，不渲染黑色宿主。
+                if (existing.IsRuntimeMissing)
+                {
+                    ShowRuntimeMissingOverlay(existing);
+                    PresentationLayoutChanged?.Invoke();
+                    return;
+                }
+
+                HideRuntimeMissingOverlay();
                 ApplyHostVisibility(existing, rendered: true);
                 if (_emptyHint is not null)
                     _emptyHint.IsVisible = false;
@@ -212,6 +255,7 @@ public sealed class BrowserSessionHost
         var target = GetOrCreateHost(account);
         if (_presentationVisible)
         {
+            HideRuntimeMissingOverlay();
             ApplyHostVisibility(target, rendered: true);
             if (_emptyHint is not null)
                 _emptyHint.IsVisible = false;
@@ -425,6 +469,7 @@ public sealed class BrowserSessionHost
         host.Ready += () => _ = OnHostReadyAsync(account, host);
         host.NavigationCompleted += url => _ = OnNavigationCompletedAsync(account, url);
         host.ProcessFailed += message => OnHostProcessFailed(account, message);
+        host.RuntimeMissing += () => OnHostRuntimeMissing(account, host);
         _hosts[account.Id] = host;
         _container.Children.Add(host);
         ApplyHostVisibility(

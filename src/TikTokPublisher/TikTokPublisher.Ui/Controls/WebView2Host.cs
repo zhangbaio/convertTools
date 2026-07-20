@@ -38,6 +38,9 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     public string? LastInitError => _lastInitError;
     public string? LastProcessFailure => _lastProcessFailure;
 
+    /// <summary>本机缺少 Edge WebView2 Runtime 时为 true：内置浏览器无法承载，需引导用户安装运行时。</summary>
+    public bool IsRuntimeMissing { get; private set; }
+
     public string UserDataFolder { get; set; } = "";
     public int RemoteDebuggingPort { get; set; }
     public string ProxyServer { get; set; } = "";
@@ -70,6 +73,8 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     public event Action? Ready;
     public event Action<string>? NavigationCompleted;
     public event Action<string>? ProcessFailed;
+    /// <summary>初始化时未找到 WebView2 运行时；用于在浏览器区域显示安装引导而非黑屏。</summary>
+    public event Action? RuntimeMissing;
 
     public WebView2Host()
     {
@@ -374,6 +379,15 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
                 _controller.CoreWebView2.Navigate(_pendingUrl);
                 _pendingUrl = null;
             }
+        }
+        catch (WebView2RuntimeNotFoundException ex)
+        {
+            // 新装机器常见：未安装 Edge WebView2 Runtime，CreateAsync 直接抛此异常，
+            // 原生宿主窗口只剩黑屏。标记状态并通知 UI 显示安装引导。
+            IsRuntimeMissing = true;
+            _lastInitError = "未检测到 WebView2 运行时（Microsoft Edge WebView2 Runtime），内置浏览器无法显示。";
+            Log($"FAILED udf={UserDataFolder} port={RemoteDebuggingPort} :: runtime-missing :: {ex.Message}");
+            RuntimeMissing?.Invoke();
         }
         catch (Exception ex)
         {

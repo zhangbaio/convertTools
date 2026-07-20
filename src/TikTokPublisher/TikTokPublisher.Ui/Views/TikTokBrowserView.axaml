@@ -14,5 +14,35 @@
                    TextAlignment="Center"
                    Classes="pageSummary"
                    FontSize="15" />
+
+        <!-- 运行时缺失覆盖层：WebView2 Runtime 未安装时代替黑屏，给出可操作引导。 -->
+        <Border x:Name="RuntimeMissingHint"
+                IsVisible="False"
+                ZIndex="100"
+                Background="#FFFFFF">
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        MaxWidth="560"
+                        Spacing="14">
+                <TextBlock Text="内置浏览器无法显示：未检测到 WebView2 运行时"
+                           FontSize="17"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center" />
+                <TextBlock Text="本机缺少 Microsoft Edge WebView2 Runtime，内置浏览器依赖它才能显示页面。请点击下方按钮下载并安装（安装需管理员权限），完成后点「我已安装，重试」。"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           Classes="pageSummary"
+                           FontSize="14" />
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            Spacing="10">
+                    <Button Content="下载并安装 WebView2 运行时"
+                            Click="OnInstallWebView2Click" />
+                    <Button Content="我已安装，重试"
+                            Click="OnRetryWebView2Click" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
     </Panel>
 </UserControl>

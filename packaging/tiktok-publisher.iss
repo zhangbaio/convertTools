@@ -52,7 +52,9 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\TikTokPublisher.Desktop.exe";
 
 [Run]
 #ifdef WebView2Installer
-Filename: "{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; StatusMsg: "正在安装/修复 WebView2 Runtime..."; Flags: waituntilterminated
+; 仅在本机缺少运行时时安装；用 shellexec 触发安装器自带的提权清单（setup 为 lowest，
+; 直接 CreateProcess 无法完成 per-machine 安装，会静默失败导致内置浏览器黑屏）。
+Filename: "{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; StatusMsg: "正在安装 WebView2 Runtime（需管理员授权）..."; Flags: shellexec waituntilterminated; Check: NeedsWebView2
 #endif
 Filename: "{app}\TikTokPublisher.Desktop.exe"; Parameters: "--reset-installer-data-secrets"; StatusMsg: "正在重置敏感配置..."; Flags: waituntilterminated runhidden; Check: ShouldResetData
 Filename: "{app}\TikTokPublisher.Desktop.exe"; Description: "启动 {#AppName}"; Flags: nowait postinstall skipifsilent
