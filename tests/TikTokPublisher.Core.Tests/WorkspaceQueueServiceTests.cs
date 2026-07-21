@@ -250,6 +250,43 @@ public sealed class WorkspaceQueueServiceTests
     }
 
     [Fact]
+    public void ScanProjects_does_not_mark_small_video_repair_completed_from_file_size_alone()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "first");
+
+        try
+        {
+            CreateProject(project);
+            var videoPath = Path.Combine(project, "first-1.mp4");
+            using (var stream = File.Create(videoPath))
+                stream.SetLength(6 * 1024 * 1024);
+
+            WorkspaceQueueService.SaveProjects(
+                workspace,
+                [
+                    new QueueProjectItem
+                    {
+                        ProjectDir = project,
+                        DisplayName = "first",
+                        StepStates = new Dictionary<string, string>
+                        {
+                            [QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Pending,
+                        },
+                    },
+                ]);
+
+            var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+
+            item.StepStates[QueueStepKeys.SmallVideoRepair].Should().Be(QueueStepStatus.Pending);
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
+    [Fact]
     public void ScanProjects_keeps_legacy_non_local_poster_recovery_compatible()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");

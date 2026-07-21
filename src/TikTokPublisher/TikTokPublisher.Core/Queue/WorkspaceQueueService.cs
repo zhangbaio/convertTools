@@ -438,9 +438,6 @@ public static class WorkspaceQueueService
         }
 
         var manifestExists = HasTikTokUploadManifest(context);
-        if (IsPending(item, QueueStepKeys.SmallVideoRepair) && SmallVideoRepairLooksCompleted(context))
-            item.StepStates[QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed;
-
         if (IsPending(item, QueueStepKeys.SilenceDetect) && HasSilenceAsrReport(context))
             item.StepStates[QueueStepKeys.SilenceDetect] = QueueStepStatus.Completed;
 
@@ -642,14 +639,6 @@ public static class WorkspaceQueueService
         }
 
         return File.Exists(Path.Combine(context.WorkflowProjectDir, "tiktok-upload-manifest.json"));
-    }
-
-    private static bool SmallVideoRepairLooksCompleted(ProjectWorkspaceContext context)
-    {
-        var uploadVideos = ProjectVideoResolver
-            .ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
-            .ToList();
-        return uploadVideos.Count > 0 && uploadVideos.All(path => !TikTokSmallVideoPaddingService.NeedsPadding(path));
     }
 
     private static bool HasGeneratedProofMaterial(string workflowProjectDir)
