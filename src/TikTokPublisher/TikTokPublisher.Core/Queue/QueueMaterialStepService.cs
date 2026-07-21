@@ -565,16 +565,30 @@ public static class QueueMaterialStepService
             if (IsHeicLike(inputPath))
                 log($"海报源图为 {Path.GetExtension(inputPath)}，将先转换为 PNG 再调用 AI。");
 
-            await QueueInfrastructureServices.Poster.RenameAsync(
-                new PosterRenameRequest(
-                    ProjectDir: workflowDir,
-                    InputFilePath: inputPath,
-                    OutputFilePath: outputPath,
-                    ConfigFile: configPath,
-                    UseAi: false,
-                    Overwrite: true,
-                    Log: log),
-                cancellationToken).ConfigureAwait(false);
+            log(
+                $"海报请求详情：模式={posterMode}，输入={inputPath}，输出={outputPath}，" +
+                $"配置文件={configPath}，外部取消={cancellationToken.IsCancellationRequested}。");
+            try
+            {
+                await QueueInfrastructureServices.Poster.RenameAsync(
+                    new PosterRenameRequest(
+                        ProjectDir: workflowDir,
+                        InputFilePath: inputPath,
+                        OutputFilePath: outputPath,
+                        ConfigFile: configPath,
+                        UseAi: false,
+                        Overwrite: true,
+                        Log: log),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                log(
+                    $"海报生成调用异常：类型={ex.GetType().FullName}，HResult=0x{ex.HResult:X8}，" +
+                    $"外部取消={cancellationToken.IsCancellationRequested}，消息={ex.Message}" +
+                    Environment.NewLine + ex);
+                throw;
+            }
             log($"海报已生成：{Path.GetFileName(outputPath)}（请使用此 PNG 文件，不会覆盖原素材）");
         }
         finally
@@ -1010,16 +1024,11 @@ public static class QueueMaterialStepService
             existing.GetValueOrDefault("剧情简介"),
             item.Description,
             metadata.Intro);
-        var totalMinutes = Math.Max(1, episodeCount);
-        var costWan = Math.Max(1, (int)Math.Round(totalMinutes * 1500d / 10000d, MidpointRounding.AwayFromZero));
-
         var updates = new Dictionary<string, string>(StringComparer.Ordinal);
         AddIfMissing(existing, updates, "原剧名", originalTitle);
         if (!existing.ContainsKey("新剧名") && !existing.ContainsKey("剧名"))
             updates["新剧名"] = currentTitle;
-        AddIfMissing(existing, updates, "集数", totalMinutes.ToString());
-        AddIfMissing(existing, updates, "时长", $"{totalMinutes} 分钟");
-        AddIfMissing(existing, updates, "成本", $"{costWan} 万元");
+        AddIfMissing(existing, updates, "集数", Math.Max(1, episodeCount).ToString());
         AddIfMissing(existing, updates, "制作公司", "未填写公司");
         AddIfMissing(existing, updates, "简介", synopsis);
 

@@ -566,8 +566,6 @@ public static class ProjectWorkspaceService
         int episodeCount,
         string synopsis)
     {
-        var totalMinutes = Math.Max(1, episodeCount);
-        var costWan = Math.Max(1, (int)Math.Round(totalMinutes * 1500d / 10000d, MidpointRounding.AwayFromZero));
         var lines = new List<string>
         {
             $"新剧名: {newTitle}",
@@ -577,8 +575,6 @@ public static class ProjectWorkspaceService
             lines.Add($"简介: {synopsis.Trim()}");
         lines.AddRange([
             $"集数: {episodeCount}",
-            $"时长: {totalMinutes} 分钟",
-            $"成本: {costWan} 万元",
             "制作公司: 未填写公司",
         ]);
         File.WriteAllText(infoPath, string.Join(Environment.NewLine, lines) + Environment.NewLine);

@@ -275,9 +275,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             $"新剧名: {title}\n" +
             $"推荐语: {tagline}\n" +
             $"简介: {synopsis}\n" +
-            $"时长: {project.TotalMinutes} 分钟\n" +
             $"集数: {project.EpisodeCount}\n" +
-            $"成本: {project.CostAmountWan:0.####} 万元\n" +
             $"制作公司: {project.CompanyName}\n";
     }
 

@@ -557,6 +557,12 @@ public sealed class QueueWorkerRunner
                             preItem,
                             $"{message} 已标记此项目失败并继续后续队列。",
                             failedStep);
+                        Report(
+                            onProgress,
+                            workspace,
+                            preItem,
+                            BuildExceptionDiagnostics(ex, ct, failedStep),
+                            failedStep);
                     }
                 }
                 catch (Exception ex)
@@ -574,6 +580,12 @@ public sealed class QueueWorkerRunner
                         workspace,
                         preItem,
                         $"{QueueStepRegistry.LabelOf(failedStep)} 失败：{ex.Message}",
+                        failedStep);
+                    Report(
+                        onProgress,
+                        workspace,
+                        preItem,
+                        BuildExceptionDiagnostics(ex, ct, failedStep),
                         failedStep);
                 }
 
@@ -1118,6 +1130,27 @@ public sealed class QueueWorkerRunner
         return string.IsNullOrWhiteSpace(detail)
             ? $"{stepLabel} 被取消或超时。"
             : $"{stepLabel} 被取消或超时：{detail}";
+    }
+
+    private static string BuildExceptionDiagnostics(
+        Exception exception,
+        CancellationToken queueCancellationToken,
+        string stepKey)
+    {
+        var lines = new List<string>
+        {
+            $"详细异常：步骤={QueueStepRegistry.LabelOf(stepKey)} ({stepKey})，类型={exception.GetType().FullName}，" +
+            $"HResult=0x{exception.HResult:X8}，队列取消={queueCancellationToken.IsCancellationRequested}。",
+        };
+
+        var current = exception;
+        for (var depth = 0; current is not null && depth < 8; depth++, current = current.InnerException)
+            lines.Add($"异常链[{depth}]：{current.GetType().FullName}: {current.Message}");
+
+        if (!string.IsNullOrWhiteSpace(exception.StackTrace))
+            lines.Add("调用堆栈：" + Environment.NewLine + exception.StackTrace);
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static Task MakeUniqueTask(Task task)

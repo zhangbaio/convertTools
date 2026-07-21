@@ -21,6 +21,7 @@ namespace ShortDrama.Infrastructure.Files;
 public sealed partial class PosterRenamer : IPosterRenamer
 {
     private static readonly string[] SupportedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"];
+    private static readonly TimeSpan PosterLayoutRequestTimeout = TimeSpan.FromSeconds(120);
     private const string DefaultPosterLayoutDetectPrompt = """
 你是短剧海报版式分析助手。请识别海报上“所有现有剧名/标题相关文字”的整体最小外接矩形，并返回 JSON。
 要求：
@@ -456,38 +457,63 @@ JSON 结构：
             "application/json");
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+        timeoutCts.CancelAfter(PosterLayoutRequestTimeout);
 
-        using var response = await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
-        var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException(
-                AiApiErrorMessage.Create("AI 海报布局检测接口", response.StatusCode, response.ReasonPhrase, responseText));
-        }
-
-        var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseText, JsonOptions);
-        var content = parsed?.Choices?.FirstOrDefault()?.Message?.Content;
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            throw new PosterLayoutResponseException("AI 海报布局检测未返回内容。");
-        }
-
-        var json = ExtractJsonObject(content);
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            throw new PosterLayoutResponseException($"AI 海报布局检测未返回合法 JSON: {content}");
-        }
-
+        HttpResponseMessage response;
         try
         {
-            return JsonSerializer.Deserialize<PosterLayoutResponse>(json, JsonOptions)
-                ?? throw new PosterLayoutResponseException("AI 海报布局检测返回的 JSON 无法解析。");
+            response = await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
         }
-        catch (JsonException ex)
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new PosterLayoutResponseException($"AI 海报布局检测返回的 JSON 无法解析：{ex.Message}");
+            throw new TimeoutException(
+                $"AI 海报布局检测接口请求超过 {PosterLayoutRequestTimeout.TotalSeconds:0} 秒，" +
+                "请检查 AI 文本模型 Endpoint、API Key、模型可用性或网络连接。",
+                ex);
+        }
+
+        using (response)
+        {
+            string responseText;
+            try
+            {
+                responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"AI 海报布局检测接口响应读取超过 {PosterLayoutRequestTimeout.TotalSeconds:0} 秒。",
+                    ex);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException(
+                    AiApiErrorMessage.Create("AI 海报布局检测接口", response.StatusCode, response.ReasonPhrase, responseText));
+            }
+
+            var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseText, JsonOptions);
+            var content = parsed?.Choices?.FirstOrDefault()?.Message?.Content;
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                throw new PosterLayoutResponseException("AI 海报布局检测未返回内容。");
+            }
+
+            var json = ExtractJsonObject(content);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                throw new PosterLayoutResponseException($"AI 海报布局检测未返回合法 JSON: {content}");
+            }
+
+            try
+            {
+                return JsonSerializer.Deserialize<PosterLayoutResponse>(json, JsonOptions)
+                    ?? throw new PosterLayoutResponseException("AI 海报布局检测返回的 JSON 无法解析。");
+            }
+            catch (JsonException ex)
+            {
+                throw new PosterLayoutResponseException($"AI 海报布局检测返回的 JSON 无法解析：{ex.Message}");
+            }
         }
     }
 

@@ -56,6 +56,29 @@ public sealed class TxtProjectInfoParserTests
     }
 
     [Fact]
+    public async Task ParseAsync_Should_Derive_Duration_And_Cost_When_Fields_Are_Missing()
+    {
+        var parser = new TxtProjectInfoParser();
+        var tempDir = Directory.CreateTempSubdirectory();
+        var filePath = Path.Combine(tempDir.FullName, "短剧信息.txt");
+
+        await File.WriteAllTextAsync(filePath, """
+原剧名: 旧剧名
+新剧名: 新剧名
+推荐语: 冲突升级真相将明
+简介: 一段围绕家庭秘密展开的故事。
+集数: 64
+制作公司: 测试公司
+""");
+
+        var result = await parser.ParseAsync(tempDir.FullName, CancellationToken.None);
+
+        result.TotalMinutes.Should().Be(64);
+        result.CostAmountWan.Should().Be(10m);
+        result.EpisodeCount.Should().Be(64);
+    }
+
+    [Fact]
     public async Task ParseAsync_Should_Use_Earliest_Colon_As_Field_Separator()
     {
         var parser = new TxtProjectInfoParser();

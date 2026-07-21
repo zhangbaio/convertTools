@@ -472,12 +472,9 @@ public sealed class WorkService : IWorkService
 
         var totalMinutes = Math.Max(1, (int)Math.Ceiling(totalSeconds / 60d));
         var episodeCount = Math.Max(1, videoFiles.Length);
-        var costAmountWan = CalculateCostAmountWan(totalMinutes);
         var updatedFields = new List<string>();
 
-        UpsertIfMissing(lines, values, "时长", $"{totalMinutes} 分钟", updatedFields);
         UpsertIfMissing(lines, values, "集数", episodeCount.ToString(CultureInfo.InvariantCulture), updatedFields);
-        UpsertIfMissing(lines, values, "成本", $"{costAmountWan:0} 万元", updatedFields);
         UpsertIfMissing(lines, values, "制作公司", context.CompanyName, updatedFields);
 
         if (updatedFields.Count > 0)
@@ -968,16 +965,12 @@ public sealed class WorkService : IWorkService
         var title = string.IsNullOrWhiteSpace(metadata.Title) ? project.DisplayName : metadata.Title;
         var sourceName = string.IsNullOrWhiteSpace(metadata.SourceName) ? project.SourceName : metadata.SourceName;
         var synopsis = await ResolveProjectSynopsisAsync(metadata, sourceName, cancellationToken);
-        var costAmountWan = CalculateCostAmountWan(totalMinutes);
-
         await File.WriteAllTextAsync(workflowInfoPath, $$"""
 原剧名: {{sourceName}}
 新剧名: {{title}}
 推荐语: 
 简介: {{synopsis}}
-时长: {{totalMinutes}} 分钟
 集数: {{episodeCount}}
-成本: {{costAmountWan:0}} 万元
 制作公司: {{context.CompanyName}}
 """, cancellationToken);
         return true;

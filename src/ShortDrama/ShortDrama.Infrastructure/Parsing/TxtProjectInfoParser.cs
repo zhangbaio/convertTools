@@ -49,8 +49,14 @@ public sealed class TxtProjectInfoParser : IProjectInfoParser
         }
 
         var episodeCount = ParsePositiveInt(GetRequired(map, "集数"), "集数");
-        var totalMinutes = ParseMinutes(GetRequired(map, "时长"));
-        var costAmountWan = ParseCostWan(GetRequired(map, "成本"));
+        // 时长和成本是可派生数据，不再要求持久化在短剧信息.txt 中。
+        // 旧项目仍优先使用已有值；新项目缺失时按集数派生，供成本报表等旧流程使用。
+        var totalMinutes = GetOptional(map, "时长") is { } durationText
+            ? ParseMinutes(durationText)
+            : Math.Max(1, episodeCount);
+        var costAmountWan = GetOptional(map, "成本") is { } costText
+            ? ParseCostWan(costText)
+            : CalculateCostAmountWan(totalMinutes);
         var companyName = GetRequired(map, "制作公司");
 
         if (costAmountWan >= 100m)
