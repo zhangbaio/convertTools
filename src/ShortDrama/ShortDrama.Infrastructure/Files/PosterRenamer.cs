@@ -148,7 +148,7 @@ JSON 结构：
             throw new DirectoryNotFoundException($"项目目录不存在: {request.ProjectDir}");
         }
 
-        var project = await _projectInfoParser.ParseAsync(request.ProjectDir, cancellationToken);
+        var project = await _projectInfoParser.ParsePosterAsync(request.ProjectDir, cancellationToken);
         var inputPath = ResolveInputFile(request.ProjectDir, request.InputFilePath);
         var posterName = request.UseAi
             ? await GeneratePosterNameAsync(project, request.ConfigFile, cancellationToken)
@@ -1112,7 +1112,7 @@ JSON 结构：
     }
 
     private async Task<string> GeneratePosterNameAsync(
-        ProjectInfo project,
+        PosterProjectInfo project,
         string? configFile,
         CancellationToken cancellationToken)
     {

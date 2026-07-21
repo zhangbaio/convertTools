@@ -7,6 +7,26 @@ namespace ShortDrama.Infrastructure.Tests.Parsing;
 public sealed class TxtProjectInfoParserTests
 {
     [Fact]
+    public async Task ParsePosterAsync_Should_Not_Require_NonPoster_Fields()
+    {
+        var parser = new TxtProjectInfoParser();
+        var tempDir = Directory.CreateTempSubdirectory();
+        await File.WriteAllTextAsync(Path.Combine(tempDir.FullName, "短剧信息.txt"), """
+原剧名: 金钱照冷暖
+新剧名: 家财不留给不孝骨肉
+推荐语: 一场家庭风暴
+简介: 围绕亲情与财富展开的故事
+""");
+
+        var result = await parser.ParsePosterAsync(tempDir.FullName, CancellationToken.None);
+
+        result.Title.Should().Be("家财不留给不孝骨肉");
+        result.OriginalTitle.Should().Be("金钱照冷暖");
+        result.Tagline.Should().Be("一场家庭风暴");
+        result.Synopsis.Should().Be("围绕亲情与财富展开的故事");
+    }
+
+    [Fact]
     public async Task ParseAsync_Should_Parse_Current_Format()
     {
         var parser = new TxtProjectInfoParser();

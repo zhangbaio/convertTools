@@ -13,3 +13,9 @@ public sealed record ProjectInfo(
     string CompanyName,
     string ProjectDir,
     string SourceFilePath);
+
+public sealed record PosterProjectInfo(
+    string OriginalTitle,
+    string Title,
+    string? Tagline,
+    string? Synopsis);

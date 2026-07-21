@@ -73,6 +73,58 @@ public sealed class TxtProjectInfoParser : IProjectInfoParser
             SourceFilePath: sourceFilePath);
     }
 
+    public async Task<PosterProjectInfo> ParsePosterAsync(
+        string projectDir,
+        CancellationToken cancellationToken)
+    {
+        ValidateProjectDirectory(projectDir);
+
+        var sourceFilePath = Path.Combine(projectDir, FileName);
+        if (!File.Exists(sourceFilePath))
+        {
+            var fallback = TryBuildFallbackProjectInfo(projectDir, sourceFilePath);
+            if (fallback is not null)
+            {
+                return new PosterProjectInfo(
+                    fallback.OriginalTitle,
+                    fallback.Title,
+                    fallback.Tagline,
+                    fallback.Synopsis);
+            }
+
+            throw new FileNotFoundException($"未找到项目说明文件: {sourceFilePath}", sourceFilePath);
+        }
+
+        var lines = await File.ReadAllLinesAsync(sourceFilePath, Encoding.UTF8, cancellationToken);
+        var map = ParseKeyValueLines(lines);
+        var originalTitle = GetOptional(map, "原剧名") ?? string.Empty;
+        var title = FirstNonEmpty(GetOptional(map, "新剧名"), originalTitle);
+
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            throw new InvalidOperationException("缺少剧名，需至少提供“新剧名”或“原剧名”。");
+        }
+
+        return new PosterProjectInfo(
+            originalTitle,
+            title,
+            GetOptional(map, "推荐语"),
+            GetOptional(map, "简介"));
+    }
+
+    private static void ValidateProjectDirectory(string projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir))
+        {
+            throw new ArgumentException("项目目录不能为空。", nameof(projectDir));
+        }
+
+        if (!Directory.Exists(projectDir))
+        {
+            throw new DirectoryNotFoundException($"项目目录不存在: {projectDir}");
+        }
+    }
+
     private static ProjectInfo? TryBuildFallbackProjectInfo(string projectDir, string sourceFilePath)
     {
         var metadataDir = ResolveMetadataDirectory(projectDir);
