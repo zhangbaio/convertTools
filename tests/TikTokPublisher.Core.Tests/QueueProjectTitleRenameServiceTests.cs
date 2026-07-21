@@ -97,9 +97,9 @@ public sealed class QueueProjectTitleRenameServiceTests
             result.OldTitle.Should().Be("旧剧名");
             result.NewTitle.Should().Be("新剧名");
             result.WorkflowDirectoryRenamed.Should().BeTrue();
-            result.ResetUpload.Should().BeTrue();
-            result.ResetPoster.Should().BeFalse();
-            result.ResetMaterialValidate.Should().BeFalse();
+            result.ResetUpload.Should().BeFalse();
+            result.ResetPoster.Should().BeTrue();
+            result.ResetMaterialValidate.Should().BeTrue();
             result.ResetProofMaterial.Should().BeTrue();
             Directory.Exists(oldWorkflowDir).Should().BeFalse();
             Directory.Exists(newWorkflowDir).Should().BeTrue();
@@ -129,10 +129,10 @@ public sealed class QueueProjectTitleRenameServiceTests
             renamed.StatusText.Should().Be(QueueStepStatus.Pending);
             renamed.LastError.Should().BeEmpty();
             renamed.StepStates[QueueStepKeys.RewriteInfo].Should().Be(QueueStepStatus.Completed);
-            renamed.StepStates[QueueStepKeys.GeneratePoster].Should().Be(QueueStepStatus.Completed);
+            renamed.StepStates[QueueStepKeys.GeneratePoster].Should().Be(QueueStepStatus.Pending);
             renamed.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Pending);
-            renamed.StepStates[QueueStepKeys.MaterialValidate].Should().Be(QueueStepStatus.Completed);
-            renamed.StepStates[QueueStepKeys.UploadSeries].Should().Be(QueueStepStatus.Pending);
+            renamed.StepStates[QueueStepKeys.MaterialValidate].Should().Be(QueueStepStatus.Pending);
+            renamed.StepStates[QueueStepKeys.UploadSeries].Should().Be(QueueStepStatus.Failed);
 
             var state = TikTokUploadStateStore.LoadState(newWorkflowDir);
             state["last_upload_title"].GetString().Should().Be("新剧名");

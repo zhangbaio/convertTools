@@ -79,12 +79,12 @@ public static class QueueProjectTitleRenameService
         UpdateProjectMetadata(Path.Combine(newWorkflowDir, MetadataFile), title, newWorkflowDir, sourceDir, updatedFiles);
         UpdateUploadState(newWorkflowDir, oldTitle, title, updatedFiles);
         UpdateManifest(root, sourceDir, oldWorkflowDir, newWorkflowDir, title, renamedUploadVideoPaths, updatedFiles);
-        DeleteProofMaterialOutput(newWorkflowDir);
-
         target.NewTitle = title;
         ProjectWorkspaceService.RefreshQueueItemMetadata(target);
         target.NewTitle = title;
-        var reset = ResetDependentStepStates(target);
+        var reset = ResetDependentStepStates(target, renamedUploadVideoPaths.Count > 0);
+        if (reset.ProofMaterial)
+            DeleteProofMaterialOutput(newWorkflowDir);
         target.NormalizeStepStates();
 
         WorkspaceQueueDatabase.Save(root, items, queueState.Options);
@@ -362,32 +362,33 @@ public static class QueueProjectTitleRenameService
         updatedFiles.Add(path);
     }
 
-    private static (bool Poster, bool MaterialValidate, bool ProofMaterial, bool Upload) ResetDependentStepStates(QueueProjectItem item)
+    private static (bool Poster, bool MaterialValidate, bool ProofMaterial, bool Upload) ResetDependentStepStates(
+        QueueProjectItem item,
+        bool stagedUploadVideosRenamed)
     {
         var uploadCompleted = item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed;
         item.StepStates[QueueStepKeys.RewriteInfo] = QueueStepStatus.Completed;
-        var resetProofMaterial = ResetStepIfNotPending(item, QueueStepKeys.GenerateProofMaterial);
+        var resetPoster = ResetCompletedStep(item, QueueStepKeys.GeneratePoster);
+        var resetProofMaterial = ResetCompletedStep(item, QueueStepKeys.GenerateProofMaterial);
+        var resetMaterialValidate = (resetPoster || resetProofMaterial || stagedUploadVideosRenamed) &&
+                                    ResetCompletedStep(item, QueueStepKeys.MaterialValidate);
 
         if (uploadCompleted)
         {
             item.StatusText = QueueStepStatus.Completed;
             item.CurrentStep = "";
             item.LastError = "";
-            return (false, false, resetProofMaterial, false);
+            return (resetPoster, resetMaterialValidate, resetProofMaterial, false);
         }
 
-        var resetUpload = ResetStepIfNotPending(item, QueueStepKeys.UploadSeries);
-        item.UploadCompletedAt = "";
-
-        if (item.StatusText == QueueStepStatus.Failed ||
-            item.StepStates.Values.All(status => status is QueueStepStatus.Pending or QueueStepStatus.Completed))
+        if (resetPoster || resetProofMaterial || resetMaterialValidate)
         {
             item.StatusText = QueueStepStatus.Pending;
             item.CurrentStep = "";
             item.LastError = "";
         }
 
-        return (false, false, resetProofMaterial, resetUpload);
+        return (resetPoster, resetMaterialValidate, resetProofMaterial, false);
     }
 
     private static void DeleteProofMaterialOutput(string workflowDir)
@@ -397,9 +398,9 @@ public static class QueueProjectTitleRenameService
             File.Delete(path);
     }
 
-    private static bool ResetStepIfNotPending(QueueProjectItem item, string stepKey)
+    private static bool ResetCompletedStep(QueueProjectItem item, string stepKey)
     {
-        if (item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Pending)
+        if (item.StepStates.GetValueOrDefault(stepKey) != QueueStepStatus.Completed)
             return false;
 
         item.StepStates[stepKey] = QueueStepStatus.Pending;

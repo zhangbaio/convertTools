@@ -1547,7 +1547,23 @@ public partial class TikTokQueueView : UserControl
 
         try
         {
-            await vm.RenameQueueProjectNewTitleAsync(row, input);
+            var result = await vm.RenameQueueProjectNewTitleAsync(row, input);
+            var localStepsToRegenerate = new List<string>();
+            if (result.ResetPoster)
+                localStepsToRegenerate.Add(QueueStepRegistry.GeneratePoster);
+            if (result.ResetProofMaterial)
+                localStepsToRegenerate.Add(QueueStepRegistry.GenerateProofMaterial);
+            if (result.ResetMaterialValidate)
+                localStepsToRegenerate.Add(QueueStepRegistry.MaterialValidate);
+
+            if (localStepsToRegenerate.Count > 0)
+            {
+                var options = vm.CreateCurrentQueueRunOptionsSnapshot();
+                options.EnabledSteps = localStepsToRegenerate;
+                options.ForceRerunCompletedSteps = false;
+                options.UploadEntryMode = "";
+                await StartQueueRunAsync(options, new[] { result.SourceProjectDir }, confirmForceRerun: false);
+            }
         }
         catch (Exception ex)
         {
