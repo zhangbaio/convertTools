@@ -675,9 +675,6 @@ public static class QueueMaterialStepService
             if (IsHeicLike(inputPath))
                 log($"海报源图为 {Path.GetExtension(inputPath)}，将先转换为 PNG 再调用 AI。");
 
-            log(
-                $"海报请求详情：模式={posterMode}，输入={inputPath}，输出={outputPath}，" +
-                $"配置文件={configPath}，外部取消={cancellationToken.IsCancellationRequested}。");
             try
             {
                 await QueueInfrastructureServices.Poster.RenameAsync(

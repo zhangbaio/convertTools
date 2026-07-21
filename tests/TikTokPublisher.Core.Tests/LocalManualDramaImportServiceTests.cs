@@ -141,6 +141,11 @@ public sealed class LocalManualDramaImportServiceTests
             TikTokPosterGenerationStateService.NeedsGeneratePoster(item, requestedSettings).Should().BeFalse(
                 "视频抽帧失败并回退成功后，相同请求不应在每次队列执行时重复生成");
 
+            var switchedProviderSettings = requestedSettings.Clone();
+            switchedProviderSettings.ImageProvider = "ofox_image2";
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, switchedProviderSettings).Should().BeFalse(
+                "切换图片提供商只影响后续生成，不应让已经完成的海报失效");
+
             var changedSettings = requestedSettings.Clone();
             changedSettings.FrameExtractTime += 1.0;
             TikTokPosterGenerationStateService.NeedsGeneratePoster(item, changedSettings).Should().BeTrue(

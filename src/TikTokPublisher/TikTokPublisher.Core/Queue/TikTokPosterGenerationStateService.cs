@@ -64,11 +64,9 @@ public static class TikTokPosterGenerationStateService
             if (!IsUsableFile(inputPath))
                 return true;
 
-            var expectedFingerprint = ComputeFingerprint(item, settings, context, inputPath);
-            return !string.Equals(
-                GetStateString(state, "fingerprint"),
-                expectedFingerprint,
-                StringComparison.OrdinalIgnoreCase);
+            var savedFingerprint = GetStateString(state, "fingerprint");
+            return !ProviderAgnosticFingerprints(item, settings, context, inputPath)
+                .Contains(savedFingerprint, StringComparer.OrdinalIgnoreCase);
         }
         catch
         {
@@ -122,7 +120,8 @@ public static class TikTokPosterGenerationStateService
         QueueProjectItem item,
         ClientSettings settings,
         ProjectWorkspaceContext context,
-        string inputPath)
+        string inputPath,
+        string? imageProviderOverride = null)
     {
         var posterMode = NormalizePosterMode(settings.PosterMode);
         var payload = new
@@ -132,7 +131,7 @@ public static class TikTokPosterGenerationStateService
             poster_mode = posterMode,
             input_sha256 = ComputeFileSha256(inputPath),
             source_media_stamp = BuildSourceMediaStamp(context, settings, posterMode),
-            image_provider = (settings.ImageProvider ?? string.Empty).Trim(),
+            image_provider = (imageProviderOverride ?? settings.ImageProvider ?? string.Empty).Trim(),
             image_model_id = (settings.ImageModelId ?? string.Empty).Trim(),
             image_model_endpoint = (settings.ImageModelEndpoint ?? string.Empty).Trim(),
             doubao_resolution = (settings.DoubaoImageResolution ?? string.Empty).Trim(),
@@ -157,6 +156,24 @@ public static class TikTokPosterGenerationStateService
         };
         var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
+    }
+
+    private static IEnumerable<string> ProviderAgnosticFingerprints(
+        QueueProjectItem item,
+        ClientSettings settings,
+        ProjectWorkspaceContext context,
+        string inputPath)
+    {
+        yield return ComputeFingerprint(item, settings, context, inputPath);
+
+        // The provider only decides which service future generations use. It must not
+        // invalidate an already generated poster when users switch between providers.
+        foreach (var provider in new[] { "doubao", "ofox_image2" })
+        {
+            if (string.Equals(provider, settings.ImageProvider?.Trim(), StringComparison.OrdinalIgnoreCase))
+                continue;
+            yield return ComputeFingerprint(item, settings, context, inputPath, provider);
+        }
     }
 
     private static string BuildSourceMediaStamp(
