@@ -23,7 +23,7 @@ public sealed class QueueMaterialPrepareServiceTests
                 CancellationToken.None);
 
             result.Should().BeNull();
-            File.Exists(Path.Combine(sourceDir, "海报图片.jpg")).Should().BeFalse();
+            File.Exists(Path.Combine(sourceDir, "海报原图.jpg")).Should().BeFalse();
             logs.Should().NotContain(log => log.Contains("抽帧", StringComparison.Ordinal));
         }
         finally
@@ -50,8 +50,10 @@ public sealed class QueueMaterialPrepareServiceTests
                 _ => { },
                 CancellationToken.None);
 
-            result.Should().Be(Path.Combine(sourceDir, "海报图片.heic"));
+            result.Should().Be(Path.Combine(sourceDir, "海报原图.heic"));
             File.ReadAllBytes(result!).Should().Equal([2]);
+            File.Exists(Path.Combine(sourceDir, "海报图片.jpg")).Should().BeFalse();
+            File.Exists(Path.Combine(sourceDir, "海报原图.jpg")).Should().BeTrue();
         }
         finally
         {

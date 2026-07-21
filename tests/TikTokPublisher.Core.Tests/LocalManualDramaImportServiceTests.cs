@@ -37,8 +37,8 @@ public sealed class LocalManualDramaImportServiceTests
             metadata.RootElement.GetProperty("workflowProjectDir").GetString().Should().Be(result.WorkflowProjectDir);
             metadata.RootElement.GetProperty("episodeCount").GetInt32().Should().Be(2);
             metadata.RootElement.GetProperty("intro").GetString().Should().Be("本地手动下载剧集简介");
-            File.Exists(Path.Combine(source, "海报图片.jpg")).Should().BeTrue();
-            File.Exists(Path.Combine(result.WorkflowProjectDir, "海报图片.jpg")).Should().BeTrue();
+            File.Exists(Path.Combine(source, "海报原图.jpg")).Should().BeTrue();
+            File.Exists(Path.Combine(result.WorkflowProjectDir, "海报原图.jpg")).Should().BeTrue();
 
             WorkspaceBindingService.Bind(workspace, "acct-current", "当前账号");
             WorkspaceQueueService.AddProjectsToQueue(workspace, [source]).Should().ContainSingle();
@@ -82,7 +82,7 @@ public sealed class LocalManualDramaImportServiceTests
                 QueueStepStatus.Pending,
                 "历史版本误标完成但没有真实生成状态时必须自动修复");
 
-            var inputPath = Path.Combine(source, "海报图片.png");
+            var inputPath = Path.Combine(source, "海报原图.png");
             var outputPath = Path.Combine(import.WorkflowProjectDir, TikTokPosterGenerationStateService.OutputFileName);
             File.WriteAllBytes(outputPath, [7, 8, 9]);
             TikTokPosterGenerationStateService.SaveGeneratedState(
@@ -126,7 +126,7 @@ public sealed class LocalManualDramaImportServiceTests
 
             var import = LocalManualDramaImportService.Import(workspace, source);
             var item = WorkspaceQueueService.AddProjectsToQueue(workspace, [source]).Should().ContainSingle().Subject;
-            var inputPath = Path.Combine(source, "海报图片.png");
+            var inputPath = Path.Combine(source, "海报原图.png");
             var outputPath = Path.Combine(import.WorkflowProjectDir, TikTokPosterGenerationStateService.OutputFileName);
             File.WriteAllBytes(outputPath, [7, 8, 9]);
             var requestedSettings = new ClientSettings { PosterMode = "video_frame" };
