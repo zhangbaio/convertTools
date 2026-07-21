@@ -117,6 +117,7 @@ public partial class SystemSettingsView : UserControl
 
         PosterModeCombo.Items.Clear();
         PosterModeCombo.Items.Add(CreateItem("原始海报AI改标题并校验", "original"));
+        PosterModeCombo.Items.Add(CreateItem("AI消除全部文字 + 程序绘制标题（标题最准）", "poster_ai_erase_pil_title"));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;
 
         ImageProviderCombo.Items.Clear();
@@ -230,7 +231,9 @@ public partial class SystemSettingsView : UserControl
                    ?? _vm?.PosterMode
                    ?? "original";
         FrameExtractSettingsPanel.IsVisible = string.Equals(mode, "video_frame", StringComparison.OrdinalIgnoreCase);
-        PosterModeHintText.Text = "替换原海报标题，清除人物名、作者说明等其他文字，并进行全图校验。";
+        PosterModeHintText.Text = string.Equals(mode, "poster_ai_erase_pil_title", StringComparison.OrdinalIgnoreCase)
+            ? "AI仅清除原海报全部文字，再由程序使用标准中文粗体确定性绘制新标题，避免错字。"
+            : "替换原海报标题，清除人物名、作者说明等其他文字，并进行全图校验。";
     }
 
     private void OnImageProviderChanged(object? sender, SelectionChangedEventArgs e)

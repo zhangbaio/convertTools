@@ -45,11 +45,12 @@ internal static class PosterTitleProgrammaticRenderer
             canvas.Mutate(ctx => ctx.Fill(overlay, new Rectangle(rx, ry, rw, rh)));
         }
 
+        var displayTitle = FormatTitleLines(title);
         var fontSize = Math.Max(24, (int)Math.Round(height * layout.FontScale));
         var strokeWidth = Math.Max(2f, fontSize / 18f);
-        var font = FitTitleFont(title, rw, rh, fontSize, strokeWidth);
+        var font = FitTitleFont(displayTitle, rw, rh, fontSize, strokeWidth);
         var textBounds = TextMeasurer.MeasureBounds(
-            title,
+            displayTitle,
             new TextOptions(font) { Dpi = 72 });
         var textWidth = textBounds.Width;
         var textHeight = textBounds.Height;
@@ -63,7 +64,7 @@ internal static class PosterTitleProgrammaticRenderer
         var origin = new PointF(tx, ty);
         var strokeColor = ChooseStrokeColor(layout.TextColor);
 
-        canvas.Mutate(ctx => DrawOutlinedText(ctx, title, font, layout.TextColor, strokeColor, strokeWidth, origin));
+        canvas.Mutate(ctx => DrawOutlinedText(ctx, displayTitle, font, layout.TextColor, strokeColor, strokeWidth, origin));
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         if (Path.GetExtension(outputPath).Equals(".jpg", StringComparison.OrdinalIgnoreCase)
@@ -93,12 +94,57 @@ internal static class PosterTitleProgrammaticRenderer
             (-strokeWidth, strokeWidth), (strokeWidth, strokeWidth),
         };
 
+        var shadowOffset = Math.Max(2f, strokeWidth * 1.25f);
+        ctx.DrawText(title, font, new Rgba32(0, 0, 0, 150), new PointF(origin.X + shadowOffset, origin.Y + shadowOffset));
+
         foreach (var (ox, oy) in offsets)
         {
             ctx.DrawText(title, font, strokeColor, new PointF(origin.X + ox, origin.Y + oy));
         }
 
         ctx.DrawText(title, font, fillColor, origin);
+    }
+
+    internal static string FormatTitleLines(string? title)
+    {
+        var normalized = string.Concat((title ?? string.Empty)
+            .Replace("\r", string.Empty, StringComparison.Ordinal)
+            .Where(character => character != ' ' && character != '\t'));
+        if (normalized.Contains('\n'))
+            return string.Join('\n', normalized.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+
+        var length = normalized.Length;
+        if (length <= 6)
+            return normalized;
+
+        var lineCount = length <= 14 ? 2 : 3;
+        if (lineCount == 2)
+        {
+            var midpoint = length / 2;
+            var semanticBreak = normalized
+                .Select((character, index) => (character, index))
+                .Where(item => item.index >= 3
+                    && item.index <= length - 3
+                    && "在于与和为被把从向当".Contains(item.character))
+                .OrderBy(item => Math.Abs(item.index - midpoint))
+                .Select(item => item.index)
+                .FirstOrDefault(-1);
+            if (semanticBreak > 0)
+                return normalized[..semanticBreak] + '\n' + normalized[semanticBreak..];
+        }
+
+        var lines = new List<string>(lineCount);
+        var offset = 0;
+        for (var lineIndex = 0; lineIndex < lineCount; lineIndex++)
+        {
+            var remainingCharacters = length - offset;
+            var remainingLines = lineCount - lineIndex;
+            var take = (int)Math.Ceiling(remainingCharacters / (double)remainingLines);
+            lines.Add(normalized.Substring(offset, take));
+            offset += take;
+        }
+
+        return string.Join('\n', lines);
     }
 
     private static Font FitTitleFont(string title, int maxWidth, int maxHeight, int initialSize, float strokeWidth)

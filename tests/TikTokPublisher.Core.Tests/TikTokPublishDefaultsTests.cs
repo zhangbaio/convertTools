@@ -242,6 +242,31 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Client_settings_store_preserves_ai_erase_programmatic_title_mode()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-poster-mode-{Guid.NewGuid():N}.db");
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                PosterMode = " POSTER_AI_ERASE_PIL_TITLE ",
+            }, databasePath);
+
+            ClientSettingsStore.Load(databasePath).PosterMode.Should().Be("poster_ai_erase_pil_title");
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(databasePath);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
     public void Client_settings_store_migrates_legacy_poster_layout_detect_prompt()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-legacy-layout-prompt-{Guid.NewGuid():N}.db");

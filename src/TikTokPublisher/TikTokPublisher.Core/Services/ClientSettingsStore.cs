@@ -452,7 +452,12 @@ public static class ClientSettingsStore
         };
 
     private static string NormalizePosterMode(string? value) =>
-        ClientSettingsDefaults.PosterMode;
+        (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant() switch
+        {
+            "original" or "poster_ai_erase_pil_title" =>
+                (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant(),
+            _ => ClientSettingsDefaults.PosterMode
+        };
 
     private static string NormalizeImageProvider(string? value) =>
         (value ?? ClientSettingsDefaults.ImageProvider).Trim().ToLowerInvariant() switch
