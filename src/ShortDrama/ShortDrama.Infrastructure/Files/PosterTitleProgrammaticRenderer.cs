@@ -33,28 +33,30 @@ internal static class PosterTitleProgrammaticRenderer
 
         var width = canvas.Width;
         var height = canvas.Height;
-        var rx = Math.Max(0, (int)Math.Round(width * layout.X));
-        var ry = Math.Max(0, (int)Math.Round(height * layout.Y));
-        var rw = Math.Min(width - rx, (int)Math.Round(width * layout.Width));
-        var rh = Math.Min(height - ry, (int)Math.Round(height * layout.Height));
+        var displayTitle = FormatTitleLines(title);
+        var renderLayout = CreateFixedTemplateLayout(displayTitle, width, height);
+        var rx = Math.Max(0, (int)Math.Round(width * renderLayout.X));
+        var ry = Math.Max(0, (int)Math.Round(height * renderLayout.Y));
+        var rw = Math.Min(width - rx, (int)Math.Round(width * renderLayout.Width));
+        var rh = Math.Min(height - ry, (int)Math.Round(height * renderLayout.Height));
 
-        if (layout.BackgroundOpacity > 0)
+        if (renderLayout.BackgroundOpacity > 0)
         {
-            var alpha = (byte)Math.Clamp((int)Math.Round(layout.BackgroundOpacity * 255), 0, 255);
-            var overlay = new Rgba32(layout.BackgroundColor.R, layout.BackgroundColor.G, layout.BackgroundColor.B, alpha);
+            var alpha = (byte)Math.Clamp((int)Math.Round(renderLayout.BackgroundOpacity * 255), 0, 255);
+            var overlay = new Rgba32(renderLayout.BackgroundColor.R, renderLayout.BackgroundColor.G, renderLayout.BackgroundColor.B, alpha);
             canvas.Mutate(ctx => ctx.Fill(overlay, new Rectangle(rx, ry, rw, rh)));
         }
 
-        var displayTitle = FormatTitleLines(title);
-        var fontSize = Math.Max(24, (int)Math.Round(height * layout.FontScale));
+        var fontSize = Math.Max(24, (int)Math.Round(height * renderLayout.FontScale));
+        var minimumFontSize = Math.Max(18, (int)Math.Round(height * (56f / 858f)));
         var strokeWidth = Math.Max(2f, fontSize / 18f);
-        var font = FitTitleFont(displayTitle, rw, rh, fontSize, strokeWidth);
+        var font = FitTitleFont(displayTitle, rw, rh, fontSize, minimumFontSize, strokeWidth);
         var textBounds = TextMeasurer.MeasureBounds(
             displayTitle,
             new TextOptions(font) { Dpi = 72 });
         var textWidth = textBounds.Width;
         var textHeight = textBounds.Height;
-        var tx = layout.Align switch
+        var tx = renderLayout.Align switch
         {
             HorizontalAlignment.Left => rx + Math.Max(8, (int)Math.Round(rw * 0.04f)) - textBounds.Left,
             HorizontalAlignment.Right => rx + rw - textWidth - Math.Max(8, (int)Math.Round(rw * 0.04f)) - textBounds.Left,
@@ -62,9 +64,9 @@ internal static class PosterTitleProgrammaticRenderer
         };
         var ty = ry + (rh - textHeight) / 2f - textBounds.Top;
         var origin = new PointF(tx, ty);
-        var strokeColor = ChooseStrokeColor(layout.TextColor);
+        var strokeColor = ChooseStrokeColor(renderLayout.TextColor);
 
-        canvas.Mutate(ctx => DrawOutlinedText(ctx, displayTitle, font, layout.TextColor, strokeColor, strokeWidth, origin));
+        canvas.Mutate(ctx => DrawOutlinedText(ctx, displayTitle, font, renderLayout.TextColor, strokeColor, strokeWidth, origin));
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         if (Path.GetExtension(outputPath).Equals(".jpg", StringComparison.OrdinalIgnoreCase)
@@ -125,6 +127,8 @@ internal static class PosterTitleProgrammaticRenderer
                 .Select((character, index) => (character, index))
                 .Where(item => item.index >= 3
                     && item.index <= length - 3
+                    && item.index <= 7
+                    && length - item.index <= 7
                     && "在于与和为被把从向当".Contains(item.character))
                 .OrderBy(item => Math.Abs(item.index - midpoint))
                 .Select(item => item.index)
@@ -147,10 +151,43 @@ internal static class PosterTitleProgrammaticRenderer
         return string.Join('\n', lines);
     }
 
-    private static Font FitTitleFont(string title, int maxWidth, int maxHeight, int initialSize, float strokeWidth)
+    internal static PosterTitleLayout CreateFixedTemplateLayout(
+        string displayTitle,
+        int canvasWidth,
+        int canvasHeight)
     {
-        var size = Math.Max(20, initialSize);
-        while (size >= 18)
+        if (canvasWidth <= 0 || canvasHeight <= 0 || string.IsNullOrWhiteSpace(displayTitle))
+            return default;
+
+        var lines = displayTitle.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lineCount = Math.Max(1, lines.Length);
+        var fontScale = 64f / 858f;
+        var regionHeight = lineCount * 0.10f + 0.02f;
+        var bottomMargin = 100f / 858f;
+        var y = Math.Max(0.05f, 1f - bottomMargin - regionHeight);
+
+        return new PosterTitleLayout(
+            X: 42f / 600f,
+            Y: y,
+            Width: 480f / 600f,
+            Height: regionHeight,
+            FontScale: fontScale,
+            TextColor: new Rgba32(255, 255, 255, 255),
+            BackgroundColor: new Rgba32(0, 0, 0, 255),
+            BackgroundOpacity: 0,
+            Align: HorizontalAlignment.Left);
+    }
+
+    private static Font FitTitleFont(
+        string title,
+        int maxWidth,
+        int maxHeight,
+        int initialSize,
+        int minimumSize,
+        float strokeWidth)
+    {
+        var size = Math.Max(minimumSize, initialSize);
+        while (size >= minimumSize)
         {
             var font = LoadPosterFont(size);
             var bounds = TextMeasurer.MeasureBounds(title, new TextOptions(font) { Dpi = 72 });
@@ -163,7 +200,7 @@ internal static class PosterTitleProgrammaticRenderer
             size -= 2;
         }
 
-        return LoadPosterFont(18);
+        return LoadPosterFont(minimumSize);
     }
 
     public static PosterTitleLayout ToTitleLayout(
