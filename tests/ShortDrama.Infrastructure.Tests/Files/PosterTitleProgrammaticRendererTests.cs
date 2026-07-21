@@ -14,4 +14,20 @@ public sealed class PosterTitleProgrammaticRendererTests
     {
         PosterTitleProgrammaticRenderer.FormatTitleLines(title).Should().Be(expected);
     }
+
+    [Fact]
+    public void CreateFixedTemplateLayout_uses_reference_position_and_size()
+    {
+        var layout = PosterTitleProgrammaticRenderer.CreateFixedTemplateLayout(
+            PosterTitleProgrammaticRenderer.FormatTitleLines("签约错认旧爱再续前缘"),
+            600,
+            858);
+
+        layout.X.Should().BeApproximately(0.07f, 0.001f);
+        layout.Y.Should().BeApproximately(0.663f, 0.01f);
+        layout.Width.Should().BeApproximately(0.8f, 0.001f);
+        layout.FontScale.Should().BeApproximately(64f / 858f, 0.001f);
+        layout.TextColor.Should().Be(new SixLabors.ImageSharp.PixelFormats.Rgba32(255, 255, 255, 255));
+        layout.Align.Should().Be(SixLabors.Fonts.HorizontalAlignment.Left);
+    }
 }

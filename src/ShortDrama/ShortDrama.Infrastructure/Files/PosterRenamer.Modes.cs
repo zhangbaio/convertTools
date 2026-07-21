@@ -33,6 +33,7 @@ public sealed partial class PosterRenamer
     输入图是当前海报标题区域的局部图。删除其中全部旧文字、错字、重复字和文字残影，然后只写一次以下目标标题：{title}
     严格保持目标标题中给出的换行，可排成一至三行；保持阅读顺序清楚、间距均匀、位置居中。
     使用标准、清晰、易识别的简体中文印刷粗体，不要引号、行号、副标题、拼音、英文、logo、水印或其他文字。
+    标题必须醒目并占据标题区域的主要空间，禁止缩成角落小字；横排汉字高度至少为局部图高度的 18%，竖排汉字宽度至少为局部图宽度的 22%。
     局部图中的背景、光影、色彩和构图保持不变，输出相同的标题区域局部图。
     标题必须逐字准确，不得漏字、错字、换字、增字或重复。
     """;
@@ -90,6 +91,13 @@ public sealed partial class PosterRenamer
             verificationLayout,
             request,
             cancellationToken).ConfigureAwait(false);
+        if (verifyResult.Ok && verificationLayout.FontScale < 0.06f)
+        {
+            verifyResult = PosterTitleVerifyResult.Fail(
+                $"AI标题字号过小：检测比例 {verificationLayout.FontScale:P1}，最低要求 6.0%");
+            Log(request, $"AI海报标题文字正确，但字号过小（{verificationLayout.FontScale:P1}），改用PIL固定模板绘制。");
+        }
+
         if (verifyResult.Ok)
         {
             if (!string.IsNullOrWhiteSpace(verifyResult.DetectedTitle))
@@ -119,6 +127,20 @@ public sealed partial class PosterRenamer
                 throw new InvalidOperationException($"AI 海报标题校验无法确认：{verifyResult.Reason}");
 
             Log(request, "AI标题校验暂未得到确定结果，已保留首张AI海报并跳过自动改字。");
+            return;
+        }
+
+        if (verifyMode == "fallback_repaint")
+        {
+            Log(request, $"AI标题校验未通过，改用AI去字+PIL固定模板绘制：{verifyResult.Reason}");
+            await FallbackRepaintVerifiedTitleAsync(
+                config,
+                outputPath,
+                title,
+                verificationLayout,
+                verifyResult,
+                request,
+                cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -403,24 +425,33 @@ public sealed partial class PosterRenamer
         bool throwOnResidual = true)
     {
         Log(request, "标题全图复核确认需要修复，开始AI去字+PIL确定性重绘。");
-        var failedCandidatePath = Path.Combine(
-            Path.GetDirectoryName(outputPath)!,
-            "海报处理_AI失败.png");
+        var outputDirectory = Path.GetDirectoryName(outputPath)!;
+        var candidateSnapshotKind = forceFullTextCleanup ? "source_before_cleanup" : "failed_ai_candidate";
+        var candidateSnapshotPath = Path.Combine(
+            outputDirectory,
+            forceFullTextCleanup ? "海报处理_去字前原图.png" : "海报处理_AI失败.png");
+        var obsoleteDiagnosticPath = Path.Combine(
+            outputDirectory,
+            forceFullTextCleanup ? "海报处理_AI失败.png" : "海报处理_去字前原图.png");
+        if (File.Exists(obsoleteDiagnosticPath))
+            File.Delete(obsoleteDiagnosticPath);
         var titleMaskPath = Path.Combine(
-            Path.GetDirectoryName(outputPath)!,
+            outputDirectory,
             "海报处理_标题遮罩.png");
         var erasedPath = Path.Combine(
-            Path.GetDirectoryName(outputPath)!,
+            outputDirectory,
             "海报处理_已清除标题.png");
         var verifyDebugPath = Path.Combine(
-            Path.GetDirectoryName(outputPath)!,
+            outputDirectory,
             "海报处理_标题校验.json");
 
         try
         {
-            using (var failedCandidate = await Image.LoadAsync<Rgba32>(outputPath, cancellationToken).ConfigureAwait(false))
-                await failedCandidate.SaveAsPngAsync(failedCandidatePath, cancellationToken).ConfigureAwait(false);
-            Log(request, $"已保留AI原始候选用于诊断：{Path.GetFileName(failedCandidatePath)}");
+            using (var candidateSnapshot = await Image.LoadAsync<Rgba32>(outputPath, cancellationToken).ConfigureAwait(false))
+                await candidateSnapshot.SaveAsPngAsync(candidateSnapshotPath, cancellationToken).ConfigureAwait(false);
+            Log(request, forceFullTextCleanup
+                ? $"已保留去字前原图用于诊断：{Path.GetFileName(candidateSnapshotPath)}"
+                : $"已保留AI失败候选用于诊断：{Path.GetFileName(candidateSnapshotPath)}");
 
             var maskBytes = await CreateTitleMaskAsync(outputPath, layout, cancellationToken).ConfigureAwait(false);
             if (maskBytes is not null)
@@ -437,7 +468,8 @@ public sealed partial class PosterRenamer
         await SavePosterTitleVerifyDebugAsync(
             verifyDebugPath,
             title,
-            failedCandidatePath,
+            candidateSnapshotPath,
+            candidateSnapshotKind,
             titleMaskPath,
             erasedPath,
             layout,
@@ -508,7 +540,8 @@ public sealed partial class PosterRenamer
         await SavePosterTitleVerifyDebugAsync(
             verifyDebugPath,
             title,
-            failedCandidatePath,
+            candidateSnapshotPath,
+            candidateSnapshotKind,
             titleMaskPath,
             erasedPath,
             layout,
@@ -532,7 +565,8 @@ public sealed partial class PosterRenamer
     private static async Task SavePosterTitleVerifyDebugAsync(
         string debugPath,
         string title,
-        string failedCandidatePath,
+        string candidateSnapshotPath,
+        string candidateSnapshotKind,
         string titleMaskPath,
         string erasedPath,
         PosterLayout layout,
@@ -546,7 +580,8 @@ public sealed partial class PosterRenamer
             var payload = new
             {
                 targetTitle = title,
-                failedCandidatePath,
+                candidateSnapshotPath,
+                candidateSnapshotKind,
                 titleMaskPath,
                 erasedPath,
                 layout = new
