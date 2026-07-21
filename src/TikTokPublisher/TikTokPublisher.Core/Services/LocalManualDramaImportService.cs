@@ -466,14 +466,18 @@ public static class LocalManualDramaImportService
 
     private static void EnsureStandardPosterAlias(string sourceProjectDir)
     {
-        if (ImageExtensions.Any(ext => File.Exists(Path.Combine(sourceProjectDir, $"海报图片{ext}"))))
+        if (ImageExtensions.Any(ext =>
+                File.Exists(Path.Combine(sourceProjectDir, $"{QueueMaterialPrepareService.SourcePosterStem}{ext}")) ||
+                File.Exists(Path.Combine(sourceProjectDir, $"{QueueMaterialPrepareService.LegacySourcePosterStem}{ext}"))))
             return;
 
         var posterPath = FindLocalPoster(sourceProjectDir);
         if (string.IsNullOrWhiteSpace(posterPath))
             return;
 
-        var aliasPath = Path.Combine(sourceProjectDir, $"海报图片{Path.GetExtension(posterPath).ToLowerInvariant()}");
+        var aliasPath = Path.Combine(
+            sourceProjectDir,
+            $"{QueueMaterialPrepareService.SourcePosterStem}{Path.GetExtension(posterPath).ToLowerInvariant()}");
         if (File.Exists(aliasPath))
             return;
 

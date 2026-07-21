@@ -280,10 +280,17 @@ public static class ProjectWorkspaceService
         foreach (var root in new[] { sourceProjectDir, workflowProjectDir })
         {
             if (!Directory.Exists(root)) continue;
-            foreach (var ext in ImageExtensions)
+            foreach (var stem in new[]
+                     {
+                         QueueMaterialPrepareService.SourcePosterStem,
+                         QueueMaterialPrepareService.LegacySourcePosterStem,
+                     })
             {
-                var preferred = Path.Combine(root, $"海报图片{ext}");
-                if (File.Exists(preferred)) return preferred;
+                foreach (var ext in ImageExtensions)
+                {
+                    var preferred = Path.Combine(root, $"{stem}{ext}");
+                    if (File.Exists(preferred)) return preferred;
+                }
             }
 
             var candidate = Directory.EnumerateFiles(root, "*.*", SearchOption.TopDirectoryOnly)

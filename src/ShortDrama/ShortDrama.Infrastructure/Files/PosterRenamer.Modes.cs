@@ -405,16 +405,16 @@ public sealed partial class PosterRenamer
         Log(request, "标题全图复核确认需要修复，开始AI去字+PIL确定性重绘。");
         var failedCandidatePath = Path.Combine(
             Path.GetDirectoryName(outputPath)!,
-            $"{Path.GetFileNameWithoutExtension(outputPath)}.ai_failed.png");
+            "海报处理_AI失败.png");
         var titleMaskPath = Path.Combine(
             Path.GetDirectoryName(outputPath)!,
-            $"{Path.GetFileNameWithoutExtension(outputPath)}.title_mask.png");
+            "海报处理_标题遮罩.png");
         var erasedPath = Path.Combine(
             Path.GetDirectoryName(outputPath)!,
-            $"{Path.GetFileNameWithoutExtension(outputPath)}.title_erased.png");
+            "海报处理_已清除标题.png");
         var verifyDebugPath = Path.Combine(
             Path.GetDirectoryName(outputPath)!,
-            $"{Path.GetFileNameWithoutExtension(outputPath)}.title_verify.json");
+            "海报处理_标题校验.json");
 
         try
         {
