@@ -42,27 +42,38 @@ public static class HongguoNewLoginClient
         var normalizedUdid = HongguoDeviceId.Normalize(udid);
         if (IsRestV15(version))
         {
-            if (HongguoDeviceId.LooksLikeGuid(normalizedUdid) || string.IsNullOrWhiteSpace(normalizedUdid))
+            // GUID 仅支持 1.4.x；1.5.0 REST 不再把 GUID 自动换成 32hex
+            // if (HongguoDeviceId.LooksLikeGuid(normalizedUdid) || string.IsNullOrWhiteSpace(normalizedUdid))
+            // {
+            //     var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: false);
+            //     if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeHex32(registryId))
+            //     {
+            //         normalizedUdid = registryId;
+            //     }
+            // }
+            if (HongguoDeviceId.LooksLikeGuid(normalizedUdid))
             {
-                var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: false);
-                if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeHex32(registryId))
-                {
-                    normalizedUdid = registryId;
-                }
+                throw new HongguoLoginException(
+                    "客户端版本 >=1.5.0 仅支持 HongGuopy 的 32 位设备号，GUID 仅用于 1.4.x；请改版本为 1.4.1 或填写 32hex DeviceId");
+            }
+
+            if (string.IsNullOrWhiteSpace(normalizedUdid))
+            {
+                normalizedUdid = HongguoDeviceId.TryReadFromRegistry(preferAes: false) ?? "";
             }
         }
         else if (string.IsNullOrWhiteSpace(normalizedUdid))
         {
             normalizedUdid = HongguoDeviceId.TryReadFromRegistry(preferAes: true) ?? "";
         }
-        else if (HongguoDeviceId.LooksLikeHex32(normalizedUdid))
-        {
-            var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: true);
-            if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeGuid(registryId))
-            {
-                normalizedUdid = registryId;
-            }
-        }
+        // else if (HongguoDeviceId.LooksLikeHex32(normalizedUdid))
+        // {
+        //     var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: true);
+        //     if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeGuid(registryId))
+        //     {
+        //         normalizedUdid = registryId;
+        //     }
+        // }
 
         var missing = new List<string>();
         if (normalizedAccount.Length == 0) missing.Add("账号");

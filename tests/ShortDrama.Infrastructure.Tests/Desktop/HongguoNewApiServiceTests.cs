@@ -205,12 +205,17 @@ public sealed class HongguoNewApiServiceTests
     }
 
     [Fact]
-    public void HongguoDeviceId_Normalize_Keeps_Hex_Lowercase_And_Guid_Uppercase()
+    public void HongguoDeviceId_Normalize_Preserves_User_Casing()
     {
         HongguoDeviceId.Normalize("42CE0F9242EA893B241749E35CF894BE")
+            .Should().Be("42CE0F9242EA893B241749E35CF894BE");
+        HongguoDeviceId.Normalize("42ce0f9242ea893b241749e35cf894be")
             .Should().Be("42ce0f9242ea893b241749e35cf894be");
         HongguoDeviceId.Normalize("64437e32-40bb-440c-8300-99232d63e8f7")
+            .Should().Be("64437e32-40bb-440c-8300-99232d63e8f7");
+        HongguoDeviceId.Normalize("64437E32-40BB-440C-8300-99232D63E8F7")
             .Should().Be("64437E32-40BB-440C-8300-99232D63E8F7");
+        HongguoDeviceId.Normalize("  abc  ").Should().Be("abc");
     }
 
     [Fact]

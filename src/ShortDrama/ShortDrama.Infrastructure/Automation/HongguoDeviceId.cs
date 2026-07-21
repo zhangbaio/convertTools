@@ -5,34 +5,14 @@ namespace ShortDrama.Infrastructure.Automation;
 
 /// <summary>
 /// 红果设备号规范化。
-/// REST（>=1.5.0）HongGuopy DeviceUDID：无连字符 32hex（必须小写）；
-/// AES（&lt;1.5.0）HongGuoClient DeviceUDID：GUID（大写）。
+/// 仅 Trim，不强制大小写——用户可按绑定设备原样保存大写 GUID 或小写 32hex。
 /// </summary>
 public static partial class HongguoDeviceId
 {
     private static readonly Regex GuidPattern = GuidRegex();
     private static readonly Regex Hex32Pattern = Hex32Regex();
 
-    public static string Normalize(string? value)
-    {
-        var text = (value ?? string.Empty).Trim();
-        if (text.Length == 0)
-        {
-            return "";
-        }
-
-        if (GuidPattern.IsMatch(text))
-        {
-            return text.ToUpperInvariant();
-        }
-
-        if (Hex32Pattern.IsMatch(text))
-        {
-            return text.ToLowerInvariant();
-        }
-
-        return text;
-    }
+    public static string Normalize(string? value) => (value ?? string.Empty).Trim();
 
     public static bool LooksLikeGuid(string? value) =>
         !string.IsNullOrWhiteSpace(value) && GuidPattern.IsMatch(value.Trim());
@@ -41,7 +21,8 @@ public static partial class HongguoDeviceId
         !string.IsNullOrWhiteSpace(value) && Hex32Pattern.IsMatch(value.Trim());
 
     /// <param name="preferAes">
-    /// true：优先 HongGuoClient GUID（AES）；false/默认：优先 HongGuopy 32hex（REST）。
+    /// true：1.4.x AES，读 HongGuoClient GUID；
+    /// false：>=1.5.0 REST，只读 HongGuopy 32hex（不再回退 GUID）。
     /// </param>
     public static string? TryReadFromRegistry(bool preferAes = false)
     {
@@ -52,29 +33,39 @@ public static partial class HongguoDeviceId
 
         try
         {
-            string[] restFirst =
+            // REST：仅 HongGuopy（GUID 只服务 1.4.x，不再给 1.5.0 用）
+            string[] restOnly =
             [
                 @"Software\HongGuopy",
-                @"Software\HongGuoClient",
-                @"Software\WOW6432Node\HongGuoClient"
+                // @"Software\HongGuoClient",
+                // @"Software\WOW6432Node\HongGuoClient"
             ];
+            // AES / 1.4.x：GUID 优先
             string[] aesFirst =
             [
                 @"Software\HongGuoClient",
                 @"Software\WOW6432Node\HongGuoClient",
-                @"Software\HongGuopy"
+                // @"Software\HongGuopy" // 1.5.0 设备号，1.4.x 读取时不再回退
             ];
 
-            foreach (var subKey in preferAes ? aesFirst : restFirst)
+            foreach (var subKey in preferAes ? aesFirst : restOnly)
             {
                 using var key = Registry.CurrentUser.OpenSubKey(subKey, false)
                     ?? Registry.LocalMachine.OpenSubKey(subKey, false);
                 var value = key?.GetValue("DeviceUDID")?.ToString();
                 var normalized = Normalize(value);
-                if (!string.IsNullOrWhiteSpace(normalized))
+                if (string.IsNullOrWhiteSpace(normalized))
                 {
-                    return normalized;
+                    continue;
                 }
+
+                // 1.4.x 读取 HongGuoClient GUID 时统一成大写展示（保存时仍允许用户手改大小写）
+                if (preferAes && LooksLikeGuid(normalized))
+                {
+                    return normalized.ToUpperInvariant();
+                }
+
+                return normalized;
             }
         }
         catch

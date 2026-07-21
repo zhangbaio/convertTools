@@ -896,29 +896,39 @@ public sealed partial class HongguoNewApiService
         var udid = HongguoDeviceId.Normalize(settings.HgnewUdid);
         if (IsRestV15(clientVersion))
         {
-            // 设置里若仍是旧 GUID，自动改用 HongGuopy 的 32hex DeviceId
-            if (HongguoDeviceId.LooksLikeGuid(udid) || string.IsNullOrWhiteSpace(udid))
+            // GUID 仅支持 1.4.x；1.5.0 REST 不再接受 / 不再自动把 GUID 换成 32hex
+            // if (HongguoDeviceId.LooksLikeGuid(udid) || string.IsNullOrWhiteSpace(udid))
+            // {
+            //     var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: false);
+            //     if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeHex32(registryId))
+            //     {
+            //         udid = registryId;
+            //     }
+            // }
+            if (HongguoDeviceId.LooksLikeGuid(udid))
             {
-                var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: false);
-                if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeHex32(registryId))
-                {
-                    udid = registryId;
-                }
+                throw new HongguoNewApiException(
+                    "客户端版本 >=1.5.0 仅支持 HongGuopy 的 32 位设备号，GUID 仅用于 1.4.x；请改版本为 1.4.1 或填写 32hex DeviceId");
+            }
+
+            if (string.IsNullOrWhiteSpace(udid))
+            {
+                udid = HongguoDeviceId.TryReadFromRegistry(preferAes: false) ?? "";
             }
         }
         else if (string.IsNullOrWhiteSpace(udid))
         {
             udid = HongguoDeviceId.TryReadFromRegistry(preferAes: true) ?? "";
         }
-        else if (HongguoDeviceId.LooksLikeHex32(udid))
-        {
-            // AES 路径误填了 REST 的 32hex 时，改用 HongGuoClient GUID
-            var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: true);
-            if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeGuid(registryId))
-            {
-                udid = registryId;
-            }
-        }
+        // else if (HongguoDeviceId.LooksLikeHex32(udid))
+        // {
+        //     // AES 路径误填了 REST 的 32hex 时，改用 HongGuoClient GUID（已停用自动替换，按用户填写原样）
+        //     var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: true);
+        //     if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeGuid(registryId))
+        //     {
+        //         udid = registryId;
+        //     }
+        // }
 
         var missing = new List<string>();
         if (account.Length == 0) missing.Add("账号");

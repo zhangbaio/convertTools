@@ -363,7 +363,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [RelayCommand]
     private void ReadHgnewUdid()
     {
-        if (HongguoDeviceUdidHelper.TryReadFromRegistry(out var udid, out var message))
+        // 1.4.x AES 优先 HongGuoClient GUID；>=1.5.0 REST 优先 HongGuopy 32hex
+        var preferAes = !HongguoClientVersion.IsRest(HgnewClientVersion);
+        if (HongguoDeviceUdidHelper.TryReadFromRegistry(out var udid, out var message, preferAes))
         {
             HgnewUdid = udid;
         }

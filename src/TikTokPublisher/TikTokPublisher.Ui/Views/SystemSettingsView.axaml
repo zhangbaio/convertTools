@@ -58,14 +58,17 @@
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="设备唯一标识" VerticalAlignment="Center" />
                             <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0" Text="{Binding HgnewUdid}" />
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding HgnewUdid, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <Button Grid.Column="1" Content="读取设备标识" Command="{Binding ReadHgnewUdidCommand}" MinWidth="120" />
                                 <Button Grid.Column="2" Content="生成新设备标识" Command="{Binding GenerateHgnewUdidCommand}" MinWidth="110" />
                                 <Button Grid.Column="3" Content="测试登录" Command="{Binding ProbeHgnewLoginCommand}" MinWidth="96" />
                             </Grid>
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="客户端版本" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding HgnewClientVersion}" Watermark="1.5.0" />
+                            <TextBox Grid.Row="3" Grid.Column="1"
+                                     Text="{Binding HgnewClientVersion, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Watermark="1.4.1=GUID；1.5.0=仅32hex" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="测试结果" VerticalAlignment="Center" />
                             <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding HgnewProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />

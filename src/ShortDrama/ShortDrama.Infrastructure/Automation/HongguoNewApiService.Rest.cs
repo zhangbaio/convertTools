@@ -153,14 +153,15 @@ public sealed partial class HongguoNewApiService
         CancellationToken cancellationToken)
     {
         var deviceId = credentials.Udid;
-        if (HongguoDeviceId.LooksLikeGuid(deviceId))
-        {
-            var registryId = HongguoDeviceId.TryReadFromRegistry();
-            if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeHex32(registryId))
-            {
-                deviceId = registryId;
-            }
-        }
+        // GUID 仅支持 1.4.x；REST 登录不再把 GUID 自动换成 HongGuopy 32hex
+        // if (HongguoDeviceId.LooksLikeGuid(deviceId))
+        // {
+        //     var registryId = HongguoDeviceId.TryReadFromRegistry();
+        //     if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeHex32(registryId))
+        //     {
+        //         deviceId = registryId;
+        //     }
+        // }
 
         var body = new Dictionary<string, object?>
         {
