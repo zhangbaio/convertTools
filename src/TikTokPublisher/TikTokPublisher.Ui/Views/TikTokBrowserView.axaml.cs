@@ -19,6 +19,9 @@ public partial class TikTokBrowserView : UserControl
     public TikTokBrowserView()
     {
         InitializeComponent();
+        var today = DateTimeOffset.Now;
+        AnalyticsStartDatePicker.SelectedDate = new DateTimeOffset(today.Year, today.Month, 1, 0, 0, 0, today.Offset);
+        AnalyticsEndDatePicker.SelectedDate = today;
         DataContextChanged += (_, _) => BindViewModel();
         Loaded += OnLoaded;
     }
@@ -118,6 +121,66 @@ public partial class TikTokBrowserView : UserControl
     {
         if (_vm?.SelectedAccount is null) return;
         _browserHost?.TryGetHost(_vm.SelectedAccount.Id)?.Reload();
+    }
+
+    private async void OnExportAnalyticsClick(object? sender, RoutedEventArgs e)
+    {
+        var account = _vm?.SelectedAccount;
+        if (account is null || _browserHost is null)
+        {
+            if (_vm is not null) _vm.StatusMessage = "请先在左侧选择账号";
+            return;
+        }
+
+        var startValue = AnalyticsStartDatePicker.SelectedDate;
+        var endValue = AnalyticsEndDatePicker.SelectedDate;
+        if (startValue is null || endValue is null)
+        {
+            AnalyticsStatusText.Text = "请选择开始和结束日期";
+            return;
+        }
+
+        var start = DateOnly.FromDateTime(startValue.Value.DateTime);
+        var end = DateOnly.FromDateTime(endValue.Value.DateTime);
+        if (end < start)
+        {
+            AnalyticsStatusText.Text = "结束日期不能早于开始日期";
+            return;
+        }
+
+        ExportAnalyticsButton.IsEnabled = false;
+        AnalyticsStatusText.Text = "正在获取...";
+        try
+        {
+            var host = _browserHost.GetOrCreateHost(account);
+            _browserHost.ShowAccount(account);
+            var report = await TikTokDailyAnalyticsService.FetchAsync(
+                host,
+                start,
+                end,
+                message => Avalonia.Threading.Dispatcher.UIThread.Post(() => AnalyticsStatusText.Text = message),
+                CancellationToken.None);
+            var outputPath = TikTokDailyAnalyticsExcelService.Export(account.DisplayName, report);
+            AnalyticsStatusText.Text = $"已获取 {report.Rows.Count} 天，最新数据 {report.LatestEventDate:M.d}";
+            var owner = TopLevel.GetTopLevel(this) as Window;
+            await InfoDialog.ShowAsync(
+                owner,
+                $"已导出 {report.Rows.Count} 天的播放数据。\n最新数据日期：{report.LatestEventDate:yyyy-MM-dd}\n\n{outputPath}",
+                "导出成功",
+                width: 560,
+                height: 230);
+        }
+        catch (Exception ex)
+        {
+            AnalyticsStatusText.Text = "获取失败";
+            if (_vm is not null) _vm.StatusMessage = ex.Message;
+            var owner = TopLevel.GetTopLevel(this) as Window;
+            await InfoDialog.ShowAsync(owner, ex.Message, "获取播放统计失败", width: 520, height: 210);
+        }
+        finally
+        {
+            ExportAnalyticsButton.IsEnabled = true;
+        }
     }
 
     private async void OnSaveAuthClick(object? sender, RoutedEventArgs e)
