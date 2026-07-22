@@ -4,7 +4,30 @@
              x:Class="TikTokPublisher.Ui.Views.TikTokBrowserView"
              x:DataType="vm:MainViewModel">
 
-    <Panel x:Name="BrowserArea" Background="#FFFFFF" ClipToBounds="True">
+    <Grid RowDefinitions="Auto,*" Background="#FFFFFF">
+        <Border x:Name="AnalyticsToolbar"
+                Grid.Row="0"
+                IsVisible="False"
+                Padding="12,8"
+                BorderBrush="#E2E8F0"
+                BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="播放统计" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <TextBlock Text="开始日期" VerticalAlignment="Center" />
+                <DatePicker x:Name="AnalyticsStartDatePicker" Width="145" />
+                <TextBlock Text="结束日期" VerticalAlignment="Center" />
+                <DatePicker x:Name="AnalyticsEndDatePicker" Width="145" />
+                <Button x:Name="ExportAnalyticsButton"
+                        Content="获取并导出 Excel"
+                        Click="OnExportAnalyticsClick" />
+                <TextBlock x:Name="AnalyticsStatusText"
+                           VerticalAlignment="Center"
+                           Classes="pageSummary"
+                           Margin="8,0,0,0" />
+            </StackPanel>
+        </Border>
+
+        <Panel Grid.Row="1" x:Name="BrowserArea" Background="#FFFFFF" ClipToBounds="True">
         <TextBlock x:Name="EmptyHint"
                    Text="请先在左侧选择或添加账号，然后点击「登录」加载 TikTok 短剧中心。"
                    HorizontalAlignment="Center"
@@ -44,5 +67,6 @@
                 </StackPanel>
             </StackPanel>
         </Border>
-    </Panel>
+        </Panel>
+    </Grid>
 </UserControl>

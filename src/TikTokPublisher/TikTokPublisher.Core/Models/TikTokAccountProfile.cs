@@ -194,4 +194,5 @@ public static class TikTokUrls
     public const string DefaultLoginUrl = "https://www.tiktokdramacenter.com/login";
     public const string DefaultSeriesDraftUrl = "https://www.tiktokdramacenter.com/series/draft";
     public const string DefaultSeriesListUrl = "https://www.tiktokdramacenter.com/series/list";
+    public const string ContentPerformanceUrl = "https://www.tiktokdramacenter.com/analytics/content-performance";
 }
