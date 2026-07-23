@@ -97,6 +97,19 @@ public sealed partial class MainViewModel : ViewModelBase
     public RangeObservableCollection<QueueProjectRowViewModel> QueueProjectRows { get; } = new();
     public RangeObservableCollection<QueueProjectRowViewModel> FilteredQueueProjectRows { get; } = new();
 
+    public int QueueTotalCount => QueueProjectRows.Count;
+    public int QueuePendingCount => QueueProjectRows.Count(row =>
+        string.Equals(row.StatusText, QueueStepStatus.Pending, StringComparison.Ordinal));
+    public int QueueRunningCount => QueueProjectRows.Count(row =>
+        string.Equals(row.StatusText, QueueStepStatus.Running, StringComparison.Ordinal) ||
+        string.Equals(row.StatusText, QueueStepStatus.WaitingUploadSlot, StringComparison.Ordinal) ||
+        string.Equals(row.StatusText, QueueStepStatus.ManualIntervention, StringComparison.Ordinal));
+    public int QueueCompletedCount => QueueProjectRows.Count(row =>
+        string.Equals(row.StatusText, QueueStepStatus.Completed, StringComparison.Ordinal));
+    public int QueueFailedCount => QueueProjectRows.Count(row => row.HasFailure);
+    public int QueueStoppedCount => QueueProjectRows.Count(row =>
+        string.Equals(row.StatusText, QueueStepStatus.Stopped, StringComparison.Ordinal));
+
     public event Action<ManualInterventionDialogRequest>? ManualInterventionDialogRequested;
 
     /// <summary>检测到 TikTok 单日创建剧集上限、队列已停止时触发（用于弹窗提示，对齐 Python）。</summary>
@@ -1342,6 +1355,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void ApplyQueueProjectFilter(bool replaceCollection = false)
     {
+        NotifyQueueStatisticsChanged();
         var query = (QueueSearchText ?? "").Trim();
         IEnumerable<QueueProjectRowViewModel> rows = QueueProjectRows;
         if (ShowOnlyPendingUpload)
@@ -1388,6 +1402,16 @@ public sealed partial class MainViewModel : ViewModelBase
             FilteredQueueProjectRows.ReplaceAll(target);
         else
             ReconcileObservableCollection(FilteredQueueProjectRows, target);
+    }
+
+    private void NotifyQueueStatisticsChanged()
+    {
+        OnPropertyChanged(nameof(QueueTotalCount));
+        OnPropertyChanged(nameof(QueuePendingCount));
+        OnPropertyChanged(nameof(QueueRunningCount));
+        OnPropertyChanged(nameof(QueueCompletedCount));
+        OnPropertyChanged(nameof(QueueFailedCount));
+        OnPropertyChanged(nameof(QueueStoppedCount));
     }
 
     public IReadOnlyList<QueueProjectItem> GetPendingUploadProjects() =>

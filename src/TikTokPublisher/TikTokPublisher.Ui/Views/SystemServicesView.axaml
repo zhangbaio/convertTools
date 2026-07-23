@@ -7,7 +7,7 @@
 
     <ScrollViewer Margin="16,14,16,16">
         <StackPanel Spacing="12">
-            <TextBlock Text="系统服务" Classes="pageTitle" />
+            <TextBlock Text="系统能力" Classes="pageTitle" />
             <TextBlock Text="{Binding ServiceSummaryText}"
                        Classes="pageSummary"
                        TextWrapping="Wrap" />

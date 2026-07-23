@@ -3,70 +3,126 @@
              xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
              x:Class="TikTokPublisher.Ui.Views.AccountSidebarView"
              x:DataType="vm:MainViewModel">
-
     <UserControl.Styles>
+        <Style Selector="Border.sidebarActionGroup">
+            <Setter Property="Background" Value="#173E5E" />
+            <Setter Property="BorderBrush" Value="#2C5878" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="8" />
+        </Style>
+        <Style Selector="Button.sidebarMainAction">
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Background" Value="#168CE0" />
+            <Setter Property="BorderBrush" Value="#2AA4F4" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="Button.sidebarMainAction:pointerover">
+            <Setter Property="Background" Value="#219CF0" />
+        </Style>
+        <Style Selector="Button.sidebarUtilityAction">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Background" Value="#1B466B" />
+            <Setter Property="BorderBrush" Value="#376581" />
+            <Setter Property="Foreground" Value="#F7FBFF" />
+            <Setter Property="Padding" Value="6,5" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="Button.sidebarUtilityAction:pointerover">
+            <Setter Property="Background" Value="#245D7F" />
+            <Setter Property="BorderBrush" Value="#3977A8" />
+        </Style>
+        <Style Selector="Button.sidebarDangerAction">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Background" Value="#301B31" />
+            <Setter Property="BorderBrush" Value="#8E405D" />
+            <Setter Property="Foreground" Value="#FF8696" />
+            <Setter Property="Padding" Value="6,5" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
         <Style Selector="ListBox#AccountList ListBoxItem">
             <Setter Property="Padding" Value="10,9" />
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Margin" Value="0,3" />
         </Style>
-
         <Style Selector="ListBox#AccountList ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#F0F7FF" />
+            <Setter Property="Background" Value="#204F72" />
         </Style>
-
         <Style Selector="ListBox#AccountList ListBoxItem:selected /template/ ContentPresenter">
-            <Setter Property="Background" Value="#DDEEFF" />
+            <Setter Property="Background" Value="#245D8C" />
         </Style>
-
         <Style Selector="ListBox#AccountList ListBoxItem:selected TextBlock">
-            <Setter Property="Foreground" Value="#0F63C7" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
     </UserControl.Styles>
 
     <Border Classes="accountSidebarFrame" Padding="8,10">
         <DockPanel>
-            <StackPanel DockPanel.Dock="Top" Spacing="7" Margin="0,0,0,10">
-                <TextBlock Text="账号" Classes="pageSummary" />
-
-                <Grid ColumnDefinitions="*,*">
-                    <Button Grid.Column="0" Content="登录"
-                            Classes="sidebarPrimaryAction"
-                            Command="{Binding LoginCommand}" Margin="0,0,3,0" />
-                    <Button Grid.Column="1" Content="账号配置"
-                            Click="OnAccountSettingsClick" Margin="3,0,0,0" />
-                </Grid>
-
-                <Grid ColumnDefinitions="*,*">
-                    <Button Grid.Column="0" Content="+ 添加账号"
-                            Command="{Binding AddAccountCommand}" Margin="0,0,3,0" />
-                    <Button Grid.Column="1" Content="重新登录"
-                            Command="{Binding ReloginCommand}" Margin="3,0,0,0" />
-                </Grid>
-
-                <Grid ColumnDefinitions="*,*">
-                    <Button Grid.Column="0" Content="重命名"
-                            Click="OnRenameClick" Margin="0,0,3,0" />
-                    <Button Grid.Column="1" Content="删除"
-                            Classes="dangerAction"
-                            Click="OnDeleteClick" Margin="3,0,0,0" />
-                </Grid>
+            <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,10">
+                <TextBlock Text="账号资产" Foreground="#55CFFF" FontWeight="SemiBold" />
+                <Border Classes="sidebarActionGroup">
+                    <StackPanel Spacing="7">
+                        <TextBlock Text="账号操作" Classes="pageSummary" />
+                        <Grid ColumnDefinitions="*,*"
+                              RowDefinitions="Auto,Auto"
+                              ColumnSpacing="6"
+                              RowSpacing="6">
+                            <Button Grid.Row="0" Grid.Column="0"
+                                    Content="新建账号"
+                                    Classes="sidebarUtilityAction"
+                                    Command="{Binding AddAccountCommand}" />
+                            <Button Grid.Row="0" Grid.Column="1"
+                                    Content="账号配置"
+                                    Classes="sidebarUtilityAction"
+                                    Click="OnAccountSettingsClick" />
+                            <Button Grid.Row="1" Grid.Column="0"
+                                    Content="重命名"
+                                    Classes="sidebarUtilityAction"
+                                    Click="OnRenameClick" />
+                            <Button Grid.Row="1" Grid.Column="1"
+                                    Content="删除账号"
+                                    Classes="sidebarDangerAction"
+                                    Click="OnDeleteClick" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
             </StackPanel>
 
-            <TextBox DockPanel.Dock="Top"
-                     Margin="0,0,0,10"
-                     Watermark="昵称/ID/邮箱"
-                     Text="{Binding AccountSearchText, Mode=TwoWay}" />
+            <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0" Spacing="8">
+                <Border Background="#173E5E" BorderBrush="#2C5878" BorderThickness="1"
+                        CornerRadius="8" Padding="10">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="资产概览" Foreground="#55CFFF" FontWeight="SemiBold" />
+                        <Border Background="#1B466B" CornerRadius="6" Padding="10,8">
+                            <StackPanel>
+                                <TextBlock Text="账号总数" Classes="pageSummary" />
+                                <TextBlock Text="{Binding Accounts.Count}" FontSize="22"
+                                           Foreground="#52B9FF" FontWeight="Bold" />
+                            </StackPanel>
+                        </Border>
+                        <Border Background="#1B466B" CornerRadius="6" Padding="10,8">
+                            <StackPanel>
+                                <TextBlock Text="正常账号" Classes="pageSummary" />
+                                <TextBlock Text="{Binding Accounts.Count}" FontSize="22"
+                                           Foreground="#63D8A2" FontWeight="Bold" />
+                            </StackPanel>
+                        </Border>
+                        <Border Background="#1B466B" CornerRadius="6" Padding="10,8">
+                            <StackPanel>
+                                <TextBlock Text="可用终端" Classes="pageSummary" />
+                                <TextBlock Text="{Binding Accounts.Count}" FontSize="22"
+                                           Foreground="#46D9D0" FontWeight="Bold" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+                <TextBlock Classes="pageSummary" TextWrapping="Wrap"
+                           Text="{Binding SelectedAccount.DisplayName, TargetNullValue='未选择账号', StringFormat='当前：{0}'}" />
+            </StackPanel>
 
-            <TextBlock DockPanel.Dock="Bottom"
-                       Classes="pageSummary"
-                       TextWrapping="Wrap"
-                       Margin="0,10,0,0"
-                       Text="{Binding SelectedAccount.DisplayName, TargetNullValue='未选择账号', StringFormat='当前：{0}'}" />
-
-            <ListBox x:Name="AccountList"
-                     ItemsSource="{Binding FilteredAccounts}"
+            <ListBox x:Name="AccountList" ItemsSource="{Binding FilteredAccounts}"
                      SelectedItem="{Binding SelectedAccount, Mode=TwoWay}">
                 <ListBox.Styles>
                     <Style Selector="ListBox#AccountList">
@@ -78,7 +134,8 @@
                     <DataTemplate x:DataType="vm:AccountItemViewModel">
                         <StackPanel Spacing="2">
                             <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding Subtitle}" FontSize="12" Classes="pageSummary" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding Subtitle}" FontSize="12"
+                                       Classes="pageSummary" TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                     </DataTemplate>
                 </ListBox.ItemTemplate>

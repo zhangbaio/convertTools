@@ -25,7 +25,7 @@
                         </StackPanel>
                         <TextBox x:Name="DownloadWorkspaceBox" Watermark="下载工作目录（last_download_workspace，可选）" />
                         <CheckBox x:Name="DeleteVideosOnArchiveBox" Content="归档时删除视频文件" />
-                        <TextBlock Text="关闭后归档目录会保留视频，占用更多磁盘" Foreground="#6B7280" />
+                        <TextBlock Text="关闭后归档目录会保留视频，占用更多磁盘" Foreground="#B8C8D8" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -171,10 +171,10 @@
                             <StackPanel Grid.Row="33" Grid.Column="1" Spacing="6">
                                 <CheckBox x:Name="ProductionAgreementMaterialBox" Content="合作协议（核心）" />
                                 <TextBlock Text="自动上传当前项目生成的“证明材料.pdf”。"
-                                           Foreground="#6B7280"
+                                           Foreground="#B8C8D8"
                                            TextWrapping="Wrap" />
                                 <TextBlock Text="以下材料需要各自的独立文件，当前暂不支持自动上传："
-                                           Foreground="#6B7280"
+                                           Foreground="#B8C8D8"
                                            TextWrapping="Wrap"
                                            Margin="0,2,0,0" />
                                 <WrapPanel>
@@ -196,7 +196,7 @@
                 <ScrollViewer>
                     <StackPanel Spacing="12" Margin="4">
                         <TextBlock Text="这些公司与印章信息仅用于当前账号生成的权利声明。"
-                                   Foreground="#6B7280" TextWrapping="Wrap" />
+                                   Foreground="#B8C8D8" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="130,*"
                               RowDefinitions="Auto,Auto,Auto"
                               RowSpacing="10"

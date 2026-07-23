@@ -30,9 +30,9 @@ if ($SkipInstallerCompile) {
 }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    Write-Host "Building TikTok installer using packaging\tiktok-installer-version.txt"
+    Write-Host "Building Yunfan Drama Studio installer using packaging\tiktok-installer-version.txt"
 }
 else {
-    Write-Host "Building TikTok installer version $Version"
+    Write-Host "Building Yunfan Drama Studio installer version $Version"
 }
 & $PackageScript @arguments

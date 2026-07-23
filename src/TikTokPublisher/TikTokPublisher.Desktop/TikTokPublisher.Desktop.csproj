@@ -6,7 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>Assets\tiktok-shortdrama-logo.ico</ApplicationIcon>
+    <AssemblyName>YunfanDramaStudio</AssemblyName>
+    <Product>云帆剧集工坊</Product>
+    <Description>云帆剧集生产与发布工作台</Description>
+    <ApplicationIcon>Assets\yunfan-studio-logo.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
   <ItemGroup>

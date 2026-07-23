@@ -19,10 +19,10 @@
             <Setter Property="Cursor" Value="Hand" />
         </Style>
         <Style Selector="Button.queueLink:pointerover">
-            <Setter Property="Background" Value="#F0F1FA" />
+            <Setter Property="Background" Value="#204F72" />
         </Style>
         <Style Selector="Button.queueLink:pressed">
-            <Setter Property="Background" Value="#E5E7FA" />
+            <Setter Property="Background" Value="#245D8C" />
         </Style>
         <Style Selector="Button.compactAction">
             <Setter Property="Padding" Value="9,5" />
@@ -30,30 +30,30 @@
             <Setter Property="FontSize" Value="13" />
         </Style>
         <Style Selector="Button.neutralAction">
-            <Setter Property="Background" Value="#F7F8FB" />
-            <Setter Property="Foreground" Value="#3E465A" />
-            <Setter Property="BorderBrush" Value="#C9CFDF" />
+            <Setter Property="Background" Value="#1B466B" />
+            <Setter Property="Foreground" Value="#B8D0E7" />
+            <Setter Property="BorderBrush" Value="#376581" />
         </Style>
         <Style Selector="Button.neutralAction:pointerover">
-            <Setter Property="Background" Value="#ECEEF4" />
+            <Setter Property="Background" Value="#12385F" />
         </Style>
         <Style Selector="Button.contentAction">
-            <Setter Property="Background" Value="#ECEEFA" />
-            <Setter Property="Foreground" Value="#4B4FBF" />
-            <Setter Property="BorderBrush" Value="#C4C7EF" />
+            <Setter Property="Background" Value="#214F75" />
+            <Setter Property="Foreground" Value="#52B9FF" />
+            <Setter Property="BorderBrush" Value="#286DA1" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.contentAction:pointerover">
-            <Setter Property="Background" Value="#E2E4F7" />
+            <Setter Property="Background" Value="#16406C" />
         </Style>
         <Style Selector="Button.browserAction">
-            <Setter Property="Background" Value="#EAF7F9" />
-            <Setter Property="Foreground" Value="#167E94" />
-            <Setter Property="BorderBrush" Value="#A9D7DE" />
+            <Setter Property="Background" Value="#0B354B" />
+            <Setter Property="Foreground" Value="#48D9E9" />
+            <Setter Property="BorderBrush" Value="#21758A" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.browserAction:pointerover">
-            <Setter Property="Background" Value="#DDF1F4" />
+            <Setter Property="Background" Value="#10475E" />
         </Style>
         <Style Selector="Button.repairAction">
             <Setter Property="Background" Value="#FFF7E8" />
@@ -138,22 +138,23 @@
         </Style>
         <Style Selector="TextBlock.stepTableHeader">
             <Setter Property="Background" Value="{StaticResource PythonTableHeaderStep}" />
-            <Setter Property="Foreground" Value="#42479C" />
+            <Setter Property="Foreground" Value="#64C9FF" />
         </Style>
         <Style Selector="Border.queueTableFrame">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#D7DCEB" />
+            <Setter Property="Background" Value="#173E5E" />
+            <Setter Property="BorderBrush" Value="#2C5878" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
         </Style>
         <Style Selector="Border.queueTableRow">
-            <Setter Property="BorderBrush" Value="#E0E3ED" />
+            <Setter Property="BorderBrush" Value="#2B5673" />
             <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="TextBlock.Foreground" Value="#F7FBFF" />
         </Style>
         <Style Selector="ListBox#QueueProjectList">
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
-            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Background" Value="#173E5E" />
         </Style>
         <Style Selector="ListBox#QueueProjectList ListBoxItem">
             <Setter Property="Padding" Value="0" />
@@ -162,10 +163,10 @@
         </Style>
         <!-- 斑马纹改用行 VM 绑定（Border.queueTableRow.Background），避免 nth-child 选择器在虚拟化滚动时反复重算导致卡顿 -->
         <Style Selector="ListBox#QueueProjectList ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#F0F1FA" />
+            <Setter Property="Background" Value="#204F72" />
         </Style>
         <Style Selector="ListBox#QueueProjectList ListBoxItem:selected /template/ ContentPresenter">
-            <Setter Property="Background" Value="#E5E7FA" />
+            <Setter Property="Background" Value="#245D8C" />
         </Style>
         <Style Selector="Border.stepStatusBadge">
             <Setter Property="BorderThickness" Value="1" />
@@ -194,6 +195,24 @@
             <Setter Property="Padding" Value="6,2" />
             <Setter Property="FontSize" Value="12" />
         </Style>
+        <Style Selector="Border.metricCard">
+            <Setter Property="Background" Value="#1B466B" />
+            <Setter Property="BorderBrush" Value="#2C5878" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14,10" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="MinHeight" Value="62" />
+        </Style>
+        <Style Selector="TextBlock.metricLabel">
+            <Setter Property="Foreground" Value="#91ABC4" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="TextBlock.metricValue">
+            <Setter Property="Foreground" Value="#DCEEFF" />
+            <Setter Property="FontSize" Value="22" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
     </UserControl.Styles>
 
     <DockPanel Margin="16,14,16,16">
@@ -208,7 +227,7 @@
 
                 <WrapPanel Orientation="Horizontal">
                     <Button Content="刷新项目" Click="OnScanWorkspaceClick" Classes="neutralAction compactAction" Margin="0,0,8,8" />
-                    <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="创建发布单" Click="OnUploadTitlesClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="导入本地剧集" Click="OnImportLocalDramaClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="编辑剧集" Click="OnEditSelectedClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="改新剧名" Click="OnRenameNewTitleClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
@@ -227,10 +246,10 @@
                     <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="打开外部浏览器" Click="OnOpenBrowserClick" Classes="browserAction compactAction" Margin="0,0,8,0" />
                     <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Classes="repairAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="标记上传成功" Click="OnMarkSelectedUploadCompletedClick" Classes="contentAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="标记上传失败" Click="OnMarkSelectedUploadFailedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="运行日志" Click="OnOpenLogsClick" Classes="logAction compactAction" Margin="0,0,8,0" />
-                    <Button x:Name="StartQueueButton" Content="执行勾选队列" Click="OnStartQueueClick" Classes="primaryAction compactAction" Margin="0,0,8,0" />
+                    <Button Content="标记步骤成功" Click="OnMarkSelectedUploadCompletedClick" Classes="contentAction compactAction" Margin="0,0,8,0" />
+                    <Button Content="标记步骤失败" Click="OnMarkSelectedUploadFailedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,0" />
+                    <Button Content="查看报告" Click="OnOpenLogsClick" Classes="logAction compactAction" Margin="0,0,8,0" />
+                    <Button x:Name="StartQueueButton" Content="开始生产" Click="OnStartQueueClick" Classes="primaryAction compactAction" Margin="0,0,8,0" />
                     <Button x:Name="StopQueueButton" Content="停止" Click="OnStopQueueClick" Classes="stopAction compactAction" IsEnabled="False" Margin="0,0,8,0" />
                     <Button x:Name="StartAllQueuesButton" Content="执行全部账号工作目录" Click="OnStartAllQueuesClick" Classes="primaryAction compactAction" IsVisible="False" />
                 </WrapPanel>
@@ -250,17 +269,17 @@
                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                             <TextBlock Grid.Column="0" Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
                             <WrapPanel Grid.Column="1" Orientation="Horizontal">
-                                <CheckBox Content="下载剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="生成证明材料" IsChecked="{Binding QueueGenerateProofMaterialEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="获取剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="润色剧名" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="制作海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="整理授权材料" IsChecked="{Binding QueueGenerateProofMaterialEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="预处理成片" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="视频翻译" IsChecked="{Binding QueueVideoTranslateEnabled}" Margin="0,0,12,2" IsVisible="False" />
-                                <CheckBox Content="静音检测" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="静音修复" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="素材校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="删除源视频" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="上传剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="音轨检查" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="处理音轨" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="成片检查" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="清理原片" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="发布剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
                             </WrapPanel>
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
                                 <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="selectionAction compactAction" />
@@ -278,12 +297,12 @@
                 </Border>
 
                 <TextBlock Text="{Binding RunningWorkspacesSummary}"
-                           Foreground="#1A5F8A"
+                           Foreground="#55CFFF"
                            IsVisible="{Binding IsQueueRunning}"
                            TextWrapping="Wrap" Margin="0,-2,0,0" />
                 <TextBlock x:Name="ManualInterventionHint"
                            Text="{Binding ManualInterventionHint}"
-                           Foreground="#B94218"
+                           Foreground="#FFB067"
                            IsVisible="{Binding ManualInterventionPending}"
                            TextWrapping="Wrap" Margin="0,-4,0,0" />
 
@@ -295,6 +314,45 @@
         </Border>
 
         <!-- 手动发布区暂时隐藏：保留代码，后续需要时移除 IsVisible 即可恢复 -->
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,*,*,*,*,*" Margin="0,0,0,8">
+            <Border Grid.Column="0" Classes="metricCard" BorderBrush="#258DE0">
+                <StackPanel>
+                    <TextBlock Text="全部任务" Classes="metricLabel" />
+                    <TextBlock Text="{Binding QueueTotalCount}" Classes="metricValue" Foreground="#52B9FF" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="1" Classes="metricCard">
+                <StackPanel>
+                    <TextBlock Text="待调度" Classes="metricLabel" />
+                    <TextBlock Text="{Binding QueuePendingCount}" Classes="metricValue" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="2" Classes="metricCard">
+                <StackPanel>
+                    <TextBlock Text="执行中" Classes="metricLabel" />
+                    <TextBlock Text="{Binding QueueRunningCount}" Classes="metricValue" Foreground="#35B8FF" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="3" Classes="metricCard">
+                <StackPanel>
+                    <TextBlock Text="已完成" Classes="metricLabel" />
+                    <TextBlock Text="{Binding QueueCompletedCount}" Classes="metricValue" Foreground="#58D89B" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="4" Classes="metricCard">
+                <StackPanel>
+                    <TextBlock Text="调度失败" Classes="metricLabel" />
+                    <TextBlock Text="{Binding QueueFailedCount}" Classes="metricValue" Foreground="#FF6473" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Column="5" Classes="metricCard" Margin="0">
+                <StackPanel>
+                    <TextBlock Text="已取消" Classes="metricLabel" />
+                    <TextBlock Text="{Binding QueueStoppedCount}" Classes="metricValue" Foreground="#B8C5D2" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
         <Border DockPanel.Dock="Bottom" Classes="controlsFrame" MaxHeight="220" Margin="0,10,0,0" IsVisible="False">
             <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Text="手动发布（多账号并发）" FontWeight="SemiBold" Margin="0,0,0,8" />
@@ -356,17 +414,17 @@
                         <TextBlock Grid.Column="4" Text="新剧名" Classes="tableHeader" />
                         <TextBlock Grid.Column="5" Text="集数" Classes="tableHeader" />
                         <TextBlock Grid.Column="6" Text="加入时间" Classes="tableHeader" />
-                        <TextBlock Grid.Column="7" Text="下载" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="8" Text="改写" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="7" Text="获取" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="8" Text="润色" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="9" Text="海报" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="10" Text="证明材料" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="11" Text="修复" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="10" Text="授权材料" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="11" Text="预处理" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="12" Text="翻译" Classes="tableHeader stepTableHeader" IsVisible="False" />
-                        <TextBlock Grid.Column="13" Text="静音检测" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="14" Text="静音修复" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="15" Text="校验" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="16" Text="删源" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="17" Text="上传" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="13" Text="音轨检查" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="14" Text="音轨处理" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="15" Text="成片检查" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="16" Text="清理原片" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="17" Text="发布" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="18" Text="备注" Classes="tableHeader" />
                         <Border Grid.Column="0" Classes="queueColumnResizer" Tag="0" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="1" Classes="queueColumnResizer" Tag="1" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
@@ -467,8 +525,8 @@
                                         <Border Grid.Column="17" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding DetailText}">
                                             <Border.ContextMenu>
                                                 <ContextMenu>
-                                                    <MenuItem Header="标记上传成功" Click="OnMarkUploadCompletedClick" />
-                                                    <MenuItem Header="标记上传失败" Click="OnMarkUploadFailedClick" />
+                                                    <MenuItem Header="标记发布成功" Click="OnMarkUploadCompletedClick" />
+                                                    <MenuItem Header="标记发布失败" Click="OnMarkUploadFailedClick" />
                                                 </ContextMenu>
                                             </Border.ContextMenu>
                                             <TextBlock Text="{Binding UploadStatus}" Foreground="{Binding UploadStatusBrush}" Classes="stepStatusText" />

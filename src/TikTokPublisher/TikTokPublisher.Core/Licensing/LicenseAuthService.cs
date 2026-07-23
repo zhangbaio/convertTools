@@ -21,7 +21,7 @@ public class LicenseRejectedException : LicenseServiceException
 
 public static class LicenseAuthService
 {
-    public const string AppName = "TikTok 短剧上传助手";
+    public const string AppName = "云帆剧集工坊";
     public const string AppVersion = "0.1.0";
     public const string DeviceName = "TikTok Uploader Desktop";
     public const int VerifyIntervalHours = 1;

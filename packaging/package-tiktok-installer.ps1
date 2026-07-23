@@ -21,12 +21,12 @@ $ErrorActionPreference = "Stop"
 
 $Root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $ArtifactsRoot = Join-Path $Root "artifacts"
-$PublishDir = Join-Path $ArtifactsRoot "publish\TikTokPublisher"
+$PublishDir = Join-Path $ArtifactsRoot "publish\YunfanDramaStudio"
 $InstallerDir = Join-Path $ArtifactsRoot "INSTALL"
 $DependenciesDir = Join-Path $Root "packaging\dependencies"
 $ProjectPath = Join-Path $Root "src\TikTokPublisher\TikTokPublisher.Desktop\TikTokPublisher.Desktop.csproj"
 $InnoScript = Join-Path $Root "packaging\tiktok-publisher.iss"
-$AppIconPath = Join-Path $Root "src\TikTokPublisher\TikTokPublisher.Desktop\Assets\tiktok-shortdrama-logo.ico"
+$AppIconPath = Join-Path $Root "src\TikTokPublisher\TikTokPublisher.Desktop\Assets\yunfan-studio-logo.ico"
 $DependencyCacheDir = Join-Path $DependenciesDir "cache"
 $ModelsDir = Join-Path $Root "models"
 $VersionFile = Join-Path $Root "packaging\tiktok-installer-version.txt"
@@ -469,7 +469,7 @@ function Ensure-PlaywrightChromiumCached {
     }
 }
 
-Write-Host "Packaging TikTokPublisher $Version ($Runtime, $Configuration)"
+Write-Host "Packaging YunfanDramaStudio $Version ($Runtime, $Configuration)"
 if ($BundleDependencies) {
     Write-Host "Bundling runtime dependencies: .NET self-contained, fonts/tools, ffmpeg, Playwright Chromium, WebView2 Runtime"
 }
@@ -638,7 +638,7 @@ $isccArgs += $InnoScript
 
 Invoke-Checked -FilePath $iscc -Arguments $isccArgs
 
-$installerPath = Join-Path $InstallerDir "TikTokShortDramaUploader-Setup-$Version.exe"
+$installerPath = Join-Path $InstallerDir "YunfanDramaStudio-Setup-$Version.exe"
 Write-Host "Installer created: $installerPath"
 
 if ($ShouldAdvanceVersion) {

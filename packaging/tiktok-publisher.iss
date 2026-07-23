@@ -1,4 +1,4 @@
-#define AppName "TikTok 短剧助手"
+#define AppName "云帆剧集工坊"
 
 #ifndef AppVersion
 #define AppVersion "1.0.0"
@@ -13,15 +13,15 @@
 #endif
 
 [Setup]
-AppId={{8F617FD8-AD88-4A82-8231-6D180956EB7F}
+AppId={{B7D3DA58-F319-4D65-B11D-D46F2AC84D1E}
 AppName={#AppName}
 AppVersion={#AppVersion}
-DefaultDirName={localappdata}\Programs\TikTokShortDramaUploader
+DefaultDirName={localappdata}\Programs\YunfanDramaStudio
 DefaultGroupName={#AppName}
 DisableDirPage=no
 DisableProgramGroupPage=auto
 OutputDir={#OutputDir}
-OutputBaseFilename=TikTokShortDramaUploader-Setup-{#AppVersion}
+OutputBaseFilename=YunfanDramaStudio-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -31,7 +31,7 @@ ArchitecturesInstallIn64BitMode=x64
 MinVersion=10.0
 CloseApplications=yes
 SetupLogging=yes
-UninstallDisplayIcon={app}\TikTokPublisher.Desktop.exe
+UninstallDisplayIcon={app}\YunfanDramaStudio.exe
 #ifdef AppIconFile
 SetupIconFile={#AppIconFile}
 #endif
@@ -47,8 +47,8 @@ Source: "{#WebView2Installer}"; DestDir: "{tmp}"; DestName: "MicrosoftEdgeWebVie
 #endif
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\TikTokPublisher.Desktop.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\TikTokPublisher.Desktop.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\{#AppName}"; Filename: "{app}\YunfanDramaStudio.exe"; WorkingDir: "{app}"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\YunfanDramaStudio.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 #ifdef WebView2Installer
@@ -56,8 +56,8 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\TikTokPublisher.Desktop.exe";
 ; 直接 CreateProcess 无法完成 per-machine 安装，会静默失败导致内置浏览器黑屏）。
 Filename: "{tmp}\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; StatusMsg: "正在安装 WebView2 Runtime（需管理员授权）..."; Flags: shellexec waituntilterminated; Check: NeedsWebView2
 #endif
-Filename: "{app}\TikTokPublisher.Desktop.exe"; Parameters: "--reset-installer-data-secrets"; StatusMsg: "正在重置敏感配置..."; Flags: waituntilterminated runhidden; Check: ShouldResetData
-Filename: "{app}\TikTokPublisher.Desktop.exe"; Description: "启动 {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\YunfanDramaStudio.exe"; Parameters: "--reset-installer-data-secrets"; StatusMsg: "正在重置敏感配置..."; Flags: waituntilterminated runhidden; Check: ShouldResetData
+Filename: "{app}\YunfanDramaStudio.exe"; Description: "启动 {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 function HasWebView2Runtime(): Boolean;

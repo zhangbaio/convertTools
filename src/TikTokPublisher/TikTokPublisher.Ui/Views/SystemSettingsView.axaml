@@ -11,7 +11,7 @@
             <Button Grid.Column="1" Content="保存设置" Command="{Binding SaveSettingsCommand}" Classes="primaryAction" MinWidth="140" />
         </Grid>
 
-        <TextBlock DockPanel.Dock="Top" Text="系统设置" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" />
+        <TextBlock DockPanel.Dock="Top" Text="应用配置" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" />
 
         <TabControl Classes="secondaryTabs">
             <TabItem Header="登录设置">
@@ -298,12 +298,12 @@
                                                Width="90" />
                                 <TextBlock Text="次（标题写错时先让 AI 局部修正，耗尽后才按校验模式处理）"
                                            VerticalAlignment="Center"
-                                           Foreground="#666" />
+                                           Foreground="#B8C8D8" />
                             </StackPanel>
                         </Grid>
 
                         <TextBlock x:Name="PosterModeHintText"
-                                   Foreground="#666"
+                                   Foreground="#B8C8D8"
                                    TextWrapping="Wrap" />
 
                         <Border x:Name="FrameExtractSettingsPanel"
@@ -351,7 +351,7 @@
                                              Watermark="例如：10,25,50,75" />
                                 </Grid>
                                 <TextBlock Text="抽帧顺序：先尝试指定集数和时间点，再尝试邻近秒数，最后按全片时长百分比兜底。"
-                                           Foreground="#666"
+                                           Foreground="#B8C8D8"
                                            TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>

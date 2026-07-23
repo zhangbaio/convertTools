@@ -5,7 +5,7 @@
              Background="{StaticResource PythonPageBgBrush}">
 
     <DockPanel Margin="16,14,16,16">
-        <TextBlock DockPanel.Dock="Top" Text="TikTok队列" FontWeight="Bold" Margin="0,0,0,8" />
+        <TextBlock DockPanel.Dock="Top" Text="生产执行报告" FontWeight="Bold" Margin="0,0,0,8" />
 
         <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,*" Margin="0,0,0,8">
             <WrapPanel Grid.Column="0">
@@ -16,8 +16,8 @@
             </WrapPanel>
 
             <Button Grid.Column="1"
-                    Content="返回TikTok 上传"
-                    ToolTip.Tip="返回 TikTok 上传页面"
+                    Content="返回生产流水线"
+                    ToolTip.Tip="返回生产流水线页面"
                     Click="OnReturnClick"
                     HorizontalAlignment="Center"
                     Margin="8,0,8,8" />

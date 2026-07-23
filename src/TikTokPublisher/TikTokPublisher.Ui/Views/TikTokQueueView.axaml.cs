@@ -113,7 +113,7 @@ public partial class TikTokQueueView : UserControl
                 ? "等待停止"
                 : startBusy
                     ? "执行中"
-                    : "执行勾选队列";
+                    : "开始生产";
             StartQueueButton.IsEnabled = !startBusy;
         }
         if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !anyRunning;
@@ -946,7 +946,7 @@ public partial class TikTokQueueView : UserControl
     {
         var dialog = new Window
         {
-            Title = "上传短剧 - TikTok",
+            Title = "创建发布单",
             Width = 560,
             Height = 460,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -2050,7 +2050,7 @@ public partial class TikTokQueueView : UserControl
     {
         if (StartQueueButton is not null)
         {
-            StartQueueButton.Content = running ? "执行中" : "执行勾选队列";
+            StartQueueButton.Content = running ? "生产中" : "开始生产";
             StartQueueButton.IsEnabled = !running;
         }
         if (StopQueueButton is not null) StopQueueButton.IsEnabled = running;

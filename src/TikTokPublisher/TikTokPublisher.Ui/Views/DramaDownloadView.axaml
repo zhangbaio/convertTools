@@ -107,7 +107,7 @@
                                     <Grid ColumnDefinitions="56,64,220,140,72,90,140,140,*" MinHeight="34">
                                         <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="8,0" Text="{Binding RowIndex}" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding Selected}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="2" Text="{Binding Title}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" Foreground="#0F63C7" />
+                                        <TextBlock Grid.Column="2" Text="{Binding Title}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" Foreground="#55CFFF" />
                                         <TextBlock Grid.Column="3" Text="{Binding Author}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="4" Text="{Binding EpisodeTotal}" VerticalAlignment="Center" Margin="8,0" />
                                         <TextBlock Grid.Column="5" Text="{Binding FavoriteText}" VerticalAlignment="Center" Margin="8,0" />
@@ -178,7 +178,7 @@
                                             ToolTip.Tip="{Binding ProjectDir}">
                                         <TextBlock Text="{Binding Title}"
                                                    TextTrimming="CharacterEllipsis"
-                                                   Foreground="#0F63C7" />
+                                                   Foreground="#55CFFF" />
                                     </Button>
                                     <TextBlock Grid.Column="1" Text="{Binding EpisodeCount}" VerticalAlignment="Center" Margin="8,0" />
                                     <TextBlock Grid.Column="2" Text="{Binding Status}" VerticalAlignment="Center" Margin="8,0" />

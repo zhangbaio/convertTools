@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Desktop;
@@ -37,8 +38,8 @@ internal static class StartupFailureReporter
             if (detail.Length > 500) detail = detail[..500] + "\u2026";
             MessageBoxW(
                 IntPtr.Zero,
-                $"TikTok \u77ed\u5267\u52a9\u624b\u542f\u52a8\u5931\u8d25\u3002\n\n{detail}\n\n\u8bca\u65ad\u65e5\u5fd7\uff1a\n{LogPath}",
-                "TikTok \u77ed\u5267\u52a9\u624b - \u542f\u52a8\u5931\u8d25",
+                $"{LicenseAuthService.AppName}\u542f\u52a8\u5931\u8d25\u3002\n\n{detail}\n\n\u8bca\u65ad\u65e5\u5fd7\uff1a\n{LogPath}",
+                $"{LicenseAuthService.AppName} - \u542f\u52a8\u5931\u8d25",
                 0x00000010u);
         }
     }

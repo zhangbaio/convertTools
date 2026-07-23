@@ -3,8 +3,8 @@
         xmlns:views="using:TikTokPublisher.Ui.Views"
         x:Class="TikTokPublisher.Desktop.Views.MainWindow"
         Width="1496" Height="860"
-        Title="TikTok 短剧上传助手"
-        Icon="/Assets/tiktok-shortdrama-logo.ico"
+        Title="云帆剧集工坊"
+        Icon="/Assets/yunfan-studio-logo.ico"
         Background="{StaticResource PythonPageBgBrush}">
 
     <Grid RowDefinitions="Auto,*,Auto">
@@ -18,7 +18,7 @@
 
                 <Border x:Name="BrandPane" Grid.Column="0" BorderBrush="{StaticResource PythonPanelBorderBrush}" BorderThickness="0,0,1,0" Padding="12,0,10,0">
                     <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock x:Name="BrandLabel" Grid.Column="0" Text="TikTok 短剧助手" Classes="topBrandLabel" VerticalAlignment="Center" />
+                        <TextBlock x:Name="BrandLabel" Grid.Column="0" Text="云帆剧集工坊" Classes="topBrandLabel" VerticalAlignment="Center" />
                         <Button x:Name="SidebarToggleButton"
                                 Grid.Column="1"
                                 Content="‹"
@@ -35,14 +35,14 @@
                 </Border>
                 <StackPanel Grid.Column="1" x:Name="ModuleNav" Orientation="Horizontal"
                             VerticalAlignment="Center" Margin="8,0,0,0">
-                    <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="短剧下载" Tag="download" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="TikTok 上传" Tag="queue" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="账号管理" Tag="accounts" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="系统设置" Tag="settings" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="系统服务" Tag="services" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="生产流水线" Tag="queue" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="内容采集" Tag="download" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="发布账号" Tag="accounts" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="网页工具" Tag="browser" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="查看报告" Tag="logs" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="应用配置" Tag="settings" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="系统能力" Tag="services" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="资源回收站" Tag="archived" Classes="topNavItem" Click="OnNavItemClick" />
                 </StackPanel>
             </Grid>
         </Border>

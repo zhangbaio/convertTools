@@ -86,7 +86,7 @@
                                             Click="OnOpenRowSourceClick"
                                             ToolTip.Tip="{Binding SourceDir}">
                                         <TextBlock Text="{Binding OriginalTitle}"
-                                                   Foreground="#0F63C7"
+                                                   Foreground="#55CFFF"
                                                    TextTrimming="CharacterEllipsis" />
                                     </Button>
                                     <Button Grid.Column="3"
@@ -94,7 +94,7 @@
                                             Click="OnOpenRowWorkflowClick"
                                             ToolTip.Tip="{Binding WorkflowDir}">
                                         <TextBlock Text="{Binding NewTitle}"
-                                                   Foreground="#0F63C7"
+                                                   Foreground="#55CFFF"
                                                    TextTrimming="CharacterEllipsis" />
                                     </Button>
                                     <TextBlock Grid.Column="4" Text="{Binding ArchiveSource}" VerticalAlignment="Center" Margin="8,0" />

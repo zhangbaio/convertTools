@@ -140,13 +140,11 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush DeleteSourceStatusBrush => BrushOf(DeleteSourceStatus);
     public IBrush UploadStatusBrush => BrushOf(UploadStatus);
     public IBrush StatusTextBrush => BrushOf(StatusText);
-    public IBrush DramaTitleBrush => IsUploadCompleted
-        ? CompletedBrush
-        : IsUploadActive
-            ? RunningBrush
+    public IBrush DramaTitleBrush => IsUploadActive
+        ? RunningBrush
         : HasFailure
             ? FailedBrush
-            : LinkBrush;
+            : PrimaryTextBrush;
     public IBrush DownloadStatusBackgroundBrush => BackgroundOf(DownloadStatus);
     public IBrush RewriteStatusBackgroundBrush => BackgroundOf(RewriteStatus);
     public IBrush PosterStatusBackgroundBrush => BackgroundOf(PosterStatus);
@@ -245,7 +243,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     private static readonly IBrush UploadSlotBrush = new SolidColorBrush(Color.Parse("#8A4B00"));
     private static readonly IBrush ManualInterventionBrush = new SolidColorBrush(Color.Parse("#C2410C"));
     private static readonly IBrush DefaultBrush = new SolidColorBrush(Color.Parse("#3E465A"));
-    private static readonly IBrush LinkBrush = new SolidColorBrush(Color.Parse("#4B4FBF"));
+    private static readonly IBrush PrimaryTextBrush = new SolidColorBrush(Color.Parse("#F7FBFF"));
     private static readonly IBrush CompletedBackgroundBrush = new SolidColorBrush(Color.Parse("#E4F5EF"));
     private static readonly IBrush PendingBackgroundBrush = new SolidColorBrush(Color.Parse("#FFF4D9"));
     private static readonly IBrush RunningBackgroundBrush = new SolidColorBrush(Color.Parse("#E5F4F6"));
