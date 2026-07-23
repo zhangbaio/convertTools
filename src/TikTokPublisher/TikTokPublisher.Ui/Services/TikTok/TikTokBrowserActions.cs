@@ -933,12 +933,12 @@ public static partial class TikTokBrowserActions
 
         var candidates = new[]
         {
+            page.Locator("[x-field-id='signed'] label").First,
+            page.Locator("[x-field-id='signed'] input[type='checkbox']").First,
             page.Locator("label").Filter(new() { HasText = "本人承诺" }).First,
             page.Locator("span").Filter(new() { HasText = "本人承诺" }).First,
             page.Locator("a").Filter(new() { HasText = "版权内容自查清单" }).First,
             page.Locator("span").Filter(new() { HasText = "版权内容自查清单" }).First,
-            page.Locator(".semi-checkbox").First,
-            page.Locator("input.semi-checkbox-input").First,
         };
 
         for (var round = 0; round < 3; round++)

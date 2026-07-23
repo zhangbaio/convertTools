@@ -824,6 +824,23 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Copyright_material_i18n_keys_cover_every_supported_material_type()
+    {
+        TikTokPublishConstants.CopyrightMaterialI18nKeys.Keys
+            .Should().BeEquivalentTo(TikTokPublishConstants.CopyrightMaterialLabels.Keys);
+
+        TikTokPublishConstants.CopyrightMaterialI18nKeys["production_agreement"]
+            .Should().Be(
+                "contentPartnerHub_seriesEditPage_copyrightProof_material_productionAgreement");
+        TikTokPublishConstants.CopyrightMaterialI18nKeys.Values
+            .Should().OnlyHaveUniqueItems()
+            .And.OnlyContain(value =>
+                value.StartsWith(
+                    "contentPartnerHub_seriesEditPage_copyrightProof_material_",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Publish_options_builder_does_not_assign_generated_proof_to_auxiliary_materials()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-proof-aux-{Guid.NewGuid():N}");

@@ -13,6 +13,8 @@ public static partial class TikTokBrowserActions
         "[x-field-id='copyrightProof.materialFiles.2']";
     private const string CopyrightMaterialUploadFieldSelector =
         "[x-field-id^='copyrightProof.materialFiles.']";
+    private const string OriginalRightsHolderFieldId = "copyrightProof.isOriginalRightsHolder";
+    private const string AdaptationFieldId = "copyrightProof.isAdaptation";
 
     internal static async Task ConfigureCopyrightProofAsync(
         IPage page,
@@ -75,9 +77,17 @@ public static partial class TikTokBrowserActions
         if (!File.Exists(resolvedFilePath))
             throw new FileNotFoundException("当前项目的 TikTok 证明材料文件不存在。", resolvedFilePath);
 
-        await SelectCopyrightRadioAsync(page, "是否原始权利人", options.IsOriginalRightsHolder ? "是" : "否", ct);
         await SelectCopyrightRadioAsync(
             page,
+            OriginalRightsHolderFieldId,
+            options.IsOriginalRightsHolder ? 0 : 1,
+            "是否原始权利人",
+            options.IsOriginalRightsHolder ? "是" : "否",
+            ct);
+        await SelectCopyrightRadioAsync(
+            page,
+            AdaptationFieldId,
+            string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
             "内容原创类型",
             string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase) ? "改编" : "原创",
             ct);
@@ -93,11 +103,13 @@ public static partial class TikTokBrowserActions
             TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.ProductionAgreementMaterialType];
         var productionAgreementOption = await WaitForCopyrightMaterialCheckboxAsync(
             page,
+            TikTokPublishConstants.ProductionAgreementMaterialType,
             productionAgreementLabel,
             CopyrightControlTimeoutMs,
             ct);
         await EnsureCopyrightMaterialCheckboxStateAsync(
             page,
+            TikTokPublishConstants.ProductionAgreementMaterialType,
             productionAgreementLabel,
             productionAgreementOption,
             shouldSelect: true,
@@ -112,10 +124,11 @@ public static partial class TikTokBrowserActions
                     TikTokPublishConstants.ProductionAgreementMaterialType,
                     StringComparison.Ordinal)) continue;
             ct.ThrowIfCancellationRequested();
-            var option = await TryFindCopyrightMaterialCheckboxAsync(page, pair.Value);
+            var option = await TryFindCopyrightMaterialCheckboxAsync(page, pair.Key, pair.Value);
             if (option is null || !await option.Value.Input.IsCheckedAsync()) continue;
             await EnsureCopyrightMaterialCheckboxStateAsync(
                 page,
+                pair.Key,
                 pair.Value,
                 option.Value,
                 shouldSelect: false,
@@ -200,6 +213,7 @@ public static partial class TikTokBrowserActions
 
     private static async Task<(ILocator Input, ILocator ClickTarget)> WaitForCopyrightMaterialCheckboxAsync(
         IPage page,
+        string materialKey,
         string label,
         int timeoutMs,
         CancellationToken ct)
@@ -208,7 +222,7 @@ public static partial class TikTokBrowserActions
         var found = await WaitUntilAsync(async () =>
         {
             ct.ThrowIfCancellationRequested();
-            result = await TryFindCopyrightMaterialCheckboxAsync(page, label);
+            result = await TryFindCopyrightMaterialCheckboxAsync(page, materialKey, label);
             return result is not null;
         }, timeoutMs, 300, ct);
 
@@ -220,41 +234,49 @@ public static partial class TikTokBrowserActions
 
     private static async Task<(ILocator Input, ILocator ClickTarget)?> TryFindCopyrightMaterialCheckboxAsync(
         IPage page,
+        string materialKey,
         string label)
     {
-        var literal = XPathLiteral(label);
-        var exactLabels = page.Locator(
-            $"xpath=//*[normalize-space(translate(text(), '*', ''))={literal} and " +
-            "ancestor::*[@role='tooltip' or @role='dialog' or " +
-            "contains(concat(' ', normalize-space(@class), ' '), ' semi-portal ')]]");
-        if (await exactLabels.CountAsync() == 0)
+        var candidates = new List<string>();
+        if (TikTokPublishConstants.CopyrightMaterialI18nKeys.TryGetValue(materialKey, out var i18nKey))
+            candidates.Add(i18nKey);
+        candidates.Add(label);
+
+        foreach (var candidateText in candidates.Distinct(StringComparer.Ordinal))
         {
-            var popupRoots = page.Locator("[role='tooltip'], [role='dialog'], .semi-portal");
-            exactLabels = popupRoots.GetByText(label, new() { Exact = true });
-        }
-        var count = await exactLabels.CountAsync();
-        for (var index = count - 1; index >= 0; index--)
-        {
-            try
+            var literal = XPathLiteral(candidateText);
+            var exactLabels = page.Locator(
+                $"xpath=//*[normalize-space(translate(text(), '*', ''))={literal} and " +
+                "ancestor::*[@role='tooltip' or @role='dialog' or " +
+                "contains(concat(' ', normalize-space(@class), ' '), ' semi-portal ')]]");
+            if (await exactLabels.CountAsync() == 0)
             {
-                var exactLabel = exactLabels.Nth(index);
-                if (!await exactLabel.IsVisibleAsync()) continue;
-
-                var clickTarget = exactLabel.Locator(
-                    "xpath=ancestor-or-self::*[self::label or @role='checkbox' or " +
-                    "contains(concat(' ', normalize-space(@class), ' '), ' semi-checkbox ')][1]");
-                if (await clickTarget.CountAsync() == 0)
-                    clickTarget = exactLabel.Locator("xpath=ancestor::*[.//input[@type='checkbox']][1]");
-                if (await clickTarget.CountAsync() == 0 || !await clickTarget.IsVisibleAsync()) continue;
-
-                var input = clickTarget.Locator("input[type='checkbox']").First;
-                if (await input.CountAsync() == 0) continue;
-                if (!await input.EvaluateAsync<bool>("element => element.isConnected && !element.disabled")) continue;
-                return (input, clickTarget);
+                var popupRoots = page.Locator("[role='tooltip'], [role='dialog'], .semi-portal");
+                exactLabels = popupRoots.GetByText(candidateText, new() { Exact = true });
             }
-            catch
+            var count = await exactLabels.CountAsync();
+            for (var index = count - 1; index >= 0; index--)
             {
-                // 下拉层可能在轮询期间重绘，下一轮重新定位。
+                try
+                {
+                    var exactLabel = exactLabels.Nth(index);
+                    if (!await exactLabel.IsVisibleAsync()) continue;
+
+                    // 真实页面的文字与 Semi checkbox 是同级节点，先找同时包含二者的 option。
+                    var clickTarget = exactLabel.Locator(
+                        "xpath=ancestor::*[.//input[@type='checkbox']][1]");
+                    if (await clickTarget.CountAsync() == 0 || !await clickTarget.IsVisibleAsync()) continue;
+
+                    var input = clickTarget.Locator("input[type='checkbox']").First;
+                    if (await input.CountAsync() == 0) continue;
+                    if (!await input.EvaluateAsync<bool>(
+                            "element => element.isConnected && !element.disabled")) continue;
+                    return (input, clickTarget);
+                }
+                catch
+                {
+                    // 下拉层可能在轮询期间重绘，下一轮重新定位。
+                }
             }
         }
 
@@ -263,6 +285,7 @@ public static partial class TikTokBrowserActions
 
     private static async Task EnsureCopyrightMaterialCheckboxStateAsync(
         IPage page,
+        string materialKey,
         string label,
         (ILocator Input, ILocator ClickTarget) option,
         bool shouldSelect,
@@ -282,7 +305,7 @@ public static partial class TikTokBrowserActions
         var confirmed = await WaitUntilAsync(async () =>
         {
             ct.ThrowIfCancellationRequested();
-            var current = await TryFindCopyrightMaterialCheckboxAsync(page, label);
+            var current = await TryFindCopyrightMaterialCheckboxAsync(page, materialKey, label);
             return current is not null && await current.Value.Input.IsCheckedAsync() == shouldSelect;
         }, 5000, 200, ct);
         if (!confirmed)
@@ -743,8 +766,59 @@ public static partial class TikTokBrowserActions
 
     private sealed record CopyrightUploadNetworkOutcome(bool Success, string Detail);
 
-    private static async Task SelectCopyrightRadioAsync(IPage page, string fieldLabel, string optionLabel, CancellationToken ct)
+    private static async Task SelectCopyrightRadioAsync(
+        IPage page,
+        string fieldId,
+        int optionIndex,
+        string legacyFieldLabel,
+        string legacyOptionLabel,
+        CancellationToken ct)
     {
+        var field = page.Locator($"[x-field-id='{fieldId}']").First;
+        if (await field.CountAsync() > 0)
+        {
+            var radio = field.Locator("input[type='radio']").Nth(optionIndex);
+            var ready = await WaitUntilAsync(async () =>
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    return await radio.CountAsync() > 0 &&
+                           await radio.EvaluateAsync<bool>(
+                               "element => element.isConnected && !element.disabled");
+                }
+                catch
+                {
+                    return false;
+                }
+            }, CopyrightControlTimeoutMs, 200, ct);
+            if (!ready)
+                throw new InvalidOperationException(
+                    $"TikTok 版权字段「{fieldId}」的第 {optionIndex + 1} 个选项未在 " +
+                    $"{CopyrightControlTimeoutMs / 1000} 秒内解锁。");
+
+            if (!await radio.IsCheckedAsync())
+            {
+                var label = radio.Locator("xpath=ancestor::label[1]");
+                await ClickWithFallbackAsync(await label.CountAsync() > 0 ? label : radio, ct);
+            }
+
+            var confirmed = await WaitUntilAsync(
+                async () =>
+                {
+                    try { return await radio.IsCheckedAsync(); }
+                    catch { return false; }
+                },
+                5000,
+                150,
+                ct);
+            if (!confirmed)
+                throw new InvalidOperationException(
+                    $"TikTok 版权字段「{fieldId}」的第 {optionIndex + 1} 个选项点击后未选中。");
+            return;
+        }
+
+        // 兼容尚未提供 x-field-id 的旧页面。
         var selected = await page.EvaluateAsync<bool>(
             """
             ({ fieldLabel, optionLabel }) => {
@@ -768,10 +842,11 @@ public static partial class TikTokBrowserActions
               return false;
             }
             """,
-            new { fieldLabel, optionLabel });
+            new { fieldLabel = legacyFieldLabel, optionLabel = legacyOptionLabel });
         ct.ThrowIfCancellationRequested();
         if (!selected)
-            throw new InvalidOperationException($"未找到 TikTok「{fieldLabel}」的「{optionLabel}」选项。");
+            throw new InvalidOperationException(
+                $"未找到 TikTok 版权字段「{fieldId}」（旧版「{legacyFieldLabel}」的「{legacyOptionLabel}」选项）。");
         await page.WaitForTimeoutAsync(150);
     }
 }
