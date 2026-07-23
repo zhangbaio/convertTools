@@ -16,7 +16,7 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Border x:Name="BrandPane" Grid.Column="0" BorderBrush="#E5E7EB" BorderThickness="0,0,1,0" Padding="12,0,10,0">
+                <Border x:Name="BrandPane" Grid.Column="0" BorderBrush="{StaticResource PythonPanelBorderBrush}" BorderThickness="0,0,1,0" Padding="12,0,10,0">
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBlock x:Name="BrandLabel" Grid.Column="0" Text="TikTok 短剧助手" Classes="topBrandLabel" VerticalAlignment="Center" />
                         <Button x:Name="SidebarToggleButton"

@@ -237,31 +237,31 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         _ => DefaultBorderBrush,
     };
 
-    private static readonly IBrush CompletedBrush = new SolidColorBrush(Color.Parse("#047857"));
-    private static readonly IBrush PendingBrush = new SolidColorBrush(Color.Parse("#B45309"));
-    private static readonly IBrush RunningBrush = new SolidColorBrush(Color.Parse("#075BC7"));
-    private static readonly IBrush FailedBrush = new SolidColorBrush(Color.Parse("#B42318"));
-    private static readonly IBrush StoppedBrush = new SolidColorBrush(Color.Parse("#64748B"));
+    private static readonly IBrush CompletedBrush = new SolidColorBrush(Color.Parse("#168568"));
+    private static readonly IBrush PendingBrush = new SolidColorBrush(Color.Parse("#B97812"));
+    private static readonly IBrush RunningBrush = new SolidColorBrush(Color.Parse("#167E94"));
+    private static readonly IBrush FailedBrush = new SolidColorBrush(Color.Parse("#CC4055"));
+    private static readonly IBrush StoppedBrush = new SolidColorBrush(Color.Parse("#677086"));
     private static readonly IBrush UploadSlotBrush = new SolidColorBrush(Color.Parse("#8A4B00"));
     private static readonly IBrush ManualInterventionBrush = new SolidColorBrush(Color.Parse("#C2410C"));
-    private static readonly IBrush DefaultBrush = new SolidColorBrush(Color.Parse("#334155"));
-    private static readonly IBrush LinkBrush = new SolidColorBrush(Color.Parse("#0F63C7"));
-    private static readonly IBrush CompletedBackgroundBrush = new SolidColorBrush(Color.Parse("#DDFBEA"));
-    private static readonly IBrush PendingBackgroundBrush = new SolidColorBrush(Color.Parse("#FFF2CC"));
-    private static readonly IBrush RunningBackgroundBrush = new SolidColorBrush(Color.Parse("#DDEBFF"));
-    private static readonly IBrush FailedBackgroundBrush = new SolidColorBrush(Color.Parse("#FFE3E3"));
-    private static readonly IBrush StoppedBackgroundBrush = new SolidColorBrush(Color.Parse("#EEF2F6"));
+    private static readonly IBrush DefaultBrush = new SolidColorBrush(Color.Parse("#3E465A"));
+    private static readonly IBrush LinkBrush = new SolidColorBrush(Color.Parse("#4B4FBF"));
+    private static readonly IBrush CompletedBackgroundBrush = new SolidColorBrush(Color.Parse("#E4F5EF"));
+    private static readonly IBrush PendingBackgroundBrush = new SolidColorBrush(Color.Parse("#FFF4D9"));
+    private static readonly IBrush RunningBackgroundBrush = new SolidColorBrush(Color.Parse("#E5F4F6"));
+    private static readonly IBrush FailedBackgroundBrush = new SolidColorBrush(Color.Parse("#FFF0F3"));
+    private static readonly IBrush StoppedBackgroundBrush = new SolidColorBrush(Color.Parse("#ECEEF4"));
     private static readonly IBrush UploadSlotBackgroundBrush = new SolidColorBrush(Color.Parse("#FFE9A8"));
     private static readonly IBrush ManualInterventionBackgroundBrush = new SolidColorBrush(Color.Parse("#FFEDD5"));
-    private static readonly IBrush DefaultBackgroundBrush = new SolidColorBrush(Color.Parse("#F1F5F9"));
-    private static readonly IBrush CompletedBorderBrush = new SolidColorBrush(Color.Parse("#67E8A5"));
-    private static readonly IBrush PendingBorderBrush = new SolidColorBrush(Color.Parse("#FBBF24"));
-    private static readonly IBrush RunningBorderBrush = new SolidColorBrush(Color.Parse("#86B7FF"));
-    private static readonly IBrush FailedBorderBrush = new SolidColorBrush(Color.Parse("#F97066"));
-    private static readonly IBrush StoppedBorderBrush = new SolidColorBrush(Color.Parse("#CBD5E1"));
+    private static readonly IBrush DefaultBackgroundBrush = new SolidColorBrush(Color.Parse("#F1F2F6"));
+    private static readonly IBrush CompletedBorderBrush = new SolidColorBrush(Color.Parse("#8ED0BA"));
+    private static readonly IBrush PendingBorderBrush = new SolidColorBrush(Color.Parse("#E9B75B"));
+    private static readonly IBrush RunningBorderBrush = new SolidColorBrush(Color.Parse("#8CC9D3"));
+    private static readonly IBrush FailedBorderBrush = new SolidColorBrush(Color.Parse("#E89AA8"));
+    private static readonly IBrush StoppedBorderBrush = new SolidColorBrush(Color.Parse("#C9CFDF"));
     private static readonly IBrush UploadSlotBorderBrush = new SolidColorBrush(Color.Parse("#F59E0B"));
     private static readonly IBrush ManualInterventionBorderBrush = new SolidColorBrush(Color.Parse("#FB923C"));
-    private static readonly IBrush DefaultBorderBrush = new SolidColorBrush(Color.Parse("#CBD5E1"));
+    private static readonly IBrush DefaultBorderBrush = new SolidColorBrush(Color.Parse("#C9CFDF"));
 
     private static string ResolveWorkflowProjectDir(string projectDir)
     {

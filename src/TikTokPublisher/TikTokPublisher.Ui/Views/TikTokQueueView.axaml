@@ -19,10 +19,10 @@
             <Setter Property="Cursor" Value="Hand" />
         </Style>
         <Style Selector="Button.queueLink:pointerover">
-            <Setter Property="Background" Value="#EAF4FF" />
+            <Setter Property="Background" Value="#F0F1FA" />
         </Style>
         <Style Selector="Button.queueLink:pressed">
-            <Setter Property="Background" Value="#DCEBFF" />
+            <Setter Property="Background" Value="#E5E7FA" />
         </Style>
         <Style Selector="Button.compactAction">
             <Setter Property="Padding" Value="9,5" />
@@ -30,73 +30,73 @@
             <Setter Property="FontSize" Value="13" />
         </Style>
         <Style Selector="Button.neutralAction">
-            <Setter Property="Background" Value="#F8FAFC" />
-            <Setter Property="Foreground" Value="#334155" />
-            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="Background" Value="#F7F8FB" />
+            <Setter Property="Foreground" Value="#3E465A" />
+            <Setter Property="BorderBrush" Value="#C9CFDF" />
         </Style>
         <Style Selector="Button.neutralAction:pointerover">
-            <Setter Property="Background" Value="#EEF2F6" />
+            <Setter Property="Background" Value="#ECEEF4" />
         </Style>
         <Style Selector="Button.contentAction">
-            <Setter Property="Background" Value="#EAF4FF" />
-            <Setter Property="Foreground" Value="#0F63C7" />
-            <Setter Property="BorderBrush" Value="#9CCBFF" />
+            <Setter Property="Background" Value="#ECEEFA" />
+            <Setter Property="Foreground" Value="#4B4FBF" />
+            <Setter Property="BorderBrush" Value="#C4C7EF" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.contentAction:pointerover">
-            <Setter Property="Background" Value="#DCEBFF" />
+            <Setter Property="Background" Value="#E2E4F7" />
         </Style>
         <Style Selector="Button.browserAction">
-            <Setter Property="Background" Value="#EEF6FF" />
-            <Setter Property="Foreground" Value="#0B5CAD" />
-            <Setter Property="BorderBrush" Value="#B8D8FF" />
+            <Setter Property="Background" Value="#EAF7F9" />
+            <Setter Property="Foreground" Value="#167E94" />
+            <Setter Property="BorderBrush" Value="#A9D7DE" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.browserAction:pointerover">
-            <Setter Property="Background" Value="#DCEBFF" />
+            <Setter Property="Background" Value="#DDF1F4" />
         </Style>
         <Style Selector="Button.repairAction">
-            <Setter Property="Background" Value="#FFF7E6" />
-            <Setter Property="Foreground" Value="#B45309" />
-            <Setter Property="BorderBrush" Value="#FBBF24" />
+            <Setter Property="Background" Value="#FFF7E8" />
+            <Setter Property="Foreground" Value="#B97812" />
+            <Setter Property="BorderBrush" Value="#E9B75B" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.repairAction:pointerover">
-            <Setter Property="Background" Value="#FFEFC2" />
+            <Setter Property="Background" Value="#FDECCB" />
         </Style>
         <Style Selector="Button.selectionAction">
-            <Setter Property="Background" Value="#F2F5FF" />
-            <Setter Property="Foreground" Value="#3730A3" />
-            <Setter Property="BorderBrush" Value="#C7D2FE" />
+            <Setter Property="Background" Value="#EEEFFA" />
+            <Setter Property="Foreground" Value="#4B4FBF" />
+            <Setter Property="BorderBrush" Value="#C8CAEE" />
         </Style>
         <Style Selector="Button.selectionAction:pointerover">
-            <Setter Property="Background" Value="#E7ECFF" />
+            <Setter Property="Background" Value="#E2E4F7" />
         </Style>
         <Style Selector="Button.fileAction">
-            <Setter Property="Background" Value="#EAF8F0" />
-            <Setter Property="Foreground" Value="#047857" />
-            <Setter Property="BorderBrush" Value="#86D9A8" />
+            <Setter Property="Background" Value="#EAF7F2" />
+            <Setter Property="Foreground" Value="#168568" />
+            <Setter Property="BorderBrush" Value="#8ED0BA" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.fileAction:pointerover">
-            <Setter Property="Background" Value="#DDFBEA" />
+            <Setter Property="Background" Value="#DDF3EB" />
         </Style>
         <Style Selector="Button.logAction">
-            <Setter Property="Background" Value="#F1F5F9" />
-            <Setter Property="Foreground" Value="#334155" />
-            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="Background" Value="#F1F2F6" />
+            <Setter Property="Foreground" Value="#3E465A" />
+            <Setter Property="BorderBrush" Value="#C9CFDF" />
         </Style>
         <Style Selector="Button.logAction:pointerover">
-            <Setter Property="Background" Value="#E2E8F0" />
+            <Setter Property="Background" Value="#E5E7EE" />
         </Style>
         <Style Selector="Button.toolAction">
-            <Setter Property="Background" Value="#F1F5F9" />
-            <Setter Property="Foreground" Value="#0F4F86" />
-            <Setter Property="BorderBrush" Value="#BFD3E8" />
+            <Setter Property="Background" Value="#EAF7F9" />
+            <Setter Property="Foreground" Value="#167E94" />
+            <Setter Property="BorderBrush" Value="#A9D7DE" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.toolAction:pointerover">
-            <Setter Property="Background" Value="#E6EEF8" />
+            <Setter Property="Background" Value="#DDF1F4" />
         </Style>
         <Style Selector="Button.archiveAction">
             <Setter Property="Background" Value="#EEF2F6" />
@@ -108,23 +108,23 @@
             <Setter Property="Background" Value="#E2E8F0" />
         </Style>
         <Style Selector="Button.dangerSoftAction">
-            <Setter Property="Background" Value="#FFE3E3" />
-            <Setter Property="Foreground" Value="#B42318" />
-            <Setter Property="BorderBrush" Value="#F97066" />
+            <Setter Property="Background" Value="#FFF0F3" />
+            <Setter Property="Foreground" Value="#CC4055" />
+            <Setter Property="BorderBrush" Value="#E89AA8" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.dangerSoftAction:pointerover">
-            <Setter Property="Background" Value="#FFD4D4" />
+            <Setter Property="Background" Value="#FADDE3" />
         </Style>
         <Style Selector="Button.stopAction">
-            <Setter Property="Background" Value="#DC2626" />
+            <Setter Property="Background" Value="#CC4055" />
             <Setter Property="Foreground" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#DC2626" />
+            <Setter Property="BorderBrush" Value="#CC4055" />
             <Setter Property="FontWeight" Value="Bold" />
         </Style>
         <Style Selector="Button.stopAction:pointerover">
-            <Setter Property="Background" Value="#B91C1C" />
-            <Setter Property="BorderBrush" Value="#B91C1C" />
+            <Setter Property="Background" Value="#A83245" />
+            <Setter Property="BorderBrush" Value="#A83245" />
         </Style>
         <Style Selector="Button.stopAction:disabled">
             <Setter Property="Background" Value="#D1D5DB" />
@@ -138,16 +138,16 @@
         </Style>
         <Style Selector="TextBlock.stepTableHeader">
             <Setter Property="Background" Value="{StaticResource PythonTableHeaderStep}" />
-            <Setter Property="Foreground" Value="#0F4F86" />
+            <Setter Property="Foreground" Value="#42479C" />
         </Style>
         <Style Selector="Border.queueTableFrame">
             <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#C9D8EA" />
+            <Setter Property="BorderBrush" Value="#D7DCEB" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
         </Style>
         <Style Selector="Border.queueTableRow">
-            <Setter Property="BorderBrush" Value="#DCE7F3" />
+            <Setter Property="BorderBrush" Value="#E0E3ED" />
             <Setter Property="BorderThickness" Value="0,0,0,1" />
         </Style>
         <Style Selector="ListBox#QueueProjectList">
@@ -162,10 +162,10 @@
         </Style>
         <!-- 斑马纹改用行 VM 绑定（Border.queueTableRow.Background），避免 nth-child 选择器在虚拟化滚动时反复重算导致卡顿 -->
         <Style Selector="ListBox#QueueProjectList ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#EAF4FF" />
+            <Setter Property="Background" Value="#F0F1FA" />
         </Style>
         <Style Selector="ListBox#QueueProjectList ListBoxItem:selected /template/ ContentPresenter">
-            <Setter Property="Background" Value="#DDEEFF" />
+            <Setter Property="Background" Value="#E5E7FA" />
         </Style>
         <Style Selector="Border.stepStatusBadge">
             <Setter Property="BorderThickness" Value="1" />
