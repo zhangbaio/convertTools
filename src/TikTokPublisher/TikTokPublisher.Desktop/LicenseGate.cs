@@ -8,13 +8,12 @@ internal sealed record LicenseLoginDefaults(string ServerUrl, string Account, st
 
 internal static class LicenseGate
 {
-    public static Task<LicenseState?> VerifyAsync(bool forceVerify, bool allowOfflineGrace)
+    public static Task<LicenseState?> VerifyAsync(bool forceVerify)
     {
         var settings = ClientSettingsStore.Load();
         return Task.Run(() => LicenseAuthService.LoadUsableState(
             settings.AuthServerUrl,
             verifyIfDue: true,
-            allowOfflineGrace: allowOfflineGrace,
             forceVerify: forceVerify,
             account: settings.AuthAccount,
             password: settings.AuthPassword));

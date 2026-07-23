@@ -25,7 +25,6 @@ public static class LicenseAuthService
     public const string AppVersion = "0.1.0";
     public const string DeviceName = "TikTok Uploader Desktop";
     public const int VerifyIntervalHours = 1;
-    public const int OfflineGraceHours = 72;
     public const int NetworkRetryAttempts = 3;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
@@ -51,23 +50,9 @@ public static class LicenseAuthService
                || string.Equals(state.MachineId, legacy, StringComparison.OrdinalIgnoreCase);
     }
 
-    public static bool IsOfflineGraceValid(LicenseState state)
-    {
-        if (!string.IsNullOrWhiteSpace(state.OfflineGraceUntil)
-            && DateTimeOffset.TryParse(state.OfflineGraceUntil, out var graceUntil)
-            && DateTimeOffset.Now < graceUntil)
-            return true;
-
-        if (string.IsNullOrWhiteSpace(state.LastVerifiedAt)
-            || !DateTimeOffset.TryParse(state.LastVerifiedAt, out var verified))
-            return false;
-        return DateTimeOffset.Now < verified.AddHours(OfflineGraceHours);
-    }
-
     public static LicenseState? LoadUsableState(
         string? serverUrl,
         bool verifyIfDue = true,
-        bool allowOfflineGrace = true,
         bool forceVerify = false,
         string? account = null,
         string? password = null)
@@ -85,7 +70,7 @@ public static class LicenseAuthService
         }
         catch (LicenseNetworkException)
         {
-            return allowOfflineGrace && IsOfflineGraceValid(state) ? state : null;
+            return null;
         }
         catch (LicenseServiceException)
         {
@@ -234,8 +219,7 @@ public static class LicenseAuthService
             ct);
 
         var result = EnsureSuccess(payload);
-        var username = ReadString(result, "account_username", "username") ?? account.Trim();
-        return BuildState(result, username, machineId, baseUrl);
+        return BuildState(result, machineId, baseUrl);
     }
 
     private static LicenseState VerifyByToken(
@@ -262,33 +246,40 @@ public static class LicenseAuthService
             ct).GetAwaiter().GetResult();
 
         var result = EnsureSuccess(payload);
-        var username = ReadString(result, "account_username", "username") ?? account;
-        return BuildState(result, username, machineId, baseUrl, state);
+        return BuildState(result, machineId, baseUrl, state);
     }
 
     private static LicenseState BuildState(
         Dictionary<string, JsonElement> payload,
-        string licenseKey,
         string machineId,
         string serverUrl,
         LicenseState? current = null)
     {
         var baseState = current ?? new LicenseState();
         var now = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss");
+        var token = ReadString(payload, "token") ?? baseState.Token;
+        var ticket = ReadString(payload, "authorization_ticket")
+                     ?? throw new LicenseRejectedException("授权服务器未返回签名票据");
+        var claims = LicenseTicketVerifier.VerifyFresh(
+            ticket,
+            machineId,
+            token,
+            AppName,
+            AppVersion);
         return new LicenseState
         {
-            LicenseKey = licenseKey,
-            LicenseKeyMasked = ReadString(payload, "license_key_masked") ?? LicenseStore.MaskLicenseKey(licenseKey),
-            AccountUsername = ReadString(payload, "account_username", "username") ?? baseState.AccountUsername,
-            Email = ReadString(payload, "email") ?? baseState.Email,
-            MachineId = machineId,
-            Token = ReadString(payload, "token") ?? baseState.Token,
+            LicenseKey = claims.Subject,
+            LicenseKeyMasked = ReadString(payload, "license_key_masked") ?? LicenseStore.MaskLicenseKey(claims.Subject),
+            AccountUsername = claims.Subject,
+            Email = claims.Email,
+            MachineId = claims.MachineId,
+            Token = token,
+            AuthorizationTicket = ticket,
             ActivatedAt = ReadString(payload, "activated_at") ?? baseState.ActivatedAt ?? now,
-            LastVerifiedAt = ReadString(payload, "last_verified_at") ?? now,
-            OfflineGraceUntil = ReadString(payload, "offline_grace_until") ?? baseState.OfflineGraceUntil,
-            ExpiresAt = ReadString(payload, "expires_at") ?? baseState.ExpiresAt,
-            Edition = ReadString(payload, "edition") ?? baseState.Edition,
-            Licensee = ReadString(payload, "licensee") ?? baseState.Licensee,
+            LastVerifiedAt = claims.VerifiedAt,
+            ExpiresAt = claims.AccountExpiresAt,
+            Edition = claims.Edition,
+            Licensee = claims.Licensee,
             ServerUrl = serverUrl,
         };
     }
