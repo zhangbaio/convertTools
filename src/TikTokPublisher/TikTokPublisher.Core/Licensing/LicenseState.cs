@@ -8,9 +8,9 @@ public sealed class LicenseState
     public string Email { get; set; } = "";
     public string MachineId { get; set; } = "";
     public string Token { get; set; } = "";
+    public string AuthorizationTicket { get; set; } = "";
     public string ActivatedAt { get; set; } = "";
     public string LastVerifiedAt { get; set; } = "";
-    public string OfflineGraceUntil { get; set; } = "";
     public string ExpiresAt { get; set; } = "";
     public string Edition { get; set; } = "";
     public string Licensee { get; set; } = "";

@@ -151,7 +151,7 @@ public partial class MainWindow : Window
         _licenseVerifyRunning = true;
         try
         {
-            var state = await LicenseGate.VerifyAsync(forceVerify: true, allowOfflineGrace: true);
+            var state = await LicenseGate.VerifyAsync(forceVerify: true);
             if (state is not null)
             {
                 SaveVerifiedLicenseState(state);
@@ -159,7 +159,10 @@ public partial class MainWindow : Window
                 return;
             }
 
-            await RequireLicenseReloginAsync("软件授权联网校验失败，请重新登录后继续使用。");
+            _licenseVerifyTimer?.Stop();
+            _viewModel.StatusMessage = "软件授权联网校验失败，软件即将退出。";
+            _viewModel.RequestStopQueue();
+            Close();
         }
         finally
         {
