@@ -23,6 +23,29 @@ public static class TikTokPublishConstants
         [SourceFileInformationMaterialType] = "原始文件或素材文件信息",
     };
 
+    /// <summary>
+    /// TikTok 版权材料下拉项使用的稳定 i18n key。页面翻译资源异常时会直接显示这些 key，
+    /// 正常的中文或英文页面也保留相同的表单结构。
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> CopyrightMaterialI18nKeys =
+        new Dictionary<string, string>
+        {
+            ["production_agreement"] =
+                "contentPartnerHub_seriesEditPage_copyrightProof_material_productionAgreement",
+            ["work_registration_certificate"] =
+                "contentPartnerHub_seriesEditPage_copyrightProof_material_copyrightRegistration",
+            ["filing_or_distribution_license"] =
+                "contentPartnerHub_seriesEditPage_copyrightProof_material_filingPermit",
+            ["opening_ending_rights_notice"] =
+                "contentPartnerHub_seriesEditPage_copyrightProof_material_openingClosingCredits",
+            ["ai_generation_screenshots"] =
+                "contentPartnerHub_seriesEditPage_copyrightProof_material_aiProcessScreenshot",
+            ["editing_project_files"] =
+                "contentPartnerHub_seriesEditPage_copyrightProof_material_editingProjectFiles",
+            ["source_file_information"] =
+                "contentPartnerHub_seriesEditPage_copyrightProof_material_rawMaterialInfo",
+        };
+
     public static readonly IReadOnlySet<string> CoreCopyrightMaterialTypes = new HashSet<string>(StringComparer.Ordinal)
     {
         ProductionAgreementMaterialType,

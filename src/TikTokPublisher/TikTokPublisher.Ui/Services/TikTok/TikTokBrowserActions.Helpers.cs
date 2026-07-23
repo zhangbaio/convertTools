@@ -429,7 +429,9 @@ public static partial class TikTokBrowserActions
     {
         var drawer = page.Locator("[role='dialog']").Filter(new() { HasText = "版权内容自查清单" }).Last;
         if (await drawer.CountAsync() == 0)
-            drawer = page.Locator("body").Filter(new() { HasText = "版权内容自查清单" }).Last;
+            drawer = page.Locator("[role='dialog']")
+                .Filter(new() { Has = page.Locator("input[type='checkbox'], [role='checkbox']") })
+                .Last;
         if (await drawer.CountAsync() == 0)
             return false;
 
@@ -600,9 +602,14 @@ public static partial class TikTokBrowserActions
 
     private static async Task<ILocator> ResolvePromiseAgreeButtonAsync(ILocator drawer, IPage page)
     {
-        foreach (var scope in new[] { drawer, page.Locator("body") })
+        foreach (var text in new[]
+                 {
+                     "同意",
+                     "Agree",
+                     "contentPartnerHub_seriesEditPage_copyrightProof_agree",
+                 })
         {
-            var buttons = scope.Locator("button").Filter(new() { HasText = "同意" });
+            var buttons = drawer.Locator("button").Filter(new() { HasText = text });
             var count = await buttons.CountAsync();
             for (var index = count - 1; index >= 0; index--)
             {
@@ -616,7 +623,20 @@ public static partial class TikTokBrowserActions
             }
         }
 
-        return drawer.Locator("button").Filter(new() { HasText = "同意" }).Last;
+        // 文案未知时只在已确认的版权弹窗内选择最后一个可见主操作按钮。
+        var allButtons = drawer.Locator("button");
+        for (var index = await allButtons.CountAsync() - 1; index >= 0; index--)
+        {
+            var candidate = allButtons.Nth(index);
+            try
+            {
+                if (await candidate.IsVisibleAsync(new() { Timeout = 500 }))
+                    return candidate;
+            }
+            catch { /* try previous */ }
+        }
+
+        return drawer.Locator("button").Last;
     }
 
     private static async Task<bool> IsPromiseAgreeButtonReadyAsync(ILocator button)
@@ -705,6 +725,11 @@ public static partial class TikTokBrowserActions
     {
         try
         {
+            var signed = page.Locator(
+                "[x-field-id='signed'] input[type='checkbox']").First;
+            if (await signed.CountAsync() > 0)
+                return await signed.IsCheckedAsync();
+
             var promiseLabel = page.Locator("label").Filter(new() { HasText = "本人承诺" }).First;
             if (await promiseLabel.CountAsync() > 0)
             {
@@ -715,11 +740,7 @@ public static partial class TikTokBrowserActions
         }
         catch { /* fallback */ }
 
-        var checkbox = page.Locator("input.semi-checkbox-input").First;
-        if (await checkbox.CountAsync() == 0)
-            return false;
-        try { return await checkbox.IsCheckedAsync(); }
-        catch { return false; }
+        return false;
     }
 
     private static string XPathLiteral(string value)
