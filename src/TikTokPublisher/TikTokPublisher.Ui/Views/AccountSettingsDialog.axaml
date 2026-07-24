@@ -34,7 +34,7 @@
                 <ScrollViewer>
                     <StackPanel Spacing="8" Margin="4">
                         <Grid ColumnDefinitions="130,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
@@ -185,6 +185,25 @@
                                     <CheckBox x:Name="EditingProjectMaterialBox" Content="剪辑工程文件" Margin="0,0,12,6" />
                                     <CheckBox x:Name="SourceInfoMaterialBox" Content="原始文件信息" Margin="0,0,12,6" />
                                 </WrapPanel>
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="34" Grid.Column="0" Text="0 元投放" VerticalAlignment="Top" Margin="0,5,0,0" />
+                            <StackPanel Grid.Row="34" Grid.Column="1" Spacing="8">
+                                <CheckBox x:Name="ZeroCostAdsBox" Content="启用" />
+                                <Grid ColumnDefinitions="110,*"
+                                      ColumnSpacing="10"
+                                      IsVisible="{Binding IsChecked, ElementName=ZeroCostAdsBox}">
+                                    <TextBlock Grid.Column="0" Text="第 0 天 ROI" VerticalAlignment="Center" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   x:Name="DayZeroRoiBox"
+                                                   Minimum="1.00"
+                                                   Maximum="1.50"
+                                                   Increment="0.01"
+                                                   FormatString="0.00"
+                                                   Value="1.05"
+                                                   Width="160"
+                                                   HorizontalAlignment="Left" />
+                                </Grid>
                             </StackPanel>
 
                         </Grid>

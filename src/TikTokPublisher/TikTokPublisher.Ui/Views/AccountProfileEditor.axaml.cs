@@ -129,6 +129,8 @@ public partial class AccountProfileEditor : UserControl
         ProofCopyrightCompanyNameBox.Text = profile.TiktokProofCopyrightCompanyName;
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
+        ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
+        DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(profile.TiktokDayZeroRoi);
         AnchorPromotionBox.IsChecked = profile.TiktokAnchorPromotionEnabled;
         SilenceValidationBox.IsChecked = profile.TiktokSilenceValidationEnabled;
         ProfilePreviewBox.Value = profile.TiktokProfilePreviewEpisodes > 0 ? profile.TiktokProfilePreviewEpisodes : 3;
@@ -225,6 +227,9 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokProofAccountConfigMigrated = true;
             profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
+            profile.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
+            profile.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(
+                (double)(DayZeroRoiBox.Value ?? (decimal)TikTokPublishOptions.DefaultDayZeroRoi));
             profile.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
             profile.TiktokSilenceValidationEnabled = SilenceValidationBox.IsChecked == true;
             profile.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
@@ -747,6 +752,8 @@ public partial class AccountProfileEditor : UserControl
         ProofDeclarantCompanyNameBox.Text = "";
         ProofSealPathBox.Text = "";
         ProofCopyrightCompanyNameBox.Text = "";
+        ZeroCostAdsBox.IsChecked = false;
+        DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
         SubmitEnabledBox.IsChecked = true;
         MaxContinuousSilenceSecondsBox.Value = 20;
         ExpectedPriceValueBox.Text = "";

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Publishing;
@@ -575,6 +576,7 @@ public static partial class TikTokBrowserActions
         await PauseBetweenFieldsAsync(page);
         await SetSwitchAsync(page, "#consignmentStatus", options.ConsignmentEnabled, ct);
         await ApplyCommercialModeAsync(page, options, log, ct);
+        await ApplyZeroCostAdsAsync(page, options, log, ct);
     }
 
     private static async Task SelectContractAsync(
@@ -848,6 +850,96 @@ public static partial class TikTokBrowserActions
         Log(log, options.PaidEnabled
             ? $"商业模式已按付费=是填写个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期全集价格：{label}"
             : $"商业模式已按付费=否预填个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期全集价格：{label}");
+    }
+
+    private static async Task ApplyZeroCostAdsAsync(
+        IPage page,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        var section = page.Locator("#ad-placement-section").First;
+        if (await section.CountAsync() == 0 ||
+            !await section.IsVisibleAsync())
+        {
+            Log(log, "TikTok 当前账号未开放“0 元投放”，已自动跳过。");
+            return;
+        }
+
+        await section.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+        var toggle = section.Locator("input[role='switch'][type='checkbox']").First;
+        if (await toggle.CountAsync() == 0)
+        {
+            Log(log, "TikTok 当前账号未显示“0 元投放”开关，已自动跳过。");
+            return;
+        }
+
+        if (!await toggle.IsEnabledAsync())
+        {
+            Log(log, "TikTok 当前账号的“0 元投放”暂不可配置，已自动跳过。");
+            return;
+        }
+
+        var expectedEnabled = options.ZeroCostAdsEnabled;
+        if (await toggle.IsCheckedAsync() != expectedEnabled)
+        {
+            await toggle.ClickAsync(new() { Force = true, Timeout = 5000 });
+            await page.WaitForTimeoutAsync(400);
+        }
+
+        if (await toggle.IsCheckedAsync() != expectedEnabled)
+            throw new InvalidOperationException("TikTok“0 元投放”开关设置后状态校验失败。");
+
+        if (!expectedEnabled)
+        {
+            Log(log, "TikTok“0 元投放”已关闭，跳过第 0 天 ROI。");
+            return;
+        }
+
+        var roiInput = await TryResolveDayZeroRoiInputAsync(page, ct);
+        if (roiInput is null)
+        {
+            Log(log, "TikTok 当前账号未显示“第 0 天 ROI”输入框，已自动跳过。");
+            return;
+        }
+
+        var normalizedRoi = TikTokPublishOptions.NormalizeDayZeroRoi(options.DayZeroRoi);
+        var expectedText = normalizedRoi.ToString("0.00", CultureInfo.InvariantCulture);
+        await roiInput.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+        await roiInput.FillAsync(expectedText);
+        await roiInput.PressAsync("Tab");
+
+        var actualText = (await roiInput.InputValueAsync()).Trim();
+        if (!double.TryParse(actualText, NumberStyles.Number, CultureInfo.InvariantCulture, out var actualRoi) ||
+            Math.Abs(actualRoi - normalizedRoi) > 0.0001)
+        {
+            throw new InvalidOperationException(
+                $"TikTok“第 0 天 ROI”设置后校验失败：期望 {expectedText}，实际 {actualText}。");
+        }
+
+        Log(log, $"TikTok“0 元投放”已开启，第 0 天 ROI：{expectedText}。");
+    }
+
+    private static async Task<ILocator?> TryResolveDayZeroRoiInputAsync(
+        IPage page,
+        CancellationToken ct)
+    {
+        const string selector =
+            "#ad-placement-section [x-field-id='adsRoi'] input:visible, " +
+            "#ad-placement-section input[placeholder='输入 (1.0~1.5)']:visible";
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var locator = page.Locator(selector).First;
+            if (await IsReadyInputAsync(locator))
+                return locator;
+            await page.WaitForTimeoutAsync(200);
+        }
+
+        return null;
     }
 
     private static async Task SelectTargetAudienceAsync(

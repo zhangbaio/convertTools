@@ -100,6 +100,33 @@
             <TabItem Header="发布策略">
                 <ScrollViewer>
                     <StackPanel Spacing="10" Margin="2,4,2,2">
+                        <Grid Classes="profileForm" ColumnDefinitions="140,*" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0"
+                                       Classes="formLabel"
+                                       Text="0 元投放"
+                                       VerticalAlignment="Top"
+                                       Margin="0,5,0,0" />
+                            <StackPanel Grid.Column="1" Spacing="7">
+                                <CheckBox x:Name="ZeroCostAdsBox" Content="启用" />
+                                <Grid ColumnDefinitions="120,*"
+                                      ColumnSpacing="10"
+                                      IsVisible="{Binding IsChecked, ElementName=ZeroCostAdsBox}">
+                                    <TextBlock Grid.Column="0"
+                                               Classes="formLabel"
+                                               Text="第 0 天 ROI"
+                                               VerticalAlignment="Center" />
+                                    <NumericUpDown Grid.Column="1"
+                                                   x:Name="DayZeroRoiBox"
+                                                   Minimum="1.00"
+                                                   Maximum="1.50"
+                                                   Increment="0.01"
+                                                   FormatString="0.00"
+                                                   Value="1.05"
+                                                   Width="160"
+                                                   HorizontalAlignment="Left" />
+                                </Grid>
+                            </StackPanel>
+                        </Grid>
                         <Grid Classes="profileForm" ColumnDefinitions="140,*"
                               RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
