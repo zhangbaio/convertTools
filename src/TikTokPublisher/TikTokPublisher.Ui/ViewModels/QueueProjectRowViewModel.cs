@@ -140,11 +140,13 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush DeleteSourceStatusBrush => BrushOf(DeleteSourceStatus);
     public IBrush UploadStatusBrush => BrushOf(UploadStatus);
     public IBrush StatusTextBrush => BrushOf(StatusText);
-    public IBrush DramaTitleBrush => IsUploadActive
-        ? RunningBrush
-        : HasFailure
-            ? FailedBrush
-            : PrimaryTextBrush;
+    public IBrush DramaTitleBrush => IsUploadCompleted
+        ? CompletedTitleBrush
+        : IsUploadActive
+            ? RunningTitleBrush
+            : HasFailure
+                ? FailedTitleBrush
+                : PrimaryTextBrush;
     public IBrush DownloadStatusBackgroundBrush => BackgroundOf(DownloadStatus);
     public IBrush RewriteStatusBackgroundBrush => BackgroundOf(RewriteStatus);
     public IBrush PosterStatusBackgroundBrush => BackgroundOf(PosterStatus);
@@ -244,6 +246,11 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     private static readonly IBrush ManualInterventionBrush = new SolidColorBrush(Color.Parse("#C2410C"));
     private static readonly IBrush DefaultBrush = new SolidColorBrush(Color.Parse("#3E465A"));
     private static readonly IBrush PrimaryTextBrush = new SolidColorBrush(Color.Parse("#F7FBFF"));
+    // Title colors are tuned for the dark queue row, unlike the darker status-badge
+    // foregrounds above which sit on light badge backgrounds.
+    private static readonly IBrush CompletedTitleBrush = new SolidColorBrush(Color.Parse("#6EE7B7"));
+    private static readonly IBrush RunningTitleBrush = new SolidColorBrush(Color.Parse("#8EDBFF"));
+    private static readonly IBrush FailedTitleBrush = new SolidColorBrush(Color.Parse("#FFC2C9"));
     private static readonly IBrush CompletedBackgroundBrush = new SolidColorBrush(Color.Parse("#E4F5EF"));
     private static readonly IBrush PendingBackgroundBrush = new SolidColorBrush(Color.Parse("#FFF4D9"));
     private static readonly IBrush RunningBackgroundBrush = new SolidColorBrush(Color.Parse("#E5F4F6"));

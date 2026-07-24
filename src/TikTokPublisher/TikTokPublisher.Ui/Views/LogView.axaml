@@ -41,15 +41,21 @@
                 </ListBox.ItemTemplate>
             </ListBox>
 
-            <Border Grid.Column="1" BorderBrush="#DFD1C0" BorderThickness="1" CornerRadius="6" Padding="8">
+            <Border Grid.Column="1"
+                    Background="{StaticResource PythonBgBrush}"
+                    BorderBrush="{StaticResource PythonPanelBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="10,8">
                 <ScrollViewer x:Name="LogScroll">
                     <ItemsControl x:Name="LogItems">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="services:LogEntry">
                                 <SelectableTextBlock Text="{Binding Text}"
                                                      Foreground="{Binding Foreground}"
-                                                     FontFamily="Consolas,Courier New,monospace"
-                                                     FontSize="12"
+                                                     FontFamily="Cascadia Mono,Microsoft YaHei UI,Consolas"
+                                                     FontSize="13"
+                                                     LineHeight="19"
                                                      TextWrapping="Wrap"
                                                      Margin="0,1" />
                             </DataTemplate>

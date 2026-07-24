@@ -17,5 +17,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\TikTokPublisher\TikTokPublisher.Core\TikTokPublisher.Core.csproj" />
+    <ProjectReference Include="..\..\src\TikTokPublisher\TikTokPublisher.Ui\TikTokPublisher.Ui.csproj" />
   </ItemGroup>
 </Project>
