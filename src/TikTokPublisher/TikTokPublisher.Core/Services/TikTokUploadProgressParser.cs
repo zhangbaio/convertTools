@@ -5,6 +5,16 @@ namespace TikTokPublisher.Core.Services;
 /// <summary>解析 TikTok 上传页正文中的已就绪集数（对齐 Python <c>browser_actions.py</c>）。</summary>
 public static class TikTokUploadProgressParser
 {
+    private static readonly string[] ActiveUploadStatusMarkers =
+    {
+        "上传中",
+        "正在上传",
+        "处理中",
+        "Transcoding",
+        "Uploading",
+        "Processing",
+    };
+
     private static readonly Regex UploadedContentCountPattern =
         new(@"正片内容\s*[\(（](\d+)[\)）]", RegexOptions.Compiled);
 
@@ -13,6 +23,9 @@ public static class TikTokUploadProgressParser
 
     private static readonly Regex EpisodeNumberPattern =
         new(@"第\s*(\d+)\s*集", RegexOptions.Compiled);
+
+    private static readonly Regex VideoFilePattern =
+        new(@"\.(?:mp4|mov|m4v|webm)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly string[] CompletedStatusMarkers =
     {
@@ -76,6 +89,35 @@ public static class TikTokUploadProgressParser
 
         return 0;
     }
+
+    public static TikTokUploadActivity DetectUploadActivity(
+        string bodyText,
+        IReadOnlyList<string>? tableTexts)
+    {
+        var videoTableTexts = (tableTexts ?? Array.Empty<string>())
+            .Where(LooksLikeVideoUploadTable)
+            .ToArray();
+        var tableScoped = videoTableTexts.Length > 0;
+        var statusText = tableScoped
+            ? string.Join('\n', videoTableTexts)
+            : bodyText ?? "";
+
+        return new TikTokUploadActivity(
+            ActiveUploadStatusMarkers.Any(
+                marker => statusText.Contains(marker, StringComparison.OrdinalIgnoreCase)),
+            CountOccurrences(statusText, "等待中") +
+            CountOccurrences(statusText, "等待上传"),
+            tableScoped);
+    }
+
+    public static bool IsUploadComplete(
+        int? readyCount,
+        int expectedCount,
+        TikTokUploadActivity activity) =>
+        readyCount is not null &&
+        readyCount.Value >= Math.Max(1, expectedCount) &&
+        activity.WaitingCount == 0 &&
+        !activity.Uploading;
 
     private static int? ExtractUploadedHeadingCount(string bodyText)
     {
@@ -194,4 +236,33 @@ public static class TikTokUploadProgressParser
 
     private static bool IsCompletedUploadStatusText(string text) =>
         CompletedStatusMarkers.Any(marker => (text ?? "").Contains(marker, StringComparison.Ordinal));
+
+    private static bool LooksLikeVideoUploadTable(string text)
+    {
+        var value = text ?? "";
+        return EpisodeNumberPattern.IsMatch(value) ||
+               VideoFilePattern.IsMatch(value) ||
+               value.Contains("正片内容", StringComparison.Ordinal);
+    }
+
+    private static int CountOccurrences(string text, string value)
+    {
+        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(value))
+            return 0;
+
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+
+        return count;
+    }
 }
+
+public readonly record struct TikTokUploadActivity(
+    bool Uploading,
+    int WaitingCount,
+    bool IsTableScoped);

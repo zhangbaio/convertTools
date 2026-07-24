@@ -65,7 +65,7 @@ public static partial class TikTokBrowserActions
         (int? uploaded, int percent, bool uploading)? lastSignature = null;
         var lastProgressTime = DateTime.UtcNow;
         var readFailStreak = 0;
-        (int uploaded, int waiting, bool disabled)? inactiveIncompleteSignature = null;
+        (int uploaded, int waiting)? inactiveIncompleteSignature = null;
         DateTime? inactiveIncompleteSince = null;
         var inactiveIncompleteRepairAttempts = 0;
 
@@ -93,20 +93,22 @@ public static partial class TikTokBrowserActions
                 throw new InvalidOperationException("TikTok 视频上传失败，请查看页面提示。");
             ThrowIfTikTokCrashText(bodyText);
 
-            var uploading = new[] { "上传中", "正在上传", "处理中", "Transcoding", "Uploading" }
-                .Any(m => bodyText.Contains(m, StringComparison.OrdinalIgnoreCase));
             var uploadedCount = ExtractReadyUploadedVideoCount(bodyText, titleCandidates);
             var percentTotal = ExtractTotalUploadPercent(bodyText);
-            var waitingCount = CountOccurrences(bodyText, "等待中");
-            var submit = page.Locator("button").Filter(new() { HasText = "提交" }).First;
-            var disabled = await IsAriaDisabledAsync(submit);
-            var meetsDone = !uploading && !disabled && UploadedCountMeetsExpected(uploadedCount, expectedCount);
+            var activity = TikTokUploadProgressParser.DetectUploadActivity(
+                bodyText,
+                await ReadUploadTableTextsAsync(page));
+            var uploading = activity.Uploading;
+            var waitingCount = activity.WaitingCount;
+            var meetsDone = TikTokUploadProgressParser.IsUploadComplete(
+                uploadedCount,
+                expectedCount,
+                activity);
             var inactiveIncomplete = IsInactiveIncompleteUpload(
                 uploadedCount,
                 expectedCount,
                 waitingCount,
-                uploading,
-                disabled);
+                uploading);
 
             var signature = (uploadedCount, percentTotal, uploading);
             if (lastSignature != signature)
@@ -121,20 +123,21 @@ public static partial class TikTokBrowserActions
                 expectedCount,
                 waitingCount);
             var status =
-                $"done={meetsDone}, uploaded={countLabel}/{expectedCount}, percent={percentTotal}, waiting={waitingCount}, uploading={uploading}, disabled={disabled}";
+                $"done={meetsDone}, uploaded={countLabel}/{expectedCount}, percent={percentTotal}, waiting={waitingCount}, uploading={uploading}, scoped={activity.IsTableScoped}";
             if (status != lastStatus)
             {
                 if (meetsDone)
                     Log(log, $"视频已全部上传完成（{countLabel}/{expectedCount}）。");
                 else
                     Log(log,
-                        $"⏳ 正在等待视频文件上传完成（已就绪 {countLabel}/{expectedCount}，仍有 {waitingCount} 个等待中，整体进度约 {displayPercent}%）。");
+                        $"⏳ 正在等待视频文件上传完成（已就绪 {countLabel}/{expectedCount}，仍有 {waitingCount} 个等待中，" +
+                        $"上传状态={(uploading ? "处理中" : "空闲")}，整体进度约 {displayPercent}%）。");
                 lastStatus = status;
             }
 
             if (!meetsDone && inactiveIncomplete)
             {
-                var inactiveSignature = (uploaded: uploadedCount.GetValueOrDefault(), waiting: waitingCount, disabled);
+                var inactiveSignature = (uploaded: uploadedCount.GetValueOrDefault(), waiting: waitingCount);
                 if (inactiveIncompleteSignature != inactiveSignature)
                 {
                     inactiveIncompleteSignature = inactiveSignature;
@@ -164,7 +167,7 @@ public static partial class TikTokBrowserActions
 
                     inactiveIncompleteRepairAttempts++;
                     Log(log,
-                        $"⚠️ 检测到 TikTok 上传疑似卡死（已就绪 {countLabel}/{expectedCount}，等待中 0 个，提交仍不可用），" +
+                        $"⚠️ 检测到 TikTok 上传疑似卡死（已就绪 {countLabel}/{expectedCount}，等待中 0 个），" +
                         $"自动补传 {missingPaths.Count} 个视频（第 {inactiveIncompleteRepairAttempts}/{MaxInactiveIncompleteRepairAttempts} 次）：{FormatUploadPathPreview(missingPaths)}");
                     await RefeedInactiveIncompleteVideosAsync(page, missingPaths, log, ct).ConfigureAwait(false);
                     await page.WaitForTimeoutAsync(5000);
@@ -209,8 +212,7 @@ public static partial class TikTokBrowserActions
         int? uploadedCount,
         int expectedCount,
         int waitingCount,
-        bool uploading,
-        bool submitDisabled)
+        bool uploading)
     {
         if (uploadedCount is null || expectedCount <= 0)
             return false;
@@ -219,8 +221,7 @@ public static partial class TikTokBrowserActions
         return uploadedCount.Value > 0 &&
                missingCount is > 0 and <= MaxInactiveIncompleteRepairFiles &&
                waitingCount == 0 &&
-               !uploading &&
-               submitDisabled;
+               !uploading;
     }
 
     private static double ResolveInactiveIncompleteRepairSeconds(double stallLimit) =>
@@ -630,6 +631,18 @@ public static partial class TikTokBrowserActions
     public static int? ExtractReadyUploadedVideoCount(string bodyText, IReadOnlyList<string>? titleCandidates) =>
         TikTokUploadProgressParser.ExtractReadyUploadedVideoCount(bodyText, titleCandidates);
 
+    internal static async Task<IReadOnlyList<string>> ReadUploadTableTextsAsync(IPage page)
+    {
+        try
+        {
+            return await page.Locator(".semi-table-body").AllInnerTextsAsync();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
     private static int? ExtractReadyUploadedVideoCountInternal(string bodyText, IReadOnlyList<string>? titleCandidates) =>
         TikTokUploadProgressParser.ExtractReadyUploadedVideoCount(bodyText, titleCandidates);
 
@@ -651,22 +664,6 @@ public static partial class TikTokBrowserActions
         if (match.Success && int.TryParse(match.Groups[1].Value, out var count))
             return count;
         return null;
-    }
-
-    private static bool UploadedCountMeetsExpected(int? uploadedCount, int expectedCount) =>
-        uploadedCount is not null && uploadedCount.Value >= Math.Max(1, expectedCount);
-
-    private static int CountOccurrences(string text, string value)
-    {
-        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(value)) return 0;
-        var count = 0;
-        var index = 0;
-        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            index += value.Length;
-        }
-        return count;
     }
 
     private static async Task<ILocator?> FindVideoFileInputInternalAsync(IPage page)

@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services.TikTok;
 
@@ -185,11 +186,6 @@ public static class TikTokBatchUploadService
         return null;
     }
 
-    private static readonly string[] UploadingMarkers =
-    {
-        "上传中", "正在上传", "处理中", "等待中", "Uploading", "Transcoding", "Processing",
-    };
-
     private static async Task<BatchWaitOutcome> WaitBatchAsync(
         IPage page,
         int targetReady,
@@ -224,12 +220,15 @@ public static class TikTokBatchUploadService
             var ready = TikTokBrowserActions.ExtractReadyUploadedVideoCount(bodyText, titleCandidates);
             var percent = TikTokBrowserActions.ExtractTotalUploadPercent(bodyText);
             var rowCount = await ReadUploadTableRowCountAsync(page);
-            var uploading = UploadingMarkers.Any(m => bodyText.Contains(m, StringComparison.OrdinalIgnoreCase));
+            var activity = TikTokUploadProgressParser.DetectUploadActivity(
+                bodyText,
+                await TikTokBrowserActions.ReadUploadTableTextsAsync(page));
+            var uploading = activity.Uploading;
 
-            if (ready is not null && ready.Value >= targetReady)
+            if (TikTokUploadProgressParser.IsUploadComplete(ready, targetReady, activity))
                 return BatchWaitOutcome.Done;
 
-            if (rowCount >= targetReady && !uploading)
+            if (rowCount >= targetReady && !uploading && activity.WaitingCount == 0)
             {
                 // 全量行数已达标且页面无上传中标记；连续确认多轮，防止虚拟化把正在上传的行滚出视口造成误判。
                 doneStreak++;
@@ -255,7 +254,7 @@ public static class TikTokBatchUploadService
             var readyLabel = ready?.ToString() ?? "识别中";
             var msg =
                 $"⏳ 等待本批上传：已就绪 {readyLabel}/{grandTotal} 集（本批目标 {targetReady}，表格 {rowCount} 行，" +
-                $"{(uploading ? "仍有上传中" : "无上传中标记")}）。";
+                $"{(uploading ? "仍有上传中" : "无上传中标记")}，等待中 {activity.WaitingCount} 个）。";
             if (msg != lastLog)
             {
                 log?.Invoke(msg);
