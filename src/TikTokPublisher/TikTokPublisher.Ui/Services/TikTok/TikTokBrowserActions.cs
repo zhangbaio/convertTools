@@ -176,8 +176,8 @@ public static partial class TikTokBrowserActions
     {
         await WaitBeforeSubmitAsync(log, ct).ConfigureAwait(false);
         await DismissFloatingAssistantAsync(page, log);
-        var button = page.Locator("button").Filter(new() { HasText = "提交" }).First;
-        await WaitSubmitEnabledAsync(button, ct);
+        var button = page.Locator("button:visible").Filter(new() { HasText = "提交" }).First;
+        await WaitSubmitEnabledAsync(button, log, ct);
         await button.ClickAsync(new() { Timeout = 15000 });
         await ConfirmSubmitDialogIfPresentAsync(page, log, ct);
         var dailyLimit = await DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false);
@@ -1303,16 +1303,30 @@ public static partial class TikTokBrowserActions
         Log(log, result.Message);
     }
 
-    private static async Task WaitSubmitEnabledAsync(ILocator button, CancellationToken ct)
+    private static async Task WaitSubmitEnabledAsync(
+        ILocator button,
+        Action<string>? log,
+        CancellationToken ct,
+        int timeoutSeconds = 300)
     {
-        var deadline = DateTime.UtcNow.AddHours(2);
+        var deadline = DateTime.UtcNow.AddSeconds(Math.Max(30, timeoutSeconds));
+        var nextLogAt = DateTime.MinValue;
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
             if (!await IsAriaDisabledAsync(button)) return;
+
+            if (DateTime.UtcNow >= nextLogAt)
+            {
+                Log(log, "视频上传已完成，但 TikTok 提交按钮仍不可用，正在等待页面完成表单校验。");
+                nextLogAt = DateTime.UtcNow.AddSeconds(30);
+            }
+
             await Task.Delay(2000, ct);
         }
-        throw new TimeoutException("TikTok 提交按钮一直不可点击。");
+        throw new TimeoutException(
+            $"视频上传已完成，但 TikTok 可见的提交按钮在 {Math.Max(30, timeoutSeconds)} 秒内仍不可用。" +
+            "请检查页面必填项、平台提示或账号风控状态。");
     }
 
     private static async Task<bool> IsAriaDisabledAsync(ILocator locator)
