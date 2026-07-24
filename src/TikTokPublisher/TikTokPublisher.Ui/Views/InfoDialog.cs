@@ -26,7 +26,6 @@ public sealed class InfoDialog : Window
         {
             Text = message,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brushes.Black,
         });
 
         var ok = new Button
@@ -75,7 +74,6 @@ public sealed class InfoDialog : Window
         {
             Text = message,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brushes.Black,
             VerticalAlignment = VerticalAlignment.Top,
         };
         Grid.SetRow(body, 0);

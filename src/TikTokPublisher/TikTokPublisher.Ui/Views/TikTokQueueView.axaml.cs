@@ -230,7 +230,7 @@ public partial class TikTokQueueView : UserControl
                 new TextBlock
                 {
                     Text = request.ErrorMessage,
-                    Foreground = Brushes.Firebrick,
+                    Foreground = new SolidColorBrush(Color.Parse("#FF9EAA")),
                     TextWrapping = TextWrapping.Wrap,
                 },
                 new TextBlock
@@ -927,7 +927,7 @@ public partial class TikTokQueueView : UserControl
                 {
                     Text = "移动后 TikTok 上传状态会重置，避免沿用原账号的草稿或已上传记录；本地处理步骤会保留。",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-                    Foreground = Brushes.Gray,
+                    Foreground = new SolidColorBrush(Color.Parse("#B8C8D8")),
                 },
                 new StackPanel
                 {
