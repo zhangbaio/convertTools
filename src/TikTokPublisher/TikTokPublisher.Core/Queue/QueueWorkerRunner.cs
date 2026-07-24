@@ -242,8 +242,10 @@ public sealed class QueueWorkerRunner
         var uploadTasks = new Dictionary<Task<bool>, (QueueProjectItem Item, string AccountKey, TikTokAccountProfile Account)>();
         var activeUploadAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        var runActionLabel = IsEditUploadRun(options) ? "编辑剧集" : "队列";
+        var enabledStepLabels = FormatEnabledStepLabels(orderedSteps, options);
         Report(onProgress, workspace, null,
-            $"开始执行队列，共 {candidates.Count} 个项目（启用步骤：{string.Join(", ", orderedSteps)}，" +
+            $"开始执行{runActionLabel}，共 {candidates.Count} 个项目（启用步骤：{enabledStepLabels}，" +
             $"强制重跑已完成步骤：{(options.ForceRerunCompletedSteps ? "开" : "关")}，项目并发 {projectConcurrency}）");
 
         void Mutate(Action action)
@@ -1084,6 +1086,18 @@ public sealed class QueueWorkerRunner
         {
             Report(onProgress, workspace, item, $"同步管理系统异常：{ex.Message}", QueueStepRegistry.UploadSeries);
         }
+    }
+
+    private static bool IsEditUploadRun(QueueRunOptions options) =>
+        string.Equals(options.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatEnabledStepLabels(IEnumerable<string> orderedSteps, QueueRunOptions options)
+    {
+        var isEditUpload = IsEditUploadRun(options);
+        return string.Join(", ", orderedSteps.Select(step =>
+            isEditUpload && step == QueueStepRegistry.UploadSeries
+                ? "编辑剧集"
+                : QueueStepRegistry.LabelOf(step)));
     }
 
     private static bool ShouldRunStep(
