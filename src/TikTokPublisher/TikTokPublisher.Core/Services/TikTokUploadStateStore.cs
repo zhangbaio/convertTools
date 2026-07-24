@@ -193,6 +193,7 @@ public static class TikTokUploadStateStore
         state.Remove("last_upload_completed_at");
         state.Remove("last_upload_step_failed_at");
         state.Remove("last_upload_step_error");
+        state.Remove("last_upload_failure_snapshot_dir");
         if (!string.IsNullOrWhiteSpace(title))
             state["last_upload_title"] = title.Trim();
         SaveState(workflowProjectDir, state);
@@ -205,18 +206,27 @@ public static class TikTokUploadStateStore
         state["last_upload_completed_at"] = NowText();
         state.Remove("last_upload_step_failed_at");
         state.Remove("last_upload_step_error");
+        state.Remove("last_upload_failure_snapshot_dir");
         if (!string.IsNullOrWhiteSpace(title))
             state["last_upload_title"] = title.Trim();
         SaveState(workflowProjectDir, state);
     }
 
-    public static void MarkUploadStepFailed(string workflowProjectDir, string error, string? title = null)
+    public static void MarkUploadStepFailed(
+        string workflowProjectDir,
+        string error,
+        string? title = null,
+        string? failureSnapshotDir = null)
     {
         var state = LoadStateObject(workflowProjectDir);
         state["upload_step_attempted"] = true;
         state.Remove("last_upload_completed_at");
         state["last_upload_step_failed_at"] = NowText();
         state["last_upload_step_error"] = (error ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(failureSnapshotDir))
+            state["last_upload_failure_snapshot_dir"] = Path.GetFullPath(failureSnapshotDir);
+        else
+            state.Remove("last_upload_failure_snapshot_dir");
         if (!string.IsNullOrWhiteSpace(title))
             state["last_upload_title"] = title.Trim();
         SaveState(workflowProjectDir, state);

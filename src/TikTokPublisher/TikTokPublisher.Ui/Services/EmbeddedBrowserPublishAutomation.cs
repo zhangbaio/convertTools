@@ -107,12 +107,31 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         var coverPath = ResolveCoverPath(item, L);
         var hasWorkflow = !string.IsNullOrWhiteSpace(workflowDir);
         var uploadStepStartedRecorded = false;
+        IPlaywright? pw = null;
+        IBrowser? chromium = null;
+        IPage? activePage = null;
+        var outerCt = ct;
+        CancellationTokenSource? dailyLimitCts = null;
+        Task? dailyLimitWatcher = null;
+        string? dailyLimitHit = null;
+
         void RecordUploadStepStarted()
         {
             if (!hasWorkflow || uploadStepStartedRecorded)
                 return;
             TikTokUploadStateStore.MarkUploadStepStarted(workflowDir, payload.Title);
             uploadStepStartedRecorded = true;
+        }
+
+        async Task<string?> CaptureFailureSnapshotAsync(string failureText)
+        {
+            if (!hasWorkflow || activePage is null)
+                return null;
+
+            var snapshot = await TikTokUploadFailureSnapshotService
+                .CaptureAsync(activePage, workflowDir, failureText, payload.Title, account.DisplayName, L)
+                .ConfigureAwait(false);
+            return snapshot?.DirectoryPath;
         }
 
         var useLaunch = string.Equals(
@@ -122,13 +141,6 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             L("提示：当前使用外部浏览器无头模式提交，TikTok 可能在最终提交阶段触发风控；提交后会校验原创管理状态。");
         }
 
-        IPlaywright? pw = null;
-        IBrowser? chromium = null;
-        IPage? activePage = null;
-        var outerCt = ct;
-        CancellationTokenSource? dailyLimitCts = null;
-        Task? dailyLimitWatcher = null;
-        string? dailyLimitHit = null;
         try
         {
             IPage page;
@@ -267,8 +279,9 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             if (dailyLimit is not null)
             {
                 var limitMsg = $"TikTok 单日创建剧集上限：{dailyLimit}";
+                var snapshotDir = await CaptureFailureSnapshotAsync(limitMsg).ConfigureAwait(false);
                 if (hasWorkflow)
-                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, limitMsg, payload.Title);
+                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, limitMsg, payload.Title, snapshotDir);
                 return PublishResult.FailAndStopQueue(limitMsg);
             }
 
@@ -304,8 +317,9 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         catch (OperationCanceledException) when (dailyLimitHit is not null && !outerCt.IsCancellationRequested)
         {
             var message = $"TikTok 单日创建剧集上限：{dailyLimitHit}";
+            var snapshotDir = await CaptureFailureSnapshotAsync(message).ConfigureAwait(false);
             if (hasWorkflow)
-                TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title);
+                TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title, snapshotDir);
             return PublishResult.FailAndStopQueue(message);
         }
         catch (OperationCanceledException)
@@ -316,8 +330,9 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         {
             var message = ex.Message;
             L($"检测到 TikTok 发布限制提示，任务队列将停止：{ex.LimitText}");
+            var snapshotDir = await CaptureFailureSnapshotAsync(message).ConfigureAwait(false);
             if (hasWorkflow)
-                TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title);
+                TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title, snapshotDir);
             return PublishResult.FailAndStopQueue(message);
         }
         catch (Exception ex)
@@ -328,14 +343,16 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             {
                 var message = $"内置浏览器页面崩溃，已自动跳过当前项目：{failureText}";
                 L(message);
+                var snapshotDir = await CaptureFailureSnapshotAsync(message).ConfigureAwait(false);
                 if (hasWorkflow)
-                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title);
+                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title, snapshotDir);
                 return PublishResult.FailAndSkipManualIntervention(message);
             }
 
+            var failureSnapshotDir = await CaptureFailureSnapshotAsync(failureText).ConfigureAwait(false);
             if (hasWorkflow)
                 TikTokUploadStateStore.MarkUploadStepFailed(
-                    workflowDir, failureText, payload.Title);
+                    workflowDir, failureText, payload.Title, failureSnapshotDir);
             return PublishResult.Fail(failureText);
         }
         finally
