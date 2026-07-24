@@ -1861,7 +1861,9 @@ public partial class TikTokQueueView : UserControl
 
         var queueRunStarted = false;
         var workerReturnedSummary = false;
-        vm.StatusMessage = "TikTok 队列执行中…";
+        var displayOptions = optionsOverride ?? vm.CreateCurrentQueueRunOptionsSnapshot();
+        var isEditRun = string.Equals(displayOptions.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
+        vm.StatusMessage = isEditRun ? "编辑剧集执行中…" : "TikTok 队列执行中…";
         try
         {
             var host = CreateQueuePublishHost();
