@@ -627,6 +627,8 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokProofAccountConfigMigrated.Should().BeFalse();
         account.TiktokPublishMode.Should().Be("auto_after_review");
         account.TiktokConsignmentEnabled.Should().BeTrue();
+        account.TiktokZeroCostAdsEnabled.Should().BeFalse();
+        account.TiktokDayZeroRoi.Should().Be(1.05);
         account.TiktokPaidEnabled.Should().BeFalse();
         account.TiktokPaidRatioEnabled.Should().BeFalse();
         account.TiktokPaidRatioPercent.Should().Be(20.0);
@@ -659,6 +661,52 @@ public sealed class TikTokPublishDefaultsTests
 
         unconfigured.TiktokAiRewriteSynopsis.Should().BeTrue();
         explicitlyDisabled.TiktokAiRewriteSynopsis.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Account_profile_zero_cost_ads_defaults_disabled_for_legacy_json()
+    {
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        };
+
+        var legacy = JsonSerializer.Deserialize<TikTokAccountProfile>("{}", options)!;
+        var configured = JsonSerializer.Deserialize<TikTokAccountProfile>(
+            """{"tiktokZeroCostAdsEnabled":true,"tiktokDayZeroRoi":1.27}""",
+            options)!;
+
+        legacy.TiktokZeroCostAdsEnabled.Should().BeFalse();
+        legacy.TiktokDayZeroRoi.Should().Be(TikTokPublishOptions.DefaultDayZeroRoi);
+        configured.TiktokZeroCostAdsEnabled.Should().BeTrue();
+        configured.TiktokDayZeroRoi.Should().Be(1.27);
+    }
+
+    [Theory]
+    [InlineData(1.0, 1.0)]
+    [InlineData(1.234, 1.23)]
+    [InlineData(1.235, 1.24)]
+    [InlineData(1.5, 1.5)]
+    [InlineData(0.99, 1.05)]
+    [InlineData(1.51, 1.05)]
+    public void Day_zero_roi_normalization_enforces_platform_range(double value, double expected)
+    {
+        TikTokPublishOptions.NormalizeDayZeroRoi(value).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Publish_options_copy_zero_cost_ads_account_settings()
+    {
+        var account = new TikTokAccountProfile
+        {
+            TiktokZeroCostAdsEnabled = true,
+            TiktokDayZeroRoi = 1.28,
+        };
+
+        var options = TikTokPublishOptions.FromAccount(account);
+
+        options.ZeroCostAdsEnabled.Should().BeTrue();
+        options.DayZeroRoi.Should().Be(1.28);
     }
 
     [Fact]
@@ -729,6 +777,8 @@ public sealed class TikTokPublishDefaultsTests
         options.ContentOriginalityType.Should().Be("original");
         options.CopyrightMaterialTypes.Should().Equal("production_agreement");
         options.PublishMode.Should().Be("auto_after_review");
+        options.ZeroCostAdsEnabled.Should().BeFalse();
+        options.DayZeroRoi.Should().Be(1.05);
         options.ProfilePreviewEpisodes.Should().Be(3);
         options.FreePreviewEpisodes.Should().Be(3);
         options.ExpectedFullPriceMode.Should().Be("manual");

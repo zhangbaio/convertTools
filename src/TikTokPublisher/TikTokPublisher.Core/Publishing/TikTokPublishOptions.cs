@@ -119,6 +119,9 @@ public sealed class TikTokPublishOptions
     public const int DefaultGenreCount = 3;
     public const int MinGenreCount = 1;
     public const int MaxGenreCount = 8;
+    public const double DefaultDayZeroRoi = 1.05;
+    public const double MinDayZeroRoi = 1.0;
+    public const double MaxDayZeroRoi = 1.5;
 
     public string ContractId { get; set; } = "";
     public string ContractIdMode { get; set; } = TikTokPublishConstants.ContractIdModeManual;
@@ -136,6 +139,8 @@ public sealed class TikTokPublishOptions
     public string CopyrightMaterialFilePath { get; set; } = "";
     public string PublishMode { get; set; } = "auto_after_review";
     public bool ConsignmentEnabled { get; set; } = true;
+    public bool ZeroCostAdsEnabled { get; set; }
+    public double DayZeroRoi { get; set; } = DefaultDayZeroRoi;
     public bool PaidEnabled { get; set; }
     public int ProfilePreviewEpisodes { get; set; } = 3;
     public int FreePreviewEpisodes { get; set; } = 3;
@@ -208,6 +213,8 @@ public sealed class TikTokPublishOptions
         CopyrightMaterialFilePath = "",
         PublishMode = string.IsNullOrWhiteSpace(account.TiktokPublishMode) ? "auto_after_review" : account.TiktokPublishMode,
         ConsignmentEnabled = account.TiktokConsignmentEnabled,
+        ZeroCostAdsEnabled = account.TiktokZeroCostAdsEnabled,
+        DayZeroRoi = NormalizeDayZeroRoi(account.TiktokDayZeroRoi),
         PaidEnabled = account.TiktokPaidEnabled,
         ProfilePreviewEpisodes = Math.Max(0, account.TiktokProfilePreviewEpisodes > 0
             ? account.TiktokProfilePreviewEpisodes
@@ -252,6 +259,17 @@ public sealed class TikTokPublishOptions
 
     public static int NormalizeGenreCount(int value) =>
         Math.Clamp(value > 0 ? value : DefaultGenreCount, MinGenreCount, MaxGenreCount);
+
+    public static double NormalizeDayZeroRoi(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value) ||
+            value < MinDayZeroRoi || value > MaxDayZeroRoi)
+        {
+            return DefaultDayZeroRoi;
+        }
+
+        return Math.Round(value, 2, MidpointRounding.AwayFromZero);
+    }
 }
 
 public sealed class TikTokPublishPayload

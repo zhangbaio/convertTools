@@ -58,6 +58,8 @@ public partial class AccountSettingsDialog : Window
         ProofCopyrightCompanyNameBox.Text = p.TiktokProofCopyrightCompanyName;
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
+        ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
+        DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(p.TiktokDayZeroRoi);
         AnchorPromotionBox.IsChecked = p.TiktokAnchorPromotionEnabled;
         ProfilePreviewBox.Value = p.TiktokProfilePreviewEpisodes > 0 ? p.TiktokProfilePreviewEpisodes : 3;
         FreePreviewBox.Value = p.TiktokFreePreviewEpisodes > 0 ? p.TiktokFreePreviewEpisodes : 3;
@@ -121,6 +123,9 @@ public partial class AccountSettingsDialog : Window
         p.TiktokProofAccountConfigMigrated = true;
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
+        p.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
+        p.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(
+            (double)(DayZeroRoiBox.Value ?? (decimal)TikTokPublishOptions.DefaultDayZeroRoi));
         p.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
         p.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
         p.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);

@@ -113,6 +113,8 @@ public sealed class TikTokAccountProfile
     public bool TiktokAiRewriteSynopsis { get; set; } = true;
     public string TiktokPublishMode { get; set; } = "auto_after_review";
     public bool TiktokConsignmentEnabled { get; set; } = true;
+    public bool TiktokZeroCostAdsEnabled { get; set; }
+    public double TiktokDayZeroRoi { get; set; } = 1.05;
     public int TiktokProfilePreviewEpisodes { get; set; } = 3;
     public int TiktokFreePreviewEpisodes { get; set; } = 3;
     public string TiktokExpectedFullPriceMode { get; set; } = "manual";
