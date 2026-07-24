@@ -8,6 +8,9 @@ internal sealed record LicenseLoginDefaults(string ServerUrl, string Account, st
 
 internal static class LicenseGate
 {
+    public static LicenseStartupAction GetStartupAction() =>
+        LicenseStartupPolicy.Decide(LicenseStore.Load());
+
     public static Task<LicenseState?> VerifyAsync(bool forceVerify)
     {
         var settings = ClientSettingsStore.Load();

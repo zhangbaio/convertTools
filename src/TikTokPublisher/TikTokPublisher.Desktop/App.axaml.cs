@@ -3,7 +3,9 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Desktop.Views;
+using TikTokPublisher.Ui.Views;
 
 namespace TikTokPublisher.Desktop;
 
@@ -50,6 +52,21 @@ public partial class App : Application
 
     private static async Task<bool> EnsureLicenseBeforeMainWindowAsync()
     {
+        if (LicenseGate.GetStartupAction() == LicenseStartupAction.PromptLogin)
+        {
+            var login = LicenseGate.GetLoginDefaults();
+            var result = await LicenseLoginDialog.ShowStandaloneAsync(
+                login.ServerUrl,
+                login.Account,
+                login.Password,
+                "首次使用或本机尚未登录，请联网登录并获取授权后继续使用。");
+            if (result is null)
+                return false;
+
+            LicenseGate.SaveLoginResult(result);
+            return true;
+        }
+
         var state = await LicenseGate.VerifyAsync(forceVerify: true);
         if (state is not null)
         {
