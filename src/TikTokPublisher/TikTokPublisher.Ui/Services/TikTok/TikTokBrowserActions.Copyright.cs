@@ -76,30 +76,30 @@ public static partial class TikTokBrowserActions
             TikTokPublishConstants.SourceFileInformationMaterialType,
             StringComparer.Ordinal);
         var sourceInfoFiles = includeSourceFileInformation
-            ? options.ResolveCopyrightMaterialFilePaths(
-                TikTokPublishConstants.SourceFileInformationMaterialType)
+            ? ResolveSourceFileInformationScreenshotFiles(options)
             : [];
         if (includeSourceFileInformation &&
             sourceInfoFiles.Count < TikTokSourceFileInfoScreenshotService.RequiredImageCount)
         {
             throw new FileNotFoundException(
                 $"「原始文件或素材文件信息」需要至少 {TikTokSourceFileInfoScreenshotService.RequiredImageCount} 张截图，" +
-                $"当前仅找到 {sourceInfoFiles.Count} 张；请先执行「生成证明材料」。");
+                $"当前仅找到 {sourceInfoFiles.Count} 张（目录：{TikTokSourceFileInfoScreenshotService.OutputDirectoryName}）；" +
+                "请先执行「生成证明材料」。");
         }
 
         var includeAiGenerationScreenshots = configuredMaterialKeys.Contains(
             TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
             StringComparer.Ordinal);
         var aiScreenshotFiles = includeAiGenerationScreenshots
-            ? options.ResolveCopyrightMaterialFilePaths(
-                TikTokPublishConstants.AiGenerationScreenshotsMaterialType)
+            ? ResolveAiGenerationScreenshotFiles(options)
             : [];
         if (includeAiGenerationScreenshots &&
             aiScreenshotFiles.Count < TikTokAiGenerationScreenshotService.RequiredImageCount)
         {
             throw new FileNotFoundException(
                 $"「AI 生成过程截图」需要至少 {TikTokAiGenerationScreenshotService.RequiredImageCount} 张截图，" +
-                $"当前仅找到 {aiScreenshotFiles.Count} 张；请先执行「生成证明材料」。");
+                $"当前仅找到 {aiScreenshotFiles.Count} 张（目录：{TikTokAiGenerationScreenshotService.OutputDirectoryName}）；" +
+                "请先执行「生成证明材料」。");
         }
 
         var filePath = options.ResolveCopyrightMaterialFilePath(
@@ -236,6 +236,89 @@ public static partial class TikTokBrowserActions
                 log,
                 ct);
         }
+    }
+
+    /// <summary>
+    /// 仅从 workflow 下的「原始文件信息截图」目录取图，不回落到工程图/海报根目录。
+    /// </summary>
+    private static IReadOnlyList<string> ResolveSourceFileInformationScreenshotFiles(TikTokPublishOptions options)
+    {
+        var configured = options.ResolveCopyrightMaterialFilePath(
+            TikTokPublishConstants.SourceFileInformationMaterialType);
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            return [];
+        }
+
+        var fullPath = Path.GetFullPath(configured);
+        string? workflowDir = null;
+        if (Directory.Exists(fullPath))
+        {
+            var dirName = Path.GetFileName(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.Equals(
+                    dirName,
+                    TikTokSourceFileInfoScreenshotService.OutputDirectoryName,
+                    StringComparison.OrdinalIgnoreCase)
+                || string.Equals(dirName, "原始文件或素材文件信息", StringComparison.OrdinalIgnoreCase))
+            {
+                workflowDir = Directory.GetParent(fullPath)?.FullName;
+            }
+            else
+            {
+                // 误绑到其它目录时仍按「该路径为 workflow」尝试解析专用子目录。
+                workflowDir = fullPath;
+            }
+        }
+        else if (File.Exists(fullPath))
+        {
+            workflowDir = Directory.GetParent(fullPath)?.Parent?.FullName
+                          ?? Directory.GetParent(fullPath)?.FullName;
+        }
+
+        return string.IsNullOrWhiteSpace(workflowDir)
+            ? []
+            : TikTokSourceFileInfoScreenshotService.ListGeneratedImages(workflowDir);
+    }
+
+    /// <summary>
+    /// 仅从 workflow 下的「AI 生成过程截图」目录取图，不回落到工程图根目录。
+    /// </summary>
+    private static IReadOnlyList<string> ResolveAiGenerationScreenshotFiles(TikTokPublishOptions options)
+    {
+        var configured = options.ResolveCopyrightMaterialFilePath(
+            TikTokPublishConstants.AiGenerationScreenshotsMaterialType);
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            return [];
+        }
+
+        var fullPath = Path.GetFullPath(configured);
+        string? workflowDir = null;
+        if (Directory.Exists(fullPath))
+        {
+            var dirName = Path.GetFileName(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.Equals(
+                    dirName,
+                    TikTokAiGenerationScreenshotService.OutputDirectoryName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                workflowDir = Directory.GetParent(fullPath)?.FullName;
+            }
+            else
+            {
+                // 误绑到其它目录时仍按「该路径为 workflow」尝试解析专用子目录。
+                workflowDir = fullPath;
+            }
+        }
+        else if (File.Exists(fullPath))
+        {
+            workflowDir = Directory.GetParent(fullPath)?.Parent?.FullName
+                          ?? Directory.GetParent(fullPath)?.FullName;
+        }
+
+        return string.IsNullOrWhiteSpace(workflowDir)
+            ? []
+            : TikTokAiGenerationScreenshotService.ListGeneratedImages(workflowDir);
     }
 
     private static async Task UploadCopyrightMaterialFilesAsync(

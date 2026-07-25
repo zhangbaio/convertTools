@@ -18,11 +18,22 @@ namespace TikTokPublisher.Core.Services;
 /// </summary>
 public static class TikTokAiGenerationScreenshotService
 {
-    public const string OutputDirectoryName = "AI生成过程截图";
+    /// <summary>与版权材料选项「AI 生成过程截图」同名，独立于 workflow 根目录的工程图。</summary>
+    public const string OutputDirectoryName = "AI 生成过程截图";
     public const int RequiredImageCount = 4;
     public const int MaxImageCount = 8;
-    public const string ScreenshotVersion = "v1-workbench";
+    public const string ScreenshotVersion = "v2-dedicated-folder";
     public const int ShotsPerPage = 2;
+
+    private const string LegacyOutputDirectoryName = "AI生成过程截图";
+
+    private static readonly string[] FileNames =
+    [
+        "01_分镜工作台.png",
+        "02_分镜工作台.png",
+        "03_分镜工作台.png",
+        "04_分镜工作台.png",
+    ];
 
     private static readonly string[] KeyframeLabels = ["起幅", "过渡", "主体", "收幅"];
     private static readonly float[] KeyframeRatios = [0.12f, 0.34f, 0.56f, 0.78f];
@@ -41,6 +52,12 @@ public static class TikTokAiGenerationScreenshotService
     public static string GetOutputDirectory(string workflowProjectDirectory) =>
         Path.Combine(Path.GetFullPath(workflowProjectDirectory), OutputDirectoryName);
 
+    public static IReadOnlyList<string> GetExpectedOutputPaths(string workflowProjectDirectory)
+    {
+        var dir = GetOutputDirectory(workflowProjectDirectory);
+        return FileNames.Select(name => Path.Combine(dir, name)).ToArray();
+    }
+
     public static IReadOnlyList<string> ListGeneratedImages(string workflowProjectDirectory)
     {
         var dir = GetOutputDirectory(workflowProjectDirectory);
@@ -49,15 +66,9 @@ public static class TikTokAiGenerationScreenshotService
             return [];
         }
 
-        return Directory.EnumerateFiles(dir)
-            .Where(path =>
-            {
-                var name = Path.GetFileName(path);
-                var ext = Path.GetExtension(path);
-                return name.StartsWith("工程图_", StringComparison.OrdinalIgnoreCase)
-                       && ImageExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase);
-            })
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+        return FileNames
+            .Select(name => Path.Combine(dir, name))
+            .Where(File.Exists)
             .ToArray();
     }
 
@@ -66,7 +77,14 @@ public static class TikTokAiGenerationScreenshotService
 
     public static void TryDeleteOutput(string workflowProjectDirectory)
     {
-        var dir = GetOutputDirectory(workflowProjectDirectory);
+        TryDeleteDirectory(GetOutputDirectory(workflowProjectDirectory));
+        // 清理旧版无空格目录，避免与工程图根目录混淆时残留。
+        TryDeleteDirectory(
+            Path.Combine(Path.GetFullPath(workflowProjectDirectory), LegacyOutputDirectoryName));
+    }
+
+    private static void TryDeleteDirectory(string dir)
+    {
         if (!Directory.Exists(dir))
         {
             return;
@@ -93,6 +111,8 @@ public static class TikTokAiGenerationScreenshotService
         cancellationToken.ThrowIfCancellationRequested();
 
         var title = string.IsNullOrWhiteSpace(dramaTitle) ? "未命名短剧" : dramaTitle.Trim();
+        // 先清掉旧版目录，再写入独立文件夹，避免与 workflow 根目录「工程图_*.png」混用。
+        TryDeleteOutput(workflowProjectDirectory);
         var outputDir = GetOutputDirectory(workflowProjectDirectory);
         Directory.CreateDirectory(outputDir);
 
@@ -121,7 +141,7 @@ public static class TikTokAiGenerationScreenshotService
                     analysisA: analyses[shotA % analyses.Count],
                     analysisB: analyses[shotB % analyses.Count],
                     family);
-                var path = Path.Combine(outputDir, $"工程图_{page + 1}.png");
+                var path = Path.Combine(outputDir, FileNames[page]);
                 canvas.Save(path, new PngEncoder());
                 outputs.Add(path);
             }

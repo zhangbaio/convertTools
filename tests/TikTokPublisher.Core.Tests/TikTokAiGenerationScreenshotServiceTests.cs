@@ -31,9 +31,14 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
             outputs.Should().OnlyContain(path => File.Exists(path));
             TikTokAiGenerationScreenshotService.HasCurrentOutput(workflow).Should().BeTrue();
 
+            var outputDir = TikTokAiGenerationScreenshotService.GetOutputDirectory(workflow);
+            Directory.Exists(outputDir).Should().BeTrue();
+            Path.GetFileName(outputDir).Should().Be(TikTokAiGenerationScreenshotService.OutputDirectoryName);
+
             foreach (var path in outputs)
             {
-                Path.GetFileName(path).Should().StartWith("工程图_");
+                Path.GetDirectoryName(path).Should().Be(outputDir);
+                Path.GetFileName(path).Should().MatchRegex(@"^\d{2}_分镜工作台\.png$");
                 using var image = Image.Load(path);
                 image.Width.Should().Be(1600);
                 image.Height.Should().BeGreaterThan(1000);
@@ -70,11 +75,20 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
             var options = TikTokPublishOptionsBuilder.FromAccount(account, workflow);
             options.CopyrightMaterialFilePaths.Keys.Should().Contain(
                 TikTokPublishConstants.AiGenerationScreenshotsMaterialType);
+            options.CopyrightMaterialFilePaths[TikTokPublishConstants.AiGenerationScreenshotsMaterialType]
+                .Should().Be(TikTokAiGenerationScreenshotService.GetOutputDirectory(workflow));
 
             var images = options.ResolveCopyrightMaterialFilePaths(
                 TikTokPublishConstants.AiGenerationScreenshotsMaterialType);
             images.Should().HaveCountGreaterThanOrEqualTo(4);
-            images.Should().OnlyContain(path => path.EndsWith(".png", StringComparison.OrdinalIgnoreCase));
+            images.Should().OnlyContain(path =>
+                path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+                && path.Contains(
+                    Path.DirectorySeparatorChar + TikTokAiGenerationScreenshotService.OutputDirectoryName
+                    + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase));
+            images.Should().NotContain(path =>
+                Path.GetFileName(path).StartsWith("工程图_", StringComparison.OrdinalIgnoreCase));
         }
         finally
         {
