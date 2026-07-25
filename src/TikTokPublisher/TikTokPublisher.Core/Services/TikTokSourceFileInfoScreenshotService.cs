@@ -12,9 +12,12 @@ namespace TikTokPublisher.Core.Services;
 /// </summary>
 public static class TikTokSourceFileInfoScreenshotService
 {
-    public const string OutputDirectoryName = "原始文件或素材文件信息";
+    /// <summary>独立子目录，避免与 workflow 根目录海报/工程图混放。</summary>
+    public const string OutputDirectoryName = "原始文件信息截图";
     public const int RequiredImageCount = 4;
-    public const string ScreenshotVersion = "v1";
+    public const string ScreenshotVersion = "v2-dedicated-folder";
+
+    private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
 
     private static readonly string[] FileNames =
     [
@@ -67,6 +70,8 @@ public static class TikTokSourceFileInfoScreenshotService
 
         var title = string.IsNullOrWhiteSpace(dramaTitle) ? "未命名短剧" : dramaTitle.Trim();
         var company = string.IsNullOrWhiteSpace(companyName) ? "制作方" : companyName.Trim();
+        // 先清掉旧版目录，再写入独立文件夹。
+        TryDeleteOutput(workflowProjectDirectory);
         var outputDir = GetOutputDirectory(workflowProjectDirectory);
         Directory.CreateDirectory(outputDir);
 
@@ -116,7 +121,7 @@ public static class TikTokSourceFileInfoScreenshotService
             docsShot.Save(path4, new PngEncoder());
             outputs.Add(path4);
 
-            log?.Invoke($"原始文件或素材文件信息截图已生成：{outputs.Count} 张 → {outputDir}");
+            log?.Invoke($"原始文件信息截图已生成：{outputs.Count} 张 → {outputDir}");
             return outputs;
         }
         finally
@@ -130,7 +135,13 @@ public static class TikTokSourceFileInfoScreenshotService
 
     public static void TryDeleteOutput(string workflowProjectDirectory)
     {
-        var dir = GetOutputDirectory(workflowProjectDirectory);
+        TryDeleteDirectory(GetOutputDirectory(workflowProjectDirectory));
+        TryDeleteDirectory(
+            Path.Combine(Path.GetFullPath(workflowProjectDirectory), LegacyOutputDirectoryName));
+    }
+
+    private static void TryDeleteDirectory(string dir)
+    {
         if (!Directory.Exists(dir))
         {
             return;

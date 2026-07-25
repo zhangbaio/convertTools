@@ -30,8 +30,13 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
             outputs.Should().OnlyContain(path => File.Exists(path));
             TikTokSourceFileInfoScreenshotService.HasCurrentOutput(workflow).Should().BeTrue();
 
+            var outputDir = TikTokSourceFileInfoScreenshotService.GetOutputDirectory(workflow);
+            Directory.Exists(outputDir).Should().BeTrue();
+            Path.GetFileName(outputDir).Should().Be(TikTokSourceFileInfoScreenshotService.OutputDirectoryName);
+
             foreach (var path in outputs)
             {
+                Path.GetDirectoryName(path).Should().Be(outputDir);
                 using var image = Image.Load(path);
                 image.Width.Should().BeGreaterThan(1000);
                 image.Height.Should().BeGreaterThan(700);
@@ -68,11 +73,18 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
             options.CopyrightMaterialFilePaths.Keys.Should().BeEquivalentTo(
                 TikTokPublishConstants.ProductionAgreementMaterialType,
                 TikTokPublishConstants.SourceFileInformationMaterialType);
+            options.CopyrightMaterialFilePaths[TikTokPublishConstants.SourceFileInformationMaterialType]
+                .Should().Be(TikTokSourceFileInfoScreenshotService.GetOutputDirectory(workflow));
 
             var images = options.ResolveCopyrightMaterialFilePaths(
                 TikTokPublishConstants.SourceFileInformationMaterialType);
             images.Should().HaveCount(4);
-            images.Should().OnlyContain(path => path.EndsWith(".png", StringComparison.OrdinalIgnoreCase));
+            images.Should().OnlyContain(path =>
+                path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+                && path.Contains(
+                    Path.DirectorySeparatorChar + TikTokSourceFileInfoScreenshotService.OutputDirectoryName
+                    + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase));
         }
         finally
         {
