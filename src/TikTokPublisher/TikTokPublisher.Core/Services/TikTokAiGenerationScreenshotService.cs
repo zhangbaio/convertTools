@@ -302,12 +302,28 @@ public static class TikTokAiGenerationScreenshotService
                 .ToList();
         }
 
-        var tasks = Enumerable.Range(0, (count + 1) / 2)
+        var totalTimer = Stopwatch.StartNew();
+        var completedRequests = 0;
+        var requestCount = (count + 1) / 2;
+        var requestTimeoutSeconds = Math.Clamp(
+            settings!.AiTextTimeoutSeconds <= 0 ? 120 : settings.AiTextTimeoutSeconds,
+            30,
+            300);
+        log?.Invoke(
+            $"AI 截图/反推：准备并发请求 {requestCount} 组；" +
+            $"模型={model}；每组上传 2 张主体帧；超时={requestTimeoutSeconds} 秒。");
+
+        var tasks = Enumerable.Range(0, requestCount)
             .Select(async pairIndex =>
             {
                 var shotIndex = pairIndex * 2;
+                var requestNumber = pairIndex + 1;
                 var a = frames[(shotIndex * KeyframeRatios.Length + 2) % frames.Count];
                 var b = frames[((shotIndex + 1) * KeyframeRatios.Length + 2) % frames.Count];
+                var requestTimer = Stopwatch.StartNew();
+                log?.Invoke(
+                    $"AI 截图/反推 [{requestNumber}/{requestCount}] 请求已发送：" +
+                    $"镜头 {shotIndex + 1}-{Math.Min(shotIndex + 2, count)}，正在等待模型响应…");
                 try
                 {
                     var pair = await AnalyzeShotPairAsync(
@@ -316,9 +332,14 @@ public static class TikTokAiGenerationScreenshotService
                             model,
                             a,
                             b,
-                            settings!.AiTextTimeoutSeconds,
+                            requestTimeoutSeconds,
                             cancellationToken)
                         .ConfigureAwait(false);
+                    var completed = Interlocked.Increment(ref completedRequests);
+                    log?.Invoke(
+                        $"AI 截图/反推 [{requestNumber}/{requestCount}] 响应完成：" +
+                        $"镜头 {shotIndex + 1}-{Math.Min(shotIndex + 2, count)}；" +
+                        $"耗时={FormatElapsed(requestTimer.Elapsed)}；总进度={completed}/{requestCount}。");
                     return (ShotIndex: shotIndex, First: pair.Item1, Second: pair.Item2, Error: (Exception?)null);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -327,6 +348,12 @@ public static class TikTokAiGenerationScreenshotService
                 }
                 catch (Exception ex)
                 {
+                    var completed = Interlocked.Increment(ref completedRequests);
+                    log?.Invoke(
+                        $"AI 截图/反推 [{requestNumber}/{requestCount}] 请求失败：" +
+                        $"镜头 {shotIndex + 1}-{Math.Min(shotIndex + 2, count)}；" +
+                        $"耗时={FormatElapsed(requestTimer.Elapsed)}；总进度={completed}/{requestCount}；" +
+                        $"将使用本地兜底。");
                     return (
                         ShotIndex: shotIndex,
                         First: FallbackAnalysis(shotIndex, title),
@@ -336,8 +363,10 @@ public static class TikTokAiGenerationScreenshotService
             })
             .ToArray();
 
-        log?.Invoke($"AI 截图：并发反推 {tasks.Length} 组提示词（{count} 个镜头）。");
         var results = Task.WhenAll(tasks).GetAwaiter().GetResult();
+        log?.Invoke(
+            $"AI 截图/反推：全部请求处理完成；共 {requestCount} 组、{count} 个镜头；" +
+            $"总耗时={FormatElapsed(totalTimer.Elapsed)}。");
         var analyses = new ShotAnalysis[count];
         foreach (var result in results.OrderBy(item => item.ShotIndex))
         {
@@ -356,6 +385,11 @@ public static class TikTokAiGenerationScreenshotService
 
         return analyses.ToList();
     }
+
+    private static string FormatElapsed(TimeSpan elapsed) =>
+        elapsed.TotalSeconds < 1
+            ? $"{elapsed.TotalMilliseconds:0}ms"
+            : $"{elapsed.TotalSeconds:0.0}s";
 
     private static async Task<(ShotAnalysis, ShotAnalysis)> AnalyzeShotPairAsync(
         string endpoint,
