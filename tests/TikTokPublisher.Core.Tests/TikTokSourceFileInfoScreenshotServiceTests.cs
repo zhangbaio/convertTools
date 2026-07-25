@@ -10,6 +10,28 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokSourceFileInfoScreenshotServiceTests
 {
     [Fact]
+    public void Generate_handles_multiple_videos_when_only_one_fallback_frame_is_requested()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-source-many-videos-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            File.WriteAllText(Path.Combine(workflow, "短剧第1集.mp4"), "test video 1");
+            File.WriteAllText(Path.Combine(workflow, "短剧第2集.mp4"), "test video 2");
+
+            var action = () => TikTokSourceFileInfoScreenshotService.Generate(
+                workflow, "多集短剧", "测试公司");
+
+            action.Should().NotThrow();
+            TikTokSourceFileInfoScreenshotService.ListGeneratedImages(workflow).Should().HaveCount(4);
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Generate_prefers_existing_ai_drama_assets_without_creating_extra_source_images()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-source-assets-{Guid.NewGuid():N}");
@@ -53,6 +75,17 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
                 .Should().BeEmpty("直接角色素材应只读复用，不应产生额外抽帧图片");
             Directory.EnumerateFiles(Path.Combine(evidenceDir, "04_场景参考"))
                 .Should().BeEmpty("直接场景素材应只读复用，不应产生额外抽帧图片");
+            var episodePackage = Path.Combine(evidenceDir, "EP01_源文件包");
+            Directory.Exists(episodePackage).Should().BeTrue();
+            File.Exists(Path.Combine(episodePackage, "EP01_素材清单.csv")).Should().BeTrue();
+            File.Exists(Path.Combine(episodePackage, "EP01_镜头清单.json")).Should().BeTrue();
+            File.Exists(Path.Combine(
+                    episodePackage, "01_剧本与分镜", "EP01_30秒片段正式制作剧本.docx"))
+                .Should().BeTrue();
+            File.Exists(Path.Combine(episodePackage, "06_视频源片段", "视频源文件索引.txt"))
+                .Should().BeTrue();
+            Directory.EnumerateFiles(episodePackage, "*.mp4", SearchOption.AllDirectories)
+                .Should().BeEmpty("视频只登记真实路径和元数据，不应复制或转码");
         }
         finally
         {
@@ -91,15 +124,20 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
             Path.GetFileName(outputDir).Should().Be(TikTokSourceFileInfoScreenshotService.OutputDirectoryName);
             File.Exists(Path.Combine(evidenceDir, "视频文件清单.csv")).Should().BeTrue();
             File.Exists(Path.Combine(evidenceDir, "项目说明.txt")).Should().BeTrue();
-            var scriptDocx = Directory.EnumerateFiles(evidenceDir, "*_成片整理稿.docx").Should().ContainSingle().Subject;
+            var scriptDocx = Directory.EnumerateFiles(
+                    evidenceDir, "*_30秒片段正式制作剧本.docx", SearchOption.AllDirectories)
+                .Should().ContainSingle().Subject;
             using (var document = WordprocessingDocument.Open(scriptDocx, false))
             {
                 var documentText = document.MainDocumentPart!.Document.Body!.InnerText;
-                documentText.Should().Contain("成片整理稿");
-                documentText.Should().Contain("不代表拍摄前原始剧本");
+                documentText.Should().Contain("片段时间码");
                 documentText.Should().NotContain("character_main.ai");
-                document.MainDocumentPart.Document.Body.Descendants<DocumentFormat.OpenXml.Wordprocessing.Table>()
-                    .Should().ContainSingle();
+                if (File.Exists(@"D:\code\短剧制作\《福生小店》20集AI真人漫剧完整剧本.docx"))
+                {
+                    documentText.Should().Contain("集体辞职");
+                    documentText.Should().Contain("赵强");
+                    documentText.Should().Contain("福生");
+                }
             }
 
             var manifest = File.ReadAllText(Path.Combine(evidenceDir, "视频文件清单.csv"));
