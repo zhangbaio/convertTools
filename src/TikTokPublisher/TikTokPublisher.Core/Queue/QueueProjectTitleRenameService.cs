@@ -396,6 +396,9 @@ public static class QueueProjectTitleRenameService
         var path = Path.Combine(workflowDir, TikTokProofMaterialService.ProofPdfFileName);
         if (File.Exists(path))
             File.Delete(path);
+        TikTokSourceFileInfoScreenshotService.TryDeleteOutput(workflowDir);
+        TikTokAiGenerationScreenshotService.TryDeleteOutput(workflowDir);
+        TikTokProjectImageService.TryDeleteOutput(workflowDir);
     }
 
     private static bool ResetCompletedStep(QueueProjectItem item, string stepKey)

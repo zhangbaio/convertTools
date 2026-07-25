@@ -10,14 +10,22 @@ namespace TikTokPublisher.Core.Services;
 
 public static class TikTokProjectImageService
 {
+    /// <summary>与版权材料「剪辑工程文件」对应，独立于 workflow 根目录。</summary>
+    public const string OutputDirectoryName = "剪辑工程文件";
+    public const int MinUploadImageCount = 4;
+
     private const string DocumentType = "tiktok_project_image_state";
     private const string InputStagingDirName = ".project_image_inputs";
-    private const string SignatureVersion = "v3";
+    private const string SignatureVersion = "v4-dedicated-folder";
+    private const string FileNamePattern = "工程图_*.png";
 
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm",
     };
+
+    public static string GetOutputDirectory(string workflowProjectDirectory) =>
+        Path.Combine(Path.GetFullPath(workflowProjectDirectory), OutputDirectoryName);
 
     public static async Task GenerateAsync(
         QueueProjectItem item,
@@ -54,13 +62,18 @@ public static class TikTokProjectImageService
         {
             throw new InvalidOperationException("生成工程图失败：未找到可用于截图的视频文件。");
         }
+        log?.Invoke(
+            $"工程图/输入扫描：可用视频={sourceVideos.Length}；" +
+            $"渲染上限={renderEpisodeLimit}；目标图片={count}；模板目录={templateDir}。");
 
         var episodeNames = ResolveEpisodeNames(sourceVideos);
         var signature = ComputeSignature(context, normalized, templateDir, sourceVideos, episodeNames, count, renderEpisodeLimit);
+        var outputDir = GetOutputDirectory(workflowDir);
+        Directory.CreateDirectory(outputDir);
         if (!forceRerun && HasEnoughOutputs(workflowDir, count) && IsSavedSignatureCurrentOrMissing(context, signature))
         {
             SaveState(context, signature, templateDir, count, ListProjectImages(workflowDir));
-            log?.Invoke($"工程图已存在 {CountProjectImages(workflowDir)}/{count} 张，跳过。");
+            log?.Invoke($"工程图已存在 {CountProjectImages(workflowDir)}/{count} 张（{OutputDirectoryName}），跳过。");
             return;
         }
 
@@ -70,15 +83,17 @@ public static class TikTokProjectImageService
         }
 
         var inputDir = PrepareInputDirectory(context.WorkflowProjectDir, sourceVideos, ct);
+        log?.Invoke($"工程图/输入暂存：已准备 {sourceVideos.Length} 个视频 → {inputDir}。");
         var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(normalized);
         try
         {
-            log?.Invoke($"开始生成工程图：模板 {ClientSettingsDefaults.TiktokProjectImageTemplateName}，数量 {count}，取前 {sourceVideos.Length} 集。");
+            log?.Invoke(
+                $"开始生成工程图：模板 {ClientSettingsDefaults.TiktokProjectImageTemplateName}，数量 {count}，取前 {sourceVideos.Length} 集 → {OutputDirectoryName}。");
             var result = await QueueInfrastructureServices.ProjectImages.GenerateAsync(
                 new ProjectImageGenerateRequest(
                     ProjectDir: workflowDir,
                     InputDir: inputDir,
-                    OutputDir: workflowDir,
+                    OutputDir: outputDir,
                     TemplateImageDir: templateDir,
                     ConfigFile: configPath,
                     Count: count,
@@ -91,13 +106,17 @@ public static class TikTokProjectImageService
                 throw new InvalidOperationException($"生成工程图数量不足：{result.Count}/{count}");
             }
 
+            // 清理旧版散落在 workflow 根目录的工程图，避免与独立目录混淆。
+            DeleteLegacyRootProjectImages(workflowDir);
+
             SaveState(context, signature, templateDir, count, result.Outputs);
-            log?.Invoke($"工程图生成完成：{result.Count} 张。");
+            log?.Invoke($"工程图生成完成：{result.Count} 张 → {outputDir}");
         }
         finally
         {
             TryDelete(configPath);
             TryDeleteInputDirectory(context.WorkflowProjectDir, inputDir);
+            log?.Invoke("工程图/清理：临时配置与输入暂存目录已清理。");
         }
     }
 
@@ -172,14 +191,64 @@ public static class TikTokProjectImageService
         return ListProjectImages(workflowProjectDir).Count;
     }
 
+    public static bool HasCurrentOutput(string workflowProjectDir, int? requiredCount = null)
+    {
+        var required = requiredCount ?? MinUploadImageCount;
+        return CountProjectImages(workflowProjectDir) >= required;
+    }
+
+    public static IReadOnlyList<string> ListGeneratedImages(string workflowProjectDir) =>
+        ListProjectImages(workflowProjectDir);
+
+    public static void TryDeleteOutput(string workflowProjectDir)
+    {
+        DeleteProjectImages(workflowProjectDir);
+        DeleteLegacyRootProjectImages(workflowProjectDir);
+        var dir = GetOutputDirectory(workflowProjectDir);
+        if (!Directory.Exists(dir))
+        {
+            return;
+        }
+
+        try
+        {
+            if (!Directory.EnumerateFileSystemEntries(dir).Any())
+            {
+                Directory.Delete(dir, recursive: false);
+            }
+        }
+        catch
+        {
+            // best-effort
+        }
+    }
+
     private static IReadOnlyList<string> ListProjectImages(string workflowProjectDir)
     {
-        if (string.IsNullOrWhiteSpace(workflowProjectDir) || !Directory.Exists(workflowProjectDir))
+        if (string.IsNullOrWhiteSpace(workflowProjectDir))
         {
             return Array.Empty<string>();
         }
 
-        return Directory.EnumerateFiles(workflowProjectDir, "工程图_*.png", SearchOption.TopDirectoryOnly)
+        var outputDir = GetOutputDirectory(workflowProjectDir);
+        if (Directory.Exists(outputDir))
+        {
+            var dedicated = Directory.EnumerateFiles(outputDir, FileNamePattern, SearchOption.TopDirectoryOnly)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (dedicated.Length > 0)
+            {
+                return dedicated;
+            }
+        }
+
+        // 兼容旧版散落在 workflow 根目录的工程图（读取用；生成后会迁走/清理）。
+        if (!Directory.Exists(workflowProjectDir))
+        {
+            return Array.Empty<string>();
+        }
+
+        return Directory.EnumerateFiles(workflowProjectDir, FileNamePattern, SearchOption.TopDirectoryOnly)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
@@ -358,6 +427,19 @@ public static class TikTokProjectImageService
     private static void DeleteProjectImages(string workflowDir)
     {
         foreach (var path in ListProjectImages(workflowDir))
+        {
+            TryDelete(path);
+        }
+    }
+
+    private static void DeleteLegacyRootProjectImages(string workflowDir)
+    {
+        if (string.IsNullOrWhiteSpace(workflowDir) || !Directory.Exists(workflowDir))
+        {
+            return;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(workflowDir, FileNamePattern, SearchOption.TopDirectoryOnly))
         {
             TryDelete(path);
         }

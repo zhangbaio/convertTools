@@ -615,6 +615,62 @@ public sealed class TikTokProofMaterialServiceTests
         request.DeclarantCompanyName.Should().Be("账号声明公司");
         request.SealImagePath.Should().Be(@"C:\account\seal.png");
         request.WpsExecutablePath.Should().Be(@"C:\WPS\wps.exe");
+        request.GenerateSourceFileScreenshots.Should().BeFalse();
+        request.GenerateAiGenerationScreenshots.Should().BeFalse();
+        request.GenerateEditingProjectFiles.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Queue_request_enables_screenshot_outputs_only_for_selected_material_types()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var item = new QueueProjectItem { NewTitle = "勾选材料剧名" };
+        var settings = new ClientSettings
+        {
+            TiktokProofTemplateDocxPath = fixture.CreateTemplate(),
+        };
+        var account = new TikTokAccountProfile
+        {
+            TiktokProofCopyrightCompanyName = "版权公司",
+            TiktokProofDeclarantCompanyName = "声明公司",
+            TiktokProofAccountConfigMigrated = true,
+            TiktokCopyrightMaterialTypes =
+            [
+                TikTokPublishConstants.ProductionAgreementMaterialType,
+                TikTokPublishConstants.SourceFileInformationMaterialType,
+            ],
+        };
+
+        var request = TikTokProofMaterialService.CreateQueueRequest(
+            item,
+            settings,
+            account,
+            Path.GetTempPath(),
+            new DateOnly(2026, 7, 14));
+
+        request.GenerateSourceFileScreenshots.Should().BeTrue();
+        request.GenerateAiGenerationScreenshots.Should().BeFalse();
+        request.GenerateEditingProjectFiles.Should().BeFalse();
+
+        account.TiktokCopyrightMaterialTypes =
+        [
+            TikTokPublishConstants.ProductionAgreementMaterialType,
+            TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+            TikTokPublishConstants.SourceFileInformationMaterialType,
+            TikTokPublishConstants.EditingProjectFilesMaterialType,
+        ];
+        var both = TikTokProofMaterialService.CreateQueueRequest(
+            item,
+            settings,
+            account,
+            Path.GetTempPath(),
+            new DateOnly(2026, 7, 14));
+        both.GenerateSourceFileScreenshots.Should().BeTrue();
+        both.GenerateAiGenerationScreenshots.Should().BeTrue();
+        both.GenerateEditingProjectFiles.Should().BeTrue();
+
+        TikTokProofMaterialService.ComputeFingerprint(request)
+            .Should().NotBe(TikTokProofMaterialService.ComputeFingerprint(both));
     }
 
     [Fact]

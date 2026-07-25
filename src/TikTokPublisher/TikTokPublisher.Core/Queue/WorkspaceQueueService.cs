@@ -652,7 +652,8 @@ public static class WorkspaceQueueService
 
             Span<byte> header = stackalloc byte[5];
             stream.ReadExactly(header);
-            return header.SequenceEqual("%PDF-"u8);
+            if (!header.SequenceEqual("%PDF-"u8))
+                return false;
         }
         catch (IOException)
         {
@@ -662,6 +663,9 @@ public static class WorkspaceQueueService
         {
             return false;
         }
+
+        // 扫描恢复仅依据合作协议 PDF；原始文件/AI 截图是否齐全由账号勾选在步骤执行时校验。
+        return true;
     }
 
     private static bool HasSilenceAsrReport(ProjectWorkspaceContext context)
