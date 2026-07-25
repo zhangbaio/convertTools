@@ -60,6 +60,19 @@ public static class TikTokPublishOptionsBuilder
                         : $"TikTok 原始文件截图等待生成：{sourceInfoDir}");
             }
 
+            if (options.CopyrightMaterialTypes.Contains(
+                    TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+                    StringComparer.Ordinal))
+            {
+                var aiDir = TikTokAiGenerationScreenshotService.GetOutputDirectory(workflowProjectDir);
+                paths[TikTokPublishConstants.AiGenerationScreenshotsMaterialType] = aiDir;
+                var aiCount = TikTokAiGenerationScreenshotService.ListGeneratedImages(workflowProjectDir).Count;
+                log?.Invoke(
+                    aiCount >= TikTokAiGenerationScreenshotService.RequiredImageCount
+                        ? $"TikTok AI 生成过程截图已就绪：{aiCount} 张 → {aiDir}"
+                        : $"TikTok AI 生成过程截图等待生成：{aiDir}");
+            }
+
             options.CopyrightMaterialFilePaths = paths;
         }
 

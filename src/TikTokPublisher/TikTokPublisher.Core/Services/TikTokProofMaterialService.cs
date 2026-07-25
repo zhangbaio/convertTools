@@ -14,7 +14,7 @@ public sealed class TikTokProofMaterialService
     public const string ProofDocxFileName = "证明材料.docx";
     public const string StateDocumentType = "tiktok_proof_material_state";
 
-    private const string FingerprintVersion = "v6-source-file-screenshots";
+    private const string FingerprintVersion = "v7-ai-generation-screenshots";
     private static readonly IReadOnlySet<string> SupportedSealImageExtensions =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -120,7 +120,7 @@ public sealed class TikTokProofMaterialService
         {
             var state = LoadState(context);
             var renderer = GetStateString(state, "renderer");
-            log?.Invoke($"{ProofPdfFileName} 与原始文件截图已存在且配置未变化，跳过生成。");
+            log?.Invoke($"{ProofPdfFileName}、原始文件截图与 AI 生成截图已存在且配置未变化，跳过生成。");
             return new TikTokProofMaterialResult(
                 request.OutputPdfPath,
                 request.KeepIntermediateDocx ? outputDocxPath : null,
@@ -140,6 +140,14 @@ public sealed class TikTokProofMaterialService
             context.WorkflowProjectDir,
             request.DramaTitle,
             request.CopyrightCompanyName,
+            log,
+            cancellationToken);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        TikTokAiGenerationScreenshotService.Generate(
+            context.WorkflowProjectDir,
+            request.DramaTitle,
+            settings,
             log,
             cancellationToken);
 
@@ -277,6 +285,7 @@ public sealed class TikTokProofMaterialService
                 : "libreoffice",
             wps_executable_path = (request.WpsExecutablePath ?? string.Empty).Trim(),
             source_file_screenshots = TikTokSourceFileInfoScreenshotService.ScreenshotVersion,
+            ai_generation_screenshots = TikTokAiGenerationScreenshotService.ScreenshotVersion,
         };
         var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
@@ -374,6 +383,11 @@ public sealed class TikTokProofMaterialService
             return false;
         }
 
+        if (!TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
+        {
+            return false;
+        }
+
         var state = LoadState(context);
         return string.Equals(
             GetStateString(state, "fingerprint"),
@@ -408,6 +422,10 @@ public sealed class TikTokProofMaterialService
             ["renderer"] = result.PdfRenderer,
             ["wps_executable_path"] = (request.WpsExecutablePath ?? string.Empty).Trim(),
             ["source_file_screenshots"] = TikTokSourceFileInfoScreenshotService
+                .ListGeneratedImages(context.WorkflowProjectDir)
+                .Select(Path.GetFileName)
+                .ToArray(),
+            ["ai_generation_screenshots"] = TikTokAiGenerationScreenshotService
                 .ListGeneratedImages(context.WorkflowProjectDir)
                 .Select(Path.GetFileName)
                 .ToArray(),

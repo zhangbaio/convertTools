@@ -37,10 +37,14 @@ public static partial class TikTokBrowserActions
         if (configuredMaterialKeys.Count == 0)
             throw new InvalidOperationException("TikTok 上传材料类型未配置，请选择「制作协议、联合出品协议等合作协议」。");
 
+        var supportedAutoUploadKeys = new HashSet<string>(StringComparer.Ordinal)
+        {
+            TikTokPublishConstants.ProductionAgreementMaterialType,
+            TikTokPublishConstants.SourceFileInformationMaterialType,
+            TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+        };
         var unsupportedMaterialKeys = configuredMaterialKeys
-            .Where(key =>
-                !string.Equals(key, TikTokPublishConstants.ProductionAgreementMaterialType, StringComparison.Ordinal) &&
-                !string.Equals(key, TikTokPublishConstants.SourceFileInformationMaterialType, StringComparison.Ordinal))
+            .Where(key => !supportedAutoUploadKeys.Contains(key))
             .ToList();
         if (unsupportedMaterialKeys.Count > 0)
         {
@@ -53,13 +57,14 @@ public static partial class TikTokBrowserActions
                 throw new InvalidOperationException(
                     $"已选择版权材料「{string.Join("、", labels)}」，但尚未配置对应的独立文件；" +
                     "证明材料.pdf 仅可上传到「制作协议、联合出品协议等合作协议」，" +
-                    "原始文件截图仅可上传到「原始文件或素材文件信息」。");
+                    "原始文件截图仅可上传到「原始文件或素材文件信息」，" +
+                    "AI 生成截图仅可上传到「AI 生成过程截图」。");
 
             var configuredLabels = unsupportedMaterialKeys
                 .Select(key => TikTokPublishConstants.CopyrightMaterialLabels[key]);
             throw new NotSupportedException(
                 $"版权材料「{string.Join("、", configuredLabels)}」已有独立文件，但当前自动上传流程尚未支持该类型；" +
-                "请仅选择「制作协议、联合出品协议等合作协议」和/或「原始文件或素材文件信息」。");
+                "请选择「制作协议、联合出品协议等合作协议」，以及可选的「原始文件或素材文件信息」/「AI 生成过程截图」。");
         }
 
         if (!configuredMaterialKeys.Contains(
@@ -80,6 +85,21 @@ public static partial class TikTokBrowserActions
             throw new FileNotFoundException(
                 $"「原始文件或素材文件信息」需要至少 {TikTokSourceFileInfoScreenshotService.RequiredImageCount} 张截图，" +
                 $"当前仅找到 {sourceInfoFiles.Count} 张；请先执行「生成证明材料」。");
+        }
+
+        var includeAiGenerationScreenshots = configuredMaterialKeys.Contains(
+            TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+            StringComparer.Ordinal);
+        var aiScreenshotFiles = includeAiGenerationScreenshots
+            ? options.ResolveCopyrightMaterialFilePaths(
+                TikTokPublishConstants.AiGenerationScreenshotsMaterialType)
+            : [];
+        if (includeAiGenerationScreenshots &&
+            aiScreenshotFiles.Count < TikTokAiGenerationScreenshotService.RequiredImageCount)
+        {
+            throw new FileNotFoundException(
+                $"「AI 生成过程截图」需要至少 {TikTokAiGenerationScreenshotService.RequiredImageCount} 张截图，" +
+                $"当前仅找到 {aiScreenshotFiles.Count} 张；请先执行「生成证明材料」。");
         }
 
         var filePath = options.ResolveCopyrightMaterialFilePath(
@@ -109,6 +129,8 @@ public static partial class TikTokBrowserActions
             TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.ProductionAgreementMaterialType];
         var sourceInfoLabel =
             TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.SourceFileInformationMaterialType];
+        var aiScreenshotLabel =
+            TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.AiGenerationScreenshotsMaterialType];
         var productionAgreementOption = await WaitForCopyrightMaterialCheckboxAsync(
             page,
             productionAgreementLabel,
@@ -138,6 +160,22 @@ public static partial class TikTokBrowserActions
                 ct);
         }
 
+        if (includeAiGenerationScreenshots)
+        {
+            var aiOption = await WaitForCopyrightMaterialCheckboxAsync(
+                page,
+                aiScreenshotLabel,
+                CopyrightControlTimeoutMs,
+                ct);
+            await EnsureCopyrightMaterialCheckboxStateAsync(
+                page,
+                aiScreenshotLabel,
+                aiOption,
+                shouldSelect: true,
+                log,
+                ct);
+        }
+
         // 页面可能保留上一次未提交的选择；清掉当前未配置的已知类型，避免出现无文件映射的上传框。
         foreach (var pair in TikTokPublishConstants.CopyrightMaterialLabels)
         {
@@ -145,6 +183,9 @@ public static partial class TikTokBrowserActions
                 continue;
             if (includeSourceFileInformation &&
                 string.Equals(pair.Key, TikTokPublishConstants.SourceFileInformationMaterialType, StringComparison.Ordinal))
+                continue;
+            if (includeAiGenerationScreenshots &&
+                string.Equals(pair.Key, TikTokPublishConstants.AiGenerationScreenshotsMaterialType, StringComparison.Ordinal))
                 continue;
             ct.ThrowIfCancellationRequested();
             var option = await TryFindCopyrightMaterialCheckboxAsync(page, pair.Value);
@@ -159,10 +200,12 @@ public static partial class TikTokBrowserActions
         }
         await ClosePopupIfOpenAsync(page);
 
-        var selectedLabels = includeSourceFileInformation
-            ? $"{productionAgreementLabel}、{sourceInfoLabel}"
-            : productionAgreementLabel;
-        Log(log, $"TikTok 版权材料类型已确认：{selectedLabels}。");
+        var selectedParts = new List<string> { productionAgreementLabel };
+        if (includeSourceFileInformation)
+            selectedParts.Add(sourceInfoLabel);
+        if (includeAiGenerationScreenshots)
+            selectedParts.Add(aiScreenshotLabel);
+        Log(log, $"TikTok 版权材料类型已确认：{string.Join("、", selectedParts)}。");
 
         await UploadCopyrightMaterialFilesAsync(
             page,
@@ -178,6 +221,17 @@ public static partial class TikTokBrowserActions
                 page,
                 sourceInfoLabel,
                 sourceInfoFiles.ToArray(),
+                preferProductionAgreementFieldId: false,
+                log,
+                ct);
+        }
+
+        if (includeAiGenerationScreenshots)
+        {
+            await UploadCopyrightMaterialFilesAsync(
+                page,
+                aiScreenshotLabel,
+                aiScreenshotFiles.ToArray(),
                 preferProductionAgreementFieldId: false,
                 log,
                 ct);

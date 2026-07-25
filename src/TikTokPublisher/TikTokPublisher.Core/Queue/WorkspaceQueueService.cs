@@ -675,7 +675,8 @@ public static class WorkspaceQueueService
             return false;
         }
 
-        return TikTokSourceFileInfoScreenshotService.HasCurrentOutput(workflowProjectDir);
+        return TikTokSourceFileInfoScreenshotService.HasCurrentOutput(workflowProjectDir)
+               && TikTokAiGenerationScreenshotService.HasCurrentOutput(workflowProjectDir);
     }
 
     private static bool HasSilenceAsrReport(ProjectWorkspaceContext context)
