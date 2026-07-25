@@ -695,6 +695,11 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueSilenceRepairEnabled = true;
             QueueMaterialValidateEnabled = true;
             QueueUploadEnabled = true;
+            SyncManagementAfterUpload = true;
+            AutoArchiveAfterUpload = true;
+            PreferUploadWhenReady = true;
+            // “全选步骤”不应开启破坏性较强的重跑选项，必须由用户单独勾选。
+            ForceRerunCompletedSteps = false;
         }
         finally
         {
@@ -720,6 +725,9 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueSilenceRepairEnabled = false;
             QueueMaterialValidateEnabled = false;
             QueueUploadEnabled = false;
+            SyncManagementAfterUpload = false;
+            AutoArchiveAfterUpload = false;
+            PreferUploadWhenReady = false;
             ForceRerunCompletedSteps = false;
         }
         finally
