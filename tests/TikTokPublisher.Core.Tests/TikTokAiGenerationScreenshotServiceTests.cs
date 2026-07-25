@@ -11,6 +11,28 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokAiGenerationScreenshotServiceTests
 {
     [Fact]
+    public void Face_visibility_score_prefers_centered_skin_region()
+    {
+        using var emptyFrame = new Image<Rgba32>(160, 160, new Rgba32(35, 45, 60));
+        using var faceFrame = new Image<Rgba32>(160, 160, new Rgba32(35, 45, 60));
+        for (var y = 28; y < 88; y++)
+        {
+            for (var x = 50; x < 110; x++)
+            {
+                var dx = (x - 80) / 30d;
+                var dy = (y - 58) / 30d;
+                if ((dx * dx) + (dy * dy) <= 1)
+                {
+                    faceFrame[x, y] = new Rgba32(210, 155, 125);
+                }
+            }
+        }
+
+        TikTokAiGenerationScreenshotService.ScoreFaceVisibility(faceFrame)
+            .Should().BeGreaterThan(TikTokAiGenerationScreenshotService.ScoreFaceVisibility(emptyFrame));
+    }
+
+    [Fact]
     public void EnumerateVideos_includes_tiktok_upload_videos()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-ai-video-source-{Guid.NewGuid():N}");
