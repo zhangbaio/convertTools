@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
@@ -23,7 +24,7 @@ public static class TikTokAiGenerationScreenshotService
     public const string OutputDirectoryName = "AI 生成过程截图";
     public const int RequiredImageCount = 4;
     public const int MaxImageCount = 8;
-    public const string ScreenshotVersion = "v2-dedicated-folder";
+    public const string ScreenshotVersion = "v3-workbench-video-sources";
     public const int ShotsPerPage = 2;
 
     private const string LegacyOutputDirectoryName = "AI生成过程截图";
@@ -39,6 +40,8 @@ public static class TikTokAiGenerationScreenshotService
     private static readonly string[] KeyframeLabels = ["起幅", "过渡", "主体", "收幅"];
     private static readonly float[] KeyframeRatios = [0.12f, 0.34f, 0.56f, 0.78f];
     private static readonly HttpClient VisionHttp = CreateHttpClient();
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> GenerationGates =
+        new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly string[] VideoExtensions =
     [
@@ -109,18 +112,38 @@ public static class TikTokAiGenerationScreenshotService
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowProjectDirectory);
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        var gate = GenerationGates.GetOrAdd(workflow, static _ => new SemaphoreSlim(1, 1));
+        gate.Wait(cancellationToken);
+        try
+        {
+            return GenerateCore(workflow, dramaTitle, settings, log, cancellationToken);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private static IReadOnlyList<string> GenerateCore(
+        string workflowProjectDirectory,
+        string dramaTitle,
+        ClientSettings? settings,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
 
         var title = string.IsNullOrWhiteSpace(dramaTitle) ? "未命名短剧" : dramaTitle.Trim();
         // 先清掉旧版目录，再写入独立文件夹，避免与 workflow 根目录「工程图_*.png」混用。
         TryDeleteOutput(workflowProjectDirectory);
         var outputDir = GetOutputDirectory(workflowProjectDirectory);
-        Directory.CreateDirectory(outputDir);
         log?.Invoke($"AI 截图/初始化：已清理旧产物；输出目录={outputDir}。");
 
         var pageCount = RequiredImageCount;
         var shotCount = pageCount * ShotsPerPage;
         var framePool = CollectFrames(workflowProjectDirectory, shotCount, log, cancellationToken);
+        string? stagingDir = null;
         log?.Invoke(
             $"AI 截图/素材池：已准备 {framePool.Count} 张关键帧；" +
             $"分镜={shotCount} 个；每页={ShotsPerPage} 个；计划输出={pageCount} 页。");
@@ -131,6 +154,10 @@ public static class TikTokAiGenerationScreenshotService
             var family = ResolveFontFamily()
                 ?? throw new InvalidOperationException("未找到可用中文字体，无法生成 AI 生成过程截图。");
 
+            stagingDir = Path.Combine(
+                Path.GetFullPath(workflowProjectDirectory),
+                $".ai-generation-screenshots-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(stagingDir);
             var outputs = new List<string>(pageCount);
             for (var page = 0; page < pageCount; page++)
             {
@@ -147,16 +174,26 @@ public static class TikTokAiGenerationScreenshotService
                     analysisA: analyses[shotA % analyses.Count],
                     analysisB: analyses[shotB % analyses.Count],
                     family);
-                var path = Path.Combine(outputDir, FileNames[page]);
-                canvas.Save(path, new PngEncoder());
-                outputs.Add(path);
+                var stagingPath = Path.Combine(stagingDir, FileNames[page]);
+                canvas.Save(stagingPath, new PngEncoder());
+                outputs.Add(Path.Combine(outputDir, FileNames[page]));
             }
 
+            // All pages are complete before exposing the final directory. This avoids a long
+            // vision request leaving a missing/partial output directory if cleanup runs meanwhile.
+            TryDeleteDirectory(outputDir);
+            Directory.Move(stagingDir, outputDir);
+            stagingDir = null;
             log?.Invoke($"AI 生成过程截图已生成：{outputs.Count} 张 → {outputDir}");
             return outputs;
         }
         finally
         {
+            if (!string.IsNullOrWhiteSpace(stagingDir))
+            {
+                TryDeleteDirectory(stagingDir);
+            }
+
             foreach (var frame in framePool)
             {
                 frame.Dispose();
@@ -765,7 +802,7 @@ public static class TikTokAiGenerationScreenshotService
         return images;
     }
 
-    private static IEnumerable<string> EnumerateVideos(string root)
+    internal static IEnumerable<string> EnumerateVideos(string root)
     {
         if (!Directory.Exists(root))
         {
@@ -780,7 +817,7 @@ public static class TikTokAiGenerationScreenshotService
             }
         }
 
-        foreach (var sub in new[] { "videos", "视频", "成片", "源视频" })
+        foreach (var sub in new[] { "tiktok_upload_videos", "videos", "视频", "成片", "源视频" })
         {
             var dir = Path.Combine(root, sub);
             if (!Directory.Exists(dir))

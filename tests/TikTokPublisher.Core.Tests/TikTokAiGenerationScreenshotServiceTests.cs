@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FluentAssertions;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -9,6 +10,68 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokAiGenerationScreenshotServiceTests
 {
+    [Fact]
+    public void EnumerateVideos_includes_tiktok_upload_videos()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-ai-video-source-{Guid.NewGuid():N}");
+        var uploadVideos = Path.Combine(workflow, "tiktok_upload_videos");
+        Directory.CreateDirectory(uploadVideos);
+        try
+        {
+            var first = Path.Combine(uploadVideos, "第1集.mp4");
+            var second = Path.Combine(uploadVideos, "第2集.mov");
+            File.WriteAllBytes(first, [1]);
+            File.WriteAllBytes(second, [2]);
+            File.WriteAllBytes(Path.Combine(uploadVideos, "忽略.txt"), [3]);
+
+            TikTokAiGenerationScreenshotService.EnumerateVideos(workflow)
+                .Take(2)
+                .Should()
+                .BeEquivalentTo([first, second]);
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Generate_uses_distinct_tiktok_upload_videos_for_workbench_pages()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-ai-real-video-{Guid.NewGuid():N}");
+        var uploadVideos = Path.Combine(workflow, "tiktok_upload_videos");
+        Directory.CreateDirectory(uploadVideos);
+        try
+        {
+            var colors = new[] { "red", "green", "blue", "yellow", "magenta", "cyan", "orange", "purple" };
+            for (var index = 0; index < colors.Length; index++)
+            {
+                CreateSolidColorVideo(
+                    Path.Combine(uploadVideos, $"第{index + 1}集.mp4"),
+                    colors[index]);
+            }
+
+            var outputs = TikTokAiGenerationScreenshotService.Generate(
+                workflow,
+                "真实视频抽帧测试",
+                settings: new ClientSettings());
+
+            var heroColors = outputs.Select(path =>
+            {
+                using var image = Image.Load<Rgba32>(path);
+                var pixel = image[300, 350];
+                return (pixel.R / 16, pixel.G / 16, pixel.B / 16);
+            }).ToArray();
+
+            heroColors.Should().OnlyHaveUniqueItems(
+                "四页应分别使用不同分集视频的主体帧，而不是循环同一张海报");
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
     [Fact]
     public void Generate_creates_four_workbench_pngs()
     {
@@ -54,6 +117,66 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
         {
             Directory.Delete(workflow, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task Generate_serializes_concurrent_runs_for_the_same_workflow()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-ai-concurrent-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            using (var poster = new Image<Rgba32>(240, 320, new Rgba32(80, 120, 180)))
+            {
+                poster.SaveAsPng(Path.Combine(workflow, "海报图片.png"));
+            }
+
+            var first = Task.Run(() => TikTokAiGenerationScreenshotService.Generate(
+                workflow, "并发测试一", new ClientSettings()));
+            var second = Task.Run(() => TikTokAiGenerationScreenshotService.Generate(
+                workflow, "并发测试二", new ClientSettings()));
+
+            var results = await Task.WhenAll(first, second);
+
+            results.Should().OnlyContain(paths => paths.Count == 4);
+            TikTokAiGenerationScreenshotService.ListGeneratedImages(workflow).Should().HaveCount(4);
+            Directory.EnumerateDirectories(workflow, ".ai-generation-screenshots-*")
+                .Should()
+                .BeEmpty("成功或失败后都不应遗留 staging 目录");
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    private static void CreateSolidColorVideo(string outputPath, string color)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = FfmpegLocator.ResolveFfmpeg(),
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in new[]
+                 {
+                     "-hide_banner", "-loglevel", "error",
+                     "-f", "lavfi",
+                     "-i", $"color=c={color}:s=320x240:d=2",
+                     "-pix_fmt", "yuv420p",
+                     "-y", outputPath,
+                 })
+        {
+            psi.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(psi)
+                            ?? throw new InvalidOperationException("无法启动 ffmpeg 测试进程。");
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit(15000).Should().BeTrue("ffmpeg 应在测试超时前完成");
+        process.ExitCode.Should().Be(0, stderr);
     }
 
     [Fact]

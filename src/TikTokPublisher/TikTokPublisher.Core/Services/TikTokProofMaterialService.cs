@@ -152,25 +152,56 @@ public sealed class TikTokProofMaterialService
                 new TikTokProofMaterialReplacementCounts(0, 0, 0, 0, 0));
         }
 
+        var checkpoint = LoadState(context);
+        var canResume = !forceRerun &&
+                        string.Equals(
+                            GetStateString(checkpoint, "fingerprint"),
+                            fingerprint,
+                            StringComparison.OrdinalIgnoreCase);
+        var coreCompleted = canResume && GetStateBool(checkpoint, "core_completed", fallback: true);
+        var sourceCompleted = canResume && GetStateBool(checkpoint, "source_file_screenshots_completed", fallback: true);
+        var aiCompleted = canResume && GetStateBool(checkpoint, "ai_generation_screenshots_completed", fallback: true);
+        var editingCompleted = canResume && GetStateBool(checkpoint, "editing_project_files_completed", fallback: true);
+
         var service = new TikTokProofMaterialService();
-        var coreTimer = Stopwatch.StartNew();
-        log?.Invoke(
-            $"[合作协议（核心）] 开始：模板={request.TemplateDocxPath}；" +
-            $"输出={request.OutputPdfPath}；渲染器={request.PreferredPdfRenderer}。");
         TikTokProofMaterialResult result;
-        try
+        if (coreCompleted && IsCoreOutputCurrent(context, request))
         {
-            result = await service.GenerateAsync(request, log, cancellationToken).ConfigureAwait(false);
-            log?.Invoke(
-                $"[合作协议（核心）] 完成：{DescribeFile(result.PdfPath)}；" +
-                $"渲染器={result.PdfRenderer}；耗时={FormatElapsed(coreTimer.Elapsed)}。");
+            var renderer = GetStateString(checkpoint, "renderer");
+            result = new TikTokProofMaterialResult(
+                request.OutputPdfPath,
+                request.KeepIntermediateDocx ? outputDocxPath : null,
+                string.IsNullOrWhiteSpace(renderer) ? "WPS" : renderer,
+                new TikTokProofMaterialReplacementCounts(0, 0, 0, 0, 0));
+            log?.Invoke($"[合作协议（核心）] 断点复用：{DescribeFile(result.PdfPath)}。");
         }
-        catch (Exception ex)
+        else
         {
+            var coreTimer = Stopwatch.StartNew();
             log?.Invoke(
-                $"[合作协议（核心）] 失败：阶段=模板替换或 PDF 渲染；" +
-                $"耗时={FormatElapsed(coreTimer.Elapsed)}；原因={ex.Message}");
-            throw;
+                $"[合作协议（核心）] 开始：模板={request.TemplateDocxPath}；" +
+                $"输出={request.OutputPdfPath}；渲染器={request.PreferredPdfRenderer}。");
+            try
+            {
+                result = await service.GenerateAsync(request, log, cancellationToken).ConfigureAwait(false);
+                coreCompleted = true;
+                sourceCompleted = false;
+                aiCompleted = false;
+                editingCompleted = false;
+                SaveState(
+                    context, request, fingerprint, result,
+                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
+                log?.Invoke(
+                    $"[合作协议（核心）] 完成并保存断点：{DescribeFile(result.PdfPath)}；" +
+                    $"渲染器={result.PdfRenderer}；耗时={FormatElapsed(coreTimer.Elapsed)}。");
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke(
+                    $"[合作协议（核心）] 失败：阶段=模板替换或 PDF 渲染；" +
+                    $"耗时={FormatElapsed(coreTimer.Elapsed)}；原因={ex.Message}");
+                throw;
+            }
         }
 
         if (!request.KeepIntermediateDocx)
@@ -179,7 +210,16 @@ public sealed class TikTokProofMaterialService
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (request.GenerateSourceFileScreenshots)
+        if (request.GenerateSourceFileScreenshots && sourceCompleted &&
+            TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
+        {
+            LogExistingMaterial(
+                log,
+                "原始文件或素材文件信息（断点复用）",
+                selected: true,
+                TikTokSourceFileInfoScreenshotService.ListGeneratedImages(context.WorkflowProjectDir));
+        }
+        else if (request.GenerateSourceFileScreenshots)
         {
             var timer = Stopwatch.StartNew();
             log?.Invoke(
@@ -193,6 +233,10 @@ public sealed class TikTokProofMaterialService
                     request.CopyrightCompanyName,
                     log,
                     cancellationToken);
+                sourceCompleted = true;
+                SaveState(
+                    context, request, fingerprint, result,
+                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
                 LogGeneratedMaterial(log, "原始文件或素材文件信息", outputs, timer.Elapsed);
             }
             catch (Exception ex)
@@ -208,7 +252,16 @@ public sealed class TikTokProofMaterialService
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (request.GenerateAiGenerationScreenshots)
+        if (request.GenerateAiGenerationScreenshots && aiCompleted &&
+            TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
+        {
+            LogExistingMaterial(
+                log,
+                "AI 生成过程截图（断点复用）",
+                selected: true,
+                TikTokAiGenerationScreenshotService.ListGeneratedImages(context.WorkflowProjectDir));
+        }
+        else if (request.GenerateAiGenerationScreenshots)
         {
             var timer = Stopwatch.StartNew();
             log?.Invoke(
@@ -223,6 +276,10 @@ public sealed class TikTokProofMaterialService
                     settings,
                     log,
                     cancellationToken);
+                aiCompleted = true;
+                SaveState(
+                    context, request, fingerprint, result,
+                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
                 LogGeneratedMaterial(log, "AI 生成过程截图", outputs, timer.Elapsed);
             }
             catch (Exception ex)
@@ -237,7 +294,16 @@ public sealed class TikTokProofMaterialService
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (request.GenerateEditingProjectFiles)
+        if (request.GenerateEditingProjectFiles && editingCompleted &&
+            TikTokProjectImageService.HasCurrentOutput(context.WorkflowProjectDir))
+        {
+            LogExistingMaterial(
+                log,
+                "剪辑工程文件（断点复用）",
+                selected: true,
+                TikTokProjectImageService.ListGeneratedImages(context.WorkflowProjectDir));
+        }
+        else if (request.GenerateEditingProjectFiles)
         {
             var timer = Stopwatch.StartNew();
             log?.Invoke(
@@ -252,6 +318,10 @@ public sealed class TikTokProofMaterialService
                     forceRerun,
                     log,
                     cancellationToken).ConfigureAwait(false);
+                editingCompleted = true;
+                SaveState(
+                    context, request, fingerprint, result,
+                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
                 LogGeneratedMaterial(
                     log,
                     "剪辑工程文件",
@@ -269,7 +339,12 @@ public sealed class TikTokProofMaterialService
             log?.Invoke("[剪辑工程文件] 跳过：当前账号未勾选此材料类型。");
         }
 
-        SaveState(context, request, fingerprint, result);
+        SaveState(
+            context, request, fingerprint, result,
+            coreCompleted,
+            !request.GenerateSourceFileScreenshots || sourceCompleted,
+            !request.GenerateAiGenerationScreenshots || aiCompleted,
+            !request.GenerateEditingProjectFiles || editingCompleted);
         log?.Invoke($"证明材料任务完成：已生成并登记 {selectedMaterials.Count} 类材料。");
         return result;
     }
@@ -580,16 +655,23 @@ public sealed class TikTokProofMaterialService
         TikTokProofMaterialRequest request,
         string fingerprint)
     {
-        try
-        {
-            TikTokProofMaterialPdfRenderService.ValidatePdf(request.OutputPdfPath);
-        }
-        catch
+        var state = LoadState(context);
+        if (!string.Equals(
+                GetStateString(state, "fingerprint"),
+                fingerprint,
+                StringComparison.OrdinalIgnoreCase) ||
+            !GetStateBool(state, "core_completed", fallback: true) ||
+            (request.GenerateSourceFileScreenshots &&
+             !GetStateBool(state, "source_file_screenshots_completed", fallback: true)) ||
+            (request.GenerateAiGenerationScreenshots &&
+             !GetStateBool(state, "ai_generation_screenshots_completed", fallback: true)) ||
+            (request.GenerateEditingProjectFiles &&
+             !GetStateBool(state, "editing_project_files_completed", fallback: true)))
         {
             return false;
         }
 
-        if (request.KeepIntermediateDocx && !File.Exists(GetDocxPath(context.WorkflowProjectDir)))
+        if (!IsCoreOutputCurrent(context, request))
         {
             return false;
         }
@@ -612,11 +694,24 @@ public sealed class TikTokProofMaterialService
             return false;
         }
 
-        var state = LoadState(context);
-        return string.Equals(
-            GetStateString(state, "fingerprint"),
-            fingerprint,
-            StringComparison.OrdinalIgnoreCase);
+        return true;
+    }
+
+    private static bool IsCoreOutputCurrent(
+        ProjectWorkspaceContext context,
+        TikTokProofMaterialRequest request)
+    {
+        try
+        {
+            TikTokProofMaterialPdfRenderService.ValidatePdf(request.OutputPdfPath);
+        }
+        catch
+        {
+            return false;
+        }
+
+        return !request.KeepIntermediateDocx ||
+               File.Exists(GetDocxPath(context.WorkflowProjectDir));
     }
 
     private static Dictionary<string, JsonElement> LoadState(ProjectWorkspaceContext context) =>
@@ -629,7 +724,11 @@ public sealed class TikTokProofMaterialService
         ProjectWorkspaceContext context,
         TikTokProofMaterialRequest request,
         string fingerprint,
-        TikTokProofMaterialResult result)
+        TikTokProofMaterialResult result,
+        bool coreCompleted,
+        bool sourceFileScreenshotsCompleted,
+        bool aiGenerationScreenshotsCompleted,
+        bool editingProjectFilesCompleted)
     {
         var payload = new Dictionary<string, object?>
         {
@@ -648,6 +747,10 @@ public sealed class TikTokProofMaterialService
             ["generate_source_file_screenshots"] = request.GenerateSourceFileScreenshots,
             ["generate_ai_generation_screenshots"] = request.GenerateAiGenerationScreenshots,
             ["generate_editing_project_files"] = request.GenerateEditingProjectFiles,
+            ["core_completed"] = coreCompleted,
+            ["source_file_screenshots_completed"] = sourceFileScreenshotsCompleted,
+            ["ai_generation_screenshots_completed"] = aiGenerationScreenshotsCompleted,
+            ["editing_project_files_completed"] = editingProjectFilesCompleted,
             ["source_file_screenshots"] = request.GenerateSourceFileScreenshots
                 ? TikTokSourceFileInfoScreenshotService
                     .ListGeneratedImages(context.WorkflowProjectDir)
@@ -686,6 +789,20 @@ public sealed class TikTokProofMaterialService
         }
 
         return value.GetString()?.Trim() ?? string.Empty;
+    }
+
+    private static bool GetStateBool(
+        IReadOnlyDictionary<string, JsonElement> state,
+        string key,
+        bool fallback)
+    {
+        if (!state.TryGetValue(key, out var value) ||
+            (value.ValueKind != JsonValueKind.True && value.ValueKind != JsonValueKind.False))
+        {
+            return fallback;
+        }
+
+        return value.GetBoolean();
     }
 
     internal static string ResolveSealImagePath(string? configuredPath)
