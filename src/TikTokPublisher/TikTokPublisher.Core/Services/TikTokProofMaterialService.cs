@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -110,6 +111,13 @@ public sealed class TikTokProofMaterialService
         var request = CreateQueueRequest(item, settings, account, context.WorkflowProjectDir);
         var fingerprint = ComputeFingerprint(request);
         var outputDocxPath = GetDocxPath(context.WorkflowProjectDir);
+        var selectedMaterials = new List<string> { "合作协议（核心）" };
+        if (request.GenerateSourceFileScreenshots) selectedMaterials.Add("原始文件或素材文件信息");
+        if (request.GenerateAiGenerationScreenshots) selectedMaterials.Add("AI 生成过程截图");
+        if (request.GenerateEditingProjectFiles) selectedMaterials.Add("剪辑工程文件");
+        log?.Invoke(
+            $"证明材料任务：已选 {selectedMaterials.Count} 类 [{string.Join("、", selectedMaterials)}]；" +
+            $"项目目录={context.WorkflowProjectDir}；强制重跑={(forceRerun ? "是" : "否")}。");
 
         if (!request.KeepIntermediateDocx)
         {
@@ -120,7 +128,23 @@ public sealed class TikTokProofMaterialService
         {
             var state = LoadState(context);
             var renderer = GetStateString(state, "renderer");
-            log?.Invoke($"{ProofPdfFileName} 及已勾选材料产物已存在且配置未变化，跳过生成。");
+            log?.Invoke($"[合作协议（核心）] 复用现有文件：{request.OutputPdfPath}。");
+            LogExistingMaterial(
+                log,
+                "原始文件或素材文件信息",
+                request.GenerateSourceFileScreenshots,
+                TikTokSourceFileInfoScreenshotService.ListGeneratedImages(context.WorkflowProjectDir));
+            LogExistingMaterial(
+                log,
+                "AI 生成过程截图",
+                request.GenerateAiGenerationScreenshots,
+                TikTokAiGenerationScreenshotService.ListGeneratedImages(context.WorkflowProjectDir));
+            LogExistingMaterial(
+                log,
+                "剪辑工程文件",
+                request.GenerateEditingProjectFiles,
+                TikTokProjectImageService.ListGeneratedImages(context.WorkflowProjectDir));
+            log?.Invoke("证明材料任务完成：配置指纹未变化，全部已选材料均已就绪，无需重新生成。");
             return new TikTokProofMaterialResult(
                 request.OutputPdfPath,
                 request.KeepIntermediateDocx ? outputDocxPath : null,
@@ -129,7 +153,26 @@ public sealed class TikTokProofMaterialService
         }
 
         var service = new TikTokProofMaterialService();
-        var result = await service.GenerateAsync(request, log, cancellationToken).ConfigureAwait(false);
+        var coreTimer = Stopwatch.StartNew();
+        log?.Invoke(
+            $"[合作协议（核心）] 开始：模板={request.TemplateDocxPath}；" +
+            $"输出={request.OutputPdfPath}；渲染器={request.PreferredPdfRenderer}。");
+        TikTokProofMaterialResult result;
+        try
+        {
+            result = await service.GenerateAsync(request, log, cancellationToken).ConfigureAwait(false);
+            log?.Invoke(
+                $"[合作协议（核心）] 完成：{DescribeFile(result.PdfPath)}；" +
+                $"渲染器={result.PdfRenderer}；耗时={FormatElapsed(coreTimer.Elapsed)}。");
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke(
+                $"[合作协议（核心）] 失败：阶段=模板替换或 PDF 渲染；" +
+                $"耗时={FormatElapsed(coreTimer.Elapsed)}；原因={ex.Message}");
+            throw;
+        }
+
         if (!request.KeepIntermediateDocx)
         {
             TryDelete(outputDocxPath);
@@ -138,49 +181,96 @@ public sealed class TikTokProofMaterialService
         cancellationToken.ThrowIfCancellationRequested();
         if (request.GenerateSourceFileScreenshots)
         {
-            TikTokSourceFileInfoScreenshotService.Generate(
-                context.WorkflowProjectDir,
-                request.DramaTitle,
-                request.CopyrightCompanyName,
-                log,
-                cancellationToken);
+            var timer = Stopwatch.StartNew();
+            log?.Invoke(
+                $"[原始文件或素材文件信息] 开始：来源={context.WorkflowProjectDir}；" +
+                $"输出目录={TikTokSourceFileInfoScreenshotService.GetOutputDirectory(context.WorkflowProjectDir)}。");
+            try
+            {
+                var outputs = TikTokSourceFileInfoScreenshotService.Generate(
+                    context.WorkflowProjectDir,
+                    request.DramaTitle,
+                    request.CopyrightCompanyName,
+                    log,
+                    cancellationToken);
+                LogGeneratedMaterial(log, "原始文件或素材文件信息", outputs, timer.Elapsed);
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke(
+                    $"[原始文件或素材文件信息] 失败：耗时={FormatElapsed(timer.Elapsed)}；原因={ex.Message}");
+                throw;
+            }
         }
         else
         {
-            log?.Invoke("账号未勾选「原始文件或素材文件信息」，跳过原始文件信息截图。");
+            log?.Invoke("[原始文件或素材文件信息] 跳过：当前账号未勾选此材料类型。");
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         if (request.GenerateAiGenerationScreenshots)
         {
-            TikTokAiGenerationScreenshotService.Generate(
-                context.WorkflowProjectDir,
-                request.DramaTitle,
-                settings,
-                log,
-                cancellationToken);
+            var timer = Stopwatch.StartNew();
+            log?.Invoke(
+                $"[AI 生成过程截图] 开始：来源={context.WorkflowProjectDir}；" +
+                $"目标={TikTokAiGenerationScreenshotService.RequiredImageCount} 张；" +
+                $"视觉模型={DescribeVisionConfiguration(settings)}。");
+            try
+            {
+                var outputs = TikTokAiGenerationScreenshotService.Generate(
+                    context.WorkflowProjectDir,
+                    request.DramaTitle,
+                    settings,
+                    log,
+                    cancellationToken);
+                LogGeneratedMaterial(log, "AI 生成过程截图", outputs, timer.Elapsed);
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[AI 生成过程截图] 失败：耗时={FormatElapsed(timer.Elapsed)}；原因={ex.Message}");
+                throw;
+            }
         }
         else
         {
-            log?.Invoke("账号未勾选「AI 生成过程截图」，跳过 AI 生成过程截图。");
+            log?.Invoke("[AI 生成过程截图] 跳过：当前账号未勾选此材料类型。");
         }
 
         cancellationToken.ThrowIfCancellationRequested();
         if (request.GenerateEditingProjectFiles)
         {
-            await TikTokProjectImageService.GenerateAsync(
-                item,
-                settings,
-                forceRerun,
-                log,
-                cancellationToken).ConfigureAwait(false);
+            var timer = Stopwatch.StartNew();
+            log?.Invoke(
+                $"[剪辑工程文件] 开始：输出目录=" +
+                $"{TikTokProjectImageService.GetOutputDirectory(context.WorkflowProjectDir)}；" +
+                $"强制重跑={(forceRerun ? "是" : "否")}。");
+            try
+            {
+                await TikTokProjectImageService.GenerateAsync(
+                    item,
+                    settings,
+                    forceRerun,
+                    log,
+                    cancellationToken).ConfigureAwait(false);
+                LogGeneratedMaterial(
+                    log,
+                    "剪辑工程文件",
+                    TikTokProjectImageService.ListGeneratedImages(context.WorkflowProjectDir),
+                    timer.Elapsed);
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"[剪辑工程文件] 失败：耗时={FormatElapsed(timer.Elapsed)}；原因={ex.Message}");
+                throw;
+            }
         }
         else
         {
-            log?.Invoke("账号未勾选「剪辑工程文件」，跳过工程图生成。");
+            log?.Invoke("[剪辑工程文件] 跳过：当前账号未勾选此材料类型。");
         }
 
         SaveState(context, request, fingerprint, result);
+        log?.Invoke($"证明材料任务完成：已生成并登记 {selectedMaterials.Count} 类材料。");
         return result;
     }
 
@@ -408,6 +498,81 @@ public sealed class TikTokProofMaterialService
         }
 
         return GetChinaToday();
+    }
+
+    private static void LogExistingMaterial(
+        Action<string>? log,
+        string materialName,
+        bool selected,
+        IReadOnlyList<string> files)
+    {
+        if (!selected)
+        {
+            log?.Invoke($"[{materialName}] 未选择。");
+            return;
+        }
+
+        log?.Invoke(
+            $"[{materialName}] 复用现有产物：{files.Count} 个；" +
+            $"文件={FormatFileList(files)}。");
+    }
+
+    private static void LogGeneratedMaterial(
+        Action<string>? log,
+        string materialName,
+        IReadOnlyList<string> files,
+        TimeSpan elapsed)
+    {
+        var totalBytes = files.Where(File.Exists).Sum(path => new FileInfo(path).Length);
+        log?.Invoke(
+            $"[{materialName}] 完成：生成 {files.Count} 个文件，" +
+            $"合计={FormatBytes(totalBytes)}，耗时={FormatElapsed(elapsed)}。");
+        log?.Invoke($"[{materialName}] 输出：{FormatFileList(files)}。");
+    }
+
+    private static string DescribeVisionConfiguration(ClientSettings settings)
+    {
+        var configured = !string.IsNullOrWhiteSpace(settings.AiTextEndpoint)
+                         && !string.IsNullOrWhiteSpace(settings.AiTextApiKey)
+                         && !string.IsNullOrWhiteSpace(settings.AiTextModel);
+        return configured
+            ? $"已配置（{settings.AiTextModel.Trim()}）"
+            : "未配置，将使用本地分析兜底";
+    }
+
+    private static string DescribeFile(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        return File.Exists(fullPath)
+            ? $"{fullPath}（{FormatBytes(new FileInfo(fullPath).Length)}）"
+            : $"{fullPath}（文件不存在）";
+    }
+
+    private static string FormatFileList(IEnumerable<string> files)
+    {
+        var values = files
+            .Select(path =>
+            {
+                var name = Path.GetFileName(path);
+                return File.Exists(path)
+                    ? $"{name}({FormatBytes(new FileInfo(path).Length)})"
+                    : $"{name}(不存在)";
+            })
+            .ToArray();
+        return values.Length == 0 ? "无" : string.Join("、", values);
+    }
+
+    private static string FormatElapsed(TimeSpan elapsed) =>
+        elapsed.TotalSeconds < 1
+            ? $"{Math.Max(1, elapsed.TotalMilliseconds):0}ms"
+            : $"{elapsed.TotalSeconds:0.0}s";
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes >= 1024L * 1024 * 1024) return $"{bytes / (1024d * 1024 * 1024):0.00}GB";
+        if (bytes >= 1024L * 1024) return $"{bytes / (1024d * 1024):0.00}MB";
+        if (bytes >= 1024) return $"{bytes / 1024d:0.0}KB";
+        return $"{bytes}B";
     }
 
     private static bool HasCurrentOutput(

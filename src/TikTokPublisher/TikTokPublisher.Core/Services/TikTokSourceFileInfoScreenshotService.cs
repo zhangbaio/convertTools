@@ -85,20 +85,28 @@ public static class TikTokSourceFileInfoScreenshotService
         Directory.CreateDirectory(outputDir);
         Directory.CreateDirectory(characterDir);
         Directory.CreateDirectory(sceneDir);
+        log?.Invoke($"原始文件信息/初始化：已清理旧产物；截图目录={outputDir}；证据目录={evidenceDir}。");
 
         var videos = FindVideos(workflow);
         var poster = FindPoster(workflow);
-        log?.Invoke($"原始文件信息：发现真实成片 {videos.Count} 个，开始读取媒体参数并抽取可回溯画面。");
+        log?.Invoke(
+            $"原始文件信息/扫描：发现真实成片 {videos.Count} 个；" +
+            $"海报={(string.IsNullOrWhiteSpace(poster) ? "未找到" : Path.GetFileName(poster))}。");
 
         var records = ProbeVideos(videos, cancellationToken, log);
         WriteProjectDescription(evidenceDir, workflow, title, company, videos.Count);
+        log?.Invoke("原始文件信息/元数据：已生成 项目说明.txt。");
         var manifestPath = WriteManifest(evidenceDir, records, cancellationToken);
+        log?.Invoke($"原始文件信息/清单：已生成 {DescribeOutput(manifestPath)}，共 {records.Count} 条视频记录。");
         var docxPath = WriteDerivedScriptDocument(evidenceDir, title, company, records);
+        log?.Invoke($"原始文件信息/文档：已生成 {DescribeOutput(docxPath)}，口径=基于成片整理。");
 
         var characterFrames = ExtractEvidenceFrames(
             records, poster, characterDir, "角色", sceneMode: false, cancellationToken, log);
+        log?.Invoke($"原始文件信息/角色抽帧：完成 {characterFrames.Count} 张 → {characterDir}。");
         var sceneFrames = ExtractEvidenceFrames(
             records, poster, sceneDir, "场景", sceneMode: true, cancellationToken, log);
+        log?.Invoke($"原始文件信息/场景抽帧：完成 {sceneFrames.Count} 张 → {sceneDir}。");
 
         var family = ResolveFontFamily()
             ?? throw new InvalidOperationException("未找到可用中文字体，无法生成原始文件信息截图。");
@@ -110,7 +118,8 @@ public static class TikTokSourceFileInfoScreenshotService
                        title, "角色参考素材（从真实成片抽帧）", characterFrames, family,
                        "画面均来自项目成片；标签为原视频文件名、集数和时间码。"))
             {
-                outputs.Add(Save(shot, outputDir, FileNames[0]));
+                var path = Save(shot, outputDir, FileNames[0]);
+                outputs.Add(path);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -118,19 +127,22 @@ public static class TikTokSourceFileInfoScreenshotService
                        title, "场景参考素材（从真实成片抽帧）", sceneFrames, family,
                        "按不同集数和时间点抽取，用于证明项目实际场景素材来源。"))
             {
-                outputs.Add(Save(shot, outputDir, FileNames[1]));
+                var path = Save(shot, outputDir, FileNames[1]);
+                outputs.Add(path);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
             using (var shot = RenderFileEvidence(title, workflow, evidenceDir, records, manifestPath, docxPath, family))
             {
-                outputs.Add(Save(shot, outputDir, FileNames[2]));
+                var path = Save(shot, outputDir, FileNames[2]);
+                outputs.Add(path);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
             using (var shot = RenderDocumentEvidence(title, company, records, docxPath, manifestPath, family))
             {
-                outputs.Add(Save(shot, outputDir, FileNames[3]));
+                var path = Save(shot, outputDir, FileNames[3]);
+                outputs.Add(path);
             }
         }
         finally
@@ -196,8 +208,9 @@ public static class TikTokSourceFileInfoScreenshotService
             log?.Invoke($"未找到 ffprobe，将仅记录文件系统信息：{ex.Message}");
         }
 
-        foreach (var path in videos)
+        for (var index = 0; index < videos.Count; index++)
         {
+            var path = videos[index];
             cancellationToken.ThrowIfCancellationRequested();
             MediaProbe? probe = null;
             if (!string.IsNullOrWhiteSpace(ffprobe))
@@ -226,6 +239,13 @@ public static class TikTokSourceFileInfoScreenshotService
                 probe?.FrameRateFps ?? 0,
                 probe?.AudioCodec ?? "",
                 ComputeSha256(path, cancellationToken)));
+        }
+        if (result.Count > 0)
+        {
+            log?.Invoke(
+                $"原始文件信息/媒体分析：完成 {result.Count} 个视频；" +
+                $"总大小={FormatBytes(result.Sum(record => record.Length))}；" +
+                $"总时长={FormatDuration(result.Sum(record => record.DurationSeconds))}。");
         }
 
         return result;
@@ -842,6 +862,11 @@ public static class TikTokSourceFileInfoScreenshotService
     }
 
     private static string Csv(string value) => $"\"{(value ?? "").Replace("\"", "\"\"")}\"";
+    private static string DescribeOutput(string path)
+    {
+        var info = new FileInfo(path);
+        return info.Exists ? $"{info.Name}（{FormatBytes(info.Length)}）" : $"{info.Name}（未落盘）";
+    }
     private static string FormatDuration(double seconds) =>
         seconds <= 0 ? "未读取" : TimeSpan.FromSeconds(seconds).ToString(@"hh\:mm\:ss");
     private static string FormatTimeCodeForFile(double seconds) =>

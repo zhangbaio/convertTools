@@ -62,6 +62,9 @@ public static class TikTokProjectImageService
         {
             throw new InvalidOperationException("生成工程图失败：未找到可用于截图的视频文件。");
         }
+        log?.Invoke(
+            $"工程图/输入扫描：可用视频={sourceVideos.Length}；" +
+            $"渲染上限={renderEpisodeLimit}；目标图片={count}；模板目录={templateDir}。");
 
         var episodeNames = ResolveEpisodeNames(sourceVideos);
         var signature = ComputeSignature(context, normalized, templateDir, sourceVideos, episodeNames, count, renderEpisodeLimit);
@@ -80,6 +83,7 @@ public static class TikTokProjectImageService
         }
 
         var inputDir = PrepareInputDirectory(context.WorkflowProjectDir, sourceVideos, ct);
+        log?.Invoke($"工程图/输入暂存：已准备 {sourceVideos.Length} 个视频 → {inputDir}。");
         var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(normalized);
         try
         {
@@ -112,6 +116,7 @@ public static class TikTokProjectImageService
         {
             TryDelete(configPath);
             TryDeleteInputDirectory(context.WorkflowProjectDir, inputDir);
+            log?.Invoke("工程图/清理：临时配置与输入暂存目录已清理。");
         }
     }
 

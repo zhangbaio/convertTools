@@ -116,13 +116,18 @@ public static class TikTokAiGenerationScreenshotService
         TryDeleteOutput(workflowProjectDirectory);
         var outputDir = GetOutputDirectory(workflowProjectDirectory);
         Directory.CreateDirectory(outputDir);
+        log?.Invoke($"AI 截图/初始化：已清理旧产物；输出目录={outputDir}。");
 
         var pageCount = RequiredImageCount;
         var shotCount = pageCount * ShotsPerPage;
         var framePool = CollectFrames(workflowProjectDirectory, shotCount, log, cancellationToken);
+        log?.Invoke(
+            $"AI 截图/素材池：已准备 {framePool.Count} 张关键帧；" +
+            $"分镜={shotCount} 个；每页={ShotsPerPage} 个；计划输出={pageCount} 页。");
         try
         {
             var analyses = AnalyzeShots(framePool, title, settings, log, cancellationToken);
+            log?.Invoke($"AI 截图/分析：已完成 {analyses.Count} 个分镜描述。");
             var family = ResolveFontFamily()
                 ?? throw new InvalidOperationException("未找到可用中文字体，无法生成 AI 生成过程截图。");
 
@@ -215,6 +220,7 @@ public static class TikTokAiGenerationScreenshotService
                         }
                     }
                 }
+                log?.Invoke($"AI 截图/抽帧：从视频成功取得 {frames.Count} 张关键帧。");
             }
             catch (Exception ex)
             {

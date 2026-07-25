@@ -22,10 +22,12 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
                 poster.SaveAsPng(Path.Combine(workflow, "海报图片.png"));
             }
 
+            var logs = new List<string>();
             var outputs = TikTokSourceFileInfoScreenshotService.Generate(
                 workflow,
                 "测试短剧标题",
-                "测试公司");
+                "测试公司",
+                logs.Add);
 
             outputs.Should().HaveCount(4);
             outputs.Should().OnlyContain(path => File.Exists(path));
@@ -54,6 +56,11 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
             manifest.Should().NotContain("character_main.ai");
             manifest.Should().NotContain("scene_palace.psd");
             manifest.Should().NotContain("raw/A001_C001.mov");
+            logs.Should().Contain(message => message.Contains("原始文件信息/初始化", StringComparison.Ordinal));
+            logs.Should().Contain(message => message.Contains("原始文件信息/扫描", StringComparison.Ordinal));
+            logs.Should().Contain(message => message.Contains("原始文件信息/清单", StringComparison.Ordinal));
+            logs.Should().Contain(message => message.Contains("原始文件信息/文档", StringComparison.Ordinal));
+            logs.Should().Contain(message => message.Contains("原始文件信息截图已生成", StringComparison.Ordinal));
 
             foreach (var path in outputs)
             {

@@ -22,10 +22,12 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
                 poster.SaveAsPng(Path.Combine(workflow, "海报图片.png"));
             }
 
+            var logs = new List<string>();
             var outputs = TikTokAiGenerationScreenshotService.Generate(
                 workflow,
                 "测试短剧标题",
-                settings: new ClientSettings());
+                settings: new ClientSettings(),
+                log: logs.Add);
 
             outputs.Should().HaveCount(4);
             outputs.Should().OnlyContain(path => File.Exists(path));
@@ -34,6 +36,10 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
             var outputDir = TikTokAiGenerationScreenshotService.GetOutputDirectory(workflow);
             Directory.Exists(outputDir).Should().BeTrue();
             Path.GetFileName(outputDir).Should().Be(TikTokAiGenerationScreenshotService.OutputDirectoryName);
+            logs.Should().Contain(message => message.Contains("AI 截图/初始化", StringComparison.Ordinal));
+            logs.Should().Contain(message => message.Contains("AI 截图/素材池", StringComparison.Ordinal));
+            logs.Should().Contain(message => message.Contains("AI 截图/分析", StringComparison.Ordinal));
+            logs.Should().Contain(message => message.Contains("AI 生成过程截图已生成", StringComparison.Ordinal));
 
             foreach (var path in outputs)
             {
