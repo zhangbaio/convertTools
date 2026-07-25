@@ -83,18 +83,19 @@ public static class TikTokPublishConstants
         ["male"] = new[] { "男性", "男", "Male", "Men" },
     };
 
-    public static readonly IReadOnlyDictionary<string, string> SourceLanguageLabels = new Dictionary<string, string>
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> SourceLanguageAliases =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
     {
-        ["zh"] = "中文",
-        ["en"] = "English",
-        ["id"] = "Indonesian",
-        ["pt"] = "Portuguese",
-        ["ja"] = "Japanese",
-        ["th"] = "Thai",
-        ["es"] = "Spanish",
-        ["ko"] = "Korean",
-        ["tr"] = "Turkish",
-        ["hi"] = "Hindi",
+        ["zh"] = new[] { "中文", "Chinese", "简体中文" },
+        ["en"] = new[] { "英语", "English" },
+        ["id"] = new[] { "印尼语", "印度尼西亚语", "Indonesian", "Bahasa Indonesia" },
+        ["pt"] = new[] { "葡语", "葡萄牙语", "Portuguese", "Português" },
+        ["ja"] = new[] { "日语", "Japanese", "日本語" },
+        ["th"] = new[] { "泰语", "Thai", "ไทย" },
+        ["es"] = new[] { "西语", "西班牙语", "Spanish", "Español" },
+        ["ko"] = new[] { "韩语", "韩国语", "Korean", "한국어" },
+        ["tr"] = new[] { "土耳其语", "Turkish", "Türkçe" },
+        ["hi"] = new[] { "印地语", "Hindi", "हिन्दी" },
     };
 
     /// <summary>对齐 Python <c>GENRE_OPTIONS</c>。</summary>
@@ -185,8 +186,8 @@ public sealed class TikTokPublishOptions
         {
             var key = string.IsNullOrWhiteSpace(SourceLanguage) ? "zh" : SourceLanguage.Trim();
             var labels = new List<string>();
-            if (TikTokPublishConstants.SourceLanguageLabels.TryGetValue(key, out var primary))
-                labels.Add(primary);
+            if (TikTokPublishConstants.SourceLanguageAliases.TryGetValue(key, out var aliases))
+                labels.AddRange(aliases);
             labels.Add(key);
             return labels.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
