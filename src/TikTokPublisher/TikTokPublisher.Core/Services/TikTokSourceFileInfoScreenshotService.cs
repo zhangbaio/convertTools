@@ -15,6 +15,7 @@ using SixLabors.ImageSharp.Processing;
 using TikTokPublisher.Core.Media;
 using Color = SixLabors.ImageSharp.Color;
 using FontFamily = SixLabors.Fonts.FontFamily;
+using ImageFont = SixLabors.Fonts.Font;
 using WordColor = DocumentFormat.OpenXml.Wordprocessing.Color;
 
 namespace TikTokPublisher.Core.Services;
@@ -28,16 +29,17 @@ public static class TikTokSourceFileInfoScreenshotService
     public const string OutputDirectoryName = "原始文件信息截图";
     public const string EvidenceDirectoryName = "项目原始资料";
     public const int RequiredImageCount = 4;
-    public const string ScreenshotVersion = "v3-real-media-evidence";
+    public const string ScreenshotVersion = "v4-ai-drama-source-assets";
 
     private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
-    private const int ContactSheetFrameCount = 8;
+    private const int ContactSheetFrameCount = 4;
+    private const int MaxCatalogFiles = 12;
     private static readonly string[] FileNames =
     [
         "01_角色参考素材.png",
         "02_场景参考素材.png",
         "03_真实项目文件目录.png",
-        "04_真实剧本与文件清单.png",
+        "04_真实制作链路.png",
     ];
 
     public static string GetOutputDirectory(string workflowProjectDirectory) =>
@@ -89,8 +91,10 @@ public static class TikTokSourceFileInfoScreenshotService
 
         var videos = FindVideos(workflow);
         var poster = FindPoster(workflow);
+        var sourceMaterials = DiscoverSourceMaterials(workflow, cancellationToken);
         log?.Invoke(
             $"原始文件信息/扫描：发现真实成片 {videos.Count} 个；" +
+            $"可用制作素材 {sourceMaterials.Count} 个；" +
             $"海报={(string.IsNullOrWhiteSpace(poster) ? "未找到" : Path.GetFileName(poster))}。");
 
         var records = ProbeVideos(videos, cancellationToken, log);
@@ -101,12 +105,42 @@ public static class TikTokSourceFileInfoScreenshotService
         var docxPath = WriteDerivedScriptDocument(evidenceDir, title, company, records);
         log?.Invoke($"原始文件信息/文档：已生成 {DescribeOutput(docxPath)}，口径=基于成片整理。");
 
-        var characterFrames = ExtractEvidenceFrames(
-            records, poster, characterDir, "角色", sceneMode: false, cancellationToken, log);
-        log?.Invoke($"原始文件信息/角色抽帧：完成 {characterFrames.Count} 张 → {characterDir}。");
-        var sceneFrames = ExtractEvidenceFrames(
-            records, poster, sceneDir, "场景", sceneMode: true, cancellationToken, log);
-        log?.Invoke($"原始文件信息/场景抽帧：完成 {sceneFrames.Count} 张 → {sceneDir}。");
+        var characterFrames = LoadDirectEvidenceFrames(
+            sourceMaterials, SourceMaterialCategory.Character, ContactSheetFrameCount, workflow);
+        if (characterFrames.Count < ContactSheetFrameCount)
+        {
+            var directCount = characterFrames.Count;
+            var extractedFrames = ExtractEvidenceFrames(
+                records, poster, characterDir, "角色", sceneMode: false, cancellationToken, log);
+            AppendFrames(characterFrames, extractedFrames, ContactSheetFrameCount);
+            log?.Invoke(
+                $"原始文件信息/角色素材：复用真实主体/定妆文件 {directCount} 张，" +
+                $"并用成片抽帧补足至 {characterFrames.Count} 张。");
+        }
+        else
+        {
+            log?.Invoke($"原始文件信息/角色素材：复用真实主体/定妆文件 {characterFrames.Count} 张，未执行角色抽帧。");
+        }
+
+        var sceneFrames = LoadDirectEvidenceFrames(
+            sourceMaterials, SourceMaterialCategory.Scene, ContactSheetFrameCount, workflow);
+        if (sceneFrames.Count < ContactSheetFrameCount)
+        {
+            var directCount = sceneFrames.Count;
+            var extractedFrames = ExtractEvidenceFrames(
+                records, poster, sceneDir, "场景", sceneMode: true, cancellationToken, log);
+            AppendFrames(sceneFrames, extractedFrames, ContactSheetFrameCount);
+            log?.Invoke(
+                $"原始文件信息/场景素材：复用真实场景参考文件 {directCount} 张，" +
+                $"并用成片抽帧补足至 {sceneFrames.Count} 张。");
+        }
+        else
+        {
+            log?.Invoke($"原始文件信息/场景素材：复用真实场景参考文件 {sceneFrames.Count} 张，未执行场景抽帧。");
+        }
+
+        var keyframeFrames = LoadDirectEvidenceFrames(
+            sourceMaterials, SourceMaterialCategory.Keyframe, ContactSheetFrameCount, workflow);
 
         var family = ResolveFontFamily()
             ?? throw new InvalidOperationException("未找到可用中文字体，无法生成原始文件信息截图。");
@@ -115,8 +149,8 @@ public static class TikTokSourceFileInfoScreenshotService
         {
             cancellationToken.ThrowIfCancellationRequested();
             using (var shot = RenderContactSheet(
-                       title, "角色参考素材（从真实成片抽帧）", characterFrames, family,
-                       "画面均来自项目成片；标签为原视频文件名、集数和时间码。"))
+                       title, "角色主体与定妆素材", characterFrames, family,
+                       "优先复用项目内真实主体图、四宫格和定妆图；缺失时才使用成片抽帧。"))
             {
                 var path = Save(shot, outputDir, FileNames[0]);
                 outputs.Add(path);
@@ -124,22 +158,24 @@ public static class TikTokSourceFileInfoScreenshotService
 
             cancellationToken.ThrowIfCancellationRequested();
             using (var shot = RenderContactSheet(
-                       title, "场景参考素材（从真实成片抽帧）", sceneFrames, family,
-                       "按不同集数和时间点抽取，用于证明项目实际场景素材来源。"))
+                       title, "场景参考与镜头首帧素材", sceneFrames, family,
+                       "优先复用真实场景板与首帧；所有标签均可回溯到实际文件。"))
             {
                 var path = Save(shot, outputDir, FileNames[1]);
                 outputs.Add(path);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            using (var shot = RenderFileEvidence(title, workflow, evidenceDir, records, manifestPath, docxPath, family))
+            using (var shot = RenderFileEvidence(
+                       title, workflow, evidenceDir, records, sourceMaterials, manifestPath, docxPath, family))
             {
                 var path = Save(shot, outputDir, FileNames[2]);
                 outputs.Add(path);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            using (var shot = RenderDocumentEvidence(title, company, records, docxPath, manifestPath, family))
+            using (var shot = RenderProductionChainEvidence(
+                       title, company, records, sourceMaterials, keyframeFrames, docxPath, manifestPath, family))
             {
                 var path = Save(shot, outputDir, FileNames[3]);
                 outputs.Add(path);
@@ -147,7 +183,7 @@ public static class TikTokSourceFileInfoScreenshotService
         }
         finally
         {
-            foreach (var frame in characterFrames.Concat(sceneFrames))
+            foreach (var frame in characterFrames.Concat(sceneFrames).Concat(keyframeFrames))
             {
                 frame.Image.Dispose();
             }
@@ -191,6 +227,227 @@ public static class TikTokSourceFileInfoScreenshotService
                ?? Directory.EnumerateFiles(workflow, "*.png", SearchOption.TopDirectoryOnly)
                    .FirstOrDefault(path => Path.GetFileName(path).Contains("海报", StringComparison.Ordinal));
     }
+
+    private static List<SourceMaterialRecord> DiscoverSourceMaterials(
+        string workflow,
+        CancellationToken cancellationToken)
+    {
+        var outputDir = GetOutputDirectory(workflow);
+        var evidenceDir = GetEvidenceDirectory(workflow);
+        var supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".png", ".jpg", ".jpeg", ".webp",
+            ".md", ".txt", ".json", ".csv", ".docx", ".xlsx",
+            ".wav", ".mp3", ".m4a", ".aac",
+            ".mp4", ".mov", ".webm",
+        };
+
+        var materials = new List<SourceMaterialRecord>();
+        foreach (var path in EnumerateFilesSafely(workflow, cancellationToken))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (materials.Count >= 5000) break;
+            var full = Path.GetFullPath(path);
+            if (IsUnderDirectory(full, outputDir) || IsUnderDirectory(full, evidenceDir)) continue;
+            var relative = Path.GetRelativePath(workflow, full);
+            if (ContainsIgnoredPathSegment(relative)) continue;
+            var extension = Path.GetExtension(full);
+            if (!supported.Contains(extension)) continue;
+
+            SourceMaterialCategory? category = ClassifySourceMaterial(relative, extension);
+            if (category is null) continue;
+            try
+            {
+                var info = new FileInfo(full);
+                materials.Add(new SourceMaterialRecord(
+                    full,
+                    relative,
+                    category.Value,
+                    info.Length,
+                    info.LastWriteTime));
+            }
+            catch
+            {
+                // A concurrently changed source file is not reliable evidence.
+            }
+        }
+
+        return materials
+            .OrderBy(record => GetMaterialPriority(record.RelativePath, record.Category))
+            .ThenByDescending(record => record.LastWriteTime)
+            .ThenBy(record => record.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static IEnumerable<string> EnumerateFilesSafely(
+        string root,
+        CancellationToken cancellationToken)
+    {
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var directory = pending.Pop();
+            string[] files;
+            string[] directories;
+            try
+            {
+                files = Directory.GetFiles(directory);
+                directories = Directory.GetDirectories(directory);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+
+            foreach (var file in files)
+                yield return file;
+
+            foreach (var child in directories)
+            {
+                try
+                {
+                    if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0)
+                        continue;
+                    pending.Push(child);
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    // Skip directories that cannot be inspected.
+                }
+                catch (IOException)
+                {
+                    // Skip directories that disappeared during traversal.
+                }
+            }
+        }
+    }
+
+    private static SourceMaterialCategory? ClassifySourceMaterial(string relativePath, string extension)
+    {
+        var text = relativePath.Replace('\\', '/').ToLowerInvariant();
+        var isImage = extension.Equals(".png", StringComparison.OrdinalIgnoreCase)
+                      || extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+                      || extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+                      || extension.Equals(".webp", StringComparison.OrdinalIgnoreCase);
+        if (isImage && ContainsAny(text, "首帧", "关键帧", "keyframe", "storyboard", "分镜"))
+            return SourceMaterialCategory.Keyframe;
+        if (isImage && ContainsAny(text, "场景", "scene", "location", "店铺", "街道", "空镜"))
+            return SourceMaterialCategory.Scene;
+        if (isImage && ContainsAny(
+                text, "角色", "主体", "定妆", "四宫格", "character", "cast", "principal", "人物"))
+            return SourceMaterialCategory.Character;
+        if (ContainsAny(text, "提示词", "prompt") &&
+            ContainsAny(extension.ToLowerInvariant(), ".md", ".txt", ".json"))
+            return SourceMaterialCategory.Prompt;
+        if (ContainsAny(extension.ToLowerInvariant(), ".wav", ".mp3", ".m4a", ".aac"))
+            return SourceMaterialCategory.Audio;
+        if (ContainsAny(extension.ToLowerInvariant(), ".mp4", ".mov", ".webm"))
+            return SourceMaterialCategory.Video;
+        if (ContainsAny(extension.ToLowerInvariant(), ".docx", ".xlsx", ".csv", ".md", ".txt", ".json"))
+            return SourceMaterialCategory.Document;
+        return null;
+    }
+
+    private static List<EvidenceFrame> LoadDirectEvidenceFrames(
+        IReadOnlyList<SourceMaterialRecord> materials,
+        SourceMaterialCategory category,
+        int count,
+        string workflow)
+    {
+        var frames = new List<EvidenceFrame>(count);
+        foreach (var material in materials.Where(item => item.Category == category))
+        {
+            if (frames.Count >= count) break;
+            try
+            {
+                frames.Add(new EvidenceFrame(
+                    Image.Load<Rgba32>(material.FullPath),
+                    GetCategoryDisplayName(category),
+                    Path.GetRelativePath(workflow, material.FullPath)));
+            }
+            catch
+            {
+                // Invalid or partially-written images are not included.
+            }
+        }
+
+        return frames;
+    }
+
+    private static void AppendFrames(
+        List<EvidenceFrame> destination,
+        List<EvidenceFrame> candidates,
+        int maximumCount)
+    {
+        var take = Math.Min(maximumCount - destination.Count, candidates.Count);
+        destination.AddRange(candidates.Take(take));
+        foreach (var unused in candidates.Skip(take))
+            unused.Image.Dispose();
+    }
+
+    private static bool IsUnderDirectory(string path, string directory)
+    {
+        var normalizedDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory))
+                                  + Path.DirectorySeparatorChar;
+        return path.StartsWith(normalizedDirectory, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ContainsIgnoredPathSegment(string relativePath)
+    {
+        var segments = relativePath.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        return segments.Any(segment =>
+            segment.StartsWith(".", StringComparison.Ordinal)
+            || segment.Equals("node_modules", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("bin", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("obj", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("缓存", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("temp", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("tmp", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static int GetMaterialPriority(string relativePath, SourceMaterialCategory category)
+    {
+        var text = relativePath.ToLowerInvariant();
+        if (category == SourceMaterialCategory.Character)
+        {
+            if (ContainsAny(text, "主体主图", "正面全身")) return 0;
+            if (ContainsAny(text, "四宫格", "定妆")) return 1;
+            return 2;
+        }
+        if (category == SourceMaterialCategory.Scene)
+        {
+            if (ContainsAny(text, "场景参考板", "场景板")) return 0;
+            return 1;
+        }
+        if (category == SourceMaterialCategory.Keyframe)
+        {
+            if (ContainsAny(text, "首帧", "keyframe")) return 0;
+            return 1;
+        }
+        return 2;
+    }
+
+    private static bool ContainsAny(string value, params string[] tokens) =>
+        tokens.Any(token => value.Contains(token, StringComparison.OrdinalIgnoreCase));
+
+    private static string GetCategoryDisplayName(SourceMaterialCategory category) => category switch
+    {
+        SourceMaterialCategory.Character => "主体/定妆",
+        SourceMaterialCategory.Scene => "场景参考",
+        SourceMaterialCategory.Keyframe => "镜头首帧",
+        SourceMaterialCategory.Prompt => "提示词",
+        SourceMaterialCategory.Audio => "声音素材",
+        SourceMaterialCategory.Video => "视频文件",
+        _ => "制作文档",
+    };
 
     private static List<VideoRecord> ProbeVideos(
         IReadOnlyList<string> videos,
@@ -296,8 +553,8 @@ public static class TikTokSourceFileInfoScreenshotService
                    成片集数：{videoCount}
                    制作方：{company}
                    资料生成时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}
-                   资料来源：本目录内容由项目内真实视频、海报及 shortdrama-project.json 整理生成。
-                   真实性说明：角色图和场景图均从成片抽取；剧本文档为成片整理稿，不冒充拍摄前原始剧本。
+                   资料来源：本目录内容由项目内真实角色、场景、首帧、提示词、视频、海报及 shortdrama-project.json 整理生成。
+                   真实性说明：优先使用项目内真实制作素材，缺失时才从成片抽帧；剧本文档为成片整理稿，不冒充拍摄前原始剧本。
                    """;
         File.WriteAllText(Path.Combine(evidenceDir, "项目说明.txt"), text, new UTF8Encoding(true));
     }
@@ -531,6 +788,7 @@ public static class TikTokSourceFileInfoScreenshotService
         string workflow,
         string evidenceDir,
         IReadOnlyList<VideoRecord> records,
+        IReadOnlyList<SourceMaterialRecord> materials,
         string manifestPath,
         string docxPath,
         FontFamily family)
@@ -556,29 +814,43 @@ public static class TikTokSourceFileInfoScreenshotService
             ctx.DrawText("证据目录", heading, Color.ParseHex("1F4D78"), new PointF(58, 177));
             ctx.DrawText(evidenceDir, normal, Color.ParseHex("28323A"), new PointF(190, 179));
 
-            ctx.DrawText($"真实成片：{records.Count} 个", heading, Color.ParseHex("20302B"), new PointF(50, 255));
-            ctx.DrawText("文件名", normal, Color.ParseHex("52606A"), new PointF(65, 300));
-            ctx.DrawText("大小", normal, Color.ParseHex("52606A"), new PointF(755, 300));
-            ctx.DrawText("媒体参数", normal, Color.ParseHex("52606A"), new PointF(900, 300));
-            ctx.DrawText("SHA-256 摘要", normal, Color.ParseHex("52606A"), new PointF(1110, 300));
+            ctx.DrawText(
+                $"真实制作素材：{materials.Count} 个　真实成片：{records.Count} 个",
+                heading, Color.ParseHex("20302B"), new PointF(50, 255));
+            ctx.DrawText("类型", normal, Color.ParseHex("52606A"), new PointF(65, 300));
+            ctx.DrawText("项目内相对路径", normal, Color.ParseHex("52606A"), new PointF(205, 300));
+            ctx.DrawText("大小", normal, Color.ParseHex("52606A"), new PointF(1000, 300));
+            ctx.DrawText("修改时间", normal, Color.ParseHex("52606A"), new PointF(1140, 300));
         });
 
-        for (var i = 0; i < Math.Min(8, records.Count); i++)
+        var visibleMaterials = materials
+            .Where(item => item.Category != SourceMaterialCategory.Video)
+            .Take(MaxCatalogFiles)
+            .ToArray();
+        for (var i = 0; i < visibleMaterials.Length; i++)
         {
-            var r = records[i];
-            var y = 330 + i * 54;
+            var material = visibleMaterials[i];
+            var y = 330 + i * 36;
             image.Mutate(ctx =>
             {
                 ctx.Fill(i % 2 == 0 ? Color.ParseHex("F8FAFC") : Color.White,
-                    new RectangleF(50, y, 1340, 50));
-                ctx.DrawText(TrimForUi(r.FileName, 48), normal, Color.ParseHex("1E2B34"), new PointF(65, y + 14));
-                ctx.DrawText(FormatBytes(r.Length), normal, Color.ParseHex("1E2B34"), new PointF(755, y + 14));
-                ctx.DrawText(
-                    r.Width > 0 ? $"{r.Width}×{r.Height}  {FormatDuration(r.DurationSeconds)}" : "参数未读取",
-                    normal, Color.ParseHex("1E2B34"), new PointF(900, y + 14));
-                ctx.DrawText(r.Sha256[..Math.Min(16, r.Sha256.Length)] + "…", mono,
-                    Color.ParseHex("35556D"), new PointF(1110, y + 14));
+                    new RectangleF(50, y, 1340, 34));
+                ctx.DrawText(GetCategoryDisplayName(material.Category), mono, Color.ParseHex("35556D"),
+                    new PointF(65, y + 8));
+                ctx.DrawText(TrimForUi(material.RelativePath, 78), normal, Color.ParseHex("1E2B34"),
+                    new PointF(205, y + 8));
+                ctx.DrawText(FormatBytes(material.Length), normal, Color.ParseHex("1E2B34"),
+                    new PointF(1000, y + 8));
+                ctx.DrawText(material.LastWriteTime.ToString("yyyy-MM-dd HH:mm"), normal,
+                    Color.ParseHex("1E2B34"), new PointF(1140, y + 8));
             });
+        }
+
+        if (visibleMaterials.Length == 0)
+        {
+            image.Mutate(ctx => ctx.DrawText(
+                "未发现角色、场景、首帧、提示词或制作文档；当前仅登记真实成片。",
+                heading, Color.ParseHex("7B3232"), new PointF(310, 455)));
         }
 
         image.Mutate(ctx =>
@@ -588,94 +860,101 @@ public static class TikTokSourceFileInfoScreenshotService
                 new PointF(50, y));
             ctx.DrawText($"已落盘：{Path.GetFileName(docxPath)}", normal, Color.ParseHex("1F7A4D"),
                 new PointF(520, y));
-            ctx.DrawText("全部条目取自文件系统和 ffprobe，无虚构文件。", normal, Color.ParseHex("7A5A00"),
-                new PointF(980, y));
+            ctx.DrawText("仅列真实落盘文件；不生成额外素材。", normal, Color.ParseHex("7A5A00"),
+                new PointF(1030, y));
         });
         return image;
     }
 
-    private static Image<Rgba32> RenderDocumentEvidence(
+    private static Image<Rgba32> RenderProductionChainEvidence(
         string title,
         string company,
         IReadOnlyList<VideoRecord> records,
+        IReadOnlyList<SourceMaterialRecord> materials,
+        IReadOnlyList<EvidenceFrame> keyframes,
         string docxPath,
         string manifestPath,
         FontFamily family)
     {
         const int width = 1440;
         const int height = 900;
-        var image = new Image<Rgba32>(width, height, Color.ParseHex("D8DDE3"));
+        var image = new Image<Rgba32>(width, height, Color.ParseHex("EEF1F4"));
         var titleFont = family.CreateFont(24, FontStyle.Bold);
         var heading = family.CreateFont(16, FontStyle.Bold);
         var normal = family.CreateFont(13);
         var small = family.CreateFont(11);
+        var promptFile = materials.FirstOrDefault(item => item.Category == SourceMaterialCategory.Prompt);
+        var promptExcerpt = promptFile is null ? "项目内未发现可读取的提示词文件" : ReadPromptExcerpt(promptFile.FullPath);
         image.Mutate(ctx =>
         {
-            ctx.Fill(Color.White, new RectangleF(35, 30, 820, 840));
-            ctx.Fill(Color.ParseHex("F4F6F8"), new RectangleF(35, 30, 820, 70));
-            ctx.Draw(Color.ParseHex("AEB8C2"), 1, new RectangleF(35, 30, 820, 840));
-            ctx.DrawText(Path.GetFileName(docxPath), normal, Color.ParseHex("1F7A4D"), new PointF(55, 48));
-            ctx.DrawText("基于成片整理｜可回溯来源", small, Color.ParseHex("60717D"), new PointF(55, 75));
-            ctx.DrawText($"{title}｜成片整理稿", titleFont, Color.ParseHex("1F4D78"), new PointF(85, 128));
-            ctx.DrawText("根据项目内已完成视频整理，不代表拍摄前原始剧本", normal,
-                Color.ParseHex("8A4B2A"), new PointF(85, 172));
-            ctx.DrawText($"制作方：{company}", normal, Color.ParseHex("34424C"), new PointF(85, 210));
-            ctx.DrawText("分集索引", heading, Color.ParseHex("1F4D78"), new PointF(85, 255));
+            ctx.Fill(Color.ParseHex("20302B"), new RectangleF(0, 0, width, 100));
+            ctx.DrawText("AI短剧真实制作链路", titleFont, Color.White, new PointF(45, 18));
+            ctx.DrawText($"{title}　制作方：{company}", normal, Color.ParseHex("DCE7DF"), new PointF(48, 58));
 
-            ctx.Fill(Color.ParseHex("E8EEF5"), new RectangleF(80, 292, 730, 38));
-            ctx.DrawText("集数", normal, Color.ParseHex("20302B"), new PointF(95, 302));
-            ctx.DrawText("真实源文件", normal, Color.ParseHex("20302B"), new PointF(160, 302));
-            ctx.DrawText("时长", normal, Color.ParseHex("20302B"), new PointF(555, 302));
-            ctx.DrawText("画面规格", normal, Color.ParseHex("20302B"), new PointF(650, 302));
+            string[] stages = ["脚本/提示词", "角色与场景", "镜头首帧", "视频片段/成片"];
+            for (var i = 0; i < stages.Length; i++)
+            {
+                var x = 45 + i * 345;
+                ctx.Fill(Color.White, new RectangleF(x, 126, 300, 76));
+                ctx.Draw(Color.ParseHex("B9C7C0"), 1, new RectangleF(x, 126, 300, 76));
+                ctx.DrawText($"{i + 1}", heading, Color.ParseHex("1F7A4D"), new PointF(x + 18, 148));
+                ctx.DrawText(stages[i], heading, Color.ParseHex("20302B"), new PointF(x + 55, 148));
+                if (i < stages.Length - 1)
+                    ctx.DrawText("→", titleFont, Color.ParseHex("789087"), new PointF(x + 310, 145));
+            }
+
+            ctx.DrawText("真实首帧/分镜素材", heading, Color.ParseHex("1F4D78"), new PointF(50, 235));
         });
 
-        for (var i = 0; i < Math.Min(12, records.Count); i++)
+        for (var i = 0; i < Math.Min(4, keyframes.Count); i++)
         {
-            var r = records[i];
-            var y = 334 + i * 39;
+            var x = 50 + i * 335;
+            var rect = new Rectangle(x, 270, 295, 245);
+            DrawFrameContain(image, keyframes[i].Image, rect);
             image.Mutate(ctx =>
             {
-                ctx.DrawLine(Color.ParseHex("E1E6EA"), 1, new PointF(80, y + 35), new PointF(810, y + 35));
-                ctx.DrawText(r.Episode.ToString(), small, Color.ParseHex("26343D"), new PointF(98, y + 9));
-                ctx.DrawText(TrimForUi(r.FileName, 36), small, Color.ParseHex("26343D"), new PointF(160, y + 9));
-                ctx.DrawText(FormatDuration(r.DurationSeconds), small, Color.ParseHex("26343D"), new PointF(555, y + 9));
-                ctx.DrawText(r.Width > 0 ? $"{r.Width}×{r.Height}" : "未读取", small,
-                    Color.ParseHex("26343D"), new PointF(650, y + 9));
+                ctx.Draw(Color.ParseHex("C2CAD1"), 1, rect);
+                ctx.DrawText(TrimForUi(keyframes[i].SourceFile, 34), small, Color.ParseHex("34424C"),
+                    new PointF(x, 525));
             });
         }
 
         image.Mutate(ctx =>
         {
-            ctx.Fill(Color.White, new RectangleF(880, 30, 525, 840));
-            ctx.Draw(Color.ParseHex("AEB8C2"), 1, new RectangleF(880, 30, 525, 840));
-            ctx.Fill(Color.ParseHex("F4F6F8"), new RectangleF(880, 30, 525, 70));
-            ctx.DrawText(Path.GetFileName(manifestPath), normal, Color.ParseHex("1F7A4D"), new PointF(900, 48));
-            ctx.DrawText("真实媒体清单", small, Color.ParseHex("60717D"), new PointF(900, 75));
-            ctx.DrawText("核验字段", heading, Color.ParseHex("1F4D78"), new PointF(915, 128));
-            string[] fields =
-            [
-                $"成片数量：{records.Count}",
-                $"总大小：{FormatBytes(records.Sum(r => r.Length))}",
-                $"总时长：{FormatDuration(records.Sum(r => r.DurationSeconds))}",
-                "逐文件字段：",
-                "• 文件名与集数",
-                "• 原始字节数",
-                "• 时长、分辨率、帧率",
-                "• 音频编码",
-                "• 修改时间",
-                "• SHA-256 完整摘要",
-            ];
-            for (var i = 0; i < fields.Length; i++)
+            if (keyframes.Count == 0)
             {
-                ctx.DrawText(fields[i], normal, Color.ParseHex("2E3D46"), new PointF(915, 180 + i * 42));
+                ctx.Fill(Color.White, new RectangleF(50, 270, 1325, 245));
+                ctx.DrawText("项目内未发现首帧或分镜图片；未为证明材料额外生成图片。",
+                    heading, Color.ParseHex("7A5A00"), new PointF(400, 380));
             }
 
-            ctx.Fill(Color.ParseHex("FFF7E2"), new RectangleF(910, 650, 440, 140));
-            ctx.DrawText("真实性声明", heading, Color.ParseHex("7A5A00"), new PointF(930, 670));
-            ctx.DrawText("剧本文档为成片整理稿；角色与场景图来自真实视频抽帧；",
-                small, Color.ParseHex("5B4A20"), new PointF(930, 710));
-            ctx.DrawText("未生成或展示不存在的 RAW、PSD、AI、MOV 等源文件。",
-                small, Color.ParseHex("5B4A20"), new PointF(930, 740));
+            ctx.Fill(Color.White, new RectangleF(50, 575, 850, 250));
+            ctx.Draw(Color.ParseHex("CBD3D9"), 1, new RectangleF(50, 575, 850, 250));
+            ctx.DrawText("真实提示词节选", heading, Color.ParseHex("1F4D78"), new PointF(75, 598));
+            DrawWrappedText(ctx, promptExcerpt, normal, Color.ParseHex("2E3D46"),
+                new RectangleF(75, 635, 800, 160), 54, 6);
+            ctx.DrawText(promptFile is null ? "未发现提示词文件" : TrimForUi(promptFile.RelativePath, 70),
+                small, Color.ParseHex("60717D"), new PointF(75, 795));
+
+            ctx.Fill(Color.White, new RectangleF(930, 575, 445, 250));
+            ctx.Draw(Color.ParseHex("CBD3D9"), 1, new RectangleF(930, 575, 445, 250));
+            ctx.DrawText("项目核验", heading, Color.ParseHex("1F4D78"), new PointF(955, 598));
+            string[] facts =
+            [
+                $"角色素材：{materials.Count(m => m.Category == SourceMaterialCategory.Character)}",
+                $"场景素材：{materials.Count(m => m.Category == SourceMaterialCategory.Scene)}",
+                $"首帧素材：{materials.Count(m => m.Category == SourceMaterialCategory.Keyframe)}",
+                $"提示词文件：{materials.Count(m => m.Category == SourceMaterialCategory.Prompt)}",
+                $"成片数量：{records.Count}",
+                $"媒体总时长：{FormatDuration(records.Sum(r => r.DurationSeconds))}",
+            ];
+            for (var i = 0; i < facts.Length; i++)
+                ctx.DrawText(facts[i], normal, Color.ParseHex("2E3D46"), new PointF(955, 638 + i * 27));
+
+            ctx.DrawText($"清单：{Path.GetFileName(manifestPath)}　文档：{Path.GetFileName(docxPath)}",
+                small, Color.ParseHex("1F7A4D"), new PointF(50, 855));
+            ctx.DrawText("全部内容取自真实落盘文件；未调用AI生成额外证明图片。",
+                small, Color.ParseHex("7A5A00"), new PointF(970, 855));
         });
         return image;
     }
@@ -773,6 +1052,51 @@ public static class TikTokSourceFileInfoScreenshotService
             target.X + (target.Width - clone.Width) / 2,
             target.Y + (target.Height - clone.Height) / 2);
         canvas.Mutate(ctx => ctx.DrawImage(clone, point, 1));
+    }
+
+    private static void DrawWrappedText(
+        IImageProcessingContext context,
+        string text,
+        ImageFont font,
+        Color color,
+        RectangleF bounds,
+        int maxCharsPerLine,
+        int maxLines)
+    {
+        var normalized = string.Join(" ", (text ?? "").Split(
+            ['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries));
+        var lines = new List<string>();
+        while (normalized.Length > 0 && lines.Count < maxLines)
+        {
+            var take = Math.Min(maxCharsPerLine, normalized.Length);
+            if (take < normalized.Length)
+            {
+                var breakAt = normalized.LastIndexOf(' ', take - 1, take);
+                if (breakAt > maxCharsPerLine / 2) take = breakAt;
+            }
+            lines.Add(normalized[..take].Trim());
+            normalized = normalized[take..].TrimStart();
+        }
+        if (normalized.Length > 0 && lines.Count > 0)
+            lines[^1] = TrimForUi(lines[^1], Math.Max(2, maxCharsPerLine - 1));
+
+        for (var i = 0; i < lines.Count; i++)
+            context.DrawText(lines[i], font, color, new PointF(bounds.X, bounds.Y + i * 25));
+    }
+
+    private static string ReadPromptExcerpt(string path)
+    {
+        try
+        {
+            var text = File.ReadAllText(path);
+            var normalized = string.Join(" ", text.Split(
+                ['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries));
+            return TrimForUi(normalized, 320);
+        }
+        catch
+        {
+            return "提示词文件存在，但当前无法读取文本内容。";
+        }
     }
 
     private static string Save(Image<Rgba32> image, string dir, string fileName)
@@ -903,6 +1227,24 @@ public static class TikTokSourceFileInfoScreenshotService
         double FrameRate,
         string AudioCodec,
         string Sha256);
+
+    private sealed record SourceMaterialRecord(
+        string FullPath,
+        string RelativePath,
+        SourceMaterialCategory Category,
+        long Length,
+        DateTime LastWriteTime);
+
+    private enum SourceMaterialCategory
+    {
+        Character,
+        Scene,
+        Keyframe,
+        Prompt,
+        Audio,
+        Video,
+        Document,
+    }
 
     private sealed record EvidenceFrame(Image<Rgba32> Image, string Label, string SourceFile);
     private sealed record ProjectMetadata(string OriginalTitle, string BookId);
