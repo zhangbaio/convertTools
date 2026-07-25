@@ -9,6 +9,7 @@ using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Services;
@@ -184,15 +185,34 @@ public static class TikTokAiGenerationScreenshotService
             {
                 var ffmpeg = FfmpegLocator.ResolveFfmpeg();
                 log?.Invoke($"AI 截图：从 {videos.Length} 个视频抽帧。");
-                for (var i = 0; i < needed; i++)
+                var ffprobe = MediaBinaryResolver.ResolveFfprobe();
+                var durations = videos.ToDictionary(
+                    path => path,
+                    path => ProbeDuration(ffprobe, path, cancellationToken),
+                    StringComparer.OrdinalIgnoreCase);
+                for (var shotIndex = 0; shotIndex < needed; shotIndex++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var video = videos[i % videos.Length];
-                    var ratio = KeyframeRatios[i % KeyframeRatios.Length];
-                    var extracted = TryExtractFrame(ffmpeg, video, ratio, cancellationToken);
-                    if (extracted is not null)
+                    var videoIndex = shotIndex % videos.Length;
+                    var video = videos[videoIndex];
+                    var duration = durations[video];
+                    var shotsForVideo = Math.Max(1, (int)Math.Ceiling(needed / (double)videos.Length));
+                    var sequenceIndex = shotIndex / videos.Length;
+                    var window = Math.Max(duration / Math.Max(4, shotsForVideo + 1), 2.0);
+                    var baseSeconds = Math.Min(
+                        Math.Max(0.4, sequenceIndex * window * 0.65),
+                        Math.Max(0.5, duration - 1.2));
+
+                    foreach (var ratio in KeyframeRatios)
                     {
-                        frames.Add(extracted);
+                        var seconds = Math.Min(
+                            Math.Max(0.05, duration - 0.05),
+                            Math.Max(0.05, baseSeconds + window * ratio));
+                        var extracted = TryExtractFrame(ffmpeg, video, seconds, cancellationToken);
+                        if (extracted is not null)
+                        {
+                            frames.Add(extracted);
+                        }
                     }
                 }
             }
@@ -202,12 +222,13 @@ public static class TikTokAiGenerationScreenshotService
             }
         }
 
-        if (frames.Count < needed)
+        var requiredFrameCount = needed * KeyframeRatios.Length;
+        if (frames.Count < requiredFrameCount)
         {
             foreach (var image in CollectAssetImages(workflow))
             {
                 frames.Add(image);
-                if (frames.Count >= needed)
+                if (frames.Count >= requiredFrameCount)
                 {
                     break;
                 }
@@ -224,14 +245,14 @@ public static class TikTokAiGenerationScreenshotService
                 new Rgba32(58, 167, 109),
                 new Rgba32(230, 162, 60),
             };
-            for (var i = 0; i < needed; i++)
+            for (var i = 0; i < requiredFrameCount; i++)
             {
                 var img = new Image<Rgba32>(540, 960, palette[i % palette.Length]);
                 frames.Add(img);
             }
         }
 
-        while (frames.Count < needed)
+        while (frames.Count < requiredFrameCount)
         {
             frames.Add(frames[frames.Count % Math.Max(1, frames.Count)].Clone());
         }
@@ -241,13 +262,14 @@ public static class TikTokAiGenerationScreenshotService
 
     private static IReadOnlyList<Image<Rgba32>> PickKeyframes(IReadOnlyList<Image<Rgba32>> pool, int shotIndex)
     {
+        var start = shotIndex * KeyframeRatios.Length;
         // 4 variants around the shot index for 起幅/过渡/主体/收幅.
         return
         [
-            pool[(shotIndex + 0) % pool.Count],
-            pool[(shotIndex + 1) % pool.Count],
-            pool[(shotIndex + 2) % pool.Count],
-            pool[(shotIndex + 3) % pool.Count],
+            pool[(start + 0) % pool.Count],
+            pool[(start + 1) % pool.Count],
+            pool[(start + 2) % pool.Count],
+            pool[(start + 3) % pool.Count],
         ];
     }
 
@@ -282,8 +304,8 @@ public static class TikTokAiGenerationScreenshotService
                 continue;
             }
 
-            var a = frames[i % frames.Count];
-            var b = frames[(i + 1) % frames.Count];
+            var a = frames[(i * KeyframeRatios.Length + 2) % frames.Count];
+            var b = frames[((i + 1) * KeyframeRatios.Length + 2) % frames.Count];
             try
             {
                 var pair = AnalyzeShotPairAsync(endpoint, apiKey, model, a, b, settings!.AiTextTimeoutSeconds, cancellationToken)
@@ -740,17 +762,34 @@ public static class TikTokAiGenerationScreenshotService
         }
     }
 
+    private static double ProbeDuration(
+        string ffprobe,
+        string videoPath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Math.Max(
+                0.1,
+                FfmpegRunner.ProbeDurationSecondsAsync(ffprobe, videoPath, cancellationToken)
+                    .GetAwaiter()
+                    .GetResult());
+        }
+        catch
+        {
+            return 20.0;
+        }
+    }
+
     private static Image<Rgba32>? TryExtractFrame(
         string ffmpeg,
         string videoPath,
-        float ratio,
+        double seconds,
         CancellationToken cancellationToken)
     {
         var temp = Path.Combine(Path.GetTempPath(), $"tiktok-ai-frame-{Guid.NewGuid():N}.jpg");
         try
         {
-            // Approximate seek; ratio applied as seconds offset guess (2~20s).
-            var seconds = Math.Clamp(2.0 + ratio * 18.0, 0.2, 120.0);
             var psi = new ProcessStartInfo
             {
                 FileName = ffmpeg,
