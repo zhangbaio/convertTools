@@ -250,7 +250,12 @@ public static class TikTokAiGenerationScreenshotService
                         var seconds = Math.Min(
                             Math.Max(0.05, duration - 0.05),
                             Math.Max(0.05, baseSeconds + window * ratio));
-                        var extracted = TryExtractFrame(ffmpeg, video, seconds, cancellationToken);
+                        var extracted = TryExtractFacePreferredFrame(
+                            ffmpeg,
+                            video,
+                            seconds,
+                            duration,
+                            cancellationToken);
                         if (extracted is not null)
                         {
                             frames.Add(extracted);
@@ -647,7 +652,10 @@ public static class TikTokAiGenerationScreenshotService
         const int leftW = 560;
         const int pad = 14;
         var leftX = x + pad;
-        var hero = frames[Math.Min(2, frames.Count - 1)];
+        var heroIndex = Enumerable.Range(0, frames.Count)
+            .OrderByDescending(index => ScoreFaceVisibility(frames[index]))
+            .FirstOrDefault();
+        var hero = frames[heroIndex];
         PasteCover(canvas, hero, leftX, y + pad, leftW, 300);
 
         canvas.Mutate(ctx =>
@@ -669,7 +677,7 @@ public static class TikTokAiGenerationScreenshotService
             PasteCover(canvas, frames[i % frames.Count], cx, cy, cellW, cellH);
             canvas.Mutate(ctx =>
             {
-                ctx.Draw(i == 2 ? Color.ParseHex("16c0a8") : Color.ParseHex("1a2130"), 1.5f, new RectangleF(cx, cy, cellW, cellH));
+                ctx.Draw(i == heroIndex ? Color.ParseHex("16c0a8") : Color.ParseHex("1a2130"), 1.5f, new RectangleF(cx, cy, cellW, cellH));
                 ctx.Fill(Color.ParseHex("000000c8"), new RectangleF(cx, cy + cellH - 18, cellW, 18));
                 DrawText(ctx, KeyframeLabels[i], font11, tx, new PointF(cx + cellW / 2f - 14, cy + cellH - 15));
             });
@@ -929,6 +937,168 @@ public static class TikTokAiGenerationScreenshotService
                 // ignore
             }
         }
+    }
+
+    private static Image<Rgba32>? TryExtractFacePreferredFrame(
+        string ffmpeg,
+        string videoPath,
+        double preferredSeconds,
+        double duration,
+        CancellationToken cancellationToken)
+    {
+        Image<Rgba32>? best = null;
+        var bestScore = double.NegativeInfinity;
+        foreach (var offset in new[] { 0.0, -1.2, 1.2 })
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var seconds = Math.Clamp(preferredSeconds + offset, 0.05, Math.Max(0.05, duration - 0.05));
+            var candidate = TryExtractFrame(ffmpeg, videoPath, seconds, cancellationToken);
+            if (candidate is null)
+            {
+                continue;
+            }
+
+            var score = ScoreFaceVisibility(candidate) - Math.Abs(offset) * 0.01;
+            if (score > bestScore)
+            {
+                best?.Dispose();
+                best = candidate;
+                bestScore = score;
+            }
+            else
+            {
+                candidate.Dispose();
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// 轻量级人脸可见度评分。使用肤色连通区域、位置、清晰度和曝光度，
+    /// 不依赖外部模型；用于在相邻候选帧中优先选择露脸画面。
+    /// </summary>
+    internal static double ScoreFaceVisibility(Image<Rgba32> source)
+    {
+        using var image = source.Clone(ctx => ctx.Resize(new ResizeOptions
+        {
+            Mode = ResizeMode.Max,
+            Size = new Size(160, 160),
+        }));
+        var width = image.Width;
+        var height = image.Height;
+        if (width <= 0 || height <= 0)
+        {
+            return double.NegativeInfinity;
+        }
+
+        var skin = new bool[width * height];
+        var luminance = new double[width * height];
+        var edgeSum = 0.0;
+        var edgeCount = 0;
+        var exposureSum = 0.0;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var pixel = image[x, y];
+                var index = y * width + x;
+                var value = ((0.2126 * pixel.R) + (0.7152 * pixel.G) + (0.0722 * pixel.B)) / 255.0;
+                luminance[index] = value;
+                exposureSum += value;
+                skin[index] = IsLikelySkin(pixel);
+                if (x > 0)
+                {
+                    edgeSum += Math.Abs(value - luminance[index - 1]);
+                    edgeCount++;
+                }
+                if (y > 0)
+                {
+                    edgeSum += Math.Abs(value - luminance[index - width]);
+                    edgeCount++;
+                }
+            }
+        }
+
+        var visited = new bool[skin.Length];
+        var queue = new Queue<int>();
+        var faceScore = 0.0;
+        for (var start = 0; start < skin.Length; start++)
+        {
+            if (!skin[start] || visited[start])
+            {
+                continue;
+            }
+
+            visited[start] = true;
+            queue.Enqueue(start);
+            var count = 0;
+            var minX = width;
+            var maxX = 0;
+            var minY = height;
+            var maxY = 0;
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                var x = current % width;
+                var y = current / width;
+                count++;
+                minX = Math.Min(minX, x);
+                maxX = Math.Max(maxX, x);
+                minY = Math.Min(minY, y);
+                maxY = Math.Max(maxY, y);
+                Visit(x - 1, y);
+                Visit(x + 1, y);
+                Visit(x, y - 1);
+                Visit(x, y + 1);
+            }
+
+            var componentWidth = maxX - minX + 1;
+            var componentHeight = maxY - minY + 1;
+            var areaRatio = count / (double)(width * height);
+            var aspect = componentWidth / (double)Math.Max(1, componentHeight);
+            var centerX = (minX + maxX) / 2d / width;
+            var centerY = (minY + maxY) / 2d / height;
+            if (areaRatio is >= 0.004 and <= 0.18
+                && aspect is >= 0.45 and <= 1.75
+                && centerX is >= 0.08 and <= 0.92
+                && centerY <= 0.82)
+            {
+                var centrality = 1.0 - Math.Min(1.0, Math.Abs(centerX - 0.5) * 1.5);
+                var upperBias = 1.0 - Math.Min(1.0, Math.Max(0, centerY - 0.55));
+                faceScore = Math.Max(faceScore, Math.Sqrt(areaRatio) * centrality * upperBias);
+            }
+
+            void Visit(int x, int y)
+            {
+                if (x < 0 || x >= width || y < 0 || y >= height) return;
+                var index = y * width + x;
+                if (!skin[index] || visited[index]) return;
+                visited[index] = true;
+                queue.Enqueue(index);
+            }
+        }
+
+        var mean = exposureSum / (width * height);
+        var exposure = 1.0 - Math.Min(1.0, Math.Abs(mean - 0.5) / 0.5);
+        var sharpness = edgeCount > 0 ? edgeSum / edgeCount : 0;
+        return (faceScore * 8.0) + (sharpness * 1.5) + (exposure * 0.15);
+    }
+
+    private static bool IsLikelySkin(Rgba32 pixel)
+    {
+        var r = (int)pixel.R;
+        var g = (int)pixel.G;
+        var b = (int)pixel.B;
+        var max = Math.Max(r, Math.Max(g, b));
+        var min = Math.Min(r, Math.Min(g, b));
+        return r > 60
+               && g > 35
+               && b > 20
+               && max - min > 15
+               && r > g
+               && r > b
+               && r - g > 5;
     }
 
     private static string ToJpegDataUri(Image<Rgba32> image)
