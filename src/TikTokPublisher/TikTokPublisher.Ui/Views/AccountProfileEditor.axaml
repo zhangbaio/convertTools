@@ -164,8 +164,15 @@
                             <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="源语言" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="5" Grid.Column="1" x:Name="SourceLanguageCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="zh">中文</ComboBoxItem>
-                                <ComboBoxItem Tag="en">English</ComboBoxItem>
-                                <ComboBoxItem Tag="id">Indonesian</ComboBoxItem>
+                                <ComboBoxItem Tag="en">英语 / English</ComboBoxItem>
+                                <ComboBoxItem Tag="id">印尼语 / Indonesian</ComboBoxItem>
+                                <ComboBoxItem Tag="pt">葡语 / Portuguese</ComboBoxItem>
+                                <ComboBoxItem Tag="ja">日语 / Japanese</ComboBoxItem>
+                                <ComboBoxItem Tag="th">泰语 / Thai</ComboBoxItem>
+                                <ComboBoxItem Tag="es">西语 / Spanish</ComboBoxItem>
+                                <ComboBoxItem Tag="ko">韩语 / Korean</ComboBoxItem>
+                                <ComboBoxItem Tag="tr">土耳其语 / Turkish</ComboBoxItem>
+                                <ComboBoxItem Tag="hi">印地语 / Hindi</ComboBoxItem>
                             </ComboBox>
 
                             <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="上传方式" VerticalAlignment="Center" />

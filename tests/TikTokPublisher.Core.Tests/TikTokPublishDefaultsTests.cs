@@ -773,6 +773,7 @@ public sealed class TikTokPublishDefaultsTests
         options.TargetAudienceMode.Should().Be("ai_recommend");
         options.GenreCount.Should().Be(3);
         options.SourceLanguage.Should().Be("zh");
+        options.SourceLanguageLabels.Should().ContainInOrder("中文", "Chinese");
         options.IsOriginalRightsHolder.Should().BeTrue();
         options.ContentOriginalityType.Should().Be("original");
         options.CopyrightMaterialTypes.Should().Equal("production_agreement");
