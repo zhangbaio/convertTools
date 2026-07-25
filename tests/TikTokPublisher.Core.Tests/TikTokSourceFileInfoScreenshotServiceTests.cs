@@ -1,0 +1,82 @@
+using FluentAssertions;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
+
+namespace TikTokPublisher.Core.Tests;
+
+public sealed class TikTokSourceFileInfoScreenshotServiceTests
+{
+    [Fact]
+    public void Generate_creates_four_png_screenshots_with_drama_title()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-source-info-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            using (var poster = new Image<Rgba32>(240, 320))
+            {
+                poster[20, 20] = new Rgba32(200, 80, 40);
+                poster.SaveAsPng(Path.Combine(workflow, "海报图片.png"));
+            }
+
+            var outputs = TikTokSourceFileInfoScreenshotService.Generate(
+                workflow,
+                "测试短剧标题",
+                "测试公司");
+
+            outputs.Should().HaveCount(4);
+            outputs.Should().OnlyContain(path => File.Exists(path));
+            TikTokSourceFileInfoScreenshotService.HasCurrentOutput(workflow).Should().BeTrue();
+
+            foreach (var path in outputs)
+            {
+                using var image = Image.Load(path);
+                image.Width.Should().BeGreaterThan(1000);
+                image.Height.Should().BeGreaterThan(700);
+            }
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Publish_options_builder_binds_source_file_information_directory()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-source-bind-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            File.WriteAllBytes(
+                TikTokProofMaterialService.GetPdfPath(workflow),
+                "%PDF-1.7\nproof"u8.ToArray());
+            TikTokSourceFileInfoScreenshotService.Generate(workflow, "绑定测试剧", "公司A");
+
+            var account = new Models.TikTokAccountProfile
+            {
+                TiktokCopyrightMaterialTypes =
+                [
+                    TikTokPublishConstants.ProductionAgreementMaterialType,
+                    TikTokPublishConstants.SourceFileInformationMaterialType,
+                ],
+            };
+
+            var options = TikTokPublishOptionsBuilder.FromAccount(account, workflow);
+            options.CopyrightMaterialFilePaths.Keys.Should().BeEquivalentTo(
+                TikTokPublishConstants.ProductionAgreementMaterialType,
+                TikTokPublishConstants.SourceFileInformationMaterialType);
+
+            var images = options.ResolveCopyrightMaterialFilePaths(
+                TikTokPublishConstants.SourceFileInformationMaterialType);
+            images.Should().HaveCount(4);
+            images.Should().OnlyContain(path => path.EndsWith(".png", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+}

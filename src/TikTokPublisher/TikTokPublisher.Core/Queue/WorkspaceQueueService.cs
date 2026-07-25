@@ -663,7 +663,8 @@ public static class WorkspaceQueueService
 
             Span<byte> header = stackalloc byte[5];
             stream.ReadExactly(header);
-            return header.SequenceEqual("%PDF-"u8);
+            if (!header.SequenceEqual("%PDF-"u8))
+                return false;
         }
         catch (IOException)
         {
@@ -673,6 +674,8 @@ public static class WorkspaceQueueService
         {
             return false;
         }
+
+        return TikTokSourceFileInfoScreenshotService.HasCurrentOutput(workflowProjectDir);
     }
 
     private static bool HasSilenceAsrReport(ProjectWorkspaceContext context)

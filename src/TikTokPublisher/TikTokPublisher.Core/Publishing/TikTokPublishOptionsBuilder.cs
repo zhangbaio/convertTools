@@ -26,27 +26,43 @@ public static class TikTokPublishOptionsBuilder
         options.PaidEnabled = TikTokPaidRatioService.DecidePaidForUpload(account, workflowProjectDir, log);
         options.CopyrightMaterialFilePath = string.Empty;
         options.CopyrightMaterialFilePaths = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (TikTokPublishConstants.RequiresGeneratedProofMaterial(options.CopyrightMaterialTypes) &&
-            !string.IsNullOrWhiteSpace(workflowProjectDir))
+        if (!string.IsNullOrWhiteSpace(workflowProjectDir))
         {
-            var proofMaterial = TikTokProofMaterialService.GetPdfPath(workflowProjectDir);
-            options.CopyrightMaterialFilePath = proofMaterial;
-            options.CopyrightMaterialFilePaths = new Dictionary<string, string>(StringComparer.Ordinal)
+            var paths = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (TikTokPublishConstants.RequiresGeneratedProofMaterial(options.CopyrightMaterialTypes))
             {
-                [TikTokPublishConstants.ProductionAgreementMaterialType] = proofMaterial,
-            };
+                var proofMaterial = TikTokProofMaterialService.GetPdfPath(workflowProjectDir);
+                options.CopyrightMaterialFilePath = proofMaterial;
+                paths[TikTokPublishConstants.ProductionAgreementMaterialType] = proofMaterial;
 
-            if (File.Exists(proofMaterial))
-            {
-                TikTokProofMaterialPdfRenderService.ValidatePdf(proofMaterial);
-                log?.Invoke($"TikTok 版权材料使用项目生成文件：{proofMaterial}");
+                if (File.Exists(proofMaterial))
+                {
+                    TikTokProofMaterialPdfRenderService.ValidatePdf(proofMaterial);
+                    log?.Invoke($"TikTok 版权材料使用项目生成文件：{proofMaterial}");
+                }
+                else
+                {
+                    // 上传清单等准备阶段也会构建参数；此处仅绑定规范路径，实际上传前会强制生成并校验。
+                    log?.Invoke($"TikTok 合作协议等待生成项目证明材料：{proofMaterial}");
+                }
             }
-            else
+
+            if (options.CopyrightMaterialTypes.Contains(
+                    TikTokPublishConstants.SourceFileInformationMaterialType,
+                    StringComparer.Ordinal))
             {
-                // 上传清单等准备阶段也会构建参数；此处仅绑定规范路径，实际上传前会强制生成并校验。
-                log?.Invoke($"TikTok 合作协议等待生成项目证明材料：{proofMaterial}");
+                var sourceInfoDir = TikTokSourceFileInfoScreenshotService.GetOutputDirectory(workflowProjectDir);
+                paths[TikTokPublishConstants.SourceFileInformationMaterialType] = sourceInfoDir;
+                var imageCount = TikTokSourceFileInfoScreenshotService.ListGeneratedImages(workflowProjectDir).Count;
+                log?.Invoke(
+                    imageCount >= TikTokSourceFileInfoScreenshotService.RequiredImageCount
+                        ? $"TikTok 原始文件截图已就绪：{imageCount} 张 → {sourceInfoDir}"
+                        : $"TikTok 原始文件截图等待生成：{sourceInfoDir}");
             }
+
+            options.CopyrightMaterialFilePaths = paths;
         }
+
         return options;
     }
 

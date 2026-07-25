@@ -1,5 +1,6 @@
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services.TikTok;
 
@@ -37,34 +38,49 @@ public static partial class TikTokBrowserActions
             throw new InvalidOperationException("TikTok 上传材料类型未配置，请选择「制作协议、联合出品协议等合作协议」。");
 
         var unsupportedMaterialKeys = configuredMaterialKeys
-            .Where(key => !string.Equals(
-                key,
-                TikTokPublishConstants.ProductionAgreementMaterialType,
-                StringComparison.Ordinal))
+            .Where(key =>
+                !string.Equals(key, TikTokPublishConstants.ProductionAgreementMaterialType, StringComparison.Ordinal) &&
+                !string.Equals(key, TikTokPublishConstants.SourceFileInformationMaterialType, StringComparison.Ordinal))
             .ToList();
         if (unsupportedMaterialKeys.Count > 0)
         {
             var keysWithoutIndependentFiles = unsupportedMaterialKeys
-                .Where(key => string.IsNullOrWhiteSpace(options.ResolveCopyrightMaterialFilePath(key)))
+                .Where(key => options.ResolveCopyrightMaterialFilePaths(key).Count == 0)
                 .ToList();
             var labels = keysWithoutIndependentFiles
                 .Select(key => TikTokPublishConstants.CopyrightMaterialLabels[key]);
             if (keysWithoutIndependentFiles.Count > 0)
                 throw new InvalidOperationException(
                     $"已选择版权材料「{string.Join("、", labels)}」，但尚未配置对应的独立文件；" +
-                    "证明材料.pdf 仅可上传到「制作协议、联合出品协议等合作协议」。");
+                    "证明材料.pdf 仅可上传到「制作协议、联合出品协议等合作协议」，" +
+                    "原始文件截图仅可上传到「原始文件或素材文件信息」。");
 
             var configuredLabels = unsupportedMaterialKeys
                 .Select(key => TikTokPublishConstants.CopyrightMaterialLabels[key]);
             throw new NotSupportedException(
                 $"版权材料「{string.Join("、", configuredLabels)}」已有独立文件，但当前自动上传流程尚未支持该类型；" +
-                "请仅选择「制作协议、联合出品协议等合作协议」。");
+                "请仅选择「制作协议、联合出品协议等合作协议」和/或「原始文件或素材文件信息」。");
         }
 
         if (!configuredMaterialKeys.Contains(
                 TikTokPublishConstants.ProductionAgreementMaterialType,
                 StringComparer.Ordinal))
             throw new InvalidOperationException("TikTok 上传材料类型必须包含「制作协议、联合出品协议等合作协议」。");
+
+        var includeSourceFileInformation = configuredMaterialKeys.Contains(
+            TikTokPublishConstants.SourceFileInformationMaterialType,
+            StringComparer.Ordinal);
+        var sourceInfoFiles = includeSourceFileInformation
+            ? options.ResolveCopyrightMaterialFilePaths(
+                TikTokPublishConstants.SourceFileInformationMaterialType)
+            : [];
+        if (includeSourceFileInformation &&
+            sourceInfoFiles.Count < TikTokSourceFileInfoScreenshotService.RequiredImageCount)
+        {
+            throw new FileNotFoundException(
+                $"「原始文件或素材文件信息」需要至少 {TikTokSourceFileInfoScreenshotService.RequiredImageCount} 张截图，" +
+                $"当前仅找到 {sourceInfoFiles.Count} 张；请先执行「生成证明材料」。");
+        }
 
         var filePath = options.ResolveCopyrightMaterialFilePath(
             TikTokPublishConstants.ProductionAgreementMaterialType);
@@ -91,6 +107,8 @@ public static partial class TikTokBrowserActions
 
         var productionAgreementLabel =
             TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.ProductionAgreementMaterialType];
+        var sourceInfoLabel =
+            TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.SourceFileInformationMaterialType];
         var productionAgreementOption = await WaitForCopyrightMaterialCheckboxAsync(
             page,
             productionAgreementLabel,
@@ -104,13 +122,30 @@ public static partial class TikTokBrowserActions
             log,
             ct);
 
+        if (includeSourceFileInformation)
+        {
+            var sourceInfoOption = await WaitForCopyrightMaterialCheckboxAsync(
+                page,
+                sourceInfoLabel,
+                CopyrightControlTimeoutMs,
+                ct);
+            await EnsureCopyrightMaterialCheckboxStateAsync(
+                page,
+                sourceInfoLabel,
+                sourceInfoOption,
+                shouldSelect: true,
+                log,
+                ct);
+        }
+
         // 页面可能保留上一次未提交的选择；清掉当前未配置的已知类型，避免出现无文件映射的上传框。
         foreach (var pair in TikTokPublishConstants.CopyrightMaterialLabels)
         {
-            if (string.Equals(
-                    pair.Key,
-                    TikTokPublishConstants.ProductionAgreementMaterialType,
-                    StringComparison.Ordinal)) continue;
+            if (string.Equals(pair.Key, TikTokPublishConstants.ProductionAgreementMaterialType, StringComparison.Ordinal))
+                continue;
+            if (includeSourceFileInformation &&
+                string.Equals(pair.Key, TikTokPublishConstants.SourceFileInformationMaterialType, StringComparison.Ordinal))
+                continue;
             ct.ThrowIfCancellationRequested();
             var option = await TryFindCopyrightMaterialCheckboxAsync(page, pair.Value);
             if (option is null || !await option.Value.Input.IsCheckedAsync()) continue;
@@ -124,18 +159,54 @@ public static partial class TikTokBrowserActions
         }
         await ClosePopupIfOpenAsync(page);
 
-        Log(log, $"TikTok 版权材料类型已确认：{productionAgreementLabel}。");
-        var uploadControl = await WaitForCopyrightMaterialUploadControlAsync(
+        var selectedLabels = includeSourceFileInformation
+            ? $"{productionAgreementLabel}、{sourceInfoLabel}"
+            : productionAgreementLabel;
+        Log(log, $"TikTok 版权材料类型已确认：{selectedLabels}。");
+
+        await UploadCopyrightMaterialFilesAsync(
             page,
             productionAgreementLabel,
+            [resolvedFilePath],
+            preferProductionAgreementFieldId: true,
+            log,
+            ct);
+
+        if (includeSourceFileInformation)
+        {
+            await UploadCopyrightMaterialFilesAsync(
+                page,
+                sourceInfoLabel,
+                sourceInfoFiles.ToArray(),
+                preferProductionAgreementFieldId: false,
+                log,
+                ct);
+        }
+    }
+
+    private static async Task UploadCopyrightMaterialFilesAsync(
+        IPage page,
+        string label,
+        IReadOnlyList<string> filePaths,
+        bool preferProductionAgreementFieldId,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (filePaths.Count == 0)
+            throw new InvalidOperationException($"TikTok 版权材料「{label}」没有可上传的文件。");
+
+        var uploadControl = await WaitForCopyrightMaterialUploadControlAsync(
+            page,
+            label,
             CopyrightControlTimeoutMs,
+            preferProductionAgreementFieldId,
             ct);
         await uploadControl.Field.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 }).WaitAsync(ct);
-        Log(log, $"TikTok 版权材料上传组件已就绪：{productionAgreementLabel}。");
+        Log(log, $"TikTok 版权材料上传组件已就绪：{label}。");
 
-        var fileName = Path.GetFileName(resolvedFilePath);
+        var displayNames = string.Join("、", filePaths.Select(Path.GetFileName));
         var initialFileCardCount = await CountCopyrightMaterialFileCardsAsync(uploadControl.Field);
-        Log(log, $"TikTok 版权材料开始上传：{productionAgreementLabel}（{fileName}）。");
+        Log(log, $"TikTok 版权材料开始上传：{label}（{displayNames}）。");
         var networkOutcome = new TaskCompletionSource<CopyrightUploadNetworkOutcome>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         void OnResponse(object? _, IResponse response)
@@ -161,7 +232,7 @@ public static partial class TikTokBrowserActions
             try
             {
                 await uploadControl.Input
-                    .SetInputFilesAsync(resolvedFilePath, new() { Timeout = 30000 })
+                    .SetInputFilesAsync(filePaths.ToArray(), new() { Timeout = 30000 })
                     .WaitAsync(ct);
             }
             catch (OperationCanceledException)
@@ -171,21 +242,21 @@ public static partial class TikTokBrowserActions
             catch (Exception ex)
             {
                 throw new InvalidOperationException(
-                    $"向 TikTok「{productionAgreementLabel}」选择文件失败：{ex.Message}", ex);
+                    $"向 TikTok「{label}」选择文件失败：{ex.Message}", ex);
             }
 
-            await VerifyCopyrightMaterialFileAcceptedAsync(
+            await VerifyCopyrightMaterialFilesAcceptedAsync(
                 uploadControl.Field,
                 uploadControl.Input,
-                fileName,
+                filePaths.Select(Path.GetFileName).Where(name => !string.IsNullOrWhiteSpace(name)).Cast<string>().ToArray(),
                 initialFileCardCount,
                 ct);
-            Log(log, $"TikTok 版权材料文件已送入上传组件：{fileName}，等待页面确认上传结果。");
+            Log(log, $"TikTok 版权材料文件已送入上传组件：{displayNames}，等待页面确认上传结果。");
 
             await WaitForCopyrightMaterialUploadResultAsync(
                 uploadControl.Field,
-                productionAgreementLabel,
-                fileName,
+                label,
+                Path.GetFileName(filePaths[0]),
                 initialFileCardCount,
                 networkOutcome.Task,
                 log,
@@ -195,7 +266,7 @@ public static partial class TikTokBrowserActions
         {
             page.Response -= OnResponse;
         }
-        Log(log, $"TikTok 版权材料上传完成：{productionAgreementLabel}（{fileName}）。");
+        Log(log, $"TikTok 版权材料上传完成：{label}（{displayNames}）。");
     }
 
     private static async Task<(ILocator Input, ILocator ClickTarget)> WaitForCopyrightMaterialCheckboxAsync(
@@ -298,13 +369,17 @@ public static partial class TikTokBrowserActions
         IPage page,
         string label,
         int timeoutMs,
+        bool preferProductionAgreementFieldId,
         CancellationToken ct)
     {
         (ILocator Field, ILocator Input)? result = null;
         var found = await WaitUntilAsync(async () =>
         {
             ct.ThrowIfCancellationRequested();
-            result = await TryFindCopyrightMaterialUploadControlAsync(page, label);
+            result = await TryFindCopyrightMaterialUploadControlAsync(
+                page,
+                label,
+                preferProductionAgreementFieldId);
             return result is not null;
         }, timeoutMs, 300, ct);
 
@@ -316,11 +391,15 @@ public static partial class TikTokBrowserActions
 
     private static async Task<(ILocator Field, ILocator Input)?> TryFindCopyrightMaterialUploadControlAsync(
         IPage page,
-        string label)
+        string label,
+        bool preferProductionAgreementFieldId)
     {
-        var fieldBasedControl = await TryFindCopyrightMaterialUploadControlByFieldIdAsync(page);
-        if (fieldBasedControl is not null)
-            return fieldBasedControl;
+        if (preferProductionAgreementFieldId)
+        {
+            var fieldBasedControl = await TryFindCopyrightMaterialUploadControlByFieldIdAsync(page);
+            if (fieldBasedControl is not null)
+                return fieldBasedControl;
+        }
 
         var exactLabels = page.Locator(
             $"xpath=//*[normalize-space(translate(text(), '*', ''))={XPathLiteral(label)}]");
@@ -493,6 +572,50 @@ public static partial class TikTokBrowserActions
         }
 
         return null;
+    }
+
+    private static async Task VerifyCopyrightMaterialFilesAcceptedAsync(
+        ILocator field,
+        ILocator input,
+        IReadOnlyList<string> expectedFileNames,
+        int initialFileCardCount,
+        CancellationToken ct)
+    {
+        if (expectedFileNames.Count == 0)
+            throw new InvalidOperationException("版权材料文件校验失败：期望文件名为空。");
+
+        if (expectedFileNames.Count == 1)
+        {
+            await VerifyCopyrightMaterialFileAcceptedAsync(
+                field,
+                input,
+                expectedFileNames[0],
+                initialFileCardCount,
+                ct);
+            return;
+        }
+
+        var renderedFileCardCount = initialFileCardCount;
+        var matched = await WaitUntilAsync(async () =>
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                renderedFileCardCount = await CountCopyrightMaterialFileCardsAsync(field);
+                return renderedFileCardCount >= initialFileCardCount + expectedFileNames.Count;
+            }
+            catch
+            {
+                return false;
+            }
+        }, 8000, 150, ct);
+
+        if (!matched)
+        {
+            throw new InvalidOperationException(
+                $"TikTok 版权材料多文件选择校验失败，期望 {expectedFileNames.Count} 个文件；" +
+                $"文件卡片：{initialFileCardCount} → {renderedFileCardCount}。");
+        }
     }
 
     private static async Task VerifyCopyrightMaterialFileAcceptedAsync(

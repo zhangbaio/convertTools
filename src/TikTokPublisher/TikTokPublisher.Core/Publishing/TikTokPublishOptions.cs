@@ -6,6 +6,7 @@ namespace TikTokPublisher.Core.Publishing;
 public static class TikTokPublishConstants
 {
     public const string ProductionAgreementMaterialType = "production_agreement";
+    public const string SourceFileInformationMaterialType = "source_file_information";
     public const string ContractIdModeManual = "manual";
     public const string ContractIdModeFirstAvailable = "first_available";
 
@@ -17,7 +18,7 @@ public static class TikTokPublishConstants
         ["opening_ending_rights_notice"] = "片头片尾及权利标识",
         ["ai_generation_screenshots"] = "AI 生成过程截图",
         ["editing_project_files"] = "剪辑工程文件",
-        ["source_file_information"] = "原始文件或素材文件信息",
+        [SourceFileInformationMaterialType] = "原始文件或素材文件信息",
     };
 
     public static readonly IReadOnlySet<string> CoreCopyrightMaterialTypes = new HashSet<string>(StringComparer.Ordinal)
@@ -32,7 +33,7 @@ public static class TikTokPublishConstants
         "opening_ending_rights_notice",
         "ai_generation_screenshots",
         "editing_project_files",
-        "source_file_information",
+        SourceFileInformationMaterialType,
     };
 
     public static IReadOnlyList<string> NormalizeCopyrightMaterialTypes(IEnumerable<string>? materialTypes)
@@ -173,6 +174,34 @@ public sealed class TikTokPublishOptions
                 StringComparison.Ordinal)
             ? CopyrightMaterialFilePath?.Trim() ?? string.Empty
             : string.Empty;
+    }
+
+    public IReadOnlyList<string> ResolveCopyrightMaterialFilePaths(string? materialType)
+    {
+        var path = ResolveCopyrightMaterialFilePath(materialType);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return [];
+        }
+
+        var fullPath = Path.GetFullPath(path);
+        if (Directory.Exists(fullPath))
+        {
+            return Directory.EnumerateFiles(fullPath)
+                .Where(file =>
+                {
+                    var ext = Path.GetExtension(file);
+                    return ext.Equals(".png", StringComparison.OrdinalIgnoreCase)
+                           || ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+                           || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+                           || ext.Equals(".webp", StringComparison.OrdinalIgnoreCase)
+                           || ext.Equals(".pdf", StringComparison.OrdinalIgnoreCase);
+                })
+                .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        return File.Exists(fullPath) ? [fullPath] : [];
     }
 
     public string PublishModeLabel =>
