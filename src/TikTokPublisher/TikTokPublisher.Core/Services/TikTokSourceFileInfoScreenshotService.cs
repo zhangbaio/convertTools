@@ -32,7 +32,7 @@ public static class TikTokSourceFileInfoScreenshotService
     public const string OutputDirectoryName = "原始文件信息截图";
     public const string EvidenceDirectoryName = "项目原始资料";
     public const int RequiredImageCount = 4;
-    public const string ScreenshotVersion = "v4-ai-drama-source-assets";
+    public const string ScreenshotVersion = "v5-real-windows-explorer";
 
     private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
     private const int ContactSheetFrameCount = 4;
@@ -153,6 +153,36 @@ public static class TikTokSourceFileInfoScreenshotService
 
         var keyframeFrames = LoadDirectEvidenceFrames(
             sourceMaterials, SourceMaterialCategory.Keyframe, ContactSheetFrameCount, workflow);
+
+        var explorerOutputs = GetExpectedOutputPaths(workflow).ToArray();
+        var keyframeDirectory = Path.Combine(episodePackage.RootDirectory, "04_镜头首帧");
+        if (!Directory.EnumerateFileSystemEntries(keyframeDirectory).Any())
+        {
+            keyframeDirectory = Directory.EnumerateFileSystemEntries(characterDir).Any()
+                ? characterDir
+                : sceneDir;
+        }
+        var explorerCaptured = records.Count > 0 && WindowsExplorerScreenshotService.TryCaptureAll(
+        [
+            new WindowsExplorerScreenshotService.CaptureRequest(
+                workflow, explorerOutputs[0], LargeIcons: false),
+            new WindowsExplorerScreenshotService.CaptureRequest(
+                evidenceDir, explorerOutputs[1], LargeIcons: false),
+            new WindowsExplorerScreenshotService.CaptureRequest(
+                episodePackage.RootDirectory, explorerOutputs[2], LargeIcons: false),
+            new WindowsExplorerScreenshotService.CaptureRequest(
+                keyframeDirectory, explorerOutputs[3], LargeIcons: true),
+        ], log, cancellationToken);
+        if (explorerCaptured)
+        {
+            foreach (var frame in characterFrames.Concat(sceneFrames).Concat(keyframeFrames))
+            {
+                frame.Image.Dispose();
+            }
+            log?.Invoke(
+                $"原始文件信息截图已生成：{explorerOutputs.Length} 张真实 Windows 资源管理器截图 → {outputDir}");
+            return explorerOutputs;
+        }
 
         var family = ResolveFontFamily()
             ?? throw new InvalidOperationException("未找到可用中文字体，无法生成原始文件信息截图。");
