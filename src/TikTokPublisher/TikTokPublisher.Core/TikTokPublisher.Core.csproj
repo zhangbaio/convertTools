@@ -27,6 +27,8 @@
   <ItemGroup>
     <EmbeddedResource Include="Resources\权力声明模板.docx"
                       LogicalName="TikTokPublisher.Core.Resources.ProofMaterialTemplate.docx" />
+    <EmbeddedResource Include="Resources\CaptureExplorerWindow.ps1"
+                      LogicalName="TikTokPublisher.Core.Resources.CaptureExplorerWindow.ps1" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="TikTokPublisher.Core.Tests" />

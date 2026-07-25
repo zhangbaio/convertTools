@@ -10,6 +10,14 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokSourceFileInfoScreenshotServiceTests
 {
     [Fact]
+    public void Explorer_capture_script_is_embedded()
+    {
+        typeof(TikTokSourceFileInfoScreenshotService).Assembly
+            .GetManifestResourceNames()
+            .Should().Contain("TikTokPublisher.Core.Resources.CaptureExplorerWindow.ps1");
+    }
+
+    [Fact]
     public void Generate_handles_multiple_videos_when_only_one_fallback_frame_is_requested()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-source-many-videos-{Guid.NewGuid():N}");
