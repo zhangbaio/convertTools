@@ -1,4 +1,5 @@
 using FluentAssertions;
+using DocumentFormat.OpenXml.Packaging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using TikTokPublisher.Core.Publishing;
@@ -31,8 +32,28 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
             TikTokSourceFileInfoScreenshotService.HasCurrentOutput(workflow).Should().BeTrue();
 
             var outputDir = TikTokSourceFileInfoScreenshotService.GetOutputDirectory(workflow);
+            var evidenceDir = TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflow);
             Directory.Exists(outputDir).Should().BeTrue();
+            Directory.Exists(evidenceDir).Should().BeTrue();
             Path.GetFileName(outputDir).Should().Be(TikTokSourceFileInfoScreenshotService.OutputDirectoryName);
+            File.Exists(Path.Combine(evidenceDir, "视频文件清单.csv")).Should().BeTrue();
+            File.Exists(Path.Combine(evidenceDir, "项目说明.txt")).Should().BeTrue();
+            var scriptDocx = Directory.EnumerateFiles(evidenceDir, "*_成片整理稿.docx").Should().ContainSingle().Subject;
+            using (var document = WordprocessingDocument.Open(scriptDocx, false))
+            {
+                var documentText = document.MainDocumentPart!.Document.Body!.InnerText;
+                documentText.Should().Contain("成片整理稿");
+                documentText.Should().Contain("不代表拍摄前原始剧本");
+                documentText.Should().NotContain("character_main.ai");
+                document.MainDocumentPart.Document.Body.Descendants<DocumentFormat.OpenXml.Wordprocessing.Table>()
+                    .Should().ContainSingle();
+            }
+
+            var manifest = File.ReadAllText(Path.Combine(evidenceDir, "视频文件清单.csv"));
+            manifest.Should().Contain("SHA-256");
+            manifest.Should().NotContain("character_main.ai");
+            manifest.Should().NotContain("scene_palace.psd");
+            manifest.Should().NotContain("raw/A001_C001.mov");
 
             foreach (var path in outputs)
             {

@@ -1,39 +1,50 @@
+using System.Diagnostics;
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using TikTokPublisher.Core.Media;
+using Color = SixLabors.ImageSharp.Color;
+using FontFamily = SixLabors.Fonts.FontFamily;
+using WordColor = DocumentFormat.OpenXml.Wordprocessing.Color;
 
 namespace TikTokPublisher.Core.Services;
 
 /// <summary>
-/// 生成 TikTok「原始文件或素材文件信息」所需的 4 张证明截图（模板合成，不依赖真实编辑器）。
+/// 从项目真实成片、海报和元数据生成「原始文件或素材文件信息」材料。
+/// 不模拟不存在的剪辑工程、RAW、PSD 或剧本；所有展示项均可回溯到落盘文件。
 /// </summary>
 public static class TikTokSourceFileInfoScreenshotService
 {
-    /// <summary>独立子目录，避免与 workflow 根目录海报/工程图混放。</summary>
     public const string OutputDirectoryName = "原始文件信息截图";
+    public const string EvidenceDirectoryName = "项目原始资料";
     public const int RequiredImageCount = 4;
-    public const string ScreenshotVersion = "v2-dedicated-folder";
+    public const string ScreenshotVersion = "v3-real-media-evidence";
 
     private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
-
+    private const int ContactSheetFrameCount = 8;
     private static readonly string[] FileNames =
     [
-        "01_角色素材台.png",
-        "02_场景工程台.png",
-        "03_素材资源目录.png",
-        "04_剧本素材清单.png",
-    ];
-
-    private static readonly string[] ImageExtensions =
-    [
-        ".png", ".jpg", ".jpeg", ".webp", ".bmp",
+        "01_角色参考素材.png",
+        "02_场景参考素材.png",
+        "03_真实项目文件目录.png",
+        "04_真实剧本与文件清单.png",
     ];
 
     public static string GetOutputDirectory(string workflowProjectDirectory) =>
         Path.Combine(Path.GetFullPath(workflowProjectDirectory), OutputDirectoryName);
+
+    public static string GetEvidenceDirectory(string workflowProjectDirectory) =>
+        Path.Combine(Path.GetFullPath(workflowProjectDirectory), EvidenceDirectoryName);
 
     public static IReadOnlyList<string> GetExpectedOutputPaths(string workflowProjectDirectory)
     {
@@ -44,15 +55,9 @@ public static class TikTokSourceFileInfoScreenshotService
     public static IReadOnlyList<string> ListGeneratedImages(string workflowProjectDirectory)
     {
         var dir = GetOutputDirectory(workflowProjectDirectory);
-        if (!Directory.Exists(dir))
-        {
-            return [];
-        }
-
-        return FileNames
-            .Select(name => Path.Combine(dir, name))
-            .Where(File.Exists)
-            .ToArray();
+        return Directory.Exists(dir)
+            ? FileNames.Select(name => Path.Combine(dir, name)).Where(File.Exists).ToArray()
+            : [];
     }
 
     public static bool HasCurrentOutput(string workflowProjectDirectory) =>
@@ -66,558 +71,753 @@ public static class TikTokSourceFileInfoScreenshotService
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowProjectDirectory);
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        var title = string.IsNullOrWhiteSpace(dramaTitle) ? "未命名短剧" : dramaTitle.Trim();
+        var company = string.IsNullOrWhiteSpace(companyName) ? "制作方未填写" : companyName.Trim();
         cancellationToken.ThrowIfCancellationRequested();
 
-        var title = string.IsNullOrWhiteSpace(dramaTitle) ? "未命名短剧" : dramaTitle.Trim();
-        var company = string.IsNullOrWhiteSpace(companyName) ? "制作方" : companyName.Trim();
-        // 先清掉旧版目录，再写入独立文件夹。
-        TryDeleteOutput(workflowProjectDirectory);
-        var outputDir = GetOutputDirectory(workflowProjectDirectory);
+        TryDeleteOutput(workflow);
+        var outputDir = GetOutputDirectory(workflow);
+        var evidenceDir = GetEvidenceDirectory(workflow);
+        TryDeleteDirectory(evidenceDir);
+        var characterDir = Path.Combine(evidenceDir, "03_角色参考");
+        var sceneDir = Path.Combine(evidenceDir, "04_场景参考");
         Directory.CreateDirectory(outputDir);
+        Directory.CreateDirectory(characterDir);
+        Directory.CreateDirectory(sceneDir);
 
-        var assets = CollectAssetImages(workflowProjectDirectory);
+        var videos = FindVideos(workflow);
+        var poster = FindPoster(workflow);
+        log?.Invoke($"原始文件信息：发现真实成片 {videos.Count} 个，开始读取媒体参数并抽取可回溯画面。");
+
+        var records = ProbeVideos(videos, cancellationToken, log);
+        WriteProjectDescription(evidenceDir, workflow, title, company, videos.Count);
+        var manifestPath = WriteManifest(evidenceDir, records, cancellationToken);
+        var docxPath = WriteDerivedScriptDocument(evidenceDir, title, company, records);
+
+        var characterFrames = ExtractEvidenceFrames(
+            records, poster, characterDir, "角色", sceneMode: false, cancellationToken, log);
+        var sceneFrames = ExtractEvidenceFrames(
+            records, poster, sceneDir, "场景", sceneMode: true, cancellationToken, log);
+
+        var family = ResolveFontFamily()
+            ?? throw new InvalidOperationException("未找到可用中文字体，无法生成原始文件信息截图。");
+        var outputs = new List<string>(RequiredImageCount);
         try
         {
-            log?.Invoke(
-                assets.Count > 0
-                    ? $"原始文件截图：已收集 {assets.Count} 张项目素材用于合成。"
-                    : "原始文件截图：未找到项目图片，将使用占位色块合成。");
-
-            var family = ResolveFontFamily()
-                ?? throw new InvalidOperationException("未找到可用中文字体，无法生成原始文件或素材文件信息截图。");
-
-            var outputs = new List<string>(RequiredImageCount);
-            using var characterShot = RenderEditorShot(
-                title,
-                assets,
-                family,
-                mode: EditorShotMode.Characters,
-                watermark: company);
             cancellationToken.ThrowIfCancellationRequested();
-            var path1 = Path.Combine(outputDir, FileNames[0]);
-            characterShot.Save(path1, new PngEncoder());
-            outputs.Add(path1);
+            using (var shot = RenderContactSheet(
+                       title, "角色参考素材（从真实成片抽帧）", characterFrames, family,
+                       "画面均来自项目成片；标签为原视频文件名、集数和时间码。"))
+            {
+                outputs.Add(Save(shot, outputDir, FileNames[0]));
+            }
 
-            using var sceneShot = RenderEditorShot(
-                title,
-                assets,
-                family,
-                mode: EditorShotMode.Scene,
-                watermark: company);
             cancellationToken.ThrowIfCancellationRequested();
-            var path2 = Path.Combine(outputDir, FileNames[1]);
-            sceneShot.Save(path2, new PngEncoder());
-            outputs.Add(path2);
+            using (var shot = RenderContactSheet(
+                       title, "场景参考素材（从真实成片抽帧）", sceneFrames, family,
+                       "按不同集数和时间点抽取，用于证明项目实际场景素材来源。"))
+            {
+                outputs.Add(Save(shot, outputDir, FileNames[1]));
+            }
 
-            using var explorerShot = RenderExplorerShot(title, assets, family);
             cancellationToken.ThrowIfCancellationRequested();
-            var path3 = Path.Combine(outputDir, FileNames[2]);
-            explorerShot.Save(path3, new PngEncoder());
-            outputs.Add(path3);
+            using (var shot = RenderFileEvidence(title, workflow, evidenceDir, records, manifestPath, docxPath, family))
+            {
+                outputs.Add(Save(shot, outputDir, FileNames[2]));
+            }
 
-            using var docsShot = RenderDualDocumentShot(title, assets, family, company);
             cancellationToken.ThrowIfCancellationRequested();
-            var path4 = Path.Combine(outputDir, FileNames[3]);
-            docsShot.Save(path4, new PngEncoder());
-            outputs.Add(path4);
-
-            log?.Invoke($"原始文件信息截图已生成：{outputs.Count} 张 → {outputDir}");
-            return outputs;
+            using (var shot = RenderDocumentEvidence(title, company, records, docxPath, manifestPath, family))
+            {
+                outputs.Add(Save(shot, outputDir, FileNames[3]));
+            }
         }
         finally
         {
-            foreach (var asset in assets)
+            foreach (var frame in characterFrames.Concat(sceneFrames))
             {
-                asset.Dispose();
+                frame.Image.Dispose();
             }
         }
+
+        log?.Invoke($"原始文件信息截图已生成：{outputs.Count} 张；真实资料目录：{evidenceDir}");
+        return outputs;
     }
 
     public static void TryDeleteOutput(string workflowProjectDirectory)
     {
         TryDeleteDirectory(GetOutputDirectory(workflowProjectDirectory));
-        TryDeleteDirectory(
-            Path.Combine(Path.GetFullPath(workflowProjectDirectory), LegacyOutputDirectoryName));
+        TryDeleteDirectory(Path.Combine(Path.GetFullPath(workflowProjectDirectory), LegacyOutputDirectoryName));
     }
 
-    private static void TryDeleteDirectory(string dir)
+    private static List<string> FindVideos(string workflow)
     {
-        if (!Directory.Exists(dir))
+        string[] preferredDirectories =
+        [
+            Path.Combine(workflow, "tiktok_upload_videos"),
+            Path.Combine(workflow, "videos"),
+            workflow,
+        ];
+        foreach (var dir in preferredDirectories)
         {
-            return;
+            if (!Directory.Exists(dir)) continue;
+            var found = Directory.EnumerateFiles(dir, "*.mp4", SearchOption.TopDirectoryOnly)
+                .OrderBy(ParseEpisodeNumber)
+                .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (found.Count > 0) return found;
         }
 
+        return [];
+    }
+
+    private static string? FindPoster(string workflow)
+    {
+        string[] names = ["海报图片.png", "海报.png", "封面.png", "poster.png"];
+        return names.Select(name => Path.Combine(workflow, name)).FirstOrDefault(File.Exists)
+               ?? Directory.EnumerateFiles(workflow, "*.png", SearchOption.TopDirectoryOnly)
+                   .FirstOrDefault(path => Path.GetFileName(path).Contains("海报", StringComparison.Ordinal));
+    }
+
+    private static List<VideoRecord> ProbeVideos(
+        IReadOnlyList<string> videos,
+        CancellationToken cancellationToken,
+        Action<string>? log)
+    {
+        var result = new List<VideoRecord>(videos.Count);
+        string? ffprobe = null;
         try
         {
-            Directory.Delete(dir, recursive: true);
+            if (videos.Count > 0) ffprobe = MediaBinaryResolver.ResolveFfprobe();
         }
-        catch
+        catch (Exception ex)
         {
-            // best-effort
+            log?.Invoke($"未找到 ffprobe，将仅记录文件系统信息：{ex.Message}");
         }
-    }
 
-    private enum EditorShotMode
-    {
-        Characters,
-        Scene,
-    }
-
-    private static List<Image<Rgba32>> CollectAssetImages(string workflowProjectDirectory)
-    {
-        var workflow = Path.GetFullPath(workflowProjectDirectory);
-        var candidates = new List<string>();
-        void AddIfExists(string path)
+        foreach (var path in videos)
         {
-            if (File.Exists(path))
+            cancellationToken.ThrowIfCancellationRequested();
+            MediaProbe? probe = null;
+            if (!string.IsNullOrWhiteSpace(ffprobe))
             {
-                candidates.Add(path);
+                try
+                {
+                    probe = MediaProbe.ProbeAsync(ffprobe, path, cancellationToken)
+                        .GetAwaiter().GetResult();
+                }
+                catch (Exception ex)
+                {
+                    log?.Invoke($"媒体参数读取失败，已保留文件信息：{Path.GetFileName(path)}，{ex.Message}");
+                }
+            }
+
+            var info = new FileInfo(path);
+            result.Add(new VideoRecord(
+                path,
+                Path.GetFileName(path),
+                ParseEpisodeNumber(path),
+                info.Length,
+                info.LastWriteTime,
+                probe?.DurationSeconds ?? 0,
+                probe?.Width ?? 0,
+                probe?.Height ?? 0,
+                probe?.FrameRateFps ?? 0,
+                probe?.AudioCodec ?? "",
+                ComputeSha256(path, cancellationToken)));
+        }
+
+        return result;
+    }
+
+    private static string WriteManifest(
+        string evidenceDir,
+        IReadOnlyList<VideoRecord> records,
+        CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(evidenceDir, "视频文件清单.csv");
+        var csv = new StringBuilder("\uFEFF");
+        csv.AppendLine("序号,集数,文件名,字节数,时长,分辨率,帧率,音频编码,修改时间,SHA-256");
+        for (var i = 0; i < records.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var r = records[i];
+            csv.AppendLine(string.Join(",",
+                i + 1,
+                r.Episode,
+                Csv(r.FileName),
+                r.Length,
+                FormatDuration(r.DurationSeconds),
+                Csv(r.Width > 0 ? $"{r.Width}×{r.Height}" : "未读取"),
+                r.FrameRate > 0 ? r.FrameRate.ToString("0.###", CultureInfo.InvariantCulture) : "",
+                Csv(r.AudioCodec),
+                Csv(r.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")),
+                r.Sha256));
+        }
+
+        File.WriteAllText(path, csv.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        return path;
+    }
+
+    private static void WriteProjectDescription(
+        string evidenceDir,
+        string workflow,
+        string title,
+        string company,
+        int videoCount)
+    {
+        Directory.CreateDirectory(evidenceDir);
+        var metadata = ReadProjectMetadata(workflow);
+        var text = $"""
+                   项目名称：{title}
+                   原始项目名称：{metadata.OriginalTitle}
+                   项目编号：{metadata.BookId}
+                   成片集数：{videoCount}
+                   制作方：{company}
+                   资料生成时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}
+                   资料来源：本目录内容由项目内真实视频、海报及 shortdrama-project.json 整理生成。
+                   真实性说明：角色图和场景图均从成片抽取；剧本文档为成片整理稿，不冒充拍摄前原始剧本。
+                   """;
+        File.WriteAllText(Path.Combine(evidenceDir, "项目说明.txt"), text, new UTF8Encoding(true));
+    }
+
+    private static string WriteDerivedScriptDocument(
+        string evidenceDir,
+        string title,
+        string company,
+        IReadOnlyList<VideoRecord> records)
+    {
+        var path = Path.Combine(evidenceDir, $"{SanitizePathSegment(title)}_成片整理稿.docx");
+        using var document = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document);
+        var main = document.AddMainDocumentPart();
+        main.Document = new Document();
+        var body = new Body();
+        main.Document.Append(body);
+        AddStyles(main);
+
+        body.Append(ParagraphOf($"{title}｜成片整理稿", "Title"));
+        body.Append(ParagraphOf("根据项目内已完成视频整理，不代表拍摄前原始剧本", "Subtitle"));
+        body.Append(ParagraphOf($"制作方：{company}　　整理时间：{DateTime.Now:yyyy-MM-dd}", "Normal"));
+        body.Append(ParagraphOf("资料说明", "Heading1"));
+        body.Append(ParagraphOf(
+            "本文件以真实成片为唯一内容依据，记录每集源文件、媒体参数和可回溯时间点。对白及字幕以对应成片画面为准，未识别或未验证的内容不作推断。",
+            "Normal"));
+        body.Append(ParagraphOf("分集索引", "Heading1"));
+
+        var table = new Table(
+            new TableProperties(
+                new TableWidth { Width = "9360", Type = TableWidthUnitValues.Dxa },
+                new TableIndentation { Width = 120, Type = TableWidthUnitValues.Dxa },
+                new TableLayout { Type = TableLayoutValues.Fixed },
+                CreateBorders()),
+            new TableGrid(
+                new GridColumn { Width = "720" },
+                new GridColumn { Width = "3600" },
+                new GridColumn { Width = "1200" },
+                new GridColumn { Width = "1440" },
+                new GridColumn { Width = "2400" }));
+        table.Append(CreateRow(["集数", "真实源文件", "时长", "画面规格", "整理说明"], header: true));
+        foreach (var r in records)
+        {
+            table.Append(CreateRow(
+            [
+                r.Episode > 0 ? r.Episode.ToString() : "-",
+                r.FileName,
+                FormatDuration(r.DurationSeconds),
+                r.Width > 0 ? $"{r.Width}×{r.Height} / {r.FrameRate:0.##}fps" : "未读取",
+                "角色、场景与对白以本集成片及字幕为准",
+            ], header: false));
+        }
+
+        if (records.Count == 0)
+        {
+            table.Append(CreateRow(["-", "项目内未发现 MP4 成片", "-", "-", "仅保留已有海报及项目元数据"], false));
+        }
+
+        body.Append(table);
+        body.Append(new SectionProperties(
+            new PageSize { Width = 12240, Height = 15840 },
+            new PageMargin
+            {
+                Top = 1440, Right = 1440, Bottom = 1440, Left = 1440,
+                Header = 708, Footer = 708, Gutter = 0,
+            }));
+        main.Document.Save();
+        return path;
+    }
+
+    private static List<EvidenceFrame> ExtractEvidenceFrames(
+        IReadOnlyList<VideoRecord> records,
+        string? poster,
+        string destination,
+        string kind,
+        bool sceneMode,
+        CancellationToken cancellationToken,
+        Action<string>? log)
+    {
+        var frames = new List<EvidenceFrame>();
+        string? ffmpeg = null;
+        try
+        {
+            if (records.Count > 0) ffmpeg = MediaBinaryResolver.ResolveFfmpeg();
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"未找到 ffmpeg，将使用项目海报作为兜底素材：{ex.Message}");
+        }
+
+        foreach (var record in SelectEvenly(records, ContactSheetFrameCount))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var duration = record.DurationSeconds > 0 ? record.DurationSeconds : 60;
+            var ratio = sceneMode ? 0.68 : 0.28;
+            var seconds = Math.Clamp(duration * ratio, 2, Math.Max(2, duration - 1));
+            var fileName = $"第{Math.Max(0, record.Episode):D2}集_{kind}_{FormatTimeCodeForFile(seconds)}.jpg";
+            var output = Path.Combine(destination, fileName);
+            if (!string.IsNullOrWhiteSpace(ffmpeg) &&
+                TryExtractFrame(ffmpeg, record.FullPath, output, seconds, cancellationToken))
+            {
+                try
+                {
+                    frames.Add(new EvidenceFrame(
+                        Image.Load<Rgba32>(output),
+                        $"第{record.Episode}集  {FormatDuration(seconds)}",
+                        record.FileName));
+                }
+                catch
+                {
+                    // Continue with the next verifiable frame.
+                }
             }
         }
 
-        AddIfExists(Path.Combine(workflow, "海报图片.png"));
-        AddIfExists(Path.Combine(workflow, "海报.png"));
-        if (Directory.Exists(workflow))
-        {
-            candidates.AddRange(
-                Directory.EnumerateFiles(workflow, "工程图_*.png", SearchOption.TopDirectoryOnly));
-            candidates.AddRange(TikTokProjectImageService.ListGeneratedImages(workflow));
-            candidates.AddRange(
-                Directory.EnumerateFiles(workflow, "*封面*.png", SearchOption.TopDirectoryOnly));
-            candidates.AddRange(
-                Directory.EnumerateFiles(workflow, "*海报*.jpg", SearchOption.TopDirectoryOnly));
-        }
-
-        var parent = Directory.GetParent(workflow)?.FullName;
-        if (!string.IsNullOrWhiteSpace(parent) && Directory.Exists(parent))
-        {
-            candidates.AddRange(
-                Directory.EnumerateFiles(parent, "*.png", SearchOption.TopDirectoryOnly).Take(8));
-        }
-
-        var images = new List<Image<Rgba32>>();
-        foreach (var path in candidates
-                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                     .Where(p => ImageExtensions.Contains(Path.GetExtension(p), StringComparer.OrdinalIgnoreCase))
-                     .Take(12))
+        if (frames.Count == 0 && !string.IsNullOrWhiteSpace(poster))
         {
             try
             {
-                images.Add(Image.Load<Rgba32>(path));
+                frames.Add(new EvidenceFrame(Image.Load<Rgba32>(poster), "项目海报", Path.GetFileName(poster)));
             }
             catch
             {
-                // skip unreadable assets
+                // Render a clear empty state below.
             }
         }
 
-        return images;
+        return frames;
     }
 
-    private static Image<Rgba32> RenderEditorShot(
+    private static bool TryExtractFrame(
+        string ffmpeg,
+        string video,
+        string output,
+        double seconds,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = ffmpeg,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true,
+                },
+            };
+            foreach (var arg in new[]
+                     {
+                         "-hide_banner", "-loglevel", "error", "-y", "-ss",
+                         seconds.ToString("0.###", CultureInfo.InvariantCulture),
+                         "-i", video, "-frames:v", "1", "-q:v", "2", output,
+                     })
+            {
+                process.StartInfo.ArgumentList.Add(arg);
+            }
+
+            process.Start();
+            while (!process.WaitForExit(200))
+            {
+                if (!cancellationToken.IsCancellationRequested) continue;
+                try { process.Kill(entireProcessTree: true); } catch { }
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            return process.ExitCode == 0 && File.Exists(output) && new FileInfo(output).Length > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static Image<Rgba32> RenderContactSheet(
         string title,
-        IReadOnlyList<Image<Rgba32>> assets,
+        string heading,
+        IReadOnlyList<EvidenceFrame> frames,
         FontFamily family,
-        EditorShotMode mode,
-        string watermark)
+        string note)
     {
         const int width = 1440;
         const int height = 900;
-        var image = new Image<Rgba32>(width, height);
-        var chrome = Color.ParseHex("2B2B2B");
-        var panel = Color.ParseHex("3A3A3A");
-        var stage = mode == EditorShotMode.Characters
-            ? Color.ParseHex("2EC4B6")
-            : Color.ParseHex("D9E4F0");
-        var accent = Color.ParseHex("4C8DFF");
-
+        var image = new Image<Rgba32>(width, height, Color.ParseHex("F4F1EA"));
+        var titleFont = family.CreateFont(27, FontStyle.Bold);
+        var headingFont = family.CreateFont(16, FontStyle.Regular);
+        var labelFont = family.CreateFont(14, FontStyle.Bold);
+        var smallFont = family.CreateFont(12);
         image.Mutate(ctx =>
         {
-            ctx.Fill(chrome);
-            // left tools
-            ctx.Fill(panel, new RectangleF(0, 36, 56, height - 36 - 150));
-            // left layers
-            ctx.Fill(panel, new RectangleF(56, 36, 220, height - 36 - 150));
-            // right props
-            ctx.Fill(panel, new RectangleF(width - 260, 36, 260, height - 36 - 150));
-            // stage
-            var stageRect = new RectangleF(286, 48, width - 286 - 270, height - 48 - 170);
-            ctx.Fill(stage, stageRect);
-            // timeline
-            ctx.Fill(Color.ParseHex("222222"), new RectangleF(0, height - 150, width, 150));
-            ctx.Fill(Color.ParseHex("1A1A1A"), new RectangleF(0, 0, width, 36));
-
-            var titleFont = family.CreateFont(16, FontStyle.Regular);
-            var smallFont = family.CreateFont(13, FontStyle.Regular);
-            var tinyFont = family.CreateFont(11, FontStyle.Regular);
-            ctx.DrawText($"场景 1  ·  {TrimForUi(title, 28)}", titleFont, Color.WhiteSmoke, new PointF(16, 8));
-            ctx.DrawText("32%", tinyFont, Color.LightGray, new PointF(width - 70, 10));
-
-            var layerNames = mode == EditorShotMode.Characters
-                ? new[] { "角色_女主", "角色_男主", "服饰部件", "特效层", "背景参考" }
-                : new[] { "背景", "建筑", "前景", "参考线", "灯光" };
-            for (var i = 0; i < layerNames.Length; i++)
-            {
-                var y = 52 + i * 34;
-                ctx.Fill(i % 2 == 0 ? Color.ParseHex("454545") : Color.ParseHex("3F3F3F"),
-                    new RectangleF(64, y, 200, 30));
-                ctx.DrawText($"图层 {i + 1}  {layerNames[i]}", smallFont, Color.WhiteSmoke, new PointF(72, y + 6));
-            }
-
-            for (var i = 0; i < 8; i++)
-            {
-                var y = 52 + i * 40;
-                ctx.DrawText($"属性 {i + 1}", tinyFont, Color.Gainsboro, new PointF(width - 240, y));
-                ctx.Fill(Color.ParseHex("555555"), new RectangleF(width - 240, y + 18, 200, 14));
-            }
-
-            // timeline ticks
-            for (var frame = 0; frame <= 100; frame += 5)
-            {
-                var x = 280 + frame * 8;
-                if (x > width - 40) break;
-                ctx.DrawLine(Color.Gray, 1, new PointF(x, height - 128), new PointF(x, height - 118));
-                if (frame % 10 == 0)
-                {
-                    ctx.DrawText(frame.ToString(), tinyFont, Color.Gray, new PointF(x - 6, height - 112));
-                }
-            }
-
-            ctx.Fill(accent, new RectangleF(280, height - 96, 4, 70));
-            ctx.DrawText("▶  ⏮  ⏭  🔁", smallFont, Color.WhiteSmoke, new PointF(width / 2f - 40, height - 140));
-
-            if (mode == EditorShotMode.Scene)
-            {
-                // guide lines
-                ctx.DrawLine(Color.ParseHex("4C8DFF"), 1,
-                    new PointF(stageRect.X + 40, stageRect.Y + 20),
-                    new PointF(stageRect.Right - 40, stageRect.Y + 20));
-                ctx.DrawLine(Color.ParseHex("4C8DFF"), 1,
-                    new PointF(stageRect.X + 40, stageRect.Y + 20),
-                    new PointF(stageRect.X + 40, stageRect.Bottom - 20));
-                ctx.DrawText($"{TrimForUi(title, 18)} · 场景原画", titleFont, Color.ParseHex("1F3A5F"),
-                    new PointF(stageRect.X + 56, stageRect.Y + 28));
-            }
+            ctx.Fill(Color.ParseHex("20302B"), new RectangleF(0, 0, width, 105));
+            ctx.DrawText(title, titleFont, Color.White, new PointF(52, 22));
+            ctx.DrawText(heading, headingFont, Color.ParseHex("DCE7DF"), new PointF(54, 64));
+            ctx.DrawText(note, smallFont, Color.ParseHex("59635F"), new PointF(52, 860));
         });
 
-        PasteAssetsOntoStage(
-            image,
-            assets,
-            new Rectangle(296, 60, width - 296 - 280, height - 60 - 190),
-            mode == EditorShotMode.Characters ? 6 : 1,
-            keepAspect: true);
-
-        image.Mutate(ctx =>
+        if (frames.Count == 0)
         {
-            var markFont = family.CreateFont(14, FontStyle.Regular);
-            for (var y = 80; y < height - 160; y += 120)
-            {
-                for (var x = 320; x < width - 280; x += 260)
-                {
-                    ctx.DrawText(watermark, markFont, Color.FromRgba(255, 255, 255, 55), new PointF(x, y));
-                }
-            }
-        });
-
-        return image;
-    }
-
-    private static Image<Rgba32> RenderExplorerShot(
-        string title,
-        IReadOnlyList<Image<Rgba32>> assets,
-        FontFamily family)
-    {
-        const int width = 1280;
-        const int height = 800;
-        var image = new Image<Rgba32>(width, height);
-        image.Mutate(ctx =>
-        {
-            ctx.Fill(Color.ParseHex("F3F3F3"));
-            ctx.Fill(Color.White, new RectangleF(0, 0, width, 48));
-            ctx.Fill(Color.ParseHex("EFEFEF"), new RectangleF(0, 48, 220, height - 48));
-            ctx.Fill(Color.White, new RectangleF(220, 48, width - 220, height - 48));
-
-            var titleFont = family.CreateFont(15, FontStyle.Regular);
-            var smallFont = family.CreateFont(13, FontStyle.Regular);
-            ctx.DrawText("文件资源管理器", titleFont, Color.Black, new PointF(16, 14));
-            ctx.DrawText($"E:\\Projects\\{SanitizePathSegment(title)}\\素材", smallFont, Color.ParseHex("333333"),
-                new PointF(240, 16));
-            ctx.DrawText("新建  剪切  复制  粘贴  重命名  删除  排序  查看", smallFont, Color.ParseHex("444444"),
-                new PointF(240, 56));
-
-            string[] nav = ["主文件夹", "桌面", "下载", "文档", "图片", "视频", "此电脑"];
-            for (var i = 0; i < nav.Length; i++)
-            {
-                ctx.DrawText(nav[i], smallFont, Color.ParseHex("222222"), new PointF(24, 80 + i * 36));
-            }
-        });
-
-        var slots = new[]
-        {
-            new Rectangle(250, 110, 180, 180),
-            new Rectangle(460, 110, 180, 180),
-            new Rectangle(670, 110, 180, 180),
-            new Rectangle(880, 110, 180, 180),
-            new Rectangle(250, 360, 180, 180),
-            new Rectangle(460, 360, 180, 180),
-        };
-
-        using var wordIcon = CreateDocIcon(family, "W", Color.ParseHex("2B579A"));
-        using var certIcon = CreateDocIcon(family, "证", Color.ParseHex("C0392B"));
-        var labels = new[]
-        {
-            $"{SanitizePathSegment(title)}_01.mp4",
-            $"{SanitizePathSegment(title)}_海报.png",
-            $"{SanitizePathSegment(title)}_剧本.docx",
-            "授权合作协议.pdf",
-            "角色原画",
-            "raw_footage",
-        };
-
-        for (var i = 0; i < slots.Length; i++)
-        {
-            var slot = slots[i];
-            if (i < 2 && assets.Count > 0)
-            {
-                DrawThumb(image, assets[i % assets.Count], slot);
-            }
-            else if (i == 2)
-            {
-                DrawThumb(image, wordIcon, slot);
-            }
-            else if (i == 3)
-            {
-                DrawThumb(image, certIcon, slot);
-            }
-            else if (i == 4 && assets.Count > 1)
-            {
-                DrawThumb(image, assets[1 % assets.Count], slot);
-            }
-            else
-            {
-                image.Mutate(ctx =>
-                {
-                    ctx.Fill(Color.ParseHex("FFE9A8"), slot);
-                    ctx.Draw(Color.ParseHex("D0A84A"), 2, slot);
-                });
-            }
-
             image.Mutate(ctx =>
             {
-                var font = family.CreateFont(12, FontStyle.Regular);
-                ctx.DrawText(TrimForUi(labels[i], 18), font, Color.Black,
-                    new PointF(slot.X, slot.Bottom + 8));
+                ctx.Fill(Color.White, new RectangleF(52, 140, width - 104, 650));
+                ctx.DrawText("项目内未发现可读取的视频帧或海报", headingFont, Color.ParseHex("7B3232"),
+                    new PointF(430, 430));
+            });
+            return image;
+        }
+
+        for (var i = 0; i < Math.Min(ContactSheetFrameCount, frames.Count); i++)
+        {
+            var col = i % 4;
+            var row = i / 4;
+            var x = 52 + col * 342;
+            var y = 135 + row * 350;
+            var frameRect = new Rectangle(x, y, 300, 270);
+            DrawFrameContain(image, frames[i].Image, frameRect);
+            image.Mutate(ctx =>
+            {
+                ctx.Draw(Color.ParseHex("C8C4BA"), 1, frameRect);
+                ctx.DrawText(frames[i].Label, labelFont, Color.ParseHex("20302B"), new PointF(x, y + 282));
+                ctx.DrawText(TrimForUi(frames[i].SourceFile, 32), smallFont, Color.ParseHex("68716D"),
+                    new PointF(x, y + 309));
             });
         }
 
         return image;
     }
 
-    private static Image<Rgba32> RenderDualDocumentShot(
+    private static Image<Rgba32> RenderFileEvidence(
         string title,
-        IReadOnlyList<Image<Rgba32>> assets,
-        FontFamily family,
-        string company)
+        string workflow,
+        string evidenceDir,
+        IReadOnlyList<VideoRecord> records,
+        string manifestPath,
+        string docxPath,
+        FontFamily family)
     {
         const int width = 1440;
         const int height = 900;
-        var image = new Image<Rgba32>(width, height);
+        var image = new Image<Rgba32>(width, height, Color.White);
+        var titleFont = family.CreateFont(25, FontStyle.Bold);
+        var heading = family.CreateFont(16, FontStyle.Bold);
+        var normal = family.CreateFont(13);
+        var mono = family.CreateFont(12);
         image.Mutate(ctx =>
         {
-            ctx.Fill(Color.ParseHex("D8D8D8"));
-            DrawWpsWindow(ctx, family, new Rectangle(20, 30, 690, 840), $"{title} · 剧本大纲.docx");
-            DrawWpsWindow(ctx, family, new Rectangle(730, 30, 690, 840), $"{title} · 素材清单.docx");
+            ctx.Fill(Color.ParseHex("F5F7FA"));
+            ctx.Fill(Color.ParseHex("1F4D78"), new RectangleF(0, 0, width, 92));
+            ctx.DrawText("真实项目文件目录", titleFont, Color.White, new PointF(45, 20));
+            ctx.DrawText(title, normal, Color.ParseHex("DDEAF4"), new PointF(48, 58));
+
+            ctx.Fill(Color.White, new RectangleF(35, 116, 1370, 110));
+            ctx.Draw(Color.ParseHex("D9E1E8"), 1, new RectangleF(35, 116, 1370, 110));
+            ctx.DrawText("项目路径", heading, Color.ParseHex("1F4D78"), new PointF(58, 135));
+            ctx.DrawText(workflow, normal, Color.ParseHex("28323A"), new PointF(190, 137));
+            ctx.DrawText("证据目录", heading, Color.ParseHex("1F4D78"), new PointF(58, 177));
+            ctx.DrawText(evidenceDir, normal, Color.ParseHex("28323A"), new PointF(190, 179));
+
+            ctx.DrawText($"真实成片：{records.Count} 个", heading, Color.ParseHex("20302B"), new PointF(50, 255));
+            ctx.DrawText("文件名", normal, Color.ParseHex("52606A"), new PointF(65, 300));
+            ctx.DrawText("大小", normal, Color.ParseHex("52606A"), new PointF(755, 300));
+            ctx.DrawText("媒体参数", normal, Color.ParseHex("52606A"), new PointF(900, 300));
+            ctx.DrawText("SHA-256 摘要", normal, Color.ParseHex("52606A"), new PointF(1110, 300));
         });
 
-        var leftLines = BuildScriptLines(title);
-        var rightLines = BuildInventoryLines(title, assets.Count, company);
-        DrawDocumentBody(image, family, new Rectangle(40, 110, 520, 720), leftLines, Color.ParseHex("FFF0F5"));
-        DrawDocumentBody(image, family, new Rectangle(750, 110, 520, 720), rightLines, Color.ParseHex("F0FFF4"));
-
-        image.Mutate(ctx =>
+        for (var i = 0; i < Math.Min(8, records.Count); i++)
         {
-            var markFont = family.CreateFont(18, FontStyle.Regular);
-            for (var y = 140; y < 800; y += 140)
+            var r = records[i];
+            var y = 330 + i * 54;
+            image.Mutate(ctx =>
             {
-                ctx.DrawText(company, markFont, Color.FromRgba(120, 120, 120, 70), new PointF(120, y));
-                ctx.DrawText(company, markFont, Color.FromRgba(120, 120, 120, 70), new PointF(860, y));
-            }
-        });
-
-        return image;
-    }
-
-    private static void DrawWpsWindow(
-        IImageProcessingContext ctx,
-        FontFamily family,
-        Rectangle bounds,
-        string title)
-    {
-        ctx.Fill(Color.White, bounds);
-        ctx.Fill(Color.ParseHex("F5F5F5"), new RectangleF(bounds.X, bounds.Y, bounds.Width, 70));
-        ctx.Draw(Color.ParseHex("B0B0B0"), 1, bounds);
-        var font = family.CreateFont(14, FontStyle.Regular);
-        var tiny = family.CreateFont(12, FontStyle.Regular);
-        ctx.DrawText("WPS 文字", font, Color.ParseHex("1F7A4D"), new PointF(bounds.X + 12, bounds.Y + 8));
-        ctx.DrawText(TrimForUi(title, 34), tiny, Color.ParseHex("333333"), new PointF(bounds.X + 12, bounds.Y + 32));
-        ctx.DrawText("文件  开始  插入  页面  审阅", tiny, Color.ParseHex("444444"),
-            new PointF(bounds.X + 12, bounds.Y + 52));
-        // style pane
-        ctx.Fill(Color.ParseHex("FAFAFA"),
-            new RectangleF(bounds.Right - 140, bounds.Y + 80, 120, bounds.Height - 100));
-        ctx.DrawText("样式和格式", tiny, Color.ParseHex("333333"),
-            new PointF(bounds.Right - 130, bounds.Y + 90));
-    }
-
-    private static void DrawDocumentBody(
-        Image<Rgba32> image,
-        FontFamily family,
-        Rectangle bounds,
-        IReadOnlyList<string> lines,
-        Color highlight)
-    {
-        image.Mutate(ctx =>
-        {
-            ctx.Fill(Color.White, bounds);
-            var font = family.CreateFont(13, FontStyle.Regular);
-            var y = bounds.Y + 8f;
-            for (var i = 0; i < lines.Count; i++)
-            {
-                if (y > bounds.Bottom - 20) break;
-                if (i is 3 or 8 or 14)
-                {
-                    ctx.Fill(highlight, new RectangleF(bounds.X + 4, y - 2, bounds.Width - 8, 20));
-                }
-
-                ctx.DrawText(lines[i], font, Color.ParseHex("222222"), new PointF(bounds.X + 10, y));
-                y += 22;
-            }
-        });
-    }
-
-    private static IReadOnlyList<string> BuildScriptLines(string title) =>
-    [
-        $"《{title}》剧本大纲",
-        "第1集  开场",
-        "场景：室内 / 日",
-        "人物：女主、男主",
-        "1. 女主推门进入，表情紧张。",
-        "2. 男主回头，对白：你终于来了。",
-        "3. 插入回忆闪回 3 秒。",
-        "第2集  冲突",
-        "场景：街道 / 夜",
-        "人物：女主、配角A",
-        "1. 争吵升级，镜头推近。",
-        "2. 配角A递出关键证据。",
-        "第3集  反转",
-        "场景：天台 / 日",
-        "1. 真相揭露。",
-        "2. 情感高潮，音乐渐强。",
-        "制作备注：保留 raw 对白轨，便于后期改写。",
-    ];
-
-    private static IReadOnlyList<string> BuildInventoryLines(string title, int assetCount, string company) =>
-    [
-        $"{title} · 素材文件清单",
-        $"制作方：{company}",
-        "序号  文件名                         大小      修改时间",
-        $"01    {SanitizePathSegment(title)}_01.mp4     186MB   2026-07-01",
-        $"02    {SanitizePathSegment(title)}_02.mp4     192MB   2026-07-01",
-        $"03    {SanitizePathSegment(title)}_剧本.docx   1.2MB   2026-07-02",
-        "04    character_main.ai             48MB    2026-06-28",
-        "05    scene_palace.psd              120MB   2026-06-29",
-        "06    bgm_theme.wav                 22MB    2026-06-30",
-        $"07    工程图素材包 ({Math.Max(assetCount, 4)}张)     —       2026-07-03",
-        "08    raw/A001_C001.mov             2.1GB   2026-06-27",
-        "09    raw/A001_C002.mov             1.8GB   2026-06-27",
-        "10    授权合作协议.pdf               860KB   2026-07-04",
-        "校验：文件信息完整，可用于版权辅助材料提交。",
-    ];
-
-    private static void PasteAssetsOntoStage(
-        Image<Rgba32> canvas,
-        IReadOnlyList<Image<Rgba32>> assets,
-        Rectangle stage,
-        int maxCount,
-        bool keepAspect)
-    {
-        if (assets.Count == 0)
-        {
-            canvas.Mutate(ctx =>
-            {
-                for (var i = 0; i < Math.Min(maxCount, 4); i++)
-                {
-                    var color = Color.FromRgb((byte)(80 + i * 30), (byte)(60 + i * 20), (byte)(120 + i * 25));
-                    var rect = new RectangleF(
-                        stage.X + 30 + (i % 3) * 220,
-                        stage.Y + 40 + (i / 3) * 260,
-                        180,
-                        220);
-                    ctx.Fill(color, rect);
-                    ctx.Draw(Color.White, 2, rect);
-                }
+                ctx.Fill(i % 2 == 0 ? Color.ParseHex("F8FAFC") : Color.White,
+                    new RectangleF(50, y, 1340, 50));
+                ctx.DrawText(TrimForUi(r.FileName, 48), normal, Color.ParseHex("1E2B34"), new PointF(65, y + 14));
+                ctx.DrawText(FormatBytes(r.Length), normal, Color.ParseHex("1E2B34"), new PointF(755, y + 14));
+                ctx.DrawText(
+                    r.Width > 0 ? $"{r.Width}×{r.Height}  {FormatDuration(r.DurationSeconds)}" : "参数未读取",
+                    normal, Color.ParseHex("1E2B34"), new PointF(900, y + 14));
+                ctx.DrawText(r.Sha256[..Math.Min(16, r.Sha256.Length)] + "…", mono,
+                    Color.ParseHex("35556D"), new PointF(1110, y + 14));
             });
-            return;
         }
 
-        var count = Math.Min(maxCount, Math.Max(1, assets.Count));
-        for (var i = 0; i < count; i++)
-        {
-            var cols = modeCols(count);
-            var cellW = stage.Width / cols;
-            var cellH = stage.Height / ((count + cols - 1) / cols);
-            var col = i % cols;
-            var row = i / cols;
-            var target = new Rectangle(
-                stage.X + col * cellW + 16,
-                stage.Y + row * cellH + 16,
-                Math.Max(80, cellW - 32),
-                Math.Max(80, cellH - 32));
-            DrawThumb(canvas, assets[i % assets.Count], target, keepAspect);
-            if (i == 0)
-            {
-                canvas.Mutate(ctx => ctx.Draw(Color.White, 3, target));
-            }
-        }
-
-        static int modeCols(int n) => n <= 1 ? 1 : n <= 4 ? 2 : 3;
-    }
-
-    private static void DrawThumb(
-        Image<Rgba32> canvas,
-        Image<Rgba32> source,
-        Rectangle target,
-        bool keepAspect = true)
-    {
-        using var clone = source.Clone(ctx =>
-        {
-            if (keepAspect)
-            {
-                ctx.Resize(new ResizeOptions
-                {
-                    Size = new Size(target.Width, target.Height),
-                    Mode = ResizeMode.Crop,
-                });
-            }
-            else
-            {
-                ctx.Resize(target.Width, target.Height);
-            }
-        });
-        canvas.Mutate(ctx => ctx.DrawImage(clone, new Point(target.X, target.Y), 1f));
-    }
-
-    private static Image<Rgba32> CreateDocIcon(FontFamily family, string glyph, Color color)
-    {
-        var image = new Image<Rgba32>(160, 160);
         image.Mutate(ctx =>
         {
-            ctx.Fill(Color.White);
-            ctx.Fill(color, new RectangleF(30, 20, 100, 120));
-            var font = family.CreateFont(48, FontStyle.Bold);
-            ctx.DrawText(glyph, font, Color.White, new PointF(52, 50));
+            var y = 790f;
+            ctx.DrawText($"已落盘：{Path.GetFileName(manifestPath)}", normal, Color.ParseHex("1F7A4D"),
+                new PointF(50, y));
+            ctx.DrawText($"已落盘：{Path.GetFileName(docxPath)}", normal, Color.ParseHex("1F7A4D"),
+                new PointF(520, y));
+            ctx.DrawText("全部条目取自文件系统和 ffprobe，无虚构文件。", normal, Color.ParseHex("7A5A00"),
+                new PointF(980, y));
         });
         return image;
+    }
+
+    private static Image<Rgba32> RenderDocumentEvidence(
+        string title,
+        string company,
+        IReadOnlyList<VideoRecord> records,
+        string docxPath,
+        string manifestPath,
+        FontFamily family)
+    {
+        const int width = 1440;
+        const int height = 900;
+        var image = new Image<Rgba32>(width, height, Color.ParseHex("D8DDE3"));
+        var titleFont = family.CreateFont(24, FontStyle.Bold);
+        var heading = family.CreateFont(16, FontStyle.Bold);
+        var normal = family.CreateFont(13);
+        var small = family.CreateFont(11);
+        image.Mutate(ctx =>
+        {
+            ctx.Fill(Color.White, new RectangleF(35, 30, 820, 840));
+            ctx.Fill(Color.ParseHex("F4F6F8"), new RectangleF(35, 30, 820, 70));
+            ctx.Draw(Color.ParseHex("AEB8C2"), 1, new RectangleF(35, 30, 820, 840));
+            ctx.DrawText(Path.GetFileName(docxPath), normal, Color.ParseHex("1F7A4D"), new PointF(55, 48));
+            ctx.DrawText("基于成片整理｜可回溯来源", small, Color.ParseHex("60717D"), new PointF(55, 75));
+            ctx.DrawText($"{title}｜成片整理稿", titleFont, Color.ParseHex("1F4D78"), new PointF(85, 128));
+            ctx.DrawText("根据项目内已完成视频整理，不代表拍摄前原始剧本", normal,
+                Color.ParseHex("8A4B2A"), new PointF(85, 172));
+            ctx.DrawText($"制作方：{company}", normal, Color.ParseHex("34424C"), new PointF(85, 210));
+            ctx.DrawText("分集索引", heading, Color.ParseHex("1F4D78"), new PointF(85, 255));
+
+            ctx.Fill(Color.ParseHex("E8EEF5"), new RectangleF(80, 292, 730, 38));
+            ctx.DrawText("集数", normal, Color.ParseHex("20302B"), new PointF(95, 302));
+            ctx.DrawText("真实源文件", normal, Color.ParseHex("20302B"), new PointF(160, 302));
+            ctx.DrawText("时长", normal, Color.ParseHex("20302B"), new PointF(555, 302));
+            ctx.DrawText("画面规格", normal, Color.ParseHex("20302B"), new PointF(650, 302));
+        });
+
+        for (var i = 0; i < Math.Min(12, records.Count); i++)
+        {
+            var r = records[i];
+            var y = 334 + i * 39;
+            image.Mutate(ctx =>
+            {
+                ctx.DrawLine(Color.ParseHex("E1E6EA"), 1, new PointF(80, y + 35), new PointF(810, y + 35));
+                ctx.DrawText(r.Episode.ToString(), small, Color.ParseHex("26343D"), new PointF(98, y + 9));
+                ctx.DrawText(TrimForUi(r.FileName, 36), small, Color.ParseHex("26343D"), new PointF(160, y + 9));
+                ctx.DrawText(FormatDuration(r.DurationSeconds), small, Color.ParseHex("26343D"), new PointF(555, y + 9));
+                ctx.DrawText(r.Width > 0 ? $"{r.Width}×{r.Height}" : "未读取", small,
+                    Color.ParseHex("26343D"), new PointF(650, y + 9));
+            });
+        }
+
+        image.Mutate(ctx =>
+        {
+            ctx.Fill(Color.White, new RectangleF(880, 30, 525, 840));
+            ctx.Draw(Color.ParseHex("AEB8C2"), 1, new RectangleF(880, 30, 525, 840));
+            ctx.Fill(Color.ParseHex("F4F6F8"), new RectangleF(880, 30, 525, 70));
+            ctx.DrawText(Path.GetFileName(manifestPath), normal, Color.ParseHex("1F7A4D"), new PointF(900, 48));
+            ctx.DrawText("真实媒体清单", small, Color.ParseHex("60717D"), new PointF(900, 75));
+            ctx.DrawText("核验字段", heading, Color.ParseHex("1F4D78"), new PointF(915, 128));
+            string[] fields =
+            [
+                $"成片数量：{records.Count}",
+                $"总大小：{FormatBytes(records.Sum(r => r.Length))}",
+                $"总时长：{FormatDuration(records.Sum(r => r.DurationSeconds))}",
+                "逐文件字段：",
+                "• 文件名与集数",
+                "• 原始字节数",
+                "• 时长、分辨率、帧率",
+                "• 音频编码",
+                "• 修改时间",
+                "• SHA-256 完整摘要",
+            ];
+            for (var i = 0; i < fields.Length; i++)
+            {
+                ctx.DrawText(fields[i], normal, Color.ParseHex("2E3D46"), new PointF(915, 180 + i * 42));
+            }
+
+            ctx.Fill(Color.ParseHex("FFF7E2"), new RectangleF(910, 650, 440, 140));
+            ctx.DrawText("真实性声明", heading, Color.ParseHex("7A5A00"), new PointF(930, 670));
+            ctx.DrawText("剧本文档为成片整理稿；角色与场景图来自真实视频抽帧；",
+                small, Color.ParseHex("5B4A20"), new PointF(930, 710));
+            ctx.DrawText("未生成或展示不存在的 RAW、PSD、AI、MOV 等源文件。",
+                small, Color.ParseHex("5B4A20"), new PointF(930, 740));
+        });
+        return image;
+    }
+
+    private static void AddStyles(MainDocumentPart main)
+    {
+        var styles = new Styles();
+        styles.Append(CreateStyle("Normal", "正文", 22, "Calibri", "222222", 0, 120, 300));
+        styles.Append(CreateStyle("Title", "标题", 40, "Microsoft YaHei", "1F4D78", 0, 120, 300, bold: true));
+        styles.Append(CreateStyle("Subtitle", "副标题", 22, "Microsoft YaHei", "7A5A00", 0, 160, 300));
+        styles.Append(CreateStyle("Heading1", "一级标题", 32, "Microsoft YaHei", "2E74B5", 360, 200, 300, bold: true));
+        main.AddNewPart<StyleDefinitionsPart>().Styles = styles;
+    }
+
+    private static Style CreateStyle(
+        string id, string name, int halfPoints, string font, string color,
+        int before, int after, int line, bool bold = false)
+    {
+        var runProps = new StyleRunProperties(
+            new RunFonts { Ascii = font, HighAnsi = font, EastAsia = "Microsoft YaHei" },
+            new FontSize { Val = halfPoints.ToString(CultureInfo.InvariantCulture) },
+            new WordColor { Val = color });
+        if (bold) runProps.Append(new Bold());
+        return new Style(
+            new StyleName { Val = name },
+            new BasedOn { Val = "Normal" },
+            new NextParagraphStyle { Val = "Normal" },
+            new StyleParagraphProperties(
+                new SpacingBetweenLines
+                {
+                    Before = before.ToString(CultureInfo.InvariantCulture),
+                    After = after.ToString(CultureInfo.InvariantCulture),
+                    Line = line.ToString(CultureInfo.InvariantCulture),
+                    LineRule = LineSpacingRuleValues.Auto,
+                }),
+            runProps)
+        {
+            Type = StyleValues.Paragraph,
+            StyleId = id,
+            CustomStyle = true,
+        };
+    }
+
+    private static Paragraph ParagraphOf(string text, string style) =>
+        new(
+            new ParagraphProperties(new ParagraphStyleId { Val = style }),
+            new Run(new Text(text) { Space = SpaceProcessingModeValues.Preserve }));
+
+    private static TableRow CreateRow(IReadOnlyList<string> values, bool header)
+    {
+        int[] widths = [720, 3600, 1200, 1440, 2400];
+        var row = new TableRow();
+        for (var i = 0; i < values.Count; i++)
+        {
+            var props = new TableCellProperties(
+                new TableCellWidth { Width = widths[i].ToString(), Type = TableWidthUnitValues.Dxa },
+                new TableCellMargin(
+                    new TopMargin { Width = "80", Type = TableWidthUnitValues.Dxa },
+                    new StartMargin { Width = "120", Type = TableWidthUnitValues.Dxa },
+                    new BottomMargin { Width = "80", Type = TableWidthUnitValues.Dxa },
+                    new EndMargin { Width = "120", Type = TableWidthUnitValues.Dxa }));
+            if (header) props.Append(new Shading { Fill = "E8EEF5", Val = ShadingPatternValues.Clear });
+            var runProps = new RunProperties(
+                new RunFonts { Ascii = "Calibri", HighAnsi = "Calibri", EastAsia = "Microsoft YaHei" },
+                new FontSize { Val = "20" });
+            if (header) runProps.Append(new Bold());
+            row.Append(new TableCell(
+                props,
+                new Paragraph(
+                    new ParagraphProperties(new SpacingBetweenLines { After = "0", Line = "260", LineRule = LineSpacingRuleValues.Auto }),
+                    new Run(runProps, new Text(values[i])))));
+        }
+
+        return row;
+    }
+
+    private static TableBorders CreateBorders() =>
+        new(
+            new TopBorder { Val = BorderValues.Single, Color = "B8C5D0", Size = 4 },
+            new LeftBorder { Val = BorderValues.Single, Color = "B8C5D0", Size = 4 },
+            new BottomBorder { Val = BorderValues.Single, Color = "B8C5D0", Size = 4 },
+            new RightBorder { Val = BorderValues.Single, Color = "B8C5D0", Size = 4 },
+            new InsideHorizontalBorder { Val = BorderValues.Single, Color = "D7DEE5", Size = 4 },
+            new InsideVerticalBorder { Val = BorderValues.Single, Color = "D7DEE5", Size = 4 });
+
+    private static void DrawFrameContain(Image<Rgba32> canvas, Image<Rgba32> source, Rectangle target)
+    {
+        canvas.Mutate(ctx => ctx.Fill(Color.ParseHex("1D2522"), target));
+        using var clone = source.Clone(ctx => ctx.Resize(new ResizeOptions
+        {
+            Size = new Size(target.Width, target.Height),
+            Mode = ResizeMode.Max,
+        }));
+        var point = new Point(
+            target.X + (target.Width - clone.Width) / 2,
+            target.Y + (target.Height - clone.Height) / 2);
+        canvas.Mutate(ctx => ctx.DrawImage(clone, point, 1));
+    }
+
+    private static string Save(Image<Rgba32> image, string dir, string fileName)
+    {
+        var path = Path.Combine(dir, fileName);
+        image.Save(path, new PngEncoder());
+        return path;
+    }
+
+    private static IEnumerable<VideoRecord> SelectEvenly(
+        IReadOnlyList<VideoRecord> records,
+        int count)
+    {
+        if (records.Count <= count) return records;
+        return Enumerable.Range(0, count)
+            .Select(i => records[(int)Math.Round(i * (records.Count - 1d) / (count - 1d))])
+            .DistinctBy(r => r.FullPath);
+    }
+
+    private static int ParseEpisodeNumber(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        var marker = name.LastIndexOf("第", StringComparison.Ordinal);
+        var end = name.LastIndexOf("集", StringComparison.Ordinal);
+        if (marker >= 0 && end > marker &&
+            int.TryParse(name.AsSpan(marker + 1, end - marker - 1), out var episode))
+        {
+            return episode;
+        }
+
+        var digits = new string(name.Reverse().TakeWhile(char.IsDigit).Reverse().ToArray());
+        return int.TryParse(digits, out episode) ? episode : int.MaxValue;
+    }
+
+    private static string ComputeSha256(string path, CancellationToken cancellationToken)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 1024 * 1024,
+            FileOptions.SequentialScan);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[1024 * 1024];
+        int read;
+        while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            hash.AppendData(buffer, 0, read);
+        }
+
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+    }
+
+    private static ProjectMetadata ReadProjectMetadata(string workflow)
+    {
+        try
+        {
+            var path = Path.Combine(workflow, "shortdrama-project.json");
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            return new ProjectMetadata(
+                root.TryGetProperty("originalTitle", out var title) ? title.GetString() ?? "" : "",
+                root.TryGetProperty("bookId", out var id) ? id.GetString() ?? "" : "");
+        }
+        catch
+        {
+            return new ProjectMetadata("", "");
+        }
     }
 
     private static FontFamily? ResolveFontFamily()
@@ -625,46 +825,60 @@ public static class TikTokSourceFileInfoScreenshotService
         string[] candidates =
         [
             "Microsoft YaHei", "Microsoft YaHei UI", "SimHei", "SimSun",
-            "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", "Arial Unicode MS", "Arial",
+            "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", "Arial",
         ];
         foreach (var name in candidates)
         {
-            if (!SystemFonts.TryGet(name, out var family))
-            {
-                continue;
-            }
-
-            try
-            {
-                var probe = family.CreateFont(12, FontStyle.Regular);
-                TextMeasurer.MeasureBounds("已", new TextOptions(probe));
-                return family;
-            }
-            catch
-            {
-                // try next
-            }
+            if (SystemFonts.TryGet(name, out var family)) return family;
         }
 
-        return SystemFonts.Families.Any() ? SystemFonts.Families.First() : null;
+        return SystemFonts.Families.FirstOrDefault();
     }
+
+    private static void TryDeleteDirectory(string dir)
+    {
+        if (!Directory.Exists(dir)) return;
+        try { Directory.Delete(dir, recursive: true); } catch { }
+    }
+
+    private static string Csv(string value) => $"\"{(value ?? "").Replace("\"", "\"\"")}\"";
+    private static string FormatDuration(double seconds) =>
+        seconds <= 0 ? "未读取" : TimeSpan.FromSeconds(seconds).ToString(@"hh\:mm\:ss");
+    private static string FormatTimeCodeForFile(double seconds) =>
+        TimeSpan.FromSeconds(seconds).ToString(@"mm\-ss");
+    private static string FormatBytes(long bytes) =>
+        bytes >= 1024L * 1024 * 1024
+            ? $"{bytes / (1024d * 1024 * 1024):0.00} GB"
+            : bytes >= 1024L * 1024
+                ? $"{bytes / (1024d * 1024):0.00} MB"
+                : $"{bytes / 1024d:0.0} KB";
 
     private static string TrimForUi(string text, int maxChars)
     {
-        var value = (text ?? string.Empty).Trim();
-        if (value.Length <= maxChars)
-        {
-            return value;
-        }
-
-        return value[..Math.Max(1, maxChars - 1)] + "…";
+        var value = (text ?? "").Trim();
+        return value.Length <= maxChars ? value : value[..Math.Max(1, maxChars - 1)] + "…";
     }
 
     private static string SanitizePathSegment(string text)
     {
         var invalid = Path.GetInvalidFileNameChars();
-        var chars = (text ?? string.Empty).Trim().Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray();
-        var cleaned = new string(chars).Trim();
+        var cleaned = new string((text ?? "").Trim().Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray());
         return string.IsNullOrWhiteSpace(cleaned) ? "短剧项目" : cleaned;
     }
+
+    private sealed record VideoRecord(
+        string FullPath,
+        string FileName,
+        int Episode,
+        long Length,
+        DateTime LastWriteTime,
+        double DurationSeconds,
+        int Width,
+        int Height,
+        double FrameRate,
+        string AudioCodec,
+        string Sha256);
+
+    private sealed record EvidenceFrame(Image<Rgba32> Image, string Label, string SourceFile);
+    private sealed record ProjectMetadata(string OriginalTitle, string BookId);
 }
