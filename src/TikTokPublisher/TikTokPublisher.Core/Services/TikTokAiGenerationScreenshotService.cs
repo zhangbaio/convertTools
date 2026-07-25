@@ -286,8 +286,7 @@ public static class TikTokAiGenerationScreenshotService
         Action<string>? log,
         CancellationToken cancellationToken)
     {
-        var count = Math.Max(RequiredImageCount * ShotsPerPage, frames.Count);
-        var analyses = new List<ShotAnalysis>(count);
+        var count = RequiredImageCount * ShotsPerPage;
         var endpoint = (settings?.AiTextEndpoint ?? string.Empty).Trim().TrimEnd('/');
         var apiKey = (settings?.AiTextApiKey ?? string.Empty).Trim();
         var model = (settings?.AiTextModel ?? string.Empty).Trim();
@@ -298,53 +297,64 @@ public static class TikTokAiGenerationScreenshotService
         if (!canVision)
         {
             log?.Invoke("AI 截图：未配置火山文本/视觉模型，提示词使用本地兜底。");
+            return Enumerable.Range(0, count)
+                .Select(index => FallbackAnalysis(index, title))
+                .ToList();
         }
 
-        for (var i = 0; i < count;)
+        var tasks = Enumerable.Range(0, (count + 1) / 2)
+            .Select(async pairIndex =>
+            {
+                var shotIndex = pairIndex * 2;
+                var a = frames[(shotIndex * KeyframeRatios.Length + 2) % frames.Count];
+                var b = frames[((shotIndex + 1) * KeyframeRatios.Length + 2) % frames.Count];
+                try
+                {
+                    var pair = await AnalyzeShotPairAsync(
+                            endpoint,
+                            apiKey,
+                            model,
+                            a,
+                            b,
+                            settings!.AiTextTimeoutSeconds,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    return (ShotIndex: shotIndex, First: pair.Item1, Second: pair.Item2, Error: (Exception?)null);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    return (
+                        ShotIndex: shotIndex,
+                        First: FallbackAnalysis(shotIndex, title),
+                        Second: FallbackAnalysis(shotIndex + 1, title),
+                        Error: (Exception?)ex);
+                }
+            })
+            .ToArray();
+
+        log?.Invoke($"AI 截图：并发反推 {tasks.Length} 组提示词（{count} 个镜头）。");
+        var results = Task.WhenAll(tasks).GetAwaiter().GetResult();
+        var analyses = new ShotAnalysis[count];
+        foreach (var result in results.OrderBy(item => item.ShotIndex))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!canVision)
+            if (result.Error is not null)
             {
-                analyses.Add(FallbackAnalysis(i, title));
-                i++;
-                continue;
+                log?.Invoke(
+                    $"AI 截图：视觉反推失败（镜 {result.ShotIndex + 1}），改用本地兜底：{result.Error.Message}");
             }
 
-            var a = frames[(i * KeyframeRatios.Length + 2) % frames.Count];
-            var b = frames[((i + 1) * KeyframeRatios.Length + 2) % frames.Count];
-            try
+            analyses[result.ShotIndex] = result.First;
+            if (result.ShotIndex + 1 < count)
             {
-                var pair = AnalyzeShotPairAsync(endpoint, apiKey, model, a, b, settings!.AiTextTimeoutSeconds, cancellationToken)
-                    .GetAwaiter()
-                    .GetResult();
-                analyses.Add(pair.Item1);
-                if (i + 1 < count)
-                {
-                    analyses.Add(pair.Item2);
-                    i += 2;
-                }
-                else
-                {
-                    i++;
-                }
-            }
-            catch (Exception ex)
-            {
-                log?.Invoke($"AI 截图：视觉反推失败（镜 {i + 1}），改用本地兜底：{ex.Message}");
-                analyses.Add(FallbackAnalysis(i, title));
-                if (i + 1 < count)
-                {
-                    analyses.Add(FallbackAnalysis(i + 1, title));
-                    i += 2;
-                }
-                else
-                {
-                    i++;
-                }
+                analyses[result.ShotIndex + 1] = result.Second;
             }
         }
 
-        return analyses;
+        return analyses.ToList();
     }
 
     private static async Task<(ShotAnalysis, ShotAnalysis)> AnalyzeShotPairAsync(
