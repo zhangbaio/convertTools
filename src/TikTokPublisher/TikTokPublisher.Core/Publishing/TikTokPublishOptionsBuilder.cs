@@ -73,6 +73,19 @@ public static class TikTokPublishOptionsBuilder
                         : $"TikTok AI 生成过程截图等待生成：{aiDir}");
             }
 
+            if (options.CopyrightMaterialTypes.Contains(
+                    TikTokPublishConstants.EditingProjectFilesMaterialType,
+                    StringComparer.Ordinal))
+            {
+                var editingDir = TikTokProjectImageService.GetOutputDirectory(workflowProjectDir);
+                paths[TikTokPublishConstants.EditingProjectFilesMaterialType] = editingDir;
+                var editingCount = TikTokProjectImageService.CountProjectImages(workflowProjectDir);
+                log?.Invoke(
+                    editingCount >= TikTokProjectImageService.MinUploadImageCount
+                        ? $"TikTok 剪辑工程文件（工程图）已就绪：{editingCount} 张 → {editingDir}"
+                        : $"TikTok 剪辑工程文件（工程图）等待生成：{editingDir}");
+            }
+
             options.CopyrightMaterialFilePaths = paths;
         }
 

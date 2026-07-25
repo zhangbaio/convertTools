@@ -675,8 +675,8 @@ public static class WorkspaceQueueService
             return false;
         }
 
-        return TikTokSourceFileInfoScreenshotService.HasCurrentOutput(workflowProjectDir)
-               && TikTokAiGenerationScreenshotService.HasCurrentOutput(workflowProjectDir);
+        // 扫描恢复仅依据合作协议 PDF；原始文件/AI 截图是否齐全由账号勾选在步骤执行时校验。
+        return true;
     }
 
     private static bool HasSilenceAsrReport(ProjectWorkspaceContext context)

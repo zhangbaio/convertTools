@@ -36,6 +36,15 @@ public sealed record TikTokProofMaterialRequest(
     public string? TemporaryDirectory { get; init; }
 
     public TimeSpan RenderTimeout { get; init; } = TimeSpan.FromSeconds(180);
+
+    /// <summary>是否生成「原始文件或素材文件信息」截图（由账号上传材料类型勾选决定）。</summary>
+    public bool GenerateSourceFileScreenshots { get; init; }
+
+    /// <summary>是否生成「AI 生成过程截图」（由账号上传材料类型勾选决定）。</summary>
+    public bool GenerateAiGenerationScreenshots { get; init; }
+
+    /// <summary>是否生成「剪辑工程文件」对应的工程图（由账号上传材料类型勾选决定）。</summary>
+    public bool GenerateEditingProjectFiles { get; init; }
 }
 
 public sealed record TikTokProofMaterialReplacementCounts(

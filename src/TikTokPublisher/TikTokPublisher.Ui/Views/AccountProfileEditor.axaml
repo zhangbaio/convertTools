@@ -281,13 +281,9 @@
                             <TextBlock Classes="formLabel" Grid.Row="20" Grid.Column="0" Text="上传材料类型" VerticalAlignment="Top" Margin="0,5,0,0" />
                             <StackPanel Grid.Row="20" Grid.Column="1" Spacing="6">
                                 <CheckBox x:Name="ProductionAgreementMaterialBox" Content="合作协议（核心）" />
-                                <TextBlock Text="自动上传当前项目生成的“证明材料.pdf”。"
+                                <TextBlock Text="自动上传当前项目生成的“证明材料.pdf”。勾选下方材料时，生成证明材料步骤会同步产出对应文件并尝试自动上传（目前支持：AI 生成截图、原始文件信息、剪辑工程文件/工程图）："
                                            Classes="pageSummary"
                                            TextWrapping="Wrap" />
-                                <TextBlock Text="以下材料需要各自的独立文件，当前暂不支持自动上传："
-                                           Classes="pageSummary"
-                                           TextWrapping="Wrap"
-                                           Margin="0,2,0,0" />
                                 <WrapPanel Orientation="Horizontal">
                                     <CheckBox x:Name="WorkRegistrationMaterialBox" Content="作品登记证书" Margin="0,0,12,6" />
                                     <CheckBox x:Name="FilingLicenseMaterialBox" Content="备案/发行许可" Margin="0,0,12,6" />

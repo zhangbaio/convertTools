@@ -181,6 +181,7 @@ public static class TikTokSourceFileInfoScreenshotService
         {
             candidates.AddRange(
                 Directory.EnumerateFiles(workflow, "工程图_*.png", SearchOption.TopDirectoryOnly));
+            candidates.AddRange(TikTokProjectImageService.ListGeneratedImages(workflow));
             candidates.AddRange(
                 Directory.EnumerateFiles(workflow, "*封面*.png", SearchOption.TopDirectoryOnly));
             candidates.AddRange(

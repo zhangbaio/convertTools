@@ -398,6 +398,7 @@ public static class QueueProjectTitleRenameService
             File.Delete(path);
         TikTokSourceFileInfoScreenshotService.TryDeleteOutput(workflowDir);
         TikTokAiGenerationScreenshotService.TryDeleteOutput(workflowDir);
+        TikTokProjectImageService.TryDeleteOutput(workflowDir);
     }
 
     private static bool ResetCompletedStep(QueueProjectItem item, string stepKey)

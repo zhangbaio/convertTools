@@ -225,8 +225,6 @@ public sealed class WorkspaceQueueServiceTests
             WriteProjectMetadata(project, project, workflow);
             WriteProjectMetadata(workflow, project, workflow);
             File.WriteAllBytes(Path.Combine(workflow, "证明材料.pdf"), "%PDF-1.7\n"u8.ToArray());
-            TikTokSourceFileInfoScreenshotService.Generate(workflow, "first", "测试公司");
-            TikTokAiGenerationScreenshotService.Generate(workflow, "first", new ClientSettings());
             WorkspaceQueueService.SaveProjects(
                 workspace,
                 [

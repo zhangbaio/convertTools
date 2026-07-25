@@ -8,6 +8,7 @@ public static class TikTokPublishConstants
     public const string ProductionAgreementMaterialType = "production_agreement";
     public const string SourceFileInformationMaterialType = "source_file_information";
     public const string AiGenerationScreenshotsMaterialType = "ai_generation_screenshots";
+    public const string EditingProjectFilesMaterialType = "editing_project_files";
     public const string ContractIdModeManual = "manual";
     public const string ContractIdModeFirstAvailable = "first_available";
 
@@ -18,7 +19,7 @@ public static class TikTokPublishConstants
         ["filing_or_distribution_license"] = "网络剧片备案、发行许可、监管审批文件",
         ["opening_ending_rights_notice"] = "片头片尾及权利标识",
         [AiGenerationScreenshotsMaterialType] = "AI 生成过程截图",
-        ["editing_project_files"] = "剪辑工程文件",
+        [EditingProjectFilesMaterialType] = "剪辑工程文件",
         [SourceFileInformationMaterialType] = "原始文件或素材文件信息",
     };
 
@@ -33,7 +34,7 @@ public static class TikTokPublishConstants
         "filing_or_distribution_license",
         "opening_ending_rights_notice",
         AiGenerationScreenshotsMaterialType,
-        "editing_project_files",
+        EditingProjectFilesMaterialType,
         SourceFileInformationMaterialType,
     };
 

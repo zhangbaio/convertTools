@@ -42,6 +42,7 @@ public static partial class TikTokBrowserActions
             TikTokPublishConstants.ProductionAgreementMaterialType,
             TikTokPublishConstants.SourceFileInformationMaterialType,
             TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+            TikTokPublishConstants.EditingProjectFilesMaterialType,
         };
         var unsupportedMaterialKeys = configuredMaterialKeys
             .Where(key => !supportedAutoUploadKeys.Contains(key))
@@ -58,13 +59,14 @@ public static partial class TikTokBrowserActions
                     $"已选择版权材料「{string.Join("、", labels)}」，但尚未配置对应的独立文件；" +
                     "证明材料.pdf 仅可上传到「制作协议、联合出品协议等合作协议」，" +
                     "原始文件截图仅可上传到「原始文件或素材文件信息」，" +
-                    "AI 生成截图仅可上传到「AI 生成过程截图」。");
+                    "AI 生成截图仅可上传到「AI 生成过程截图」，" +
+                    "工程图仅可上传到「剪辑工程文件」。");
 
             var configuredLabels = unsupportedMaterialKeys
                 .Select(key => TikTokPublishConstants.CopyrightMaterialLabels[key]);
             throw new NotSupportedException(
                 $"版权材料「{string.Join("、", configuredLabels)}」已有独立文件，但当前自动上传流程尚未支持该类型；" +
-                "请选择「制作协议、联合出品协议等合作协议」，以及可选的「原始文件或素材文件信息」/「AI 生成过程截图」。");
+                "请选择「制作协议、联合出品协议等合作协议」，以及可选的「原始文件或素材文件信息」/「AI 生成过程截图」/「剪辑工程文件」。");
         }
 
         if (!configuredMaterialKeys.Contains(
@@ -102,6 +104,21 @@ public static partial class TikTokBrowserActions
                 "请先执行「生成证明材料」。");
         }
 
+        var includeEditingProjectFiles = configuredMaterialKeys.Contains(
+            TikTokPublishConstants.EditingProjectFilesMaterialType,
+            StringComparer.Ordinal);
+        var editingProjectFiles = includeEditingProjectFiles
+            ? ResolveEditingProjectFiles(options)
+            : [];
+        if (includeEditingProjectFiles &&
+            editingProjectFiles.Count < TikTokProjectImageService.MinUploadImageCount)
+        {
+            throw new FileNotFoundException(
+                $"「剪辑工程文件」需要至少 {TikTokProjectImageService.MinUploadImageCount} 张工程图，" +
+                $"当前仅找到 {editingProjectFiles.Count} 张（目录：{TikTokProjectImageService.OutputDirectoryName}）；" +
+                "请先执行「生成证明材料」或「生成工程图」。");
+        }
+
         var filePath = options.ResolveCopyrightMaterialFilePath(
             TikTokPublishConstants.ProductionAgreementMaterialType);
         if (string.IsNullOrWhiteSpace(filePath))
@@ -131,6 +148,8 @@ public static partial class TikTokBrowserActions
             TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.SourceFileInformationMaterialType];
         var aiScreenshotLabel =
             TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.AiGenerationScreenshotsMaterialType];
+        var editingProjectLabel =
+            TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.EditingProjectFilesMaterialType];
         var productionAgreementOption = await WaitForCopyrightMaterialCheckboxAsync(
             page,
             productionAgreementLabel,
@@ -176,6 +195,22 @@ public static partial class TikTokBrowserActions
                 ct);
         }
 
+        if (includeEditingProjectFiles)
+        {
+            var editingOption = await WaitForCopyrightMaterialCheckboxAsync(
+                page,
+                editingProjectLabel,
+                CopyrightControlTimeoutMs,
+                ct);
+            await EnsureCopyrightMaterialCheckboxStateAsync(
+                page,
+                editingProjectLabel,
+                editingOption,
+                shouldSelect: true,
+                log,
+                ct);
+        }
+
         // 页面可能保留上一次未提交的选择；清掉当前未配置的已知类型，避免出现无文件映射的上传框。
         foreach (var pair in TikTokPublishConstants.CopyrightMaterialLabels)
         {
@@ -186,6 +221,9 @@ public static partial class TikTokBrowserActions
                 continue;
             if (includeAiGenerationScreenshots &&
                 string.Equals(pair.Key, TikTokPublishConstants.AiGenerationScreenshotsMaterialType, StringComparison.Ordinal))
+                continue;
+            if (includeEditingProjectFiles &&
+                string.Equals(pair.Key, TikTokPublishConstants.EditingProjectFilesMaterialType, StringComparison.Ordinal))
                 continue;
             ct.ThrowIfCancellationRequested();
             var option = await TryFindCopyrightMaterialCheckboxAsync(page, pair.Value);
@@ -205,6 +243,8 @@ public static partial class TikTokBrowserActions
             selectedParts.Add(sourceInfoLabel);
         if (includeAiGenerationScreenshots)
             selectedParts.Add(aiScreenshotLabel);
+        if (includeEditingProjectFiles)
+            selectedParts.Add(editingProjectLabel);
         Log(log, $"TikTok 版权材料类型已确认：{string.Join("、", selectedParts)}。");
 
         await UploadCopyrightMaterialFilesAsync(
@@ -232,6 +272,17 @@ public static partial class TikTokBrowserActions
                 page,
                 aiScreenshotLabel,
                 aiScreenshotFiles.ToArray(),
+                preferProductionAgreementFieldId: false,
+                log,
+                ct);
+        }
+
+        if (includeEditingProjectFiles)
+        {
+            await UploadCopyrightMaterialFilesAsync(
+                page,
+                editingProjectLabel,
+                editingProjectFiles.ToArray(),
                 preferProductionAgreementFieldId: false,
                 log,
                 ct);
@@ -278,6 +329,46 @@ public static partial class TikTokBrowserActions
         return string.IsNullOrWhiteSpace(workflowDir)
             ? []
             : TikTokSourceFileInfoScreenshotService.ListGeneratedImages(workflowDir);
+    }
+
+    /// <summary>
+    /// 仅从 workflow 下的「剪辑工程文件」目录取工程图，不回落到 workflow 根目录散落文件。
+    /// </summary>
+    private static IReadOnlyList<string> ResolveEditingProjectFiles(TikTokPublishOptions options)
+    {
+        var configured = options.ResolveCopyrightMaterialFilePath(
+            TikTokPublishConstants.EditingProjectFilesMaterialType);
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            return [];
+        }
+
+        var fullPath = Path.GetFullPath(configured);
+        string? workflowDir = null;
+        if (Directory.Exists(fullPath))
+        {
+            var dirName = Path.GetFileName(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.Equals(
+                    dirName,
+                    TikTokProjectImageService.OutputDirectoryName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                workflowDir = Directory.GetParent(fullPath)?.FullName;
+            }
+            else
+            {
+                workflowDir = fullPath;
+            }
+        }
+        else if (File.Exists(fullPath))
+        {
+            workflowDir = Directory.GetParent(fullPath)?.Parent?.FullName
+                          ?? Directory.GetParent(fullPath)?.FullName;
+        }
+
+        return string.IsNullOrWhiteSpace(workflowDir)
+            ? []
+            : TikTokProjectImageService.ListGeneratedImages(workflowDir);
     }
 
     /// <summary>

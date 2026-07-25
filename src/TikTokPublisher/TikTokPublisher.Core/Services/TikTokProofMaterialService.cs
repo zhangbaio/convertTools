@@ -14,7 +14,7 @@ public sealed class TikTokProofMaterialService
     public const string ProofDocxFileName = "证明材料.docx";
     public const string StateDocumentType = "tiktok_proof_material_state";
 
-    private const string FingerprintVersion = "v7-ai-generation-screenshots";
+    private const string FingerprintVersion = "v9-editing-project-files";
     private static readonly IReadOnlySet<string> SupportedSealImageExtensions =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -120,7 +120,7 @@ public sealed class TikTokProofMaterialService
         {
             var state = LoadState(context);
             var renderer = GetStateString(state, "renderer");
-            log?.Invoke($"{ProofPdfFileName}、原始文件截图与 AI 生成截图已存在且配置未变化，跳过生成。");
+            log?.Invoke($"{ProofPdfFileName} 及已勾选材料产物已存在且配置未变化，跳过生成。");
             return new TikTokProofMaterialResult(
                 request.OutputPdfPath,
                 request.KeepIntermediateDocx ? outputDocxPath : null,
@@ -136,20 +136,49 @@ public sealed class TikTokProofMaterialService
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        TikTokSourceFileInfoScreenshotService.Generate(
-            context.WorkflowProjectDir,
-            request.DramaTitle,
-            request.CopyrightCompanyName,
-            log,
-            cancellationToken);
+        if (request.GenerateSourceFileScreenshots)
+        {
+            TikTokSourceFileInfoScreenshotService.Generate(
+                context.WorkflowProjectDir,
+                request.DramaTitle,
+                request.CopyrightCompanyName,
+                log,
+                cancellationToken);
+        }
+        else
+        {
+            log?.Invoke("账号未勾选「原始文件或素材文件信息」，跳过原始文件信息截图。");
+        }
 
         cancellationToken.ThrowIfCancellationRequested();
-        TikTokAiGenerationScreenshotService.Generate(
-            context.WorkflowProjectDir,
-            request.DramaTitle,
-            settings,
-            log,
-            cancellationToken);
+        if (request.GenerateAiGenerationScreenshots)
+        {
+            TikTokAiGenerationScreenshotService.Generate(
+                context.WorkflowProjectDir,
+                request.DramaTitle,
+                settings,
+                log,
+                cancellationToken);
+        }
+        else
+        {
+            log?.Invoke("账号未勾选「AI 生成过程截图」，跳过 AI 生成过程截图。");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (request.GenerateEditingProjectFiles)
+        {
+            await TikTokProjectImageService.GenerateAsync(
+                item,
+                settings,
+                forceRerun,
+                log,
+                cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            log?.Invoke("账号未勾选「剪辑工程文件」，跳过工程图生成。");
+        }
 
         SaveState(context, request, fingerprint, result);
         return result;
@@ -284,8 +313,18 @@ public sealed class TikTokProofMaterialService
                 ? "wps"
                 : "libreoffice",
             wps_executable_path = (request.WpsExecutablePath ?? string.Empty).Trim(),
-            source_file_screenshots = TikTokSourceFileInfoScreenshotService.ScreenshotVersion,
-            ai_generation_screenshots = TikTokAiGenerationScreenshotService.ScreenshotVersion,
+            generate_source_file_screenshots = request.GenerateSourceFileScreenshots,
+            generate_ai_generation_screenshots = request.GenerateAiGenerationScreenshots,
+            generate_editing_project_files = request.GenerateEditingProjectFiles,
+            source_file_screenshots = request.GenerateSourceFileScreenshots
+                ? TikTokSourceFileInfoScreenshotService.ScreenshotVersion
+                : "skipped",
+            ai_generation_screenshots = request.GenerateAiGenerationScreenshots
+                ? TikTokAiGenerationScreenshotService.ScreenshotVersion
+                : "skipped",
+            editing_project_files = request.GenerateEditingProjectFiles
+                ? TikTokProjectImageService.OutputDirectoryName + ":" + "v4-dedicated-folder"
+                : "skipped",
         };
         var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
@@ -327,6 +366,9 @@ public sealed class TikTokProofMaterialService
             : FirstNonEmpty(account.TiktokProofSealPath, settings.TiktokProofSealPath);
         sealPath = ResolveSealImagePath(sealPath);
 
+        var materialTypes = TikTokPublishConstants.NormalizeCopyrightMaterialTypes(
+            account.TiktokCopyrightMaterialTypes);
+
         return new TikTokProofMaterialRequest(
             TikTokProofMaterialTemplateProvider.ResolveTemplatePath(settings.TiktokProofTemplateDocxPath),
             GetPdfPath(workflowProjectDirectory),
@@ -340,6 +382,15 @@ public sealed class TikTokProofMaterialService
                 settings.TiktokProofPdfRenderer),
             WpsExecutablePath = settings.TiktokProofWpsPath,
             KeepIntermediateDocx = settings.TiktokProofKeepDocx,
+            GenerateSourceFileScreenshots = materialTypes.Contains(
+                TikTokPublishConstants.SourceFileInformationMaterialType,
+                StringComparer.Ordinal),
+            GenerateAiGenerationScreenshots = materialTypes.Contains(
+                TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+                StringComparer.Ordinal),
+            GenerateEditingProjectFiles = materialTypes.Contains(
+                TikTokPublishConstants.EditingProjectFilesMaterialType,
+                StringComparer.Ordinal),
         };
     }
 
@@ -378,12 +429,20 @@ public sealed class TikTokProofMaterialService
             return false;
         }
 
-        if (!TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
+        if (request.GenerateSourceFileScreenshots &&
+            !TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
         {
             return false;
         }
 
-        if (!TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
+        if (request.GenerateAiGenerationScreenshots &&
+            !TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
+        {
+            return false;
+        }
+
+        if (request.GenerateEditingProjectFiles &&
+            !TikTokProjectImageService.HasCurrentOutput(context.WorkflowProjectDir))
         {
             return false;
         }
@@ -421,14 +480,27 @@ public sealed class TikTokProofMaterialService
             ["statement_date"] = request.StatementDate.ToString("yyyy-MM-dd"),
             ["renderer"] = result.PdfRenderer,
             ["wps_executable_path"] = (request.WpsExecutablePath ?? string.Empty).Trim(),
-            ["source_file_screenshots"] = TikTokSourceFileInfoScreenshotService
-                .ListGeneratedImages(context.WorkflowProjectDir)
-                .Select(Path.GetFileName)
-                .ToArray(),
-            ["ai_generation_screenshots"] = TikTokAiGenerationScreenshotService
-                .ListGeneratedImages(context.WorkflowProjectDir)
-                .Select(Path.GetFileName)
-                .ToArray(),
+            ["generate_source_file_screenshots"] = request.GenerateSourceFileScreenshots,
+            ["generate_ai_generation_screenshots"] = request.GenerateAiGenerationScreenshots,
+            ["generate_editing_project_files"] = request.GenerateEditingProjectFiles,
+            ["source_file_screenshots"] = request.GenerateSourceFileScreenshots
+                ? TikTokSourceFileInfoScreenshotService
+                    .ListGeneratedImages(context.WorkflowProjectDir)
+                    .Select(Path.GetFileName)
+                    .ToArray()
+                : Array.Empty<string>(),
+            ["ai_generation_screenshots"] = request.GenerateAiGenerationScreenshots
+                ? TikTokAiGenerationScreenshotService
+                    .ListGeneratedImages(context.WorkflowProjectDir)
+                    .Select(Path.GetFileName)
+                    .ToArray()
+                : Array.Empty<string>(),
+            ["editing_project_files"] = request.GenerateEditingProjectFiles
+                ? TikTokProjectImageService
+                    .ListGeneratedImages(context.WorkflowProjectDir)
+                    .Select(Path.GetFileName)
+                    .ToArray()
+                : Array.Empty<string>(),
             ["generated_at"] = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
         };
         ProjectStateDocumentStore.SaveDocument(
