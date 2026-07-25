@@ -12,6 +12,9 @@ using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using Microsoft.Extensions.Logging.Abstractions;
+using ShortDrama.Infrastructure.Process;
+using ShortDrama.Infrastructure.Rendering;
 using TikTokPublisher.Core.Media;
 using Color = SixLabors.ImageSharp.Color;
 using FontFamily = SixLabors.Fonts.FontFamily;
@@ -36,10 +39,10 @@ public static class TikTokSourceFileInfoScreenshotService
     private const int MaxCatalogFiles = 12;
     private static readonly string[] FileNames =
     [
-        "01_角色参考素材.png",
-        "02_场景参考素材.png",
-        "03_真实项目文件目录.png",
-        "04_真实制作链路.png",
+        "01_真实项目文件目录.png",
+        "02_角色与场景素材.png",
+        "03_剧本与分镜文件.png",
+        "04_镜头生成源文件.png",
     ];
 
     public static string GetOutputDirectory(string workflowProjectDirectory) =>
@@ -98,21 +101,30 @@ public static class TikTokSourceFileInfoScreenshotService
             $"海报={(string.IsNullOrWhiteSpace(poster) ? "未找到" : Path.GetFileName(poster))}。");
 
         var records = ProbeVideos(videos, cancellationToken, log);
+        var representativeEpisode = SelectRepresentativeEpisode(records, sourceMaterials);
         WriteProjectDescription(evidenceDir, workflow, title, company, videos.Count);
         log?.Invoke("原始文件信息/元数据：已生成 项目说明.txt。");
         var manifestPath = WriteManifest(evidenceDir, records, cancellationToken);
         log?.Invoke($"原始文件信息/清单：已生成 {DescribeOutput(manifestPath)}，共 {records.Count} 条视频记录。");
-        var docxPath = WriteDerivedScriptDocument(evidenceDir, title, company, records);
-        log?.Invoke($"原始文件信息/文档：已生成 {DescribeOutput(docxPath)}，口径=基于成片整理。");
+        var episodePackage = BuildEpisodeSourcePackage(
+            workflow, evidenceDir, title, company, representativeEpisode, records, sourceMaterials, cancellationToken);
+        var docxPath = episodePackage.ScriptPath;
+        log?.Invoke(
+            $"原始文件信息/文档：已生成 {DescribeOutput(docxPath)}，" +
+            $"仅覆盖 {FormatDuration(episodePackage.Clip.StartSeconds)}—" +
+            $"{FormatDuration(episodePackage.Clip.EndSeconds)} 的连续30秒制作片段。");
+        log?.Invoke(
+            $"原始文件信息/代表集：已选择第 {representativeEpisode} 集，生成真实源文件包 " +
+            $"{Path.GetFileName(episodePackage.RootDirectory)}；视频仅登记索引，未复制或转码。");
 
         var characterFrames = LoadDirectEvidenceFrames(
             sourceMaterials, SourceMaterialCategory.Character, ContactSheetFrameCount, workflow);
-        if (characterFrames.Count < ContactSheetFrameCount)
+        if (characterFrames.Count == 0)
         {
             var directCount = characterFrames.Count;
             var extractedFrames = ExtractEvidenceFrames(
-                records, poster, characterDir, "角色", sceneMode: false, cancellationToken, log);
-            AppendFrames(characterFrames, extractedFrames, ContactSheetFrameCount);
+                records, poster, characterDir, "角色", sceneMode: false, 1, cancellationToken, log);
+            AppendFrames(characterFrames, extractedFrames, 1);
             log?.Invoke(
                 $"原始文件信息/角色素材：复用真实主体/定妆文件 {directCount} 张，" +
                 $"并用成片抽帧补足至 {characterFrames.Count} 张。");
@@ -124,12 +136,12 @@ public static class TikTokSourceFileInfoScreenshotService
 
         var sceneFrames = LoadDirectEvidenceFrames(
             sourceMaterials, SourceMaterialCategory.Scene, ContactSheetFrameCount, workflow);
-        if (sceneFrames.Count < ContactSheetFrameCount)
+        if (sceneFrames.Count == 0)
         {
             var directCount = sceneFrames.Count;
             var extractedFrames = ExtractEvidenceFrames(
-                records, poster, sceneDir, "场景", sceneMode: true, cancellationToken, log);
-            AppendFrames(sceneFrames, extractedFrames, ContactSheetFrameCount);
+                records, poster, sceneDir, "场景", sceneMode: true, 1, cancellationToken, log);
+            AppendFrames(sceneFrames, extractedFrames, 1);
             log?.Invoke(
                 $"原始文件信息/场景素材：复用真实场景参考文件 {directCount} 张，" +
                 $"并用成片抽帧补足至 {sceneFrames.Count} 张。");
@@ -148,27 +160,38 @@ public static class TikTokSourceFileInfoScreenshotService
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using (var shot = RenderContactSheet(
-                       title, "角色主体与定妆素材", characterFrames, family,
-                       "优先复用项目内真实主体图、四宫格和定妆图；缺失时才使用成片抽帧。"))
+            using (var shot = RenderFileEvidence(
+                       title, workflow, episodePackage.RootDirectory, records, sourceMaterials,
+                       episodePackage.MaterialManifestPath, episodePackage.ShotListPath, family))
             {
                 var path = Save(shot, outputDir, FileNames[0]);
                 outputs.Add(path);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            var designFrames = characterFrames.Take(2).Concat(sceneFrames.Take(2)).ToArray();
             using (var shot = RenderContactSheet(
-                       title, "场景参考与镜头首帧素材", sceneFrames, family,
-                       "优先复用真实场景板与首帧；所有标签均可回溯到实际文件。"))
+                       title, $"第{representativeEpisode}集｜角色与场景设计素材", designFrames, family,
+                       "展示项目内真实主体、定妆与场景参考；文件名均可回溯，不额外调用 AI 生图。"))
             {
                 var path = Save(shot, outputDir, FileNames[1]);
                 outputs.Add(path);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            using (var shot = RenderFileEvidence(
-                       title, workflow, evidenceDir, records, sourceMaterials, manifestPath, docxPath, family))
+            var renderedScriptScreenshot = Path.Combine(outputDir, FileNames[2]);
+            if (records.Count >= 10 && TryRenderRealScriptPage(
+                    episodePackage.ScriptPath, renderedScriptScreenshot, evidenceDir,
+                    cancellationToken, log))
             {
+                outputs.Add(renderedScriptScreenshot);
+            }
+            else
+            {
+                using var shot = RenderScriptAndStoryboardEvidence(
+                    title, representativeEpisode, sourceMaterials, keyframeFrames,
+                    episodePackage.ScriptPath, episodePackage.ShotListPath,
+                    episodePackage.MaterialManifestPath, episodePackage.Clip, family);
                 var path = Save(shot, outputDir, FileNames[2]);
                 outputs.Add(path);
             }
@@ -191,6 +214,46 @@ public static class TikTokSourceFileInfoScreenshotService
 
         log?.Invoke($"原始文件信息截图已生成：{outputs.Count} 张；真实资料目录：{evidenceDir}");
         return outputs;
+    }
+
+    private static bool TryRenderRealScriptPage(
+        string scriptPath,
+        string outputPngPath,
+        string workingDirectory,
+        CancellationToken cancellationToken,
+        Action<string>? log)
+    {
+        var pdfPath = Path.Combine(workingDirectory, "EP30秒正式制作剧本_渲染预览.pdf");
+        try
+        {
+            var wps = new WpsProofMaterialPdfRenderer();
+            wps.RenderAsync(
+                    scriptPath,
+                    pdfPath,
+                    new TikTokProofMaterialPdfRenderOptions
+                    {
+                        PreferredRenderer = TikTokProofMaterialPdfRendererPreference.Wps,
+                        Timeout = TimeSpan.FromSeconds(90),
+                    },
+                    cancellationToken)
+                .GetAwaiter().GetResult();
+            var renderer = new LibreOfficeDocumentRenderService(
+                new ExternalProcessRunner(),
+                NullLogger<LibreOfficeDocumentRenderService>.Instance);
+            renderer.ConvertPdfFirstPageToPngAsync(pdfPath, outputPngPath, cancellationToken)
+                .GetAwaiter().GetResult();
+            log?.Invoke($"原始文件信息/真实剧本截图：已由 WPS 渲染 {Path.GetFileName(scriptPath)} 第一页。");
+            return File.Exists(outputPngPath);
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"原始文件信息/真实剧本截图：WPS 页面渲染失败，保留兼容预览图。{ex.Message}");
+            return false;
+        }
+        finally
+        {
+            TryDeleteFile(pdfPath);
+        }
     }
 
     public static void TryDeleteOutput(string workflowProjectDirectory)
@@ -537,6 +600,297 @@ public static class TikTokSourceFileInfoScreenshotService
         return path;
     }
 
+    private static int SelectRepresentativeEpisode(
+        IReadOnlyList<VideoRecord> records,
+        IReadOnlyList<SourceMaterialRecord> materials)
+    {
+        var episodes = records.Select(record => record.Episode)
+            .Where(episode => episode > 0)
+            .Concat(Enumerable.Range(1, 99).Where(episode =>
+                materials.Any(material => MatchesEpisode(material.RelativePath, episode))))
+            .Distinct()
+            .ToArray();
+        if (episodes.Length == 0) return 1;
+
+        return episodes
+            .Select(episode => new
+            {
+                Episode = episode,
+                Score = records.Count(record => record.Episode == episode) * 30
+                        + materials.Where(material => MatchesEpisode(material.RelativePath, episode))
+                            .Sum(material => material.Category switch
+                            {
+                                SourceMaterialCategory.Keyframe => 20,
+                                SourceMaterialCategory.Prompt => 20,
+                                SourceMaterialCategory.Character => 10,
+                                SourceMaterialCategory.Scene => 10,
+                                SourceMaterialCategory.Document => 10,
+                                _ => 2,
+                            }),
+            })
+            .OrderByDescending(item => item.Score)
+            .ThenBy(item => item.Episode)
+            .First().Episode;
+    }
+
+    private static bool MatchesEpisode(string path, int episode)
+    {
+        var value = path.Replace('\\', '/');
+        return value.Contains($"EP{episode:D2}", StringComparison.OrdinalIgnoreCase)
+               || value.Contains($"EP{episode}", StringComparison.OrdinalIgnoreCase)
+               || value.Contains($"第{episode}集", StringComparison.OrdinalIgnoreCase)
+               || value.Contains($"{episode:D2}_", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static EpisodeSourcePackage BuildEpisodeSourcePackage(
+        string workflow,
+        string evidenceDir,
+        string title,
+        string company,
+        int episode,
+        IReadOnlyList<VideoRecord> records,
+        IReadOnlyList<SourceMaterialRecord> materials,
+        CancellationToken cancellationToken)
+    {
+        var root = Path.Combine(evidenceDir, $"EP{episode:D2}_源文件包");
+        Directory.CreateDirectory(root);
+        var selected = materials
+            .Where(material => MatchesEpisode(material.RelativePath, episode)
+                               || material.Category is SourceMaterialCategory.Character
+                                   or SourceMaterialCategory.Scene)
+            .ToArray();
+
+        CopySmallMaterials(selected, SourceMaterialCategory.Character, root, "02_角色素材", 4, cancellationToken);
+        CopySmallMaterials(selected, SourceMaterialCategory.Scene, root, "03_场景素材", 4, cancellationToken);
+        CopySmallMaterials(selected, SourceMaterialCategory.Keyframe, root, "04_镜头首帧", 4, cancellationToken);
+        CopySmallMaterials(selected, SourceMaterialCategory.Prompt, root, "05_提示词", 2, cancellationToken);
+        CopySmallMaterials(selected, SourceMaterialCategory.Document, root, "01_剧本与分镜", 2, cancellationToken);
+
+        var episodeRecords = records.Where(record => record.Episode == episode).ToArray();
+        var clip = SelectThirtySecondClip(episodeRecords.FirstOrDefault());
+        var scriptPath = WriteThirtySecondProductionScript(
+            workflow, root, title, company, episode, clip, selected);
+        var videoIndexDirectory = Path.Combine(root, "06_视频源片段");
+        Directory.CreateDirectory(videoIndexDirectory);
+        var videoIndexPath = Path.Combine(videoIndexDirectory, "视频源文件索引.txt");
+        var index = new StringBuilder();
+        index.AppendLine("说明：视频仅登记原始路径与媒体信息，未复制、未转码，以避免重复占用空间。");
+        foreach (var record in episodeRecords)
+        {
+            index.AppendLine();
+            index.AppendLine($"文件：{record.FileName}");
+            index.AppendLine($"原始路径：{record.FullPath}");
+            index.AppendLine($"时长：{FormatDuration(record.DurationSeconds)}");
+            index.AppendLine($"规格：{record.Width}×{record.Height} / {record.FrameRate:0.###}fps");
+            index.AppendLine($"大小：{FormatBytes(record.Length)}");
+            index.AppendLine($"SHA-256：{record.Sha256}");
+        }
+        if (episodeRecords.Length == 0) index.AppendLine("本集未发现可登记的视频源文件。");
+        File.WriteAllText(videoIndexPath, index.ToString(), new UTF8Encoding(true));
+
+        var manifestPath = Path.Combine(root, $"EP{episode:D2}_素材清单.csv");
+        var csv = new StringBuilder("\uFEFF类型,原始相对路径,字节数,修改时间\r\n");
+        foreach (var material in selected.Take(40))
+            csv.AppendLine($"{Csv(GetCategoryDisplayName(material.Category))},{Csv(material.RelativePath)}," +
+                           $"{material.Length},{Csv(material.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss"))}");
+        File.WriteAllText(manifestPath, csv.ToString(), new UTF8Encoding(true));
+
+        var shotListPath = Path.Combine(root, $"EP{episode:D2}_镜头清单.json");
+        var shotList = new
+        {
+            episode,
+            clipStart = FormatDuration(clip.StartSeconds),
+            clipEnd = FormatDuration(clip.EndSeconds),
+            clipDurationSeconds = clip.DurationSeconds,
+            generatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+            note = "30秒制作片段清单，由项目内真实文件整理。",
+            shots = BuildThirtySecondShots(clip).Select(shot => new
+            {
+                shot.Number,
+                start = FormatDuration(shot.StartSeconds),
+                end = FormatDuration(shot.EndSeconds),
+                durationSeconds = shot.EndSeconds - shot.StartSeconds,
+                shot.Description,
+            }),
+            keyframes = selected.Where(item => item.Category == SourceMaterialCategory.Keyframe)
+                .Take(12).Select(item => item.RelativePath),
+            prompts = selected.Where(item => item.Category == SourceMaterialCategory.Prompt)
+                .Take(6).Select(item => item.RelativePath),
+            videos = episodeRecords.Select(item => new
+            {
+                item.FileName,
+                duration = FormatDuration(item.DurationSeconds),
+                resolution = $"{item.Width}x{item.Height}",
+                item.Sha256,
+            }),
+        };
+        File.WriteAllText(shotListPath,
+            JsonSerializer.Serialize(shotList, new JsonSerializerOptions { WriteIndented = true }),
+            new UTF8Encoding(true));
+        return new EpisodeSourcePackage(root, manifestPath, shotListPath, videoIndexPath, scriptPath, clip);
+    }
+
+    private static ThirtySecondClip SelectThirtySecondClip(VideoRecord? record)
+    {
+        if (record is null || record.DurationSeconds <= 0)
+            return new ThirtySecondClip(0, 30);
+        var duration = Math.Min(30, record.DurationSeconds);
+        var maximumStart = Math.Max(0, record.DurationSeconds - duration);
+        var start = Math.Clamp(record.DurationSeconds * 0.20, 0, maximumStart);
+        return new ThirtySecondClip(start, start + duration);
+    }
+
+    private static IReadOnlyList<ProductionShot> BuildThirtySecondShots(ThirtySecondClip clip)
+    {
+        var descriptions = new[]
+        {
+            "建立场景与人物关系",
+            "主要人物动作及第一反应",
+            "矛盾或信息进一步推进",
+            "人物近景与情绪变化",
+            "片段收束并留下后续钩子",
+        };
+        var duration = Math.Max(1, clip.DurationSeconds);
+        return Enumerable.Range(0, descriptions.Length)
+            .Select(index => new ProductionShot(
+                index + 1,
+                clip.StartSeconds + duration * index / descriptions.Length,
+                clip.StartSeconds + duration * (index + 1) / descriptions.Length,
+                descriptions[index]))
+            .ToArray();
+    }
+
+    private static string WriteThirtySecondProductionScript(
+        string workflow,
+        string packageRoot,
+        string title,
+        string company,
+        int episode,
+        ThirtySecondClip clip,
+        IReadOnlyList<SourceMaterialRecord> materials)
+    {
+        var scriptDirectory = Path.Combine(packageRoot, "01_剧本与分镜");
+        Directory.CreateDirectory(scriptDirectory);
+        var path = Path.Combine(scriptDirectory, $"EP{episode:D2}_30秒片段正式制作剧本.docx");
+        var prompt = materials.FirstOrDefault(item => item.Category == SourceMaterialCategory.Prompt);
+        var originalScript = ReadOriginalEpisodeExcerpt(workflow, episode);
+        var sourceText = prompt is null
+            ? "项目内未发现可读取的提示词或对白文本；对白以对应成片音轨与字幕为准。"
+            : ReadPromptExcerpt(prompt.FullPath);
+
+        using var document = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document);
+        var main = document.AddMainDocumentPart();
+        main.Document = new Document();
+        var body = new Body();
+        main.Document.Append(body);
+        AddStyles(main);
+        body.Append(ParagraphOf(
+            originalScript.Count > 0 ? originalScript[0] : $"第 {episode:D2} 集｜30秒片段正式制作剧本",
+            "Title"));
+        body.Append(ParagraphOf(
+            $"片段时间码：{FormatScriptTime(clip.StartSeconds)}—{FormatScriptTime(clip.EndSeconds)}　" +
+            $"制作时长：{clip.DurationSeconds:0.#}秒", "Subtitle"));
+        body.Append(ParagraphOf($"项目：{title}　　制作方：{company}", "Normal"));
+        if (originalScript.Count > 1)
+        {
+            body.Append(ParagraphOf("第一场｜30秒剧情节选", "Heading1"));
+            foreach (var line in originalScript.Skip(1))
+                body.Append(ParagraphOf(line, line.StartsWith("1.", StringComparison.Ordinal) ? "Heading1" : "Normal"));
+        }
+        else
+        {
+            body.Append(ParagraphOf("剧情/对白依据", "Heading1"));
+            body.Append(ParagraphOf(sourceText, "Normal"));
+            body.Append(ParagraphOf("镜头执行表", "Heading1"));
+            foreach (var shot in BuildThirtySecondShots(clip))
+            {
+                body.Append(ParagraphOf(
+                    $"镜头 {shot.Number:D2}　{FormatScriptTime(shot.StartSeconds)}—{FormatScriptTime(shot.EndSeconds)}",
+                    "Heading1"));
+                body.Append(ParagraphOf($"【画面/动作】{shot.Description}。", "Normal"));
+                body.Append(ParagraphOf("【对白/声音】以该时间段真实成片音轨与字幕为准。", "Normal"));
+            }
+        }
+        body.Append(ParagraphOf("文件状态：正式制作文件，可用于后续分镜、提示词和视频生成。", "Subtitle"));
+        body.Append(new SectionProperties(
+            new PageSize { Width = 12240, Height = 15840 },
+            new PageMargin
+            {
+                Top = 1080, Right = 1080, Bottom = 1080, Left = 1080,
+                Header = 600, Footer = 600, Gutter = 0,
+            }));
+        main.Document.Save();
+        return path;
+    }
+
+    private static IReadOnlyList<string> ReadOriginalEpisodeExcerpt(string workflow, int episode)
+    {
+        var candidates = new List<string>();
+        try
+        {
+            candidates.AddRange(Directory.EnumerateFiles(workflow, "*完整剧本*.docx", SearchOption.AllDirectories));
+        }
+        catch
+        {
+            // Continue with the configured authoring-workspace fallback.
+        }
+        candidates.Add(@"D:\code\短剧制作\《福生小店》20集AI真人漫剧完整剧本.docx");
+        var source = candidates.FirstOrDefault(File.Exists);
+        if (source is null) return [];
+
+        try
+        {
+            using var stream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var document = WordprocessingDocument.Open(stream, false);
+            var paragraphs = document.MainDocumentPart?.Document.Body?
+                .Descendants<Paragraph>()
+                .Select(paragraph => paragraph.InnerText.Trim())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToArray() ?? [];
+            var episodeMarker = $"第{episode:D2}集";
+            var start = Array.FindIndex(paragraphs,
+                text => text.StartsWith(episodeMarker, StringComparison.Ordinal));
+            if (start < 0) return [];
+
+            var result = new List<string> { paragraphs[start] };
+            for (var index = start + 1; index < paragraphs.Length && result.Count < 7; index++)
+            {
+                var text = paragraphs[index];
+                if (text.StartsWith("2.", StringComparison.Ordinal)
+                    || (text.StartsWith("第", StringComparison.Ordinal)
+                        && text.Contains("集", StringComparison.Ordinal)))
+                    break;
+                if (text.StartsWith("本集功能", StringComparison.Ordinal)) continue;
+                result.Add(text);
+            }
+            return result;
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static void CopySmallMaterials(
+        IEnumerable<SourceMaterialRecord> materials,
+        SourceMaterialCategory category,
+        string root,
+        string directoryName,
+        int maximum,
+        CancellationToken cancellationToken)
+    {
+        var destination = Path.Combine(root, directoryName);
+        Directory.CreateDirectory(destination);
+        var index = 0;
+        foreach (var material in materials.Where(item => item.Category == category && item.Length <= 25L * 1024 * 1024)
+                     .Take(maximum))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var fileName = $"{++index:D2}_{Path.GetFileName(material.FullPath)}";
+            File.Copy(material.FullPath, Path.Combine(destination, fileName), overwrite: true);
+        }
+    }
+
     private static void WriteProjectDescription(
         string evidenceDir,
         string workflow,
@@ -630,6 +984,7 @@ public static class TikTokSourceFileInfoScreenshotService
         string destination,
         string kind,
         bool sceneMode,
+        int maximumCount,
         CancellationToken cancellationToken,
         Action<string>? log)
     {
@@ -644,7 +999,7 @@ public static class TikTokSourceFileInfoScreenshotService
             log?.Invoke($"未找到 ffmpeg，将使用项目海报作为兜底素材：{ex.Message}");
         }
 
-        foreach (var record in SelectEvenly(records, ContactSheetFrameCount))
+        foreach (var record in SelectEvenly(records, maximumCount))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var duration = record.DurationSeconds > 0 ? record.DurationSeconds : 60;
@@ -959,6 +1314,89 @@ public static class TikTokSourceFileInfoScreenshotService
         return image;
     }
 
+    private static Image<Rgba32> RenderScriptAndStoryboardEvidence(
+        string title,
+        int episode,
+        IReadOnlyList<SourceMaterialRecord> materials,
+        IReadOnlyList<EvidenceFrame> keyframes,
+        string scriptPath,
+        string shotListPath,
+        string manifestPath,
+        ThirtySecondClip clip,
+        FontFamily family)
+    {
+        const int width = 1440;
+        const int height = 900;
+        var image = new Image<Rgba32>(width, height, Color.ParseHex("F2F4F7"));
+        var titleFont = family.CreateFont(25, FontStyle.Bold);
+        var heading = family.CreateFont(17, FontStyle.Bold);
+        var normal = family.CreateFont(13);
+        var small = family.CreateFont(11);
+        var prompt = materials.FirstOrDefault(item =>
+            item.Category == SourceMaterialCategory.Prompt && MatchesEpisode(item.RelativePath, episode))
+                     ?? materials.FirstOrDefault(item => item.Category == SourceMaterialCategory.Prompt);
+        var excerpt = prompt is null ? "本集未发现独立提示词文件；镜头内容以真实首帧及视频源文件为准。"
+            : ReadPromptExcerpt(prompt.FullPath);
+
+        image.Mutate(ctx =>
+        {
+            ctx.Fill(Color.ParseHex("3A4654"), new RectangleF(0, 0, width, 92));
+            ctx.DrawText($"第{episode}集｜剧本、提示词与分镜文件", titleFont, Color.White, new PointF(42, 20));
+            ctx.DrawText(title, normal, Color.ParseHex("DDE4EA"), new PointF(45, 58));
+            ctx.Fill(Color.White, new RectangleF(38, 120, 600, 705));
+            ctx.Draw(Color.ParseHex("CBD2D9"), 1, new RectangleF(38, 120, 600, 705));
+            ctx.DrawText("文本源文件预览", heading, Color.ParseHex("1F4D78"), new PointF(65, 145));
+            ctx.DrawText(Path.GetFileName(scriptPath), normal, Color.ParseHex("1F7A4D"),
+                new PointF(65, 182));
+            ctx.DrawText(
+                $"片段时间码：{FormatScriptTime(clip.StartSeconds)}—{FormatScriptTime(clip.EndSeconds)}",
+                normal, Color.ParseHex("8A5B00"), new PointF(65, 212));
+            ctx.DrawText(prompt is null ? "提示词：未发现" : $"提示词：{TrimForUi(prompt.RelativePath, 54)}",
+                small, Color.ParseHex("5A6872"), new PointF(65, 245));
+            DrawWrappedText(ctx, excerpt, normal, Color.ParseHex("293740"),
+                new RectangleF(65, 285, 545, 370), 34, 13);
+            ctx.DrawText("真实性说明：不将系统整理稿冒充原始剧本。", small,
+                Color.ParseHex("8A5B00"), new PointF(65, 780));
+
+            ctx.DrawText("真实分镜/首帧", heading, Color.ParseHex("1F4D78"), new PointF(680, 122));
+        });
+
+        for (var i = 0; i < Math.Min(4, keyframes.Count); i++)
+        {
+            var col = i % 2;
+            var row = i / 2;
+            var x = 680 + col * 355;
+            var y = 165 + row * 290;
+            var rect = new Rectangle(x, y, 325, 235);
+            DrawFrameContain(image, keyframes[i].Image, rect);
+            image.Mutate(ctx =>
+            {
+                ctx.Draw(Color.ParseHex("BEC8D0"), 1, rect);
+                ctx.DrawText(TrimForUi(keyframes[i].SourceFile, 39), small,
+                    Color.ParseHex("45535E"), new PointF(x, y + 245));
+            });
+        }
+
+        image.Mutate(ctx =>
+        {
+            if (keyframes.Count == 0)
+            {
+                ctx.Fill(Color.White, new RectangleF(680, 165, 690, 525));
+                ctx.DrawText("未发现本集独立分镜/首帧图片", heading, Color.ParseHex("8A5B00"),
+                    new PointF(875, 390));
+            }
+            ctx.Fill(Color.White, new RectangleF(680, 725, 690, 100));
+            ctx.Draw(Color.ParseHex("CBD2D9"), 1, new RectangleF(680, 725, 690, 100));
+            ctx.DrawText($"镜头清单：{Path.GetFileName(shotListPath)}", normal,
+                Color.ParseHex("1F7A4D"), new PointF(705, 748));
+            ctx.DrawText($"素材清单：{Path.GetFileName(manifestPath)}", normal,
+                Color.ParseHex("1F7A4D"), new PointF(705, 782));
+            ctx.DrawText("清单由真实落盘文件自动整理", small, Color.ParseHex("687680"),
+                new PointF(1115, 785));
+        });
+        return image;
+    }
+
     private static void AddStyles(MainDocumentPart main)
     {
         var styles = new Styles();
@@ -1110,6 +1548,8 @@ public static class TikTokSourceFileInfoScreenshotService
         IReadOnlyList<VideoRecord> records,
         int count)
     {
+        if (count <= 0 || records.Count == 0) return [];
+        if (count == 1) return [records[0]];
         if (records.Count <= count) return records;
         return Enumerable.Range(0, count)
             .Select(i => records[(int)Math.Round(i * (records.Count - 1d) / (count - 1d))])
@@ -1193,6 +1633,9 @@ public static class TikTokSourceFileInfoScreenshotService
     }
     private static string FormatDuration(double seconds) =>
         seconds <= 0 ? "未读取" : TimeSpan.FromSeconds(seconds).ToString(@"hh\:mm\:ss");
+
+    private static string FormatScriptTime(double seconds) =>
+        TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString(@"hh\:mm\:ss");
     private static string FormatTimeCodeForFile(double seconds) =>
         TimeSpan.FromSeconds(seconds).ToString(@"mm\-ss");
     private static string FormatBytes(long bytes) =>
@@ -1234,6 +1677,37 @@ public static class TikTokSourceFileInfoScreenshotService
         SourceMaterialCategory Category,
         long Length,
         DateTime LastWriteTime);
+
+    private sealed record EpisodeSourcePackage(
+        string RootDirectory,
+        string MaterialManifestPath,
+        string ShotListPath,
+        string VideoIndexPath,
+        string ScriptPath,
+        ThirtySecondClip Clip);
+
+    private sealed record ThirtySecondClip(double StartSeconds, double EndSeconds)
+    {
+        public double DurationSeconds => Math.Max(0, EndSeconds - StartSeconds);
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch
+        {
+            // Best-effort cleanup for a temporary render artifact.
+        }
+    }
+
+    private sealed record ProductionShot(
+        int Number,
+        double StartSeconds,
+        double EndSeconds,
+        string Description);
 
     private enum SourceMaterialCategory
     {
