@@ -12,6 +12,7 @@ using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -218,7 +219,7 @@ public static class TikTokAiGenerationScreenshotService
         CancellationToken cancellationToken)
     {
         var workflow = Path.GetFullPath(workflowProjectDirectory);
-        var videos = EnumerateVideos(workflow).Take(12).ToArray();
+        var videos = ResolveVideoSources(workflow).Take(12).ToArray();
         var frames = new List<Image<Rgba32>>();
 
         if (videos.Length > 0)
@@ -300,12 +301,48 @@ public static class TikTokAiGenerationScreenshotService
             }
         }
 
-        while (frames.Count < requiredFrameCount)
-        {
-            frames.Add(frames[frames.Count % Math.Max(1, frames.Count)].Clone());
-        }
+        FillFramePool(frames, requiredFrameCount);
 
         return frames;
+    }
+
+    private static IReadOnlyList<string> ResolveVideoSources(string workflow)
+    {
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(workflow);
+            var resolved = ProjectVideoResolver.ResolveSourceVideos(
+                context.SourceProjectDir,
+                allowStagedFallback: true);
+            if (resolved.Count > 0)
+            {
+                return resolved;
+            }
+        }
+        catch
+        {
+            // Compatibility fallback for standalone workflow folders without project metadata.
+        }
+
+        return EnumerateVideos(workflow)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    internal static void FillFramePool(List<Image<Rgba32>> frames, int requiredFrameCount)
+    {
+        if (frames.Count == 0 || frames.Count >= requiredFrameCount)
+        {
+            return;
+        }
+
+        var originalCount = frames.Count;
+        var sourceIndex = 0;
+        while (frames.Count < requiredFrameCount)
+        {
+            frames.Add(frames[sourceIndex % originalCount].Clone());
+            sourceIndex++;
+        }
     }
 
     private static IReadOnlyList<Image<Rgba32>> PickKeyframes(IReadOnlyList<Image<Rgba32>> pool, int shotIndex)
@@ -751,20 +788,82 @@ public static class TikTokAiGenerationScreenshotService
 
     private static void PasteCover(Image<Rgba32> canvas, Image<Rgba32> source, int x, int y, int w, int h)
     {
+        var faceCenterY = TryFindLikelyFaceCenterY(source);
         using var clone = source.Clone(ctx =>
         {
             var scale = Math.Max(w / (float)source.Width, h / (float)source.Height);
             var nw = Math.Max(1, (int)Math.Round(source.Width * scale));
             var nh = Math.Max(1, (int)Math.Round(source.Height * scale));
             ctx.Resize(nw, nh);
-            var left = Math.Max(0, (nw - w) / 2);
-            var top = Math.Max(0, (nh - h) / 2);
-            ctx.Crop(new Rectangle(left, top, w, h));
+            ctx.Crop(CalculateCoverCrop(nw, nh, w, h, faceCenterY));
         });
         canvas.Mutate(ctx => ctx.DrawImage(clone, new Point(x, y), 1f));
     }
 
+    /// <summary>
+    /// Calculates the crop after a cover resize. Portrait sources are biased toward the upper
+    /// body instead of being vertically centered; when a likely face is found it is placed near
+    /// the upper third of the destination so the forehead/chin are not clipped.
+    /// </summary>
+    internal static Rectangle CalculateCoverCrop(
+        int resizedWidth,
+        int resizedHeight,
+        int targetWidth,
+        int targetHeight,
+        double? normalizedFaceCenterY = null)
+    {
+        var left = Math.Max(0, (resizedWidth - targetWidth) / 2);
+        var overflowY = Math.Max(0, resizedHeight - targetHeight);
+        if (overflowY == 0)
+        {
+            return new Rectangle(left, 0, targetWidth, targetHeight);
+        }
+
+        int top;
+        if (normalizedFaceCenterY is >= 0 and <= 1)
+        {
+            const double desiredFaceY = 0.36;
+            top = (int)Math.Round(
+                normalizedFaceCenterY.Value * resizedHeight - desiredFaceY * targetHeight);
+        }
+        else if (resizedHeight > resizedWidth)
+        {
+            // A centered cover crop of a portrait frame commonly keeps only the torso.
+            // Keeping roughly the upper fifth of the overflow preserves heads and upper bodies.
+            top = (int)Math.Round(overflowY * 0.18);
+        }
+        else
+        {
+            top = overflowY / 2;
+        }
+
+        return new Rectangle(
+            left,
+            Math.Clamp(top, 0, overflowY),
+            targetWidth,
+            targetHeight);
+    }
+
     private static List<Image<Rgba32>> CollectAssetImages(string workflow)
+    {
+        var candidates = CollectAssetImagePaths(workflow);
+        var images = new List<Image<Rgba32>>();
+        foreach (var path in candidates)
+        {
+            try
+            {
+                images.Add(Image.Load<Rgba32>(path));
+            }
+            catch
+            {
+                // skip
+            }
+        }
+
+        return images;
+    }
+
+    internal static IReadOnlyList<string> CollectAssetImagePaths(string workflow)
     {
         var candidates = new List<string>();
         void Add(string path)
@@ -779,9 +878,8 @@ public static class TikTokAiGenerationScreenshotService
         Add(Path.Combine(workflow, "海报.png"));
         if (Directory.Exists(workflow))
         {
-            candidates.AddRange(Directory.EnumerateFiles(workflow, "工程图_*.png", SearchOption.TopDirectoryOnly));
-            candidates.AddRange(TikTokProjectImageService.ListGeneratedImages(workflow));
             candidates.AddRange(Directory.EnumerateFiles(workflow, "*封面*.png", SearchOption.TopDirectoryOnly));
+            candidates.AddRange(Directory.EnumerateFiles(workflow, "tiktok-cover-*.png", SearchOption.TopDirectoryOnly));
             candidates.AddRange(Directory.EnumerateFiles(workflow, "*海报*.jpg", SearchOption.TopDirectoryOnly));
         }
 
@@ -791,24 +889,20 @@ public static class TikTokAiGenerationScreenshotService
             candidates.AddRange(Directory.EnumerateFiles(parent, "*.png", SearchOption.TopDirectoryOnly).Take(8));
         }
 
-        var images = new List<Image<Rgba32>>();
-        foreach (var path in candidates
-                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                     .Where(p => ImageExtensions.Contains(Path.GetExtension(p), StringComparer.OrdinalIgnoreCase))
-                     .Take(16))
-        {
-            try
-            {
-                images.Add(Image.Load<Rgba32>(path));
-            }
-            catch
-            {
-                // skip
-            }
-        }
-
-        return images;
+        return candidates
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(p => ImageExtensions.Contains(Path.GetExtension(p), StringComparer.OrdinalIgnoreCase))
+            .Where(p => !IsProjectImagePath(p))
+            .Take(16)
+            .ToArray();
     }
+
+    private static bool IsProjectImagePath(string path) =>
+        string.Equals(
+            Path.GetFileName(Path.GetDirectoryName(path)),
+            TikTokProjectImageService.OutputDirectoryName,
+            StringComparison.OrdinalIgnoreCase)
+        || Path.GetFileName(path).StartsWith("工程图_", StringComparison.OrdinalIgnoreCase);
 
     internal static IEnumerable<string> EnumerateVideos(string root)
     {
@@ -978,6 +1072,93 @@ public static class TikTokAiGenerationScreenshotService
     /// 轻量级人脸可见度评分。使用肤色连通区域、位置、清晰度和曝光度，
     /// 不依赖外部模型；用于在相邻候选帧中优先选择露脸画面。
     /// </summary>
+    private static double? TryFindLikelyFaceCenterY(Image<Rgba32> source)
+    {
+        using var image = source.Clone(ctx => ctx.Resize(new ResizeOptions
+        {
+            Mode = ResizeMode.Max,
+            Size = new Size(160, 160),
+        }));
+        var width = image.Width;
+        var height = image.Height;
+        var skin = new bool[width * height];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                skin[y * width + x] = IsLikelySkin(image[x, y]);
+            }
+        }
+
+        var visited = new bool[skin.Length];
+        var queue = new Queue<int>();
+        var bestScore = 0d;
+        double? bestCenterY = null;
+        for (var start = 0; start < skin.Length; start++)
+        {
+            if (!skin[start] || visited[start])
+            {
+                continue;
+            }
+
+            visited[start] = true;
+            queue.Enqueue(start);
+            var count = 0;
+            var minX = width;
+            var maxX = 0;
+            var minY = height;
+            var maxY = 0;
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                var x = current % width;
+                var y = current / width;
+                count++;
+                minX = Math.Min(minX, x);
+                maxX = Math.Max(maxX, x);
+                minY = Math.Min(minY, y);
+                maxY = Math.Max(maxY, y);
+
+                Visit(x - 1, y);
+                Visit(x + 1, y);
+                Visit(x, y - 1);
+                Visit(x, y + 1);
+            }
+
+            var componentWidth = maxX - minX + 1;
+            var componentHeight = maxY - minY + 1;
+            var areaRatio = count / (double)(width * height);
+            var aspect = componentWidth / (double)Math.Max(1, componentHeight);
+            var centerX = (minX + maxX) / 2d / width;
+            var centerY = (minY + maxY) / 2d / height;
+            if (areaRatio is >= 0.004 and <= 0.18
+                && aspect is >= 0.45 and <= 1.75
+                && centerX is >= 0.08 and <= 0.92
+                && centerY is >= 0.05 and <= 0.72)
+            {
+                var centrality = 1.0 - Math.Min(1.0, Math.Abs(centerX - 0.5) * 1.5);
+                var upperBias = 1.0 - Math.Min(0.8, Math.Max(0, centerY - 0.45));
+                var score = Math.Sqrt(areaRatio) * centrality * upperBias;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestCenterY = centerY;
+                }
+            }
+
+            void Visit(int x, int y)
+            {
+                if (x < 0 || x >= width || y < 0 || y >= height) return;
+                var index = y * width + x;
+                if (!skin[index] || visited[index]) return;
+                visited[index] = true;
+                queue.Enqueue(index);
+            }
+        }
+
+        return bestCenterY;
+    }
+
     internal static double ScoreFaceVisibility(Image<Rgba32> source)
     {
         using var image = source.Clone(ctx => ctx.Resize(new ResizeOptions

@@ -11,6 +11,45 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokAiGenerationScreenshotServiceTests
 {
     [Fact]
+    public void Cover_crop_biases_portrait_frames_toward_the_upper_body()
+    {
+        var crop = TikTokAiGenerationScreenshotService.CalculateCoverCrop(
+            resizedWidth: 560,
+            resizedHeight: 996,
+            targetWidth: 560,
+            targetHeight: 300);
+
+        crop.Top.Should().BeInRange(124, 126);
+        crop.Top.Should().BeLessThan((996 - 300) / 2);
+    }
+
+    [Fact]
+    public void Cover_crop_places_detected_face_near_the_upper_third()
+    {
+        var crop = TikTokAiGenerationScreenshotService.CalculateCoverCrop(
+            resizedWidth: 560,
+            resizedHeight: 996,
+            targetWidth: 560,
+            targetHeight: 300,
+            normalizedFaceCenterY: 0.25);
+
+        var faceYInsideCrop = (0.25 * 996) - crop.Top;
+        faceYInsideCrop.Should().BeApproximately(300 * 0.36, 1);
+    }
+
+    [Fact]
+    public void Cover_crop_keeps_landscape_frames_centered()
+    {
+        var crop = TikTokAiGenerationScreenshotService.CalculateCoverCrop(
+            resizedWidth: 600,
+            resizedHeight: 400,
+            targetWidth: 560,
+            targetHeight: 300);
+
+        crop.Should().Be(new Rectangle(20, 50, 560, 300));
+    }
+
+    [Fact]
     public void Face_visibility_score_prefers_centered_skin_region()
     {
         using var emptyFrame = new Image<Rgba32>(160, 160, new Rgba32(35, 45, 60));
@@ -30,6 +69,76 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
 
         TikTokAiGenerationScreenshotService.ScoreFaceVisibility(faceFrame)
             .Should().BeGreaterThan(TikTokAiGenerationScreenshotService.ScoreFaceVisibility(emptyFrame));
+    }
+
+    [Fact]
+    public void Asset_fallback_excludes_project_images()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-ai-assets-{Guid.NewGuid():N}");
+        var projectImages = Path.Combine(workflow, TikTokProjectImageService.OutputDirectoryName);
+        Directory.CreateDirectory(projectImages);
+        try
+        {
+            using (var poster = new Image<Rgba32>(32, 32, Color.Red))
+            {
+                poster.SaveAsPng(Path.Combine(workflow, "海报图片.png"));
+            }
+            using (var cover = new Image<Rgba32>(32, 32, Color.Blue))
+            {
+                cover.SaveAsPng(Path.Combine(workflow, "tiktok-cover-3x4.png"));
+            }
+            using (var projectImage = new Image<Rgba32>(32, 32, Color.Green))
+            {
+                projectImage.SaveAsPng(Path.Combine(projectImages, "工程图_1.png"));
+            }
+
+            var paths = TikTokAiGenerationScreenshotService.CollectAssetImagePaths(workflow);
+
+            paths.Should().Contain(path => Path.GetFileName(path) == "海报图片.png");
+            paths.Should().Contain(path => Path.GetFileName(path) == "tiktok-cover-3x4.png");
+            paths.Should().NotContain(path =>
+                path.Contains(TikTokProjectImageService.OutputDirectoryName, StringComparison.OrdinalIgnoreCase)
+                || Path.GetFileName(path).StartsWith("工程图_", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Frame_pool_repeats_all_original_frames_in_round_robin_order()
+    {
+        var frames = new List<Image<Rgba32>>
+        {
+            new(1, 1, Color.Red),
+            new(1, 1, Color.Green),
+            new(1, 1, Color.Blue),
+        };
+        try
+        {
+            TikTokAiGenerationScreenshotService.FillFramePool(frames, 9);
+
+            frames.Select(frame => frame[0, 0])
+                .Should()
+                .Equal(
+                    Color.Red.ToPixel<Rgba32>(),
+                    Color.Green.ToPixel<Rgba32>(),
+                    Color.Blue.ToPixel<Rgba32>(),
+                    Color.Red.ToPixel<Rgba32>(),
+                    Color.Green.ToPixel<Rgba32>(),
+                    Color.Blue.ToPixel<Rgba32>(),
+                    Color.Red.ToPixel<Rgba32>(),
+                    Color.Green.ToPixel<Rgba32>(),
+                    Color.Blue.ToPixel<Rgba32>());
+        }
+        finally
+        {
+            foreach (var frame in frames)
+            {
+                frame.Dispose();
+            }
+        }
     }
 
     [Fact]
