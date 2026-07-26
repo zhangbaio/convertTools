@@ -32,7 +32,7 @@ public static class TikTokSourceFileInfoScreenshotService
     public const string OutputDirectoryName = "原始文件信息截图";
     public const string EvidenceDirectoryName = "项目原始资料";
     public const int RequiredImageCount = 4;
-    public const string ScreenshotVersion = "v5-real-windows-explorer";
+    public const string ScreenshotVersion = "v6-explorer-and-real-script";
 
     private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
     private const int ContactSheetFrameCount = 4;
@@ -155,32 +155,29 @@ public static class TikTokSourceFileInfoScreenshotService
             sourceMaterials, SourceMaterialCategory.Keyframe, ContactSheetFrameCount, workflow);
 
         var explorerOutputs = GetExpectedOutputPaths(workflow).ToArray();
-        var keyframeDirectory = Path.Combine(episodePackage.RootDirectory, "04_镜头首帧");
-        if (!Directory.EnumerateFileSystemEntries(keyframeDirectory).Any())
-        {
-            keyframeDirectory = Directory.EnumerateFileSystemEntries(characterDir).Any()
-                ? characterDir
-                : sceneDir;
-        }
+        var explorerRequests = BuildExplorerCaptureRequests(
+            workflow,
+            evidenceDir,
+            episodePackage.RootDirectory,
+            explorerOutputs);
         var explorerCaptured = records.Count > 0 && WindowsExplorerScreenshotService.TryCaptureAll(
-        [
-            new WindowsExplorerScreenshotService.CaptureRequest(
-                workflow, explorerOutputs[0], LargeIcons: false),
-            new WindowsExplorerScreenshotService.CaptureRequest(
-                evidenceDir, explorerOutputs[1], LargeIcons: false),
-            new WindowsExplorerScreenshotService.CaptureRequest(
-                episodePackage.RootDirectory, explorerOutputs[2], LargeIcons: false),
-            new WindowsExplorerScreenshotService.CaptureRequest(
-                keyframeDirectory, explorerOutputs[3], LargeIcons: true),
-        ], log, cancellationToken);
-        if (explorerCaptured)
+            explorerRequests,
+            log,
+            cancellationToken);
+        var scriptCaptured = explorerCaptured && TryRenderRealScriptPage(
+            episodePackage.ScriptPath,
+            explorerOutputs[2],
+            evidenceDir,
+            cancellationToken,
+            log);
+        if (explorerCaptured && scriptCaptured)
         {
             foreach (var frame in characterFrames.Concat(sceneFrames).Concat(keyframeFrames))
             {
                 frame.Image.Dispose();
             }
             log?.Invoke(
-                $"原始文件信息截图已生成：{explorerOutputs.Length} 张真实 Windows 资源管理器截图 → {outputDir}");
+                $"原始文件信息截图已生成：3 张真实 Windows 资源管理器目录截图、1 张真实剧本页面截图 → {outputDir}");
             return explorerOutputs;
         }
 
@@ -244,6 +241,33 @@ public static class TikTokSourceFileInfoScreenshotService
 
         log?.Invoke($"原始文件信息截图已生成：{outputs.Count} 张；真实资料目录：{evidenceDir}");
         return outputs;
+    }
+
+    internal static IReadOnlyList<WindowsExplorerScreenshotService.CaptureRequest>
+        BuildExplorerCaptureRequests(
+            string workflow,
+            string evidenceDirectory,
+            string episodePackageDirectory,
+            IReadOnlyList<string> outputs)
+    {
+        if (outputs.Count < RequiredImageCount)
+        {
+            throw new ArgumentException(
+                $"资源管理器截图输出数量不足：{outputs.Count}/{RequiredImageCount}",
+                nameof(outputs));
+        }
+
+        return
+        [
+            new WindowsExplorerScreenshotService.CaptureRequest(
+                workflow, outputs[0], LargeIcons: false),
+            new WindowsExplorerScreenshotService.CaptureRequest(
+                evidenceDirectory, outputs[1], LargeIcons: false),
+            // The third output is reserved for the rendered script page. The episode package
+            // directory belongs to "镜头生成源文件", which is the fourth fixed filename.
+            new WindowsExplorerScreenshotService.CaptureRequest(
+                episodePackageDirectory, outputs[3], LargeIcons: false),
+        ];
     }
 
     private static bool TryRenderRealScriptPage(

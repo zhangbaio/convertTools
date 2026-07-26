@@ -53,10 +53,6 @@ public sealed class LogService
 {
     private const int MaxEntries = 5000;
     private const int MaxRendered = 1200;
-    private static readonly IBrush InfoForeground = new SolidColorBrush(Color.Parse("#E3F2FF"));
-    private static readonly IBrush SuccessForeground = new SolidColorBrush(Color.Parse("#6EE7B7"));
-    private static readonly IBrush WarningForeground = new SolidColorBrush(Color.Parse("#FFD27A"));
-    private static readonly IBrush ErrorForeground = new SolidColorBrush(Color.Parse("#FF9EAA"));
     private static readonly TimeSpan Retention = TimeSpan.FromDays(TikTokExecutionHistoryService.DefaultRetentionDays);
     private static readonly Regex HeaderRegex = new(
         @"^\[(?<time>[^\]]+)\]\s*(?<level>\w+)\s*(?:\[(?<project>[^\]]+)\])?\s*(?<rest>.*)$",
@@ -384,31 +380,7 @@ public sealed class LogService
     }
 
     public static string InferLevel(string text)
-    {
-        var message = text ?? "";
-        if (ContainsAny(message,
-                "失败", "错误", "异常", "无法", "终止", "崩溃", "未成功", "未通过",
-                "failed", "failure", "error", "exception", "invalid"))
-        {
-            return "error";
-        }
-
-        if (ContainsAny(message,
-                "警告", "重试", "兜底", "重复", "相似", "不合格", "未发现", "未找到", "缺少",
-                "超时", "warn", "warning", "retry", "timeout"))
-        {
-            return "warn";
-        }
-
-        if (ContainsAny(message,
-                "成功", "完成", "已完成", "通过", "已保存", "已生成", "已同步", "已绑定",
-                "downloaded", "uploaded", "succeeded", "success", "done"))
-        {
-            return "success";
-        }
-
-        return "info";
-    }
+        => LogMessageLevelClassifier.InferLevel(text);
 
     public static string NormalizeLevel(string level)
     {
@@ -424,10 +396,10 @@ public sealed class LogService
 
     public static IBrush BrushForLevel(string level) => NormalizeLevel(level) switch
     {
-        "error" => ErrorForeground,
-        "warn" => WarningForeground,
-        "success" => SuccessForeground,
-        _ => InfoForeground,
+        "error" => Brushes.Firebrick,
+        "warn" => Brushes.DarkOrange,
+        "success" => Brushes.SeaGreen,
+        _ => Brushes.Black,
     };
 
     public static string FormatLevel(string level) => NormalizeLevel(level) switch

@@ -18,6 +18,29 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
     }
 
     [Fact]
+    public void Explorer_capture_plan_reserves_third_output_for_script_page()
+    {
+        var outputs = new[]
+        {
+            @"C:\shots\01_真实项目文件目录.png",
+            @"C:\shots\02_角色与场景素材.png",
+            @"C:\shots\03_剧本与分镜文件.png",
+            @"C:\shots\04_镜头生成源文件.png",
+        };
+
+        var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(
+            @"C:\workflow",
+            @"C:\workflow\项目原始资料",
+            @"C:\workflow\项目原始资料\EP01_源文件包",
+            outputs);
+
+        requests.Select(request => request.OutputPath)
+            .Should()
+            .Equal(outputs[0], outputs[1], outputs[3]);
+        requests.Should().NotContain(request => request.OutputPath == outputs[2]);
+    }
+
+    [Fact]
     public void Generate_handles_multiple_videos_when_only_one_fallback_frame_is_requested()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-source-many-videos-{Guid.NewGuid():N}");

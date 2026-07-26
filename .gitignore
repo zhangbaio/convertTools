@@ -13,6 +13,7 @@
 run-logs/
 .runlogs/
 .codex-*/
+outputs/
 
 # 本地 ASR 模型（体积大，不入库；与 Python 客户端共用 layout）
 models/

@@ -16,6 +16,7 @@ public static class ExplorerCaptureNative {
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int command);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
+    [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
 }
 '@
 
@@ -68,9 +69,30 @@ try {
             $graphics.ReleaseHdc($hdc)
             $graphics.Dispose()
         }
+        # Remove the Explorer title/address area and the left navigation tree.
+        # Keep only the real file command bar and file content pane.
+        $dpi = [ExplorerCaptureNative]::GetDpiForWindow($hwnd)
+        if ($dpi -le 0) { $dpi = 96 }
+        $dpiScale = $dpi / 96.0
+        $cropLeft = [Math]::Min(
+            [int][Math]::Round(150 * $dpiScale),
+            [Math]::Max(0, $width - 1))
+        $cropTop = [Math]::Min(
+            [int][Math]::Round(88 * $dpiScale),
+            [Math]::Max(0, $height - 1))
+        $cropRect = [Drawing.Rectangle]::new(
+            $cropLeft,
+            $cropTop,
+            ($width - $cropLeft),
+            ($height - $cropTop))
+        $cropped = $bitmap.Clone($cropRect, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
         $outputFull = [IO.Path]::GetFullPath($OutputPath)
         [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($outputFull)) | Out-Null
-        $bitmap.Save($outputFull, [Drawing.Imaging.ImageFormat]::Png)
+        try {
+            $cropped.Save($outputFull, [Drawing.Imaging.ImageFormat]::Png)
+        } finally {
+            $cropped.Dispose()
+        }
         Write-Output $outputFull
     } finally {
         $bitmap.Dispose()
