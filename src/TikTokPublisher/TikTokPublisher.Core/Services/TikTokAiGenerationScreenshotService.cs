@@ -25,7 +25,7 @@ public static class TikTokAiGenerationScreenshotService
     public const string OutputDirectoryName = "AI 生成过程截图";
     public const int RequiredImageCount = 4;
     public const int MaxImageCount = 8;
-    public const string ScreenshotVersion = "v3-workbench-video-sources";
+    public const string ScreenshotVersion = "v4-adaptive-portrait-workbench";
     public const int ShotsPerPage = 2;
 
     private const string LegacyOutputDirectoryName = "AI生成过程截图";
@@ -689,35 +689,56 @@ public static class TikTokAiGenerationScreenshotService
         const int leftW = 560;
         const int pad = 14;
         var leftX = x + pad;
+        var portraitLayout = UsesPortraitLayout(frames);
         var heroIndex = Enumerable.Range(0, frames.Count)
             .OrderByDescending(index => ScoreFaceVisibility(frames[index]))
             .FirstOrDefault();
         var hero = frames[heroIndex];
-        PasteCover(canvas, hero, leftX, y + pad, leftW, 300);
-
-        canvas.Mutate(ctx =>
+        if (portraitLayout)
         {
-            FillRound(ctx, new RectangleF(leftX + 10, y + pad + 8, 70, 22), Color.ParseHex("0a0e1499"));
-            DrawText(ctx, $"镜头 {shotNo:00}", font11, tx, new PointF(leftX + 18, y + pad + 11));
-            ctx.Fill(Color.ParseHex("00000099"), new RectangleF(leftX, y + pad + 270, leftW, 30));
-            DrawText(ctx, $"▶  00:03 / 00:{analysis.Seconds:00}", font11, tx, new PointF(leftX + 12, y + pad + 278));
-
-            DrawText(ctx, "四宫格参考 KEYFRAME CHECK", font11, mut, new PointF(leftX, y + pad + 312));
-        });
-
-        var cellW = (leftW - 7) / 2;
-        var cellH = 90;
-        for (var i = 0; i < 4; i++)
-        {
-            var cx = leftX + i % 2 * (cellW + 7);
-            var cy = y + pad + 332 + i / 2 * (cellH + 6);
-            PasteCover(canvas, frames[i % frames.Count], cx, cy, cellW, cellH);
+            const int heroW = 270;
+            const int heroH = 480;
+            const int portraitCellW = 134;
+            const int portraitCellH = 232;
+            PasteContain(canvas, hero, leftX, y + pad, heroW, heroH);
             canvas.Mutate(ctx =>
             {
-                ctx.Draw(i == heroIndex ? Color.ParseHex("16c0a8") : Color.ParseHex("1a2130"), 1.5f, new RectangleF(cx, cy, cellW, cellH));
-                ctx.Fill(Color.ParseHex("000000c8"), new RectangleF(cx, cy + cellH - 18, cellW, 18));
-                DrawText(ctx, KeyframeLabels[i], font11, tx, new PointF(cx + cellW / 2f - 14, cy + cellH - 15));
+                FillRound(ctx, new RectangleF(leftX + 10, y + pad + 8, 70, 22), Color.ParseHex("0a0e1499"));
+                DrawText(ctx, $"镜头 {shotNo:00}", font11, tx, new PointF(leftX + 18, y + pad + 11));
+                ctx.Fill(Color.ParseHex("00000099"), new RectangleF(leftX, y + pad + heroH - 30, heroW, 30));
+                DrawText(ctx, $"▶  00:03 / 00:{analysis.Seconds:00}", font11, tx, new PointF(leftX + 12, y + pad + heroH - 22));
+                DrawText(ctx, "竖屏关键帧 9:16", font11, mut, new PointF(leftX + heroW + 10, y + pad + heroH + 10));
             });
+
+            for (var i = 0; i < 4; i++)
+            {
+                var cx = leftX + heroW + 10 + i % 2 * (portraitCellW + 6);
+                var cy = y + pad + i / 2 * (portraitCellH + 6);
+                PasteContain(canvas, frames[i % frames.Count], cx, cy, portraitCellW, portraitCellH);
+                DrawFrameLabel(canvas, font11, tx, cx, cy, portraitCellW, portraitCellH, i, heroIndex);
+            }
+        }
+        else
+        {
+            PasteCover(canvas, hero, leftX, y + pad, leftW, 300);
+            canvas.Mutate(ctx =>
+            {
+                FillRound(ctx, new RectangleF(leftX + 10, y + pad + 8, 70, 22), Color.ParseHex("0a0e1499"));
+                DrawText(ctx, $"镜头 {shotNo:00}", font11, tx, new PointF(leftX + 18, y + pad + 11));
+                ctx.Fill(Color.ParseHex("00000099"), new RectangleF(leftX, y + pad + 270, leftW, 30));
+                DrawText(ctx, $"▶  00:03 / 00:{analysis.Seconds:00}", font11, tx, new PointF(leftX + 12, y + pad + 278));
+                DrawText(ctx, "四宫格参考 KEYFRAME CHECK", font11, mut, new PointF(leftX, y + pad + 312));
+            });
+
+            var cellW = (leftW - 7) / 2;
+            const int cellH = 90;
+            for (var i = 0; i < 4; i++)
+            {
+                var cx = leftX + i % 2 * (cellW + 7);
+                var cy = y + pad + 332 + i / 2 * (cellH + 6);
+                PasteCover(canvas, frames[i % frames.Count], cx, cy, cellW, cellH);
+                DrawFrameLabel(canvas, font11, tx, cx, cy, cellW, cellH, i, heroIndex);
+            }
         }
 
         var bodyX = leftX + leftW + 16;
@@ -745,23 +766,36 @@ public static class TikTokAiGenerationScreenshotService
             DrawText(ctx, $"已匹配 {analysis.Match}%", font12, Color.ParseHex("f08aa0"), new PointF(bodyX + midW - 90, y + 134));
         });
 
-        var thumbW = (midW - 21) / 4;
+        var thumbW = portraitLayout ? 96 : (midW - 21) / 4;
+        var thumbH = portraitLayout ? 171 : 78;
+        var thumbGap = portraitLayout ? 10 : 7;
+        var thumbStartX = portraitLayout
+            ? bodyX + Math.Max(0, (midW - (thumbW * 4 + thumbGap * 3)) / 2)
+            : bodyX;
         for (var i = 0; i < 4; i++)
         {
-            var tx0 = bodyX + i * (thumbW + 7);
+            var tx0 = thumbStartX + i * (thumbW + thumbGap);
             var ty0 = y + 156;
-            PasteCover(canvas, frames[i % frames.Count], tx0, ty0, thumbW, 78);
+            if (portraitLayout)
+            {
+                PasteContain(canvas, frames[i % frames.Count], tx0, ty0, thumbW, thumbH);
+            }
+            else
+            {
+                PasteCover(canvas, frames[i % frames.Count], tx0, ty0, thumbW, thumbH);
+            }
             canvas.Mutate(ctx =>
             {
-                ctx.Fill(Color.ParseHex("000000c8"), new RectangleF(tx0, ty0 + 60, thumbW, 18));
-                DrawText(ctx, KeyframeLabels[i], font11, tx, new PointF(tx0 + thumbW / 2f - 14, ty0 + 63));
+                ctx.Fill(Color.ParseHex("000000c8"), new RectangleF(tx0, ty0 + thumbH - 18, thumbW, 18));
+                DrawText(ctx, KeyframeLabels[i], font11, tx, new PointF(tx0 + thumbW / 2f - 14, ty0 + thumbH - 15));
             });
         }
 
         canvas.Mutate(ctx =>
         {
-            DrawText(ctx, "图片提示词", font12, mut, new PointF(bodyX, y + 250));
-            var promptY = y + 272;
+            var promptHeadingY = portraitLayout ? y + 346 : y + 250;
+            DrawText(ctx, "图片提示词", font12, mut, new PointF(bodyX, promptHeadingY));
+            var promptY = promptHeadingY + 22;
             for (var i = 0; i < Math.Min(3, analysis.Prompts.Count); i++)
             {
                 DrawText(ctx, $"{i + 1}. {Ellipsize(analysis.Prompts[i], 42)}", font12, Color.ParseHex("b0b9c8"), new PointF(bodyX, promptY));
@@ -784,6 +818,58 @@ public static class TikTokAiGenerationScreenshotService
             FillRound(ctx, new RectangleF(rightX, y + height - 52, 280, 30), Color.ParseHex("131925"));
             DrawText(ctx, "复制脚本词", font12, Color.ParseHex("c7cfdc"), new PointF(rightX + 100, y + height - 44));
         });
+    }
+
+    internal static bool UsesPortraitLayout(IReadOnlyList<Image<Rgba32>> frames)
+    {
+        if (frames.Count == 0)
+        {
+            return false;
+        }
+
+        return frames.Count(frame => frame.Height > frame.Width * 1.15) > frames.Count / 2;
+    }
+
+    private static void DrawFrameLabel(
+        Image<Rgba32> canvas,
+        Font font,
+        Color textColor,
+        int x,
+        int y,
+        int width,
+        int height,
+        int frameIndex,
+        int heroIndex)
+    {
+        canvas.Mutate(ctx =>
+        {
+            ctx.Draw(
+                frameIndex == heroIndex ? Color.ParseHex("16c0a8") : Color.ParseHex("1a2130"),
+                1.5f,
+                new RectangleF(x, y, width, height));
+            ctx.Fill(Color.ParseHex("000000c8"), new RectangleF(x, y + height - 18, width, 18));
+            DrawText(
+                ctx,
+                KeyframeLabels[frameIndex % KeyframeLabels.Length],
+                font,
+                textColor,
+                new PointF(x + width / 2f - 14, y + height - 15));
+        });
+    }
+
+    private static void PasteContain(Image<Rgba32> canvas, Image<Rgba32> source, int x, int y, int w, int h)
+    {
+        canvas.Mutate(ctx => ctx.Fill(Color.ParseHex("070a0f"), new RectangleF(x, y, w, h)));
+        using var clone = source.Clone(ctx =>
+        {
+            var scale = Math.Min(w / (float)source.Width, h / (float)source.Height);
+            ctx.Resize(
+                Math.Max(1, (int)Math.Round(source.Width * scale)),
+                Math.Max(1, (int)Math.Round(source.Height * scale)));
+        });
+        var drawX = x + (w - clone.Width) / 2;
+        var drawY = y + (h - clone.Height) / 2;
+        canvas.Mutate(ctx => ctx.DrawImage(clone, new Point(drawX, drawY), 1f));
     }
 
     private static void PasteCover(Image<Rgba32> canvas, Image<Rgba32> source, int x, int y, int w, int h)
@@ -820,21 +906,30 @@ public static class TikTokAiGenerationScreenshotService
         }
 
         int top;
+        var isPortrait = resizedHeight > resizedWidth;
         if (normalizedFaceCenterY is >= 0 and <= 1)
         {
-            const double desiredFaceY = 0.36;
+            var desiredFaceY = isPortrait ? 0.30 : 0.36;
             top = (int)Math.Round(
                 normalizedFaceCenterY.Value * resizedHeight - desiredFaceY * targetHeight);
         }
-        else if (resizedHeight > resizedWidth)
+        else if (isPortrait)
         {
-            // A centered cover crop of a portrait frame commonly keeps only the torso.
-            // Keeping roughly the upper fifth of the overflow preserves heads and upper bodies.
-            top = (int)Math.Round(overflowY * 0.18);
+            // Portrait evidence should favor the head and upper body. Center cropping keeps the
+            // torso, while even a modest downward bias can clip the forehead in very wide slots.
+            top = (int)Math.Round(overflowY * 0.08);
         }
         else
         {
             top = overflowY / 2;
+        }
+
+        if (isPortrait)
+        {
+            // Portrait video subjects commonly place their forehead very close to the source top.
+            // Wide workbench slots discard most of the source height, so even a small positive
+            // offset can remove the whole face. Always anchor portrait evidence at the top.
+            top = 0;
         }
 
         return new Rectangle(
@@ -1134,10 +1229,10 @@ public static class TikTokAiGenerationScreenshotService
             if (areaRatio is >= 0.004 and <= 0.18
                 && aspect is >= 0.45 and <= 1.75
                 && centerX is >= 0.08 and <= 0.92
-                && centerY is >= 0.05 and <= 0.72)
+                && centerY is >= 0.05 and <= 0.50)
             {
                 var centrality = 1.0 - Math.Min(1.0, Math.Abs(centerX - 0.5) * 1.5);
-                var upperBias = 1.0 - Math.Min(0.8, Math.Max(0, centerY - 0.45));
+                var upperBias = 1.0 - Math.Min(0.9, Math.Max(0, centerY - 0.35) * 2.0);
                 var score = Math.Sqrt(areaRatio) * centrality * upperBias;
                 if (score > bestScore)
                 {
@@ -1240,13 +1335,13 @@ public static class TikTokAiGenerationScreenshotService
             var aspect = componentWidth / (double)Math.Max(1, componentHeight);
             var centerX = (minX + maxX) / 2d / width;
             var centerY = (minY + maxY) / 2d / height;
-            if (areaRatio is >= 0.004 and <= 0.18
+            if (areaRatio is >= 0.004 and <= 0.12
                 && aspect is >= 0.45 and <= 1.75
                 && centerX is >= 0.08 and <= 0.92
-                && centerY <= 0.82)
+                && centerY <= 0.55)
             {
                 var centrality = 1.0 - Math.Min(1.0, Math.Abs(centerX - 0.5) * 1.5);
-                var upperBias = 1.0 - Math.Min(1.0, Math.Max(0, centerY - 0.55));
+                var upperBias = 1.0 - Math.Min(0.95, Math.Max(0, centerY - 0.35) * 3.0);
                 faceScore = Math.Max(faceScore, Math.Sqrt(areaRatio) * centrality * upperBias);
             }
 

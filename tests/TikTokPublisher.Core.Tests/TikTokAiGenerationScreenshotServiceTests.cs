@@ -11,7 +11,47 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokAiGenerationScreenshotServiceTests
 {
     [Fact]
-    public void Cover_crop_biases_portrait_frames_toward_the_upper_body()
+    public void Workbench_uses_portrait_layout_when_most_frames_are_vertical()
+    {
+        var frames = new List<Image<Rgba32>>
+        {
+            new(540, 960),
+            new(540, 960),
+            new(540, 960),
+            new(1280, 720),
+        };
+        try
+        {
+            TikTokAiGenerationScreenshotService.UsesPortraitLayout(frames).Should().BeTrue();
+        }
+        finally
+        {
+            foreach (var frame in frames) frame.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Workbench_keeps_landscape_layout_when_vertical_frames_are_not_the_majority()
+    {
+        var frames = new List<Image<Rgba32>>
+        {
+            new(1280, 720),
+            new(1280, 720),
+            new(540, 960),
+            new(540, 960),
+        };
+        try
+        {
+            TikTokAiGenerationScreenshotService.UsesPortraitLayout(frames).Should().BeFalse();
+        }
+        finally
+        {
+            foreach (var frame in frames) frame.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Cover_crop_top_aligns_portrait_frames()
     {
         var crop = TikTokAiGenerationScreenshotService.CalculateCoverCrop(
             resizedWidth: 560,
@@ -19,22 +59,34 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
             targetWidth: 560,
             targetHeight: 300);
 
-        crop.Top.Should().BeInRange(124, 126);
+        crop.Top.Should().Be(0);
         crop.Top.Should().BeLessThan((996 - 300) / 2);
     }
 
     [Fact]
-    public void Cover_crop_places_detected_face_near_the_upper_third()
+    public void Cover_crop_does_not_move_portrait_down_for_a_detected_face()
     {
         var crop = TikTokAiGenerationScreenshotService.CalculateCoverCrop(
             resizedWidth: 560,
             resizedHeight: 996,
             targetWidth: 560,
             targetHeight: 300,
-            normalizedFaceCenterY: 0.25);
+            normalizedFaceCenterY: 0.15);
 
-        var faceYInsideCrop = (0.25 * 996) - crop.Top;
-        faceYInsideCrop.Should().BeApproximately(300 * 0.36, 1);
+        crop.Top.Should().Be(0);
+    }
+
+    [Fact]
+    public void Cover_crop_rejects_a_low_false_face_focus_for_portrait_frames()
+    {
+        var crop = TikTokAiGenerationScreenshotService.CalculateCoverCrop(
+            resizedWidth: 560,
+            resizedHeight: 996,
+            targetWidth: 560,
+            targetHeight: 300,
+            normalizedFaceCenterY: 0.65);
+
+        crop.Top.Should().Be(0);
     }
 
     [Fact]
@@ -69,6 +121,30 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
 
         TikTokAiGenerationScreenshotService.ScoreFaceVisibility(faceFrame)
             .Should().BeGreaterThan(TikTokAiGenerationScreenshotService.ScoreFaceVisibility(emptyFrame));
+    }
+
+    [Fact]
+    public void Face_visibility_score_rejects_a_low_neck_like_skin_region()
+    {
+        using var upperFace = new Image<Rgba32>(160, 160, new Rgba32(35, 45, 60));
+        using var lowNeck = new Image<Rgba32>(160, 160, new Rgba32(35, 45, 60));
+        for (var y = 24; y < 64; y++)
+        {
+            for (var x = 60; x < 100; x++)
+            {
+                upperFace[x, y] = new Rgba32(210, 155, 125);
+            }
+        }
+        for (var y = 104; y < 150; y++)
+        {
+            for (var x = 52; x < 108; x++)
+            {
+                lowNeck[x, y] = new Rgba32(210, 155, 125);
+            }
+        }
+
+        TikTokAiGenerationScreenshotService.ScoreFaceVisibility(upperFace)
+            .Should().BeGreaterThan(TikTokAiGenerationScreenshotService.ScoreFaceVisibility(lowNeck));
     }
 
     [Fact]
