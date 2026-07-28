@@ -73,6 +73,144 @@ public static class QueueMaterialStepService
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
     }
 
+    internal static async Task<ProofMaterialVideoLease> EnsureProofMaterialVideosAsync(
+        QueueProjectItem item,
+        ClientSettings settings,
+        int requiredEpisodeCount,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(log);
+
+        var required = Math.Clamp(requiredEpisodeCount, 1, 200);
+        var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        var existingVideos = ProjectVideoResolver.ResolveSourceVideos(
+            context.SourceProjectDir,
+            allowStagedFallback: true);
+        if (existingVideos.Count > 0)
+        {
+            log($"证明材料补源：已有可用视频 {existingVideos.Count} 个，无需下载。");
+            return ProofMaterialVideoLease.Empty;
+        }
+
+        var missingEpisodes = Enumerable.Range(1, required).ToArray();
+
+        var metadata = ReadDownloadMetadata(context.SourceProjectDir);
+        if (string.IsNullOrWhiteSpace(metadata.BookId))
+        {
+            throw new InvalidOperationException(
+                $"证明材料缺少视频，且项目缺少 bookId，无法临时补下载前 {required} 集。");
+        }
+
+        ShortDramaDramaServices.RefreshSettings(settings);
+        var before = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir)
+            .Select(Path.GetFullPath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selection = FormatEpisodeSelection(missingEpisodes);
+        var displayName = FirstNonEmpty(
+            item.Title,
+            item.OriginalTitle,
+            metadata.Title,
+            Path.GetFileName(context.SourceProjectDir));
+        var concurrent = Math.Clamp(settings.DramaDownloadConcurrent, 1, 10);
+        var maxParallelProjects = Math.Clamp(
+            settings.DramaDownloadMaxParallelProjects <= 0 ? 1 : settings.DramaDownloadMaxParallelProjects,
+            1,
+            4);
+
+        log(
+            $"证明材料缺少视频源：仅临时补下载第 {selection} 集，" +
+            $"不执行整剧下载，不改变正式下载步骤状态。");
+        try
+        {
+            using (await QueueDownloadSlotCoordinator.WaitAsync(
+                       maxParallelProjects,
+                       $"{displayName}（证明材料补源）",
+                       log,
+                       ct).ConfigureAwait(false))
+            {
+                var request = BuildDownloadRequest(
+                    context,
+                    metadata,
+                    settings,
+                    displayName,
+                    selection,
+                    concurrent);
+                var result = await ShortDramaDramaServices.Downloader
+                    .DownloadAsync(request, CreateDownloadProgress(log), ct)
+                    .ConfigureAwait(false);
+                if (!result.Ok)
+                {
+                    if (ct.IsCancellationRequested)
+                        throw new OperationCanceledException(ct);
+                    throw new InvalidOperationException(result.Message ?? "证明材料临时补源失败");
+                }
+            }
+
+            var after = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir)
+                .Select(Path.GetFullPath)
+                .ToArray();
+            var created = after.Where(path => !before.Contains(path)).ToArray();
+            if (after.Length == 0)
+                throw new InvalidOperationException("证明材料临时补源完成后仍未找到可用视频。");
+
+            log($"证明材料临时补源完成：新增 {created.Length} 个视频，可用 {after.Length} 个。");
+            return new ProofMaterialVideoLease(created, log);
+        }
+        catch
+        {
+            var partial = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir)
+                .Select(Path.GetFullPath)
+                .Where(path => !before.Contains(path))
+                .ToArray();
+            new ProofMaterialVideoLease(partial, log).Dispose();
+            throw;
+        }
+    }
+
+    internal sealed class ProofMaterialVideoLease : IDisposable
+    {
+        internal static ProofMaterialVideoLease Empty { get; } = new([], null);
+
+        private readonly IReadOnlyList<string> _createdVideoPaths;
+        private readonly Action<string>? _log;
+        private bool _disposed;
+
+        internal ProofMaterialVideoLease(IReadOnlyList<string> createdVideoPaths, Action<string>? log)
+        {
+            _createdVideoPaths = createdVideoPaths;
+            _log = log;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+
+            var deleted = 0;
+            foreach (var path in _createdVideoPaths)
+            {
+                try
+                {
+                    if (!File.Exists(path))
+                        continue;
+                    File.Delete(path);
+                    deleted++;
+                }
+                catch (Exception ex)
+                {
+                    _log?.Invoke($"证明材料临时视频清理失败：{path}；{ex.Message}");
+                }
+            }
+
+            if (_createdVideoPaths.Count > 0)
+                _log?.Invoke($"证明材料临时视频已清理：{deleted}/{_createdVideoPaths.Count} 个。");
+        }
+    }
+
     private static DramaDownloadRequest BuildDownloadRequest(
         ProjectWorkspaceContext context,
         DownloadMetadata metadata,
