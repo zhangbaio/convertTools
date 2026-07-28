@@ -53,6 +53,10 @@ public sealed class LogService
 {
     private const int MaxEntries = 5000;
     private const int MaxRendered = 1200;
+    private static readonly IBrush InfoForeground = new SolidColorBrush(Color.Parse("#E3F2FF"));
+    private static readonly IBrush SuccessForeground = new SolidColorBrush(Color.Parse("#6EE7B7"));
+    private static readonly IBrush WarningForeground = new SolidColorBrush(Color.Parse("#FFD27A"));
+    private static readonly IBrush ErrorForeground = new SolidColorBrush(Color.Parse("#FF9EAA"));
     private static readonly TimeSpan Retention = TimeSpan.FromDays(TikTokExecutionHistoryService.DefaultRetentionDays);
     private static readonly Regex HeaderRegex = new(
         @"^\[(?<time>[^\]]+)\]\s*(?<level>\w+)\s*(?:\[(?<project>[^\]]+)\])?\s*(?<rest>.*)$",
@@ -396,10 +400,10 @@ public sealed class LogService
 
     public static IBrush BrushForLevel(string level) => NormalizeLevel(level) switch
     {
-        "error" => Brushes.Firebrick,
-        "warn" => Brushes.DarkOrange,
-        "success" => Brushes.SeaGreen,
-        _ => Brushes.Black,
+        "error" => ErrorForeground,
+        "warn" => WarningForeground,
+        "success" => SuccessForeground,
+        _ => InfoForeground,
     };
 
     public static string FormatLevel(string level) => NormalizeLevel(level) switch
