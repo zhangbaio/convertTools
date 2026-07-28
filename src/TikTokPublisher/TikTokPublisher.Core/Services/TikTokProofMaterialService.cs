@@ -251,6 +251,26 @@ public sealed class TikTokProofMaterialService
             log?.Invoke("[原始文件或素材文件信息] 跳过：当前账号未勾选此材料类型。");
         }
 
+        var aiNeedsVideo =
+            request.GenerateAiGenerationScreenshots &&
+            (!aiCompleted || !TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir));
+        var editingNeedsVideo =
+            request.GenerateEditingProjectFiles &&
+            (!editingCompleted || !TikTokProjectImageService.HasCurrentOutput(context.WorkflowProjectDir));
+        var proofVideoEpisodeCount = ResolveTemporaryVideoEpisodeCount(
+            aiNeedsVideo,
+            editingNeedsVideo,
+            settings);
+        using var proofVideoLease = proofVideoEpisodeCount > 0
+            ? await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
+                    item,
+                    settings,
+                    proofVideoEpisodeCount,
+                    log ?? (_ => { }),
+                    cancellationToken)
+                .ConfigureAwait(false)
+            : QueueMaterialStepService.ProofMaterialVideoLease.Empty;
+
         cancellationToken.ThrowIfCancellationRequested();
         if (request.GenerateAiGenerationScreenshots && aiCompleted &&
             TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
@@ -347,6 +367,27 @@ public sealed class TikTokProofMaterialService
             !request.GenerateEditingProjectFiles || editingCompleted);
         log?.Invoke($"证明材料任务完成：已生成并登记 {selectedMaterials.Count} 类材料。");
         return result;
+    }
+
+    internal static int ResolveTemporaryVideoEpisodeCount(
+        bool generateAiScreenshots,
+        bool generateEditingProjectFiles,
+        ClientSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        if (generateEditingProjectFiles)
+        {
+            return Math.Clamp(
+                settings.TiktokProjectImageRenderEpisodeLimit <= 0
+                    ? ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit
+                    : settings.TiktokProjectImageRenderEpisodeLimit,
+                1,
+                200);
+        }
+
+        // The AI workbench can fill all required shots from different frames of one episode.
+        return generateAiScreenshots ? 1 : 0;
     }
 
     public static async Task<string> EnsureCurrentForUploadAsync(
