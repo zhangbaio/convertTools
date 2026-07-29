@@ -63,6 +63,103 @@ public sealed class ProjectWorkspaceServiceTests
     }
 
     [Fact]
+    public void ValidateContextOwnership_repairs_metadata_after_workspace_parent_move()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"project-workspace-moved-{Guid.NewGuid():N}");
+        var oldWorkspace = Path.Combine(root, "old-workspace");
+        var currentWorkspace = Path.Combine(root, "current-workspace");
+        var sourceDir = Path.Combine(currentWorkspace, "source-a");
+        var workflowDir = Path.Combine(currentWorkspace, "workflow", "_renamed-a");
+        var oldSourceDir = Path.Combine(oldWorkspace, "source-a");
+        var oldWorkflowDir = Path.Combine(oldWorkspace, "workflow", "_renamed-a");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(workflowDir);
+        WriteMetadata(sourceDir, oldSourceDir, oldWorkflowDir);
+        WriteMetadata(workflowDir, oldSourceDir, oldWorkflowDir);
+
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(sourceDir);
+
+            var action = () => ProjectWorkspaceService.ValidateContextOwnership(context);
+
+            action.Should().NotThrow();
+            ReadMetadataPath(sourceDir, "sourceProjectDir").Should().Be(sourceDir);
+            ReadMetadataPath(sourceDir, "workflowProjectDir").Should().Be(workflowDir);
+            ReadMetadataPath(workflowDir, "sourceProjectDir").Should().Be(sourceDir);
+            ReadMetadataPath(workflowDir, "workflowProjectDir").Should().Be(workflowDir);
+            Directory.Exists(oldWorkspace).Should().BeFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ValidateContextOwnership_does_not_repair_when_declared_source_still_exists()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"project-workspace-existing-owner-{Guid.NewGuid():N}");
+        var oldWorkspace = Path.Combine(root, "old-workspace");
+        var currentWorkspace = Path.Combine(root, "current-workspace");
+        var oldSourceDir = Path.Combine(oldWorkspace, "source-a");
+        var sourceDir = Path.Combine(currentWorkspace, "source-a");
+        var workflowDir = Path.Combine(currentWorkspace, "workflow", "_renamed-a");
+        Directory.CreateDirectory(oldSourceDir);
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(workflowDir);
+        WriteMetadata(sourceDir, oldSourceDir, workflowDir);
+        WriteMetadata(workflowDir, oldSourceDir, workflowDir);
+
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(sourceDir);
+
+            var action = () => ProjectWorkspaceService.ValidateContextOwnership(context);
+
+            action.Should().Throw<InvalidDataException>()
+                .WithMessage("*sourceProjectDir 与实际目录不一致*");
+            ReadMetadataPath(sourceDir, "sourceProjectDir").Should().Be(oldSourceDir);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ValidateContextOwnership_does_not_repair_metadata_from_different_project_name()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"project-workspace-wrong-name-{Guid.NewGuid():N}");
+        var currentWorkspace = Path.Combine(root, "current-workspace");
+        var sourceDir = Path.Combine(currentWorkspace, "source-a");
+        var workflowDir = Path.Combine(currentWorkspace, "workflow", "_renamed-a");
+        var staleSourceDir = Path.Combine(root, "old-workspace", "source-b");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(workflowDir);
+        WriteMetadata(sourceDir, staleSourceDir, workflowDir);
+        WriteMetadata(workflowDir, staleSourceDir, workflowDir);
+
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(sourceDir);
+
+            var action = () => ProjectWorkspaceService.ValidateContextOwnership(context);
+
+            action.Should().Throw<InvalidDataException>()
+                .WithMessage("*sourceProjectDir 与实际目录不一致*");
+            ReadMetadataPath(sourceDir, "sourceProjectDir").Should().Be(staleSourceDir);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void EnsureWorkflowInfo_WritesMetadataIntroWhenCreatingInfoFile()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"project-workspace-{Guid.NewGuid():N}");
@@ -146,5 +243,12 @@ public sealed class ProjectWorkspaceServiceTests
                 workflowProjectDir,
                 workflowDirName = Path.GetFileName(workflowProjectDir),
             }));
+    }
+
+    private static string ReadMetadataPath(string directory, string propertyName)
+    {
+        using var document = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(directory, "shortdrama-project.json")));
+        return document.RootElement.GetProperty(propertyName).GetString() ?? "";
     }
 }

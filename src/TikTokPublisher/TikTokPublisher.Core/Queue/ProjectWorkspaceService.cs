@@ -71,6 +71,9 @@ public static class ProjectWorkspaceService
         }
 
         var sourceMetadata = ReadMetadata(source);
+        if (TryRepairMovedProjectMetadata(source, workflow, sourceMetadata))
+            sourceMetadata = ReadMetadata(source);
+
         var sourceDeclaredBySource = sourceMetadata.GetValueOrDefault("sourceProjectDir");
         if (!string.IsNullOrWhiteSpace(sourceDeclaredBySource) &&
             !PathsEqual(ResolveMetadataPath(sourceDeclaredBySource, source), source))
@@ -103,6 +106,77 @@ public static class ProjectWorkspaceService
                 $"自定义 workflow 目录缺少项目归属元数据：{workflow}。请重新同步当前项目后再上传证明材料。");
         }
     }
+
+    private static bool TryRepairMovedProjectMetadata(
+        string sourceProjectDir,
+        string workflowProjectDir,
+        IReadOnlyDictionary<string, string> sourceMetadata)
+    {
+        var declaredSourceValue = sourceMetadata.GetValueOrDefault("sourceProjectDir");
+        if (string.IsNullOrWhiteSpace(declaredSourceValue))
+            return false;
+
+        var declaredSource = ResolveMetadataPath(declaredSourceValue, sourceProjectDir);
+        if (PathsEqual(declaredSource, sourceProjectDir))
+            return false;
+
+        // Only heal a parent-folder move. A changed project directory name may indicate
+        // copied metadata from another drama and must continue to fail ownership checks.
+        if (Directory.Exists(declaredSource) ||
+            !SameDirectoryName(declaredSource, sourceProjectDir))
+        {
+            return false;
+        }
+
+        var declaredWorkflowValue = sourceMetadata.GetValueOrDefault("workflowProjectDir");
+        if (!string.IsNullOrWhiteSpace(declaredWorkflowValue))
+        {
+            var declaredWorkflow = ResolveMetadataPath(declaredWorkflowValue, sourceProjectDir);
+            if (!PathsEqual(declaredWorkflow, workflowProjectDir) &&
+                (Directory.Exists(declaredWorkflow) ||
+                 !SameDirectoryName(declaredWorkflow, workflowProjectDir)))
+            {
+                return false;
+            }
+        }
+
+        if (Directory.Exists(workflowProjectDir))
+        {
+            var workflowMetadata = ReadMetadata(workflowProjectDir);
+            var workflowDeclaredSourceValue = workflowMetadata.GetValueOrDefault("sourceProjectDir");
+            if (!string.IsNullOrWhiteSpace(workflowDeclaredSourceValue))
+            {
+                var workflowDeclaredSource = ResolveMetadataPath(
+                    workflowDeclaredSourceValue,
+                    workflowProjectDir);
+                if (!PathsEqual(workflowDeclaredSource, sourceProjectDir) &&
+                    !PathsEqual(workflowDeclaredSource, declaredSource))
+                {
+                    return false;
+                }
+            }
+
+            UpdateWorkflowMetadata(
+                sourceProjectDir,
+                workflowProjectDir,
+                overwriteSourceProjectDir: true);
+            return true;
+        }
+
+        // Do not create a missing workflow directory merely to repair source metadata.
+        UpdateMetadataFile(
+            Path.Combine(sourceProjectDir, MetadataFile),
+            workflowProjectDir,
+            sourceProjectDir,
+            overwriteSourceProjectDir: true);
+        return true;
+    }
+
+    private static bool SameDirectoryName(string left, string right) =>
+        string.Equals(
+            Path.GetFileName(Path.TrimEndingDirectorySeparator(left)),
+            Path.GetFileName(Path.TrimEndingDirectorySeparator(right)),
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     public static string ResolveWorkflowProjectDir(string? projectDir)
     {
