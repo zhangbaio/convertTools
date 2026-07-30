@@ -1685,16 +1685,30 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
+        var proofAccount = vm.SelectedAccount?.Model;
+        if (proofAccount is null)
+        {
+            vm.StatusMessage = "请先选择要补全版权证明的账号";
+            return;
+        }
+
         IReadOnlyList<ArchivedProjectItem> archivedProjects;
+        IReadOnlyList<TikTokExecutionProjectSnapshot> deletedHistoryProjects;
         try
         {
-            vm.StatusMessage = "正在读取当前队列和已归档项目…";
-            archivedProjects = await Task.Run(() =>
-                TikTokArchivedProjectService.List(workspace));
+            vm.StatusMessage = "正在读取当前队列、已归档项目和已删除项目历史…";
+            (archivedProjects, deletedHistoryProjects) = await Task.Run(() =>
+            {
+                var archives = TikTokArchivedProjectService.List(workspace);
+                var history = LoadDeletedCopyrightProofHistory(
+                    workspace,
+                    proofAccount);
+                return (archives, history);
+            });
         }
         catch (Exception ex)
         {
-            vm.StatusMessage = $"读取已归档项目失败：{ex.Message}";
+            vm.StatusMessage = $"读取版权项目记录失败：{ex.Message}";
             return;
         }
 
@@ -1703,7 +1717,8 @@ public partial class TikTokQueueView : UserControl
             CopyrightProofProjectMatcher.MatchByNewTitleExact(
                 CopyrightProofProjectMatcher.ParseNewTitles(input),
                 queueProjects,
-                archivedProjects);
+                archivedProjects,
+                deletedHistoryProjects);
 
         var dialogResult = await CopyrightProofBatchDialog.ShowAsync(owner, Match);
         if (dialogResult is null || dialogResult.SelectedMatches.Count == 0)
@@ -1733,11 +1748,36 @@ public partial class TikTokQueueView : UserControl
             }
         }
 
+        var deletedTargets = dialogResult.SelectedMatches
+            .Where(match => match.Location == CopyrightProofProjectLocation.DeletedHistory)
+            .ToArray();
+        if (deletedTargets.Length > 0)
+        {
+            var names = string.Join(
+                Environment.NewLine,
+                deletedTargets.Select(match =>
+                    $"• {match.NewTitle}（原剧：{match.HistorySnapshot?.Item.OriginalTitle}）"));
+            var confirmed = await ConfirmAsync(
+                owner,
+                "确认重建已删除项目",
+                $"以下 {deletedTargets.Length} 个项目的本地目录已被删除，将根据历史记录重新建立项目，" +
+                "并在生成证明材料时按需重新下载原视频：" +
+                $"{Environment.NewLine}{Environment.NewLine}{names}" +
+                $"{Environment.NewLine}{Environment.NewLine}" +
+                "本次只会生成证明材料并编辑 TikTok 版权证明页面，不会重新上传剧集。确认继续吗？");
+            if (!confirmed)
+            {
+                vm.StatusMessage = "已取消重建已删除项目和补全版权证明";
+                return;
+            }
+        }
+
         var selectedTitles = dialogResult.SelectedMatches
             .Select(match => match.NewTitle)
             .ToHashSet(StringComparer.Ordinal);
         var restoreFailures = new List<string>();
         var restoredCount = 0;
+        var recoveredCount = 0;
         foreach (var match in dialogResult.SelectedMatches
                      .Where(match => match.Location == CopyrightProofProjectLocation.Archived))
         {
@@ -1756,6 +1796,35 @@ public partial class TikTokQueueView : UserControl
             }
         }
 
+        var proofSettings = ClientSettingsStore.Load();
+        foreach (var match in deletedTargets)
+        {
+            try
+            {
+                vm.StatusMessage = $"正在重建已删除项目：{match.NewTitle}";
+                var recovery = await DeletedCopyrightProofProjectRecoveryService.RecoverAsync(
+                    workspace,
+                    match.HistorySnapshot!,
+                    proofSettings,
+                    proofAccount,
+                    vm.AppendLog,
+                    CancellationToken.None);
+                if (!recovery.Ok)
+                {
+                    restoreFailures.Add($"{match.NewTitle}：{recovery.Message}");
+                    selectedTitles.Remove(match.NewTitle);
+                    continue;
+                }
+
+                recoveredCount++;
+            }
+            catch (Exception ex)
+            {
+                restoreFailures.Add($"{match.NewTitle}：{ex.Message}");
+                selectedTitles.Remove(match.NewTitle);
+            }
+        }
+
         var refreshedProjects = await Task.Run(() => WorkspaceQueueService.ScanProjects(workspace));
         var matchedProjects = refreshedProjects
             .Where(item => !item.Archived &&
@@ -1766,8 +1835,6 @@ public partial class TikTokQueueView : UserControl
             .ToArray();
 
         vm.StatusMessage = "正在检查匹配项目的已有证明材料…";
-        var proofSettings = ClientSettingsStore.Load();
-        var proofAccount = vm.SelectedAccount?.Model;
         var currentProofMaterialProjects = await Task.Run(() =>
             matchedProjects
                 .Where(item => TikTokProofMaterialService
@@ -1818,7 +1885,8 @@ public partial class TikTokQueueView : UserControl
 
         vm.AppendLog(
             $"补全版权证明：匹配 {dialogResult.SelectedMatches.Count} 个，" +
-            $"回退归档 {restoredCount} 个，准备执行 {matchedProjects.Length} 个；" +
+            $"回退归档 {restoredCount} 个，重建已删除项目 {recoveredCount} 个，" +
+            $"准备执行 {matchedProjects.Length} 个；" +
             $"复用已有证明材料 {preparation.ReusedProofMaterialCount} 个，" +
             $"需要生成 {preparation.PendingProofMaterialCount} 个。");
         foreach (var failure in restoreFailures)
@@ -1831,6 +1899,84 @@ public partial class TikTokQueueView : UserControl
             executionProjectDirs,
             confirmForceRerun: false,
             targetOverride: executionTarget);
+    }
+
+    private static IReadOnlyList<TikTokExecutionProjectSnapshot> LoadDeletedCopyrightProofHistory(
+        string workspaceRoot,
+        TikTokAccountProfile account)
+    {
+        var workspace = Path.GetFullPath(workspaceRoot);
+        var accountKeys = new[]
+            {
+                account.Id,
+                account.Name,
+                account.DisplayName,
+                account.ResolveTikTokAccountName(),
+                account.TiktokLoginEmail,
+                account.TiktokLastLoginEmail,
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return TikTokExecutionHistoryService.LoadProjectSnapshots()
+            .Where(snapshot =>
+            {
+                var item = snapshot.Item;
+                if (string.IsNullOrWhiteSpace(item.NewTitle))
+                    return false;
+
+                if (!string.IsNullOrWhiteSpace(item.ProjectDir))
+                {
+                    try
+                    {
+                        if (WorkspaceProjectScanner.IsValidProjectDirectory(
+                                Path.GetFullPath(item.ProjectDir)))
+                        {
+                            return false;
+                        }
+                    }
+                    catch
+                    {
+                        // Invalid or stale historic paths are treated as deleted.
+                    }
+                }
+
+                var snapshotAccountKeys = new[]
+                    {
+                        item.AccountProfileId,
+                        item.AccountProfileName,
+                    }
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => value.Trim())
+                    .ToArray();
+                if (snapshotAccountKeys.Length > 0)
+                    return snapshotAccountKeys.Any(accountKeys.Contains);
+
+                if (string.IsNullOrWhiteSpace(snapshot.Workspace))
+                    return false;
+                try
+                {
+                    return string.Equals(
+                        Path.GetFullPath(snapshot.Workspace),
+                        workspace,
+                        StringComparison.OrdinalIgnoreCase);
+                }
+                catch
+                {
+                    return false;
+                }
+            })
+            .GroupBy(
+                snapshot => snapshot.Item.NewTitle.Trim(),
+                StringComparer.Ordinal)
+            .Select(group => group
+                .OrderByDescending(snapshot =>
+                    DateTimeOffset.TryParse(snapshot.Timestamp, out var parsed)
+                        ? parsed
+                        : DateTimeOffset.MinValue)
+                .First())
+            .ToArray();
     }
 
     private async void OnResumeSelectedCopyrightProofClick(object? sender, RoutedEventArgs e)

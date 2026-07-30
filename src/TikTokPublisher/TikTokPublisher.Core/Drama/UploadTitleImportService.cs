@@ -40,6 +40,31 @@ public static class UploadTitleImportService
         @"^(?<title>.+?)[\s　]+(?<count>\d{1,5})\s*集?\s*$",
         RegexOptions.Compiled);
 
+    public sealed record ExactDramaLookupResult(
+        DramaSearchItem? Item,
+        string Reason);
+
+    public static async Task<ExactDramaLookupResult> FindExactDramaAsync(
+        string title,
+        int expectedEpisodeTotal,
+        CancellationToken ct)
+    {
+        var reason = NoExactMatchReason;
+        foreach (var query in TitleSearchQueryVariants(title))
+        {
+            var results = await ShortDramaDramaServices.SearchAsync(query, 1, ct).ConfigureAwait(false);
+            var (matched, currentReason) =
+                PickPreferredSearchMatch(title, results, expectedEpisodeTotal);
+            reason = currentReason;
+            if (matched is not null)
+                return new ExactDramaLookupResult(matched, string.Empty);
+            if (reason != NoExactMatchReason && reason != EmptySearchResultReason)
+                break;
+        }
+
+        return new ExactDramaLookupResult(null, reason);
+    }
+
     public static async Task<UploadTitleImportResult> ImportAsync(
         string workspaceRoot,
         string rawText,
@@ -98,15 +123,12 @@ public static class UploadTitleImportService
             log?.Invoke($"精确搜索短剧 {index + 1}/{requests.Count}：{label}");
             try
             {
-                DramaSearchItem? matched = null;
-                var reason = NoExactMatchReason;
-                foreach (var query in TitleSearchQueryVariants(request.Title))
-                {
-                    var results = await ShortDramaDramaServices.SearchAsync(query, 1, ct).ConfigureAwait(false);
-                    (matched, reason) = PickPreferredSearchMatch(request.Title, results, request.ExpectedEpisodeTotal);
-                    if (matched is not null) break;
-                    if (reason != NoExactMatchReason && reason != EmptySearchResultReason) break;
-                }
+                var lookup = await FindExactDramaAsync(
+                    request.Title,
+                    request.ExpectedEpisodeTotal,
+                    ct).ConfigureAwait(false);
+                var matched = lookup.Item;
+                var reason = lookup.Reason;
 
                 if (matched is null)
                 {

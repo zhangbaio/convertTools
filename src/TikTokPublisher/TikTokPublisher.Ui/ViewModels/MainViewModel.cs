@@ -4323,6 +4323,21 @@ public sealed partial class MainViewModel : ViewModelBase
         var errors = new List<string>();
         var deleted = 0;
         var queuedDirs = rows.Select(row => row.Item.ProjectDir).Where(p => !string.IsNullOrWhiteSpace(p)).ToArray();
+        var deleteAccount = SelectedAccount?.Model;
+        foreach (var row in rows)
+        {
+            // Persist a durable recovery snapshot before the source/workflow directories
+            // disappear. The snapshot is intentionally retained when normal history events
+            // are pruned, allowing copyright-proof completion after an unarchived deletion.
+            TikTokExecutionHistoryService.AppendEvent(
+                "project_deleted",
+                "deleted",
+                root,
+                row.Item,
+                message: "用户删除未归档项目，已保存版权恢复快照",
+                account: deleteAccount);
+        }
+
         await Task.Run(() =>
         {
             var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
