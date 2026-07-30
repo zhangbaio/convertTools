@@ -82,7 +82,7 @@ public static class TikTokPublishedSeriesMatchText
                 continue;
 
             var lines = new List<string> { $"【{KindLabel(kind)}（{group.Length}）】" };
-            lines.AddRange(group.Select(FormatDisplayLine));
+            lines.AddRange(group.Select(match => match.InputTitle));
             sections.Add(string.Join(Environment.NewLine, lines));
         }
 
@@ -101,20 +101,6 @@ public static class TikTokPublishedSeriesMatchText
             TikTokPublishedSeriesMatchKind.Failed => "查询失败",
             _ => "未知",
         };
-
-    private static string FormatDisplayLine(TikTokPublishedSeriesMatch match)
-    {
-        var details = new List<string>();
-        if (!string.IsNullOrWhiteSpace(match.PlatformStatus))
-            details.Add(match.PlatformStatus.Trim());
-        if (!string.IsNullOrWhiteSpace(match.SeriesId))
-            details.Add($"ID {match.SeriesId.Trim()}");
-        if (!string.IsNullOrWhiteSpace(match.Message))
-            details.Add(match.Message.Trim());
-        return details.Count == 0
-            ? match.InputTitle
-            : $"{match.InputTitle}    [{string.Join("；", details)}]";
-    }
 
     private static string SanitizeCell(string? value) =>
         (value ?? string.Empty)
