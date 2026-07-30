@@ -2,6 +2,9 @@ using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Remote;
 
+// TikTokUploadSeriesSpec 描述一条上传剧集及其可选集数（用于「剧名 + 集数」精准匹配）。
+public sealed record TikTokUploadSeriesSpec(string Title, int EpisodeCnt = 0, string SeriesId = "");
+
 public sealed record TikTokRemoteCommand(
     string Command,
     IReadOnlyList<string>? Titles = null,
@@ -12,10 +15,18 @@ public sealed record TikTokRemoteCommand(
     bool AllAccounts = false,
     IReadOnlyList<string>? EnabledSteps = null,
     bool AutoRun = true,
-    IReadOnlyDictionary<string, object?>? QueueOptions = null)
+    IReadOnlyDictionary<string, object?>? QueueOptions = null,
+    string MatchMode = "",
+    IReadOnlyList<TikTokUploadSeriesSpec>? Series = null)
 {
     public bool IsUploadCommand =>
         string.Equals(Command, TikTokRemoteCommandNames.UploadSeries, StringComparison.Ordinal);
+
+    // 仅当显式声明 title_episode 且存在带正整数集数的剧集时，才启用「剧名 + 集数」匹配。
+    public bool UsesEpisodeMatching =>
+        string.Equals(MatchMode, "title_episode", StringComparison.OrdinalIgnoreCase) &&
+        Series is { Count: > 0 } &&
+        Series.Any(spec => spec.EpisodeCnt > 0);
 
     public bool IsStartQueueCommand =>
         string.Equals(Command, TikTokRemoteCommandNames.StartQueue, StringComparison.Ordinal);
