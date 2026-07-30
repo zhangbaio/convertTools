@@ -54,6 +54,39 @@ public sealed class QueueWorkerRunnerTests
     }
 
     [Fact]
+    public async Task StartPreUploadPipeline_returns_before_a_synchronous_pipeline_prefix_completes()
+    {
+        using var pipelineEntered = new ManualResetEventSlim(false);
+        using var releasePipeline = new ManualResetEventSlim(false);
+        using var schedulerReturned = new ManualResetEventSlim(false);
+        Task? pipelineTask = null;
+
+        var schedulerTask = Task.Run(() =>
+        {
+            pipelineTask = QueueWorkerRunner.StartPreUploadPipeline(
+                () =>
+                {
+                    pipelineEntered.Set();
+                    releasePipeline.Wait(TimeSpan.FromSeconds(5));
+                    return Task.CompletedTask;
+                },
+                CancellationToken.None);
+            schedulerReturned.Set();
+        });
+
+        var returnedWithoutBlocking = schedulerReturned.Wait(TimeSpan.FromSeconds(2));
+        var pipelineStarted = pipelineEntered.Wait(TimeSpan.FromSeconds(2));
+        releasePipeline.Set();
+
+        await schedulerTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await pipelineTask!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        returnedWithoutBlocking.Should().BeTrue(
+            "the scheduler must be able to fill the remaining project concurrency slots");
+        pipelineStarted.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task RunAsync_rejects_empty_or_all_whitespace_explicit_project_filter()
     {
         var account = new TikTokAccountProfile { Id = "acct-filter-empty", Name = "filter-empty" };

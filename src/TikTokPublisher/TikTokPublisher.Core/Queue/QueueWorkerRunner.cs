@@ -276,15 +276,17 @@ public sealed class QueueWorkerRunner
                     if (preUploadSteps.Count > 0)
                     {
                         var captured = item;
-                        var task = MakeUniqueTask(RunPreUploadPipelineAsync(
-                            workspace,
-                            captured,
-                            preUploadSteps,
-                            options,
-                            accountStore,
-                            onProgress,
-                            ct,
-                            Mutate));
+                        var task = MakeUniqueTask(StartPreUploadPipeline(
+                            () => RunPreUploadPipelineAsync(
+                                workspace,
+                                captured,
+                                preUploadSteps,
+                                options,
+                                accountStore,
+                                onProgress,
+                                ct,
+                                Mutate),
+                            ct));
                         preUploadTasks[task] = captured;
                         continue;
                     }
@@ -1204,6 +1206,14 @@ public sealed class QueueWorkerRunner
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
         return tcs.Task;
+    }
+
+    internal static Task StartPreUploadPipeline(
+        Func<Task> pipeline,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(pipeline);
+        return Task.Run(pipeline, cancellationToken);
     }
 
     private static Task<bool> MakeUniqueTask(Task<bool> task)
