@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Models;
@@ -13,6 +14,9 @@ internal sealed record TikTokSeriesListRow(
 
 internal static class TikTokSeriesListLookupService
 {
+    private static readonly TimeSpan SearchResultTimeout = TimeSpan.FromSeconds(15);
+    private const int SearchPollIntervalMs = 350;
+
     private static readonly Regex SeriesIdPattern =
         new(@"\b(\d{16,20})\b", RegexOptions.Compiled);
 
@@ -66,7 +70,8 @@ internal static class TikTokSeriesListLookupService
     public static async Task<IReadOnlyList<TikTokSeriesListRow>> SearchExactAsync(
         IPage page,
         string newTitle,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<string>? log = null)
     {
         ct.ThrowIfCancellationRequested();
         var search = await FindSearchInputAsync(page).ConfigureAwait(false)
@@ -85,15 +90,53 @@ internal static class TikTokSeriesListLookupService
             // 部分版本使用输入防抖，不依赖回车。
         }
 
-        await page.WaitForTimeoutAsync(1400).ConfigureAwait(false);
-        if (IsLoginPage(page.Url))
-            throw new InvalidOperationException("TikTok 登录态失效，请先重新登录当前账号。");
+        var stopwatch = Stopwatch.StartNew();
+        var attempt = 0;
+        var maxObservedRows = 0;
+        while (stopwatch.Elapsed < SearchResultTimeout)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (IsLoginPage(page.Url))
+                throw new InvalidOperationException("TikTok 登录态失效，请先重新登录当前账号。");
 
+            attempt++;
+            var scan = await ScanExactRowsAsync(page, newTitle, ct).ConfigureAwait(false);
+            maxObservedRows = Math.Max(maxObservedRows, scan.ObservedRowCount);
+            if (scan.Matches.Count > 0)
+            {
+                if (attempt > 1)
+                {
+                    log?.Invoke(
+                        $"TikTok 搜索结果已加载：{newTitle}，等待 {stopwatch.Elapsed:mm\\:ss\\.f}，" +
+                        $"重试 {attempt - 1} 次。");
+                }
+                return scan.Matches;
+            }
+
+            if (attempt == 1)
+                log?.Invoke($"TikTok 搜索结果尚未出现，继续等待精确剧名：{newTitle}");
+
+            await page.WaitForTimeoutAsync(SearchPollIntervalMs).ConfigureAwait(false);
+        }
+
+        log?.Invoke(
+            $"TikTok 搜索等待超时，未读取到完全一致的新剧名：{newTitle}；" +
+            $"等待 {SearchResultTimeout.TotalSeconds:0} 秒，最多观察到 {maxObservedRows} 行。");
+        return [];
+    }
+
+    private static async Task<SeriesRowsScanResult> ScanExactRowsAsync(
+        IPage page,
+        string newTitle,
+        CancellationToken ct)
+    {
+        var matches = new List<TikTokSeriesListRow>();
+        var observedRowCount = 0;
         foreach (var selector in new[] { "tbody tr", "[role='row']", "tr" })
         {
             var rows = page.Locator(selector);
             var count = Math.Min(await rows.CountAsync().ConfigureAwait(false), 100);
-            var matches = new List<TikTokSeriesListRow>();
+            observedRowCount = Math.Max(observedRowCount, count);
             for (var index = 0; index < count; index++)
             {
                 ct.ThrowIfCancellationRequested();
@@ -110,7 +153,7 @@ internal static class TikTokSeriesListLookupService
 
                 var lines = rawText
                     .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                if (!lines.Contains(newTitle, StringComparer.Ordinal))
+                if (!await ContainsExactTitleAsync(row, lines, newTitle).ConfigureAwait(false))
                     continue;
 
                 var urls = await FindSeriesUrlsAsync(page, row).ConfigureAwait(false);
@@ -128,20 +171,59 @@ internal static class TikTokSeriesListLookupService
                     detailUrl,
                     rawText));
             }
-
-            if (matches.Count > 0)
-                return matches
-                    .DistinctBy(match => string.Join(
-                        "\n",
-                        match.Title,
-                        match.SeriesId,
-                        match.DetailUrl,
-                        match.RawText))
-                    .ToArray();
         }
 
-        return [];
+        return new SeriesRowsScanResult(
+            matches
+                .DistinctBy(match => string.Join(
+                    "\n",
+                    match.Title,
+                    match.SeriesId,
+                    match.DetailUrl,
+                    match.RawText))
+                .ToArray(),
+            observedRowCount);
     }
+
+    private static async Task<bool> ContainsExactTitleAsync(
+        ILocator row,
+        IReadOnlyList<string> lines,
+        string newTitle)
+    {
+        var normalizedTitle = NormalizeTitle(newTitle);
+        if (lines.Any(line =>
+                string.Equals(
+                    NormalizeTitle(line),
+                    normalizedTitle,
+                    StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        try
+        {
+            return await row
+                .GetByText(newTitle, new() { Exact = true })
+                .CountAsync()
+                .ConfigureAwait(false) > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string NormalizeTitle(string value) =>
+        Regex.Replace(
+                (value ?? string.Empty)
+                .Replace('\u00A0', ' ')
+                .Replace("\u200B", string.Empty, StringComparison.Ordinal)
+                .Replace("\u200C", string.Empty, StringComparison.Ordinal)
+                .Replace("\u200D", string.Empty, StringComparison.Ordinal)
+                .Replace("\uFEFF", string.Empty, StringComparison.Ordinal),
+                @"\s+",
+                " ")
+            .Trim();
 
     private static async Task<ILocator?> FindSearchInputAsync(IPage page)
     {
@@ -229,4 +311,8 @@ internal static class TikTokSeriesListLookupService
 
     private static bool IsLoginPage(string? url) =>
         (url ?? string.Empty).Contains("/login", StringComparison.OrdinalIgnoreCase);
+
+    private sealed record SeriesRowsScanResult(
+        IReadOnlyList<TikTokSeriesListRow> Matches,
+        int ObservedRowCount);
 }

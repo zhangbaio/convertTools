@@ -68,7 +68,7 @@ public static class TikTokPublishedSeriesLookupService
                 try
                 {
                     var exactRows = await TikTokSeriesListLookupService
-                        .SearchExactAsync(page, title, ct)
+                        .SearchExactAsync(page, title, ct, log)
                         .ConfigureAwait(false);
                     match = BuildMatch(title, exactRows);
                 }
