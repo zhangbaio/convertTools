@@ -1785,20 +1785,56 @@ public partial class TikTokQueueView : UserControl
             proofAccount,
             queueProjects,
             archivedProjects);
-        var executable = matches.Where(match => match.CanExecute).ToArray();
-        if (executable.Length == 0)
+        var validatedMatches = new List<CopyrightProofProjectMatch>();
+        var validationFailures = matches
+            .Where(match => !match.CanExecute)
+            .Select(match => $"「{match.NewTitle}」存在同名冲突")
+            .ToList();
+        foreach (var match in matches.Where(match => match.CanExecute))
         {
-            var conflicts = matches
-                .Where(match => match.Location == CopyrightProofProjectLocation.Conflict)
-                .Select(match => $"「{match.NewTitle}」存在同名冲突")
-                .ToArray();
+            if (match.Location != CopyrightProofProjectLocation.DeletedHistory)
+            {
+                validatedMatches.Add(match);
+                continue;
+            }
+
+            var originalTitle = (match.HistorySnapshot?.Item.OriginalTitle ?? string.Empty).Trim();
+            try
+            {
+                vm.StatusMessage = $"正在验证原剧资源：{originalTitle}";
+                var lookup = await UploadTitleImportService.FindExactDramaAsync(
+                    originalTitle,
+                    0,
+                    CancellationToken.None);
+                if (lookup.Item is null)
+                {
+                    validationFailures.Add(
+                        $"「{match.NewTitle}」：找不到唯一原剧「{originalTitle}」（{lookup.Reason}）");
+                    continue;
+                }
+
+                match.HistorySnapshot!.Item.EpisodeCount = Math.Max(0, lookup.Item.EpisodeTotal);
+                validatedMatches.Add(match);
+            }
+            catch (Exception ex)
+            {
+                validationFailures.Add($"「{match.NewTitle}」：验证原剧「{originalTitle}」失败（{ex.Message}）");
+            }
+        }
+
+        if (validationFailures.Count > 0)
+        {
             await ShowMessageAsync(
                 owner,
-                "无法开始手动补全",
-                conflicts.Length > 0
-                    ? string.Join(Environment.NewLine, conflicts)
-                    : "没有可执行的项目。",
+                validatedMatches.Count > 0
+                    ? "部分项目将跳过"
+                    : "无法开始手动补全",
+                string.Join(Environment.NewLine, validationFailures),
                 warning: true);
+        }
+        if (validatedMatches.Count == 0)
+        {
+            vm.StatusMessage = "没有通过原剧资源校验的手动补全项目";
             return;
         }
 
@@ -1807,7 +1843,8 @@ public partial class TikTokQueueView : UserControl
             vm,
             workspace,
             proofAccount,
-            executable);
+            validatedMatches,
+            manualDeletedInput: true);
     }
 
     private async Task ExecuteCopyrightProofMatchesAsync(
@@ -1815,7 +1852,8 @@ public partial class TikTokQueueView : UserControl
         MainViewModel vm,
         string workspace,
         TikTokAccountProfile proofAccount,
-        IReadOnlyList<CopyrightProofProjectMatch> selectedMatches)
+        IReadOnlyList<CopyrightProofProjectMatch> selectedMatches,
+        bool manualDeletedInput = false)
     {
         var archivedTargets = selectedMatches
             .Where(match => match.Location == CopyrightProofProjectLocation.Archived)
@@ -1846,11 +1884,18 @@ public partial class TikTokQueueView : UserControl
             var names = string.Join(
                 Environment.NewLine,
                 deletedTargets.Select(match =>
-                    $"• {match.NewTitle}（原剧：{match.HistorySnapshot?.Item.OriginalTitle}）"));
+                {
+                    var item = match.HistorySnapshot?.Item;
+                    var episodeText = item?.EpisodeCount > 0 ? $"，{item.EpisodeCount} 集" : string.Empty;
+                    return $"• {match.NewTitle}（原剧：{item?.OriginalTitle}{episodeText}）";
+                }));
+            var recoverySource = manualDeletedInput
+                ? "将根据你手动填写的新剧名和原剧名重新建立项目，"
+                : "将根据历史记录重新建立项目，";
             var confirmed = await ConfirmAsync(
                 owner,
                 "确认重建已删除项目",
-                $"以下 {deletedTargets.Length} 个项目的本地目录已被删除，将根据历史记录重新建立项目，" +
+                $"以下 {deletedTargets.Length} 个项目的本地目录已被删除，{recoverySource}" +
                 "并在生成证明材料时按需重新下载原视频：" +
                 $"{Environment.NewLine}{Environment.NewLine}{names}" +
                 $"{Environment.NewLine}{Environment.NewLine}" +
@@ -1891,14 +1936,11 @@ public partial class TikTokQueueView : UserControl
         {
             try
             {
+                var historySnapshot = match.HistorySnapshot!;
                 vm.StatusMessage = $"正在重建已删除项目：{match.NewTitle}";
-                TikTokExecutionHistoryService.PersistDeletionSnapshot(
-                    workspace,
-                    match.HistorySnapshot!.Item,
-                    proofAccount);
                 var recovery = await DeletedCopyrightProofProjectRecoveryService.RecoverAsync(
                     workspace,
-                    match.HistorySnapshot!,
+                    historySnapshot,
                     proofSettings,
                     proofAccount,
                     vm.AppendLog,
@@ -1911,6 +1953,19 @@ public partial class TikTokQueueView : UserControl
                 }
 
                 recoveredCount++;
+                try
+                {
+                    TikTokExecutionHistoryService.PersistDeletionSnapshot(
+                        workspace,
+                        recovery.Project ?? historySnapshot.Item,
+                        proofAccount);
+                }
+                catch (Exception historyEx)
+                {
+                    vm.AppendLog(
+                        $"已重建「{match.NewTitle}」，但保存恢复历史失败：{historyEx.Message}；" +
+                        "不影响本次继续补全版权证明。");
+                }
             }
             catch (Exception ex)
             {
@@ -1920,6 +1975,35 @@ public partial class TikTokQueueView : UserControl
         }
 
         var refreshedProjects = await Task.Run(() => WorkspaceQueueService.ScanProjects(workspace));
+        var repairedInterruptedRecovery = false;
+        foreach (var project in refreshedProjects.Where(item =>
+                     !item.Archived &&
+                     selectedTitles.Contains((item.NewTitle ?? string.Empty).Trim())))
+        {
+            try
+            {
+                if (!DeletedCopyrightProofWorkflowRecoveryService.RepairExistingProject(
+                        project.ProjectDir,
+                        project.NewTitle,
+                        vm.AppendLog))
+                {
+                    continue;
+                }
+
+                repairedInterruptedRecovery = true;
+                vm.AppendLog($"已自动修复上次中断留下的版权项目：{project.NewTitle}");
+            }
+            catch (Exception ex)
+            {
+                restoreFailures.Add($"{project.NewTitle}：修复中断项目失败（{ex.Message}）");
+                selectedTitles.Remove(project.NewTitle);
+            }
+        }
+        if (repairedInterruptedRecovery)
+        {
+            refreshedProjects = await Task.Run(() => WorkspaceQueueService.ScanProjects(workspace));
+        }
+
         var matchedProjects = refreshedProjects
             .Where(item => !item.Archived &&
                            selectedTitles.Contains((item.NewTitle ?? string.Empty).Trim()))
