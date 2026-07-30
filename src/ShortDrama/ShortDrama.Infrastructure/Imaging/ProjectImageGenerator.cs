@@ -63,11 +63,6 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         ProjectImageGenerateRequest request,
         CancellationToken cancellationToken)
     {
-        if (!Directory.Exists(request.InputDir))
-        {
-            throw new DirectoryNotFoundException($"工程图输入视频目录不存在: {request.InputDir}");
-        }
-
         var templateDirectory = request.TemplateImageDir;
         if (string.IsNullOrWhiteSpace(templateDirectory))
         {
@@ -92,10 +87,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             throw new InvalidOperationException("工程图模板清单中没有可用页面。");
         }
 
-        var sourceVideos = Directory.EnumerateFiles(request.InputDir, "*.*", SearchOption.TopDirectoryOnly)
-            .Where(path => SupportedExtensions.Contains(Path.GetExtension(path)))
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var sourceVideos = ResolveSourceVideos(request);
         var renderEpisodeLimit = LoadProjectImageRenderEpisodeLimit(configMap);
         if (renderEpisodeLimit is > 0 && sourceVideos.Length > renderEpisodeLimit.Value)
         {
@@ -103,7 +95,10 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         }
         if (sourceVideos.Length == 0)
         {
-            throw new InvalidOperationException($"未在目录中找到可用视频文件: {request.InputDir}");
+            throw new InvalidOperationException(
+                request.SourceVideos is { Count: > 0 }
+                    ? "工程图直接输入列表中没有可用视频文件。"
+                    : $"未在目录中找到可用视频文件: {request.InputDir}");
         }
 
         var ffmpeg = ResolveBinary("ffmpeg");
@@ -120,9 +115,12 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
 
         try
         {
-            foreach (var sourceVideo in sourceVideos)
+            for (var sourceIndex = 0; sourceIndex < sourceVideos.Length; sourceIndex++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var sourceVideo = sourceVideos[sourceIndex];
+                request.Progress?.Invoke(
+                    $"工程图/预览抽帧 [{sourceIndex + 1}/{sourceVideos.Length}]：{Path.GetFileName(sourceVideo)}");
                 var duration = await GetDurationSecondsAsync(ffprobe, sourceVideo, cancellationToken);
                 episodeDurations.Add(duration);
                 episodeFrames.Add(await ExtractFrameAsync(
@@ -138,6 +136,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             for (var index = 0; index < count; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                request.Progress?.Invoke($"工程图/图片生成 [{index + 1}/{count}]");
 
                 var outputPath = Path.Combine(request.OutputDir, $"工程图_{index + 1}.png");
                 if (File.Exists(outputPath) && !request.Overwrite)
@@ -184,6 +183,8 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                 });
                 outputs.Add(outputPath);
                 _logger.LogInformation("Generated project image {Index}/{Count}: {Path}", index + 1, count, outputPath);
+                request.Progress?.Invoke(
+                    $"工程图/图片完成 [{index + 1}/{count}]：{Path.GetFileName(outputPath)}");
             }
 
             return new ProjectImageGenerateResult(outputs.Count, outputs);
@@ -195,6 +196,48 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                 frame.Dispose();
             }
         }
+    }
+
+    internal static string[] ResolveSourceVideos(ProjectImageGenerateRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.SourceVideos is { Count: > 0 })
+        {
+            var resolved = new List<string>(request.SourceVideos.Count);
+            foreach (var value in request.SourceVideos)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    continue;
+                }
+
+                var path = Path.GetFullPath(value.Trim());
+                if (!File.Exists(path))
+                {
+                    throw new FileNotFoundException($"工程图直接输入视频不存在: {path}", path);
+                }
+
+                if (!SupportedExtensions.Contains(Path.GetExtension(path)))
+                {
+                    throw new InvalidOperationException($"工程图直接输入文件不是支持的视频格式: {path}");
+                }
+
+                resolved.Add(path);
+            }
+
+            return resolved.ToArray();
+        }
+
+        if (!Directory.Exists(request.InputDir))
+        {
+            throw new DirectoryNotFoundException($"工程图输入视频目录不存在: {request.InputDir}");
+        }
+
+        return Directory.EnumerateFiles(request.InputDir, "*.*", SearchOption.TopDirectoryOnly)
+            .Where(path => SupportedExtensions.Contains(Path.GetExtension(path)))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Select(Path.GetFullPath)
+            .ToArray();
     }
 
     private static void PrepareScreenshotMetadata(Image<Rgba32> image)
