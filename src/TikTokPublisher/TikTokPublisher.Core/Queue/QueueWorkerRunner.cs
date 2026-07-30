@@ -905,7 +905,16 @@ public sealed class QueueWorkerRunner
                     return true;
                 }
                 failureMessage = result.Message;
-                stopQueue = result.StopQueue;
+                stopQueue = result.StopQueue && !copyrightProofOnly;
+                if (copyrightProofOnly && result.StopQueue)
+                {
+                    Report(
+                        onProgress,
+                        workspace,
+                        item,
+                        "版权证明编辑失败仅影响当前项目，已忽略停止整个队列标记。",
+                        QueueStepRegistry.UploadSeries);
+                }
                 skipManualIntervention = result.SkipManualIntervention;
             }
         }

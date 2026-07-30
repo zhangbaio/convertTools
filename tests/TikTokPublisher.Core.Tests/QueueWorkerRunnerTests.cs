@@ -325,6 +325,47 @@ public sealed class QueueWorkerRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_copyright_proof_completion_ignores_stop_result_and_continues_queue()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-proof-continue",
+            Name = "proof-continue",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var firstItem = CreateReadyToUploadItem(1, account);
+        var nextItem = CreateReadyToUploadItem(2, account);
+        firstItem.QueuedAt = "2026-01-01T00:00:00";
+        nextItem.QueuedAt = "2026-01-01T00:00:01";
+        var host = new DailyLimitPublishHost();
+        var options = new QueueRunOptions { ProjectConcurrency = 2 };
+        options.ConfigureForCopyrightProofCompletion();
+        options.EnabledSteps = [QueueStepRegistry.UploadSeries];
+        var progressMessages = new List<string>();
+
+        var summary = await new QueueWorkerRunner().RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-proof-continue-test"),
+            [firstItem, nextItem],
+            options,
+            host,
+            store,
+            FinalAction.None,
+            onProgress: progress => progressMessages.Add(progress.Message),
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.Stopped.Should().BeFalse();
+        summary.SuccessCount.Should().Be(0);
+        summary.FailedCount.Should().Be(2);
+        host.PublishedProjectDirs.Should().Equal(firstItem.ProjectDir, nextItem.ProjectDir);
+        firstItem.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Failed);
+        nextItem.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Failed);
+        progressMessages.Should().Contain(message =>
+            message.Contains("已忽略停止整个队列标记", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RunAsync_skips_unexpected_upload_pipeline_fault_and_continues_queue()
     {
         var account = new TikTokAccountProfile
