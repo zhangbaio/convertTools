@@ -108,7 +108,15 @@ public sealed class TikTokProofMaterialService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         ProjectWorkspaceService.ValidateContextOwnership(context);
         Directory.CreateDirectory(context.WorkflowProjectDir);
-        var request = CreateQueueRequest(item, settings, account, context.WorkflowProjectDir);
+        var checkpoint = LoadState(context);
+        var statementDate = ResolveStatementDate(item, checkpoint);
+        var request = CreateQueueRequest(
+            item,
+            settings,
+            account,
+            context.WorkflowProjectDir,
+            statementDate);
+        item.ProofMaterialStatementDate = statementDate.ToString("yyyy-MM-dd");
         var fingerprint = ComputeFingerprint(request);
         var outputDocxPath = GetDocxPath(context.WorkflowProjectDir);
         var selectedMaterials = new List<string> { "合作协议（核心）" };
@@ -126,8 +134,7 @@ public sealed class TikTokProofMaterialService
 
         if (!forceRerun && HasCurrentOutput(context, request, fingerprint))
         {
-            var state = LoadState(context);
-            var renderer = GetStateString(state, "renderer");
+            var renderer = GetStateString(checkpoint, "renderer");
             log?.Invoke($"[合作协议（核心）] 复用现有文件：{request.OutputPdfPath}。");
             LogExistingMaterial(
                 log,
@@ -156,7 +163,6 @@ public sealed class TikTokProofMaterialService
                 new TikTokProofMaterialReplacementCounts(0, 0, 0, 0, 0));
         }
 
-        var checkpoint = LoadState(context);
         var canResume = !forceRerun &&
                         string.Equals(
                             GetStateString(checkpoint, "fingerprint"),
@@ -436,6 +442,25 @@ public sealed class TikTokProofMaterialService
         }
     }
 
+    internal static string ValidateExistingForUpload(QueueProjectItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        var expectedPath = GetPdfPath(context.WorkflowProjectDir);
+        try
+        {
+            TikTokProofMaterialPdfRenderService.ValidatePdf(expectedPath);
+            return expectedPath;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"生成证明材料步骤已完成，但现有证明材料 PDF 缺失或无效：{expectedPath}。" +
+                "请先点击“补全勾选证明材料”修复该项目，或勾选“强制重跑已完成步骤”。",
+                ex);
+        }
+    }
+
     public static async Task<string> EnsureCurrentForUploadAsync(
         PublishItem item,
         TikTokAccountProfile? account,
@@ -481,7 +506,13 @@ public sealed class TikTokProofMaterialService
             ArgumentNullException.ThrowIfNull(item);
             ArgumentNullException.ThrowIfNull(settings);
             var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
-            var request = CreateQueueRequest(item, settings, account, context.WorkflowProjectDir);
+            var state = LoadState(context);
+            var request = CreateQueueRequest(
+                item,
+                settings,
+                account,
+                context.WorkflowProjectDir,
+                ResolveStatementDate(item, state));
             var fingerprint = ComputeFingerprint(request);
             return !HasCurrentOutput(context, request, fingerprint);
         }
@@ -504,13 +535,12 @@ public sealed class TikTokProofMaterialService
             ArgumentNullException.ThrowIfNull(settings);
             var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
             var state = LoadState(context);
-            var existingStatementDate = ResolveExistingStatementDate(state);
             var request = CreateQueueRequest(
                 item,
                 settings,
                 account,
                 context.WorkflowProjectDir,
-                existingStatementDate);
+                ResolveStatementDate(item, state));
             return HasCurrentOutput(context, request, ComputeFingerprint(request));
         }
         catch
@@ -650,18 +680,31 @@ public sealed class TikTokProofMaterialService
     internal static DateOnly ResolveStatementDate(QueueProjectItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        if (DateOnly.TryParseExact(
-                item.ProofMaterialStatementDate,
-                "yyyy-MM-dd",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out var restoredArchiveDate))
-        {
-            return restoredArchiveDate;
-        }
+        if (TryParseStatementDate(item.ProofMaterialStatementDate, out var statementDate))
+            return statementDate;
 
         return GetChinaToday();
     }
+
+    internal static DateOnly ResolveStatementDate(
+        QueueProjectItem item,
+        IReadOnlyDictionary<string, JsonElement> existingState)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(existingState);
+        if (TryParseStatementDate(item.ProofMaterialStatementDate, out var queueStatementDate))
+            return queueStatementDate;
+
+        return ResolveExistingStatementDate(existingState) ?? GetChinaToday();
+    }
+
+    private static bool TryParseStatementDate(string? value, out DateOnly statementDate) =>
+        DateOnly.TryParseExact(
+            value,
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out statementDate);
 
     private static void LogExistingMaterial(
         Action<string>? log,

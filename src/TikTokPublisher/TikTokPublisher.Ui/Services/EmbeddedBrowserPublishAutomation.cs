@@ -76,11 +76,15 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         TikTokPublishOptions options;
         try
         {
-            // Queue uploads normally prepare this dependency before acquiring a browser slot.
-            // Keep the guard here as well so scheduled/manual publish entry points cannot bypass it.
-            await TikTokProofMaterialService
-                .EnsureCurrentForUploadAsync(item, account, L, ct)
-                .ConfigureAwait(false);
+            // Queue uploads already validate or prepare proof material before acquiring a browser
+            // slot. Do not run the generator again after that preflight. Direct/scheduled publish
+            // entry points still keep the guard so they cannot bypass proof preparation.
+            if (!uploadFilesPreflighted)
+            {
+                await TikTokProofMaterialService
+                    .EnsureCurrentForUploadAsync(item, account, L, ct)
+                    .ConfigureAwait(false);
+            }
             workflowDir = TikTokUploadStateStore.ResolveWorkflowProjectDir(item.ProjectDir);
             options = TikTokPublishOptionsBuilder.FromAccount(account, workflowDir, L);
         }

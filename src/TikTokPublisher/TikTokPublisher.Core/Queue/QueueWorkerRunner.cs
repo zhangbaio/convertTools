@@ -817,18 +817,37 @@ public sealed class QueueWorkerRunner
 
         if (TikTokPublishConstants.RequiresGeneratedProofMaterial(materialTypes))
         {
-            mutate(() => MarkRunning(item, QueueStepRegistry.GenerateProofMaterial));
-            Report(
-                onProgress,
-                workspace,
-                item,
-                "合作协议已选中，上传前检查当前项目证明材料…",
-                QueueStepRegistry.GenerateProofMaterial);
+            var proofAlreadyCompleted =
+                item.StepStates.GetValueOrDefault(QueueStepRegistry.GenerateProofMaterial) ==
+                QueueStepStatus.Completed;
+            if (proofAlreadyCompleted)
+            {
+                Report(
+                    onProgress,
+                    workspace,
+                    item,
+                    "生成证明材料已完成，上传前仅校验现有文件，不重新生成…",
+                    QueueStepRegistry.GenerateProofMaterial);
+            }
+            else
+            {
+                mutate(() => MarkRunning(item, QueueStepRegistry.GenerateProofMaterial));
+                Report(
+                    onProgress,
+                    workspace,
+                    item,
+                    "合作协议已选中，上传前检查当前项目证明材料…",
+                    QueueStepRegistry.GenerateProofMaterial);
+            }
+
             try
             {
-                var proofPath = await ensureProofMaterial(item, account, uploadLog, ct).ConfigureAwait(false);
+                var proofPath = proofAlreadyCompleted
+                    ? TikTokProofMaterialService.ValidateExistingForUpload(item)
+                    : await ensureProofMaterial(item, account, uploadLog, ct).ConfigureAwait(false);
                 TikTokProofMaterialPdfRenderService.ValidatePdf(proofPath);
-                mutate(() => MarkCompleted(item, QueueStepRegistry.GenerateProofMaterial));
+                if (!proofAlreadyCompleted)
+                    mutate(() => MarkCompleted(item, QueueStepRegistry.GenerateProofMaterial));
                 Report(
                     onProgress,
                     workspace,
@@ -1147,16 +1166,6 @@ public sealed class QueueWorkerRunner
         {
             return true;
         }
-        if (stepKey == QueueStepRegistry.GenerateProofMaterial &&
-            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
-            TikTokProofMaterialService.NeedsGenerateProofMaterial(
-                item,
-                ClientSettingsStore.Load(),
-                account))
-        {
-            return true;
-        }
-
         return item.StepStates.GetValueOrDefault(stepKey) != QueueStepStatus.Completed;
     }
 
