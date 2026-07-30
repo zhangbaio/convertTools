@@ -73,7 +73,7 @@ public static class QueueMaterialStepService
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
     }
 
-    internal static async Task<ProofMaterialVideoLease> EnsureProofMaterialVideosAsync(
+    internal static async Task<ProofMaterialVideoHydrationResult> EnsureProofMaterialVideosAsync(
         QueueProjectItem item,
         ClientSettings settings,
         int requiredEpisodeCount,
@@ -92,7 +92,7 @@ public static class QueueMaterialStepService
         if (existingVideos.Count > 0)
         {
             log($"证明材料补源：已有可用视频 {existingVideos.Count} 个，无需下载。");
-            return ProofMaterialVideoLease.Empty;
+            return ProofMaterialVideoHydrationResult.Empty;
         }
 
         var missingEpisodes = Enumerable.Range(1, required).ToArray();
@@ -101,7 +101,7 @@ public static class QueueMaterialStepService
         if (string.IsNullOrWhiteSpace(metadata.BookId))
         {
             throw new InvalidOperationException(
-                $"证明材料缺少视频，且项目缺少 bookId，无法临时补下载前 {required} 集。");
+                $"证明材料缺少视频，且项目缺少 bookId，无法补下载前 {required} 集。");
         }
 
         ShortDramaDramaServices.RefreshSettings(settings);
@@ -121,8 +121,8 @@ public static class QueueMaterialStepService
             4);
 
         log(
-            $"证明材料缺少视频源：仅临时补下载第 {selection} 集，" +
-            $"不执行整剧下载，不改变正式下载步骤状态。");
+            $"证明材料缺少视频源：仅补下载第 {selection} 集，" +
+            $"不执行整剧下载，不改变正式下载步骤状态；下载的视频将保留到项目归档。");
         try
         {
             using (await QueueDownloadSlotCoordinator.WaitAsync(
@@ -145,7 +145,7 @@ public static class QueueMaterialStepService
                 {
                     if (ct.IsCancellationRequested)
                         throw new OperationCanceledException(ct);
-                    throw new InvalidOperationException(result.Message ?? "证明材料临时补源失败");
+                    throw new InvalidOperationException(result.Message ?? "证明材料补源失败");
                 }
             }
 
@@ -154,10 +154,12 @@ public static class QueueMaterialStepService
                 .ToArray();
             var created = after.Where(path => !before.Contains(path)).ToArray();
             if (after.Length == 0)
-                throw new InvalidOperationException("证明材料临时补源完成后仍未找到可用视频。");
+                throw new InvalidOperationException("证明材料补源完成后仍未找到可用视频。");
 
-            log($"证明材料临时补源完成：新增 {created.Length} 个视频，可用 {after.Length} 个。");
-            return new ProofMaterialVideoLease(created, log);
+            log(
+                $"证明材料补源完成：新增 {created.Length} 个视频，可用 {after.Length} 个；" +
+                "下载的视频已保留，将在项目归档时按账号配置清理。");
+            return new ProofMaterialVideoHydrationResult(created);
         }
         catch
         {
@@ -165,50 +167,20 @@ public static class QueueMaterialStepService
                 .Select(Path.GetFullPath)
                 .Where(path => !before.Contains(path))
                 .ToArray();
-            new ProofMaterialVideoLease(partial, log).Dispose();
+            if (partial.Length > 0)
+            {
+                log(
+                    $"证明材料补源中断：已保留下载完成的 {partial.Length} 个视频，" +
+                    "将在项目归档时按账号配置清理。");
+            }
             throw;
         }
     }
 
-    internal sealed class ProofMaterialVideoLease : IDisposable
+    internal sealed record ProofMaterialVideoHydrationResult(
+        IReadOnlyList<string> CreatedVideoPaths)
     {
-        internal static ProofMaterialVideoLease Empty { get; } = new([], null);
-
-        private readonly IReadOnlyList<string> _createdVideoPaths;
-        private readonly Action<string>? _log;
-        private bool _disposed;
-
-        internal ProofMaterialVideoLease(IReadOnlyList<string> createdVideoPaths, Action<string>? log)
-        {
-            _createdVideoPaths = createdVideoPaths;
-            _log = log;
-        }
-
-        public void Dispose()
-        {
-            if (_disposed)
-                return;
-            _disposed = true;
-
-            var deleted = 0;
-            foreach (var path in _createdVideoPaths)
-            {
-                try
-                {
-                    if (!File.Exists(path))
-                        continue;
-                    File.Delete(path);
-                    deleted++;
-                }
-                catch (Exception ex)
-                {
-                    _log?.Invoke($"证明材料临时视频清理失败：{path}；{ex.Message}");
-                }
-            }
-
-            if (_createdVideoPaths.Count > 0)
-                _log?.Invoke($"证明材料临时视频已清理：{deleted}/{_createdVideoPaths.Count} 个。");
-        }
+        internal static ProofMaterialVideoHydrationResult Empty { get; } = new([]);
     }
 
     private static DramaDownloadRequest BuildDownloadRequest(

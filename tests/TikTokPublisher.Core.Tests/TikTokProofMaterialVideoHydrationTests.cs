@@ -52,24 +52,19 @@ public sealed class TikTokProofMaterialVideoHydrationTests
     }
 
     [Fact]
-    public void ProofMaterialVideoLease_DeletesOnlyFilesCreatedForHydration()
+    public void ProofMaterialVideoHydrationResult_DoesNotOwnOrDeleteCreatedFiles()
     {
         using var temp = new TemporaryDirectory();
         var existing = Path.Combine(temp.Path, "existing.mp4");
         var hydrated = Path.Combine(temp.Path, "hydrated.mp4");
         File.WriteAllBytes(existing, [1]);
         File.WriteAllBytes(hydrated, [2]);
-        var logs = new List<string>();
+        var result = new QueueMaterialStepService.ProofMaterialVideoHydrationResult([hydrated]);
 
-        using (new QueueMaterialStepService.ProofMaterialVideoLease([hydrated], logs.Add))
-        {
-            File.Exists(existing).Should().BeTrue();
-            File.Exists(hydrated).Should().BeTrue();
-        }
-
+        result.CreatedVideoPaths.Should().Equal(hydrated);
         File.Exists(existing).Should().BeTrue();
-        File.Exists(hydrated).Should().BeFalse();
-        logs.Should().ContainSingle(message => message.Contains("1/1", StringComparison.Ordinal));
+        File.Exists(hydrated).Should().BeTrue(
+            "证明材料补下载的视频应由项目归档流程统一清理");
     }
 
     private sealed class TemporaryDirectory : IDisposable

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using SixLabors.Fonts;
@@ -23,9 +24,12 @@ public static class TikTokAiGenerationScreenshotService
 {
     /// <summary>与版权材料选项「AI 生成过程截图」同名，独立于 workflow 根目录的工程图。</summary>
     public const string OutputDirectoryName = "AI 生成过程截图";
+    public const string RetainedFramesDirectoryName = "抽帧原图";
+    public const string RetainedFramesManifestFileName = "manifest.json";
     public const int RequiredImageCount = 4;
     public const int MaxImageCount = 8;
-    public const string ScreenshotVersion = "v4-adaptive-portrait-workbench";
+    public const string ScreenshotVersion = "v5-retained-video-keyframes";
+    public const string RetainedFramesVersion = "v1";
     public const int ShotsPerPage = 2;
 
     private const string LegacyOutputDirectoryName = "AI生成过程截图";
@@ -57,6 +61,12 @@ public static class TikTokAiGenerationScreenshotService
     public static string GetOutputDirectory(string workflowProjectDirectory) =>
         Path.Combine(Path.GetFullPath(workflowProjectDirectory), OutputDirectoryName);
 
+    public static string GetRetainedFramesDirectory(string workflowProjectDirectory) =>
+        Path.Combine(GetOutputDirectory(workflowProjectDirectory), RetainedFramesDirectoryName);
+
+    public static string GetRetainedFramesManifestPath(string workflowProjectDirectory) =>
+        Path.Combine(GetRetainedFramesDirectory(workflowProjectDirectory), RetainedFramesManifestFileName);
+
     public static IReadOnlyList<string> GetExpectedOutputPaths(string workflowProjectDirectory)
     {
         var dir = GetOutputDirectory(workflowProjectDirectory);
@@ -77,8 +87,19 @@ public static class TikTokAiGenerationScreenshotService
             .ToArray();
     }
 
+    public static IReadOnlyList<string> ListRetainedFrameImages(string workflowProjectDirectory)
+    {
+        var dir = GetRetainedFramesDirectory(workflowProjectDirectory);
+        return Directory.Exists(dir)
+            ? Directory.EnumerateFiles(dir, "*.jpg", SearchOption.TopDirectoryOnly)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+            : [];
+    }
+
     public static bool HasCurrentOutput(string workflowProjectDirectory) =>
-        ListGeneratedImages(workflowProjectDirectory).Count >= RequiredImageCount;
+        ListGeneratedImages(workflowProjectDirectory).Count >= RequiredImageCount &&
+        File.Exists(GetRetainedFramesManifestPath(workflowProjectDirectory));
 
     public static void TryDeleteOutput(string workflowProjectDirectory)
     {
@@ -136,14 +157,20 @@ public static class TikTokAiGenerationScreenshotService
         cancellationToken.ThrowIfCancellationRequested();
 
         var title = string.IsNullOrWhiteSpace(dramaTitle) ? "未命名短剧" : dramaTitle.Trim();
-        // 先清掉旧版目录，再写入独立文件夹，避免与 workflow 根目录「工程图_*.png」混用。
-        TryDeleteOutput(workflowProjectDirectory);
+        // 旧版无空格目录不参与原子替换，可直接清理。当前正式产物会一直保留到新产物全部完成。
+        TryDeleteDirectory(
+            Path.Combine(Path.GetFullPath(workflowProjectDirectory), LegacyOutputDirectoryName));
         var outputDir = GetOutputDirectory(workflowProjectDirectory);
-        log?.Invoke($"AI 截图/初始化：已清理旧产物；输出目录={outputDir}。");
+        log?.Invoke($"AI 截图/初始化：新产物完成后整体替换旧产物；输出目录={outputDir}。");
 
         var pageCount = RequiredImageCount;
         var shotCount = pageCount * ShotsPerPage;
-        var framePool = CollectFrames(workflowProjectDirectory, shotCount, log, cancellationToken);
+        var collectedFrames = CollectFrames(
+            workflowProjectDirectory,
+            shotCount,
+            log,
+            cancellationToken);
+        var framePool = collectedFrames.Frames;
         string? stagingDir = null;
         log?.Invoke(
             $"AI 截图/素材池：已准备 {framePool.Count} 张关键帧；" +
@@ -159,6 +186,14 @@ public static class TikTokAiGenerationScreenshotService
                 Path.GetFullPath(workflowProjectDirectory),
                 $".ai-generation-screenshots-{Guid.NewGuid():N}");
             Directory.CreateDirectory(stagingDir);
+            var retainedFramePaths = SaveRetainedVideoFrames(
+                stagingDir,
+                title,
+                collectedFrames.RetainedVideoFrames,
+                cancellationToken);
+            log?.Invoke(
+                $"AI 截图/抽帧原图：已保留 {retainedFramePaths.Count} 张视频帧；" +
+                $"目录={Path.Combine(outputDir, RetainedFramesDirectoryName)}。");
             var outputs = new List<string>(pageCount);
             for (var page = 0; page < pageCount; page++)
             {
@@ -182,8 +217,7 @@ public static class TikTokAiGenerationScreenshotService
 
             // All pages are complete before exposing the final directory. This avoids a long
             // vision request leaving a missing/partial output directory if cleanup runs meanwhile.
-            TryDeleteDirectory(outputDir);
-            Directory.Move(stagingDir, outputDir);
+            ReplaceOutputDirectory(stagingDir, outputDir);
             stagingDir = null;
             log?.Invoke($"AI 生成过程截图已生成：{outputs.Count} 张 → {outputDir}");
             return outputs;
@@ -202,6 +236,21 @@ public static class TikTokAiGenerationScreenshotService
         }
     }
 
+    private sealed record ExtractedFrame(
+        Image<Rgba32> Image,
+        double Seconds);
+
+    private sealed record RetainedVideoFrame(
+        Image<Rgba32> Image,
+        string SourceVideo,
+        double Seconds,
+        int ShotIndex,
+        int KeyframeIndex);
+
+    private sealed record CollectedFrames(
+        List<Image<Rgba32>> Frames,
+        IReadOnlyList<RetainedVideoFrame> RetainedVideoFrames);
+
     private sealed record ShotAnalysis(
         string ShotType,
         string Camera,
@@ -212,7 +261,7 @@ public static class TikTokAiGenerationScreenshotService
         string Ambient,
         int Match);
 
-    private static List<Image<Rgba32>> CollectFrames(
+    private static CollectedFrames CollectFrames(
         string workflowProjectDirectory,
         int needed,
         Action<string>? log,
@@ -221,6 +270,7 @@ public static class TikTokAiGenerationScreenshotService
         var workflow = Path.GetFullPath(workflowProjectDirectory);
         var videos = ResolveVideoSources(workflow).Take(12).ToArray();
         var frames = new List<Image<Rgba32>>();
+        var retainedVideoFrames = new List<RetainedVideoFrame>();
 
         if (videos.Length > 0)
         {
@@ -246,8 +296,9 @@ public static class TikTokAiGenerationScreenshotService
                         Math.Max(0.4, sequenceIndex * window * 0.65),
                         Math.Max(0.5, duration - 1.2));
 
-                    foreach (var ratio in KeyframeRatios)
+                    for (var keyframeIndex = 0; keyframeIndex < KeyframeRatios.Length; keyframeIndex++)
                     {
+                        var ratio = KeyframeRatios[keyframeIndex];
                         var seconds = Math.Min(
                             Math.Max(0.05, duration - 0.05),
                             Math.Max(0.05, baseSeconds + window * ratio));
@@ -259,7 +310,13 @@ public static class TikTokAiGenerationScreenshotService
                             cancellationToken);
                         if (extracted is not null)
                         {
-                            frames.Add(extracted);
+                            frames.Add(extracted.Image);
+                            retainedVideoFrames.Add(new RetainedVideoFrame(
+                                extracted.Image,
+                                video,
+                                extracted.Seconds,
+                                shotIndex,
+                                keyframeIndex));
                         }
                     }
                 }
@@ -303,7 +360,107 @@ public static class TikTokAiGenerationScreenshotService
 
         FillFramePool(frames, requiredFrameCount);
 
-        return frames;
+        return new CollectedFrames(frames, retainedVideoFrames);
+    }
+
+    private static IReadOnlyList<string> SaveRetainedVideoFrames(
+        string stagingDirectory,
+        string dramaTitle,
+        IReadOnlyList<RetainedVideoFrame> retainedFrames,
+        CancellationToken cancellationToken)
+    {
+        var outputDirectory = Path.Combine(stagingDirectory, RetainedFramesDirectoryName);
+        Directory.CreateDirectory(outputDirectory);
+        var outputPaths = new List<string>(retainedFrames.Count);
+        var manifestItems = new List<object>(retainedFrames.Count);
+        for (var index = 0; index < retainedFrames.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var frame = retainedFrames[index];
+            var sourceName = Path.GetFileName(frame.SourceVideo);
+            var sourceStem = SanitizeFrameFileNamePart(Path.GetFileNameWithoutExtension(sourceName));
+            var label = KeyframeLabels[frame.KeyframeIndex % KeyframeLabels.Length];
+            var secondsToken = frame.Seconds
+                .ToString("0000.000", System.Globalization.CultureInfo.InvariantCulture);
+            var fileName =
+                $"{index + 1:000}_{sourceStem}_{secondsToken}秒_{label}.jpg";
+            var outputPath = Path.Combine(outputDirectory, fileName);
+            frame.Image.Save(outputPath, new JpegEncoder { Quality = 90 });
+            outputPaths.Add(outputPath);
+
+            using var stream = File.OpenRead(outputPath);
+            var sha256 = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+            manifestItems.Add(new
+            {
+                file = fileName,
+                source_video = sourceName,
+                shot_number = frame.ShotIndex + 1,
+                keyframe = label,
+                seconds = Math.Round(frame.Seconds, 3),
+                width = frame.Image.Width,
+                height = frame.Image.Height,
+                sha256,
+            });
+        }
+
+        var manifest = new
+        {
+            version = RetainedFramesVersion,
+            screenshot_version = ScreenshotVersion,
+            drama_title = dramaTitle,
+            generated_at = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:sszzz"),
+            frame_count = retainedFrames.Count,
+            frames = manifestItems,
+        };
+        File.WriteAllText(
+            Path.Combine(outputDirectory, RetainedFramesManifestFileName),
+            JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        return outputPaths;
+    }
+
+    private static string SanitizeFrameFileNamePart(string? value)
+    {
+        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
+        var chars = (value ?? string.Empty)
+            .Trim()
+            .Select(ch => invalid.Contains(ch) ? '_' : ch)
+            .ToArray();
+        var sanitized = new string(chars).Trim(' ', '.');
+        if (string.IsNullOrWhiteSpace(sanitized))
+            sanitized = "视频";
+        return sanitized.Length <= 48 ? sanitized : sanitized[..48];
+    }
+
+    private static void ReplaceOutputDirectory(string stagingDirectory, string outputDirectory)
+    {
+        var parent = Path.GetDirectoryName(outputDirectory)
+            ?? throw new InvalidOperationException($"AI 截图输出目录无效：{outputDirectory}");
+        var backupDirectory = Path.Combine(
+            parent,
+            $".ai-generation-screenshots-backup-{Guid.NewGuid():N}");
+        var hadExistingOutput = Directory.Exists(outputDirectory);
+        var replacementSucceeded = false;
+        if (hadExistingOutput)
+            Directory.Move(outputDirectory, backupDirectory);
+
+        try
+        {
+            Directory.Move(stagingDirectory, outputDirectory);
+            replacementSucceeded = true;
+        }
+        catch
+        {
+            TryDeleteDirectory(outputDirectory);
+            if (hadExistingOutput && Directory.Exists(backupDirectory))
+                Directory.Move(backupDirectory, outputDirectory);
+            throw;
+        }
+        finally
+        {
+            if (replacementSucceeded)
+                TryDeleteDirectory(backupDirectory);
+        }
     }
 
     private static IReadOnlyList<string> ResolveVideoSources(string workflow)
@@ -1128,14 +1285,14 @@ public static class TikTokAiGenerationScreenshotService
         }
     }
 
-    private static Image<Rgba32>? TryExtractFacePreferredFrame(
+    private static ExtractedFrame? TryExtractFacePreferredFrame(
         string ffmpeg,
         string videoPath,
         double preferredSeconds,
         double duration,
         CancellationToken cancellationToken)
     {
-        Image<Rgba32>? best = null;
+        ExtractedFrame? best = null;
         var bestScore = double.NegativeInfinity;
         foreach (var offset in new[] { 0.0, -1.2, 1.2 })
         {
@@ -1150,8 +1307,8 @@ public static class TikTokAiGenerationScreenshotService
             var score = ScoreFaceVisibility(candidate) - Math.Abs(offset) * 0.01;
             if (score > bestScore)
             {
-                best?.Dispose();
-                best = candidate;
+                best?.Image.Dispose();
+                best = new ExtractedFrame(candidate, seconds);
                 bestScore = score;
             }
             else

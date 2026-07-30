@@ -1,5 +1,4 @@
 using Microsoft.Playwright;
-using System.Text.RegularExpressions;
 using TikTokPublisher.Core.Abstractions;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
@@ -13,9 +12,6 @@ namespace TikTokPublisher.Ui.Services.TikTok;
 /// </summary>
 public static class TikTokCopyrightProofEditService
 {
-    private static readonly Regex SeriesIdPattern =
-        new(@"\b(\d{16,20})\b", RegexOptions.Compiled);
-
     public static async Task<PublishResult> UpdateAsync(
         TikTokAccountProfile account,
         PublishItem item,
@@ -122,75 +118,17 @@ public static class TikTokCopyrightProofEditService
         Action<string>? log,
         CancellationToken ct)
     {
-        await page.GotoAsync(TikTokUrls.DefaultSeriesListUrl, new PageGotoOptions
-        {
-            WaitUntil = WaitUntilState.DOMContentLoaded,
-            Timeout = 90000,
-        }).ConfigureAwait(false);
-        try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 }); }
-        catch { /* SPA */ }
-
-        var search = page.Locator(
-            "input[placeholder*='短剧'], input[placeholder*='查询'], input[type='search']").First;
-        if (await search.CountAsync().ConfigureAwait(false) == 0)
-            throw new InvalidOperationException("原创管理页面未找到剧集搜索框。");
-
         log?.Invoke($"TikTok 原创管理按新剧名精确搜索：{newTitle}");
-        await search.FillAsync(newTitle).ConfigureAwait(false);
-        try { await search.PressAsync("Enter").ConfigureAwait(false); }
-        catch { /* debounce search */ }
-        await page.WaitForTimeoutAsync(1500).ConfigureAwait(false);
+        await TikTokSeriesListLookupService.OpenAsync(page, log, ct).ConfigureAwait(false);
+        var rows = await TikTokSeriesListLookupService
+            .SearchExactAsync(page, newTitle, ct)
+            .ConfigureAwait(false);
+        if (rows.Count > 1)
+            throw new InvalidOperationException($"平台存在多个同名新剧名项目，已停止处理：{newTitle}");
 
-        var matches = new List<string>();
-        foreach (var selector in new[] { "tbody tr", "[role='row']", "tr" })
-        {
-            var rows = page.Locator(selector);
-            var count = Math.Min(await rows.CountAsync().ConfigureAwait(false), 100);
-            for (var i = 0; i < count; i++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var row = rows.Nth(i);
-                string text;
-                try { text = await row.InnerTextAsync(new() { Timeout = 1000 }).ConfigureAwait(false); }
-                catch { continue; }
-                var lines = text
-                    .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                if (!lines.Contains(newTitle, StringComparer.Ordinal))
-                    continue;
-
-                var links = row.Locator("a[href*='/series/']");
-                var linkCount = await links.CountAsync().ConfigureAwait(false);
-                for (var linkIndex = 0; linkIndex < linkCount; linkIndex++)
-                {
-                    var href = await links.Nth(linkIndex).GetAttributeAsync("href").ConfigureAwait(false);
-                    if (string.IsNullOrWhiteSpace(href))
-                        continue;
-                    matches.Add(new Uri(new Uri(page.Url), href).ToString());
-                }
-
-                if (linkCount == 0)
-                {
-                    var ids = SeriesIdPattern.Matches(text)
-                        .Select(match => match.Groups[1].Value)
-                        .Distinct(StringComparer.Ordinal)
-                        .ToArray();
-                    if (ids.Length == 1)
-                    {
-                        var segment = text.Contains("草稿", StringComparison.Ordinal)
-                            ? "draft"
-                            : "detail";
-                        matches.Add($"https://www.tiktokdramacenter.com/series/{segment}/{ids[0]}");
-                    }
-                }
-            }
-
-            if (matches.Count > 0)
-                break;
-        }
-
-        var exactMatches = matches
-            .Where(url => url.Contains("/series/detail/", StringComparison.OrdinalIgnoreCase) ||
-                          url.Contains("/series/draft/", StringComparison.OrdinalIgnoreCase))
+        var exactMatches = rows
+            .Select(row => row.DetailUrl)
+            .Where(url => !string.IsNullOrWhiteSpace(url))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         if (exactMatches.Length > 1)

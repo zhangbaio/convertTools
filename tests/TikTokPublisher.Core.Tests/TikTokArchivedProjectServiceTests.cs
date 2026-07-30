@@ -115,6 +115,35 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         syncItem.AccountProfileName.Should().Be("账号3");
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task ArchiveQueueProjectAsync_cleans_retained_proof_hydration_video_only_when_configured(
+        bool deleteSourceVideos,
+        bool expectedVideoExists)
+    {
+        var (sourceDir, _) = CreateProjectDirs($"proof-hydration-{deleteSourceVideos}");
+        var videoName = "证明材料补源-第01集.mp4";
+        WriteSmallFile(Path.Combine(sourceDir, videoName));
+
+        await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+            _workspaceRoot,
+            sourceDir,
+            _archiveRoot,
+            deleteSourceVideos: deleteSourceVideos,
+            deleteWorkflowVideos: deleteSourceVideos,
+            deleteMaterialVideos: deleteSourceVideos);
+
+        var metadataPath = Directory
+            .EnumerateFiles(Path.Combine(_archiveRoot, "meta"), "*.json")
+            .Single();
+        using var doc = JsonDocument.Parse(File.ReadAllText(metadataPath));
+        var archivedSourceDir = doc.RootElement.GetProperty("archivedSourceDir").GetString()!;
+
+        File.Exists(Path.Combine(archivedSourceDir, videoName))
+            .Should().Be(expectedVideoExists);
+    }
+
     [Fact]
     public async Task TodayUploadCount_includes_completed_archived_projects()
     {
