@@ -130,7 +130,7 @@ public static class TikTokCopyrightProofEditService
         log?.Invoke($"TikTok 原创管理按新剧名精确搜索：{newTitle}");
         await TikTokSeriesListLookupService.OpenAsync(page, log, ct).ConfigureAwait(false);
         var rows = await TikTokSeriesListLookupService
-            .SearchExactAsync(page, newTitle, ct)
+            .SearchExactAsync(page, newTitle, ct, log)
             .ConfigureAwait(false);
         if (rows.Count > 1)
             throw new InvalidOperationException($"平台存在多个同名新剧名项目，已停止处理：{newTitle}");
