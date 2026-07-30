@@ -58,26 +58,30 @@ public sealed class DeletedCopyrightProofWorkflowRecoveryServiceTests
     }
 
     [Fact]
-    public void RunWithReconciledTarget_restores_old_proof_target_when_switch_fails()
+    public void RepairExistingProject_reuses_target_while_proof_pdf_is_open()
     {
         using var fixture = RecoveryFixture.Create();
         var proofPath = Path.Combine(
             fixture.DesiredWorkflowDir,
             TikTokProofMaterialService.ProofPdfFileName);
         File.WriteAllText(proofPath, "existing proof");
+        using var openProof = new FileStream(
+            proofPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
 
-        var action = () =>
-            DeletedCopyrightProofWorkflowRecoveryService.RunWithReconciledTarget<string>(
-                fixture.SourceDir,
-                fixture.NewTitle,
-                () => throw new InvalidOperationException("simulated failure"));
+        var repaired = DeletedCopyrightProofWorkflowRecoveryService.RepairExistingProject(
+            fixture.SourceDir,
+            fixture.NewTitle);
 
-        action.Should()
-            .Throw<InvalidOperationException>()
-            .WithMessage("simulated failure");
-        Directory.Exists(fixture.CurrentWorkflowDir).Should().BeTrue();
+        repaired.Should().BeTrue();
+        Directory.Exists(fixture.CurrentWorkflowDir).Should().BeFalse();
         Directory.Exists(fixture.DesiredWorkflowDir).Should().BeTrue();
-        File.ReadAllText(proofPath).Should().Be("existing proof");
+        openProof.Length.Should().BeGreaterThan(0);
+        File.Exists(Path.Combine(fixture.DesiredWorkflowDir, "短剧信息.txt"))
+            .Should()
+            .BeTrue();
     }
 
     private static string ReadMetadataPath(string directory, string propertyName)
