@@ -276,7 +276,7 @@ public sealed class WorkspaceQueueServiceTests
     }
 
     [Fact]
-    public void ScanProjects_recovers_proof_material_step_from_workflow_pdf()
+    public void ScanProjects_keeps_proof_material_pending_when_only_workflow_pdf_exists()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");
         var project = Path.Combine(workspace, "first");
@@ -305,7 +305,9 @@ public sealed class WorkspaceQueueServiceTests
 
             var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
 
-            item.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
+            item.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(
+                QueueStepStatus.Pending,
+                "a leftover PDF does not prove that every account-selected proof artifact is complete");
         }
         finally
         {
