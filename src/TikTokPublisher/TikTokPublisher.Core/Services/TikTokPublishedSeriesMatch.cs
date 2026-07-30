@@ -53,23 +53,6 @@ public static class TikTokPublishedSeriesMatchText
                 .Where(match => match.IsPublished)
                 .Select(match => match.InputTitle));
 
-    public static string BuildAllResultsCopyText(
-        IEnumerable<TikTokPublishedSeriesMatch> matches)
-    {
-        var lines = new List<string>
-        {
-            "匹配结果\t新剧名\t平台状态\t剧集ID\t说明",
-        };
-        lines.AddRange(matches.Select(match => string.Join(
-            '\t',
-            KindLabel(match.Kind),
-            SanitizeCell(match.InputTitle),
-            SanitizeCell(match.PlatformStatus),
-            SanitizeCell(match.SeriesId),
-            SanitizeCell(match.Message))));
-        return string.Join(Environment.NewLine, lines);
-    }
-
     public static string BuildDisplayText(
         IEnumerable<TikTokPublishedSeriesMatch> matches)
     {
@@ -102,10 +85,4 @@ public static class TikTokPublishedSeriesMatchText
             _ => "未知",
         };
 
-    private static string SanitizeCell(string? value) =>
-        (value ?? string.Empty)
-        .Replace('\t', ' ')
-        .Replace('\r', ' ')
-        .Replace('\n', ' ')
-        .Trim();
 }
