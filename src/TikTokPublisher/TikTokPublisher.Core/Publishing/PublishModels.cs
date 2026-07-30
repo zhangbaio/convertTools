@@ -24,6 +24,7 @@ public sealed class PublishItem
     public int EpisodeIndex { get; set; }
     public int EpisodeCount { get; set; } = 1;
     public bool ForceEditUpload { get; set; }
+    public bool CopyrightProofOnly { get; set; }
 
     public string DisplayName => string.IsNullOrEmpty(VideoPath) ? "(空)" : Path.GetFileName(VideoPath);
 }

@@ -6,6 +6,21 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class QueueRunOptionsTests
 {
     [Fact]
+    public void CopyrightProofOnlyEntryMode_RoundTripsButIsNotPersisted()
+    {
+        var options = new QueueRunOptions
+        {
+            UploadEntryMode = QueueRunOptions.CopyrightProofOnlyEntryMode,
+        };
+
+        var transient = QueueRunOptions.FromDictionary(options.ToDictionary());
+        var persistent = QueueRunOptions.FromDictionary(options.ToPersistentDictionary());
+
+        Assert.True(transient.IsCopyrightProofOnlyRun());
+        Assert.Equal(string.Empty, persistent.UploadEntryMode);
+    }
+
+    [Fact]
     public void FromDictionary_uses_default_steps_when_option_is_missing()
     {
         var options = QueueRunOptions.FromDictionary(new Dictionary<string, object?>());

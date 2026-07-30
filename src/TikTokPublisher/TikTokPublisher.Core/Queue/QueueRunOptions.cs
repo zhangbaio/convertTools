@@ -60,6 +60,9 @@ public readonly record struct QueueStepDefinition(string Key, string Label, bool
 
 public sealed class QueueRunOptions
 {
+    public const string EditUploadEntryMode = "edit";
+    public const string CopyrightProofOnlyEntryMode = "copyright_proof_only";
+
     public List<string> EnabledSteps { get; set; } = QueueStepRegistry.DefaultEnabledSteps.ToList();
     public bool AutoArchiveAfterUpload { get; set; }
     public bool ForceRerunCompletedSteps { get; set; }
@@ -149,8 +152,15 @@ public sealed class QueueRunOptions
     private static string NormalizeUploadEntryMode(string? value)
     {
         var normalized = (value ?? "").Trim().ToLowerInvariant();
-        return normalized is "edit" or "edit_existing" or "existing" ? "edit" : "";
+        if (normalized is "edit" or "edit_existing" or "existing")
+            return EditUploadEntryMode;
+        return normalized is "copyright_proof_only" or "proof_only"
+            ? CopyrightProofOnlyEntryMode
+            : "";
     }
+
+    public bool IsCopyrightProofOnlyRun() =>
+        string.Equals(UploadEntryMode, CopyrightProofOnlyEntryMode, StringComparison.OrdinalIgnoreCase);
 
     private static bool GetBool(Dictionary<string, object?> payload, string key) =>
         payload.TryGetValue(key, out var v) && v switch

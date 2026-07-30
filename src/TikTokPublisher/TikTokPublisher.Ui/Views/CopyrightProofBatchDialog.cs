@@ -1,0 +1,163 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Layout;
+using Avalonia.Media;
+using TikTokPublisher.Core.Services;
+
+namespace TikTokPublisher.Ui.Views;
+
+public sealed record CopyrightProofBatchDialogResult(
+    IReadOnlyList<CopyrightProofProjectMatch> SelectedMatches);
+
+public sealed class CopyrightProofBatchDialog : Window
+{
+    private readonly Func<string, IReadOnlyList<CopyrightProofProjectMatch>> _match;
+    private readonly TextBox _input;
+    private readonly StackPanel _previewRows;
+    private readonly TextBlock _summary;
+    private IReadOnlyList<CopyrightProofProjectMatch> _matches = [];
+
+    private CopyrightProofBatchDialog(
+        Func<string, IReadOnlyList<CopyrightProofProjectMatch>> match)
+    {
+        _match = match;
+        Title = "补全版权证明";
+        Width = 820;
+        Height = 620;
+        MinWidth = 680;
+        MinHeight = 480;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+
+        var root = new Grid
+        {
+            Margin = new Thickness(18),
+            RowDefinitions = new RowDefinitions("Auto,150,Auto,*,Auto"),
+            RowSpacing = 10,
+        };
+        root.Children.Add(new TextBlock
+        {
+            Text = "输入新剧名，一行一个。只按新剧名精确匹配；当前上传队列优先，未找到时再查询已归档项目。",
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = FontWeight.SemiBold,
+        });
+
+        _input = new TextBox
+        {
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            Watermark = "每行输入一个新剧名",
+        };
+        Grid.SetRow(_input, 1);
+        root.Children.Add(_input);
+
+        var previewHeader = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        _summary = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
+        previewHeader.Children.Add(_summary);
+        var refreshButton = new Button
+        {
+            Content = "重新匹配",
+            MinWidth = 96,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        refreshButton.Click += (_, _) => RefreshPreview();
+        Grid.SetColumn(refreshButton, 1);
+        previewHeader.Children.Add(refreshButton);
+        Grid.SetRow(previewHeader, 2);
+        root.Children.Add(previewHeader);
+
+        _previewRows = new StackPanel { Spacing = 6 };
+        var scroller = new ScrollViewer
+        {
+            Content = _previewRows,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+        };
+        Grid.SetRow(scroller, 3);
+        root.Children.Add(scroller);
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+        };
+        var execute = new Button { Content = "开始补全", MinWidth = 108 };
+        var cancel = new Button { Content = "取消", MinWidth = 88 };
+        execute.Click += (_, _) =>
+        {
+            RefreshPreview(preserveSelection: true);
+            var selected = _previewRows.Children
+                .OfType<CheckBox>()
+                .Where(box => box.IsChecked == true)
+                .Select(box => box.Tag)
+                .OfType<CopyrightProofProjectMatch>()
+                .Where(match => match.CanExecute)
+                .ToArray();
+            if (selected.Length == 0)
+            {
+                _summary.Text = "没有可执行且已勾选的项目。";
+                _summary.Foreground = Brushes.IndianRed;
+                return;
+            }
+
+            Close(new CopyrightProofBatchDialogResult(selected));
+        };
+        cancel.Click += (_, _) => Close(null);
+        buttons.Children.Add(execute);
+        buttons.Children.Add(cancel);
+        Grid.SetRow(buttons, 4);
+        root.Children.Add(buttons);
+        Content = root;
+        Opened += (_, _) => _input.Focus();
+    }
+
+    public static Task<CopyrightProofBatchDialogResult?> ShowAsync(
+        Window owner,
+        Func<string, IReadOnlyList<CopyrightProofProjectMatch>> match)
+    {
+        var dialog = new CopyrightProofBatchDialog(match);
+        return dialog.ShowDialog<CopyrightProofBatchDialogResult?>(owner);
+    }
+
+    private void RefreshPreview(bool preserveSelection = false)
+    {
+        var selectedTitles = preserveSelection
+            ? _previewRows.Children
+                .OfType<CheckBox>()
+                .Where(box => box.IsChecked == true)
+                .Select(box => (box.Tag as CopyrightProofProjectMatch)?.NewTitle)
+                .Where(title => !string.IsNullOrWhiteSpace(title))
+                .Select(title => title!)
+                .ToHashSet(StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+
+        _matches = _match(_input.Text ?? string.Empty);
+        _previewRows.Children.Clear();
+        foreach (var match in _matches)
+        {
+            var (location, color) = match.Location switch
+            {
+                CopyrightProofProjectLocation.CurrentQueue => ("当前上传队列", Brushes.SeaGreen),
+                CopyrightProofProjectLocation.Archived => ("已归档（将自动回退）", Brushes.DarkOrange),
+                CopyrightProofProjectLocation.Conflict => ("同名冲突，不能自动执行", Brushes.IndianRed),
+                _ => ("未找到", Brushes.Gray),
+            };
+            var box = new CheckBox
+            {
+                Content = $"{match.NewTitle}    [{location}]",
+                Tag = match,
+                IsEnabled = match.CanExecute,
+                IsChecked = match.CanExecute &&
+                            (!preserveSelection || selectedTitles.Contains(match.NewTitle)),
+                Foreground = color,
+            };
+            _previewRows.Children.Add(box);
+        }
+
+        var executable = _matches.Count(match => match.CanExecute);
+        var archived = _matches.Count(match => match.Location == CopyrightProofProjectLocation.Archived);
+        var unresolved = _matches.Count - executable;
+        _summary.Text =
+            $"输入 {_matches.Count} 个；可执行 {executable} 个；需回退归档 {archived} 个；未匹配或冲突 {unresolved} 个";
+        _summary.Foreground = Brushes.Black;
+    }
+}

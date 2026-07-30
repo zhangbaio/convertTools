@@ -10,6 +10,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Abstractions;
+using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Config;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
@@ -1517,6 +1518,134 @@ public partial class TikTokQueueView : UserControl
         await StartQueueRunAsync(options, dirs);
     }
 
+    private async void OnCompleteCopyrightProofClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var vm = _vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (vm is null || owner is null)
+            return;
+
+        var workspace = (vm.WorkspacePath ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
+        {
+            vm.StatusMessage = "请先选择有效的 TikTok 工作目录";
+            return;
+        }
+
+        IReadOnlyList<ArchivedProjectItem> archivedProjects;
+        try
+        {
+            vm.StatusMessage = "正在读取当前队列和已归档项目…";
+            archivedProjects = await Task.Run(() =>
+                TikTokArchivedProjectService.List(workspace));
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"读取已归档项目失败：{ex.Message}";
+            return;
+        }
+
+        var queueProjects = vm.QueueProjectRows.Select(row => row.Item).ToArray();
+        IReadOnlyList<CopyrightProofProjectMatch> Match(string input) =>
+            CopyrightProofProjectMatcher.MatchByNewTitleExact(
+                CopyrightProofProjectMatcher.ParseNewTitles(input),
+                queueProjects,
+                archivedProjects);
+
+        var dialogResult = await CopyrightProofBatchDialog.ShowAsync(owner, Match);
+        if (dialogResult is null || dialogResult.SelectedMatches.Count == 0)
+        {
+            vm.StatusMessage = "已取消补全版权证明";
+            return;
+        }
+
+        var selectedTitles = dialogResult.SelectedMatches
+            .Select(match => match.NewTitle)
+            .ToHashSet(StringComparer.Ordinal);
+        var restoreFailures = new List<string>();
+        var restoredCount = 0;
+        foreach (var match in dialogResult.SelectedMatches
+                     .Where(match => match.Location == CopyrightProofProjectLocation.Archived))
+        {
+            try
+            {
+                vm.StatusMessage = $"正在回退归档项目：{match.NewTitle}";
+                await Task.Run(() => TikTokArchivedProjectService.Restore(
+                    workspace,
+                    match.ArchivedProject!.ArchiveProjectDir));
+                restoredCount++;
+            }
+            catch (Exception ex)
+            {
+                restoreFailures.Add($"{match.NewTitle}：{ex.Message}");
+                selectedTitles.Remove(match.NewTitle);
+            }
+        }
+
+        var refreshedProjects = await Task.Run(() => WorkspaceQueueService.ScanProjects(workspace));
+        var matchedProjects = refreshedProjects
+            .Where(item => !item.Archived &&
+                           selectedTitles.Contains((item.NewTitle ?? string.Empty).Trim()))
+            .GroupBy(item => item.NewTitle.Trim(), StringComparer.Ordinal)
+            .Where(group => group.Count() == 1)
+            .Select(group => group.Single())
+            .ToArray();
+
+        foreach (var item in matchedProjects)
+        {
+            item.Enabled = true;
+            item.StepStates[QueueStepRegistry.GenerateProofMaterial] = QueueStepStatus.Pending;
+            item.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.Pending;
+            item.CurrentStep = string.Empty;
+            item.StatusText = QueueStepStatus.Pending;
+            item.LastError = string.Empty;
+        }
+
+        var missingAfterRestore = selectedTitles
+            .Except(matchedProjects.Select(item => item.NewTitle), StringComparer.Ordinal)
+            .ToArray();
+        if (matchedProjects.Length == 0)
+        {
+            vm.RefreshWorkspaceProjects(workspace, force: true);
+            var detail = restoreFailures.Concat(missingAfterRestore.Select(title => $"{title}：恢复后未找到队列项目"));
+            await ShowMessageAsync(
+                owner,
+                "无法开始补全版权证明",
+                string.Join(Environment.NewLine, detail),
+                warning: true);
+            return;
+        }
+
+        var persistedOptions = WorkspaceQueueService.LoadRunOptions(workspace);
+        WorkspaceQueueService.SaveRunOptions(workspace, refreshedProjects, persistedOptions);
+        vm.RefreshWorkspaceProjects(workspace, force: true);
+
+        var options = vm.CreateCurrentQueueRunOptionsSnapshot();
+        options.EnabledSteps =
+        [
+            QueueStepRegistry.GenerateProofMaterial,
+            QueueStepRegistry.UploadSeries,
+        ];
+        options.ForceRerunCompletedSteps = true;
+        options.AutoArchiveAfterUpload = false;
+        options.SyncManagementAfterUpload = false;
+        options.UploadEntryMode = QueueRunOptions.CopyrightProofOnlyEntryMode;
+
+        vm.AppendLog(
+            $"补全版权证明：匹配 {dialogResult.SelectedMatches.Count} 个，" +
+            $"回退归档 {restoredCount} 个，准备执行 {matchedProjects.Length} 个。");
+        foreach (var failure in restoreFailures)
+            vm.AppendLog($"补全版权证明回退失败：{failure}");
+        foreach (var title in missingAfterRestore)
+            vm.AppendLog($"补全版权证明跳过：恢复后未找到唯一的新剧名项目「{title}」");
+
+        await StartQueueRunAsync(
+            options,
+            matchedProjects.Select(item => item.ProjectDir).ToArray(),
+            confirmForceRerun: false);
+    }
+
     private async void OnRenameNewTitleClick(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
@@ -1863,7 +1992,12 @@ public partial class TikTokQueueView : UserControl
         var workerReturnedSummary = false;
         var displayOptions = optionsOverride ?? vm.CreateCurrentQueueRunOptionsSnapshot();
         var isEditRun = string.Equals(displayOptions.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
-        vm.StatusMessage = isEditRun ? "编辑剧集执行中…" : "TikTok 队列执行中…";
+        var isCopyrightProofRun = displayOptions.IsCopyrightProofOnlyRun();
+        vm.StatusMessage = isCopyrightProofRun
+            ? "补全版权证明执行中…"
+            : isEditRun
+                ? "编辑剧集执行中…"
+                : "TikTok 队列执行中…";
         try
         {
             var host = CreateQueuePublishHost();
@@ -2376,7 +2510,8 @@ public partial class TikTokQueueView : UserControl
 
         var item = QueuePublishHost.ToPublishItem(project);
         item.ForceEditUpload = string.Equals(options.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
-        if (string.IsNullOrWhiteSpace(item.VideoPath))
+        item.CopyrightProofOnly = options.IsCopyrightProofOnlyRun();
+        if (!item.CopyrightProofOnly && string.IsNullOrWhiteSpace(item.VideoPath))
             return PublishResult.Fail("项目没有可用视频");
 
         ApplyConfigDefaults(item);
@@ -2384,7 +2519,13 @@ public partial class TikTokQueueView : UserControl
         var effectiveAction = ResolveAccountFinalAction(account, finalAction);
         log($"最终动作：{FinalActionLabel(effectiveAction)}（来自账号「{account.DisplayName}」的提交动作配置）");
         var attemptSignature = UploadAttemptSignature(project.ProjectDir);
-        var result = await _automation.PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct).ConfigureAwait(false);
+        var result = item.CopyrightProofOnly
+            ? await TikTokCopyrightProofEditService
+                .UpdateAsync(account, item, browser, effectiveAction, log, ct)
+                .ConfigureAwait(false)
+            : await _automation
+                .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
+                .ConfigureAwait(false);
         if (!result.Ok && IsUploadLoginFailure(result.Message))
         {
             var loginReady = await EnsureAutoLoginStateAsync(
@@ -2410,8 +2551,13 @@ public partial class TikTokQueueView : UserControl
                 else
                     browser = _browserHost?.TryGetHost(account.Id) ?? browser;
 
-                result = await _automation.PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
-                    .ConfigureAwait(false);
+                result = item.CopyrightProofOnly
+                    ? await TikTokCopyrightProofEditService
+                        .UpdateAsync(account, item, browser, effectiveAction, log, ct)
+                        .ConfigureAwait(false)
+                    : await _automation
+                        .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
+                        .ConfigureAwait(false);
             }
             else
             {
@@ -2438,8 +2584,13 @@ public partial class TikTokQueueView : UserControl
                 if (browser is null)
                     return PublishResult.Fail($"{result.Message}；自动重建后内置浏览器仍未就绪");
 
-                result = await _automation.PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
-                    .ConfigureAwait(false);
+                result = item.CopyrightProofOnly
+                    ? await TikTokCopyrightProofEditService
+                        .UpdateAsync(account, item, browser, effectiveAction, log, ct)
+                        .ConfigureAwait(false)
+                    : await _automation
+                        .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
+                        .ConfigureAwait(false);
             }
         }
 
