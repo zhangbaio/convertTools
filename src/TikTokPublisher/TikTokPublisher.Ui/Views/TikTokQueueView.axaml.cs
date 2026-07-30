@@ -1633,9 +1633,6 @@ public partial class TikTokQueueView : UserControl
             .Select(group => group.Single())
             .ToArray();
 
-        foreach (var item in refreshedProjects)
-            item.Enabled = false;
-
         vm.StatusMessage = "正在检查匹配项目的已有证明材料…";
         var proofSettings = ClientSettingsStore.Load();
         var proofAccount = vm.SelectedAccount?.Model;
@@ -1648,22 +1645,10 @@ public partial class TikTokQueueView : UserControl
                         proofAccount))
                 .Select(item => Path.GetFullPath(item.ProjectDir))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase));
-        var reusedProofMaterialCount = 0;
-        foreach (var item in matchedProjects)
-        {
-            item.Enabled = true;
-            var proofMaterialCurrent = currentProofMaterialProjects.Contains(
-                Path.GetFullPath(item.ProjectDir));
-            item.StepStates[QueueStepRegistry.GenerateProofMaterial] = proofMaterialCurrent
-                ? QueueStepStatus.Completed
-                : QueueStepStatus.Pending;
-            if (proofMaterialCurrent)
-                reusedProofMaterialCount++;
-            item.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.Pending;
-            item.CurrentStep = string.Empty;
-            item.StatusText = QueueStepStatus.Pending;
-            item.LastError = string.Empty;
-        }
+        var preparation = CopyrightProofQueuePreparationService.Prepare(
+            refreshedProjects,
+            matchedProjects,
+            currentProofMaterialProjects);
 
         var missingAfterRestore = selectedTitles
             .Except(matchedProjects.Select(item => item.NewTitle), StringComparer.Ordinal)
@@ -1702,8 +1687,8 @@ public partial class TikTokQueueView : UserControl
         vm.AppendLog(
             $"补全版权证明：匹配 {dialogResult.SelectedMatches.Count} 个，" +
             $"回退归档 {restoredCount} 个，准备执行 {matchedProjects.Length} 个；" +
-            $"复用已有证明材料 {reusedProofMaterialCount} 个，" +
-            $"需要生成 {matchedProjects.Length - reusedProofMaterialCount} 个。");
+            $"复用已有证明材料 {preparation.ReusedProofMaterialCount} 个，" +
+            $"需要生成 {preparation.PendingProofMaterialCount} 个。");
         foreach (var failure in restoreFailures)
             vm.AppendLog($"补全版权证明回退失败：{failure}");
         foreach (var title in missingAfterRestore)
@@ -1714,6 +1699,203 @@ public partial class TikTokQueueView : UserControl
             executionProjectDirs,
             confirmForceRerun: false,
             targetOverride: executionTarget);
+    }
+
+    private async void OnResumeSelectedCopyrightProofClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var vm = _vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (vm is null || owner is null)
+            return;
+
+        var workspace = (vm.WorkspacePath ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
+        {
+            vm.StatusMessage = "请先选择有效的 TikTok 工作目录";
+            return;
+        }
+
+        if (vm.IsWorkspaceQueueBusy(workspace))
+        {
+            vm.StatusMessage = "当前工作目录队列正在运行或收尾，请结束后再继续补全版权证明";
+            return;
+        }
+
+        var proofAccount = vm.SelectedAccount?.Model;
+        if (proofAccount is null)
+        {
+            vm.StatusMessage = "请先选择要补全版权证明的账号";
+            return;
+        }
+
+        var selectedRows = vm.QueueProjectRows
+            .Where(row => row.Item.Enabled && !row.Item.Archived)
+            .ToArray();
+        if (selectedRows.Length == 0)
+        {
+            vm.StatusMessage = "请先勾选要继续补全版权证明的剧集";
+            return;
+        }
+
+        var selectedTitlesByDir = selectedRows
+            .Where(row => !string.IsNullOrWhiteSpace(row.Item.ProjectDir))
+            .GroupBy(
+                row => Path.GetFullPath(row.Item.ProjectDir),
+                StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First().NewTitle,
+                StringComparer.OrdinalIgnoreCase);
+        if (selectedTitlesByDir.Count == 0)
+        {
+            vm.StatusMessage = "勾选项目没有有效的项目目录";
+            return;
+        }
+
+        QueueProjectItem[] refreshedProjects;
+        try
+        {
+            vm.StatusMessage = "正在检查勾选项目和已有证明材料…";
+            refreshedProjects = await Task.Run(() =>
+                WorkspaceQueueService.ScanProjects(workspace).ToArray());
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"读取勾选项目失败：{ex.Message}";
+            return;
+        }
+
+        var selectedDirs = selectedTitlesByDir.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var matchedProjects = refreshedProjects
+            .Where(item =>
+                !item.Archived &&
+                !string.IsNullOrWhiteSpace(item.ProjectDir) &&
+                selectedDirs.Contains(Path.GetFullPath(item.ProjectDir)))
+            .GroupBy(
+                item => Path.GetFullPath(item.ProjectDir),
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray();
+        if (matchedProjects.Length == 0)
+        {
+            vm.StatusMessage = "勾选项目刷新后均未找到，无法继续补全版权证明";
+            return;
+        }
+
+        var matchedDirs = matchedProjects
+            .Select(item => Path.GetFullPath(item.ProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var missingTitles = selectedTitlesByDir
+            .Where(pair => !matchedDirs.Contains(pair.Key))
+            .Select(pair => pair.Value)
+            .ToArray();
+        var proofSettings = ClientSettingsStore.Load();
+        var reusableProofMaterialProjects = await Task.Run(() =>
+            matchedProjects
+                .Where(item => TikTokProofMaterialService
+                    .HasReusableProofMaterialForCopyrightCompletion(
+                        item,
+                        proofSettings,
+                        proofAccount))
+                .Select(item => Path.GetFullPath(item.ProjectDir))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase));
+        var pendingProofMaterialCount =
+            matchedProjects.Length - reusableProofMaterialProjects.Count;
+        var previewNames = string.Join(
+            Environment.NewLine,
+            matchedProjects
+                .Take(12)
+                .Select(item => $"• {item.NewTitle}"));
+        if (matchedProjects.Length > 12)
+            previewNames += $"{Environment.NewLine}• …另有 {matchedProjects.Length - 12} 个项目";
+
+        var confirmation =
+            $"已勾选 {selectedTitlesByDir.Count} 个项目，准备执行 {matchedProjects.Length} 个。" +
+            $"{Environment.NewLine}{Environment.NewLine}" +
+            $"可复用证明材料：{reusableProofMaterialProjects.Count} 个" +
+            $"{Environment.NewLine}" +
+            $"需要继续生成材料：{pendingProofMaterialCount} 个" +
+            $"{Environment.NewLine}" +
+            $"需要执行版权证明页面编辑：{matchedProjects.Length} 个";
+        if (missingTitles.Length > 0)
+        {
+            confirmation +=
+                $"{Environment.NewLine}" +
+                $"刷新后未找到、将跳过：{missingTitles.Length} 个";
+        }
+        confirmation +=
+            $"{Environment.NewLine}{Environment.NewLine}{previewNames}" +
+            $"{Environment.NewLine}{Environment.NewLine}" +
+            "已完成的材料会直接复用；失败或中止的材料将从缺失步骤继续，不会强制重跑已完成步骤。";
+
+        if (!await ConfirmAsync(owner, "继续补全勾选项目", confirmation))
+        {
+            vm.StatusMessage = "已取消继续补全勾选项目";
+            return;
+        }
+
+        var preparation = CopyrightProofQueuePreparationService.Prepare(
+            refreshedProjects,
+            matchedProjects,
+            reusableProofMaterialProjects);
+        var persistedOptions = WorkspaceQueueService.LoadRunOptions(workspace);
+        WorkspaceQueueService.SaveRunOptions(workspace, refreshedProjects, persistedOptions);
+        await vm.ApplyPreparedWorkspaceQueueSnapshotAsync(
+            workspace,
+            refreshedProjects,
+            persistedOptions);
+
+        var options = vm.CreateCurrentQueueRunOptionsSnapshot();
+        options.ConfigureForCopyrightProofCompletion();
+        var executionProjectDirs = matchedProjects
+            .Select(item => Path.GetFullPath(item.ProjectDir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var baseTarget = vm.CaptureCurrentWorkspaceQueueTarget();
+        if (baseTarget is null)
+        {
+            vm.StatusMessage = "无法创建当前工作目录执行目标";
+            return;
+        }
+
+        var executionTarget = baseTarget with
+        {
+            ProjectDirFilter = executionProjectDirs,
+            PreferPersistedQueueSnapshot = true,
+        };
+        vm.AppendLog(
+            $"继续补全勾选项目：准备执行 {preparation.TargetCount} 个；" +
+            $"复用已有证明材料 {preparation.ReusedProofMaterialCount} 个，" +
+            $"继续生成 {preparation.PendingProofMaterialCount} 个；" +
+            $"网页编辑 {preparation.TargetCount} 个。");
+        foreach (var title in missingTitles)
+            vm.AppendLog($"继续补全勾选项目跳过：刷新后未找到「{title}」");
+
+        var runCompleted = await StartQueueRunAsync(
+            options,
+            executionProjectDirs,
+            confirmForceRerun: false,
+            targetOverride: executionTarget);
+        if (!runCompleted)
+            return;
+
+        var executionDirs = executionProjectDirs.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var completedRows = vm.QueueProjectRows
+            .Where(row =>
+                !string.IsNullOrWhiteSpace(row.Item.ProjectDir) &&
+                executionDirs.Contains(Path.GetFullPath(row.Item.ProjectDir)) &&
+                row.Item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) ==
+                    QueueStepStatus.Completed)
+            .ToArray();
+        foreach (var row in completedRows)
+            row.IsEnabled = false;
+
+        var retryCount = executionProjectDirs.Length - completedRows.Length;
+        vm.StatusMessage = retryCount == 0
+            ? $"勾选项目版权证明补全完成：成功 {completedRows.Length} 个"
+            : $"勾选项目版权证明补全结束：成功 {completedRows.Length} 个，仍需重试 {retryCount} 个";
+        vm.AppendLog(vm.StatusMessage);
     }
 
     private async void OnMatchPublishedSeriesClick(object? sender, RoutedEventArgs e)
