@@ -256,6 +256,13 @@ public static class ProjectWorkspaceService
         var synopsis = FirstNonEmpty(
             metadata.GetValueOrDefault("intro"),
             metadata.GetValueOrDefault("description"));
+        var sourceInfo = ProjectInfoTextHelper.ParseInfoFile(
+            Path.Combine(context.SourceProjectDir, "短剧信息.txt"));
+        var companyName = FirstNonEmpty(
+            sourceInfo.GetValueOrDefault("制作公司"),
+            metadata.GetValueOrDefault("companyName"),
+            metadata.GetValueOrDefault("productionCompany"),
+            "未填写公司");
 
         if (!File.Exists(infoPath))
         {
@@ -274,6 +281,7 @@ public static class ProjectWorkspaceService
         {
             UpdateProjectInfoField(infoPath, "集数", Math.Max(1, episodeCount).ToString());
             UpdateProjectInfoFieldIfBlank(infoPath, "简介", synopsis);
+            UpdateProjectInfoFieldIfBlank(infoPath, "制作公司", companyName);
         }
 
         return workflowDir;

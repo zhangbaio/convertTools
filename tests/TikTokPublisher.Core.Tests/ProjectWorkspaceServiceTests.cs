@@ -225,6 +225,7 @@ public sealed class ProjectWorkspaceServiceTests
             var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
             info["简介"].Should().Be(intro);
             info["集数"].Should().Be("71");
+            info["制作公司"].Should().Be("未填写公司");
         }
         finally
         {
