@@ -21,6 +21,28 @@ public sealed class QueueRunOptionsTests
     }
 
     [Fact]
+    public void ConfigureForCopyrightProofCompletion_reuses_completed_proof_but_still_runs_edit()
+    {
+        var options = new QueueRunOptions
+        {
+            EnabledSteps = [QueueStepRegistry.Download],
+            ForceRerunCompletedSteps = true,
+            AutoArchiveAfterUpload = true,
+            SyncManagementAfterUpload = true,
+        };
+
+        options.ConfigureForCopyrightProofCompletion();
+
+        options.EnabledSteps.Should().Equal(
+            QueueStepRegistry.GenerateProofMaterial,
+            QueueStepRegistry.UploadSeries);
+        options.ForceRerunCompletedSteps.Should().BeFalse();
+        options.AutoArchiveAfterUpload.Should().BeFalse();
+        options.SyncManagementAfterUpload.Should().BeFalse();
+        options.IsCopyrightProofOnlyRun().Should().BeTrue();
+    }
+
+    [Fact]
     public void FromDictionary_uses_default_steps_when_option_is_missing()
     {
         var options = QueueRunOptions.FromDictionary(new Dictionary<string, object?>());

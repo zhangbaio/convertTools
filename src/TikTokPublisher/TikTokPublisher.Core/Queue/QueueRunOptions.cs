@@ -162,6 +162,19 @@ public sealed class QueueRunOptions
     public bool IsCopyrightProofOnlyRun() =>
         string.Equals(UploadEntryMode, CopyrightProofOnlyEntryMode, StringComparison.OrdinalIgnoreCase);
 
+    public void ConfigureForCopyrightProofCompletion()
+    {
+        EnabledSteps =
+        [
+            QueueStepRegistry.GenerateProofMaterial,
+            QueueStepRegistry.UploadSeries,
+        ];
+        ForceRerunCompletedSteps = false;
+        AutoArchiveAfterUpload = false;
+        SyncManagementAfterUpload = false;
+        UploadEntryMode = CopyrightProofOnlyEntryMode;
+    }
+
     private static bool GetBool(Dictionary<string, object?> payload, string key) =>
         payload.TryGetValue(key, out var v) && v switch
         {
