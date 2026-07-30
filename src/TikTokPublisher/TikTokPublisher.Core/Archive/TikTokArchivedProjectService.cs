@@ -24,7 +24,9 @@ public sealed record ArchivedProjectItem(
     string ArchivedWorkflowDir,
     string AccountProfileId = "",
     string AccountProfileName = "",
-    string UploadCompletedAt = "");
+    string UploadCompletedAt = "",
+    string SourceProjectDir = "",
+    string WorkflowProjectDir = "");
 
 public static class TikTokArchivedProjectService
 {
@@ -73,21 +75,23 @@ public static class TikTokArchivedProjectService
             return Array.Empty<ArchivedProjectItem>();
 
         var archiveRoot = ResolveArchiveRoot(workspaceRoot, archiveRootDir);
-        var items = new List<ArchivedProjectItem>();
+        var fileItems = new List<ArchivedProjectItem>();
         if (Directory.Exists(archiveRoot))
         {
-            items.AddRange(ListMetaLayout(archiveRoot));
-            items.AddRange(ListLegacyProjectLayout(archiveRoot, items));
+            fileItems.AddRange(ListMetaLayout(archiveRoot));
+            fileItems.AddRange(ListLegacyProjectLayout(archiveRoot, fileItems));
         }
 
-        if (items.Count > 0)
+        var databaseItems = LoadArchiveProjectsFromDatabase(workspaceRoot);
+        if (fileItems.Count > 0)
         {
-            var sorted = SortItems(BackfillQueuedAtFromQueueState(workspaceRoot, items));
+            var merged = MergeArchiveItems(fileItems, databaseItems);
+            var sorted = SortItems(BackfillQueuedAtFromQueueState(workspaceRoot, merged));
             SaveArchiveProjectsToDatabase(workspaceRoot, sorted);
             return sorted;
         }
 
-        return SortItems(BackfillQueuedAtFromQueueState(workspaceRoot, LoadArchiveProjectsFromDatabase(workspaceRoot)));
+        return SortItems(BackfillQueuedAtFromQueueState(workspaceRoot, databaseItems));
     }
 
     public static async Task ArchiveQueueProjectAsync(
@@ -286,30 +290,49 @@ public static class TikTokArchivedProjectService
         var archiveRoot = ResolveArchiveRoot(workspaceRoot, archiveRootDir);
         var archiveRef = EnsureArchiveMetadataReference(workspaceRoot, archiveProjectDir);
         var (payload, metadataPath, archiveDir) = LoadArchiveReference(archiveRef, archiveRoot);
-        var sourceArchived = FirstNonEmpty(ReadString(payload, "archivedSourceDir"), Path.Combine(archiveDir, "source"));
-        var workflowArchived = FirstNonEmpty(ReadString(payload, "archivedWorkflowDir"), Path.Combine(archiveDir, "workflow"));
+        var source = BuildRestoreComponent(
+            payload,
+            archiveRoot,
+            archiveDir,
+            workspaceRoot,
+            isWorkflow: false);
+        var workflow = BuildRestoreComponent(
+            payload,
+            archiveRoot,
+            archiveDir,
+            workspaceRoot,
+            isWorkflow: true);
+        var components = new[] { source, workflow }.Where(component => component.Expected).ToArray();
+        if (components.Length == 0)
+            throw new InvalidOperationException("归档元数据中没有可回退的 Source 或 Workflow 目录，已保留归档记录。");
 
-        string? restoredSource = null;
-        string? restoredWorkflow = null;
-        if (!string.IsNullOrWhiteSpace(sourceArchived) && Directory.Exists(sourceArchived))
+        var conflicts = components
+            .Where(component => component.ArchiveExists && component.TargetExists)
+            .Select(component => $"{component.Label} 归档目录和恢复目标同时存在：{component.ArchivePath} -> {component.TargetPath}")
+            .ToArray();
+        if (conflicts.Length > 0)
         {
-            restoredSource = FirstNonEmpty(
-                ReadString(payload, "sourceProjectDir"),
-                Path.Combine(Path.GetFullPath(workspaceRoot), Path.GetFileName(sourceArchived)));
-            if (Directory.Exists(restoredSource))
-                throw new InvalidOperationException($"恢复目标 source 目录已存在：{restoredSource}");
-            MoveDirectory(sourceArchived, restoredSource);
+            throw new InvalidOperationException(
+                $"检测到目录冲突，未移动任何目录，已保留归档记录。{Environment.NewLine}" +
+                string.Join(Environment.NewLine, conflicts));
         }
 
-        if (!string.IsNullOrWhiteSpace(workflowArchived) && Directory.Exists(workflowArchived))
+        var missing = components
+            .Where(component => !component.ArchiveExists && !component.TargetExists)
+            .Select(component => $"{component.Label} 目录在归档区和原工作区均不存在：{component.ArchivePath}")
+            .ToArray();
+        if (missing.Length > 0)
         {
-            restoredWorkflow = FirstNonEmpty(
-                ReadString(payload, "workflowProjectDir"),
-                Path.Combine(Path.GetFullPath(workspaceRoot), "workflow", Path.GetFileName(workflowArchived)));
-            if (Directory.Exists(restoredWorkflow))
-                throw new InvalidOperationException($"恢复目标 workflow 目录已存在：{restoredWorkflow}");
-            MoveDirectory(workflowArchived, restoredWorkflow);
+            throw new DirectoryNotFoundException(
+                $"归档目录缺失，未移动任何目录，已保留归档记录。{Environment.NewLine}" +
+                string.Join(Environment.NewLine, missing));
         }
+
+        foreach (var component in components.Where(component => component.ArchiveExists && !component.TargetExists))
+            MoveDirectory(component.ArchivePath, component.TargetPath);
+
+        var restoredSource = Directory.Exists(source.TargetPath) ? source.TargetPath : null;
+        var restoredWorkflow = Directory.Exists(workflow.TargetPath) ? workflow.TargetPath : null;
 
         UpdateRestoredMetadata(restoredSource, restoredWorkflow);
         UpdateQueueStateForRestoredProject(workspaceRoot, restoredSource, payload);
@@ -491,7 +514,154 @@ public static class TikTokArchivedProjectService
             UploadCompletedAt: FirstNonEmpty(
                 ReadString(payload, "uploadCompletedAt"),
                 ReadString(payload, "upload_completed_at"),
-                ReadString(payload, "UploadCompletedAt")));
+                ReadString(payload, "UploadCompletedAt")),
+            SourceProjectDir: FirstNonEmpty(
+                ReadString(payload, "sourceProjectDir"),
+                ReadString(payload, "source_project_dir"),
+                ReadString(payload, "SourceProjectDir")),
+            WorkflowProjectDir: FirstNonEmpty(
+                ReadString(payload, "workflowProjectDir"),
+                ReadString(payload, "workflow_project_dir"),
+                ReadString(payload, "WorkflowProjectDir")));
+    }
+
+    private sealed record RestoreComponent(
+        string Label,
+        bool Expected,
+        string ArchivePath,
+        string TargetPath,
+        bool ArchiveExists,
+        bool TargetExists);
+
+    private static RestoreComponent BuildRestoreComponent(
+        IReadOnlyDictionary<string, object?> payload,
+        string archiveRoot,
+        string archiveDir,
+        string workspaceRoot,
+        bool isWorkflow)
+    {
+        var archivedPath = ResolveArchivedComponentPath(payload, archiveRoot, archiveDir, isWorkflow);
+        var storedArchivedPath = isWorkflow
+            ? ReadString(payload, "archivedWorkflowDir", "archived_workflow_dir")
+            : ReadString(payload, "archivedSourceDir", "archived_source_dir");
+        var legacyPath = Path.Combine(archiveDir, isWorkflow ? "workflow" : "source");
+        var expected = !string.IsNullOrWhiteSpace(storedArchivedPath) ||
+                       Directory.Exists(legacyPath) ||
+                       Directory.Exists(archivedPath);
+        var targetPath = ResolveRestoreTargetPath(payload, workspaceRoot, archivedPath, isWorkflow);
+        return new RestoreComponent(
+            isWorkflow ? "Workflow" : "Source",
+            expected,
+            archivedPath,
+            targetPath,
+            Directory.Exists(archivedPath),
+            Directory.Exists(targetPath));
+    }
+
+    private static string ResolveArchivedComponentPath(
+        IReadOnlyDictionary<string, object?> payload,
+        string archiveRoot,
+        string archiveDir,
+        bool isWorkflow)
+    {
+        var storedPath = isWorkflow
+            ? ReadString(payload, "archivedWorkflowDir", "archived_workflow_dir")
+            : ReadString(payload, "archivedSourceDir", "archived_source_dir");
+        var componentName = isWorkflow ? "workflow" : "source";
+        var componentRoot = Path.Combine(archiveRoot, componentName);
+        var projectKey = ReadString(payload, "projectKey", "project_key", "ProjectKey");
+        var newTitle = ReadString(payload, "newTitle", "new_title");
+        var legacyPath = Path.Combine(archiveDir, componentName);
+        var legacyLayout = !string.Equals(
+            Path.GetFileName(archiveDir),
+            "meta",
+            StringComparison.OrdinalIgnoreCase);
+        var candidates = new List<string>();
+
+        AddPathCandidate(candidates, storedPath);
+        if (!string.IsNullOrWhiteSpace(storedPath))
+            AddPathCandidate(candidates, Path.Combine(componentRoot, Path.GetFileName(storedPath)));
+        if (legacyLayout)
+            AddPathCandidate(candidates, legacyPath);
+        if (isWorkflow)
+        {
+            if (!string.IsNullOrWhiteSpace(newTitle))
+                AddPathCandidate(candidates, Path.Combine(componentRoot, "_" + newTitle.TrimStart('_')));
+            if (!string.IsNullOrWhiteSpace(projectKey))
+            {
+                AddPathCandidate(candidates, Path.Combine(componentRoot, "_" + projectKey.TrimStart('_')));
+                AddPathCandidate(candidates, Path.Combine(componentRoot, projectKey));
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(projectKey))
+        {
+            AddPathCandidate(candidates, Path.Combine(componentRoot, projectKey));
+        }
+
+        var existing = candidates.FirstOrDefault(path => IsWithin(path, archiveRoot) && Directory.Exists(path));
+        if (!string.IsNullOrWhiteSpace(existing))
+            return Path.GetFullPath(existing);
+
+        var safeStored = candidates.FirstOrDefault(path => IsWithin(path, archiveRoot));
+        if (!string.IsNullOrWhiteSpace(safeStored))
+            return Path.GetFullPath(safeStored);
+
+        var fallbackName = isWorkflow
+            ? FirstNonEmpty(
+                string.IsNullOrWhiteSpace(newTitle) ? "" : "_" + newTitle.TrimStart('_'),
+                string.IsNullOrWhiteSpace(projectKey) ? "" : "_" + projectKey.TrimStart('_'),
+                "workflow")
+            : FirstNonEmpty(projectKey, "source");
+        return Path.Combine(componentRoot, SanitizeName(fallbackName));
+    }
+
+    private static string ResolveRestoreTargetPath(
+        IReadOnlyDictionary<string, object?> payload,
+        string workspaceRoot,
+        string archivedPath,
+        bool isWorkflow)
+    {
+        var workspace = Path.GetFullPath(workspaceRoot);
+        var storedTarget = isWorkflow
+            ? ReadString(payload, "workflowProjectDir", "workflow_project_dir", "WorkflowProjectDir")
+            : ReadString(payload, "sourceProjectDir", "source_project_dir", "SourceProjectDir");
+        if (!string.IsNullOrWhiteSpace(storedTarget))
+        {
+            try
+            {
+                var fullStoredTarget = Path.GetFullPath(storedTarget);
+                if (IsWithin(fullStoredTarget, workspace))
+                    return fullStoredTarget;
+            }
+            catch
+            {
+                // Fall through to a target rebased under the active workspace.
+            }
+        }
+
+        var leaf = FirstNonEmpty(
+            string.IsNullOrWhiteSpace(storedTarget) ? "" : Path.GetFileName(storedTarget),
+            string.IsNullOrWhiteSpace(archivedPath) ? "" : Path.GetFileName(archivedPath),
+            isWorkflow ? "workflow" : "source");
+        return isWorkflow
+            ? Path.Combine(workspace, "workflow", leaf)
+            : Path.Combine(workspace, leaf);
+    }
+
+    private static void AddPathCandidate(ICollection<string> candidates, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            if (!candidates.Contains(fullPath, StringComparer.OrdinalIgnoreCase))
+                candidates.Add(fullPath);
+        }
+        catch
+        {
+            // Invalid historical paths are ignored; later candidates can still recover the project.
+        }
     }
 
     private static (Dictionary<string, object?> Payload, string MetadataPath, string ArchiveDir) LoadArchiveReference(
@@ -839,6 +1009,8 @@ public static class TikTokArchivedProjectService
 
         foreach (var value in new[]
                  {
+                     item.SourceProjectDir,
+                     item.WorkflowProjectDir,
                      ReadString(payload, "sourceProjectDir", "source_project_dir"),
                      ReadString(payload, "workflowProjectDir", "workflow_project_dir"),
                      item.ArchivedSourceDir,
@@ -858,6 +1030,18 @@ public static class TikTokArchivedProjectService
             .OrderByDescending(item => ParseSortTime(item.ArchivedAt, item.MetadataPath))
             .ThenBy(item => item.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    private static IReadOnlyList<ArchivedProjectItem> MergeArchiveItems(
+        IEnumerable<ArchivedProjectItem> fileItems,
+        IEnumerable<ArchivedProjectItem> databaseItems)
+    {
+        var merged = new Dictionary<string, ArchivedProjectItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in databaseItems)
+            merged[StableArchiveId(item)] = item;
+        foreach (var item in fileItems)
+            merged[StableArchiveId(item)] = item;
+        return merged.Values.ToList();
+    }
 
     private static DateTimeOffset ParseSortTime(string value, string metadataPath)
     {
@@ -1444,6 +1628,8 @@ public static class TikTokArchivedProjectService
         ["archive_source"] = item.ArchiveSource,
         ["archived_source_dir"] = item.ArchivedSourceDir,
         ["archived_workflow_dir"] = item.ArchivedWorkflowDir,
+        ["source_project_dir"] = item.SourceProjectDir,
+        ["workflow_project_dir"] = item.WorkflowProjectDir,
     };
 
     private static void EnsureArchiveDatabase(string dbPath)
