@@ -398,6 +398,147 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         secondArchive.NewTitle.Should().Be("深宫哑女步步为后");
     }
 
+    [Fact]
+    public void Restore_resumes_when_source_was_already_restored()
+    {
+        var restoredSource = Path.Combine(_workspaceRoot, "partial-restore");
+        var restoredWorkflow = Path.Combine(_workspaceRoot, "workflow", "_partial-restore");
+        var archivedSource = Path.Combine(_archiveRoot, "source", "partial-restore");
+        var archivedWorkflow = Path.Combine(_archiveRoot, "workflow", "_partial-restore");
+        Directory.CreateDirectory(restoredSource);
+        Directory.CreateDirectory(archivedWorkflow);
+        WriteProjectMetadata(restoredSource, restoredSource, restoredWorkflow, "partial-restore");
+        WriteProjectMetadata(archivedWorkflow, restoredSource, restoredWorkflow, "partial-restore");
+        var metadataPath = WriteArchiveMetadata(
+            "partial-restore",
+            restoredSource,
+            restoredWorkflow,
+            archivedSource,
+            archivedWorkflow);
+
+        TikTokArchivedProjectService.Restore(_workspaceRoot, metadataPath, _archiveRoot);
+
+        Directory.Exists(restoredSource).Should().BeTrue();
+        Directory.Exists(restoredWorkflow).Should().BeTrue();
+        Directory.Exists(archivedWorkflow).Should().BeFalse();
+        File.Exists(metadataPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Restore_preflights_all_targets_before_moving_any_directory()
+    {
+        var restoredSource = Path.Combine(_workspaceRoot, "conflicting-restore");
+        var restoredWorkflow = Path.Combine(_workspaceRoot, "workflow", "_conflicting-restore");
+        var archivedSource = Path.Combine(_archiveRoot, "source", "conflicting-restore");
+        var archivedWorkflow = Path.Combine(_archiveRoot, "workflow", "_conflicting-restore");
+        Directory.CreateDirectory(archivedSource);
+        Directory.CreateDirectory(archivedWorkflow);
+        Directory.CreateDirectory(restoredWorkflow);
+        var metadataPath = WriteArchiveMetadata(
+            "conflicting-restore",
+            restoredSource,
+            restoredWorkflow,
+            archivedSource,
+            archivedWorkflow);
+
+        var action = () => TikTokArchivedProjectService.Restore(_workspaceRoot, metadataPath, _archiveRoot);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*未移动任何目录*");
+        Directory.Exists(archivedSource).Should().BeTrue();
+        Directory.Exists(archivedWorkflow).Should().BeTrue();
+        Directory.Exists(restoredSource).Should().BeFalse();
+        File.Exists(metadataPath).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Restore_keeps_metadata_when_an_expected_archive_directory_is_missing()
+    {
+        var restoredSource = Path.Combine(_workspaceRoot, "missing-source");
+        var restoredWorkflow = Path.Combine(_workspaceRoot, "workflow", "_missing-source");
+        var archivedSource = Path.Combine(_archiveRoot, "source", "missing-source");
+        var archivedWorkflow = Path.Combine(_archiveRoot, "workflow", "_missing-source");
+        Directory.CreateDirectory(archivedWorkflow);
+        var metadataPath = WriteArchiveMetadata(
+            "missing-source",
+            restoredSource,
+            restoredWorkflow,
+            archivedSource,
+            archivedWorkflow);
+
+        var action = () => TikTokArchivedProjectService.Restore(_workspaceRoot, metadataPath, _archiveRoot);
+
+        action.Should().Throw<DirectoryNotFoundException>()
+            .WithMessage("*已保留归档记录*");
+        Directory.Exists(archivedWorkflow).Should().BeTrue();
+        Directory.Exists(restoredWorkflow).Should().BeFalse();
+        File.Exists(metadataPath).Should().BeTrue();
+        TikTokArchivedProjectService.List(_workspaceRoot, _archiveRoot)
+            .Should().ContainSingle(item => item.ProjectKey == "missing-source");
+    }
+
+    [Fact]
+    public void Restore_rebases_stale_absolute_archive_paths_to_the_current_archive_root()
+    {
+        var restoredSource = Path.Combine(_workspaceRoot, "rebased-source");
+        var restoredWorkflow = Path.Combine(_workspaceRoot, "workflow", "_rebased-workflow");
+        var archivedSource = Path.Combine(_archiveRoot, "source", "rebased-source");
+        var archivedWorkflow = Path.Combine(_archiveRoot, "workflow", "_rebased-workflow");
+        Directory.CreateDirectory(archivedSource);
+        Directory.CreateDirectory(archivedWorkflow);
+        var metadataPath = WriteArchiveMetadata(
+            "rebased-source",
+            @"D:\old-workspace\rebased-source",
+            @"D:\old-workspace\workflow\_rebased-workflow",
+            @"D:\old-workspace\archive\source\rebased-source",
+            @"D:\old-workspace\archive\workflow\_rebased-workflow",
+            newTitle: "rebased-workflow");
+
+        TikTokArchivedProjectService.Restore(_workspaceRoot, metadataPath, _archiveRoot);
+
+        Directory.Exists(restoredSource).Should().BeTrue();
+        Directory.Exists(restoredWorkflow).Should().BeTrue();
+        File.Exists(metadataPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task List_keeps_database_only_failed_records_alongside_file_records()
+    {
+        var first = CreateProjectDirs("database-only").SourceDir;
+        var second = CreateProjectDirs("file-backed").SourceDir;
+        await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+            _workspaceRoot,
+            first,
+            _archiveRoot,
+            deleteSourceVideos: false,
+            deleteWorkflowVideos: false,
+            deleteMaterialVideos: false);
+        await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+            _workspaceRoot,
+            second,
+            _archiveRoot,
+            deleteSourceVideos: false,
+            deleteWorkflowVideos: false,
+            deleteMaterialVideos: false);
+        var firstMetadata = Path.Combine(_archiveRoot, "meta", "database-only.json");
+        File.Exists(firstMetadata).Should().BeTrue();
+        File.Delete(firstMetadata);
+
+        var items = TikTokArchivedProjectService.List(_workspaceRoot, _archiveRoot);
+
+        items.Select(item => item.ProjectKey)
+            .Should().BeEquivalentTo("database-only", "file-backed");
+        var databaseOnly = items.Single(item => item.ProjectKey == "database-only");
+        databaseOnly.MetadataPath.Should().Be(firstMetadata);
+
+        TikTokArchivedProjectService.Restore(_workspaceRoot, databaseOnly.ArchiveProjectDir, _archiveRoot);
+
+        Directory.Exists(Path.Combine(_workspaceRoot, "database-only")).Should().BeTrue();
+        File.Exists(firstMetadata).Should().BeFalse();
+        TikTokArchivedProjectService.List(_workspaceRoot, _archiveRoot)
+            .Should().ContainSingle(item => item.ProjectKey == "file-backed");
+    }
+
     private (string SourceDir, string WorkflowDir) CreateProjectDirs(string name)
     {
         var sourceDir = Path.Combine(_workspaceRoot, name);
@@ -407,6 +548,34 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         WriteProjectMetadata(sourceDir, sourceDir, workflowDir, name);
         WriteProjectMetadata(workflowDir, sourceDir, workflowDir, name);
         return (sourceDir, workflowDir);
+    }
+
+    private string WriteArchiveMetadata(
+        string projectKey,
+        string sourceProjectDir,
+        string workflowProjectDir,
+        string archivedSourceDir,
+        string archivedWorkflowDir,
+        string? newTitle = null)
+    {
+        var metadataPath = Path.Combine(_archiveRoot, "meta", projectKey + ".json");
+        Directory.CreateDirectory(Path.GetDirectoryName(metadataPath)!);
+        File.WriteAllText(
+            metadataPath,
+            JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["projectKey"] = projectKey,
+                ["displayName"] = projectKey,
+                ["originalTitle"] = projectKey,
+                ["newTitle"] = newTitle ?? projectKey,
+                ["archiveSource"] = "tiktok",
+                ["archivedAt"] = "2026-07-03T19:26:58",
+                ["sourceProjectDir"] = sourceProjectDir,
+                ["workflowProjectDir"] = workflowProjectDir,
+                ["archivedSourceDir"] = archivedSourceDir,
+                ["archivedWorkflowDir"] = archivedWorkflowDir,
+            }));
+        return metadataPath;
     }
 
     private static void WriteProjectMetadata(string dir, string sourceDir, string workflowDir, string title)
