@@ -190,6 +190,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private QueueProjectItem[] _pendingTodayUploadItems = [];
     private string _pendingTodayUploadAccountId = "";
     private string _pendingTodayUploadWorkspace = "";
+    private string _pendingTodayUploadArchiveRoot = "";
     private bool _todayUploadRefreshScheduled;
     private int _todayUploadRefreshGeneration;
     private int _pendingTodayUploadGeneration;
@@ -219,6 +220,10 @@ public sealed partial class MainViewModel : ViewModelBase
             Accounts.Add(new AccountItemViewModel(account));
         SelectedAccount = Accounts.FirstOrDefault(a => a.Id == _store.ActiveAccountId) ?? Accounts.FirstOrDefault();
         _selectedFinalAction = FinalActionChoices[0];
+        ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
+        ArchivedProjects.AccountsProvider = () => Accounts.Select(item => item.Model).ToArray();
+        ArchivedProjects.AccountResolver = ResolveAccountForQueueItem;
+        ArchivedProjects.AccountUpdateRequested = _context.NotifyProfileUpdated;
         RefreshFilteredAccounts();
         RefreshWorkspaceFromActiveAccount();
         DramaDownload.LogRequested += AppendLog;
@@ -227,8 +232,6 @@ public sealed partial class MainViewModel : ViewModelBase
         SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
         WireXingeRemoteCommandService();
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
-        ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
-        ArchivedProjects.AccountResolver = ResolveAccountForQueueItem;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
         DramaDownload.UploadWorkspaceRequested += ResolveSelectedAccountWorkspacePath;
@@ -258,6 +261,10 @@ public sealed partial class MainViewModel : ViewModelBase
             Accounts.Add(new AccountItemViewModel(account));
         SelectedAccount = Accounts.FirstOrDefault(a => a.Id == _store.ActiveAccountId) ?? Accounts.FirstOrDefault();
         _selectedFinalAction = FinalActionChoices[0];
+        ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
+        ArchivedProjects.AccountsProvider = () => Accounts.Select(item => item.Model).ToArray();
+        ArchivedProjects.AccountResolver = ResolveAccountForQueueItem;
+        ArchivedProjects.AccountUpdateRequested = _context.NotifyProfileUpdated;
         RefreshFilteredAccounts();
         RefreshWorkspaceFromActiveAccount();
         DramaDownload.LogRequested += AppendLog;
@@ -266,8 +273,6 @@ public sealed partial class MainViewModel : ViewModelBase
         SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
         WireXingeRemoteCommandService();
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
-        ArchivedProjects.AccountProvider = () => SelectedAccount?.Model;
-        ArchivedProjects.AccountResolver = ResolveAccountForQueueItem;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
         DramaDownload.UploadWorkspaceRequested += ResolveSelectedAccountWorkspacePath;
@@ -801,6 +806,8 @@ public sealed partial class MainViewModel : ViewModelBase
             _pendingTodayUploadItems = _queueItems.ToArray();
             _pendingTodayUploadAccountId = SelectedAccount?.Id ?? "";
             _pendingTodayUploadWorkspace = WorkspacePath ?? "";
+            _pendingTodayUploadArchiveRoot =
+                SelectedAccount?.Model.ResolveArchiveRootPath(WorkspacePath) ?? "";
             _pendingTodayUploadGeneration = ++_todayUploadRefreshGeneration;
             if (_todayUploadRefreshScheduled)
                 return;
@@ -818,6 +825,7 @@ public sealed partial class MainViewModel : ViewModelBase
         QueueProjectItem[] items;
         string accountId;
         string workspace;
+        string archiveRoot;
         int generation;
         lock (_todayUploadRefreshLock)
         {
@@ -825,6 +833,7 @@ public sealed partial class MainViewModel : ViewModelBase
             items = _pendingTodayUploadItems;
             accountId = _pendingTodayUploadAccountId;
             workspace = _pendingTodayUploadWorkspace;
+            archiveRoot = _pendingTodayUploadArchiveRoot;
             generation = _pendingTodayUploadGeneration;
         }
 
@@ -832,7 +841,11 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             try
             {
-                return TikTokTodayUploadCountService.CountTodayUploads(items, accountId, workspace);
+                return TikTokTodayUploadCountService.CountTodayUploads(
+                    items,
+                    accountId,
+                    workspace,
+                    archiveRootDir: archiveRoot);
             }
             catch
             {
@@ -3764,6 +3777,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 await Task.Run(() => TikTokArchivedProjectService.ArchiveQueueProjectAsync(
                         root,
                         projectDir,
+                        archiveRootDir: account?.ResolveArchiveRootPath(root),
                         deleteSourceVideos: deleteVideosOnArchive,
                         deleteWorkflowVideos: deleteVideosOnArchive,
                         deleteMaterialVideos: deleteVideosOnArchive,
@@ -4776,7 +4790,9 @@ public sealed partial class MainViewModel : ViewModelBase
             foreach (var source in sourceItems)
                 AddOrMergeItem(source, workspaceRoot, account, preferSource: false);
 
-            foreach (var archive in TikTokArchivedProjectService.List(workspaceRoot))
+            foreach (var archive in TikTokArchivedProjectService.List(
+                         workspaceRoot,
+                         account?.ResolveArchiveRootPath(workspaceRoot)))
                 MergeArchiveItem(archive, workspaceRoot, account);
         }
 

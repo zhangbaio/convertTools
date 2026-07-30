@@ -84,13 +84,15 @@ public sealed class AccountStore
             _activeAccountId = _accounts[0].Id;
 
         var migratedProofConfig = MigrateLegacyProofMaterialConfig(_accounts);
+        var migratedArchiveConfig = MigrateLegacyArchiveRootConfig(_accounts);
         foreach (var account in _accounts)
         {
             NormalizeProfileDefaults(account);
             EnsureProfileDirs(account);
         }
 
-        if ((!File.Exists(AppPaths.AccountsFile) || migratedProofConfig) && _accounts.Count > 0)
+        if ((!File.Exists(AppPaths.AccountsFile) || migratedProofConfig || migratedArchiveConfig) &&
+            _accounts.Count > 0)
             SaveAccounts();
     }
 
@@ -218,6 +220,7 @@ public sealed class AccountStore
             TiktokExpectedFullPriceMode = "option_index",
             TiktokDeleteVideosOnArchive = true,
             TiktokDeleteVideosOnArchiveConfigured = true,
+            TiktokArchiveRootConfigMigrated = true,
             TiktokProofAccountConfigMigrated = true,
             TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
         };
@@ -248,6 +251,7 @@ public sealed class AccountStore
         account.TiktokProofCopyrightCompanyName = (account.TiktokProofCopyrightCompanyName ?? "").Trim();
         account.TiktokProofDeclarantCompanyName = (account.TiktokProofDeclarantCompanyName ?? "").Trim();
         account.TiktokProofSealPath = (account.TiktokProofSealPath ?? "").Trim();
+        account.TiktokArchiveRootDir = (account.TiktokArchiveRootDir ?? "").Trim();
         account.TiktokCopyrightMaterialTypes = TikTokPublishConstants
             .NormalizeCopyrightMaterialTypes(account.TiktokCopyrightMaterialTypes)
             .ToList();
@@ -290,6 +294,44 @@ public sealed class AccountStore
             if (string.IsNullOrWhiteSpace(account.TiktokProofSealPath))
                 account.TiktokProofSealPath = legacySettings.TiktokProofSealPath;
             account.TiktokProofAccountConfigMigrated = true;
+        }
+
+        return true;
+    }
+
+    private static bool MigrateLegacyArchiveRootConfig(IEnumerable<TikTokAccountProfile> accounts)
+    {
+        var pending = accounts.Where(account => !account.TiktokArchiveRootConfigMigrated).ToArray();
+        if (pending.Length == 0)
+            return false;
+
+        ClientSettings legacySettings;
+        try
+        {
+            legacySettings = ClientSettingsStore.Load();
+        }
+        catch
+        {
+            return false;
+        }
+
+        return ApplyLegacyArchiveRootConfig(pending, legacySettings);
+    }
+
+    internal static bool ApplyLegacyArchiveRootConfig(
+        IEnumerable<TikTokAccountProfile> accounts,
+        ClientSettings legacySettings)
+    {
+        var pending = accounts.Where(account => !account.TiktokArchiveRootConfigMigrated).ToArray();
+        if (pending.Length == 0)
+            return false;
+
+        var legacyRoot = (legacySettings.ArchiveRootDir ?? "").Trim();
+        foreach (var account in pending)
+        {
+            if (string.IsNullOrWhiteSpace(account.TiktokArchiveRootDir))
+                account.TiktokArchiveRootDir = legacyRoot;
+            account.TiktokArchiveRootConfigMigrated = true;
         }
 
         return true;

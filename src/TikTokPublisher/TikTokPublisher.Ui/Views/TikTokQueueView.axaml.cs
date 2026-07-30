@@ -1699,7 +1699,9 @@ public partial class TikTokQueueView : UserControl
             vm.StatusMessage = "正在读取当前队列、已归档项目和已删除项目历史…";
             (archivedProjects, deletedHistoryProjects) = await Task.Run(() =>
             {
-                var archives = TikTokArchivedProjectService.List(workspace);
+                var archives = TikTokArchivedProjectService.List(
+                    workspace,
+                    proofAccount.ResolveArchiveRootPath(workspace));
                 var history = LoadDeletedCopyrightProofHistory(
                     workspace,
                     proofAccount,
@@ -1771,7 +1773,9 @@ public partial class TikTokQueueView : UserControl
         {
             vm.StatusMessage = "正在校验手动填写的新剧名和原剧名…";
             queueProjects = vm.QueueProjectRows.Select(row => row.Item).ToArray();
-            archivedProjects = await Task.Run(() => TikTokArchivedProjectService.List(workspace));
+            archivedProjects = await Task.Run(() => TikTokArchivedProjectService.List(
+                workspace,
+                proofAccount.ResolveArchiveRootPath(workspace)));
         }
         catch (Exception ex)
         {
@@ -1921,7 +1925,8 @@ public partial class TikTokQueueView : UserControl
                 vm.StatusMessage = $"正在回退归档项目：{match.NewTitle}";
                 await Task.Run(() => TikTokArchivedProjectService.Restore(
                     workspace,
-                    match.ArchivedProject!.ArchiveProjectDir));
+                    match.ArchivedProject!.ArchiveProjectDir,
+                    proofAccount.ResolveArchiveRootPath(workspace)));
                 restoredCount++;
             }
             catch (Exception ex)

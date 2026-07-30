@@ -28,7 +28,7 @@ public sealed record ArchivedProjectItem(
     string SourceProjectDir = "",
     string WorkflowProjectDir = "");
 
-public static class TikTokArchivedProjectService
+public static partial class TikTokArchivedProjectService
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -60,7 +60,7 @@ public static class TikTokArchivedProjectService
 
     public static string ResolveArchiveRoot(string workspaceRoot, string? archiveRootDir = null)
     {
-        var custom = (archiveRootDir ?? ClientSettingsStore.Load().ArchiveRootDir ?? "").Trim();
+        var custom = (archiveRootDir ?? "").Trim();
         if (custom.Length > 0)
             return Path.GetFullPath(custom);
         return Path.Combine(Path.GetFullPath(workspaceRoot), "archive");
@@ -82,7 +82,12 @@ public static class TikTokArchivedProjectService
             fileItems.AddRange(ListLegacyProjectLayout(archiveRoot, fileItems));
         }
 
-        var databaseItems = LoadArchiveProjectsFromDatabase(workspaceRoot);
+        // The archive index is shared by a workspace, while archive roots are now
+        // account-specific. Never merge records from another account's archive root
+        // into the directory currently being viewed.
+        var databaseItems = LoadArchiveProjectsFromDatabase(workspaceRoot)
+            .Where(item => ItemBelongsToArchiveRoot(item, archiveRoot))
+            .ToArray();
         if (fileItems.Count > 0)
         {
             var merged = MergeArchiveItems(fileItems, databaseItems);

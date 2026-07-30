@@ -183,7 +183,8 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
             "acct-today",
             _workspaceRoot,
             new DateTimeOffset(2026, 7, 8, 18, 0, 0, TimeSpan.FromHours(8)),
-            includeExecutionHistory: false);
+            includeExecutionHistory: false,
+            archiveRootDir: _archiveRoot);
 
         count.Should().Be(1);
     }
