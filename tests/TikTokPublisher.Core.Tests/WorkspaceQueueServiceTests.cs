@@ -9,6 +9,70 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class WorkspaceQueueServiceTests
 {
     [Fact]
+    public void ResolveExecutionSnapshot_can_bypass_stale_displayed_queue_for_prepared_batch()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");
+        var currentProject = Path.Combine(workspace, "current");
+        var restoredProject = Path.Combine(workspace, "restored");
+
+        try
+        {
+            CreateProject(currentProject);
+            CreateProject(restoredProject);
+            var displayedSnapshot = new[]
+            {
+                new QueueProjectItem
+                {
+                    ProjectDir = currentProject,
+                    DisplayName = "current",
+                    Enabled = false,
+                },
+            };
+            var persistedItems = new[]
+            {
+                displayedSnapshot[0],
+                new QueueProjectItem
+                {
+                    ProjectDir = restoredProject,
+                    DisplayName = "restored",
+                    Enabled = true,
+                },
+            };
+            WorkspaceQueueService.SaveRunOptions(
+                workspace,
+                persistedItems,
+                new QueueRunOptions());
+
+            var stale = WorkspaceQueueService.ResolveExecutionSnapshot(
+                workspace,
+                displayedSnapshot,
+                preferPersistedSnapshot: false);
+            var prepared = WorkspaceQueueService.ResolveExecutionSnapshot(
+                workspace,
+                displayedSnapshot,
+                preferPersistedSnapshot: true);
+
+            stale.Should().ContainSingle()
+                .Which.ProjectDir.Should().Be(currentProject);
+            prepared.Should().Contain(item =>
+                string.Equals(item.ProjectDir, restoredProject, StringComparison.OrdinalIgnoreCase) &&
+                item.Enabled);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(workspace))
+                    Directory.Delete(workspace, recursive: true);
+            }
+            catch (IOException)
+            {
+                // SQLite on Windows may still hold the queue db briefly after a scan.
+            }
+        }
+    }
+
+    [Fact]
     public void ScanProjects_Uses_Project_Created_Time_When_QueuedAt_Is_Missing()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");
