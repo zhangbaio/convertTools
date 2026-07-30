@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
@@ -44,29 +43,22 @@ public static class DeletedCopyrightProofWorkflowRecoveryService
         }
 
         EnsureProofMaterialOnly(desiredWorkflowDir);
-        var stagedDir = BuildStagingDirectory(desiredWorkflowDir);
-        Directory.Move(desiredWorkflowDir, stagedDir);
         log?.Invoke(
-            $"发现仅含旧证明材料的目标 workflow，已暂存并准备复用：{desiredWorkflowDir}");
+            $"发现仅含旧证明材料的目标 workflow，将直接原位复用：{desiredWorkflowDir}");
 
-        try
-        {
-            var result = switchWorkflow();
-            if (!Directory.Exists(desiredWorkflowDir))
-            {
-                throw new InvalidOperationException(
-                    $"项目目录切换后未生成目标 workflow：{desiredWorkflowDir}");
-            }
+        // Do not rename the existing target directory. On Windows a PDF preview,
+        // Explorer window, antivirus scanner, or another process can hold a directory
+        // handle that denies Directory.Move even though its ACL grants full access.
+        // Moving the rebuilt project's files into that directory keeps the old proof
+        // artifact in place and avoids requiring delete-sharing on the open handle.
+        MergeDirectory(currentWorkflowDir, desiredWorkflowDir);
+        ProjectWorkspaceService.UpdateMovedWorkspaceMetadata(
+            sourceDir,
+            desiredWorkflowDir);
 
-            MergeDirectory(stagedDir, desiredWorkflowDir);
-            log?.Invoke($"旧证明材料已合并到恢复后的项目目录：{desiredWorkflowDir}");
-            return result;
-        }
-        catch
-        {
-            RestoreStagedDirectory(stagedDir, desiredWorkflowDir);
-            throw;
-        }
+        var result = switchWorkflow();
+        log?.Invoke($"旧证明材料已原位合并到恢复后的项目目录：{desiredWorkflowDir}");
+        return result;
     }
 
     public static void ValidateTarget(string projectDir, string newTitle)
@@ -136,22 +128,6 @@ public static class DeletedCopyrightProofWorkflowRecoveryService
             $"冲突内容：{string.Join("、", unexpected)}");
     }
 
-    private static string BuildStagingDirectory(string desiredWorkflowDir)
-    {
-        var parent = Path.GetDirectoryName(desiredWorkflowDir)
-                     ?? throw new InvalidOperationException(
-                         $"无法解析 workflow 根目录：{desiredWorkflowDir}");
-        string candidate;
-        do
-        {
-            candidate = Path.Combine(
-                parent,
-                $".deleted-proof-recovery-{Guid.NewGuid():N}");
-        } while (Directory.Exists(candidate) || File.Exists(candidate));
-
-        return candidate;
-    }
-
     private static void MergeDirectory(string sourceDir, string destinationDir)
     {
         Directory.CreateDirectory(destinationDir);
@@ -168,7 +144,23 @@ public static class DeletedCopyrightProofWorkflowRecoveryService
         }
 
         if (!Directory.EnumerateFileSystemEntries(sourceDir).Any())
-            Directory.Delete(sourceDir);
+        {
+            try
+            {
+                Directory.Delete(sourceDir);
+            }
+            catch (IOException)
+            {
+                // An empty legacy directory can remain when another process has it
+                // open. Metadata already points to the desired workflow, so it is
+                // harmless and can be removed by normal cleanup later.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Same as above: never fail recovery only because an empty old folder
+                // cannot be removed immediately.
+            }
+        }
     }
 
     private static void MoveFilePreservingBoth(string sourceFile, string destinationFile)
@@ -176,12 +168,6 @@ public static class DeletedCopyrightProofWorkflowRecoveryService
         if (!File.Exists(destinationFile))
         {
             File.Move(sourceFile, destinationFile);
-            return;
-        }
-
-        if (FilesEqual(sourceFile, destinationFile))
-        {
-            File.Delete(sourceFile);
             return;
         }
 
@@ -199,36 +185,6 @@ public static class DeletedCopyrightProofWorkflowRecoveryService
         } while (File.Exists(preservedPath));
 
         File.Move(sourceFile, preservedPath);
-    }
-
-    private static bool FilesEqual(string left, string right)
-    {
-        var leftInfo = new FileInfo(left);
-        var rightInfo = new FileInfo(right);
-        if (leftInfo.Length != rightInfo.Length)
-            return false;
-
-        using var leftStream = File.OpenRead(left);
-        using var rightStream = File.OpenRead(right);
-        var leftHash = SHA256.HashData(leftStream);
-        var rightHash = SHA256.HashData(rightStream);
-        return leftHash.AsSpan().SequenceEqual(rightHash);
-    }
-
-    private static void RestoreStagedDirectory(string stagedDir, string desiredWorkflowDir)
-    {
-        if (!Directory.Exists(stagedDir))
-            return;
-
-        if (!Directory.Exists(desiredWorkflowDir))
-        {
-            Directory.Move(stagedDir, desiredWorkflowDir);
-            return;
-        }
-
-        // If the switching action already created the desired directory, preserve every
-        // staged file there instead of deleting either side.
-        MergeDirectory(stagedDir, desiredWorkflowDir);
     }
 
     private static bool PathsEqual(string left, string right) =>
