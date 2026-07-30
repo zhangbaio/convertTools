@@ -145,9 +145,12 @@ public sealed class CopyrightProofBatchDialog : Window
             {
                 Content = $"{match.NewTitle}    [{location}]",
                 Tag = match,
-                IsEnabled = match.CanExecute,
-                IsChecked = match.CanExecute &&
-                            (!preserveSelection || selectedTitles.Contains(match.NewTitle)),
+                // Archived matches are execution targets by definition. Lock them selected so
+                // the user only needs to confirm the restore once after clicking Start.
+                IsEnabled = match.Location == CopyrightProofProjectLocation.CurrentQueue,
+                IsChecked = match.Location == CopyrightProofProjectLocation.Archived ||
+                            (match.Location == CopyrightProofProjectLocation.CurrentQueue &&
+                             (!preserveSelection || selectedTitles.Contains(match.NewTitle))),
                 Foreground = color,
             };
             _previewRows.Children.Add(box);

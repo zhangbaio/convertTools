@@ -1560,6 +1560,27 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
+        var archivedTargets = dialogResult.SelectedMatches
+            .Where(match => match.Location == CopyrightProofProjectLocation.Archived)
+            .ToArray();
+        if (archivedTargets.Length > 0)
+        {
+            var names = string.Join(
+                Environment.NewLine,
+                archivedTargets.Select(match => $"• {match.NewTitle}"));
+            var confirmed = await ConfirmAsync(
+                owner,
+                "确认回退归档项目",
+                $"以下 {archivedTargets.Length} 个项目已归档，将自动回退到原工作区并继续补全版权证明：" +
+                $"{Environment.NewLine}{Environment.NewLine}{names}" +
+                $"{Environment.NewLine}{Environment.NewLine}确认继续吗？");
+            if (!confirmed)
+            {
+                vm.StatusMessage = "已取消回退归档和补全版权证明";
+                return;
+            }
+        }
+
         var selectedTitles = dialogResult.SelectedMatches
             .Select(match => match.NewTitle)
             .ToHashSet(StringComparer.Ordinal);
