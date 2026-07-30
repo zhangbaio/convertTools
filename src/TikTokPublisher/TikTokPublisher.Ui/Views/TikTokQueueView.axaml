@@ -232,8 +232,8 @@
                     <Button Content="导入本地剧集" Click="OnImportLocalDramaClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="编辑剧集" Click="OnEditSelectedClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="补全版权证明" Click="OnCompleteCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
-                    <Button Content="手动补已删除证明" Click="OnManualDeletedCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="补全勾选证明材料" Click="OnResumeSelectedCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="手动补已删除证明" Click="OnManualDeletedCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="匹配已发布剧集" Click="OnMatchPublishedSeriesClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="改新剧名" Click="OnRenameNewTitleClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="修复静音视频" Click="OnRepairSilenceClick" Classes="repairAction compactAction" Margin="0,0,8,8" />
