@@ -616,6 +616,7 @@ public sealed class QueueWorkerRunner
                                     .ArchiveQueueProjectAsync(
                                         workspace,
                                         uploadCtx.Item.ProjectDir,
+                                        archiveRootDir: uploadCtx.Account?.ResolveArchiveRootPath(workspace),
                                         deleteSourceVideos: deleteVideosOnArchive,
                                         deleteWorkflowVideos: deleteVideosOnArchive,
                                         deleteMaterialVideos: deleteVideosOnArchive,

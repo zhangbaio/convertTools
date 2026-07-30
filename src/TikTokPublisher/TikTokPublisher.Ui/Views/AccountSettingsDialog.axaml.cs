@@ -29,6 +29,7 @@ public partial class AccountSettingsDialog : Window
         SeriesUrlBox.Text = p.TiktokSeriesUrl;
         StorageStateBox.Text = p.TiktokStorageStatePath;
         WorkspaceBox.Text = !string.IsNullOrWhiteSpace(p.TiktokUploadProfilePath) ? p.TiktokUploadProfilePath : p.LastWorkspace;
+        ArchiveRootBox.Text = p.TiktokArchiveRootDir;
         DownloadWorkspaceBox.Text = p.LastDownloadWorkspace;
         DeleteVideosOnArchiveBox.IsChecked = p.TiktokDeleteVideosOnArchive;
 
@@ -96,6 +97,8 @@ public partial class AccountSettingsDialog : Window
         var workspace = WorkspaceBox.Text?.Trim() ?? "";
         p.TiktokUploadProfilePath = workspace;
         p.LastWorkspace = workspace;
+        p.TiktokArchiveRootDir = ArchiveRootBox.Text?.Trim() ?? "";
+        p.TiktokArchiveRootConfigMigrated = true;
         p.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
         p.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
         p.TiktokDeleteVideosOnArchiveConfigured = true;
@@ -162,6 +165,19 @@ public partial class AccountSettingsDialog : Window
         var folder = folders.FirstOrDefault();
         if (folder is null) return;
         WorkspaceBox.Text = folder.Path.LocalPath;
+    }
+
+    private async void OnBrowseArchiveRootClick(object? sender, RoutedEventArgs e)
+    {
+        if (Storage is null) return;
+        var folders = await Storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "选择当前账号归档目录",
+            AllowMultiple = false,
+        });
+        var folder = folders.FirstOrDefault();
+        if (folder is null) return;
+        ArchiveRootBox.Text = folder.Path.LocalPath;
     }
 
     private async void OnBrowseProofSealClick(object? sender, RoutedEventArgs e)

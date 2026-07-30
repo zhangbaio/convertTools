@@ -43,6 +43,10 @@ public sealed class TikTokAccountProfile
     public string LastWorkspace { get; set; } = "";
     public string LastDownloadWorkspace { get; set; } = "";
     public string TiktokUploadProfilePath { get; set; } = "";
+    /// <summary>账号独立归档根目录；留空时默认使用上传工作目录下的 archive。</summary>
+    public string TiktokArchiveRootDir { get; set; } = "";
+    /// <summary>旧全局归档目录是否已迁移为账号级配置。</summary>
+    public bool TiktokArchiveRootConfigMigrated { get; set; }
 
     // 代理
     public bool TiktokProxyEnabled { get; set; }
@@ -170,6 +174,39 @@ public sealed class TikTokAccountProfile
             }
         }
         return "";
+    }
+
+    public string ResolveArchiveRootPath(string? workspacePath = null)
+    {
+        var configured = (TiktokArchiveRootDir ?? "").Trim();
+        if (configured.Length > 0)
+        {
+            try
+            {
+                return Path.GetFullPath(Environment.ExpandEnvironmentVariables(configured));
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        var workspace = (workspacePath ?? "").Trim();
+        if (workspace.Length == 0)
+            workspace = ResolveWorkspacePath();
+        if (workspace.Length == 0)
+            return "";
+
+        try
+        {
+            return Path.Combine(
+                Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspace)),
+                "archive");
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     private static string FirstNonEmpty(params string?[] values)

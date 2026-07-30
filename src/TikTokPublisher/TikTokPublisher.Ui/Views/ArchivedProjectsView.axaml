@@ -44,6 +44,7 @@
                     <Button Content="全选" Click="OnSelectAllClick" Margin="0,0,8,8" />
                     <Button Content="取消全选" Click="OnClearSelectionClick" Margin="0,0,8,8" />
                     <Button Content="回退归档项目" Click="OnRestoreSelectedClick" Margin="0,0,8,8" />
+                    <Button Content="迁移旧归档" Click="OnMigrateLegacyArchiveClick" Margin="0,0,8,8" />
                     <Button Content="删除归档项目" Click="OnDeleteSelectedClick" Classes="dangerAction" Margin="0,0,8,8" />
                     <Button Content="同步勾选任务" Click="OnSyncSelectedClick" Margin="0,0,8,8" />
                 </WrapPanel>

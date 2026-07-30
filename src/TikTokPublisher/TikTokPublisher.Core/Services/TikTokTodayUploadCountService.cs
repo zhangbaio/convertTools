@@ -10,7 +10,8 @@ public static class TikTokTodayUploadCountService
         string? accountProfileId,
         string? workspaceRoot = null,
         DateTimeOffset? now = null,
-        bool includeExecutionHistory = true)
+        bool includeExecutionHistory = true,
+        string? archiveRootDir = null)
     {
         var today = (now ?? DateTimeOffset.Now).ToLocalTime().Date;
         var accountId = (accountProfileId ?? "").Trim();
@@ -22,7 +23,7 @@ public static class TikTokTodayUploadCountService
 
         if (!string.IsNullOrWhiteSpace(workspace) && Directory.Exists(workspace))
         {
-            foreach (var item in TikTokArchivedProjectService.List(workspace))
+            foreach (var item in TikTokArchivedProjectService.List(workspace, archiveRootDir))
                 AddArchiveItemIfToday(seen, item, accountId, today);
         }
 

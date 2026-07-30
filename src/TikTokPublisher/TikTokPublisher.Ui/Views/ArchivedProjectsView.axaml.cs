@@ -164,6 +164,50 @@ public partial class ArchivedProjectsView : UserControl
         await vm.DeleteSelectedAsync();
     }
 
+    private async void OnMigrateLegacyArchiveClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = Vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (vm is null || owner is null || vm.IsMigratingLegacyArchive)
+            return;
+
+        var preview = await vm.PrepareLegacyArchiveMigrationAsync();
+        if (preview is null)
+            return;
+
+        if (preview.MigratableCount == 0)
+        {
+            var details = preview.Notes.Count == 0
+                ? "旧全局归档中没有能明确归属于当前账号的项目；未确认归属的记录均已保留在原目录。"
+                : string.Join(Environment.NewLine, preview.Notes.Take(8));
+            await ShowMessageAsync(owner, "没有可迁移项目", details);
+            return;
+        }
+
+        var message =
+            $"旧全局归档：{preview.SourceArchiveRoot}{Environment.NewLine}" +
+            $"当前账号归档：{preview.TargetArchiveRoot}{Environment.NewLine}{Environment.NewLine}" +
+            $"可安全迁移：{preview.MigratableCount} 个{Environment.NewLine}" +
+            $"归属不明确（保留原处）：{preview.SkippedOwnershipCount} 个{Environment.NewLine}" +
+            $"路径冲突或文件缺失（保留原处）：{preview.ConflictCount} 个{Environment.NewLine}{Environment.NewLine}" +
+            "迁移会先复制并校验，再删除旧副本；不会覆盖目标目录中的同名项目。确认继续吗？";
+        if (!await ConfirmAsync(owner, "确认迁移当前账号旧归档", message, height: 360))
+            return;
+
+        var result = await vm.MigrateLegacyArchiveAsync(preview);
+        if (result is null)
+            return;
+
+        var resultMessage =
+            $"成功迁移：{result.MigratedCount} 个{Environment.NewLine}" +
+            $"跳过并保留原处：{result.SkippedCount} 个{Environment.NewLine}" +
+            $"失败：{result.FailedCount} 个{Environment.NewLine}{Environment.NewLine}" +
+            $"当前账号归档目录已切换为：{result.TargetArchiveRoot}";
+        if (result.Messages.Count > 0)
+            resultMessage += Environment.NewLine + string.Join(Environment.NewLine, result.Messages.Take(5));
+        await ShowMessageAsync(owner, "旧归档迁移完成", resultMessage);
+    }
+
     private async void OnSyncSelectedClick(object? sender, RoutedEventArgs e)
     {
         var vm = Vm;
@@ -193,13 +237,17 @@ public partial class ArchivedProjectsView : UserControl
         }
     }
 
-    private static async Task<bool> ConfirmAsync(Window owner, string title, string message)
+    private static async Task<bool> ConfirmAsync(
+        Window owner,
+        string title,
+        string message,
+        double height = 190)
     {
         var dialog = new Window
         {
             Title = title,
-            Width = 460,
-            Height = 190,
+            Width = 560,
+            Height = height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
         };
         var cancelButton = BuildDialogButton("取消", () => dialog.Close(false));
@@ -222,6 +270,44 @@ public partial class ArchivedProjectsView : UserControl
         };
 
         return await dialog.ShowDialog<bool>(owner);
+    }
+
+    private static async Task ShowMessageAsync(Window owner, string title, string message)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 560,
+            Height = 300,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var okButton = BuildDialogButton("确定", () => dialog.Close(), primary: true);
+        var buttonPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 14, 0, 0),
+            Children = { okButton },
+        };
+        Grid.SetRow(buttonPanel, 1);
+        dialog.Content = new Grid
+        {
+            Margin = new Thickness(16),
+            RowDefinitions = new RowDefinitions("*,Auto"),
+            Children =
+            {
+                new ScrollViewer
+                {
+                    Content = new TextBlock
+                    {
+                        Text = message,
+                        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    },
+                },
+                buttonPanel,
+            },
+        };
+        await dialog.ShowDialog(owner);
     }
 
     private static Button BuildDialogButton(string text, Action click, bool primary = false)

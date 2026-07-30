@@ -96,6 +96,7 @@ public partial class AccountProfileEditor : UserControl
         WorkspaceBox.Text = !string.IsNullOrWhiteSpace(profile.TiktokUploadProfilePath)
             ? profile.TiktokUploadProfilePath
             : profile.LastWorkspace;
+        ArchiveRootBox.Text = profile.TiktokArchiveRootDir;
         DownloadWorkspaceBox.Text = profile.LastDownloadWorkspace;
         ExcelReportBox.Text = profile.TiktokExcelReportPath;
         DeleteVideosOnArchiveBox.IsChecked = profile.TiktokDeleteVideosOnArchive;
@@ -196,6 +197,8 @@ public partial class AccountProfileEditor : UserControl
             var workspace = WorkspaceBox.Text?.Trim() ?? "";
             profile.TiktokUploadProfilePath = workspace;
             profile.LastWorkspace = workspace;
+            profile.TiktokArchiveRootDir = ArchiveRootBox.Text?.Trim() ?? "";
+            profile.TiktokArchiveRootConfigMigrated = true;
             profile.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
             profile.TiktokExcelReportPath = ExcelReportBox.Text?.Trim() ?? "";
             profile.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
@@ -744,6 +747,7 @@ public partial class AccountProfileEditor : UserControl
         StorageStateBox.Text = "";
         SeriesUrlBox.Text = TikTokUrls.DefaultSeriesDraftUrl;
         WorkspaceBox.Text = "";
+        ArchiveRootBox.Text = "";
         DownloadWorkspaceBox.Text = "";
         ExcelReportBox.Text = "";
         DeleteVideosOnArchiveBox.IsChecked = true;
@@ -770,6 +774,9 @@ public partial class AccountProfileEditor : UserControl
 
     private async void OnBrowseWorkspaceClick(object? sender, RoutedEventArgs e) =>
         await PickFolderAsync(WorkspaceBox, "选择上传工作目录");
+
+    private async void OnBrowseArchiveRootClick(object? sender, RoutedEventArgs e) =>
+        await PickFolderAsync(ArchiveRootBox, "选择当前账号归档目录");
 
     private async void OnBrowseDownloadWorkspaceClick(object? sender, RoutedEventArgs e) =>
         await PickFolderAsync(DownloadWorkspaceBox, "选择下载工作目录");

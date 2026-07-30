@@ -389,17 +389,20 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
     [ObservableProperty] private string _statusMessage = "";
     [ObservableProperty] private string _rootSummary = "归档根目录: 未选择工作目录";
     [ObservableProperty] private ArchivedProjectRowViewModel? _selectedRow;
+    [ObservableProperty] private bool _isMigratingLegacyArchive;
 
     public event Action<string>? StatusRequested;
     public event Action? Restored;
     public Func<TikTokAccountProfile?>? AccountProvider { get; set; }
+    public Func<IReadOnlyCollection<TikTokAccountProfile>>? AccountsProvider { get; set; }
     public Func<QueueProjectItem, TikTokAccountProfile?>? AccountResolver { get; set; }
+    public Action<TikTokAccountProfile>? AccountUpdateRequested { get; set; }
 
     public void SetWorkspace(string? workspacePath, bool refresh = true)
     {
         var previousRoot = ArchiveRootDir;
         WorkspacePath = workspacePath?.Trim() ?? "";
-        SyncArchiveRootFromSettings();
+        SyncArchiveRootFromAccount();
 
         // 切账号导致归档根目录变化时必须重载列表，否则界面停留在上一账号的归档记录。
         var rootChanged = !string.IsNullOrWhiteSpace(previousRoot) &&
@@ -410,10 +413,18 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     public void SetArchiveRootDir(string? archiveRootDir)
     {
+        var account = AccountProvider?.Invoke();
+        if (account is null)
+        {
+            StatusMessage = "请先选择要设置归档目录的账号";
+            StatusRequested?.Invoke(StatusMessage);
+            return;
+        }
+
         ArchiveRootDir = Path.GetFullPath((archiveRootDir ?? "").Trim());
-        var settings = ClientSettingsStore.Load();
-        settings.ArchiveRootDir = ArchiveRootDir;
-        ClientSettingsStore.Save(settings);
+        account.TiktokArchiveRootDir = ArchiveRootDir;
+        account.TiktokArchiveRootConfigMigrated = true;
+        AccountUpdateRequested?.Invoke(account);
         Refresh();
     }
 
@@ -614,6 +625,128 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     public int GetActionTargetCount() => TargetRowsForAction().Length;
 
+    public async Task<AccountArchiveMigrationPreview?> PrepareLegacyArchiveMigrationAsync()
+    {
+        if (IsMigratingLegacyArchive)
+            return null;
+
+        var account = AccountProvider?.Invoke();
+        var workspace = WorkspaceForAction();
+        if (account is null || string.IsNullOrWhiteSpace(workspace))
+        {
+            StatusMessage = "请先选择账号并绑定该账号的上传工作目录。";
+            StatusRequested?.Invoke(StatusMessage);
+            return null;
+        }
+
+        var legacyRoot = (ClientSettingsStore.Load().ArchiveRootDir ?? "").Trim();
+        if (legacyRoot.Length == 0)
+        {
+            StatusMessage = "未找到以前使用的全局归档目录配置。";
+            StatusRequested?.Invoke(StatusMessage);
+            return null;
+        }
+
+        legacyRoot = Path.GetFullPath(legacyRoot);
+        var configuredTarget = account.ResolveArchiveRootPath(workspace);
+        var workspaceTarget = Path.Combine(Path.GetFullPath(workspace), "archive");
+        var targetRoot = string.IsNullOrWhiteSpace(configuredTarget)
+            ? workspaceTarget
+            : Path.GetFullPath(configuredTarget);
+        if (PathsEqual(legacyRoot, targetRoot))
+            targetRoot = workspaceTarget;
+        if (PathsEqual(legacyRoot, targetRoot))
+        {
+            StatusMessage = "旧全局归档目录已经是当前账号的工作目录归档，无需迁移。";
+            StatusRequested?.Invoke(StatusMessage);
+            return null;
+        }
+
+        try
+        {
+            IsMigratingLegacyArchive = true;
+            StatusMessage = "正在扫描旧全局归档并识别当前账号项目...";
+            var knownAccounts = AccountsProvider?.Invoke() ?? new[] { account };
+            var preview = await Task.Run(() =>
+                TikTokArchivedProjectService.BuildAccountArchiveMigrationPreview(
+                    workspace,
+                    legacyRoot,
+                    targetRoot,
+                    account,
+                    knownAccounts));
+            StatusMessage =
+                $"迁移预览：可迁移 {preview.MigratableCount} 个，归属不明确 {preview.SkippedOwnershipCount} 个，冲突/缺失 {preview.ConflictCount} 个。";
+            StatusRequested?.Invoke(StatusMessage);
+            return preview;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"扫描旧归档失败：{ex.Message}";
+            StatusRequested?.Invoke(StatusMessage);
+            return null;
+        }
+        finally
+        {
+            IsMigratingLegacyArchive = false;
+        }
+    }
+
+    public async Task<AccountArchiveMigrationResult?> MigrateLegacyArchiveAsync(
+        AccountArchiveMigrationPreview preview)
+    {
+        if (IsMigratingLegacyArchive)
+            return null;
+
+        var account = AccountProvider?.Invoke();
+        var workspace = WorkspaceForAction();
+        if (account is null || string.IsNullOrWhiteSpace(workspace))
+        {
+            StatusMessage = "当前账号或上传工作目录已变化，请重新执行迁移。";
+            StatusRequested?.Invoke(StatusMessage);
+            return null;
+        }
+
+        try
+        {
+            IsMigratingLegacyArchive = true;
+            var progress = new Progress<string>(message =>
+            {
+                StatusMessage = message;
+                StatusRequested?.Invoke(message);
+            });
+            var result = await TikTokArchivedProjectService.MigrateAccountArchivesAsync(
+                workspace,
+                preview,
+                account,
+                progress);
+            if (result.MigratedCount > 0)
+            {
+                account.TiktokArchiveRootDir = result.TargetArchiveRoot;
+                account.TiktokArchiveRootConfigMigrated = true;
+                AccountUpdateRequested?.Invoke(account);
+                ArchiveRootDir = result.TargetArchiveRoot;
+                await RefreshAsync();
+            }
+
+            StatusMessage =
+                $"旧归档迁移完成：成功 {result.MigratedCount} 个，跳过 {result.SkippedCount} 个，失败 {result.FailedCount} 个。";
+            StatusRequested?.Invoke(StatusMessage);
+            foreach (var message in result.Messages.Take(5))
+                StatusRequested?.Invoke($"迁移失败：{message}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"迁移旧归档失败：{ex.Message}";
+            StatusRequested?.Invoke(StatusMessage);
+            return null;
+        }
+        finally
+        {
+            IsMigratingLegacyArchive = false;
+        }
+    }
+
     public async Task SyncCheckedToManagementAsync()
     {
         var targets = Rows.Where(row => row.Selected).ToArray();
@@ -639,12 +772,15 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
         StatusRequested?.Invoke(StatusMessage);
     }
 
-    private void SyncArchiveRootFromSettings()
+    private void SyncArchiveRootFromAccount()
     {
-        var settings = ClientSettingsStore.Load();
-        ArchiveRootDir = string.IsNullOrWhiteSpace(settings.ArchiveRootDir)
-            ? string.IsNullOrWhiteSpace(WorkspacePath) ? "" : Path.Combine(Path.GetFullPath(WorkspacePath), "archive")
-            : Path.GetFullPath(settings.ArchiveRootDir);
+        var account = AccountProvider?.Invoke();
+        var accountRoot = account?.ResolveArchiveRootPath(WorkspacePath) ?? "";
+        ArchiveRootDir = !string.IsNullOrWhiteSpace(accountRoot)
+            ? accountRoot
+            : string.IsNullOrWhiteSpace(WorkspacePath)
+                ? ""
+                : Path.Combine(Path.GetFullPath(WorkspacePath), "archive");
         RootSummary = string.IsNullOrWhiteSpace(ArchiveRootDir)
             ? "归档根目录: 未选择工作目录"
             : $"归档根目录: {ArchiveRootDir}";
@@ -732,4 +868,19 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     private static bool Contains(string? value, string keyword) =>
         (value ?? "").ToLowerInvariant().Contains(keyword);
+
+    private static bool PathsEqual(string left, string right)
+    {
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }
