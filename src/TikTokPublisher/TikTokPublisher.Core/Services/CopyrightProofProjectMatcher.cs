@@ -90,6 +90,20 @@ public static class CopyrightProofProjectMatcher
 
             if (historyByTitle.TryGetValue(title, out var historyMatches))
             {
+                var originalTitles = historyMatches
+                    .Select(snapshot => (snapshot.Item.OriginalTitle ?? string.Empty).Trim())
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+                if (originalTitles.Length > 1)
+                {
+                    results.Add(new CopyrightProofProjectMatch(
+                        title,
+                        CopyrightProofProjectLocation.Conflict,
+                        ConflictCandidates: originalTitles));
+                    continue;
+                }
+
                 // A project can have multiple execution snapshots over its lifetime. Use the
                 // newest recoverable snapshot rather than forcing the user to disambiguate
                 // records that all refer to the same exact rewritten title.

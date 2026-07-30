@@ -37,7 +37,7 @@ public sealed class CopyrightProofBatchDialog : Window
         };
         root.Children.Add(new TextBlock
         {
-            Text = "输入新剧名，一行一个。只按新剧名精确匹配；依次查询当前上传队列、已归档项目和已删除项目历史。点击开始补全后，将自动处理全部可执行的匹配项目。",
+            Text = "输入新剧名，一行一个。只按新剧名精确匹配；依次查询当前上传队列、已归档项目、历史数据库、Excel 和本地备份。找不到唯一原剧名的项目将自动跳过。",
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeight.SemiBold,
         });

@@ -578,17 +578,38 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
         }
 
         var deleted = 0;
+        var failures = new List<string>();
         foreach (var row in targets)
         {
-            await TikTokArchivedProjectService.DeleteAsync(workspace, row.Item.ArchiveProjectDir, ArchiveRootDir);
-            deleted++;
+            try
+            {
+                var historyItem = TikTokArchivedProjectService.ToQueueItemForSync(row.Item);
+                var account = AccountResolver?.Invoke(historyItem) ?? AccountProvider?.Invoke();
+                TikTokExecutionHistoryService.PersistDeletionSnapshot(
+                    workspace,
+                    historyItem,
+                    account);
+                await TikTokArchivedProjectService.DeleteAsync(
+                    workspace,
+                    row.Item.ArchiveProjectDir,
+                    ArchiveRootDir);
+                deleted++;
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{row.DisplayName}: {ex.Message}");
+            }
         }
 
         Refresh();
-        StatusMessage = deleted == 1
-            ? $"已删除归档项目：{targets[0].DisplayName}"
-            : $"已删除归档项目 {deleted} 个";
+        StatusMessage = failures.Count == 0
+            ? deleted == 1
+                ? $"已删除归档项目：{targets[0].DisplayName}"
+                : $"已删除归档项目 {deleted} 个"
+            : $"删除归档完成：成功 {deleted} 个，失败 {failures.Count} 个";
         StatusRequested?.Invoke(StatusMessage);
+        foreach (var failure in failures.Take(5))
+            StatusRequested?.Invoke($"删除归档失败：{failure}");
     }
 
     public int GetActionTargetCount() => TargetRowsForAction().Length;

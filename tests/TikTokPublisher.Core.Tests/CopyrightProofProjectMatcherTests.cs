@@ -78,8 +78,8 @@ public sealed class CopyrightProofProjectMatcherTests
     [Fact]
     public void MatchByNewTitleExact_UsesLatestDeletedHistoryWhenQueueAndArchiveMiss()
     {
-        var older = Snapshot("已删除的新剧名", "旧原剧名", "2026-07-01T08:00:00+08:00");
-        var newer = Snapshot("已删除的新剧名", "新原剧名", "2026-07-02T08:00:00+08:00");
+        var older = Snapshot("已删除的新剧名", "同一原剧名", "2026-07-01T08:00:00+08:00");
+        var newer = Snapshot("已删除的新剧名", "同一原剧名", "2026-07-02T08:00:00+08:00");
 
         var match = Assert.Single(CopyrightProofProjectMatcher.MatchByNewTitleExact(
             ["已删除的新剧名"],
