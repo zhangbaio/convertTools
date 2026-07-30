@@ -778,22 +778,26 @@ public sealed class QueueWorkerRunner
                 Report(onProgress, workspace, item, msg, QueueStepRegistry.UploadSeries))
             : msg => Report(onProgress, workspace, item, msg, QueueStepRegistry.UploadSeries);
 
-        var consistency = TikTokUploadEpisodeConsistencyService.ValidateBeforeUpload(item);
-        if (!consistency.Ok)
+        var copyrightProofOnly = options.IsCopyrightProofOnlyRun();
+        if (!copyrightProofOnly)
         {
-            mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, consistency.Message));
-            Report(onProgress, workspace, item, consistency.Message, QueueStepRegistry.UploadSeries);
-            return false;
-        }
+            var consistency = TikTokUploadEpisodeConsistencyService.ValidateBeforeUpload(item);
+            if (!consistency.Ok)
+            {
+                mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, consistency.Message));
+                Report(onProgress, workspace, item, consistency.Message, QueueStepRegistry.UploadSeries);
+                return false;
+            }
 
-        var preflight = await TikTokUploadFilePreflightService
-            .ValidateAsync(item, uploadLog, ct)
-            .ConfigureAwait(false);
-        if (!preflight.Ok)
-        {
-            mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, preflight.Message));
-            Report(onProgress, workspace, item, preflight.Message, QueueStepRegistry.UploadSeries);
-            return false;
+            var preflight = await TikTokUploadFilePreflightService
+                .ValidateAsync(item, uploadLog, ct)
+                .ConfigureAwait(false);
+            if (!preflight.Ok)
+            {
+                mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, preflight.Message));
+                Report(onProgress, workspace, item, preflight.Message, QueueStepRegistry.UploadSeries);
+                return false;
+            }
         }
 
         IReadOnlyList<string> materialTypes;
@@ -872,7 +876,12 @@ public sealed class QueueWorkerRunner
             }
             else
             {
-                Report(onProgress, workspace, item, "开始上传发布…", QueueStepRegistry.UploadSeries);
+                Report(
+                    onProgress,
+                    workspace,
+                    item,
+                    copyrightProofOnly ? "开始补全版权证明…" : "开始上传发布…",
+                    QueueStepRegistry.UploadSeries);
                 var result = await host.PublishProjectAsync(
                     account,
                     item,
