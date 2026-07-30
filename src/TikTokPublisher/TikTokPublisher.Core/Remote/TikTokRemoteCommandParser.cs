@@ -205,12 +205,22 @@ public static class TikTokRemoteCommandParser
             var queueOptions = TryGetProperty(root, "queue_options", out var queueOptionsElement)
                 ? JsonObjectToDictionary(queueOptionsElement)
                 : null;
+            var matchMode = FirstString(root, "match_mode").ToLowerInvariant();
+            var series = TryGetProperty(root, "series", out var seriesElement)
+                ? SeriesFromJsonElement(seriesElement)
+                : Array.Empty<TikTokUploadSeriesSpec>();
 
             if (commandName is "tiktok_upload_series" or "upload_tiktok_series")
             {
+                var titles = TryGetProperty(root, "titles", out var titlesElement)
+                    ? TitlesFromJsonElement(titlesElement)
+                    : [];
+                // 兼容仅下发 series（无 titles）的情况：从 series 补齐剧名列表。
+                if (titles.Count == 0 && series.Count > 0)
+                    titles = NormalizeTitles(series.Select(spec => (object?)spec.Title));
                 return new TikTokRemoteCommand(
                     TikTokRemoteCommandNames.UploadSeries,
-                    Titles: TryGetProperty(root, "titles", out var titles) ? TitlesFromJsonElement(titles) : [],
+                    Titles: titles,
                     WorkspacePath: workspacePath,
                     AccountProfileId: accountProfileId,
                     AccountProfileName: accountProfileName,
@@ -218,7 +228,9 @@ public static class TikTokRemoteCommandParser
                     AllAccounts: allAccounts,
                     EnabledSteps: EmptyToNull(enabledSteps),
                     AutoRun: autoRun,
-                    QueueOptions: queueOptions);
+                    QueueOptions: queueOptions,
+                    MatchMode: matchMode,
+                    Series: series.Count > 0 ? series : null);
             }
 
             if (commandName is "tiktok_start_queue" or "start_tiktok_queue")
@@ -496,6 +508,42 @@ public static class TikTokRemoteCommandParser
         element.ValueKind == JsonValueKind.Array
             ? NormalizeTitles(element.EnumerateArray().Select(JsonValueToObject))
             : NormalizeTitles([element.ValueKind == JsonValueKind.String ? element.GetString() : element.ToString()]);
+
+    // 解析 series:[{title, episode_cnt, series_id}]（也兼容字符串数组，退化为仅剧名）。
+    private static IReadOnlyList<TikTokUploadSeriesSpec> SeriesFromJsonElement(JsonElement element)
+    {
+        var list = new List<TikTokUploadSeriesSpec>();
+        if (element.ValueKind != JsonValueKind.Array)
+            return list;
+
+        foreach (var entry in element.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object)
+            {
+                var plainTitle = NormalizeTitle(entry.ValueKind == JsonValueKind.String ? entry.GetString() : entry.ToString());
+                if (plainTitle.Length > 0)
+                    list.Add(new TikTokUploadSeriesSpec(plainTitle));
+                continue;
+            }
+
+            var title = NormalizeTitle(GetString(entry, "title"));
+            if (title.Length == 0)
+                continue;
+
+            var episodeCnt = 0;
+            if (TryGetProperty(entry, "episode_cnt", out var episodeElement))
+            {
+                if (episodeElement.ValueKind == JsonValueKind.Number && episodeElement.TryGetInt32(out var number))
+                    episodeCnt = number;
+                else if (episodeElement.ValueKind == JsonValueKind.String && int.TryParse(episodeElement.GetString(), out var parsed))
+                    episodeCnt = parsed;
+            }
+
+            list.Add(new TikTokUploadSeriesSpec(title, episodeCnt < 0 ? 0 : episodeCnt, GetString(entry, "series_id").Trim()));
+        }
+
+        return list;
+    }
 
     private static IReadOnlyList<string> ReadJsonAccountSelectors(
         JsonElement root,

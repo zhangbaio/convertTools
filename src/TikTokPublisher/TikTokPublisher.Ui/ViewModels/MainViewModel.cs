@@ -2240,6 +2240,23 @@ public sealed partial class MainViewModel : ViewModelBase
         return TikTokRemoteCommandResult.Accepted(command.Command, $"TikTok 队列已启动，工作目录：{workspace}");
     }
 
+    // 依据远程命令生成导入用的原始文本与匹配模式：
+    // title_episode 模式下按 series 逐行输出「剧名 集数」，供精准按集数匹配；否则退回仅剧名。
+    private static (string RawText, string MatchMode) BuildRemoteUploadImportInput(
+        TikTokRemoteCommand command,
+        IReadOnlyList<string> titles)
+    {
+        if (command.UsesEpisodeMatching && command.Series is { Count: > 0 })
+        {
+            var lines = command.Series
+                .Where(spec => !string.IsNullOrWhiteSpace(spec.Title))
+                .Select(spec => spec.EpisodeCnt > 0 ? $"{spec.Title} {spec.EpisodeCnt}" : spec.Title);
+            return (string.Join(Environment.NewLine, lines), UploadTitleImportService.MatchModeTitleEpisode);
+        }
+
+        return (string.Join(Environment.NewLine, titles), UploadTitleImportService.MatchModeTitle);
+    }
+
     private async Task<TikTokRemoteCommandResult> ExecuteRemoteUploadSeriesAsync(TikTokRemoteCommand command)
     {
         var titles = command.Titles?.Where(title => !string.IsNullOrWhiteSpace(title)).ToList() ?? [];
@@ -2273,13 +2290,14 @@ public sealed partial class MainViewModel : ViewModelBase
         var options = SystemServices.BuildRemoteUploadRunOptions(command);
         options.ProjectConcurrency = Math.Clamp(targetAccount?.TiktokProjectConcurrency ?? options.ProjectConcurrency, 1, 20);
 
+        var (singleRawText, singleMatchMode) = BuildRemoteUploadImportInput(command, titles);
         var importOutcome = await ImportRemoteUploadTitlesAsync(
             targetWorkspace,
             targetAccount,
-            string.Join(Environment.NewLine, titles),
+            singleRawText,
             UploadTitleImportService.DefaultEpisodeMin,
             UploadTitleImportService.DefaultEpisodeMax,
-            UploadTitleImportService.MatchModeTitle,
+            singleMatchMode,
             finalAction,
             allowAppendToRunningQueue: command.AutoRun,
             CancellationToken.None);
@@ -2435,7 +2453,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (!TryResolveRemoteAccountQueueTargets(command, out var targets, out var error))
             return TikTokRemoteCommandResult.Failed(command.Command, error);
 
-        var rawTitles = string.Join(Environment.NewLine, titles);
+        var (rawTitles, remoteMatchMode) = BuildRemoteUploadImportInput(command, titles);
         var totalQueued = 0;
         var totalFailed = 0;
         var totalDuplicates = 0;
@@ -2458,7 +2476,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 rawTitles,
                 UploadTitleImportService.DefaultEpisodeMin,
                 UploadTitleImportService.DefaultEpisodeMax,
-                UploadTitleImportService.MatchModeTitle,
+                remoteMatchMode,
                 target.FinalActionOverride,
                 allowAppendToRunningQueue: command.AutoRun,
                 CancellationToken.None);
