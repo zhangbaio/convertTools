@@ -47,10 +47,49 @@ public static class DeletedCopyrightProofProjectRecoveryService
                     newTitle,
                     StringComparison.Ordinal));
         if (existing is not null)
-            return new DeletedCopyrightProofProjectRecoveryResult(
-                true,
-                $"项目已在当前队列中恢复：{newTitle}",
-                existing);
+        {
+            if (!string.Equals(
+                    (existing.OriginalTitle ?? string.Empty).Trim(),
+                    originalTitle,
+                    StringComparison.Ordinal))
+            {
+                return Fail(
+                    $"当前队列已有同名项目「{newTitle}」，但原剧名为「{existing.OriginalTitle}」，" +
+                    "与待恢复记录不一致，已停止自动合并。");
+            }
+
+            try
+            {
+                var repaired = DeletedCopyrightProofWorkflowRecoveryService.RepairExistingProject(
+                    existing.ProjectDir,
+                    newTitle,
+                    log);
+                var existingProjects = WorkspaceQueueService.ScanProjects(workspace).ToList();
+                var existingRecovered = existingProjects.First(item =>
+                    string.Equals(
+                        Path.GetFullPath(item.ProjectDir),
+                        Path.GetFullPath(existing.ProjectDir),
+                        StringComparison.OrdinalIgnoreCase));
+                FinalizeRecoveredProject(
+                    workspace,
+                    existingProjects,
+                    existingRecovered,
+                    history,
+                    account);
+                if (repaired)
+                    log?.Invoke($"已修复上次中断留下的版权项目：{newTitle}");
+                return new DeletedCopyrightProofProjectRecoveryResult(
+                    true,
+                    repaired
+                        ? $"已修复并恢复：{newTitle}"
+                        : $"项目已在当前队列中恢复：{newTitle}",
+                    existingRecovered);
+            }
+            catch (Exception ex)
+            {
+                return Fail($"修复已有恢复项目「{newTitle}」失败：{ex.Message}");
+            }
+        }
 
         log?.Invoke($"恢复已删除版权项目：正在按原剧名精确检索「{originalTitle}」");
         var lookup = await UploadTitleImportService.FindExactDramaAsync(
@@ -145,6 +184,20 @@ public static class DeletedCopyrightProofProjectRecoveryService
             projectDir,
             Math.Max(1, lookup.Item.EpisodeTotal),
             log);
+        try
+        {
+            // Validate before inserting the queue row. Old versions inserted first and
+            // therefore left a visible half-built project when the target directory
+            // contained only an earlier proof PDF.
+            DeletedCopyrightProofWorkflowRecoveryService.ValidateTarget(
+                projectDir,
+                newTitle);
+        }
+        catch (Exception ex)
+        {
+            return Fail($"无法准备恢复项目「{newTitle}」：{ex.Message}");
+        }
+
         WorkspaceQueueService.AddProjectsToQueue(workspace, [projectDir]);
 
         var scanned = WorkspaceQueueService.ScanProjects(workspace)
@@ -161,7 +214,14 @@ public static class DeletedCopyrightProofProjectRecoveryService
                 newTitle,
                 StringComparison.Ordinal))
         {
-            QueueProjectTitleRenameService.RenameNewTitle(workspace, projectDir, newTitle);
+            DeletedCopyrightProofWorkflowRecoveryService.RunWithReconciledTarget(
+                projectDir,
+                newTitle,
+                () => QueueProjectTitleRenameService.RenameNewTitle(
+                    workspace,
+                    projectDir,
+                    newTitle),
+                log);
         }
 
         var projects = WorkspaceQueueService.ScanProjects(workspace).ToList();
@@ -173,6 +233,28 @@ public static class DeletedCopyrightProofProjectRecoveryService
         if (recovered is null)
             return Fail($"重建后未找到队列项目：{projectDir}");
 
+        FinalizeRecoveredProject(
+            workspace,
+            projects,
+            recovered,
+            history,
+            account);
+        log?.Invoke(
+            $"已从历史快照重建版权项目：{newTitle}；原剧：{originalTitle}；" +
+            "后续只执行证明材料和 TikTok 版权页面编辑。");
+        return new DeletedCopyrightProofProjectRecoveryResult(
+            true,
+            $"已恢复：{newTitle}",
+            recovered);
+    }
+
+    private static void FinalizeRecoveredProject(
+        string workspace,
+        IReadOnlyList<QueueProjectItem> projects,
+        QueueProjectItem recovered,
+        QueueProjectItem history,
+        TikTokAccountProfile account)
+    {
         recovered.Enabled = true;
         recovered.Archived = false;
         recovered.AccountProfileId = account.Id;
@@ -193,13 +275,6 @@ public static class DeletedCopyrightProofProjectRecoveryService
 
         var options = WorkspaceQueueService.LoadRunOptions(workspace);
         WorkspaceQueueService.SaveRunOptions(workspace, projects, options);
-        log?.Invoke(
-            $"已从历史快照重建版权项目：{newTitle}；原剧：{originalTitle}；" +
-            "后续只执行证明材料和 TikTok 版权页面编辑。");
-        return new DeletedCopyrightProofProjectRecoveryResult(
-            true,
-            $"已恢复：{newTitle}",
-            recovered);
     }
 
     private static DeletedCopyrightProofProjectRecoveryResult Fail(string message) =>

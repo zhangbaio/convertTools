@@ -185,6 +185,15 @@ public static class ProjectWorkspaceService
         return context.WorkflowProjectDir;
     }
 
+    public static string ResolveDesiredWorkflowProjectDir(string projectDir, string displayTitle)
+    {
+        var context = LoadContext(projectDir);
+        var sourceProjectDir = Path.GetFullPath(context.SourceProjectDir);
+        var desiredName = "_" + SanitizeWorkflowName(
+            FirstNonEmpty(displayTitle, Path.GetFileName(sourceProjectDir)));
+        return Path.Combine(ResolveWorkflowRoot(sourceProjectDir), desiredName);
+    }
+
     public static string EnsureWorkflowProjectDir(string sourceProjectDir)
     {
         var context = LoadContext(sourceProjectDir);
@@ -219,8 +228,7 @@ public static class ProjectWorkspaceService
         var context = LoadContext(projectDir);
         var sourceProjectDir = Path.GetFullPath(context.SourceProjectDir);
         var currentWorkflowDir = Path.GetFullPath(context.WorkflowProjectDir);
-        var desiredName = "_" + SanitizeWorkflowName(FirstNonEmpty(displayTitle, Path.GetFileName(sourceProjectDir)));
-        var desiredWorkflowDir = Path.Combine(ResolveWorkflowRoot(sourceProjectDir), desiredName);
+        var desiredWorkflowDir = ResolveDesiredWorkflowProjectDir(sourceProjectDir, displayTitle);
 
         if (!string.Equals(currentWorkflowDir, desiredWorkflowDir, StringComparison.OrdinalIgnoreCase))
         {
