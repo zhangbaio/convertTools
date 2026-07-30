@@ -850,6 +850,44 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
+    public void Queue_generation_reuses_existing_statement_date_when_queue_item_has_no_date()
+    {
+        var item = new QueueProjectItem
+        {
+            NewTitle = "复用日期剧名",
+            ProofMaterialStatementDate = "",
+        };
+        var state = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+            JsonSerializer.Serialize(new Dictionary<string, string>
+            {
+                ["statement_date"] = "2026-07-15",
+            }))!;
+
+        var result = TikTokProofMaterialService.ResolveStatementDate(item, state);
+
+        result.Should().Be(new DateOnly(2026, 7, 15));
+    }
+
+    [Fact]
+    public void Queue_statement_date_overrides_existing_material_state_date()
+    {
+        var item = new QueueProjectItem
+        {
+            NewTitle = "固定日期剧名",
+            ProofMaterialStatementDate = "2026-07-18",
+        };
+        var state = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+            JsonSerializer.Serialize(new Dictionary<string, string>
+            {
+                ["statement_date"] = "2026-07-15",
+            }))!;
+
+        var result = TikTokProofMaterialService.ResolveStatementDate(item, state);
+
+        result.Should().Be(new DateOnly(2026, 7, 18));
+    }
+
+    [Fact]
     public void Explicit_statement_date_overrides_restored_archive_date()
     {
         var item = new QueueProjectItem

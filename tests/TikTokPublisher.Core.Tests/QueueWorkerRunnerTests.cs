@@ -459,6 +459,7 @@ public sealed class QueueWorkerRunnerTests
         };
         var store = CreateAccountStore(account);
         var item = CreateReadyToUploadItem(1, account);
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial] = QueueStepStatus.Pending;
         var host = new ImmediatePublishHost();
         var ensureCalls = 0;
         string? ensuredPath = null;
@@ -495,6 +496,60 @@ public sealed class QueueWorkerRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_reuses_completed_proof_without_invoking_generator()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-proof-completed",
+            Name = "proof-completed",
+            TiktokCopyrightMaterialTypes = ["production_agreement"],
+        };
+        var store = CreateAccountStore(account);
+        var item = CreateReadyToUploadItem(1, account);
+        var workflow = ProjectWorkspaceService.EnsureWorkflowProjectDir(item.ProjectDir);
+        var proofPath = TikTokProofMaterialService.GetPdfPath(workflow);
+        File.WriteAllBytes(proofPath, "%PDF-1.7\nproof"u8.ToArray());
+        var host = new ImmediatePublishHost();
+        var ensureCalls = 0;
+        QueueProofMaterialPrerequisite ensure = (_, _, _, _) =>
+        {
+            ensureCalls++;
+            return Task.FromException<string>(
+                new InvalidOperationException("completed proof must not be regenerated"));
+        };
+        var progress = new List<string>();
+
+        var summary = await new QueueWorkerRunner(ensure).RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-completed-proof-test"),
+            [item],
+            new QueueRunOptions
+            {
+                EnabledSteps =
+                [
+                    QueueStepRegistry.GenerateProofMaterial,
+                    QueueStepRegistry.UploadSeries,
+                ],
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: update => progress.Add(update.Message),
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.SuccessCount.Should().Be(1, string.Join(Environment.NewLine, progress));
+        summary.FailedCount.Should().Be(0);
+        ensureCalls.Should().Be(0);
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
+        item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
+        host.BrowserReadyCalls.Should().Be(1);
+        progress.Should().Contain(message =>
+            message.Contains("生成证明材料 已完成，跳过", StringComparison.Ordinal));
+        progress.Should().Contain(message =>
+            message.Contains("仅校验现有文件", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RunAsync_upload_only_fails_clearly_when_proof_preparation_fails()
     {
         var account = new TikTokAccountProfile
@@ -505,6 +560,7 @@ public sealed class QueueWorkerRunnerTests
         };
         var store = CreateAccountStore(account);
         var item = CreateReadyToUploadItem(1, account);
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial] = QueueStepStatus.Pending;
         var host = new ImmediatePublishHost();
         QueueProofMaterialPrerequisite ensure = (_, _, _, _) =>
             Task.FromException<string>(new InvalidOperationException("PDF renderer unavailable"));
@@ -591,6 +647,7 @@ public sealed class QueueWorkerRunnerTests
             [resetDefaultAccount, configuredAccount],
             resetDefaultAccount.Id);
         var item = CreateReadyToUploadItem(1, configuredAccount);
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial] = QueueStepStatus.Pending;
         item.AccountProfileId = "default";
         item.AccountProfileName = configuredAccount.DisplayName;
         var host = new ImmediatePublishHost();
