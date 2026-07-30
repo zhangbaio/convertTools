@@ -54,11 +54,34 @@ public static class TikTokExecutionHistoryService
         }
     }
 
-    public static IReadOnlyList<Dictionary<string, object?>> LoadEvents(int? limit = null)
+    public static void PersistDeletionSnapshot(
+        string workspace,
+        QueueProjectItem item,
+        TikTokAccountProfile? account = null,
+        string? databasePath = null)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        var payload = BuildPayload(
+            "project_deleted",
+            "deleted",
+            workspace,
+            item,
+            stepKey: "",
+            message: "用户删除项目，已保存版权恢复快照",
+            error: "",
+            batchId: "",
+            metadata: null,
+            account: account);
+        AppendPayload(payload, databasePath);
+    }
+
+    public static IReadOnlyList<Dictionary<string, object?>> LoadEvents(
+        int? limit = null,
+        string? databasePath = null)
     {
         try
         {
-            var path = ClientSettingsStore.MainDatabasePath;
+            var path = ResolveDatabasePath(databasePath);
             if (!File.Exists(path)) return [];
             EnsureStorageOptimized(path);
 
@@ -89,11 +112,12 @@ public static class TikTokExecutionHistoryService
         }
     }
 
-    public static IReadOnlyList<TikTokExecutionProjectSnapshot> LoadProjectSnapshots()
+    public static IReadOnlyList<TikTokExecutionProjectSnapshot> LoadProjectSnapshots(
+        string? databasePath = null)
     {
         try
         {
-            var path = ClientSettingsStore.MainDatabasePath;
+            var path = ResolveDatabasePath(databasePath);
             if (!File.Exists(path)) return [];
             EnsureStorageOptimized(path);
 
@@ -214,9 +238,11 @@ public static class TikTokExecutionHistoryService
         return payload;
     }
 
-    private static void AppendPayload(Dictionary<string, object?> payload)
+    private static void AppendPayload(
+        Dictionary<string, object?> payload,
+        string? databasePath = null)
     {
-        var path = ClientSettingsStore.MainDatabasePath;
+        var path = ResolveDatabasePath(databasePath);
         EnsureStorageOptimized(path);
         lock (AppDatabaseInitializer.WriteSyncRoot)
         {
@@ -493,6 +519,11 @@ public static class TikTokExecutionHistoryService
 
     private static string GetString(IReadOnlyDictionary<string, object?> payload, string key) =>
         payload.TryGetValue(key, out var value) ? (value?.ToString() ?? "").Trim() : "";
+
+    private static string ResolveDatabasePath(string? databasePath) =>
+        Path.GetFullPath(string.IsNullOrWhiteSpace(databasePath)
+            ? ClientSettingsStore.MainDatabasePath
+            : databasePath);
 
     private static string FirstNonEmpty(params string?[] values)
     {

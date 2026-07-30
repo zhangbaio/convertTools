@@ -62,6 +62,42 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
         ReadScalar("SELECT COUNT(*) FROM app_migrations WHERE migration_key = 'upload-history-snapshots-v1'").Should().Be(1);
     }
 
+    [Fact]
+    public void PersistDeletionSnapshot_preserves_project_and_account_for_recovery()
+    {
+        var item = new TikTokPublisher.Core.Queue.QueueProjectItem
+        {
+            ProjectDir = @"E:\tiktok\archive\workflow\_诡异游戏里我反成大反派",
+            OriginalTitle = "怪谈玩家，但画风不对",
+            NewTitle = "诡异游戏里我反成大反派",
+            EpisodeCount = 50,
+            UploadCompletedAt = "2026-07-04T17:25:09",
+        };
+        var account = new TikTokPublisher.Core.Models.TikTokAccountProfile
+        {
+            Id = "account-1",
+            Name = "1544722162@qq.com",
+        };
+
+        TikTokExecutionHistoryService.PersistDeletionSnapshot(
+            @"E:\tiktok",
+            item,
+            account,
+            _databasePath);
+
+        var snapshot = TikTokExecutionHistoryService
+            .LoadProjectSnapshots(_databasePath)
+            .Should()
+            .ContainSingle()
+            .Subject;
+        snapshot.Workspace.Should().Be(@"E:\tiktok");
+        snapshot.Item.OriginalTitle.Should().Be("怪谈玩家，但画风不对");
+        snapshot.Item.NewTitle.Should().Be("诡异游戏里我反成大反派");
+        snapshot.Item.AccountProfileId.Should().Be("account-1");
+        snapshot.Item.AccountProfileName.Should().Be("1544722162@qq.com");
+        ReadScalar("SELECT COUNT(*) FROM upload_task_events").Should().Be(1);
+    }
+
     private void InsertEvent(string eventId, string createdAt, string payloadJson = "{}")
     {
         using var conn = new SqliteConnection($"Data Source={_databasePath}");

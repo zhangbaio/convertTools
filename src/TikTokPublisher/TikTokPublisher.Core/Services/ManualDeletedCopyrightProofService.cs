@@ -1,0 +1,102 @@
+using TikTokPublisher.Core.Archive;
+using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Queue;
+
+namespace TikTokPublisher.Core.Services;
+
+public sealed record ManualDeletedCopyrightProofEntry(
+    string NewTitle,
+    string OriginalTitle);
+
+/// <summary>
+/// Builds recoverable deleted-project snapshots from a user-supplied exact new/original title pair.
+/// Existing queue/archive projects still take precedence so the manual fallback cannot create duplicates.
+/// </summary>
+public static class ManualDeletedCopyrightProofService
+{
+    public static IReadOnlyList<CopyrightProofProjectMatch> BuildMatches(
+        IEnumerable<ManualDeletedCopyrightProofEntry> entries,
+        string workspaceRoot,
+        TikTokAccountProfile account,
+        IEnumerable<QueueProjectItem>? queueProjects = null,
+        IEnumerable<ArchivedProjectItem>? archivedProjects = null)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(account);
+
+        var workspace = Path.GetFullPath(workspaceRoot);
+        var normalized = entries
+            .Select(entry => new ManualDeletedCopyrightProofEntry(
+                (entry.NewTitle ?? string.Empty).Trim(),
+                (entry.OriginalTitle ?? string.Empty).Trim()))
+            .Where(entry =>
+                !string.IsNullOrWhiteSpace(entry.NewTitle) &&
+                !string.IsNullOrWhiteSpace(entry.OriginalTitle))
+            .Distinct()
+            .ToArray();
+        if (normalized.Length == 0)
+            return [];
+
+        var existingMatches = CopyrightProofProjectMatcher.MatchByNewTitleExact(
+                normalized.Select(entry => entry.NewTitle),
+                queueProjects ?? [],
+                archivedProjects ?? [])
+            .ToDictionary(match => match.NewTitle, StringComparer.Ordinal);
+        var timestamp = DateTimeOffset.Now.ToString("o");
+        var results = new List<CopyrightProofProjectMatch>();
+
+        foreach (var group in normalized.GroupBy(entry => entry.NewTitle, StringComparer.Ordinal))
+        {
+            var originalTitles = group
+                .Select(entry => entry.OriginalTitle)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (originalTitles.Length > 1)
+            {
+                results.Add(new CopyrightProofProjectMatch(
+                    group.Key,
+                    CopyrightProofProjectLocation.Conflict,
+                    ConflictCandidates: originalTitles));
+                continue;
+            }
+
+            if (existingMatches.TryGetValue(group.Key, out var existing) &&
+                existing.Location != CopyrightProofProjectLocation.Missing)
+            {
+                results.Add(existing);
+                continue;
+            }
+
+            var originalTitle = originalTitles[0];
+            var item = new QueueProjectItem
+            {
+                ProjectDir = Path.Combine(workspace, originalTitle),
+                DisplayName = originalTitle,
+                OriginalTitle = originalTitle,
+                NewTitle = group.Key,
+                EpisodeCount = 0,
+                AccountProfileId = account.Id,
+                AccountProfileName = account.DisplayName,
+                QueuedAt = timestamp,
+                UploadCompletedAt = timestamp,
+                Enabled = true,
+                StatusText = QueueStepStatus.Completed,
+                Remark = "用户手动指定原剧名，用于重建已删除项目并补全版权证明",
+                StepStates = new Dictionary<string, string>
+                {
+                    [QueueStepKeys.UploadSeries] = QueueStepStatus.Completed,
+                },
+            };
+            item.NormalizeStepStates();
+            results.Add(new CopyrightProofProjectMatch(
+                group.Key,
+                CopyrightProofProjectLocation.DeletedHistory,
+                HistorySnapshot: new TikTokExecutionProjectSnapshot(
+                    workspace,
+                    timestamp,
+                    item)));
+        }
+
+        return results;
+    }
+}

@@ -1702,7 +1702,8 @@ public partial class TikTokQueueView : UserControl
                 var archives = TikTokArchivedProjectService.List(workspace);
                 var history = LoadDeletedCopyrightProofHistory(
                     workspace,
-                    proofAccount);
+                    proofAccount,
+                    vm.ArchivedProjects.ArchiveRootDir);
                 return (archives, history);
             });
         }
@@ -1727,7 +1728,96 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
-        var archivedTargets = dialogResult.SelectedMatches
+        await ExecuteCopyrightProofMatchesAsync(
+            owner,
+            vm,
+            workspace,
+            proofAccount,
+            dialogResult.SelectedMatches);
+    }
+
+    private async void OnManualDeletedCopyrightProofClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var vm = _vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (vm is null || owner is null)
+            return;
+
+        var workspace = (vm.WorkspacePath ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
+        {
+            vm.StatusMessage = "请先选择有效的 TikTok 工作目录";
+            return;
+        }
+
+        var proofAccount = vm.SelectedAccount?.Model;
+        if (proofAccount is null)
+        {
+            vm.StatusMessage = "请先选择要补全版权证明的账号";
+            return;
+        }
+
+        var dialogResult = await ManualDeletedCopyrightProofDialog.ShowAsync(owner);
+        if (dialogResult is null || dialogResult.Entries.Count == 0)
+        {
+            vm.StatusMessage = "已取消手动补全已删除剧集证明";
+            return;
+        }
+
+        IReadOnlyList<ArchivedProjectItem> archivedProjects;
+        IReadOnlyList<QueueProjectItem> queueProjects;
+        try
+        {
+            vm.StatusMessage = "正在校验手动填写的新剧名和原剧名…";
+            queueProjects = vm.QueueProjectRows.Select(row => row.Item).ToArray();
+            archivedProjects = await Task.Run(() => TikTokArchivedProjectService.List(workspace));
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"校验手动补全项目失败：{ex.Message}";
+            return;
+        }
+
+        var matches = ManualDeletedCopyrightProofService.BuildMatches(
+            dialogResult.Entries,
+            workspace,
+            proofAccount,
+            queueProjects,
+            archivedProjects);
+        var executable = matches.Where(match => match.CanExecute).ToArray();
+        if (executable.Length == 0)
+        {
+            var conflicts = matches
+                .Where(match => match.Location == CopyrightProofProjectLocation.Conflict)
+                .Select(match => $"「{match.NewTitle}」存在同名冲突")
+                .ToArray();
+            await ShowMessageAsync(
+                owner,
+                "无法开始手动补全",
+                conflicts.Length > 0
+                    ? string.Join(Environment.NewLine, conflicts)
+                    : "没有可执行的项目。",
+                warning: true);
+            return;
+        }
+
+        await ExecuteCopyrightProofMatchesAsync(
+            owner,
+            vm,
+            workspace,
+            proofAccount,
+            executable);
+    }
+
+    private async Task ExecuteCopyrightProofMatchesAsync(
+        Window owner,
+        MainViewModel vm,
+        string workspace,
+        TikTokAccountProfile proofAccount,
+        IReadOnlyList<CopyrightProofProjectMatch> selectedMatches)
+    {
+        var archivedTargets = selectedMatches
             .Where(match => match.Location == CopyrightProofProjectLocation.Archived)
             .ToArray();
         if (archivedTargets.Length > 0)
@@ -1748,7 +1838,7 @@ public partial class TikTokQueueView : UserControl
             }
         }
 
-        var deletedTargets = dialogResult.SelectedMatches
+        var deletedTargets = selectedMatches
             .Where(match => match.Location == CopyrightProofProjectLocation.DeletedHistory)
             .ToArray();
         if (deletedTargets.Length > 0)
@@ -1772,13 +1862,13 @@ public partial class TikTokQueueView : UserControl
             }
         }
 
-        var selectedTitles = dialogResult.SelectedMatches
+        var selectedTitles = selectedMatches
             .Select(match => match.NewTitle)
             .ToHashSet(StringComparer.Ordinal);
         var restoreFailures = new List<string>();
         var restoredCount = 0;
         var recoveredCount = 0;
-        foreach (var match in dialogResult.SelectedMatches
+        foreach (var match in selectedMatches
                      .Where(match => match.Location == CopyrightProofProjectLocation.Archived))
         {
             try
@@ -1802,6 +1892,10 @@ public partial class TikTokQueueView : UserControl
             try
             {
                 vm.StatusMessage = $"正在重建已删除项目：{match.NewTitle}";
+                TikTokExecutionHistoryService.PersistDeletionSnapshot(
+                    workspace,
+                    match.HistorySnapshot!.Item,
+                    proofAccount);
                 var recovery = await DeletedCopyrightProofProjectRecoveryService.RecoverAsync(
                     workspace,
                     match.HistorySnapshot!,
@@ -1884,7 +1978,7 @@ public partial class TikTokQueueView : UserControl
         };
 
         vm.AppendLog(
-            $"补全版权证明：匹配 {dialogResult.SelectedMatches.Count} 个，" +
+            $"补全版权证明：匹配 {selectedMatches.Count} 个，" +
             $"回退归档 {restoredCount} 个，重建已删除项目 {recoveredCount} 个，" +
             $"准备执行 {matchedProjects.Length} 个；" +
             $"复用已有证明材料 {preparation.ReusedProofMaterialCount} 个，" +
@@ -1903,7 +1997,8 @@ public partial class TikTokQueueView : UserControl
 
     private static IReadOnlyList<TikTokExecutionProjectSnapshot> LoadDeletedCopyrightProofHistory(
         string workspaceRoot,
-        TikTokAccountProfile account)
+        TikTokAccountProfile account,
+        string? archiveRootDir)
     {
         var workspace = Path.GetFullPath(workspaceRoot);
         var accountKeys = new[]
@@ -1919,7 +2014,13 @@ public partial class TikTokQueueView : UserControl
             .Select(value => value.Trim())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return TikTokExecutionHistoryService.LoadProjectSnapshots()
+        var persistedHistory = TikTokExecutionHistoryService.LoadProjectSnapshots();
+        var discoveredHistory = CopyrightProofLocalHistoryDiscoveryService.Discover(
+            workspace,
+            account,
+            archiveRootDir);
+        return persistedHistory
+            .Concat(discoveredHistory)
             .Where(snapshot =>
             {
                 var item = snapshot.Item;
@@ -1968,7 +2069,8 @@ public partial class TikTokQueueView : UserControl
                 }
             })
             .GroupBy(
-                snapshot => snapshot.Item.NewTitle.Trim(),
+                snapshot =>
+                    $"{snapshot.Item.NewTitle.Trim()}\n{snapshot.Item.OriginalTitle.Trim()}",
                 StringComparer.Ordinal)
             .Select(group => group
                 .OrderByDescending(snapshot =>
