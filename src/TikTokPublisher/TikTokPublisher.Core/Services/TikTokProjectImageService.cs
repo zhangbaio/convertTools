@@ -15,14 +15,9 @@ public static class TikTokProjectImageService
     public const int MinUploadImageCount = 4;
 
     private const string DocumentType = "tiktok_project_image_state";
-    private const string InputStagingDirName = ".project_image_inputs";
+    private const string LegacyInputStagingDirName = ".project_image_inputs";
     private const string SignatureVersion = "v4-dedicated-folder";
     private const string FileNamePattern = "工程图_*.png";
-
-    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm",
-    };
 
     public static string GetOutputDirectory(string workflowProjectDirectory) =>
         Path.Combine(Path.GetFullPath(workflowProjectDirectory), OutputDirectoryName);
@@ -82,8 +77,12 @@ public static class TikTokProjectImageService
             DeleteProjectImages(workflowDir);
         }
 
-        var inputDir = PrepareInputDirectory(context.WorkflowProjectDir, sourceVideos, ct);
-        log?.Invoke($"工程图/输入暂存：已准备 {sourceVideos.Length} 个视频 → {inputDir}。");
+        if (TryDeleteLegacyInputDirectory(context.WorkflowProjectDir))
+        {
+            log?.Invoke("工程图/旧暂存清理：已删除旧版 .project_image_inputs 视频副本。");
+        }
+        log?.Invoke(
+            $"工程图/直接输入：将直接读取 {sourceVideos.Length} 个原始视频，不再复制到临时目录。");
         var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(normalized);
         try
         {
@@ -92,13 +91,15 @@ public static class TikTokProjectImageService
             var result = await QueueInfrastructureServices.ProjectImages.GenerateAsync(
                 new ProjectImageGenerateRequest(
                     ProjectDir: workflowDir,
-                    InputDir: inputDir,
+                    InputDir: context.SourceProjectDir,
                     OutputDir: outputDir,
                     TemplateImageDir: templateDir,
                     ConfigFile: configPath,
                     Count: count,
                     Overwrite: true,
-                    EpisodeNames: episodeNames),
+                    EpisodeNames: episodeNames,
+                    SourceVideos: sourceVideos,
+                    Progress: log),
                 ct).ConfigureAwait(false);
 
             if (result.Count < count)
@@ -115,8 +116,7 @@ public static class TikTokProjectImageService
         finally
         {
             TryDelete(configPath);
-            TryDeleteInputDirectory(context.WorkflowProjectDir, inputDir);
-            log?.Invoke("工程图/清理：临时配置与输入暂存目录已清理。");
+            log?.Invoke("工程图/清理：临时配置已清理。");
         }
     }
 
@@ -363,67 +363,6 @@ public static class TikTokProjectImageService
             .ToArray();
     }
 
-    private static string PrepareInputDirectory(
-        string workflowProjectDir,
-        IReadOnlyList<string> sourceVideos,
-        CancellationToken ct)
-    {
-        var inputDir = Path.Combine(workflowProjectDir, InputStagingDirName);
-        SafeRecreateDirectory(workflowProjectDir, inputDir);
-
-        for (var index = 0; index < sourceVideos.Count; index++)
-        {
-            ct.ThrowIfCancellationRequested();
-            var source = Path.GetFullPath(sourceVideos[index]);
-            var ext = Path.GetExtension(source);
-            if (string.IsNullOrWhiteSpace(ext) || !VideoExtensions.Contains(ext))
-            {
-                ext = ".mp4";
-            }
-
-            var target = Path.Combine(inputDir, $"{index + 1:0000}{ext.ToLowerInvariant()}");
-            TryLinkOrCopy(source, target);
-        }
-
-        return inputDir;
-    }
-
-    private static void SafeRecreateDirectory(string workflowProjectDir, string inputDir)
-    {
-        var workflowFull = Path.GetFullPath(workflowProjectDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var inputFull = Path.GetFullPath(inputDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (!inputFull.StartsWith(workflowFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(Path.GetFileName(inputFull), InputStagingDirName, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException($"工程图输入目录不在 workflow 下，拒绝清理：{inputFull}");
-        }
-
-        if (Directory.Exists(inputFull))
-        {
-            Directory.Delete(inputFull, recursive: true);
-        }
-
-        Directory.CreateDirectory(inputFull);
-    }
-
-    private static void TryLinkOrCopy(string source, string target)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-        if (File.Exists(target))
-        {
-            File.Delete(target);
-        }
-
-        try
-        {
-            File.CreateSymbolicLink(target, source);
-        }
-        catch
-        {
-            File.Copy(source, target, overwrite: true);
-        }
-    }
-
     private static void DeleteProjectImages(string workflowDir)
     {
         foreach (var path in ListProjectImages(workflowDir))
@@ -515,26 +454,30 @@ public static class TikTokProjectImageService
         }
     }
 
-    private static void TryDeleteInputDirectory(string workflowProjectDir, string inputDir)
+    private static bool TryDeleteLegacyInputDirectory(string workflowProjectDir)
     {
         try
         {
+            var inputDir = Path.Combine(workflowProjectDir, LegacyInputStagingDirName);
             var workflowFull = Path.GetFullPath(workflowProjectDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             var inputFull = Path.GetFullPath(inputDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             if (!inputFull.StartsWith(workflowFull + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(Path.GetFileName(inputFull), InputStagingDirName, StringComparison.Ordinal))
+                !string.Equals(Path.GetFileName(inputFull), LegacyInputStagingDirName, StringComparison.Ordinal))
             {
-                return;
+                return false;
             }
 
             if (Directory.Exists(inputFull))
             {
                 Directory.Delete(inputFull, recursive: true);
+                return true;
             }
         }
         catch
         {
             // Best-effort cleanup only.
         }
+
+        return false;
     }
 }
