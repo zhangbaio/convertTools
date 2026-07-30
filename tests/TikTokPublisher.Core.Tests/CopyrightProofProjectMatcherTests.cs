@@ -75,6 +75,39 @@ public sealed class CopyrightProofProjectMatcherTests
         Assert.Equal(2, match.ConflictCandidates?.Count);
     }
 
+    [Fact]
+    public void MatchByNewTitleExact_UsesLatestDeletedHistoryWhenQueueAndArchiveMiss()
+    {
+        var older = Snapshot("已删除的新剧名", "旧原剧名", "2026-07-01T08:00:00+08:00");
+        var newer = Snapshot("已删除的新剧名", "新原剧名", "2026-07-02T08:00:00+08:00");
+
+        var match = Assert.Single(CopyrightProofProjectMatcher.MatchByNewTitleExact(
+            ["已删除的新剧名"],
+            [],
+            [],
+            [older, newer]));
+
+        Assert.Equal(CopyrightProofProjectLocation.DeletedHistory, match.Location);
+        Assert.True(match.CanExecute);
+        Assert.Same(newer, match.HistorySnapshot);
+    }
+
+    [Fact]
+    public void MatchByNewTitleExact_PrefersArchiveOverDeletedHistory()
+    {
+        var archived = Archived("相同新剧名", @"D:\archive\same");
+        var history = Snapshot("相同新剧名", "历史原剧名", "2026-07-02T08:00:00+08:00");
+
+        var match = Assert.Single(CopyrightProofProjectMatcher.MatchByNewTitleExact(
+            ["相同新剧名"],
+            [],
+            [archived],
+            [history]));
+
+        Assert.Equal(CopyrightProofProjectLocation.Archived, match.Location);
+        Assert.Same(archived, match.ArchivedProject);
+    }
+
     private static ArchivedProjectItem Archived(string newTitle, string archiveDir) =>
         new(
             ProjectKey: Path.GetFileName(archiveDir),
@@ -88,4 +121,18 @@ public sealed class CopyrightProofProjectMatcherTests
             ArchiveSource: "tiktok",
             ArchivedSourceDir: Path.Combine(archiveDir, "source"),
             ArchivedWorkflowDir: Path.Combine(archiveDir, "workflow"));
+
+    private static TikTokExecutionProjectSnapshot Snapshot(
+        string newTitle,
+        string originalTitle,
+        string timestamp) =>
+        new(
+            @"D:\workspace",
+            timestamp,
+            new QueueProjectItem
+            {
+                NewTitle = newTitle,
+                OriginalTitle = originalTitle,
+                ProjectDir = Path.Combine(@"D:\workspace", originalTitle),
+            });
 }

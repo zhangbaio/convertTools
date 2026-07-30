@@ -37,7 +37,7 @@ public sealed class CopyrightProofBatchDialog : Window
         };
         root.Children.Add(new TextBlock
         {
-            Text = "输入新剧名，一行一个。只按新剧名精确匹配；当前上传队列优先，未找到时再查询已归档项目。点击开始补全后，将自动处理全部可执行的匹配项目。",
+            Text = "输入新剧名，一行一个。只按新剧名精确匹配；依次查询当前上传队列、已归档项目和已删除项目历史。点击开始补全后，将自动处理全部可执行的匹配项目。",
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeight.SemiBold,
         });
@@ -126,6 +126,7 @@ public sealed class CopyrightProofBatchDialog : Window
             {
                 CopyrightProofProjectLocation.CurrentQueue => ("当前上传队列", Brushes.SeaGreen),
                 CopyrightProofProjectLocation.Archived => ("已归档（将自动回退）", Brushes.DarkOrange),
+                CopyrightProofProjectLocation.DeletedHistory => ("已删除（将从历史自动重建）", Brushes.DodgerBlue),
                 CopyrightProofProjectLocation.Conflict => ("同名冲突，不能自动执行", Brushes.IndianRed),
                 _ => ("未找到", Brushes.Gray),
             };
@@ -139,9 +140,11 @@ public sealed class CopyrightProofBatchDialog : Window
 
         var executable = _matches.Count(match => match.CanExecute);
         var archived = _matches.Count(match => match.Location == CopyrightProofProjectLocation.Archived);
+        var deleted = _matches.Count(match => match.Location == CopyrightProofProjectLocation.DeletedHistory);
         var unresolved = _matches.Count - executable;
         _summary.Text =
-            $"输入 {_matches.Count} 个；可执行 {executable} 个；需回退归档 {archived} 个；未匹配或冲突 {unresolved} 个";
+            $"输入 {_matches.Count} 个；可执行 {executable} 个；需回退归档 {archived} 个；" +
+            $"需重建已删除项目 {deleted} 个；未匹配或冲突 {unresolved} 个";
         _summary.Foreground = Brushes.Black;
     }
 }

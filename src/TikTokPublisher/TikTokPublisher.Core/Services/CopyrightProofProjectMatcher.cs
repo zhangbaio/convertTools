@@ -8,6 +8,7 @@ public enum CopyrightProofProjectLocation
     Missing,
     CurrentQueue,
     Archived,
+    DeletedHistory,
     Conflict,
 }
 
@@ -16,10 +17,13 @@ public sealed record CopyrightProofProjectMatch(
     CopyrightProofProjectLocation Location,
     QueueProjectItem? QueueProject = null,
     ArchivedProjectItem? ArchivedProject = null,
+    TikTokExecutionProjectSnapshot? HistorySnapshot = null,
     IReadOnlyList<string>? ConflictCandidates = null)
 {
     public bool CanExecute =>
-        Location is CopyrightProofProjectLocation.CurrentQueue or CopyrightProofProjectLocation.Archived;
+        Location is CopyrightProofProjectLocation.CurrentQueue
+            or CopyrightProofProjectLocation.Archived
+            or CopyrightProofProjectLocation.DeletedHistory;
 }
 
 /// <summary>Only exact rewritten/new-title matches are allowed.</summary>
@@ -35,7 +39,8 @@ public static class CopyrightProofProjectMatcher
     public static IReadOnlyList<CopyrightProofProjectMatch> MatchByNewTitleExact(
         IEnumerable<string> newTitles,
         IEnumerable<QueueProjectItem> queueProjects,
-        IEnumerable<ArchivedProjectItem> archivedProjects)
+        IEnumerable<ArchivedProjectItem> archivedProjects,
+        IEnumerable<TikTokExecutionProjectSnapshot>? deletedHistoryProjects = null)
     {
         var queueByTitle = queueProjects
             .Where(item => !item.Archived && !string.IsNullOrWhiteSpace(item.NewTitle))
@@ -45,6 +50,15 @@ public static class CopyrightProofProjectMatcher
             .Where(item => !string.IsNullOrWhiteSpace(item.NewTitle))
             .GroupBy(item => item.NewTitle.Trim(), StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        var historyByTitle = (deletedHistoryProjects ?? [])
+            .Where(snapshot => !string.IsNullOrWhiteSpace(snapshot.Item.NewTitle))
+            .GroupBy(snapshot => snapshot.Item.NewTitle.Trim(), StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderByDescending(snapshot => ParseTimestamp(snapshot.Timestamp))
+                    .ToArray(),
+                StringComparer.Ordinal);
 
         var results = new List<CopyrightProofProjectMatch>();
         foreach (var title in newTitles
@@ -74,6 +88,18 @@ public static class CopyrightProofProjectMatcher
                 continue;
             }
 
+            if (historyByTitle.TryGetValue(title, out var historyMatches))
+            {
+                // A project can have multiple execution snapshots over its lifetime. Use the
+                // newest recoverable snapshot rather than forcing the user to disambiguate
+                // records that all refer to the same exact rewritten title.
+                results.Add(new CopyrightProofProjectMatch(
+                    title,
+                    CopyrightProofProjectLocation.DeletedHistory,
+                    HistorySnapshot: historyMatches[0]));
+                continue;
+            }
+
             results.Add(new CopyrightProofProjectMatch(title, CopyrightProofProjectLocation.Missing));
         }
 
@@ -89,4 +115,9 @@ public static class CopyrightProofProjectMatcher
                 .Select(Path.GetFullPath)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray());
+
+    private static DateTimeOffset ParseTimestamp(string? value) =>
+        DateTimeOffset.TryParse(value, out var parsed)
+            ? parsed
+            : DateTimeOffset.MinValue;
 }
