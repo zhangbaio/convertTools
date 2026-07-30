@@ -139,6 +139,10 @@ public sealed class TikTokProofMaterialService
                 "AI 生成过程截图",
                 request.GenerateAiGenerationScreenshots,
                 TikTokAiGenerationScreenshotService.ListGeneratedImages(context.WorkflowProjectDir));
+            LogRetainedAiFrames(
+                log,
+                context.WorkflowProjectDir,
+                request.GenerateAiGenerationScreenshots);
             LogExistingMaterial(
                 log,
                 "剪辑工程文件",
@@ -261,15 +265,16 @@ public sealed class TikTokProofMaterialService
             aiNeedsVideo,
             editingNeedsVideo,
             settings);
-        using var proofVideoLease = proofVideoEpisodeCount > 0
-            ? await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
+        if (proofVideoEpisodeCount > 0)
+        {
+            _ = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
                     item,
                     settings,
                     proofVideoEpisodeCount,
                     log ?? (_ => { }),
                     cancellationToken)
-                .ConfigureAwait(false)
-            : QueueMaterialStepService.ProofMaterialVideoLease.Empty;
+                .ConfigureAwait(false);
+        }
 
         cancellationToken.ThrowIfCancellationRequested();
         if (request.GenerateAiGenerationScreenshots && aiCompleted &&
@@ -280,6 +285,7 @@ public sealed class TikTokProofMaterialService
                 "AI 生成过程截图（断点复用）",
                 selected: true,
                 TikTokAiGenerationScreenshotService.ListGeneratedImages(context.WorkflowProjectDir));
+            LogRetainedAiFrames(log, context.WorkflowProjectDir, selected: true);
         }
         else if (request.GenerateAiGenerationScreenshots)
         {
@@ -633,6 +639,22 @@ public sealed class TikTokProofMaterialService
             $"文件={FormatFileList(files)}。");
     }
 
+    private static void LogRetainedAiFrames(
+        Action<string>? log,
+        string workflowProjectDirectory,
+        bool selected)
+    {
+        if (!selected)
+            return;
+        var frames = TikTokAiGenerationScreenshotService.ListRetainedFrameImages(workflowProjectDirectory);
+        var manifest = TikTokAiGenerationScreenshotService.GetRetainedFramesManifestPath(
+            workflowProjectDirectory);
+        log?.Invoke(
+            $"[AI 生成过程截图] 抽帧原图已保留：{frames.Count} 张；" +
+            $"目录={TikTokAiGenerationScreenshotService.GetRetainedFramesDirectory(workflowProjectDirectory)}；" +
+            $"清单={(File.Exists(manifest) ? manifest : "缺失")}。");
+    }
+
     private static void LogGeneratedMaterial(
         Action<string>? log,
         string materialName,
@@ -804,6 +826,17 @@ public sealed class TikTokProofMaterialService
                     .Select(Path.GetFileName)
                     .ToArray()
                 : Array.Empty<string>(),
+            ["ai_generation_retained_frame_count"] = request.GenerateAiGenerationScreenshots
+                ? TikTokAiGenerationScreenshotService
+                    .ListRetainedFrameImages(context.WorkflowProjectDir)
+                    .Count
+                : 0,
+            ["ai_generation_retained_frames_manifest"] = request.GenerateAiGenerationScreenshots
+                ? Path.Combine(
+                    TikTokAiGenerationScreenshotService.OutputDirectoryName,
+                    TikTokAiGenerationScreenshotService.RetainedFramesDirectoryName,
+                    TikTokAiGenerationScreenshotService.RetainedFramesManifestFileName)
+                : string.Empty,
             ["editing_project_files"] = request.GenerateEditingProjectFiles
                 ? TikTokProjectImageService
                     .ListGeneratedImages(context.WorkflowProjectDir)

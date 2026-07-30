@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using FluentAssertions;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -263,6 +264,30 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
                 "真实视频抽帧测试",
                 settings: new ClientSettings());
 
+            var retainedFrames =
+                TikTokAiGenerationScreenshotService.ListRetainedFrameImages(workflow);
+            retainedFrames.Should().NotBeEmpty();
+            retainedFrames.Should().OnlyContain(path => File.Exists(path));
+            retainedFrames.Should().OnlyContain(path =>
+                Path.GetDirectoryName(path) ==
+                TikTokAiGenerationScreenshotService.GetRetainedFramesDirectory(workflow));
+            var manifestPath =
+                TikTokAiGenerationScreenshotService.GetRetainedFramesManifestPath(workflow);
+            File.Exists(manifestPath).Should().BeTrue();
+            using (var manifest = JsonDocument.Parse(File.ReadAllText(manifestPath)))
+            {
+                manifest.RootElement.GetProperty("version").GetString()
+                    .Should().Be(TikTokAiGenerationScreenshotService.RetainedFramesVersion);
+                manifest.RootElement.GetProperty("frame_count").GetInt32()
+                    .Should().Be(retainedFrames.Count);
+                manifest.RootElement.GetProperty("frames").GetArrayLength()
+                    .Should().Be(retainedFrames.Count);
+                var firstFrame = manifest.RootElement.GetProperty("frames")[0];
+                firstFrame.GetProperty("source_video").GetString().Should().EndWith(".mp4");
+                firstFrame.GetProperty("seconds").GetDouble().Should().BeGreaterThan(0);
+                firstFrame.GetProperty("sha256").GetString().Should().HaveLength(64);
+            }
+
             var heroColors = outputs.Select(path =>
             {
                 using var image = Image.Load<Rgba32>(path);
@@ -302,6 +327,20 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
             outputs.Should().HaveCount(4);
             outputs.Should().OnlyContain(path => File.Exists(path));
             TikTokAiGenerationScreenshotService.HasCurrentOutput(workflow).Should().BeTrue();
+            var retainedFrames =
+                TikTokAiGenerationScreenshotService.ListRetainedFrameImages(workflow);
+            retainedFrames.Should().NotBeEmpty();
+            retainedFrames.Should().OnlyContain(path => File.Exists(path));
+            var manifestPath =
+                TikTokAiGenerationScreenshotService.GetRetainedFramesManifestPath(workflow);
+            File.Exists(manifestPath).Should().BeTrue();
+            using (var manifest = JsonDocument.Parse(File.ReadAllText(manifestPath)))
+            {
+                manifest.RootElement.GetProperty("frame_count").GetInt32()
+                    .Should().Be(retainedFrames.Count);
+                manifest.RootElement.GetProperty("frames").GetArrayLength()
+                    .Should().Be(retainedFrames.Count);
+            }
 
             var outputDir = TikTokAiGenerationScreenshotService.GetOutputDirectory(workflow);
             Directory.Exists(outputDir).Should().BeTrue();
@@ -319,6 +358,10 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
                 image.Width.Should().Be(1600);
                 image.Height.Should().BeGreaterThan(1000);
             }
+
+            File.Delete(manifestPath);
+            TikTokAiGenerationScreenshotService.HasCurrentOutput(workflow)
+                .Should().BeFalse("新版本产物必须包含抽帧原图清单");
         }
         finally
         {
@@ -350,6 +393,9 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
             Directory.EnumerateDirectories(workflow, ".ai-generation-screenshots-*")
                 .Should()
                 .BeEmpty("成功或失败后都不应遗留 staging 目录");
+            Directory.EnumerateDirectories(workflow, ".ai-generation-screenshots-backup-*")
+                .Should()
+                .BeEmpty("成功替换后不应遗留备份目录");
         }
         finally
         {

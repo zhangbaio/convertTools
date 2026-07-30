@@ -1690,6 +1690,73 @@ public partial class TikTokQueueView : UserControl
             confirmForceRerun: false);
     }
 
+    private async void OnMatchPublishedSeriesClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var vm = _vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var accountVm = vm?.SelectedAccount;
+        if (vm is null || owner is null)
+            return;
+        if (accountVm is null)
+        {
+            vm.StatusMessage = "请先选择要查询的账号";
+            return;
+        }
+
+        var account = accountVm.Model;
+        await TikTokPublishedSeriesMatchDialog.ShowAsync(
+            owner,
+            accountVm.DisplayName,
+            (titles, progress, ct) =>
+                LookupPublishedSeriesAsync(account, titles, progress, ct));
+    }
+
+    private async Task<IReadOnlyList<TikTokPublishedSeriesMatch>> LookupPublishedSeriesAsync(
+        TikTokAccountProfile account,
+        IReadOnlyList<string> titles,
+        IProgress<TikTokPublishedSeriesLookupProgress> progress,
+        CancellationToken ct)
+    {
+        var vm = _vm ?? throw new InvalidOperationException("TikTok 上传视图尚未初始化。");
+        vm.StatusMessage = $"正在准备账号「{account.DisplayName}」的浏览器登录态…";
+        var ready = await EnsureAccountBrowserReadyAsync(account, vm.AppendLog, ct);
+        if (!ready.Ok)
+            throw new InvalidOperationException(ready.Message);
+
+        IEmbeddedBrowser? browser = null;
+        if (!UsesPlaywrightUploadBrowser(account))
+            browser = _browserHost?.TryGetHost(account.Id);
+
+        vm.StatusMessage = $"正在匹配账号「{account.DisplayName}」的已发布剧集…";
+        try
+        {
+            var results = await TikTokPublishedSeriesLookupService.LookupAsync(
+                account,
+                browser,
+                titles,
+                progress,
+                vm.AppendLog,
+                ct);
+            var published = results.Count(match => match.IsPublished);
+            vm.StatusMessage =
+                $"已完成已发布剧集匹配：输入 {titles.Count} 个，已发布 {published} 个";
+            vm.AppendLog(vm.StatusMessage);
+            return results;
+        }
+        catch (OperationCanceledException)
+        {
+            vm.StatusMessage = "已停止匹配已发布剧集";
+            throw;
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"匹配已发布剧集失败：{ex.Message}";
+            vm.AppendLog(vm.StatusMessage);
+            throw;
+        }
+    }
+
     private async void OnRenameNewTitleClick(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
