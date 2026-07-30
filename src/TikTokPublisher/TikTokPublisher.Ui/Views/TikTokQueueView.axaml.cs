@@ -1191,35 +1191,55 @@ public partial class TikTokQueueView : UserControl
 
     private static async Task<bool> ConfirmAsync(Window owner, string title, string message)
     {
+        var lineCount = Math.Max(1, message.Split('\n').Length);
+        var dialogHeight = Math.Clamp(180 + lineCount * 22, 260, 560);
         var dialog = new Window
         {
             Title = title,
-            Width = 420,
-            Height = 180,
+            Width = 560,
+            Height = dialogHeight,
+            MinWidth = 460,
+            MinHeight = 240,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
         };
         var cancelButton = BuildDialogButton("取消", () => dialog.Close(false));
         var continueButton = BuildDialogButton("继续", () => dialog.Close(true), primary: true);
-        dialog.Content = new StackPanel
+        var grid = new Grid
         {
             Margin = new Thickness(16),
-            Spacing = 14,
-            Children =
+        };
+        grid.RowDefinitions.Add(new RowDefinition(GridLength.Star));
+        grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+
+        var messageViewer = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            Content = new TextBlock
             {
-                new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap },
-                new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    Spacing = 8,
-                    Children =
-                    {
-                        cancelButton,
-                        continueButton,
-                    },
-                },
+                Text = message,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
             },
         };
+        Grid.SetRow(messageViewer, 0);
+        grid.Children.Add(messageViewer);
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(0, 14, 0, 0),
+            Children =
+            {
+                cancelButton,
+                continueButton,
+            },
+        };
+        Grid.SetRow(buttons, 1);
+        grid.Children.Add(buttons);
+
+        dialog.Content = grid;
 
         return await dialog.ShowDialog<bool>(owner);
     }
@@ -1612,6 +1632,9 @@ public partial class TikTokQueueView : UserControl
             .Where(group => group.Count() == 1)
             .Select(group => group.Single())
             .ToArray();
+
+        foreach (var item in refreshedProjects)
+            item.Enabled = false;
 
         foreach (var item in matchedProjects)
         {

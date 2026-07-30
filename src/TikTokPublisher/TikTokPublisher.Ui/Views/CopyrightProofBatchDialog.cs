@@ -23,20 +23,21 @@ public sealed class CopyrightProofBatchDialog : Window
         _match = match;
         Title = "补全版权证明";
         Width = 820;
-        Height = 620;
         MinWidth = 680;
-        MinHeight = 480;
+        MinHeight = 360;
+        MaxHeight = 650;
+        SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         var root = new Grid
         {
             Margin = new Thickness(18),
-            RowDefinitions = new RowDefinitions("Auto,150,Auto,*,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,150,Auto,Auto,Auto"),
             RowSpacing = 10,
         };
         root.Children.Add(new TextBlock
         {
-            Text = "输入新剧名，一行一个。只按新剧名精确匹配；当前上传队列优先，未找到时再查询已归档项目。",
+            Text = "输入新剧名，一行一个。只按新剧名精确匹配；当前上传队列优先，未找到时再查询已归档项目。点击开始补全后，将自动处理全部可执行的匹配项目。",
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeight.SemiBold,
         });
@@ -69,6 +70,7 @@ public sealed class CopyrightProofBatchDialog : Window
         var scroller = new ScrollViewer
         {
             Content = _previewRows,
+            MaxHeight = 240,
             VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
         };
         Grid.SetRow(scroller, 3);
@@ -84,17 +86,13 @@ public sealed class CopyrightProofBatchDialog : Window
         var cancel = new Button { Content = "取消", MinWidth = 88 };
         execute.Click += (_, _) =>
         {
-            RefreshPreview(preserveSelection: true);
-            var selected = _previewRows.Children
-                .OfType<CheckBox>()
-                .Where(box => box.IsChecked == true)
-                .Select(box => box.Tag)
-                .OfType<CopyrightProofProjectMatch>()
+            RefreshPreview();
+            var selected = _matches
                 .Where(match => match.CanExecute)
                 .ToArray();
             if (selected.Length == 0)
             {
-                _summary.Text = "没有可执行且已勾选的项目。";
+                _summary.Text = "没有匹配到可执行的项目。";
                 _summary.Foreground = Brushes.IndianRed;
                 return;
             }
@@ -118,18 +116,8 @@ public sealed class CopyrightProofBatchDialog : Window
         return dialog.ShowDialog<CopyrightProofBatchDialogResult?>(owner);
     }
 
-    private void RefreshPreview(bool preserveSelection = false)
+    private void RefreshPreview()
     {
-        var selectedTitles = preserveSelection
-            ? _previewRows.Children
-                .OfType<CheckBox>()
-                .Where(box => box.IsChecked == true)
-                .Select(box => (box.Tag as CopyrightProofProjectMatch)?.NewTitle)
-                .Where(title => !string.IsNullOrWhiteSpace(title))
-                .Select(title => title!)
-                .ToHashSet(StringComparer.Ordinal)
-            : new HashSet<string>(StringComparer.Ordinal);
-
         _matches = _match(_input.Text ?? string.Empty);
         _previewRows.Children.Clear();
         foreach (var match in _matches)
@@ -141,19 +129,12 @@ public sealed class CopyrightProofBatchDialog : Window
                 CopyrightProofProjectLocation.Conflict => ("同名冲突，不能自动执行", Brushes.IndianRed),
                 _ => ("未找到", Brushes.Gray),
             };
-            var box = new CheckBox
+            _previewRows.Children.Add(new TextBlock
             {
-                Content = $"{match.NewTitle}    [{location}]",
-                Tag = match,
-                // Archived matches are execution targets by definition. Lock them selected so
-                // the user only needs to confirm the restore once after clicking Start.
-                IsEnabled = match.Location == CopyrightProofProjectLocation.CurrentQueue,
-                IsChecked = match.Location == CopyrightProofProjectLocation.Archived ||
-                            (match.Location == CopyrightProofProjectLocation.CurrentQueue &&
-                             (!preserveSelection || selectedTitles.Contains(match.NewTitle))),
+                Text = $"• {match.NewTitle}    [{location}]",
                 Foreground = color,
-            };
-            _previewRows.Children.Add(box);
+                TextWrapping = TextWrapping.Wrap,
+            });
         }
 
         var executable = _matches.Count(match => match.CanExecute);
