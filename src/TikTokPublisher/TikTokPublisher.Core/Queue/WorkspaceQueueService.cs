@@ -58,6 +58,16 @@ public static class WorkspaceQueueService
         return OrderByQueuedAt(results);
     }
 
+    public static IReadOnlyList<QueueProjectItem> ResolveExecutionSnapshot(
+        string workspaceRoot,
+        IReadOnlyList<QueueProjectItem>? displayedSnapshot,
+        bool preferPersistedSnapshot)
+    {
+        if (!preferPersistedSnapshot && displayedSnapshot is { Count: > 0 })
+            return displayedSnapshot;
+        return ScanProjects(workspaceRoot);
+    }
+
     public static IEnumerable<QueueProjectItem> FilterPendingUpload(IEnumerable<QueueProjectItem> items) =>
         items.Where(item => item.IsPendingUpload && !string.IsNullOrWhiteSpace(item.PrimaryVideoPath));
 

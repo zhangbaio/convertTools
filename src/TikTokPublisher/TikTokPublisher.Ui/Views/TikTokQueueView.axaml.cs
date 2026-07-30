@@ -1682,10 +1682,22 @@ public partial class TikTokQueueView : UserControl
 
         var persistedOptions = WorkspaceQueueService.LoadRunOptions(workspace);
         WorkspaceQueueService.SaveRunOptions(workspace, refreshedProjects, persistedOptions);
-        vm.RefreshWorkspaceProjects(workspace, force: true);
+        await vm.ApplyPreparedWorkspaceQueueSnapshotAsync(
+            workspace,
+            refreshedProjects,
+            persistedOptions);
 
         var options = vm.CreateCurrentQueueRunOptionsSnapshot();
         options.ConfigureForCopyrightProofCompletion();
+        var executionProjectDirs = matchedProjects
+            .Select(item => Path.GetFullPath(item.ProjectDir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var executionTarget = vm.CaptureCurrentWorkspaceQueueTarget()! with
+        {
+            ProjectDirFilter = executionProjectDirs,
+            PreferPersistedQueueSnapshot = true,
+        };
 
         vm.AppendLog(
             $"补全版权证明：匹配 {dialogResult.SelectedMatches.Count} 个，" +
@@ -1699,8 +1711,9 @@ public partial class TikTokQueueView : UserControl
 
         await StartQueueRunAsync(
             options,
-            matchedProjects.Select(item => item.ProjectDir).ToArray(),
-            confirmForceRerun: false);
+            executionProjectDirs,
+            confirmForceRerun: false,
+            targetOverride: executionTarget);
     }
 
     private async void OnMatchPublishedSeriesClick(object? sender, RoutedEventArgs e)

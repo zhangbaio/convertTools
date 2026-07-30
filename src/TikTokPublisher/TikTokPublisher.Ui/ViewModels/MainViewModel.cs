@@ -882,6 +882,26 @@ public sealed partial class MainViewModel : ViewModelBase
     public void RefreshWorkspaceProjects(string? workspaceRoot = null, bool force = false) =>
         _ = RefreshWorkspaceProjectsAsync(workspaceRoot, force);
 
+    public async Task ApplyPreparedWorkspaceQueueSnapshotAsync(
+        string workspaceRoot,
+        IReadOnlyList<QueueProjectItem> items,
+        QueueRunOptions options)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspaceRoot);
+        ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(options);
+        var root = Path.GetFullPath(workspaceRoot);
+        var itemSnapshot = CloneQueueItems(items);
+        var optionSnapshot = options.Clone();
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (IsActiveWorkspace(root))
+                ApplyWorkspaceScanResult(root, itemSnapshot, optionSnapshot);
+            else
+                CacheWorkspaceQueueSnapshot(root, itemSnapshot, optionSnapshot);
+        });
+    }
+
     private async Task RefreshWorkspaceProjectsAsync(string? workspaceRoot = null, bool force = false)
     {
         var generation = Interlocked.Increment(ref _workspaceRefreshGeneration);
@@ -1700,10 +1720,14 @@ public sealed partial class MainViewModel : ViewModelBase
                 SafeFullPath(_displayedWorkspaceRoot),
                 root,
                 StringComparison.OrdinalIgnoreCase);
-        var queueItemsForRun = isDisplayedWorkspace && _queueItems.Count > 0
-            ? _queueItems
-            : WorkspaceQueueService.ScanProjects(root).ToList();
         projectDirFilter = target.ProjectDirFilter ?? projectDirFilter;
+        var displayedSnapshot = isDisplayedWorkspace && _queueItems.Count > 0
+            ? _queueItems
+            : null;
+        var queueItemsForRun = WorkspaceQueueService.ResolveExecutionSnapshot(
+            root,
+            displayedSnapshot,
+            target.PreferPersistedQueueSnapshot).ToList();
         if (queueItemsForRun.Count == 0)
         {
             if (projectDirFilter is not null)

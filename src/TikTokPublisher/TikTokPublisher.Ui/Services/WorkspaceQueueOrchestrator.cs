@@ -277,4 +277,5 @@ public sealed record WorkspaceQueueTarget(
     string DisplayLabel,
     string? AccountProfileId,
     IReadOnlyCollection<string>? ProjectDirFilter = null,
-    FinalAction? FinalActionOverride = null);
+    FinalAction? FinalActionOverride = null,
+    bool PreferPersistedQueueSnapshot = false);
