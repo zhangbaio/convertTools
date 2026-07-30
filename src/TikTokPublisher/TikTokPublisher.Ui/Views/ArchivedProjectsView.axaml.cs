@@ -3,15 +3,22 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace TikTokPublisher.Ui.Views;
 
 public partial class ArchivedProjectsView : UserControl
 {
+    private ScrollViewer? _archivedListScrollViewer;
+
     public ArchivedProjectsView()
     {
         InitializeComponent();
+        ArchivedList.Loaded += (_, _) => AttachArchivedListScrollViewer(retryAfterLayout: true);
+        ArchivedList.SizeChanged += (_, _) => SyncArchivedHeaderScroll();
+        Unloaded += (_, _) => DetachArchivedListScrollViewer();
         Loaded += (_, _) =>
         {
             if (Vm is { Rows.Count: 0 } vm && !string.IsNullOrWhiteSpace(vm.WorkspacePath))
@@ -22,6 +29,67 @@ public partial class ArchivedProjectsView : UserControl
     public void Bind(ArchivedProjectsViewModel vm) => DataContext = vm;
 
     private ArchivedProjectsViewModel? Vm => DataContext as ArchivedProjectsViewModel;
+
+    private void AttachArchivedListScrollViewer(bool retryAfterLayout)
+    {
+        var scrollViewer = ArchivedList
+            .GetVisualDescendants()
+            .OfType<ScrollViewer>()
+            .FirstOrDefault();
+        if (scrollViewer is null)
+        {
+            if (retryAfterLayout)
+            {
+                Dispatcher.UIThread.Post(
+                    () => AttachArchivedListScrollViewer(retryAfterLayout: false),
+                    DispatcherPriority.Loaded);
+            }
+            return;
+        }
+
+        if (ReferenceEquals(_archivedListScrollViewer, scrollViewer))
+        {
+            SyncArchivedHeaderScroll();
+            return;
+        }
+
+        DetachArchivedListScrollViewer();
+        _archivedListScrollViewer = scrollViewer;
+        _archivedListScrollViewer.ScrollChanged += OnArchivedListScrollChanged;
+        SyncArchivedHeaderScroll();
+    }
+
+    private void DetachArchivedListScrollViewer()
+    {
+        if (_archivedListScrollViewer is not null)
+            _archivedListScrollViewer.ScrollChanged -= OnArchivedListScrollChanged;
+        _archivedListScrollViewer = null;
+    }
+
+    private void OnArchivedListScrollChanged(object? sender, ScrollChangedEventArgs e) =>
+        SyncArchivedHeaderScroll();
+
+    private void SyncArchivedHeaderScroll()
+    {
+        var scrollViewer = _archivedListScrollViewer;
+        if (scrollViewer is null)
+            return;
+
+        if (scrollViewer.Viewport.Width > 0)
+        {
+            var verticalScrollbarWidth = Math.Max(0, ArchivedList.Bounds.Width - scrollViewer.Viewport.Width);
+            if (Math.Abs(ArchivedHeaderScrollViewer.Margin.Right - verticalScrollbarWidth) > 0.5)
+            {
+                ArchivedHeaderScrollViewer.Margin = new Thickness(
+                    0,
+                    0,
+                    verticalScrollbarWidth,
+                    0);
+            }
+        }
+
+        ArchivedHeaderScrollViewer.Offset = new Vector(scrollViewer.Offset.X, 0);
+    }
 
     private async void OnChooseArchiveRootClick(object? sender, RoutedEventArgs e)
     {

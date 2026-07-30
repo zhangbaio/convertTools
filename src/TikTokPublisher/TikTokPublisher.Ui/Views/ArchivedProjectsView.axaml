@@ -54,9 +54,13 @@
         </Border>
 
         <Border BorderBrush="#DFD1C0" BorderThickness="1" CornerRadius="6">
-            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                <Grid RowDefinitions="Auto,*" Width="1682">
-                    <Grid Grid.Row="0" ColumnDefinitions="56,56,220,220,90,160,160,280,220,220">
+            <Grid RowDefinitions="Auto,*">
+                <ScrollViewer x:Name="ArchivedHeaderScrollViewer"
+                              Grid.Row="0"
+                              HorizontalScrollBarVisibility="Hidden"
+                              VerticalScrollBarVisibility="Disabled"
+                              AllowAutoHide="False">
+                    <Grid Width="1682" ColumnDefinitions="56,56,220,220,90,160,160,280,220,220">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="选择" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="原剧名" Classes="tableHeader" />
@@ -68,14 +72,16 @@
                         <TextBlock Grid.Column="8" Text="Source" Classes="tableHeader" />
                         <TextBlock Grid.Column="9" Text="Workflow" Classes="tableHeader" />
                     </Grid>
+                </ScrollViewer>
 
-                    <ListBox x:Name="ArchivedList"
-                             Grid.Row="1"
-                             ItemsSource="{Binding FilteredRows}"
-                             SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
-                             Background="{StaticResource PythonInputBg}"
-                             Margin="0,0,0,22"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox x:Name="ArchivedList"
+                         Grid.Row="1"
+                         ItemsSource="{Binding FilteredRows}"
+                         SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+                         Background="{StaticResource PythonInputBg}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         ScrollViewer.VerticalScrollBarVisibility="Visible"
+                         ScrollViewer.AllowAutoHide="False">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="vm:ArchivedProjectRowViewModel">
                                 <Grid ColumnDefinitions="56,56,220,220,90,160,160,280,220,220" MinHeight="36" Width="1682" ClipToBounds="True">
@@ -106,9 +112,8 @@
                                 </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
-                    </ListBox>
-                </Grid>
-            </ScrollViewer>
+                </ListBox>
+            </Grid>
         </Border>
     </DockPanel>
 </UserControl>
