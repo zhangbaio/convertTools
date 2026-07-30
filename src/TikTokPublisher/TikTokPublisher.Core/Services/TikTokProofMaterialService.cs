@@ -493,6 +493,47 @@ public sealed class TikTokProofMaterialService
         }
     }
 
+    public static bool HasReusableProofMaterialForCopyrightCompletion(
+        QueueProjectItem item,
+        ClientSettings settings,
+        TikTokAccountProfile? account)
+    {
+        try
+        {
+            ArgumentNullException.ThrowIfNull(item);
+            ArgumentNullException.ThrowIfNull(settings);
+            var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+            var state = LoadState(context);
+            var existingStatementDate = ResolveExistingStatementDate(state);
+            var request = CreateQueueRequest(
+                item,
+                settings,
+                account,
+                context.WorkflowProjectDir,
+                existingStatementDate);
+            return HasCurrentOutput(context, request, ComputeFingerprint(request));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static DateOnly? ResolveExistingStatementDate(
+        IReadOnlyDictionary<string, JsonElement> state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        var value = GetStateString(state, "statement_date");
+        return DateOnly.TryParseExact(
+            value,
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out var statementDate)
+            ? statementDate
+            : null;
+    }
+
     public static string GetPdfPath(string workflowProjectDirectory) =>
         Path.Combine(Path.GetFullPath(workflowProjectDirectory), ProofPdfFileName);
 

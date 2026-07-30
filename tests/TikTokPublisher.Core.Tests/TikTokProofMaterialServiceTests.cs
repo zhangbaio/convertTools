@@ -825,6 +825,30 @@ public sealed class TikTokProofMaterialServiceTests
         request.StatementDate.Should().Be(new DateOnly(2026, 7, 18));
     }
 
+    [Theory]
+    [InlineData("2026-07-18", 2026, 7, 18)]
+    [InlineData("", 0, 0, 0)]
+    [InlineData("2026/07/18", 0, 0, 0)]
+    public void Copyright_completion_reuses_statement_date_recorded_with_existing_material(
+        string value,
+        int year,
+        int month,
+        int day)
+    {
+        var state = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+            JsonSerializer.Serialize(new Dictionary<string, string>
+            {
+                ["statement_date"] = value,
+            }))!;
+
+        var result = TikTokProofMaterialService.ResolveExistingStatementDate(state);
+
+        if (year == 0)
+            result.Should().BeNull();
+        else
+            result.Should().Be(new DateOnly(year, month, day));
+    }
+
     [Fact]
     public void Explicit_statement_date_overrides_restored_archive_date()
     {

@@ -1636,10 +1636,29 @@ public partial class TikTokQueueView : UserControl
         foreach (var item in refreshedProjects)
             item.Enabled = false;
 
+        vm.StatusMessage = "正在检查匹配项目的已有证明材料…";
+        var proofSettings = ClientSettingsStore.Load();
+        var proofAccount = vm.SelectedAccount?.Model;
+        var currentProofMaterialProjects = await Task.Run(() =>
+            matchedProjects
+                .Where(item => TikTokProofMaterialService
+                    .HasReusableProofMaterialForCopyrightCompletion(
+                        item,
+                        proofSettings,
+                        proofAccount))
+                .Select(item => Path.GetFullPath(item.ProjectDir))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase));
+        var reusedProofMaterialCount = 0;
         foreach (var item in matchedProjects)
         {
             item.Enabled = true;
-            item.StepStates[QueueStepRegistry.GenerateProofMaterial] = QueueStepStatus.Pending;
+            var proofMaterialCurrent = currentProofMaterialProjects.Contains(
+                Path.GetFullPath(item.ProjectDir));
+            item.StepStates[QueueStepRegistry.GenerateProofMaterial] = proofMaterialCurrent
+                ? QueueStepStatus.Completed
+                : QueueStepStatus.Pending;
+            if (proofMaterialCurrent)
+                reusedProofMaterialCount++;
             item.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.Pending;
             item.CurrentStep = string.Empty;
             item.StatusText = QueueStepStatus.Pending;
@@ -1666,19 +1685,13 @@ public partial class TikTokQueueView : UserControl
         vm.RefreshWorkspaceProjects(workspace, force: true);
 
         var options = vm.CreateCurrentQueueRunOptionsSnapshot();
-        options.EnabledSteps =
-        [
-            QueueStepRegistry.GenerateProofMaterial,
-            QueueStepRegistry.UploadSeries,
-        ];
-        options.ForceRerunCompletedSteps = true;
-        options.AutoArchiveAfterUpload = false;
-        options.SyncManagementAfterUpload = false;
-        options.UploadEntryMode = QueueRunOptions.CopyrightProofOnlyEntryMode;
+        options.ConfigureForCopyrightProofCompletion();
 
         vm.AppendLog(
             $"补全版权证明：匹配 {dialogResult.SelectedMatches.Count} 个，" +
-            $"回退归档 {restoredCount} 个，准备执行 {matchedProjects.Length} 个。");
+            $"回退归档 {restoredCount} 个，准备执行 {matchedProjects.Length} 个；" +
+            $"复用已有证明材料 {reusedProofMaterialCount} 个，" +
+            $"需要生成 {matchedProjects.Length - reusedProofMaterialCount} 个。");
         foreach (var failure in restoreFailures)
             vm.AppendLog($"补全版权证明回退失败：{failure}");
         foreach (var title in missingAfterRestore)
