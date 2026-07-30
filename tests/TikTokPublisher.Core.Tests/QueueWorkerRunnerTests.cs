@@ -176,6 +176,43 @@ public sealed class QueueWorkerRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_copyright_proof_completion_edits_project_when_historical_upload_is_completed()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-copyright-proof-completion",
+            Name = "copyright-proof-completion",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var completed = CreateCompletedItem(1, account);
+        var host = new ImmediatePublishHost();
+        var options = new QueueRunOptions();
+        options.ConfigureForCopyrightProofCompletion();
+        options.EnabledSteps = [QueueStepRegistry.UploadSeries];
+        var progress = new List<string>();
+
+        var summary = await new QueueWorkerRunner().RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-copyright-proof-completion-test"),
+            [completed],
+            options,
+            host,
+            store,
+            FinalAction.None,
+            onProgress: update => progress.Add(update.Message),
+            onPersist: null,
+            CancellationToken.None);
+
+        var progressText = string.Join(Environment.NewLine, progress);
+        summary.TotalCount.Should().Be(1);
+        summary.SuccessCount.Should().Be(1, progressText);
+        summary.FailedCount.Should().Be(0, progressText);
+        host.BrowserReadyCalls.Should().Be(1, progressText);
+        host.PublishedProjectDirs.Should().Equal([completed.ProjectDir], progressText);
+        completed.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
+    }
+
+    [Fact]
     public async Task RunAsync_rejects_matching_filter_when_no_selected_step_needs_work()
     {
         var account = new TikTokAccountProfile { Id = "acct-filter-complete", Name = "filter-complete" };

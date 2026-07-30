@@ -1115,6 +1115,8 @@ public sealed class QueueWorkerRunner
         QueueRunOptions options,
         TikTokAccountProfile? account = null)
     {
+        if (stepKey == QueueStepRegistry.UploadSeries && options.IsCopyrightProofOnlyRun())
+            return true;
         if (options.ForceRerunCompletedSteps) return true;
         if (stepKey == QueueStepRegistry.RewriteInfo &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
