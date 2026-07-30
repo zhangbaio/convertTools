@@ -2020,8 +2020,6 @@ public partial class TikTokQueueView : UserControl
                 row.Item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) ==
                     QueueStepStatus.Completed)
             .ToArray();
-        foreach (var row in completedRows)
-            row.IsEnabled = false;
 
         var retryCount = executionProjectDirs.Length - completedRows.Length;
         vm.StatusMessage = retryCount == 0
