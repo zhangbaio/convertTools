@@ -68,7 +68,12 @@ public sealed class TikTokPublishedSeriesMatchTextTests
         var matches = new[]
         {
             Match("未找到甲", TikTokPublishedSeriesMatchKind.Missing),
-            Match("已发布乙", TikTokPublishedSeriesMatchKind.Published, "已发布"),
+            new TikTokPublishedSeriesMatch(
+                "已发布乙",
+                TikTokPublishedSeriesMatchKind.Published,
+                "platform-status-detail",
+                "7654321098765432100",
+                Message: "query-message-detail"),
         };
 
         var text = TikTokPublishedSeriesMatchText.BuildDisplayText(matches);
@@ -77,6 +82,9 @@ public sealed class TikTokPublishedSeriesMatchTextTests
                     text.IndexOf("【未找到（1）】", StringComparison.Ordinal));
         Assert.Contains("已发布乙", text);
         Assert.Contains("未找到甲", text);
+        Assert.DoesNotContain("platform-status-detail", text);
+        Assert.DoesNotContain("7654321098765432100", text);
+        Assert.DoesNotContain("query-message-detail", text);
     }
 
     private static TikTokPublishedSeriesMatch Match(
