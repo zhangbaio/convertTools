@@ -360,6 +360,138 @@ public partial class TikTokQueueView : UserControl
         _vm.SetWorkspacePath(path);
     }
 
+    private async void OnMergeWorkspacesClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (Storage is null || vm is null || owner is null)
+            return;
+
+        var targetRoot = (vm.WorkspacePath ?? "").Trim();
+        var targetAccount = vm.SelectedAccount?.Model;
+        if (string.IsNullOrWhiteSpace(targetRoot) || !Directory.Exists(targetRoot))
+        {
+            vm.StatusMessage = "请先选择有效的当前工作目录";
+            return;
+        }
+        if (targetAccount is null)
+        {
+            vm.StatusMessage = "请先选择当前工作目录所属账号";
+            return;
+        }
+        if (vm.IsWorkspaceQueueBusy(targetRoot))
+        {
+            vm.StatusMessage = "当前工作目录队列正在运行或收尾，请停止后再合并";
+            return;
+        }
+
+        var folders = await Storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "选择要合并的来源工作目录（可多选）",
+            AllowMultiple = true,
+        });
+        var sourceRoots = folders
+            .Select(folder => folder.Path.LocalPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (sourceRoots.Length == 0)
+            return;
+
+        var busySource = sourceRoots.FirstOrDefault(vm.IsWorkspaceQueueBusy);
+        if (!string.IsNullOrWhiteSpace(busySource))
+        {
+            await ShowMessageAsync(
+                owner,
+                "无法合并工作目录",
+                $"来源工作目录队列正在运行或收尾，请先停止：{busySource}",
+                warning: true);
+            return;
+        }
+
+        WorkspaceMergeAnalysis analysis;
+        try
+        {
+            vm.StatusMessage = "正在分析来源工作目录…";
+            analysis = await Task.Run(() => WorkspaceMergeService.Analyze(targetRoot, sourceRoots));
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"分析工作目录失败：{ex.Message}";
+            await ShowMessageAsync(owner, "分析工作目录失败", ex.Message, warning: true);
+            return;
+        }
+
+        var sourceLines = analysis.Sources.Select(source =>
+            $"• {source.WorkspaceRoot}\n  普通项目 {source.ActiveProjectCount} 个，归档项目 {source.ArchivedProjectCount} 个");
+        var warningText = analysis.Warnings.Count == 0
+            ? "未发现目录缺失。"
+            : $"注意：{analysis.Warnings.Count} 条警告，合并完成后会在结果中列出。";
+        var confirmed = await ConfirmAsync(
+            owner,
+            "确认合并工作目录",
+            $"目标目录：{analysis.TargetWorkspaceRoot}\n" +
+            $"目标账号：{targetAccount.DisplayName}\n\n" +
+            string.Join("\n", sourceLines) +
+            $"\n\n合计：普通项目 {analysis.ActiveProjectCount} 个，归档项目 {analysis.ArchivedProjectCount} 个。\n" +
+            $"{warningText}\n\n" +
+            "本次使用“复制并验证”方式：来源目录不会删除；导入项目绑定到当前账号，已有步骤和上传状态保留。" +
+            "同名目录会自动改为不重复名称，归档回退路径会改到当前工作目录。\n\n确认继续？");
+        if (!confirmed)
+        {
+            vm.StatusMessage = "已取消合并工作目录";
+            return;
+        }
+
+        try
+        {
+            var progress = new Progress<WorkspaceMergeProgress>(value =>
+            {
+                vm.StatusMessage = $"合并工作目录 {value.Completed}/{value.Total}：{value.Message}";
+                if (value.Completed == value.Total || value.Completed % 5 == 0)
+                    vm.AppendLog(vm.StatusMessage);
+            });
+            var result = await Task.Run(() =>
+                WorkspaceMergeService.Merge(
+                    analysis,
+                    targetAccount,
+                    targetArchiveRootDir: vm.ArchivedProjects.ArchiveRootDir,
+                    progress: progress,
+                    cancellationToken: CancellationToken.None));
+
+            vm.RefreshWorkspaceProjects(targetRoot, force: true);
+            vm.ArchivedProjects.SetWorkspace(targetRoot);
+            var resultText =
+                $"工作目录合并完成。\n\n" +
+                $"新增普通项目：{result.ImportedProjectCount}\n" +
+                $"已存在并复用：{result.ReusedProjectCount}\n" +
+                $"新增归档项目：{result.ImportedArchiveCount}\n" +
+                $"已存在并复用归档：{result.ReusedArchiveCount}\n" +
+                $"警告：{result.Warnings.Count}\n" +
+                (string.IsNullOrWhiteSpace(result.BackupDatabasePath)
+                    ? ""
+                    : $"\n合并前数据库备份：{result.BackupDatabasePath}\n") +
+                (result.Warnings.Count == 0
+                    ? ""
+                    : "\n" + string.Join("\n", result.Warnings.Take(20)));
+            vm.StatusMessage =
+                $"合并完成：普通项目 {result.ImportedProjectCount + result.ReusedProjectCount} 个，" +
+                $"归档项目 {result.ImportedArchiveCount + result.ReusedArchiveCount} 个";
+            vm.AppendLog(vm.StatusMessage);
+            await ShowMessageAsync(owner, "合并工作目录", resultText, warning: result.Warnings.Count > 0);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"合并工作目录失败：{ex.Message}";
+            vm.AppendLog(vm.StatusMessage);
+            await ShowMessageAsync(
+                owner,
+                "合并工作目录失败",
+                $"{ex.Message}\n\n来源目录未删除；本次新复制的目标目录已尽力回滚。",
+                warning: true);
+        }
+    }
+
     private async Task ShowAccountSettingsDialogAsync()
     {
         var vm = _vm;
