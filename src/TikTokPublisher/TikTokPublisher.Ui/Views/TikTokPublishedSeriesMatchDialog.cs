@@ -231,14 +231,14 @@ public sealed class TikTokPublishedSeriesMatchDialog : Window
 
     private async void CopyAllAsync()
     {
-        var matches = OrderedMatches();
-        if (matches.Count == 0)
+        var text = _output.Text ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(text))
             return;
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is null)
             return;
-        await clipboard.SetTextAsync(TikTokPublishedSeriesMatchText.BuildAllResultsCopyText(matches));
-        _summary.Text = $"已复制 {matches.Count} 条匹配结果。";
+        await clipboard.SetTextAsync(text);
+        _summary.Text = "已复制结果框内容。";
         _summary.Foreground = Brushes.SeaGreen;
     }
 

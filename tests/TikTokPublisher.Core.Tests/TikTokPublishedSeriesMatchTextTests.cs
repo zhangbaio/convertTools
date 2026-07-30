@@ -44,25 +44,6 @@ public sealed class TikTokPublishedSeriesMatchTextTests
     }
 
     [Fact]
-    public void BuildAllResultsCopyText_UsesTabSeparatedCopyableRows()
-    {
-        var matches = new[]
-        {
-            new TikTokPublishedSeriesMatch(
-                "剧集甲",
-                TikTokPublishedSeriesMatchKind.Published,
-                "已发布",
-                "7654321098765432100",
-                Message: "正常"),
-        };
-
-        var text = TikTokPublishedSeriesMatchText.BuildAllResultsCopyText(matches);
-
-        Assert.Contains("匹配结果\t新剧名\t平台状态\t剧集ID\t说明", text);
-        Assert.Contains("已发布\t剧集甲\t已发布\t7654321098765432100\t正常", text);
-    }
-
-    [Fact]
     public void BuildDisplayText_GroupsResultsByOutcome()
     {
         var matches = new[]
