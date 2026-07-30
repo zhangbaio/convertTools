@@ -17,6 +17,75 @@ public static partial class TikTokBrowserActions
     private const string OriginalRightsHolderFieldId = "copyrightProof.isOriginalRightsHolder";
     private const string AdaptationFieldId = "copyrightProof.isAdaptation";
 
+    internal static async Task<string?> FindExistingCopyrightProofMaterialAsync(
+        IPage page,
+        CancellationToken ct)
+    {
+        var probe = "missing";
+        await WaitUntilAsync(async () =>
+        {
+            ct.ThrowIfCancellationRequested();
+            probe = await page.EvaluateAsync<string>(
+                """
+                () => {
+                  const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+                  const isVisible = element => {
+                    if (!(element instanceof Element)) return false;
+                    const style = getComputedStyle(element);
+                    const rect = element.getBoundingClientRect();
+                    return style.display !== 'none' &&
+                      style.visibility !== 'hidden' &&
+                      Number(style.opacity || '1') > 0 &&
+                      rect.width > 0 && rect.height > 0;
+                  };
+                  const fields = [...document.querySelectorAll(
+                    "[x-field-id^='copyrightProof.materialFiles.']")]
+                    .filter(isVisible);
+                  if (fields.length === 0) return 'missing';
+
+                  for (const field of fields) {
+                    const fieldId = field.getAttribute('x-field-id') || 'copyright material';
+                    const listCards = [...field.querySelectorAll(
+                      '.semi-upload-file-list-main[role="list"] > *, ' +
+                      '.semi-upload-file-list-main [role="list"] > *')]
+                      .filter(isVisible);
+                    if (listCards.length > 0)
+                      return `existing:${fieldId}（${listCards.length} 个文件）`;
+
+                    const cards = [...field.querySelectorAll(
+                      '[class*="pictureCard"], [class*="fileCard"], [class*="upload-file"]')]
+                      .filter(isVisible);
+                    const existingCard = cards.find(card => {
+                      if (card.querySelector('input[type="file"]')) return false;
+                      const text = normalize([
+                        card.innerText,
+                        card.getAttribute('title'),
+                        card.getAttribute('aria-label'),
+                        card.getAttribute('data-file-name')
+                      ].filter(Boolean).join(' '));
+                      const hasFileLabel =
+                        /\.(pdf|png|jpe?g|webp|gif|docx?)\b/i.test(text) ||
+                        /\bPDF\b/i.test(text);
+                      const hasPreview = Boolean(card.querySelector(
+                        'img[src], canvas, [class*="preview"], [class*="pdf"]'));
+                      return hasFileLabel || hasPreview;
+                    });
+                    if (existingCard)
+                      return `existing:${fieldId}`;
+                  }
+
+                  return 'empty';
+                }
+                """);
+            return !string.Equals(probe, "missing", StringComparison.Ordinal);
+        }, 5000, 250, ct);
+
+        const string prefix = "existing:";
+        return probe.StartsWith(prefix, StringComparison.Ordinal)
+            ? probe[prefix.Length..]
+            : null;
+    }
+
     internal static async Task ConfigureCopyrightProofAsync(
         IPage page,
         TikTokPublishOptions options,
