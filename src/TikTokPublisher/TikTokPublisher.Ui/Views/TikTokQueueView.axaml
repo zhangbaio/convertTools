@@ -200,10 +200,11 @@
         <!-- 顶部控制区：紧凑保留高频操作，低频操作收进菜单 -->
         <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,8" Padding="16,10">
             <StackPanel Spacing="8">
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
                     <TextBlock Grid.Column="0" Text="工作目录" VerticalAlignment="Center" Margin="0,0,10,0" />
                     <TextBox Grid.Column="1" Text="{Binding WorkspacePath}" IsReadOnly="True" Watermark="选择工作目录" />
                     <Button Grid.Column="2" Content="选择工作目录" Click="OnPickWorkspaceClick" Classes="toolAction compactAction" />
+                    <Button Grid.Column="3" Content="合并工作目录" Click="OnMergeWorkspacesClick" Classes="toolAction compactAction" />
                 </Grid>
 
                 <WrapPanel Orientation="Horizontal">
