@@ -9,6 +9,7 @@ namespace TikTokPublisher.Ui.Views;
 
 public sealed record CopyrightProofBatchDialogResult(
     IReadOnlyList<CopyrightProofProjectMatch> SelectedMatches,
+    IReadOnlyList<CopyrightProofProjectMatch> SkippedMatches,
     CopyrightProofExecutionMode ExecutionMode);
 
 public sealed class CopyrightProofBatchDialog : Window
@@ -98,15 +99,16 @@ public sealed class CopyrightProofBatchDialog : Window
             var selected = _matches
                 .Where(match => match.CanExecute)
                 .ToArray();
-            if (selected.Length == 0)
+            if (_matches.Count == 0)
             {
-                _summary.Text = "没有匹配到可执行的项目。";
+                _summary.Text = "请至少输入一个新剧名。";
                 _summary.Foreground = Brushes.IndianRed;
                 return;
             }
 
             Close(new CopyrightProofBatchDialogResult(
                 selected,
+                _matches.Where(match => !match.CanExecute).ToArray(),
                 _executionModeSelector.ExecutionMode));
         };
         cancel.Click += (_, _) => Close(null);
