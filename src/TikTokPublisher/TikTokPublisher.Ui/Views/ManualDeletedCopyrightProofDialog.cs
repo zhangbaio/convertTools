@@ -33,7 +33,7 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         };
         root.Children.Add(new TextBlock
         {
-            Text = "手动输入已删除剧集的新剧名和原剧名。原剧名用于重新查找下载源，新剧名用于精确定位 TikTok 已发布项目；不会重新上传剧集。",
+            Text = "输入已删除剧集的新剧名，原剧名可以不填。已填写原剧名时优先从原片源恢复；未填写时将从当前账号的 TikTok 已发布项目下载必要视频；不会重新上传剧集。",
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeight.SemiBold,
         });
@@ -52,7 +52,7 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         toolbar.Children.Add(addButton);
         toolbar.Children.Add(new TextBlock
         {
-            Text = "可添加多组剧名；同一个新剧名不能对应多个原剧名。",
+            Text = "可添加多组剧名；同一个新剧名不能对应多个不同的原剧名。",
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = Brushes.DimGray,
         });
@@ -70,7 +70,7 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         });
         var originalHeader = new TextBlock
         {
-            Text = "原剧名（用于查找原始短剧）",
+            Text = "原剧名（选填；留空则从 TikTok 恢复）",
             FontWeight = FontWeight.SemiBold,
         };
         Grid.SetColumn(originalHeader, 2);
@@ -88,7 +88,7 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         Grid.SetRow(scroller, 3);
         root.Children.Add(scroller);
 
-        _summary.Text = "请至少填写一组完整的新剧名和原剧名。";
+        _summary.Text = "请至少填写一个新剧名。";
         _summary.Foreground = Brushes.DimGray;
         Grid.SetRow(_summary, 4);
         root.Children.Add(_summary);
@@ -139,7 +139,7 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         };
         var originalTitle = new TextBox
         {
-            Watermark = "输入原剧名",
+            Watermark = "选填原剧名",
         };
         Grid.SetColumn(originalTitle, 2);
         var remove = new Button
@@ -189,13 +189,12 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
             .Where(row =>
                 (!string.IsNullOrWhiteSpace(row.NewTitle) ||
                  !string.IsNullOrWhiteSpace(row.OriginalTitle)) &&
-                (string.IsNullOrWhiteSpace(row.NewTitle) ||
-                 string.IsNullOrWhiteSpace(row.OriginalTitle)))
+                string.IsNullOrWhiteSpace(row.NewTitle))
             .Select(row => row.Index)
             .ToArray();
         if (incompleteRows.Length > 0)
         {
-            ShowError($"第 {string.Join("、", incompleteRows)} 行没有同时填写新剧名和原剧名。");
+            ShowError($"第 {string.Join("、", incompleteRows)} 行填写了原剧名，但没有填写新剧名。");
             return;
         }
 
@@ -203,14 +202,12 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
             .Select(editor => new ManualDeletedCopyrightProofEntry(
                 (editor.NewTitle.Text ?? string.Empty).Trim(),
                 (editor.OriginalTitle.Text ?? string.Empty).Trim()))
-            .Where(entry =>
-                !string.IsNullOrWhiteSpace(entry.NewTitle) &&
-                !string.IsNullOrWhiteSpace(entry.OriginalTitle))
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.NewTitle))
             .Distinct()
             .ToArray();
         if (entries.Length == 0)
         {
-            ShowError("请至少填写一组完整的新剧名和原剧名。");
+            ShowError("请至少填写一个新剧名。");
             return;
         }
 
@@ -234,11 +231,13 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
     private void UpdateSummary()
     {
         var complete = _editors.Count(editor =>
+            !string.IsNullOrWhiteSpace(editor.NewTitle.Text));
+        var platformRecovery = _editors.Count(editor =>
             !string.IsNullOrWhiteSpace(editor.NewTitle.Text) &&
-            !string.IsNullOrWhiteSpace(editor.OriginalTitle.Text));
+            string.IsNullOrWhiteSpace(editor.OriginalTitle.Text));
         _summary.Text = complete > 0
-            ? $"已填写 {complete} 组，点击“开始补全”后将先进行二次确认。"
-            : "请至少填写一组完整的新剧名和原剧名。";
+            ? $"已填写 {complete} 组，其中 {platformRecovery} 组将从 TikTok 已发布项目恢复视频；点击“开始补全”后将先进行二次确认。"
+            : "请至少填写一个新剧名。";
         _summary.Foreground = complete > 0 ? Brushes.SeaGreen : Brushes.DimGray;
     }
 

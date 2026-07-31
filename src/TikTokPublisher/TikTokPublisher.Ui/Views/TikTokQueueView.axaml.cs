@@ -1803,6 +1803,12 @@ public partial class TikTokQueueView : UserControl
             }
 
             var originalTitle = (match.HistorySnapshot?.Item.OriginalTitle ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(originalTitle))
+            {
+                validatedMatches.Add(match);
+                continue;
+            }
+
             try
             {
                 vm.StatusMessage = $"正在验证原剧资源：{originalTitle}";
@@ -1891,16 +1897,19 @@ public partial class TikTokQueueView : UserControl
                 {
                     var item = match.HistorySnapshot?.Item;
                     var episodeText = item?.EpisodeCount > 0 ? $"，{item.EpisodeCount} 集" : string.Empty;
-                    return $"• {match.NewTitle}（原剧：{item?.OriginalTitle}{episodeText}）";
+                    var originalTitle = (item?.OriginalTitle ?? string.Empty).Trim();
+                    return string.IsNullOrWhiteSpace(originalTitle)
+                        ? $"• {match.NewTitle}（从 TikTok 已发布项目恢复视频）"
+                        : $"• {match.NewTitle}（原剧：{originalTitle}{episodeText}）";
                 }));
             var recoverySource = manualDeletedInput
-                ? "将根据你手动填写的新剧名和原剧名重新建立项目，"
+                ? "将根据你填写的新剧名恢复项目；有原剧名时优先使用原片源，没有原剧名时从 TikTok 已发布项目下载必要视频，"
                 : "将根据历史记录重新建立项目，";
             var confirmed = await ConfirmAsync(
                 owner,
                 "确认重建已删除项目",
                 $"以下 {deletedTargets.Length} 个项目的本地目录已被删除，{recoverySource}" +
-                "并在生成证明材料时按需重新下载原视频：" +
+                "并在生成证明材料时按需恢复所需视频：" +
                 $"{Environment.NewLine}{Environment.NewLine}{names}" +
                 $"{Environment.NewLine}{Environment.NewLine}" +
                 "本次只会生成证明材料并编辑 TikTok 版权证明页面，不会重新上传剧集。确认继续吗？");
@@ -1942,14 +1951,71 @@ public partial class TikTokQueueView : UserControl
             try
             {
                 var historySnapshot = match.HistorySnapshot!;
-                vm.StatusMessage = $"正在重建已删除项目：{match.NewTitle}";
-                var recovery = await DeletedCopyrightProofProjectRecoveryService.RecoverAsync(
-                    workspace,
-                    historySnapshot,
-                    proofSettings,
-                    proofAccount,
-                    vm.AppendLog,
-                    CancellationToken.None);
+                var originalTitle = (historySnapshot.Item.OriginalTitle ?? string.Empty).Trim();
+                DeletedCopyrightProofProjectRecoveryResult recovery;
+                if (string.IsNullOrWhiteSpace(originalTitle))
+                {
+                    var requiredEpisodes =
+                        DeletedCopyrightProofPublishedVideoRecoveryService.ResolveRequiredEpisodeCount(
+                            proofSettings,
+                            proofAccount);
+                    requiredEpisodes = Math.Max(1, requiredEpisodes);
+                    vm.StatusMessage =
+                        $"正在从 TikTok 已发布项目恢复视频：{match.NewTitle}（需要 {requiredEpisodes} 集）";
+                    var ready = await EnsureAccountBrowserReadyAsync(
+                        proofAccount,
+                        vm.AppendLog,
+                        CancellationToken.None);
+                    if (!ready.Ok)
+                    {
+                        restoreFailures.Add($"{match.NewTitle}：{ready.Message}");
+                        selectedTitles.Remove(match.NewTitle);
+                        continue;
+                    }
+
+                    IEmbeddedBrowser? browser = null;
+                    if (!UsesPlaywrightUploadBrowser(proofAccount))
+                        browser = _browserHost?.TryGetHost(proofAccount.Id);
+                    var download =
+                        await TikTokPublishedSeriesVideoDownloadService.DownloadAsync(
+                            proofAccount,
+                            browser,
+                            match.NewTitle,
+                            workspace,
+                            requiredEpisodes,
+                            vm.AppendLog,
+                            CancellationToken.None);
+                    if (!download.Ok)
+                    {
+                        restoreFailures.Add($"{match.NewTitle}：{download.Message}");
+                        selectedTitles.Remove(match.NewTitle);
+                        continue;
+                    }
+
+                    recovery = DeletedCopyrightProofPublishedVideoRecoveryService.Recover(
+                        workspace,
+                        historySnapshot,
+                        new TikTokPublishedVideoRecoverySource(
+                            download.SeriesId,
+                            download.DetailUrl,
+                            download.StagingDirectory,
+                            download.PlatformEpisodeCount,
+                            download.DownloadedEpisodeCount),
+                        proofAccount,
+                        vm.AppendLog);
+                }
+                else
+                {
+                    vm.StatusMessage = $"正在重建已删除项目：{match.NewTitle}";
+                    recovery = await DeletedCopyrightProofProjectRecoveryService.RecoverAsync(
+                        workspace,
+                        historySnapshot,
+                        proofSettings,
+                        proofAccount,
+                        vm.AppendLog,
+                        CancellationToken.None);
+                }
+
                 if (!recovery.Ok)
                 {
                     restoreFailures.Add($"{match.NewTitle}：{recovery.Message}");
