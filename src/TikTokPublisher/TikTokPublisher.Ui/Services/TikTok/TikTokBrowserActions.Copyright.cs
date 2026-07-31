@@ -248,11 +248,13 @@ public static partial class TikTokBrowserActions
         {
             var sourceInfoOption = await WaitForCopyrightMaterialCheckboxAsync(
                 page,
+                TikTokPublishConstants.SourceFileInformationMaterialType,
                 sourceInfoLabel,
                 CopyrightControlTimeoutMs,
                 ct);
             await EnsureCopyrightMaterialCheckboxStateAsync(
                 page,
+                TikTokPublishConstants.SourceFileInformationMaterialType,
                 sourceInfoLabel,
                 sourceInfoOption,
                 shouldSelect: true,
@@ -264,11 +266,13 @@ public static partial class TikTokBrowserActions
         {
             var aiOption = await WaitForCopyrightMaterialCheckboxAsync(
                 page,
+                TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
                 aiScreenshotLabel,
                 CopyrightControlTimeoutMs,
                 ct);
             await EnsureCopyrightMaterialCheckboxStateAsync(
                 page,
+                TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
                 aiScreenshotLabel,
                 aiOption,
                 shouldSelect: true,
@@ -280,11 +284,13 @@ public static partial class TikTokBrowserActions
         {
             var editingOption = await WaitForCopyrightMaterialCheckboxAsync(
                 page,
+                TikTokPublishConstants.EditingProjectFilesMaterialType,
                 editingProjectLabel,
                 CopyrightControlTimeoutMs,
                 ct);
             await EnsureCopyrightMaterialCheckboxStateAsync(
                 page,
+                TikTokPublishConstants.EditingProjectFilesMaterialType,
                 editingProjectLabel,
                 editingOption,
                 shouldSelect: true,

@@ -645,29 +645,6 @@ public static class WorkspaceQueueService
         return File.Exists(Path.Combine(context.WorkflowProjectDir, "tiktok-upload-manifest.json"));
     }
 
-    private static bool HasGeneratedProofMaterial(string workflowProjectDir)
-    {
-        var path = Path.Combine(workflowProjectDir, TikTokProofMaterialService.ProofPdfFileName);
-        try
-        {
-            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            if (stream.Length < 5)
-                return false;
-
-            Span<byte> header = stackalloc byte[5];
-            stream.ReadExactly(header);
-            return header.SequenceEqual("%PDF-"u8);
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
     private static bool HasSilenceAsrReport(ProjectWorkspaceContext context)
     {
         if (ProjectStateDocumentStore.LoadDocument(
