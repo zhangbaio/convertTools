@@ -125,6 +125,7 @@ public static class QueueMaterialStepService
             $"不执行整剧下载，不改变正式下载步骤状态；下载的视频将保留到项目归档。");
         try
         {
+            DramaDownloadResult downloadResult;
             using (await QueueDownloadSlotCoordinator.WaitAsync(
                        maxParallelProjects,
                        $"{displayName}（证明材料补源）",
@@ -138,23 +139,36 @@ public static class QueueMaterialStepService
                     displayName,
                     selection,
                     concurrent);
-                var result = await ShortDramaDramaServices.Downloader
+                downloadResult = await ShortDramaDramaServices.Downloader
                     .DownloadAsync(request, CreateDownloadProgress(log), ct)
                     .ConfigureAwait(false);
-                if (!result.Ok)
-                {
-                    if (ct.IsCancellationRequested)
-                        throw new OperationCanceledException(ct);
-                    throw new InvalidOperationException(result.Message ?? "证明材料补源失败");
-                }
             }
 
             var after = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir)
                 .Select(Path.GetFullPath)
                 .ToArray();
             var created = after.Where(path => !before.Contains(path)).ToArray();
-            if (after.Length == 0)
-                throw new InvalidOperationException("证明材料补源完成后仍未找到可用视频。");
+            if (!downloadResult.Ok && ct.IsCancellationRequested)
+                throw new OperationCanceledException(ct);
+
+            var disposition = ResolveProofMaterialHydrationDisposition(
+                downloadResult.Ok,
+                after.Length);
+            if (disposition == ProofMaterialVideoHydrationDisposition.Failed)
+            {
+                throw new InvalidOperationException(
+                    downloadResult.Ok
+                        ? "证明材料补源完成后仍未找到可用视频。"
+                        : downloadResult.Message ?? "证明材料补源失败");
+            }
+
+            if (disposition == ProofMaterialVideoHydrationDisposition.Partial)
+            {
+                log(
+                    $"证明材料补源存在未完成分集：{downloadResult.Message}；" +
+                    $"已获得 {after.Length} 个有效视频，将继续生成证明材料。" +
+                    "后续再次执行时会直接复用这些视频。");
+            }
 
             log(
                 $"证明材料补源完成：新增 {created.Length} 个视频，可用 {after.Length} 个；" +
@@ -181,6 +195,25 @@ public static class QueueMaterialStepService
         IReadOnlyList<string> CreatedVideoPaths)
     {
         internal static ProofMaterialVideoHydrationResult Empty { get; } = new([]);
+    }
+
+    internal static ProofMaterialVideoHydrationDisposition ResolveProofMaterialHydrationDisposition(
+        bool downloadOk,
+        int availableVideoCount)
+    {
+        if (availableVideoCount <= 0)
+            return ProofMaterialVideoHydrationDisposition.Failed;
+
+        return downloadOk
+            ? ProofMaterialVideoHydrationDisposition.Completed
+            : ProofMaterialVideoHydrationDisposition.Partial;
+    }
+
+    internal enum ProofMaterialVideoHydrationDisposition
+    {
+        Failed,
+        Partial,
+        Completed,
     }
 
     private static DramaDownloadRequest BuildDownloadRequest(
