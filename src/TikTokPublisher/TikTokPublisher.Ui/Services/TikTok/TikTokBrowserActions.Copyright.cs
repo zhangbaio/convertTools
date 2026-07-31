@@ -15,6 +15,11 @@ internal sealed record CopyrightProofMaterialProbe(
     CopyrightProofMaterialProbeState State,
     string Detail);
 
+internal sealed record CopyrightProofMaterialCoverageProbe(
+    bool FormAvailable,
+    TikTokCopyrightMaterialCompletionPlan Plan,
+    IReadOnlyList<string> Details);
+
 public static partial class TikTokBrowserActions
 {
     private const int CopyrightControlTimeoutMs = 15000;
@@ -121,9 +126,84 @@ public static partial class TikTokBrowserActions
             "未检测到已上传文件");
     }
 
+    internal static async Task<CopyrightProofMaterialCoverageProbe>
+        ProbeConfiguredCopyrightProofMaterialsAsync(
+            IPage page,
+            IEnumerable<string>? configuredMaterialTypes,
+            CancellationToken ct)
+    {
+        var configured = TikTokPublishConstants
+            .NormalizeCopyrightMaterialTypes(configuredMaterialTypes)
+            .ToArray();
+        var formAvailable = await WaitUntilAsync(async () =>
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var materialTypeField = page.Locator(CopyrightMaterialTypeFieldSelector).First;
+                if (await materialTypeField.CountAsync() > 0 &&
+                    await materialTypeField.IsVisibleAsync())
+                    return true;
+
+                var uploadFields = page.Locator(CopyrightMaterialUploadFieldSelector);
+                return await uploadFields.CountAsync() > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }, 5000, 250, ct);
+
+        if (!formAvailable)
+        {
+            return new CopyrightProofMaterialCoverageProbe(
+                false,
+                TikTokCopyrightMaterialCompletionPlan.Create(configured, []),
+                ["版权证明表单未加载或字段不可识别"]);
+        }
+
+        var existing = new List<string>();
+        var details = new List<string>();
+        foreach (var materialType in configured)
+        {
+            ct.ThrowIfCancellationRequested();
+            var label = TikTokPublishConstants.CopyrightMaterialLabels[materialType];
+            var field = await TryFindCopyrightMaterialFieldAsync(page, materialType, label);
+            if (field is null)
+            {
+                details.Add($"{label}：未显示上传区域");
+                continue;
+            }
+
+            var fileCount = await CountExistingCopyrightMaterialFilesAsync(field);
+            if (fileCount > 0)
+            {
+                existing.Add(materialType);
+                details.Add($"{label}：已有 {fileCount} 个文件");
+            }
+            else
+            {
+                details.Add($"{label}：未检测到文件");
+            }
+        }
+
+        return new CopyrightProofMaterialCoverageProbe(
+            true,
+            TikTokCopyrightMaterialCompletionPlan.Create(configured, existing),
+            details);
+    }
+
+    internal static Task ConfigureCopyrightProofAsync(
+        IPage page,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct) =>
+        ConfigureCopyrightProofAsync(page, options, [], log, ct);
+
     internal static async Task ConfigureCopyrightProofAsync(
         IPage page,
         TikTokPublishOptions options,
+        IEnumerable<string>? existingMaterialTypes,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -142,6 +222,10 @@ public static partial class TikTokBrowserActions
 
         if (configuredMaterialKeys.Count == 0)
             throw new InvalidOperationException("TikTok 上传材料类型未配置，请选择「制作协议、联合出品协议等合作协议」。");
+
+        var completionPlan = TikTokCopyrightMaterialCompletionPlan.Create(
+            configuredMaterialKeys,
+            existingMaterialTypes);
 
         var supportedAutoUploadKeys = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -183,10 +267,12 @@ public static partial class TikTokBrowserActions
         var includeSourceFileInformation = configuredMaterialKeys.Contains(
             TikTokPublishConstants.SourceFileInformationMaterialType,
             StringComparer.Ordinal);
-        var sourceInfoFiles = includeSourceFileInformation
+        var uploadSourceFileInformation = completionPlan.ShouldUpload(
+            TikTokPublishConstants.SourceFileInformationMaterialType);
+        var sourceInfoFiles = includeSourceFileInformation && uploadSourceFileInformation
             ? ResolveSourceFileInformationScreenshotFiles(options)
             : [];
-        if (includeSourceFileInformation &&
+        if (includeSourceFileInformation && uploadSourceFileInformation &&
             sourceInfoFiles.Count < TikTokSourceFileInfoScreenshotService.RequiredImageCount)
         {
             throw new FileNotFoundException(
@@ -198,10 +284,12 @@ public static partial class TikTokBrowserActions
         var includeAiGenerationScreenshots = configuredMaterialKeys.Contains(
             TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
             StringComparer.Ordinal);
-        var aiScreenshotFiles = includeAiGenerationScreenshots
+        var uploadAiGenerationScreenshots = completionPlan.ShouldUpload(
+            TikTokPublishConstants.AiGenerationScreenshotsMaterialType);
+        var aiScreenshotFiles = includeAiGenerationScreenshots && uploadAiGenerationScreenshots
             ? ResolveAiGenerationScreenshotFiles(options)
             : [];
-        if (includeAiGenerationScreenshots &&
+        if (includeAiGenerationScreenshots && uploadAiGenerationScreenshots &&
             aiScreenshotFiles.Count < TikTokAiGenerationScreenshotService.RequiredImageCount)
         {
             throw new FileNotFoundException(
@@ -213,10 +301,12 @@ public static partial class TikTokBrowserActions
         var includeEditingProjectFiles = configuredMaterialKeys.Contains(
             TikTokPublishConstants.EditingProjectFilesMaterialType,
             StringComparer.Ordinal);
-        var editingProjectFiles = includeEditingProjectFiles
+        var uploadEditingProjectFiles = completionPlan.ShouldUpload(
+            TikTokPublishConstants.EditingProjectFilesMaterialType);
+        var editingProjectFiles = includeEditingProjectFiles && uploadEditingProjectFiles
             ? ResolveEditingProjectFiles(options)
             : [];
-        if (includeEditingProjectFiles &&
+        if (includeEditingProjectFiles && uploadEditingProjectFiles &&
             editingProjectFiles.Count < TikTokProjectImageService.MinUploadImageCount)
         {
             throw new FileNotFoundException(
@@ -225,14 +315,20 @@ public static partial class TikTokBrowserActions
                 "请先执行「生成证明材料」或「生成工程图」。");
         }
 
-        var filePath = options.ResolveCopyrightMaterialFilePath(
+        var uploadProductionAgreement = completionPlan.ShouldUpload(
             TikTokPublishConstants.ProductionAgreementMaterialType);
-        if (string.IsNullOrWhiteSpace(filePath))
-            throw new FileNotFoundException("未配置当前项目的 TikTok 证明材料文件路径。", filePath);
+        var resolvedFilePath = string.Empty;
+        if (uploadProductionAgreement)
+        {
+            var filePath = options.ResolveCopyrightMaterialFilePath(
+                TikTokPublishConstants.ProductionAgreementMaterialType);
+            if (string.IsNullOrWhiteSpace(filePath))
+                throw new FileNotFoundException("未配置当前项目的 TikTok 证明材料文件路径。", filePath);
 
-        var resolvedFilePath = Path.GetFullPath(filePath);
-        if (!File.Exists(resolvedFilePath))
-            throw new FileNotFoundException("当前项目的 TikTok 证明材料文件不存在。", resolvedFilePath);
+            resolvedFilePath = Path.GetFullPath(filePath);
+            if (!File.Exists(resolvedFilePath))
+                throw new FileNotFoundException("当前项目的 TikTok 证明材料文件不存在。", resolvedFilePath);
+        }
 
         await SelectCopyrightRadioAsync(
             page,
@@ -370,15 +466,22 @@ public static partial class TikTokBrowserActions
             selectedParts.Add(editingProjectLabel);
         Log(log, $"TikTok 版权材料类型已确认：{string.Join("、", selectedParts)}。");
 
-        await UploadCopyrightMaterialFilesAsync(
-            page,
-            productionAgreementLabel,
-            [resolvedFilePath],
-            preferProductionAgreementFieldId: true,
-            log,
-            ct);
+        if (uploadProductionAgreement)
+        {
+            await UploadCopyrightMaterialFilesAsync(
+                page,
+                productionAgreementLabel,
+                [resolvedFilePath],
+                preferProductionAgreementFieldId: true,
+                log,
+                ct);
+        }
+        else
+        {
+            Log(log, $"TikTok 版权材料已存在，保留并跳过重复上传：{productionAgreementLabel}。");
+        }
 
-        if (includeSourceFileInformation)
+        if (includeSourceFileInformation && uploadSourceFileInformation)
         {
             await UploadCopyrightMaterialFilesAsync(
                 page,
@@ -388,8 +491,12 @@ public static partial class TikTokBrowserActions
                 log,
                 ct);
         }
+        else if (includeSourceFileInformation)
+        {
+            Log(log, $"TikTok 版权材料已存在，保留并跳过重复上传：{sourceInfoLabel}。");
+        }
 
-        if (includeAiGenerationScreenshots)
+        if (includeAiGenerationScreenshots && uploadAiGenerationScreenshots)
         {
             await UploadCopyrightMaterialFilesAsync(
                 page,
@@ -399,8 +506,12 @@ public static partial class TikTokBrowserActions
                 log,
                 ct);
         }
+        else if (includeAiGenerationScreenshots)
+        {
+            Log(log, $"TikTok 版权材料已存在，保留并跳过重复上传：{aiScreenshotLabel}。");
+        }
 
-        if (includeEditingProjectFiles)
+        if (includeEditingProjectFiles && uploadEditingProjectFiles)
         {
             await UploadCopyrightMaterialFilesAsync(
                 page,
@@ -409,6 +520,10 @@ public static partial class TikTokBrowserActions
                 preferProductionAgreementFieldId: false,
                 log,
                 ct);
+        }
+        else if (includeEditingProjectFiles)
+        {
+            Log(log, $"TikTok 版权材料已存在，保留并跳过重复上传：{editingProjectLabel}。");
         }
     }
 
@@ -619,6 +734,113 @@ public static partial class TikTokBrowserActions
         }
         Log(log, $"TikTok 版权材料上传完成：{label}（{displayNames}）。");
     }
+
+    private static async Task<ILocator?> TryFindCopyrightMaterialFieldAsync(
+        IPage page,
+        string materialKey,
+        string label)
+    {
+        if (string.Equals(
+                materialKey,
+                TikTokPublishConstants.ProductionAgreementMaterialType,
+                StringComparison.Ordinal))
+        {
+            var productionAgreementField = page
+                .Locator(ProductionAgreementUploadFieldSelector)
+                .First;
+            try
+            {
+                if (await productionAgreementField.CountAsync() > 0 &&
+                    await productionAgreementField.IsVisibleAsync())
+                    return productionAgreementField;
+            }
+            catch
+            {
+                // Continue with the label-based fallback.
+            }
+        }
+
+        var candidates = new List<string> { label };
+        if (TikTokPublishConstants.CopyrightMaterialI18nKeys.TryGetValue(
+                materialKey,
+                out var i18nKey))
+            candidates.Insert(0, i18nKey);
+
+        foreach (var candidateText in candidates.Distinct(StringComparer.Ordinal))
+        {
+            var exactLabels = page.Locator(
+                $"xpath=//*[normalize-space(translate(text(), '*', ''))={XPathLiteral(candidateText)}]");
+            if (await exactLabels.CountAsync() == 0)
+                exactLabels = page.GetByText(candidateText, new() { Exact = true });
+
+            var count = await exactLabels.CountAsync();
+            for (var index = count - 1; index >= 0; index--)
+            {
+                try
+                {
+                    var exactLabel = exactLabels.Nth(index);
+                    if (!await exactLabel.IsVisibleAsync()) continue;
+
+                    var field = exactLabel.Locator(
+                        "xpath=ancestor::*[starts-with(@x-field-id, 'copyrightProof.materialFiles.')][1]");
+                    if (await field.CountAsync() == 0)
+                    {
+                        field = exactLabel.Locator(
+                            "xpath=ancestor::*[.//input[@type='file']][1]");
+                    }
+                    if (await field.CountAsync() > 0 && await field.IsVisibleAsync())
+                        return field;
+                }
+                catch
+                {
+                    // The form may redraw while probing; try the next candidate.
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static Task<int> CountExistingCopyrightMaterialFilesAsync(ILocator field) =>
+        field.EvaluateAsync<int>(
+            """
+            root => {
+              const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
+              const isVisible = element => {
+                if (!(element instanceof Element)) return false;
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return style.display !== 'none' &&
+                  style.visibility !== 'hidden' &&
+                  Number(style.opacity || '1') > 0 &&
+                  rect.width > 0 && rect.height > 0;
+              };
+              const listCards = [...root.querySelectorAll(
+                '.semi-upload-file-list-main[role="list"] > *, ' +
+                '.semi-upload-file-list-main [role="list"] > *')]
+                .filter(isVisible);
+              if (listCards.length > 0) return listCards.length;
+
+              const cards = [...root.querySelectorAll(
+                '[class*="pictureCard"], [class*="fileCard"], [class*="upload-file"]')]
+                .filter(card => {
+                  if (!isVisible(card) || card.querySelector('input[type="file"]')) return false;
+                  const text = normalize([
+                    card.innerText,
+                    card.getAttribute('title'),
+                    card.getAttribute('aria-label'),
+                    card.getAttribute('data-file-name')
+                  ].filter(Boolean).join(' '));
+                  const hasFileLabel =
+                    /\.(pdf|png|jpe?g|webp|gif|docx?)\b/i.test(text) ||
+                    /\bPDF\b/i.test(text);
+                  const hasPreview = Boolean(card.querySelector(
+                    'img[src], canvas, [class*="preview"], [class*="pdf"]'));
+                  return hasFileLabel || hasPreview;
+                });
+              return new Set(cards).size;
+            }
+            """);
 
     private static async Task<(ILocator Input, ILocator ClickTarget)> WaitForCopyrightMaterialCheckboxAsync(
         IPage page,

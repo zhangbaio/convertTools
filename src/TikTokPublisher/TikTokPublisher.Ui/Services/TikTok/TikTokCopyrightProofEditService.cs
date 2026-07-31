@@ -81,18 +81,40 @@ public static class TikTokCopyrightProofEditService
             await copyrightTab.ClickAsync(new() { Timeout = 15000 }).ConfigureAwait(false);
             L("已进入版权证明页；本任务不会修改剧集信息、视频、商业模式或价格。");
 
-            var existingMaterial = await TikTokBrowserActions
-                .FindExistingCopyrightProofMaterialAsync(page, ct)
-                .ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(existingMaterial))
-            {
-                L($"检测到 TikTok 版权证明页已有上传材料，跳过重复编辑：{existingMaterial}");
-                return PublishResult.Success("TikTok 版权证明页已有材料，已跳过重复编辑");
-            }
-
             var workflowDir = TikTokUploadStateStore.ResolveWorkflowProjectDir(item.ProjectDir);
             var options = TikTokPublishOptionsBuilder.FromAccount(account, workflowDir, L);
-            await TikTokBrowserActions.ConfigureCopyrightProofAsync(page, options, L, ct)
+            var coverage = await TikTokBrowserActions
+                .ProbeConfiguredCopyrightProofMaterialsAsync(
+                    page,
+                    options.CopyrightMaterialTypes,
+                    ct)
+                .ConfigureAwait(false);
+            if (coverage.FormAvailable)
+            {
+                foreach (var detail in coverage.Details)
+                    L($"TikTok 版权材料逐项检查：{detail}。");
+
+                if (coverage.Plan.IsComplete)
+                {
+                    L("账号配置的版权材料均已上传，跳过重复编辑。");
+                    return PublishResult.Success("TikTok 账号配置的版权材料均已上传，已跳过重复编辑");
+                }
+
+                var missingLabels = coverage.Plan.MissingMaterialTypes
+                    .Select(key => TikTokPublishConstants.CopyrightMaterialLabels[key]);
+                L($"TikTok 版权材料将继续补全：{string.Join("、", missingLabels)}。");
+            }
+            else
+            {
+                L("未能在预检阶段识别版权材料字段，将按账号配置执行完整填写。");
+            }
+
+            await TikTokBrowserActions.ConfigureCopyrightProofAsync(
+                    page,
+                    options,
+                    coverage.Plan.ExistingMaterialTypes,
+                    L,
+                    ct)
                 .ConfigureAwait(false);
 
             if (finalAction == FinalAction.None)
