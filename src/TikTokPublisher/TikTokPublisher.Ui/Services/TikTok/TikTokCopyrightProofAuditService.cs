@@ -1,0 +1,328 @@
+using System.Collections.Concurrent;
+using Microsoft.Playwright;
+using TikTokPublisher.Core.Abstractions;
+using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services;
+
+namespace TikTokPublisher.Ui.Services.TikTok;
+
+public sealed record TikTokCopyrightProofAuditProgress(
+    int Completed,
+    int Total,
+    string CurrentTitle,
+    TikTokCopyrightProofAuditItem? Result,
+    string Stage);
+
+public static class TikTokCopyrightProofAuditService
+{
+    public static async Task<IReadOnlyList<TikTokCopyrightProofAuditItem>> AuditAsync(
+        TikTokAccountProfile account,
+        IEmbeddedBrowser? browser,
+        IProgress<TikTokCopyrightProofAuditProgress>? progress,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        IPlaywright? playwright = null;
+        IBrowser? chromium = null;
+        try
+        {
+            var useLaunch = string.Equals(
+                (account.TiktokUploadBrowserMode ?? string.Empty).Trim(),
+                "playwright",
+                StringComparison.OrdinalIgnoreCase);
+
+            IPage listPage;
+            if (useLaunch)
+            {
+                var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
+                (playwright, chromium, listPage) = await EmbeddedBrowserAutomationBridge
+                    .LaunchPageAsync(
+                        account,
+                        TikTokUrls.DefaultSeriesListUrl,
+                        authPath,
+                        account.TiktokPlaywrightUploadHeadless,
+                        log,
+                        ct)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                if (browser is null)
+                    throw new InvalidOperationException("当前账号的内置浏览器尚未就绪或未登录。");
+                (playwright, chromium, listPage) = await EmbeddedBrowserAutomationBridge
+                    .ConnectPageAsync(browser, TikTokUrls.DefaultSeriesListUrl, log, ct)
+                    .ConfigureAwait(false);
+            }
+
+            log?.Invoke("开始读取当前账号原创管理中的全部剧集。");
+            await TikTokSeriesListLookupService.OpenAsync(listPage, log, ct).ConfigureAwait(false);
+            var allRows = await TikTokSeriesListLookupService
+                .EnumerateAllAsync(listPage, log, ct)
+                .ConfigureAwait(false);
+            var publishedRows = allRows
+                .Where(row => TikTokPublishedSeriesMatchText.IsPublishedStatus(row.PlatformStatus))
+                .DistinctBy(row =>
+                    !string.IsNullOrWhiteSpace(row.SeriesId)
+                        ? $"id:{row.SeriesId}"
+                        : $"url:{row.DetailUrl}|title:{row.Title}")
+                .ToArray();
+
+            log?.Invoke(
+                $"原创管理读取完成：全部 {allRows.Count} 个，已发布 {publishedRows.Length} 个；" +
+                "开始只读检查版权证明页面。");
+            progress?.Report(new TikTokCopyrightProofAuditProgress(
+                0,
+                publishedRows.Length,
+                string.Empty,
+                null,
+                "已完成列表读取"));
+
+            if (publishedRows.Length == 0)
+                return [];
+
+            var results = new ConcurrentDictionary<int, TikTokCopyrightProofAuditItem>();
+            var completed = 0;
+            var concurrency = Math.Clamp(account.TiktokProjectConcurrency, 2, 4);
+            var indexedRows = publishedRows
+                .Select((row, index) => (Row: row, Order: index + 1))
+                .ToArray();
+
+            await Parallel.ForEachAsync(
+                indexedRows,
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = concurrency,
+                    CancellationToken = ct,
+                },
+                async (entry, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    var result = await AuditOneAsync(
+                            listPage.Context,
+                            entry.Row,
+                            entry.Order,
+                            log,
+                            token)
+                        .ConfigureAwait(false);
+                    results[entry.Order] = result;
+                    var currentCompleted = Interlocked.Increment(ref completed);
+                    progress?.Report(new TikTokCopyrightProofAuditProgress(
+                        currentCompleted,
+                        publishedRows.Length,
+                        entry.Row.Title,
+                        result,
+                        "检查版权证明"));
+                }).ConfigureAwait(false);
+
+            return results
+                .OrderBy(pair => pair.Key)
+                .Select(pair => pair.Value)
+                .ToArray();
+        }
+        finally
+        {
+            try
+            {
+                if (chromium is not null)
+                    await chromium.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // 外部浏览器由任务关闭；CDP 模式只断开自动化连接。
+            }
+
+            playwright?.Dispose();
+        }
+    }
+
+    private static async Task<TikTokCopyrightProofAuditItem> AuditOneAsync(
+        IBrowserContext context,
+        TikTokSeriesListRow row,
+        int order,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(row.DetailUrl))
+        {
+            return Failed(
+                order,
+                row,
+                "平台列表未提供可用的详情地址");
+        }
+
+        IPage? page = null;
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            log?.Invoke($"版权证明检查 {order}：{row.Title}");
+            page = await context.NewPageAsync().ConfigureAwait(false);
+            page.Dialog += (_, dialog) => _ = dialog.DismissAsync();
+            await page.GotoAsync(row.DetailUrl, new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 90000,
+            }).ConfigureAwait(false);
+            try
+            {
+                await page.WaitForLoadStateAsync(
+                    LoadState.NetworkIdle,
+                    new PageWaitForLoadStateOptions { Timeout = 12000 }).ConfigureAwait(false);
+            }
+            catch
+            {
+                // 原创中心为 SPA，持续网络请求不影响只读检查。
+            }
+
+            if (IsLoginPage(page.Url))
+                return Failed(order, row, "登录状态失效");
+
+            await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log).ConfigureAwait(false);
+            if (!await OpenCopyrightProofTabAsync(page, ct).ConfigureAwait(false))
+                return Failed(order, row, "未找到版权证明标签页");
+
+            var probe = await TikTokBrowserActions
+                .ProbeCopyrightProofMaterialAsync(page, ct)
+                .ConfigureAwait(false);
+            var result = probe.State switch
+            {
+                CopyrightProofMaterialProbeState.HasMaterial =>
+                    new TikTokCopyrightProofAuditItem(
+                        order,
+                        row.Title,
+                        row.SeriesId,
+                        row.DetailUrl,
+                        TikTokCopyrightProofAuditState.HasMaterial,
+                        probe.Detail,
+                        DateTimeOffset.Now),
+                CopyrightProofMaterialProbeState.Empty =>
+                    new TikTokCopyrightProofAuditItem(
+                        order,
+                        row.Title,
+                        row.SeriesId,
+                        row.DetailUrl,
+                        TikTokCopyrightProofAuditState.MissingMaterial,
+                        probe.Detail,
+                        DateTimeOffset.Now),
+                _ => Failed(order, row, probe.Detail),
+            };
+
+            log?.Invoke(
+                $"版权证明检查完成：{row.Title}，" +
+                $"{StateText(result.State)}。");
+            return result;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"版权证明检查失败：{row.Title}，{ex.Message}");
+            return Failed(order, row, ex.Message);
+        }
+        finally
+        {
+            if (page is not null)
+            {
+                try { await page.CloseAsync().ConfigureAwait(false); }
+                catch { /* 页面可能已经随浏览器关闭。 */ }
+            }
+        }
+    }
+
+    private static async Task<bool> OpenCopyrightProofTabAsync(
+        IPage page,
+        CancellationToken ct)
+    {
+        var existingField = page.Locator("[x-field-id^='copyrightProof.']").First;
+        if (await existingField.CountAsync().ConfigureAwait(false) > 0 &&
+            await existingField.IsVisibleAsync().ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        foreach (var text in new[]
+                 {
+                     "版权证明",
+                     "Copyright proof",
+                     "Copyright Proof",
+                     "contentPartnerHub_seriesEditPage_copyrightProof",
+                 })
+        {
+            var candidates = page.GetByText(text, new() { Exact = true });
+            var count = await candidates.CountAsync().ConfigureAwait(false);
+            for (var index = count - 1; index >= 0; index--)
+            {
+                ct.ThrowIfCancellationRequested();
+                var candidate = candidates.Nth(index);
+                try
+                {
+                    if (!await candidate.IsVisibleAsync().ConfigureAwait(false))
+                        continue;
+                    await candidate.ClickAsync(new() { Timeout = 15000 }).ConfigureAwait(false);
+                    await page.WaitForTimeoutAsync(300).ConfigureAwait(false);
+                    return true;
+                }
+                catch
+                {
+                    // 尝试下一个本地化文本候选。
+                }
+            }
+        }
+
+        var tabs = page.Locator("[role='tab'], .semi-tabs-tab");
+        var tabCount = await tabs.CountAsync().ConfigureAwait(false);
+        for (var index = 0; index < tabCount; index++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var tab = tabs.Nth(index);
+            string text;
+            try
+            {
+                if (!await tab.IsVisibleAsync().ConfigureAwait(false))
+                    continue;
+                text = await tab.InnerTextAsync(new() { Timeout = 1500 }).ConfigureAwait(false);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (!text.Contains("版权", StringComparison.OrdinalIgnoreCase) &&
+                !text.Contains("copyright", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            await tab.ClickAsync(new() { Timeout = 15000 }).ConfigureAwait(false);
+            await page.WaitForTimeoutAsync(300).ConfigureAwait(false);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static TikTokCopyrightProofAuditItem Failed(
+        int order,
+        TikTokSeriesListRow row,
+        string detail) =>
+        new(
+            order,
+            row.Title,
+            row.SeriesId,
+            row.DetailUrl,
+            TikTokCopyrightProofAuditState.Failed,
+            detail,
+            DateTimeOffset.Now);
+
+    private static string StateText(TikTokCopyrightProofAuditState state) =>
+        state switch
+        {
+            TikTokCopyrightProofAuditState.HasMaterial => "已上传证明",
+            TikTokCopyrightProofAuditState.MissingMaterial => "未上传证明",
+            _ => "检查失败",
+        };
+
+    private static bool IsLoginPage(string? url) =>
+        (url ?? string.Empty).Contains("/login", StringComparison.OrdinalIgnoreCase);
+}
