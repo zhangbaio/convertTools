@@ -7,8 +7,18 @@ namespace TikTokPublisher.Core.Services;
 public enum TikTokCopyrightProofAuditState
 {
     HasMaterial,
+    ProductionAgreementOnly,
+    PartialMaterial,
     MissingMaterial,
     Failed,
+}
+
+public static class TikTokCopyrightProofAuditStateExtensions
+{
+    public static bool IsIncomplete(this TikTokCopyrightProofAuditState state) =>
+        state is TikTokCopyrightProofAuditState.ProductionAgreementOnly
+            or TikTokCopyrightProofAuditState.PartialMaterial
+            or TikTokCopyrightProofAuditState.MissingMaterial;
 }
 
 public sealed record TikTokCopyrightProofAuditItem(
@@ -24,7 +34,7 @@ public static class TikTokCopyrightProofAuditText
 {
     public static string BuildMissingTitlesCopyText(
         IEnumerable<TikTokCopyrightProofAuditItem> items) =>
-        BuildTitleList(items, TikTokCopyrightProofAuditState.MissingMaterial);
+        BuildTitleList(items, state => state.IsIncomplete());
 
     public static string BuildFailedTitlesCopyText(
         IEnumerable<TikTokCopyrightProofAuditItem> items) =>
@@ -36,7 +46,13 @@ public static class TikTokCopyrightProofAuditText
         var ordered = items
             .OrderBy(item => item.Order)
             .ToArray();
-        var missing = ordered
+        var productionAgreementOnly = ordered
+            .Where(item => item.State == TikTokCopyrightProofAuditState.ProductionAgreementOnly)
+            .ToArray();
+        var partial = ordered
+            .Where(item => item.State == TikTokCopyrightProofAuditState.PartialMaterial)
+            .ToArray();
+        var missingAll = ordered
             .Where(item => item.State == TikTokCopyrightProofAuditState.MissingMaterial)
             .ToArray();
         var failed = ordered
@@ -44,11 +60,30 @@ public static class TikTokCopyrightProofAuditText
             .ToArray();
 
         var sections = new List<string>();
-        if (missing.Length > 0)
+        if (productionAgreementOnly.Length > 0)
         {
             sections.Add(
-                $"【未上传版权证明（{missing.Length}）】{Environment.NewLine}" +
-                string.Join(Environment.NewLine, missing.Select(item => item.Title)));
+                $"【仅上传版权证明 PDF（{productionAgreementOnly.Length}）】{Environment.NewLine}" +
+                string.Join(Environment.NewLine, productionAgreementOnly.Select(item => item.Title)));
+        }
+
+        if (partial.Length > 0)
+        {
+            sections.Add(
+                $"【部分版权证明材料缺失（{partial.Length}）】{Environment.NewLine}" +
+                string.Join(
+                    Environment.NewLine,
+                    partial.Select(item =>
+                        string.IsNullOrWhiteSpace(item.Detail)
+                            ? item.Title
+                            : $"{item.Title}　[{item.Detail}]")));
+        }
+
+        if (missingAll.Length > 0)
+        {
+            sections.Add(
+                $"【所有版权证明均未填写（{missingAll.Length}）】{Environment.NewLine}" +
+                string.Join(Environment.NewLine, missingAll.Select(item => item.Title)));
         }
 
         if (failed.Length > 0)
@@ -71,10 +106,15 @@ public static class TikTokCopyrightProofAuditText
     private static string BuildTitleList(
         IEnumerable<TikTokCopyrightProofAuditItem> items,
         TikTokCopyrightProofAuditState state) =>
+        BuildTitleList(items, candidate => candidate == state);
+
+    private static string BuildTitleList(
+        IEnumerable<TikTokCopyrightProofAuditItem> items,
+        Func<TikTokCopyrightProofAuditState, bool> predicate) =>
         string.Join(
             Environment.NewLine,
             items
-                .Where(item => item.State == state)
+                .Where(item => predicate(item.State))
                 .OrderBy(item => item.Order)
                 .Select(item => item.Title)
                 .Where(title => !string.IsNullOrWhiteSpace(title))
@@ -168,8 +208,10 @@ public static class TikTokCopyrightProofAuditExcelService
     private static string StateText(TikTokCopyrightProofAuditState state) =>
         state switch
         {
-            TikTokCopyrightProofAuditState.HasMaterial => "已上传证明",
-            TikTokCopyrightProofAuditState.MissingMaterial => "未上传证明",
+            TikTokCopyrightProofAuditState.HasMaterial => "版权证明材料齐全",
+            TikTokCopyrightProofAuditState.ProductionAgreementOnly => "仅上传版权证明 PDF",
+            TikTokCopyrightProofAuditState.PartialMaterial => "部分版权证明材料缺失",
+            TikTokCopyrightProofAuditState.MissingMaterial => "所有版权证明均未填写",
             _ => "检查失败",
         };
 

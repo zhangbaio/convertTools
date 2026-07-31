@@ -2714,12 +2714,18 @@ public partial class TikTokQueueView : UserControl
                 progress,
                 vm.AppendLog,
                 ct);
-            var missing = results.Count(item =>
+            var productionAgreementOnly = results.Count(item =>
+                item.State == TikTokCopyrightProofAuditState.ProductionAgreementOnly);
+            var partial = results.Count(item =>
+                item.State == TikTokCopyrightProofAuditState.PartialMaterial);
+            var missingAll = results.Count(item =>
                 item.State == TikTokCopyrightProofAuditState.MissingMaterial);
             var failed = results.Count(item =>
                 item.State == TikTokCopyrightProofAuditState.Failed);
             vm.StatusMessage =
-                $"版权证明检查完成：已发布 {results.Count} 个，未上传 {missing} 个，失败 {failed} 个";
+                $"版权证明检查完成：已发布 {results.Count} 个，" +
+                $"仅 PDF {productionAgreementOnly} 个，部分缺失 {partial} 个，" +
+                $"全部未填 {missingAll} 个，失败 {failed} 个";
             vm.AppendLog(vm.StatusMessage);
             return results;
         }

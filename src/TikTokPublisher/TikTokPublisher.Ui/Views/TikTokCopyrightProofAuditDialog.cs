@@ -286,7 +286,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
 
     private TikTokCopyrightProofAuditItem[] MissingResults() =>
         _results.Values
-            .Where(item => item.State == TikTokCopyrightProofAuditState.MissingMaterial)
+            .Where(item => item.State.IsIncomplete())
             .OrderBy(item => item.Order)
             .ToArray();
 
@@ -301,8 +301,10 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         var values = _results.Values.ToArray();
         if (values.Length == 0)
             return string.Empty;
-        return $"；已上传 {values.Count(item => item.State == TikTokCopyrightProofAuditState.HasMaterial)}，" +
-               $"未上传 {values.Count(item => item.State == TikTokCopyrightProofAuditState.MissingMaterial)}，" +
+        return $"；材料齐全 {values.Count(item => item.State == TikTokCopyrightProofAuditState.HasMaterial)}，" +
+               $"仅 PDF {values.Count(item => item.State == TikTokCopyrightProofAuditState.ProductionAgreementOnly)}，" +
+               $"部分缺失 {values.Count(item => item.State == TikTokCopyrightProofAuditState.PartialMaterial)}，" +
+               $"全部未填 {values.Count(item => item.State == TikTokCopyrightProofAuditState.MissingMaterial)}，" +
                $"失败 {values.Count(item => item.State == TikTokCopyrightProofAuditState.Failed)}";
     }
 
