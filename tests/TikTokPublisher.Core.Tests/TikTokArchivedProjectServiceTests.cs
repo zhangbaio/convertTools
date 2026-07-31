@@ -426,6 +426,34 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
     }
 
     [Fact]
+    public void Restore_removes_empty_target_directory_and_continues()
+    {
+        var restoredSource = Path.Combine(_workspaceRoot, "empty-target-restore");
+        var restoredWorkflow = Path.Combine(_workspaceRoot, "workflow", "_empty-target-restore");
+        var archivedSource = Path.Combine(_archiveRoot, "source", "empty-target-restore");
+        var archivedWorkflow = Path.Combine(_archiveRoot, "workflow", "_empty-target-restore");
+        Directory.CreateDirectory(archivedSource);
+        Directory.CreateDirectory(archivedWorkflow);
+        Directory.CreateDirectory(restoredWorkflow);
+        WriteSmallFile(Path.Combine(archivedSource, "source.txt"));
+        WriteSmallFile(Path.Combine(archivedWorkflow, "workflow.txt"));
+        var metadataPath = WriteArchiveMetadata(
+            "empty-target-restore",
+            restoredSource,
+            restoredWorkflow,
+            archivedSource,
+            archivedWorkflow);
+
+        TikTokArchivedProjectService.Restore(_workspaceRoot, metadataPath, _archiveRoot);
+
+        File.Exists(Path.Combine(restoredSource, "source.txt")).Should().BeTrue();
+        File.Exists(Path.Combine(restoredWorkflow, "workflow.txt")).Should().BeTrue();
+        Directory.Exists(archivedSource).Should().BeFalse();
+        Directory.Exists(archivedWorkflow).Should().BeFalse();
+        File.Exists(metadataPath).Should().BeFalse();
+    }
+
+    [Fact]
     public void Restore_preflights_all_targets_before_moving_any_directory()
     {
         var restoredSource = Path.Combine(_workspaceRoot, "conflicting-restore");
@@ -435,6 +463,7 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         Directory.CreateDirectory(archivedSource);
         Directory.CreateDirectory(archivedWorkflow);
         Directory.CreateDirectory(restoredWorkflow);
+        WriteSmallFile(Path.Combine(restoredWorkflow, "existing.txt"));
         var metadataPath = WriteArchiveMetadata(
             "conflicting-restore",
             restoredSource,
