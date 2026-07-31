@@ -4,6 +4,17 @@ using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services.TikTok;
 
+internal enum CopyrightProofMaterialProbeState
+{
+    HasMaterial,
+    Empty,
+    Unavailable,
+}
+
+internal sealed record CopyrightProofMaterialProbe(
+    CopyrightProofMaterialProbeState State,
+    string Detail);
+
 public static partial class TikTokBrowserActions
 {
     private const int CopyrightControlTimeoutMs = 15000;
@@ -21,8 +32,18 @@ public static partial class TikTokBrowserActions
         IPage page,
         CancellationToken ct)
     {
+        var result = await ProbeCopyrightProofMaterialAsync(page, ct).ConfigureAwait(false);
+        return result.State == CopyrightProofMaterialProbeState.HasMaterial
+            ? result.Detail
+            : null;
+    }
+
+    internal static async Task<CopyrightProofMaterialProbe> ProbeCopyrightProofMaterialAsync(
+        IPage page,
+        CancellationToken ct)
+    {
         var probe = "missing";
-        await WaitUntilAsync(async () =>
+        var formAvailable = await WaitUntilAsync(async () =>
         {
             ct.ThrowIfCancellationRequested();
             probe = await page.EvaluateAsync<string>(
@@ -80,10 +101,24 @@ public static partial class TikTokBrowserActions
             return !string.Equals(probe, "missing", StringComparison.Ordinal);
         }, 5000, 250, ct);
 
+        if (!formAvailable || string.Equals(probe, "missing", StringComparison.Ordinal))
+        {
+            return new CopyrightProofMaterialProbe(
+                CopyrightProofMaterialProbeState.Unavailable,
+                "版权证明表单未加载或字段不可识别");
+        }
+
         const string prefix = "existing:";
-        return probe.StartsWith(prefix, StringComparison.Ordinal)
-            ? probe[prefix.Length..]
-            : null;
+        if (probe.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return new CopyrightProofMaterialProbe(
+                CopyrightProofMaterialProbeState.HasMaterial,
+                probe[prefix.Length..]);
+        }
+
+        return new CopyrightProofMaterialProbe(
+            CopyrightProofMaterialProbeState.Empty,
+            "未检测到已上传文件");
     }
 
     internal static async Task ConfigureCopyrightProofAsync(

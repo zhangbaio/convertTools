@@ -1741,6 +1741,20 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
+        await ShowCopyrightProofBatchAsync(
+            owner,
+            vm,
+            workspace,
+            proofAccount);
+    }
+
+    private async Task ShowCopyrightProofBatchAsync(
+        Window owner,
+        MainViewModel vm,
+        string workspace,
+        TikTokAccountProfile proofAccount,
+        string? initialTitles = null)
+    {
         IReadOnlyList<ArchivedProjectItem> archivedProjects;
         IReadOnlyList<TikTokExecutionProjectSnapshot> deletedHistoryProjects;
         try
@@ -1772,7 +1786,10 @@ public partial class TikTokQueueView : UserControl
                 archivedProjects,
                 deletedHistoryProjects);
 
-        var dialogResult = await CopyrightProofBatchDialog.ShowAsync(owner, Match);
+        var dialogResult = await CopyrightProofBatchDialog.ShowAsync(
+            owner,
+            Match,
+            initialTitles);
         if (dialogResult is null || dialogResult.SelectedMatches.Count == 0)
         {
             vm.StatusMessage = "已取消补全版权证明";
@@ -2583,6 +2600,94 @@ public partial class TikTokQueueView : UserControl
             accountVm.DisplayName,
             (titles, progress, ct) =>
                 LookupPublishedSeriesAsync(account, titles, progress, ct));
+    }
+
+    private async void OnAuditPublishedCopyrightProofClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var vm = _vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var accountVm = vm?.SelectedAccount;
+        if (vm is null || owner is null)
+            return;
+        if (accountVm is null)
+        {
+            vm.StatusMessage = "请先选择要检查的账号";
+            return;
+        }
+
+        var account = accountVm.Model;
+        var missingTitles = await TikTokCopyrightProofAuditDialog.ShowAsync(
+            owner,
+            accountVm.DisplayName,
+            (progress, ct) =>
+                AuditPublishedCopyrightProofAsync(account, progress, ct));
+        if (missingTitles is null || missingTitles.Count == 0)
+            return;
+
+        var workspace = (vm.WorkspacePath ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
+        {
+            vm.StatusMessage = "检查已完成，但开始补全前请先选择有效的 TikTok 工作目录";
+            return;
+        }
+
+        await ShowCopyrightProofBatchAsync(
+            owner,
+            vm,
+            workspace,
+            account,
+            string.Join(Environment.NewLine, missingTitles));
+    }
+
+    private async Task<IReadOnlyList<TikTokCopyrightProofAuditItem>>
+        AuditPublishedCopyrightProofAsync(
+            TikTokAccountProfile account,
+            IProgress<TikTokCopyrightProofAuditProgress> progress,
+            CancellationToken ct)
+    {
+        var vm = _vm ?? throw new InvalidOperationException("TikTok 上传视图尚未初始化。");
+        vm.StatusMessage = $"正在准备账号「{account.DisplayName}」的浏览器登录态…";
+        var ready = await EnsureAccountBrowserReadyAsync(account, vm.AppendLog, ct);
+        if (!ready.Ok)
+            throw new InvalidOperationException(ready.Message);
+
+        IEmbeddedBrowser? browser = null;
+        if (!UsesPlaywrightUploadBrowser(account))
+            browser = _browserHost?.TryGetHost(account.Id);
+
+        vm.StatusMessage = $"正在检查账号「{account.DisplayName}」的已发布剧集版权证明…";
+        vm.AppendLog(
+            $"开始只读检查账号「{account.DisplayName}」的已发布剧集版权证明；" +
+            "不会修改或提交平台内容。");
+        try
+        {
+            var results = await TikTokCopyrightProofAuditService.AuditAsync(
+                account,
+                browser,
+                progress,
+                vm.AppendLog,
+                ct);
+            var missing = results.Count(item =>
+                item.State == TikTokCopyrightProofAuditState.MissingMaterial);
+            var failed = results.Count(item =>
+                item.State == TikTokCopyrightProofAuditState.Failed);
+            vm.StatusMessage =
+                $"版权证明检查完成：已发布 {results.Count} 个，未上传 {missing} 个，失败 {failed} 个";
+            vm.AppendLog(vm.StatusMessage);
+            return results;
+        }
+        catch (OperationCanceledException)
+        {
+            vm.StatusMessage = "已停止检查未补版权证明";
+            throw;
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"检查未补版权证明失败：{ex.Message}";
+            vm.AppendLog(vm.StatusMessage);
+            throw;
+        }
     }
 
     private async Task<IReadOnlyList<TikTokPublishedSeriesMatch>> LookupPublishedSeriesAsync(

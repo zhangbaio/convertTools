@@ -67,6 +67,81 @@ internal static class TikTokSeriesListLookupService
             throw new InvalidOperationException("原创管理页面未找到剧集搜索框。");
     }
 
+    public static async Task<IReadOnlyList<TikTokSeriesListRow>> EnumerateAllAsync(
+        IPage page,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var search = await FindSearchInputAsync(page).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("原创管理页面未找到剧集搜索框。");
+        await search.FillAsync(string.Empty).ConfigureAwait(false);
+        try { await search.PressAsync("Enter").ConfigureAwait(false); }
+        catch { /* 部分版本清空后会自动查询。 */ }
+        await page.WaitForTimeoutAsync(500).ConfigureAwait(false);
+        await GoToFirstPageAsync(page, ct).ConfigureAwait(false);
+
+        var collected = new List<TikTokSeriesListRow>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        string? previousFingerprint = null;
+        int? expectedTotal = null;
+
+        for (var pageNumber = 1; pageNumber <= 1000; pageNumber++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var pageRows = await ScanCurrentPageRowsAsync(page, ct).ConfigureAwait(false);
+            if (pageRows.Count == 0)
+            {
+                if (pageNumber == 1)
+                    throw new InvalidOperationException("原创管理列表没有读取到任何剧集行。");
+                break;
+            }
+
+            foreach (var row in pageRows)
+            {
+                var key = !string.IsNullOrWhiteSpace(row.SeriesId)
+                    ? $"id:{row.SeriesId}"
+                    : $"url:{row.DetailUrl}|title:{NormalizeTitle(row.Title)}";
+                if (seen.Add(key))
+                    collected.Add(row);
+            }
+
+            log?.Invoke(
+                $"已读取原创管理第 {pageNumber} 页：本页 {pageRows.Count} 个，累计 {collected.Count} 个。");
+
+            expectedTotal ??= await TryReadTotalCountAsync(page).ConfigureAwait(false);
+            var fingerprint = BuildPageFingerprint(pageRows);
+            if (string.Equals(previousFingerprint, fingerprint, StringComparison.Ordinal))
+                throw new InvalidOperationException("原创管理分页未发生变化，已停止以避免重复扫描。");
+            previousFingerprint = fingerprint;
+
+            var next = await FindNextPageButtonAsync(page).ConfigureAwait(false);
+            var isLastPage = next is not null &&
+                             await IsDisabledAsync(next).ConfigureAwait(false);
+            if (next is null || isLastPage)
+            {
+                if (expectedTotal is > 0 && collected.Count < expectedTotal.Value)
+                {
+                    var reason = next is null
+                        ? "未找到“下一页”按钮"
+                        : "“下一页”按钮已禁用";
+                    throw new InvalidOperationException(
+                        $"原创管理分页读取不完整：页面显示共 {expectedTotal.Value} 个，" +
+                        $"当前只读取到 {collected.Count} 个，且{reason}。本次检查已停止，避免遗漏剧集。");
+                }
+                break;
+            }
+
+            await next.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
+            await next.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
+            var changed = await WaitForPageFingerprintChangeAsync(page, fingerprint, ct)
+                .ConfigureAwait(false);
+            if (!changed)
+                throw new InvalidOperationException("点击原创管理下一页后，列表内容未在规定时间内更新。");
+        }
+
+        return collected;
+    }
+
     public static async Task<IReadOnlyList<TikTokSeriesListRow>> SearchExactAsync(
         IPage page,
         string newTitle,
@@ -123,6 +198,279 @@ internal static class TikTokSeriesListLookupService
             $"TikTok 搜索等待超时，未读取到完全一致的新剧名：{newTitle}；" +
             $"等待 {SearchResultTimeout.TotalSeconds:0} 秒，最多观察到 {maxObservedRows} 行。");
         return [];
+    }
+
+    private static async Task<IReadOnlyList<TikTokSeriesListRow>> ScanCurrentPageRowsAsync(
+        IPage page,
+        CancellationToken ct)
+    {
+        ILocator? rows = null;
+        foreach (var selector in new[] { "tbody tr", "[role='rowgroup'] [role='row']", "tr" })
+        {
+            var candidate = page.Locator(selector);
+            if (await candidate.CountAsync().ConfigureAwait(false) == 0)
+                continue;
+            rows = candidate;
+            break;
+        }
+
+        if (rows is null)
+            return [];
+
+        var results = new List<TikTokSeriesListRow>();
+        var count = Math.Min(await rows.CountAsync().ConfigureAwait(false), 200);
+        for (var index = 0; index < count; index++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var row = rows.Nth(index);
+            string rawText;
+            try
+            {
+                if (!await row.IsVisibleAsync().ConfigureAwait(false))
+                    continue;
+                rawText = await row.InnerTextAsync(new() { Timeout = 1500 }).ConfigureAwait(false);
+            }
+            catch
+            {
+                continue;
+            }
+
+            var lines = rawText
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var title = ExtractTitle(lines, rawText);
+            if (string.IsNullOrWhiteSpace(title))
+                continue;
+
+            var urls = await FindSeriesUrlsAsync(page, row).ConfigureAwait(false);
+            var ids = urls
+                .Select(ExtractSeriesId)
+                .Concat(SeriesIdPattern.Matches(rawText).Select(match => match.Groups[1].Value))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var detailUrl = urls.FirstOrDefault() ?? BuildFallbackUrl(rawText, ids);
+            results.Add(new TikTokSeriesListRow(
+                title,
+                ExtractStatus(lines, rawText),
+                ids.Length == 1 ? ids[0] : string.Empty,
+                detailUrl,
+                rawText));
+        }
+
+        return results
+            .DistinctBy(row => string.Join(
+                "\n",
+                row.Title,
+                row.SeriesId,
+                row.DetailUrl))
+            .ToArray();
+    }
+
+    private static string ExtractTitle(IReadOnlyList<string> lines, string rawText)
+    {
+        var idLineIndex = -1;
+        for (var index = 0; index < lines.Count; index++)
+        {
+            if (!SeriesIdPattern.IsMatch(lines[index]))
+                continue;
+            idLineIndex = index;
+            break;
+        }
+
+        if (idLineIndex > 0)
+            return NormalizeTitle(lines[idLineIndex - 1]);
+
+        var inline = Regex.Match(
+            rawText,
+            @"^\s*(?<title>.+?)\s+ID\s*\d{16,20}\b",
+            RegexOptions.IgnoreCase);
+        if (inline.Success)
+            return NormalizeTitle(inline.Groups["title"].Value);
+
+        return lines
+            .Select(NormalizeTitle)
+            .FirstOrDefault(line =>
+                !string.IsNullOrWhiteSpace(line) &&
+                !SeriesIdPattern.IsMatch(line) &&
+                !Regex.IsMatch(line, @"^\d+\s*集$")) ?? string.Empty;
+    }
+
+    private static string BuildPageFingerprint(IReadOnlyList<TikTokSeriesListRow> rows) =>
+        string.Join(
+            "|",
+            rows.Select(row =>
+                !string.IsNullOrWhiteSpace(row.SeriesId)
+                    ? row.SeriesId
+                    : $"{NormalizeTitle(row.Title)}:{row.DetailUrl}"));
+
+    private static async Task GoToFirstPageAsync(IPage page, CancellationToken ct)
+    {
+        foreach (var selector in new[]
+                 {
+                     ".semi-page .semi-page-item",
+                     ".semi-pagination .semi-pagination-item",
+                     "[class*='pagination'] button",
+                 })
+        {
+            var candidates = page.Locator(selector);
+            var count = await candidates.CountAsync().ConfigureAwait(false);
+            for (var index = 0; index < count; index++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var candidate = candidates.Nth(index);
+                string text;
+                try
+                {
+                    if (!await candidate.IsVisibleAsync().ConfigureAwait(false))
+                        continue;
+                    text = (await candidate.InnerTextAsync(new() { Timeout = 1200 })
+                            .ConfigureAwait(false))
+                        .Trim();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (!string.Equals(text, "1", StringComparison.Ordinal))
+                    continue;
+
+                var className =
+                    await candidate.GetAttributeAsync("class").ConfigureAwait(false) ??
+                    string.Empty;
+                var ariaCurrent =
+                    await candidate.GetAttributeAsync("aria-current").ConfigureAwait(false);
+                if (className.Contains("active", StringComparison.OrdinalIgnoreCase) ||
+                    className.Contains("selected", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(ariaCurrent, "page", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                await candidate.ScrollIntoViewIfNeededAsync(
+                        new() { Timeout = 10000 })
+                    .ConfigureAwait(false);
+                await candidate.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
+                await page.WaitForTimeoutAsync(500).ConfigureAwait(false);
+                return;
+            }
+        }
+    }
+
+    private static async Task<ILocator?> FindNextPageButtonAsync(IPage page)
+    {
+        foreach (var selector in new[]
+                 {
+                     ".semi-page-item-next",
+                     ".semi-page-next",
+                     ".semi-pagination-item-next",
+                     ".semi-page-item[aria-label*='next' i]",
+                     ".semi-pagination [class*='next' i]",
+                     "[aria-label='Next page']",
+                     "[aria-label='Next Page']",
+                     "[aria-label='下一页']",
+                     "button[aria-label='next']",
+                     "button[title='下一页']",
+                 })
+        {
+            var candidates = page.Locator(selector);
+            var count = await candidates.CountAsync().ConfigureAwait(false);
+            for (var index = 0; index < count; index++)
+            {
+                var candidate = candidates.Nth(index);
+                try
+                {
+                    if (await candidate.IsVisibleAsync().ConfigureAwait(false))
+                        return candidate;
+                }
+                catch
+                {
+                    // 分页可能正在重绘，继续尝试其他候选。
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<int?> TryReadTotalCountAsync(IPage page)
+    {
+        string bodyText;
+        try
+        {
+            bodyText = await page.Locator("body").InnerTextAsync(
+                    new() { Timeout = 3000 })
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            return null;
+        }
+
+        var totals = new List<int>();
+        foreach (var pattern in new[]
+                 {
+                     @"共\s*(?<count>\d[\d,]*)\s*条",
+                     @"共\s*(?<count>\d[\d,]*)\s*个",
+                     @"\btotal\s*:?\s*(?<count>\d[\d,]*)\b",
+                 })
+        {
+            var matches = Regex.Matches(
+                bodyText,
+                pattern,
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            foreach (Match match in matches)
+            {
+                var raw = match.Groups["count"].Value.Replace(",", string.Empty);
+                if (int.TryParse(raw, out var count) && count > 0)
+                    totals.Add(count);
+            }
+        }
+
+        return totals.Count == 0 ? null : totals.Max();
+    }
+
+    private static async Task<bool> IsDisabledAsync(ILocator locator)
+    {
+        try
+        {
+            if (await locator.IsDisabledAsync().ConfigureAwait(false))
+                return true;
+        }
+        catch
+        {
+            // li 等非表单节点不支持 IsDisabled，继续检查属性。
+        }
+
+        var ariaDisabled = await locator.GetAttributeAsync("aria-disabled").ConfigureAwait(false);
+        var className = await locator.GetAttributeAsync("class").ConfigureAwait(false) ?? string.Empty;
+        return string.Equals(ariaDisabled, "true", StringComparison.OrdinalIgnoreCase) ||
+               className.Contains("disabled", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<bool> WaitForPageFingerprintChangeAsync(
+        IPage page,
+        string previousFingerprint,
+        CancellationToken ct)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < TimeSpan.FromSeconds(15))
+        {
+            ct.ThrowIfCancellationRequested();
+            var rows = await ScanCurrentPageRowsAsync(page, ct).ConfigureAwait(false);
+            if (rows.Count > 0 &&
+                !string.Equals(
+                    BuildPageFingerprint(rows),
+                    previousFingerprint,
+                    StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            await page.WaitForTimeoutAsync(300).ConfigureAwait(false);
+        }
+
+        return false;
     }
 
     private static async Task<SeriesRowsScanResult> ScanExactRowsAsync(

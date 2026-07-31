@@ -18,7 +18,8 @@ public sealed class CopyrightProofBatchDialog : Window
     private IReadOnlyList<CopyrightProofProjectMatch> _matches = [];
 
     private CopyrightProofBatchDialog(
-        Func<string, IReadOnlyList<CopyrightProofProjectMatch>> match)
+        Func<string, IReadOnlyList<CopyrightProofProjectMatch>> match,
+        string? initialInput)
     {
         _match = match;
         Title = "补全版权证明";
@@ -47,6 +48,7 @@ public sealed class CopyrightProofBatchDialog : Window
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             Watermark = "每行输入一个新剧名",
+            Text = initialInput ?? string.Empty,
         };
         Grid.SetRow(_input, 1);
         root.Children.Add(_input);
@@ -105,14 +107,20 @@ public sealed class CopyrightProofBatchDialog : Window
         Grid.SetRow(buttons, 4);
         root.Children.Add(buttons);
         Content = root;
-        Opened += (_, _) => _input.Focus();
+        Opened += (_, _) =>
+        {
+            if (!string.IsNullOrWhiteSpace(_input.Text))
+                RefreshPreview();
+            _input.Focus();
+        };
     }
 
     public static Task<CopyrightProofBatchDialogResult?> ShowAsync(
         Window owner,
-        Func<string, IReadOnlyList<CopyrightProofProjectMatch>> match)
+        Func<string, IReadOnlyList<CopyrightProofProjectMatch>> match,
+        string? initialInput = null)
     {
-        var dialog = new CopyrightProofBatchDialog(match);
+        var dialog = new CopyrightProofBatchDialog(match, initialInput);
         return dialog.ShowDialog<CopyrightProofBatchDialogResult?>(owner);
     }
 
