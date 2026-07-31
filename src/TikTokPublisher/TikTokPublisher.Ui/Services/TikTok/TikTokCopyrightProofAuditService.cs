@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Abstractions;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services.TikTok;
@@ -86,6 +87,9 @@ public static class TikTokCopyrightProofAuditService
             var indexedRows = publishedRows
                 .Select((row, index) => (Row: row, Order: index + 1))
                 .ToArray();
+            var configuredMaterialTypes = TikTokPublishConstants
+                .NormalizeCopyrightMaterialTypes(account.TiktokCopyrightMaterialTypes)
+                .ToArray();
 
             await Parallel.ForEachAsync(
                 indexedRows,
@@ -101,6 +105,7 @@ public static class TikTokCopyrightProofAuditService
                             listPage.Context,
                             entry.Row,
                             entry.Order,
+                            configuredMaterialTypes,
                             log,
                             token)
                         .ConfigureAwait(false);
@@ -139,6 +144,7 @@ public static class TikTokCopyrightProofAuditService
         IBrowserContext context,
         TikTokSeriesListRow row,
         int order,
+        IReadOnlyList<string> configuredMaterialTypes,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -181,30 +187,23 @@ public static class TikTokCopyrightProofAuditService
                 return Failed(order, row, "未找到版权证明标签页");
 
             var probe = await TikTokBrowserActions
-                .ProbeCopyrightProofMaterialAsync(page, ct)
+                .ProbeConfiguredCopyrightProofMaterialsAsync(
+                    page,
+                    configuredMaterialTypes,
+                    ct)
                 .ConfigureAwait(false);
-            var result = probe.State switch
-            {
-                CopyrightProofMaterialProbeState.HasMaterial =>
-                    new TikTokCopyrightProofAuditItem(
-                        order,
-                        row.Title,
-                        row.SeriesId,
-                        row.DetailUrl,
-                        TikTokCopyrightProofAuditState.HasMaterial,
-                        probe.Detail,
-                        DateTimeOffset.Now),
-                CopyrightProofMaterialProbeState.Empty =>
-                    new TikTokCopyrightProofAuditItem(
-                        order,
-                        row.Title,
-                        row.SeriesId,
-                        row.DetailUrl,
-                        TikTokCopyrightProofAuditState.MissingMaterial,
-                        probe.Detail,
-                        DateTimeOffset.Now),
-                _ => Failed(order, row, probe.Detail),
-            };
+            if (!probe.FormAvailable)
+                return Failed(order, row, string.Join("；", probe.Details));
+
+            var state = Classify(probe.Plan);
+            var result = new TikTokCopyrightProofAuditItem(
+                order,
+                row.Title,
+                row.SeriesId,
+                row.DetailUrl,
+                state,
+                BuildCoverageDetail(probe),
+                DateTimeOffset.Now);
 
             log?.Invoke(
                 $"版权证明检查完成：{row.Title}，" +
@@ -315,11 +314,44 @@ public static class TikTokCopyrightProofAuditService
             detail,
             DateTimeOffset.Now);
 
+    private static TikTokCopyrightProofAuditState Classify(
+        TikTokCopyrightMaterialCompletionPlan plan)
+    {
+        if (plan.IsComplete)
+            return TikTokCopyrightProofAuditState.HasMaterial;
+        if (plan.ExistingMaterialTypes.Count == 0)
+            return TikTokCopyrightProofAuditState.MissingMaterial;
+        if (plan.ExistingMaterialTypes.Count == 1 &&
+            plan.ExistingMaterialTypes.Contains(
+                TikTokPublishConstants.ProductionAgreementMaterialType,
+                StringComparer.Ordinal))
+        {
+            return TikTokCopyrightProofAuditState.ProductionAgreementOnly;
+        }
+
+        return TikTokCopyrightProofAuditState.PartialMaterial;
+    }
+
+    private static string BuildCoverageDetail(CopyrightProofMaterialCoverageProbe probe)
+    {
+        var missingLabels = probe.Plan.MissingMaterialTypes
+            .Select(materialType =>
+                TikTokPublishConstants.CopyrightMaterialLabels.TryGetValue(materialType, out var label)
+                    ? label
+                    : materialType)
+            .ToArray();
+        return missingLabels.Length == 0
+            ? "账号配置的版权证明材料均已上传"
+            : $"缺少：{string.Join("、", missingLabels)}";
+    }
+
     private static string StateText(TikTokCopyrightProofAuditState state) =>
         state switch
         {
-            TikTokCopyrightProofAuditState.HasMaterial => "已上传证明",
-            TikTokCopyrightProofAuditState.MissingMaterial => "未上传证明",
+            TikTokCopyrightProofAuditState.HasMaterial => "版权证明材料齐全",
+            TikTokCopyrightProofAuditState.ProductionAgreementOnly => "仅上传版权证明 PDF",
+            TikTokCopyrightProofAuditState.PartialMaterial => "部分版权证明材料缺失",
+            TikTokCopyrightProofAuditState.MissingMaterial => "所有版权证明均未填写",
             _ => "检查失败",
         };
 
