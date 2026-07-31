@@ -60,6 +60,23 @@ public sealed class DeletedCopyrightProofPublishedVideoRecoveryServiceTests : ID
             .Be(6);
     }
 
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 1)]
+    [InlineData(2, 2)]
+    [InlineData(3, 3)]
+    [InlineData(4, 4)]
+    [InlineData(12, 4)]
+    public void ResolveEpisodeDownloadConcurrency_caps_each_series_at_four(
+        int pendingEpisodeCount,
+        int expected)
+    {
+        DeletedCopyrightProofPublishedVideoRecoveryService
+            .ResolveEpisodeDownloadConcurrency(pendingEpisodeCount)
+            .Should()
+            .Be(expected);
+    }
+
     [Fact]
     public void Recover_builds_proof_only_project_from_downloaded_platform_videos()
     {

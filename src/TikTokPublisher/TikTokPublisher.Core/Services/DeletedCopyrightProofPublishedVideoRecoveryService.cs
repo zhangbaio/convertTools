@@ -67,6 +67,13 @@ public static class DeletedCopyrightProofPublishedVideoRecoveryService
         return needsSourceInfo && required == 0 ? 1 : Math.Max(0, required);
     }
 
+    public static int ResolveEpisodeDownloadConcurrency(int pendingEpisodeCount)
+    {
+        if (pendingEpisodeCount <= 0)
+            return 0;
+        return Math.Min(pendingEpisodeCount, 4);
+    }
+
     public static string ResolveStagingDirectory(
         string workspaceRoot,
         string newTitle,
