@@ -311,9 +311,21 @@ public static partial class TikTokArchivedProjectService
         if (components.Length == 0)
             throw new InvalidOperationException("归档元数据中没有可回退的 Source 或 Workflow 目录，已保留归档记录。");
 
-        var conflicts = components
-            .Where(component => component.ArchiveExists && component.TargetExists)
-            .Select(component => $"{component.Label} 归档目录和恢复目标同时存在：{component.ArchivePath} -> {component.TargetPath}")
+        var overlappingComponents = components
+            .Where(component =>
+                component.ArchiveExists &&
+                component.TargetExists)
+            .Select(component => new
+            {
+                Component = component,
+                TargetIsEmpty = IsDirectoryEmpty(component.TargetPath),
+            })
+            .ToArray();
+        var conflicts = overlappingComponents
+            .Where(item => !item.TargetIsEmpty)
+            .Select(item =>
+                $"{item.Component.Label} 归档目录和恢复目标同时存在：" +
+                $"{item.Component.ArchivePath} -> {item.Component.TargetPath}")
             .ToArray();
         if (conflicts.Length > 0)
         {
@@ -333,8 +345,20 @@ public static partial class TikTokArchivedProjectService
                 string.Join(Environment.NewLine, missing));
         }
 
-        foreach (var component in components.Where(component => component.ArchiveExists && !component.TargetExists))
+        // An interrupted/legacy restore can leave an empty target directory behind.
+        // Removing it non-recursively is safe: if anything appears after the preflight,
+        // Directory.Delete fails instead of overwriting user data.
+        foreach (var item in overlappingComponents.Where(item => item.TargetIsEmpty))
+        {
+            Directory.Delete(item.Component.TargetPath, recursive: false);
+        }
+
+        foreach (var component in components.Where(component =>
+                     Directory.Exists(component.ArchivePath) &&
+                     !Directory.Exists(component.TargetPath)))
+        {
             MoveDirectory(component.ArchivePath, component.TargetPath);
+        }
 
         var restoredSource = Directory.Exists(source.TargetPath) ? source.TargetPath : null;
         var restoredWorkflow = Directory.Exists(workflow.TargetPath) ? workflow.TargetPath : null;
@@ -344,6 +368,9 @@ public static partial class TikTokArchivedProjectService
         CleanupArchiveReference(metadataPath, archiveDir);
         RemoveArchiveFromDatabase(workspaceRoot, metadataPath);
     }
+
+    private static bool IsDirectoryEmpty(string path) =>
+        !Directory.EnumerateFileSystemEntries(path).Any();
 
     public static Task DeleteAsync(
         string workspaceRoot,
