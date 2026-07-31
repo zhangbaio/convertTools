@@ -135,4 +135,16 @@ public sealed class ManualDeletedCopyrightProofServiceTests
         platformRecovery.HistorySnapshot.Item.ProjectDir.Should().EndWith("缺少原剧_版权恢复");
         platformRecovery.HistorySnapshot.Item.Remark.Should().Contain("TikTok");
     }
+
+    [Fact]
+    public void ParseUnknownOriginalTitles_parses_multiline_input_and_removes_duplicates()
+    {
+        var entries = ManualDeletedCopyrightProofService.ParseUnknownOriginalTitles(
+            " 新剧甲 \r\n新剧乙\n\n新剧甲\r新剧丙 ");
+
+        entries.Select(entry => entry.NewTitle)
+            .Should()
+            .Equal("新剧甲", "新剧乙", "新剧丙");
+        entries.Should().OnlyContain(entry => entry.OriginalTitle == string.Empty);
+    }
 }

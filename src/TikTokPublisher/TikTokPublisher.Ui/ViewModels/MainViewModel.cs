@@ -1716,7 +1716,8 @@ public sealed partial class MainViewModel : ViewModelBase
         QueueRunOptions? optionsOverride = null,
         IReadOnlyCollection<string>? projectDirFilter = null,
         Action? onStarted = null,
-        WorkspaceQueueTarget? targetOverride = null)
+        WorkspaceQueueTarget? targetOverride = null,
+        DateTime? preserveProjectLogsSince = null)
     {
         var target = targetOverride ?? CaptureCurrentWorkspaceQueueTarget();
         if (target is null || string.IsNullOrWhiteSpace(target.WorkspaceRoot))
@@ -1840,7 +1841,7 @@ public sealed partial class MainViewModel : ViewModelBase
             _store,
             normalizedProjectFilter);
 
-        Logs.ClearProjectEntries(runItems);
+        Logs.ClearProjectEntries(runItems, preserveProjectLogsSince);
         RefreshRunningWorkspacesSummary();
         var batchId = TikTokExecutionHistoryService.NewBatchId();
         var totalCount = selectedRunCount;

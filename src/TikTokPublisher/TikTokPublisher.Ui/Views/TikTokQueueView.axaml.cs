@@ -57,6 +57,8 @@ public partial class TikTokQueueView : UserControl
     private double _queueResizeStartWidth;
     private readonly HashSet<string> _queueStopRequestedWorkspaces = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _activeQueueRunWorkspaces = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, CancellationTokenSource> _copyrightProofPreparationRuns =
+        new(StringComparer.OrdinalIgnoreCase);
     private bool _uploadTitleImportActive;
     private string _uploadTitleImportWorkspaceRoot = "";
     private long _uploadTitleImportGeneration;
@@ -98,19 +100,22 @@ public partial class TikTokQueueView : UserControl
 
     private void RefreshQueueRunButtons()
     {
-        var anyRunning = _vm?.IsQueueRunning == true;
+        var anyRunning = _vm?.IsQueueRunning == true || _copyrightProofPreparationRuns.Count > 0;
         var currentRunning = IsStartQueueRunActiveForCurrentWorkspace() ||
                              _vm?.IsCurrentWorkspaceQueueRunning() == true;
-        var startBusy = currentRunning || IsUploadTitleImportActiveForCurrentWorkspace();
+        var currentProofPreparation = IsCopyrightProofPreparationActiveForCurrentWorkspace();
+        var startBusy = currentRunning ||
+                        currentProofPreparation ||
+                        IsUploadTitleImportActiveForCurrentWorkspace();
         var currentRoot = NormalizeQueueWorkspaceRoot(_vm?.WorkspacePath ?? "");
-        if (!currentRunning && !string.IsNullOrWhiteSpace(currentRoot))
+        if (!startBusy && !string.IsNullOrWhiteSpace(currentRoot))
             _queueStopRequestedWorkspaces.Remove(currentRoot);
         var stopRequested = !string.IsNullOrWhiteSpace(currentRoot) &&
                             _queueStopRequestedWorkspaces.Contains(currentRoot);
         // 仅当前工作目录在跑时才禁用「执行勾选队列」；其他账号的队列不影响本工作目录启动。
         if (StartQueueButton is not null)
         {
-            StartQueueButton.Content = stopRequested && currentRunning
+            StartQueueButton.Content = stopRequested && startBusy
                 ? "等待停止"
                 : startBusy
                     ? "执行中"
@@ -120,8 +125,9 @@ public partial class TikTokQueueView : UserControl
         if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !anyRunning;
         if (StopQueueButton is not null)
         {
-            StopQueueButton.Content = stopRequested && currentRunning ? "停止中" : "停止";
-            StopQueueButton.IsEnabled = currentRunning && !stopRequested;
+            StopQueueButton.Content = stopRequested && startBusy ? "停止中" : "停止";
+            StopQueueButton.IsEnabled =
+                (currentRunning || currentProofPreparation) && !stopRequested;
         }
     }
 
@@ -154,6 +160,49 @@ public partial class TikTokQueueView : UserControl
         {
             return string.Equals(workspace, _uploadTitleImportWorkspaceRoot, StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    private bool IsCopyrightProofPreparationActiveForCurrentWorkspace()
+    {
+        if (_vm is null)
+            return false;
+        var root = NormalizeQueueWorkspaceRoot(_vm.WorkspacePath);
+        return !string.IsNullOrWhiteSpace(root) &&
+               _copyrightProofPreparationRuns.ContainsKey(root);
+    }
+
+    private CancellationToken? BeginCopyrightProofPreparation(string workspace)
+    {
+        var root = NormalizeQueueWorkspaceRoot(workspace);
+        if (string.IsNullOrWhiteSpace(root) ||
+            _copyrightProofPreparationRuns.ContainsKey(root))
+        {
+            return null;
+        }
+
+        var cts = new CancellationTokenSource();
+        _copyrightProofPreparationRuns[root] = cts;
+        _queueStopRequestedWorkspaces.Remove(root);
+        RefreshQueueRunButtons();
+        return cts.Token;
+    }
+
+    private void EndCopyrightProofPreparation(string workspace)
+    {
+        var root = NormalizeQueueWorkspaceRoot(workspace);
+        if (_copyrightProofPreparationRuns.Remove(root, out var cts))
+            cts.Dispose();
+        _queueStopRequestedWorkspaces.Remove(root);
+        RefreshQueueRunButtons();
+    }
+
+    private bool CancelCopyrightProofPreparation(string workspace)
+    {
+        var root = NormalizeQueueWorkspaceRoot(workspace);
+        if (!_copyrightProofPreparationRuns.TryGetValue(root, out var cts))
+            return false;
+        cts.Cancel();
+        return true;
     }
 
     private void OnManualInterventionDialogRequested(ManualInterventionDialogRequest request)
@@ -1771,7 +1820,10 @@ public partial class TikTokQueueView : UserControl
         IReadOnlyList<QueueProjectItem> queueProjects;
         try
         {
-            vm.StatusMessage = "正在校验手动填写的新剧名和原剧名…";
+            vm.StatusMessage = dialogResult.Mode ==
+                               ManualDeletedCopyrightProofInputMode.KnownOriginalTitle
+                ? "正在校验手动填写的新剧名和原剧名…"
+                : "正在校验批量填写的新剧名…";
             queueProjects = vm.QueueProjectRows.Select(row => row.Item).ToArray();
             archivedProjects = await Task.Run(() => TikTokArchivedProjectService.List(
                 workspace,
@@ -1854,7 +1906,7 @@ public partial class TikTokQueueView : UserControl
             workspace,
             proofAccount,
             validatedMatches,
-            manualDeletedInput: true);
+            manualDeletedMode: dialogResult.Mode);
     }
 
     private async Task ExecuteCopyrightProofMatchesAsync(
@@ -1863,7 +1915,7 @@ public partial class TikTokQueueView : UserControl
         string workspace,
         TikTokAccountProfile proofAccount,
         IReadOnlyList<CopyrightProofProjectMatch> selectedMatches,
-        bool manualDeletedInput = false)
+        ManualDeletedCopyrightProofInputMode? manualDeletedMode = null)
     {
         var archivedTargets = selectedMatches
             .Where(match => match.Location == CopyrightProofProjectLocation.Archived)
@@ -1902,9 +1954,14 @@ public partial class TikTokQueueView : UserControl
                         ? $"• {match.NewTitle}（从 TikTok 已发布项目恢复视频）"
                         : $"• {match.NewTitle}（原剧：{originalTitle}{episodeText}）";
                 }));
-            var recoverySource = manualDeletedInput
-                ? "将根据你填写的新剧名恢复项目；有原剧名时优先使用原片源，没有原剧名时从 TikTok 已发布项目下载必要视频，"
-                : "将根据历史记录重新建立项目，";
+            var recoverySource = manualDeletedMode switch
+            {
+                ManualDeletedCopyrightProofInputMode.KnownOriginalTitle =>
+                    "将根据你填写的新剧名和原剧名恢复项目，并优先使用原片源，",
+                ManualDeletedCopyrightProofInputMode.UnknownOriginalTitle =>
+                    "将根据你批量填写的新剧名恢复项目，并从当前账号的 TikTok 已发布项目下载必要视频，",
+                _ => "将根据历史记录重新建立项目，",
+            };
             var confirmed = await ConfirmAsync(
                 owner,
                 "确认重建已删除项目",
@@ -1920,234 +1977,300 @@ public partial class TikTokQueueView : UserControl
             }
         }
 
-        var selectedTitles = selectedMatches
-            .Select(match => match.NewTitle)
-            .ToHashSet(StringComparer.Ordinal);
-        var restoreFailures = new List<string>();
-        var restoredCount = 0;
-        var recoveredCount = 0;
-        foreach (var match in selectedMatches
-                     .Where(match => match.Location == CopyrightProofProjectLocation.Archived))
+        var recoveryToken = BeginCopyrightProofPreparation(workspace);
+        if (recoveryToken is null)
         {
-            try
-            {
-                vm.StatusMessage = $"正在回退归档项目：{match.NewTitle}";
-                await Task.Run(() => TikTokArchivedProjectService.Restore(
-                    workspace,
-                    match.ArchivedProject!.ArchiveProjectDir,
-                    proofAccount.ResolveArchiveRootPath(workspace)));
-                restoredCount++;
-            }
-            catch (Exception ex)
-            {
-                restoreFailures.Add($"{match.NewTitle}：{ex.Message}");
-                selectedTitles.Remove(match.NewTitle);
-            }
-        }
-
-        var proofSettings = ClientSettingsStore.Load();
-        foreach (var match in deletedTargets)
-        {
-            try
-            {
-                var historySnapshot = match.HistorySnapshot!;
-                var originalTitle = (historySnapshot.Item.OriginalTitle ?? string.Empty).Trim();
-                DeletedCopyrightProofProjectRecoveryResult recovery;
-                if (string.IsNullOrWhiteSpace(originalTitle))
-                {
-                    var requiredEpisodes =
-                        DeletedCopyrightProofPublishedVideoRecoveryService.ResolveRequiredEpisodeCount(
-                            proofSettings,
-                            proofAccount);
-                    requiredEpisodes = Math.Max(1, requiredEpisodes);
-                    vm.StatusMessage =
-                        $"正在从 TikTok 已发布项目恢复视频：{match.NewTitle}（需要 {requiredEpisodes} 集）";
-                    var ready = await EnsureAccountBrowserReadyAsync(
-                        proofAccount,
-                        vm.AppendLog,
-                        CancellationToken.None);
-                    if (!ready.Ok)
-                    {
-                        restoreFailures.Add($"{match.NewTitle}：{ready.Message}");
-                        selectedTitles.Remove(match.NewTitle);
-                        continue;
-                    }
-
-                    IEmbeddedBrowser? browser = null;
-                    if (!UsesPlaywrightUploadBrowser(proofAccount))
-                        browser = _browserHost?.TryGetHost(proofAccount.Id);
-                    var download =
-                        await TikTokPublishedSeriesVideoDownloadService.DownloadAsync(
-                            proofAccount,
-                            browser,
-                            match.NewTitle,
-                            workspace,
-                            requiredEpisodes,
-                            vm.AppendLog,
-                            CancellationToken.None);
-                    if (!download.Ok)
-                    {
-                        restoreFailures.Add($"{match.NewTitle}：{download.Message}");
-                        selectedTitles.Remove(match.NewTitle);
-                        continue;
-                    }
-
-                    recovery = DeletedCopyrightProofPublishedVideoRecoveryService.Recover(
-                        workspace,
-                        historySnapshot,
-                        new TikTokPublishedVideoRecoverySource(
-                            download.SeriesId,
-                            download.DetailUrl,
-                            download.StagingDirectory,
-                            download.PlatformEpisodeCount,
-                            download.DownloadedEpisodeCount),
-                        proofAccount,
-                        vm.AppendLog);
-                }
-                else
-                {
-                    vm.StatusMessage = $"正在重建已删除项目：{match.NewTitle}";
-                    recovery = await DeletedCopyrightProofProjectRecoveryService.RecoverAsync(
-                        workspace,
-                        historySnapshot,
-                        proofSettings,
-                        proofAccount,
-                        vm.AppendLog,
-                        CancellationToken.None);
-                }
-
-                if (!recovery.Ok)
-                {
-                    restoreFailures.Add($"{match.NewTitle}：{recovery.Message}");
-                    selectedTitles.Remove(match.NewTitle);
-                    continue;
-                }
-
-                recoveredCount++;
-                try
-                {
-                    TikTokExecutionHistoryService.PersistDeletionSnapshot(
-                        workspace,
-                        recovery.Project ?? historySnapshot.Item,
-                        proofAccount);
-                }
-                catch (Exception historyEx)
-                {
-                    vm.AppendLog(
-                        $"已重建「{match.NewTitle}」，但保存恢复历史失败：{historyEx.Message}；" +
-                        "不影响本次继续补全版权证明。");
-                }
-            }
-            catch (Exception ex)
-            {
-                restoreFailures.Add($"{match.NewTitle}：{ex.Message}");
-                selectedTitles.Remove(match.NewTitle);
-            }
-        }
-
-        var refreshedProjects = await Task.Run(() => WorkspaceQueueService.ScanProjects(workspace));
-        var repairedInterruptedRecovery = false;
-        foreach (var project in refreshedProjects.Where(item =>
-                     !item.Archived &&
-                     selectedTitles.Contains((item.NewTitle ?? string.Empty).Trim())))
-        {
-            try
-            {
-                if (!DeletedCopyrightProofWorkflowRecoveryService.RepairExistingProject(
-                        project.ProjectDir,
-                        project.NewTitle,
-                        vm.AppendLog))
-                {
-                    continue;
-                }
-
-                repairedInterruptedRecovery = true;
-                vm.AppendLog($"已自动修复上次中断留下的版权项目：{project.NewTitle}");
-            }
-            catch (Exception ex)
-            {
-                restoreFailures.Add($"{project.NewTitle}：修复中断项目失败（{ex.Message}）");
-                selectedTitles.Remove(project.NewTitle);
-            }
-        }
-        if (repairedInterruptedRecovery)
-        {
-            refreshedProjects = await Task.Run(() => WorkspaceQueueService.ScanProjects(workspace));
-        }
-
-        var matchedProjects = refreshedProjects
-            .Where(item => !item.Archived &&
-                           selectedTitles.Contains((item.NewTitle ?? string.Empty).Trim()))
-            .GroupBy(item => item.NewTitle.Trim(), StringComparer.Ordinal)
-            .Where(group => group.Count() == 1)
-            .Select(group => group.Single())
-            .ToArray();
-
-        vm.StatusMessage = "正在检查匹配项目的已有证明材料…";
-        var currentProofMaterialProjects = await Task.Run(() =>
-            matchedProjects
-                .Where(item => TikTokProofMaterialService
-                    .HasReusableProofMaterialForCopyrightCompletion(
-                        item,
-                        proofSettings,
-                        proofAccount))
-                .Select(item => Path.GetFullPath(item.ProjectDir))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase));
-        var preparation = CopyrightProofQueuePreparationService.Prepare(
-            refreshedProjects,
-            matchedProjects,
-            currentProofMaterialProjects);
-
-        var missingAfterRestore = selectedTitles
-            .Except(matchedProjects.Select(item => item.NewTitle), StringComparer.Ordinal)
-            .ToArray();
-        if (matchedProjects.Length == 0)
-        {
-            vm.RefreshWorkspaceProjects(workspace, force: true);
-            var detail = restoreFailures.Concat(missingAfterRestore.Select(title => $"{title}：恢复后未找到队列项目"));
-            await ShowMessageAsync(
-                owner,
-                "无法开始补全版权证明",
-                string.Join(Environment.NewLine, detail),
-                warning: true);
+            vm.StatusMessage = "当前工作目录已有补全版权证明任务正在执行";
             return;
         }
 
-        var persistedOptions = WorkspaceQueueService.LoadRunOptions(workspace);
-        WorkspaceQueueService.SaveRunOptions(workspace, refreshedProjects, persistedOptions);
-        await vm.ApplyPreparedWorkspaceQueueSnapshotAsync(
-            workspace,
-            refreshedProjects,
-            persistedOptions);
-
-        var options = vm.CreateCurrentQueueRunOptionsSnapshot();
-        options.ConfigureForCopyrightProofCompletion();
-        var executionProjectDirs = matchedProjects
-            .Select(item => Path.GetFullPath(item.ProjectDir))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        var executionTarget = vm.CaptureCurrentWorkspaceQueueTarget()! with
+        var ct = recoveryToken.Value;
+        vm.StatusMessage = "补全版权证明执行中…";
+        try
         {
-            ProjectDirFilter = executionProjectDirs,
-            PreferPersistedQueueSnapshot = true,
-        };
+            var selectedTitles = selectedMatches
+                .Select(match => match.NewTitle)
+                .ToHashSet(StringComparer.Ordinal);
+            var restoreFailures = new List<string>();
+            var restoredCount = 0;
+            var recoveredCount = 0;
+            var preparationLogStartedAt = DateTime.Now;
 
-        vm.AppendLog(
-            $"补全版权证明：匹配 {selectedMatches.Count} 个，" +
-            $"回退归档 {restoredCount} 个，重建已删除项目 {recoveredCount} 个，" +
-            $"准备执行 {matchedProjects.Length} 个；" +
-            $"复用已有证明材料 {preparation.ReusedProofMaterialCount} 个，" +
-            $"需要生成 {preparation.PendingProofMaterialCount} 个。");
-        foreach (var failure in restoreFailures)
-            vm.AppendLog($"补全版权证明回退失败：{failure}");
-        foreach (var title in missingAfterRestore)
-            vm.AppendLog($"补全版权证明跳过：恢复后未找到唯一的新剧名项目「{title}」");
+            Action<string> CreatePreparationLog(string newTitle)
+            {
+                var title = (newTitle ?? string.Empty).Trim();
+                return message =>
+                {
+                    var text = (message ?? string.Empty).Trim();
+                    if (string.IsNullOrWhiteSpace(text))
+                        return;
 
-        await StartQueueRunAsync(
-            options,
-            executionProjectDirs,
-            confirmForceRerun: false,
-            targetOverride: executionTarget);
+                    vm.AppendLog($"[{title}] {text}");
+                };
+            }
+
+            foreach (var match in selectedMatches
+                         .Where(match => match.Location == CopyrightProofProjectLocation.Archived))
+            {
+                try
+                {
+                    ct.ThrowIfCancellationRequested();
+                    vm.StatusMessage = $"正在回退归档项目：{match.NewTitle}";
+                    await Task.Run(() => TikTokArchivedProjectService.Restore(
+                        workspace,
+                        match.ArchivedProject!.ArchiveProjectDir,
+                        proofAccount.ResolveArchiveRootPath(workspace)), ct);
+                    restoredCount++;
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    restoreFailures.Add($"{match.NewTitle}：{ex.Message}");
+                    selectedTitles.Remove(match.NewTitle);
+                }
+            }
+
+            var proofSettings = ClientSettingsStore.Load();
+            foreach (var match in deletedTargets)
+            {
+                try
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var historySnapshot = match.HistorySnapshot!;
+                    var originalTitle = (historySnapshot.Item.OriginalTitle ?? string.Empty).Trim();
+                    DeletedCopyrightProofProjectRecoveryResult recovery;
+                    if (string.IsNullOrWhiteSpace(originalTitle))
+                    {
+                        var preparationLog = CreatePreparationLog(match.NewTitle);
+                        var requiredEpisodes =
+                            DeletedCopyrightProofPublishedVideoRecoveryService.ResolveRequiredEpisodeCount(
+                                proofSettings,
+                                proofAccount);
+                        requiredEpisodes = Math.Max(1, requiredEpisodes);
+                        vm.StatusMessage =
+                            $"正在从 TikTok 已发布项目恢复视频：{match.NewTitle}（需要 {requiredEpisodes} 集）";
+                        preparationLog(
+                            $"准备从 TikTok 已发布项目恢复视频：计划获取前 {requiredEpisodes} 集。");
+                        var ready = await EnsureAccountBrowserReadyAsync(
+                            proofAccount,
+                            preparationLog,
+                            ct);
+                        if (!ready.Ok)
+                        {
+                            preparationLog($"浏览器准备失败：{ready.Message}");
+                            restoreFailures.Add($"{match.NewTitle}：{ready.Message}");
+                            selectedTitles.Remove(match.NewTitle);
+                            continue;
+                        }
+
+                        IEmbeddedBrowser? browser = null;
+                        if (!UsesPlaywrightUploadBrowser(proofAccount))
+                            browser = _browserHost?.TryGetHost(proofAccount.Id);
+                        var download =
+                            await TikTokPublishedSeriesVideoDownloadService.DownloadAsync(
+                                proofAccount,
+                                browser,
+                                match.NewTitle,
+                                workspace,
+                                requiredEpisodes,
+                                preparationLog,
+                                ct);
+                        if (!download.Ok)
+                        {
+                            preparationLog($"平台视频恢复失败：{download.Message}");
+                            restoreFailures.Add($"{match.NewTitle}：{download.Message}");
+                            selectedTitles.Remove(match.NewTitle);
+                            continue;
+                        }
+                        preparationLog(download.Message);
+
+                        recovery = DeletedCopyrightProofPublishedVideoRecoveryService.Recover(
+                            workspace,
+                            historySnapshot,
+                            new TikTokPublishedVideoRecoverySource(
+                                download.SeriesId,
+                                download.DetailUrl,
+                                download.StagingDirectory,
+                                download.PlatformEpisodeCount,
+                                download.DownloadedEpisodeCount),
+                            proofAccount,
+                            preparationLog);
+                    }
+                    else
+                    {
+                        vm.StatusMessage = $"正在重建已删除项目：{match.NewTitle}";
+                        recovery = await DeletedCopyrightProofProjectRecoveryService.RecoverAsync(
+                            workspace,
+                            historySnapshot,
+                            proofSettings,
+                            proofAccount,
+                            vm.AppendLog,
+                            ct);
+                    }
+
+                    if (!recovery.Ok)
+                    {
+                        restoreFailures.Add($"{match.NewTitle}：{recovery.Message}");
+                        selectedTitles.Remove(match.NewTitle);
+                        continue;
+                    }
+
+                    recoveredCount++;
+                    try
+                    {
+                        TikTokExecutionHistoryService.PersistDeletionSnapshot(
+                            workspace,
+                            recovery.Project ?? historySnapshot.Item,
+                            proofAccount);
+                    }
+                    catch (Exception historyEx)
+                    {
+                        vm.AppendLog(
+                            $"已重建「{match.NewTitle}」，但保存恢复历史失败：{historyEx.Message}；" +
+                            "不影响本次继续补全版权证明。");
+                    }
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    restoreFailures.Add($"{match.NewTitle}：{ex.Message}");
+                    selectedTitles.Remove(match.NewTitle);
+                }
+            }
+
+            ct.ThrowIfCancellationRequested();
+            var refreshedProjects = await Task.Run(
+                () => WorkspaceQueueService.ScanProjects(workspace),
+                ct);
+            var repairedInterruptedRecovery = false;
+            foreach (var project in refreshedProjects.Where(item =>
+                         !item.Archived &&
+                         selectedTitles.Contains((item.NewTitle ?? string.Empty).Trim())))
+            {
+                try
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!DeletedCopyrightProofWorkflowRecoveryService.RepairExistingProject(
+                            project.ProjectDir,
+                            project.NewTitle,
+                            vm.AppendLog))
+                    {
+                        continue;
+                    }
+
+                    repairedInterruptedRecovery = true;
+                    vm.AppendLog($"已自动修复上次中断留下的版权项目：{project.NewTitle}");
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    restoreFailures.Add($"{project.NewTitle}：修复中断项目失败（{ex.Message}）");
+                    selectedTitles.Remove(project.NewTitle);
+                }
+            }
+            if (repairedInterruptedRecovery)
+            {
+                refreshedProjects = await Task.Run(
+                    () => WorkspaceQueueService.ScanProjects(workspace),
+                    ct);
+            }
+
+            var matchedProjects = refreshedProjects
+                .Where(item => !item.Archived &&
+                               selectedTitles.Contains((item.NewTitle ?? string.Empty).Trim()))
+                .GroupBy(item => item.NewTitle.Trim(), StringComparer.Ordinal)
+                .Where(group => group.Count() == 1)
+                .Select(group => group.Single())
+                .ToArray();
+
+            vm.StatusMessage = "正在检查匹配项目的已有证明材料…";
+            var currentProofMaterialProjects = await Task.Run(() =>
+                matchedProjects
+                    .Where(item => TikTokProofMaterialService
+                        .HasReusableProofMaterialForCopyrightCompletion(
+                            item,
+                            proofSettings,
+                            proofAccount))
+                    .Select(item => Path.GetFullPath(item.ProjectDir))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase), ct);
+            var preparation = CopyrightProofQueuePreparationService.Prepare(
+                refreshedProjects,
+                matchedProjects,
+                currentProofMaterialProjects);
+
+            var missingAfterRestore = selectedTitles
+                .Except(matchedProjects.Select(item => item.NewTitle), StringComparer.Ordinal)
+                .ToArray();
+            if (matchedProjects.Length == 0)
+            {
+                vm.RefreshWorkspaceProjects(workspace, force: true);
+                var detail = restoreFailures.Concat(
+                    missingAfterRestore.Select(title => $"{title}：恢复后未找到队列项目"));
+                await ShowMessageAsync(
+                    owner,
+                    "无法开始补全版权证明",
+                    string.Join(Environment.NewLine, detail),
+                    warning: true);
+                return;
+            }
+
+            ct.ThrowIfCancellationRequested();
+            var persistedOptions = WorkspaceQueueService.LoadRunOptions(workspace);
+            WorkspaceQueueService.SaveRunOptions(workspace, refreshedProjects, persistedOptions);
+            await vm.ApplyPreparedWorkspaceQueueSnapshotAsync(
+                workspace,
+                refreshedProjects,
+                persistedOptions);
+
+            var options = vm.CreateCurrentQueueRunOptionsSnapshot();
+            options.ConfigureForCopyrightProofCompletion();
+            var executionProjectDirs = matchedProjects
+                .Select(item => Path.GetFullPath(item.ProjectDir))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var executionTarget = vm.CaptureCurrentWorkspaceQueueTarget()! with
+            {
+                ProjectDirFilter = executionProjectDirs,
+                PreferPersistedQueueSnapshot = true,
+            };
+
+            vm.AppendLog(
+                $"补全版权证明：匹配 {selectedMatches.Count} 个，" +
+                $"回退归档 {restoredCount} 个，重建已删除项目 {recoveredCount} 个，" +
+                $"准备执行 {matchedProjects.Length} 个；" +
+                $"复用已有证明材料 {preparation.ReusedProofMaterialCount} 个，" +
+                $"需要生成 {preparation.PendingProofMaterialCount} 个。");
+            foreach (var failure in restoreFailures)
+                vm.AppendLog($"补全版权证明回退失败：{failure}");
+            foreach (var title in missingAfterRestore)
+                vm.AppendLog($"补全版权证明跳过：恢复后未找到唯一的新剧名项目「{title}」");
+
+            ct.ThrowIfCancellationRequested();
+            await StartQueueRunAsync(
+                options,
+                executionProjectDirs,
+                confirmForceRerun: false,
+                targetOverride: executionTarget,
+                preserveProjectLogsSince: preparationLogStartedAt);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            vm.StatusMessage = "补全版权证明已停止";
+            vm.AppendLog(vm.StatusMessage);
+        }
+        finally
+        {
+            EndCopyrightProofPreparation(workspace);
+        }
     }
 
     private static IReadOnlyList<TikTokExecutionProjectSnapshot> LoadDeletedCopyrightProofHistory(
@@ -2756,7 +2879,8 @@ public partial class TikTokQueueView : UserControl
         IReadOnlyCollection<string>? projectDirFilter = null,
         bool confirmForceRerun = false,
         Action? onWorkerStarted = null,
-        WorkspaceQueueTarget? targetOverride = null)
+        WorkspaceQueueTarget? targetOverride = null,
+        DateTime? preserveProjectLogsSince = null)
     {
         var vm = _vm;
         if (vm is null) return false;
@@ -2865,7 +2989,8 @@ public partial class TikTokQueueView : UserControl
                 optionsOverride,
                 orderedProjectDirFilter,
                 onWorkerStarted,
-                runTarget);
+                runTarget,
+                preserveProjectLogsSince);
             workerReturnedSummary = summary is not null;
             if (summary is not null && !summary.Stopped && summary.StoppedAccountCount > 0)
                 vm.StatusMessage = $"队列结束：成功 {summary.SuccessCount}，失败 {summary.FailedCount}，已按账号停止 {summary.StoppedAccountCount} 个";
@@ -3026,10 +3151,16 @@ public partial class TikTokQueueView : UserControl
         if (vm is not null)
         {
             var root = NormalizeQueueWorkspaceRoot(vm.WorkspacePath);
+            var preparationCancelled = false;
             if (!string.IsNullOrWhiteSpace(root))
+            {
                 _queueStopRequestedWorkspaces.Add(root);
+                preparationCancelled = CancelCopyrightProofPreparation(root);
+            }
             vm.RequestStopQueue(root);
-            vm.StatusMessage = "正在停止队列…";
+            vm.StatusMessage = preparationCancelled
+                ? "正在停止补全版权证明…"
+                : "正在停止队列…";
         }
         RefreshQueueRunButtons();
     }

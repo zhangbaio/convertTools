@@ -135,8 +135,12 @@ public sealed class LogService
         ScheduleChanged();
     }
 
-    /// <summary>开始新一轮执行前，清除本轮项目在日志面板中的旧执行记录。</summary>
-    public int ClearProjectEntries(IEnumerable<QueueProjectItem> items)
+    /// <summary>
+    /// 开始新一轮执行前清除本轮项目的旧日志；准备阶段已经实时产生的日志可按时间保留。
+    /// </summary>
+    public int ClearProjectEntries(
+        IEnumerable<QueueProjectItem> items,
+        DateTime? preserveEntriesSince = null)
     {
         ArgumentNullException.ThrowIfNull(items);
 
@@ -159,6 +163,12 @@ public sealed class LogService
 
         var removed = _entries.RemoveAll(entry =>
         {
+            if (preserveEntriesSince.HasValue &&
+                entry.CreatedAt >= preserveEntriesSince.Value)
+            {
+                return false;
+            }
+
             var entryPath = NormalizeProjectPath(entry.ProjectPath);
             if (!string.IsNullOrWhiteSpace(entryPath))
                 return projectPaths.Contains(entryPath);
