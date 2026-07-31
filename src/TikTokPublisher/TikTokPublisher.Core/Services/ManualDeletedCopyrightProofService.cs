@@ -4,6 +4,12 @@ using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
 
+public enum ManualDeletedCopyrightProofInputMode
+{
+    KnownOriginalTitle,
+    UnknownOriginalTitle,
+}
+
 public sealed record ManualDeletedCopyrightProofEntry(
     string NewTitle,
     string OriginalTitle);
@@ -14,6 +20,18 @@ public sealed record ManualDeletedCopyrightProofEntry(
 /// </summary>
 public static class ManualDeletedCopyrightProofService
 {
+    public static IReadOnlyList<ManualDeletedCopyrightProofEntry> ParseUnknownOriginalTitles(
+        string? input)
+    {
+        return (input ?? string.Empty)
+            .Split(["\r\n", "\n", "\r"], StringSplitOptions.RemoveEmptyEntries)
+            .Select(title => title.Trim())
+            .Where(title => !string.IsNullOrWhiteSpace(title))
+            .Distinct(StringComparer.Ordinal)
+            .Select(title => new ManualDeletedCopyrightProofEntry(title, string.Empty))
+            .ToArray();
+    }
+
     public static IReadOnlyList<CopyrightProofProjectMatch> BuildMatches(
         IEnumerable<ManualDeletedCopyrightProofEntry> entries,
         string workspaceRoot,

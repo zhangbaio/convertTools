@@ -7,90 +7,79 @@ using TikTokPublisher.Core.Services;
 namespace TikTokPublisher.Ui.Views;
 
 public sealed record ManualDeletedCopyrightProofDialogResult(
+    ManualDeletedCopyrightProofInputMode Mode,
     IReadOnlyList<ManualDeletedCopyrightProofEntry> Entries);
 
 public sealed class ManualDeletedCopyrightProofDialog : Window
 {
+    private readonly TextBlock _instructions = new();
     private readonly StackPanel _entryRows = new() { Spacing = 8 };
+    private readonly TextBox _unknownTitles = new()
+    {
+        AcceptsReturn = true,
+        TextWrapping = TextWrapping.Wrap,
+        MinHeight = 180,
+        MaxHeight = 330,
+        Watermark = "一行输入一个新剧名，可一次粘贴多个",
+    };
     private readonly TextBlock _summary = new();
     private readonly List<EntryEditor> _editors = [];
+    private readonly Grid _knownModePanel;
+    private ManualDeletedCopyrightProofInputMode _mode =
+        ManualDeletedCopyrightProofInputMode.UnknownOriginalTitle;
 
     private ManualDeletedCopyrightProofDialog()
     {
         Title = "手动补已删除证明";
         Width = 900;
         MinWidth = 720;
-        MinHeight = 390;
-        MaxHeight = 680;
+        MinHeight = 430;
+        MaxHeight = 720;
         SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         var root = new Grid
         {
             Margin = new Thickness(18),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto,Auto"),
-            RowSpacing = 10,
+            RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto"),
+            RowSpacing = 12,
         };
-        root.Children.Add(new TextBlock
-        {
-            Text = "输入已删除剧集的新剧名，原剧名可以不填。已填写原剧名时优先从原片源恢复；未填写时将从当前账号的 TikTok 已发布项目下载必要视频；不会重新上传剧集。",
-            TextWrapping = TextWrapping.Wrap,
-            FontWeight = FontWeight.SemiBold,
-        });
 
-        var toolbar = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-        };
-        var addButton = new Button
-        {
-            Content = "添加一行",
-            MinWidth = 92,
-        };
-        addButton.Click += (_, _) => AddEntryRow(focus: true);
-        toolbar.Children.Add(addButton);
-        toolbar.Children.Add(new TextBlock
-        {
-            Text = "可添加多组剧名；同一个新剧名不能对应多个不同的原剧名。",
-            VerticalAlignment = VerticalAlignment.Center,
-            Foreground = Brushes.DimGray,
-        });
-        Grid.SetRow(toolbar, 1);
-        root.Children.Add(toolbar);
+        _instructions.TextWrapping = TextWrapping.Wrap;
+        _instructions.FontWeight = FontWeight.SemiBold;
+        root.Children.Add(_instructions);
 
-        var header = new Grid
+        _knownModePanel = BuildKnownModePanel();
+        var modeTabs = new TabControl
         {
-            ColumnDefinitions = new ColumnDefinitions("*,16,*,90"),
+            ItemsSource = new object[]
+            {
+                new TabItem
+                {
+                    Header = "仅有新剧名",
+                    Content = _unknownTitles,
+                },
+                new TabItem
+                {
+                    Header = "已知原剧名",
+                    Content = _knownModePanel,
+                },
+            },
+            SelectedIndex = 0,
         };
-        header.Children.Add(new TextBlock
+        modeTabs.SelectionChanged += (_, _) =>
         {
-            Text = "新剧名（TikTok 已发布名称）",
-            FontWeight = FontWeight.SemiBold,
-        });
-        var originalHeader = new TextBlock
-        {
-            Text = "原剧名（选填；留空则从 TikTok 恢复）",
-            FontWeight = FontWeight.SemiBold,
+            var mode = modeTabs.SelectedIndex == 1
+                ? ManualDeletedCopyrightProofInputMode.KnownOriginalTitle
+                : ManualDeletedCopyrightProofInputMode.UnknownOriginalTitle;
+            SetInputMode(mode, focus: true);
         };
-        Grid.SetColumn(originalHeader, 2);
-        header.Children.Add(originalHeader);
-        Grid.SetRow(header, 2);
-        root.Children.Add(header);
+        Grid.SetRow(modeTabs, 1);
+        root.Children.Add(modeTabs);
 
-        var scroller = new ScrollViewer
-        {
-            Content = _entryRows,
-            MinHeight = 120,
-            MaxHeight = 330,
-            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-        };
-        Grid.SetRow(scroller, 3);
-        root.Children.Add(scroller);
-
-        _summary.Text = "请至少填写一个新剧名。";
+        _unknownTitles.TextChanged += (_, _) => UpdateSummary();
         _summary.Foreground = Brushes.DimGray;
-        Grid.SetRow(_summary, 4);
+        Grid.SetRow(_summary, 2);
         root.Children.Add(_summary);
 
         var buttons = new StackPanel
@@ -113,18 +102,99 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         cancel.Click += (_, _) => Close(null);
         buttons.Children.Add(execute);
         buttons.Children.Add(cancel);
-        Grid.SetRow(buttons, 5);
+        Grid.SetRow(buttons, 3);
         root.Children.Add(buttons);
 
         Content = root;
         AddEntryRow(focus: false);
-        Opened += (_, _) => _editors[0].NewTitle.Focus();
+        SetInputMode(ManualDeletedCopyrightProofInputMode.UnknownOriginalTitle, focus: false);
+        Opened += (_, _) => FocusCurrentInput();
     }
 
     public static Task<ManualDeletedCopyrightProofDialogResult?> ShowAsync(Window owner)
     {
         var dialog = new ManualDeletedCopyrightProofDialog();
         return dialog.ShowDialog<ManualDeletedCopyrightProofDialogResult?>(owner);
+    }
+
+    private Grid BuildKnownModePanel()
+    {
+        var panel = new Grid
+        {
+            RowDefinitions = new RowDefinitions("Auto,Auto,*"),
+            RowSpacing = 8,
+        };
+        var toolbar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+        };
+        var addButton = new Button
+        {
+            Content = "添加一行",
+            MinWidth = 92,
+        };
+        addButton.Click += (_, _) => AddEntryRow(focus: true);
+        toolbar.Children.Add(addButton);
+        toolbar.Children.Add(new TextBlock
+        {
+            Text = "可添加多组剧名；每组的新剧名和原剧名都必须填写。",
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = Brushes.DimGray,
+        });
+        panel.Children.Add(toolbar);
+
+        var header = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,16,*,90"),
+        };
+        header.Children.Add(new TextBlock
+        {
+            Text = "新剧名（TikTok 已发布名称）",
+            FontWeight = FontWeight.SemiBold,
+        });
+        var originalHeader = new TextBlock
+        {
+            Text = "原剧名（用于查找原始短剧）",
+            FontWeight = FontWeight.SemiBold,
+        };
+        Grid.SetColumn(originalHeader, 2);
+        header.Children.Add(originalHeader);
+        Grid.SetRow(header, 1);
+        panel.Children.Add(header);
+
+        var scroller = new ScrollViewer
+        {
+            Content = _entryRows,
+            MinHeight = 120,
+            MaxHeight = 330,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+        };
+        Grid.SetRow(scroller, 2);
+        panel.Children.Add(scroller);
+        return panel;
+    }
+
+    private void SetInputMode(ManualDeletedCopyrightProofInputMode mode, bool focus)
+    {
+        _mode = mode;
+        var known = mode == ManualDeletedCopyrightProofInputMode.KnownOriginalTitle;
+        _knownModePanel.IsVisible = known;
+        _unknownTitles.IsVisible = !known;
+        _instructions.Text = known
+            ? "输入已删除剧集的新剧名和原剧名。系统优先复用当前队列或归档项目，否则按原剧名重新查找片源；不会重新上传剧集。"
+            : "输入已删除剧集的新剧名，一行一个。系统会从当前账号的 TikTok 已发布项目精确匹配并下载生成证明材料所需的视频；不会重新上传剧集。";
+        UpdateSummary();
+        if (focus && IsVisible)
+            FocusCurrentInput();
+    }
+
+    private void FocusCurrentInput()
+    {
+        if (_mode == ManualDeletedCopyrightProofInputMode.UnknownOriginalTitle)
+            _unknownTitles.Focus();
+        else if (_editors.Count > 0)
+            _editors[0].NewTitle.Focus();
     }
 
     private void AddEntryRow(bool focus)
@@ -139,7 +209,7 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         };
         var originalTitle = new TextBox
         {
-            Watermark = "选填原剧名",
+            Watermark = "输入原剧名",
         };
         Grid.SetColumn(originalTitle, 2);
         var remove = new Button
@@ -179,7 +249,18 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
 
     private void Submit()
     {
-        var incompleteRows = _editors
+        var entries = _mode == ManualDeletedCopyrightProofInputMode.KnownOriginalTitle
+            ? ReadKnownOriginalEntries()
+            : ReadUnknownOriginalEntries();
+        if (entries is null)
+            return;
+
+        Close(new ManualDeletedCopyrightProofDialogResult(_mode, entries));
+    }
+
+    private IReadOnlyList<ManualDeletedCopyrightProofEntry>? ReadKnownOriginalEntries()
+    {
+        var rows = _editors
             .Select((editor, index) => new
             {
                 Index = index + 1,
@@ -187,28 +268,29 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
                 OriginalTitle = (editor.OriginalTitle.Text ?? string.Empty).Trim(),
             })
             .Where(row =>
-                (!string.IsNullOrWhiteSpace(row.NewTitle) ||
-                 !string.IsNullOrWhiteSpace(row.OriginalTitle)) &&
-                string.IsNullOrWhiteSpace(row.NewTitle))
+                !string.IsNullOrWhiteSpace(row.NewTitle) ||
+                !string.IsNullOrWhiteSpace(row.OriginalTitle))
+            .ToArray();
+        var incompleteRows = rows
+            .Where(row =>
+                string.IsNullOrWhiteSpace(row.NewTitle) ||
+                string.IsNullOrWhiteSpace(row.OriginalTitle))
             .Select(row => row.Index)
             .ToArray();
         if (incompleteRows.Length > 0)
         {
-            ShowError($"第 {string.Join("、", incompleteRows)} 行填写了原剧名，但没有填写新剧名。");
-            return;
+            ShowError($"第 {string.Join("、", incompleteRows)} 行的新剧名和原剧名没有填写完整。");
+            return null;
         }
 
-        var entries = _editors
-            .Select(editor => new ManualDeletedCopyrightProofEntry(
-                (editor.NewTitle.Text ?? string.Empty).Trim(),
-                (editor.OriginalTitle.Text ?? string.Empty).Trim()))
-            .Where(entry => !string.IsNullOrWhiteSpace(entry.NewTitle))
+        var entries = rows
+            .Select(row => new ManualDeletedCopyrightProofEntry(row.NewTitle, row.OriginalTitle))
             .Distinct()
             .ToArray();
         if (entries.Length == 0)
         {
-            ShowError("请至少填写一个新剧名。");
-            return;
+            ShowError("请至少填写一组新剧名和原剧名。");
+            return null;
         }
 
         var conflicts = entries
@@ -222,23 +304,53 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         if (conflicts.Length > 0)
         {
             ShowError($"同一个新剧名填写了多个原剧名：{string.Join("、", conflicts)}");
-            return;
+            return null;
         }
 
-        Close(new ManualDeletedCopyrightProofDialogResult(entries));
+        return entries;
+    }
+
+    private IReadOnlyList<ManualDeletedCopyrightProofEntry>? ReadUnknownOriginalEntries()
+    {
+        var entries = ManualDeletedCopyrightProofService
+            .ParseUnknownOriginalTitles(_unknownTitles.Text);
+        if (entries.Count == 0)
+        {
+            ShowError("请至少填写一个新剧名。");
+            return null;
+        }
+
+        return entries;
     }
 
     private void UpdateSummary()
     {
+        if (_mode == ManualDeletedCopyrightProofInputMode.UnknownOriginalTitle)
+        {
+            var entries = ManualDeletedCopyrightProofService
+                .ParseUnknownOriginalTitles(_unknownTitles.Text);
+            _summary.Text = entries.Count > 0
+                ? $"已输入 {entries.Count} 个新剧名；将逐个从当前账号的 TikTok 已发布项目恢复视频。"
+                : "请至少填写一个新剧名。";
+            _summary.Foreground = entries.Count > 0 ? Brushes.SeaGreen : Brushes.DimGray;
+            return;
+        }
+
         var complete = _editors.Count(editor =>
-            !string.IsNullOrWhiteSpace(editor.NewTitle.Text));
-        var platformRecovery = _editors.Count(editor =>
             !string.IsNullOrWhiteSpace(editor.NewTitle.Text) &&
-            string.IsNullOrWhiteSpace(editor.OriginalTitle.Text));
+            !string.IsNullOrWhiteSpace(editor.OriginalTitle.Text));
+        var incomplete = _editors.Count(editor =>
+            !string.IsNullOrWhiteSpace(editor.NewTitle.Text) ^
+            !string.IsNullOrWhiteSpace(editor.OriginalTitle.Text));
         _summary.Text = complete > 0
-            ? $"已填写 {complete} 组，其中 {platformRecovery} 组将从 TikTok 已发布项目恢复视频；点击“开始补全”后将先进行二次确认。"
-            : "请至少填写一个新剧名。";
-        _summary.Foreground = complete > 0 ? Brushes.SeaGreen : Brushes.DimGray;
+            ? $"已填写 {complete} 组完整剧名" +
+              (incomplete > 0 ? $"，另有 {incomplete} 行未填写完整。" : "。")
+            : "请至少填写一组新剧名和原剧名。";
+        _summary.Foreground = incomplete > 0
+            ? Brushes.IndianRed
+            : complete > 0
+                ? Brushes.SeaGreen
+                : Brushes.DimGray;
     }
 
     private void ShowError(string message)
