@@ -1790,9 +1790,25 @@ public partial class TikTokQueueView : UserControl
             owner,
             Match,
             initialTitles);
-        if (dialogResult is null || dialogResult.SelectedMatches.Count == 0)
+        if (dialogResult is null)
         {
             vm.StatusMessage = "已取消补全版权证明";
+            return;
+        }
+
+        if (dialogResult.SkippedMatches.Count > 0)
+        {
+            await ShowMessageAsync(
+                owner,
+                dialogResult.SelectedMatches.Count > 0
+                    ? "部分项目未找到"
+                    : "未找到可补全项目",
+                FormatSkippedCopyrightProofMatches(dialogResult.SkippedMatches),
+                warning: true);
+        }
+        if (dialogResult.SelectedMatches.Count == 0)
+        {
+            vm.StatusMessage = "没有匹配到可执行的版权证明项目";
             return;
         }
 
@@ -2258,6 +2274,19 @@ public partial class TikTokQueueView : UserControl
                     warning: true);
                 return;
             }
+            if (restoreFailures.Count > 0 || missingAfterRestore.Length > 0)
+            {
+                var detail = restoreFailures
+                    .Concat(missingAfterRestore.Select(title => $"{title}：恢复后未找到队列项目"))
+                    .Select(message => $"• {message}");
+                await ShowMessageAsync(
+                    owner,
+                    "部分项目未找到",
+                    $"以下项目无法加入本次补全队列，已自动跳过：" +
+                    $"{Environment.NewLine}{Environment.NewLine}" +
+                    string.Join(Environment.NewLine, detail),
+                    warning: true);
+            }
 
             ct.ThrowIfCancellationRequested();
             var persistedOptions = WorkspaceQueueService.LoadRunOptions(workspace);
@@ -2304,12 +2333,30 @@ public partial class TikTokQueueView : UserControl
             }
 
             ct.ThrowIfCancellationRequested();
-            await StartQueueRunAsync(
+            var runCompleted = await StartQueueRunAsync(
                 options,
                 executionProjectDirs,
                 confirmForceRerun: false,
                 targetOverride: executionTarget,
                 preserveProjectLogsSince: preparationLogStartedAt);
+            if (!runCompleted &&
+                vm.StatusMessage.Contains(
+                    "目标工作目录未匹配到可执行项目",
+                    StringComparison.Ordinal))
+            {
+                var names = string.Join(
+                    Environment.NewLine,
+                    matchedProjects.Select(item => $"• {item.NewTitle}"));
+                await ShowMessageAsync(
+                    owner,
+                    "未找到可执行项目",
+                    $"队列启动时未能在目标工作目录中匹配到以下项目：" +
+                    $"{Environment.NewLine}{Environment.NewLine}{names}" +
+                    $"{Environment.NewLine}{Environment.NewLine}" +
+                    $"目标工作目录：{workspace}" +
+                    $"{Environment.NewLine}请刷新项目或确认当前账号的工作目录后重试。",
+                    warning: true);
+            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -2322,6 +2369,38 @@ public partial class TikTokQueueView : UserControl
         {
             EndCopyrightProofPreparation(workspace);
         }
+    }
+
+    private static string FormatSkippedCopyrightProofMatches(
+        IReadOnlyCollection<CopyrightProofProjectMatch> matches)
+    {
+        var sections = new List<string>();
+        var missing = matches
+            .Where(match => match.Location == CopyrightProofProjectLocation.Missing)
+            .Select(match => $"• {match.NewTitle}")
+            .ToArray();
+        if (missing.Length > 0)
+        {
+            sections.Add(
+                $"未找到以下 {missing.Length} 个项目：" +
+                $"{Environment.NewLine}{string.Join(Environment.NewLine, missing)}");
+        }
+
+        var conflicts = matches
+            .Where(match => match.Location == CopyrightProofProjectLocation.Conflict)
+            .Select(match => $"• {match.NewTitle}")
+            .ToArray();
+        if (conflicts.Length > 0)
+        {
+            sections.Add(
+                $"以下 {conflicts.Length} 个项目存在同名冲突，无法唯一匹配：" +
+                $"{Environment.NewLine}{string.Join(Environment.NewLine, conflicts)}");
+        }
+
+        sections.Add("以上项目已跳过，不会加入本次补全队列。");
+        return string.Join(
+            $"{Environment.NewLine}{Environment.NewLine}",
+            sections);
     }
 
     private static IReadOnlyList<TikTokExecutionProjectSnapshot> LoadDeletedCopyrightProofHistory(
