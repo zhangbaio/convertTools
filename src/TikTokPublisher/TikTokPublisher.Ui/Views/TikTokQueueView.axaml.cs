@@ -1986,6 +1986,10 @@ public partial class TikTokQueueView : UserControl
 
         var ct = recoveryToken.Value;
         vm.StatusMessage = "补全版权证明执行中…";
+        // 已删除项目尚未重建进队列时，日志服务无法把新剧名映射到项目路径。
+        // 若报告页仍筛选着上一个项目，准备/下载日志会被隐藏，直到项目重建后才成批出现。
+        // 准备阶段先显示全部项目，确保首条日志和后续下载进度能够立即呈现。
+        vm.Logs.SelectedProjectPath = string.Empty;
         try
         {
             var selectedTitles = selectedMatches
@@ -2087,17 +2091,22 @@ public partial class TikTokQueueView : UserControl
                         }
                         preparationLog(download.Message);
 
-                        recovery = DeletedCopyrightProofPublishedVideoRecoveryService.Recover(
-                            workspace,
-                            historySnapshot,
-                            new TikTokPublishedVideoRecoverySource(
-                                download.SeriesId,
-                                download.DetailUrl,
-                                download.StagingDirectory,
-                                download.PlatformEpisodeCount,
-                                download.DownloadedEpisodeCount),
-                            proofAccount,
-                            preparationLog);
+                        var recoverySource = new TikTokPublishedVideoRecoverySource(
+                            download.SeriesId,
+                            download.DetailUrl,
+                            download.StagingDirectory,
+                            download.PlatformEpisodeCount,
+                            download.DownloadedEpisodeCount);
+                        // 恢复过程会复制多集视频、导入本地项目并扫描队列，属于重文件 I/O。
+                        // 放在 UI 线程会造成窗口短暂卡死，同时期间产生的日志只能在结束后集中渲染。
+                        recovery = await Task.Run(
+                            () => DeletedCopyrightProofPublishedVideoRecoveryService.Recover(
+                                workspace,
+                                historySnapshot,
+                                recoverySource,
+                                proofAccount,
+                                preparationLog),
+                            ct);
                     }
                     else
                     {
