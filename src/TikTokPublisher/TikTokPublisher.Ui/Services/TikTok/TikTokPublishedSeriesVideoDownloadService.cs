@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Abstractions;
@@ -49,6 +50,7 @@ public static class TikTokPublishedSeriesVideoDownloadService
         var required = Math.Clamp(requiredEpisodeCount <= 0 ? 1 : requiredEpisodeCount, 1, 200);
         IPlaywright? playwright = null;
         IBrowser? chromium = null;
+        List<IPage> extraPages = [];
         try
         {
             var useLaunch = string.Equals(
@@ -105,30 +107,14 @@ public static class TikTokPublishedSeriesVideoDownloadService
             log?.Invoke(
                 $"平台视频恢复：已按新剧名定位 TikTok 已发布项目「{title}」，" +
                 $"准备获取前 {required} 集。");
-            await page.GotoAsync(match.DetailUrl, new PageGotoOptions
-            {
-                WaitUntil = WaitUntilState.DOMContentLoaded,
-                Timeout = 90000,
-            }).ConfigureAwait(false);
-            try
-            {
-                await page.WaitForLoadStateAsync(
-                    LoadState.NetworkIdle,
-                    new PageWaitForLoadStateOptions { Timeout = 15000 }).ConfigureAwait(false);
-            }
-            catch
-            {
-                // TikTok 详情页为持续请求的 SPA。
-            }
-
-            await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log).ConfigureAwait(false);
-            await OpenContentUploadTabAsync(page, ct).ConfigureAwait(false);
+            await PrepareDownloadPageAsync(page, match.DetailUrl, log, ct).ConfigureAwait(false);
             var platformEpisodeCount = await ReadPlatformEpisodeCountAsync(page).ConfigureAwait(false);
             var targetCount = platformEpisodeCount > 0
                 ? Math.Min(required, platformEpisodeCount)
                 : required;
 
             var downloaded = 0;
+            var pendingEpisodes = new List<int>(targetCount);
             for (var episode = 1; episode <= targetCount; episode++)
             {
                 ct.ThrowIfCancellationRequested();
@@ -141,82 +127,101 @@ public static class TikTokPublishedSeriesVideoDownloadService
                     continue;
                 }
 
-                var row = await FindEpisodeRowAsync(page, episode, ct).ConfigureAwait(false);
-                if (row is null)
-                {
-                    return Fail(
-                        $"TikTok 内容上传页面未找到第 {episode} 集，" +
-                        $"已保留完成的 {downloaded} 集供下次继续。",
-                        match,
-                        staging,
-                        platformEpisodeCount,
-                        downloaded);
-                }
+                pendingEpisodes.Add(episode);
+            }
 
-                var button = await FindDownloadButtonAsync(row).ConfigureAwait(false);
-                if (button is null)
-                {
-                    return Fail(
-                        $"TikTok 内容上传页面第 {episode} 集没有可用的下载按钮，" +
-                        $"已保留完成的 {downloaded} 集供下次继续。",
-                        match,
-                        staging,
-                        platformEpisodeCount,
-                        downloaded);
-                }
+            var concurrency = DeletedCopyrightProofPublishedVideoRecoveryService
+                .ResolveEpisodeDownloadConcurrency(pendingEpisodes.Count);
+            if (concurrency > 0)
+            {
+                log?.Invoke(
+                    $"平台视频恢复：{pendingEpisodes.Count} 集待下载，" +
+                    $"启用 {concurrency} 路分集并发。");
 
-                Exception? lastError = null;
-                for (var attempt = 1; attempt <= DownloadAttempts; attempt++)
+                for (var index = 1; index < concurrency; index++)
                 {
                     ct.ThrowIfCancellationRequested();
-                    try
+                    extraPages.Add(await page.Context.NewPageAsync().ConfigureAwait(false));
+                }
+
+                await Task.WhenAll(
+                        extraPages.Select(extraPage =>
+                            PrepareDownloadPageAsync(
+                                extraPage,
+                                match.DetailUrl,
+                                log: null,
+                                ct)))
+                    .ConfigureAwait(false);
+
+                var queue = new ConcurrentQueue<int>(pendingEpisodes);
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var failureGate = new object();
+                var logGate = new object();
+                string? failureMessage = null;
+
+                void WriteLog(string message)
+                {
+                    lock (logGate)
                     {
-                        log?.Invoke(
-                            $"平台视频恢复 [{episode}/{targetCount}]：开始下载" +
-                            (attempt > 1 ? $"（重试 {attempt}/{DownloadAttempts}）" : "。"));
-                        var download = await page.RunAndWaitForDownloadAsync(
-                                () => button.ClickAsync(new LocatorClickOptions
-                                {
-                                    Timeout = 15000,
-                                }),
-                                new PageRunAndWaitForDownloadOptions
-                                {
-                                    Timeout = 90000,
-                                })
-                            .ConfigureAwait(false);
-                        var extension = ResolveVideoExtension(download.SuggestedFilename);
-                        var destination = Path.Combine(
-                            staging,
-                            $"第{episode:D3}集{extension}");
-                        var partial = destination + ".part";
-                        if (File.Exists(partial))
-                            File.Delete(partial);
-                        await download.SaveAsAsync(partial).ConfigureAwait(false);
-                        ValidateDownloadedVideo(partial);
-                        File.Move(partial, destination, overwrite: true);
-                        downloaded++;
-                        log?.Invoke(
-                            $"平台视频恢复 [{episode}/{targetCount}]：下载完成，" +
-                            $"{new FileInfo(destination).Length / 1024d / 1024d:0.0} MB。");
-                        lastError = null;
-                        break;
-                    }
-                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        lastError = ex;
-                        if (attempt < DownloadAttempts)
-                            await page.WaitForTimeoutAsync(900).ConfigureAwait(false);
+                        log?.Invoke(message);
                     }
                 }
 
-                if (lastError is not null)
+                void RecordFailure(string message)
+                {
+                    lock (failureGate)
+                    {
+                        if (failureMessage is not null)
+                            return;
+                        failureMessage = message;
+                        linkedCts.Cancel();
+                    }
+                }
+
+                var workerPages = new[] { page }.Concat(extraPages).ToArray();
+                var workers = workerPages.Select(async workerPage =>
+                {
+                    while (!linkedCts.IsCancellationRequested &&
+                           queue.TryDequeue(out var episode))
+                    {
+                        try
+                        {
+                            var error = await DownloadEpisodeAsync(
+                                    workerPage,
+                                    staging,
+                                    episode,
+                                    targetCount,
+                                    WriteLog,
+                                    linkedCts.Token)
+                                .ConfigureAwait(false);
+                            if (error is not null)
+                            {
+                                RecordFailure(error);
+                                break;
+                            }
+
+                            Interlocked.Increment(ref downloaded);
+                        }
+                        catch (OperationCanceledException)
+                            when (!ct.IsCancellationRequested && linkedCts.IsCancellationRequested)
+                        {
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            RecordFailure(
+                                $"TikTok 第 {episode} 集下载任务异常：{ex.Message}。");
+                            break;
+                        }
+                    }
+                });
+                await Task.WhenAll(workers).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+
+                if (failureMessage is not null)
                 {
                     return Fail(
-                        $"TikTok 第 {episode} 集下载失败：{lastError.Message}。" +
+                        failureMessage +
                         $"已保留完成的 {downloaded} 集供下次继续。",
                         match,
                         staging,
@@ -244,6 +249,19 @@ public static class TikTokPublishedSeriesVideoDownloadService
         }
         finally
         {
+            foreach (var extraPage in extraPages.AsEnumerable().Reverse())
+            {
+                try
+                {
+                    if (!extraPage.IsClosed)
+                        await extraPage.CloseAsync().ConfigureAwait(false);
+                }
+                catch
+                {
+                    // 只关闭本次并发下载创建的辅助页面。
+                }
+            }
+
             try
             {
                 if (chromium is not null)
@@ -256,6 +274,103 @@ public static class TikTokPublishedSeriesVideoDownloadService
 
             playwright?.Dispose();
         }
+    }
+
+    private static async Task PrepareDownloadPageAsync(
+        IPage page,
+        string detailUrl,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await page.GotoAsync(detailUrl, new PageGotoOptions
+        {
+            WaitUntil = WaitUntilState.DOMContentLoaded,
+            Timeout = 90000,
+        }).ConfigureAwait(false);
+        try
+        {
+            await page.WaitForLoadStateAsync(
+                LoadState.NetworkIdle,
+                new PageWaitForLoadStateOptions { Timeout = 15000 }).ConfigureAwait(false);
+        }
+        catch
+        {
+            // TikTok 详情页为持续请求的 SPA。
+        }
+
+        ct.ThrowIfCancellationRequested();
+        await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log).ConfigureAwait(false);
+        await OpenContentUploadTabAsync(page, ct).ConfigureAwait(false);
+    }
+
+    private static async Task<string?> DownloadEpisodeAsync(
+        IPage page,
+        string staging,
+        int episode,
+        int targetCount,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        var row = await FindEpisodeRowAsync(page, episode, ct).ConfigureAwait(false);
+        if (row is null)
+        {
+            return $"TikTok 内容上传页面未找到第 {episode} 集，";
+        }
+
+        var button = await FindDownloadButtonAsync(row).ConfigureAwait(false);
+        if (button is null)
+        {
+            return $"TikTok 内容上传页面第 {episode} 集没有可用的下载按钮，";
+        }
+
+        Exception? lastError = null;
+        for (var attempt = 1; attempt <= DownloadAttempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                log(
+                    $"平台视频恢复 [{episode}/{targetCount}]：开始下载" +
+                    (attempt > 1 ? $"（重试 {attempt}/{DownloadAttempts}）" : "。"));
+                var download = await page.RunAndWaitForDownloadAsync(
+                        () => button.ClickAsync(new LocatorClickOptions
+                        {
+                            Timeout = 15000,
+                        }),
+                        new PageRunAndWaitForDownloadOptions
+                        {
+                            Timeout = 90000,
+                        })
+                    .ConfigureAwait(false);
+                var extension = ResolveVideoExtension(download.SuggestedFilename);
+                var destination = Path.Combine(
+                    staging,
+                    $"第{episode:D3}集{extension}");
+                var partial = destination + ".part";
+                if (File.Exists(partial))
+                    File.Delete(partial);
+                await download.SaveAsAsync(partial).ConfigureAwait(false);
+                ValidateDownloadedVideo(partial);
+                File.Move(partial, destination, overwrite: true);
+                log(
+                    $"平台视频恢复 [{episode}/{targetCount}]：下载完成，" +
+                    $"{new FileInfo(destination).Length / 1024d / 1024d:0.0} MB。");
+                return null;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+                if (attempt < DownloadAttempts)
+                    await page.WaitForTimeoutAsync(900).ConfigureAwait(false);
+            }
+        }
+
+        return $"TikTok 第 {episode} 集下载失败：{lastError?.Message ?? "未知错误"}。";
     }
 
     private static async Task OpenContentUploadTabAsync(IPage page, CancellationToken ct)
