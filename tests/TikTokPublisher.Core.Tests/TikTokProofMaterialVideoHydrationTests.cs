@@ -67,6 +67,23 @@ public sealed class TikTokProofMaterialVideoHydrationTests
             "证明材料补下载的视频应由项目归档流程统一清理");
     }
 
+    [Theory]
+    [InlineData(true, 0, "Failed")]
+    [InlineData(false, 0, "Failed")]
+    [InlineData(false, 1, "Partial")]
+    [InlineData(false, 13, "Partial")]
+    [InlineData(true, 16, "Completed")]
+    public void ResolveProofMaterialHydrationDisposition_AllowsPartialSuccessfulDownloads(
+        bool downloadOk,
+        int availableVideoCount,
+        string expected)
+    {
+        QueueMaterialStepService.ResolveProofMaterialHydrationDisposition(
+                downloadOk,
+                availableVideoCount)
+            .ToString().Should().Be(expected);
+    }
+
     private sealed class TemporaryDirectory : IDisposable
     {
         public TemporaryDirectory()
