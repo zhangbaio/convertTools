@@ -172,7 +172,8 @@ public static partial class TikTokBrowserActions
         IPage page,
         Action<string>? log,
         CancellationToken ct,
-        IReadOnlyList<string>? titleCandidates = null)
+        IReadOnlyList<string>? titleCandidates = null,
+        bool verifySeriesListStatus = true)
     {
         await WaitBeforeSubmitAsync(log, ct).ConfigureAwait(false);
         await DismissFloatingAssistantAsync(page, log);
@@ -183,8 +184,15 @@ public static partial class TikTokBrowserActions
         var dailyLimit = await DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false);
         if (dailyLimit is not null)
             throw new TikTokDailyLimitException(dailyLimit);
-        await VerifySubmitAcceptedAsync(page, titleCandidates, log, ct).ConfigureAwait(false);
-        Log(log, "TikTok 表单已提交并通过平台状态校验。");
+        if (verifySeriesListStatus)
+        {
+            await VerifySubmitAcceptedAsync(page, titleCandidates, log, ct).ConfigureAwait(false);
+            Log(log, "TikTok 表单已提交并通过平台状态校验。");
+        }
+        else
+        {
+            Log(log, "TikTok 表单已提交，等待版权证明材料落库复查。");
+        }
     }
 
     public static async Task WaitBeforeSubmitAsync(Action<string>? log, CancellationToken ct, double seconds = 10)
@@ -1245,34 +1253,49 @@ public static partial class TikTokBrowserActions
 
     private static async Task ConfirmSubmitDialogIfPresentAsync(IPage page, Action<string>? log, CancellationToken ct)
     {
-        await page.WaitForTimeoutAsync(800);
-        foreach (var text in new[] { "确认", "确定", "提交", "同意" })
+        // Never fall back to a page-wide button lookup here. On an edit page that fallback can
+        // click the main submit button a second time and incorrectly report it as a dialog
+        // confirmation. Different TikTok deployments use either TUX or Semi modal containers,
+        // so keep the selector broad enough for those implementations but always dialog-scoped.
+        await page.WaitForTimeoutAsync(500);
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline)
         {
-            try
-            {
-                var modalBtn = page.Locator("[data-testid='tux-web-modal'][role='dialog'] button")
-                    .Filter(new() { HasText = text }).First;
-                if (await modalBtn.CountAsync() > 0 && await modalBtn.IsVisibleAsync())
-                {
-                    await modalBtn.ClickAsync(new() { Timeout = 5000 });
-                    Log(log, $"已确认提交对话框（modal）：{text}");
-                    return;
-                }
-            }
-            catch { /* try next */ }
+            ct.ThrowIfCancellationRequested();
+            var dialogs = page.Locator(
+                "[role='dialog']:visible, " +
+                "[aria-modal='true']:visible, " +
+                "[data-testid='tux-web-modal']:visible, " +
+                ".semi-modal:visible, " +
+                ".semi-modal-content:visible");
+            int dialogCount;
+            try { dialogCount = await dialogs.CountAsync(); }
+            catch { dialogCount = 0; }
 
-            try
+            for (var dialogIndex = dialogCount - 1; dialogIndex >= 0; dialogIndex--)
             {
-                var btn = page.Locator("button").Filter(new() { HasText = text }).First;
-                if (await btn.CountAsync() > 0 && await btn.IsVisibleAsync())
+                var dialog = dialogs.Nth(dialogIndex);
+                foreach (var text in new[] { "确认", "确定", "提交", "同意" })
                 {
-                    await btn.ClickAsync(new() { Timeout = 5000 });
-                    Log(log, $"已确认提交对话框：{text}");
-                    return;
+                    try
+                    {
+                        var modalBtn = dialog.Locator("button:visible")
+                            .Filter(new() { HasText = text }).Last;
+                        if (await modalBtn.CountAsync() == 0 || !await modalBtn.IsVisibleAsync())
+                            continue;
+
+                        await modalBtn.ClickAsync(new() { Timeout = 5000 });
+                        Log(log, $"已确认提交对话框：{text}");
+                        return;
+                    }
+                    catch { /* try next dialog/button */ }
                 }
             }
-            catch { /* try next */ }
+
+            await Task.Delay(250, ct).ConfigureAwait(false);
         }
+
+        Log(log, "提交后未检测到确认对话框，继续执行提交结果校验。");
     }
 
     private static async Task VerifySubmitAcceptedAsync(
