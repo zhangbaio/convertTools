@@ -123,9 +123,26 @@ public static class TikTokCopyrightProofEditService
             if (finalAction == FinalAction.Draft)
                 await TikTokBrowserActions.SaveAsync(page, L, ct).ConfigureAwait(false);
             else
-                await TikTokBrowserActions.SubmitAsync(page, L, ct, [item.Title]).ConfigureAwait(false);
+                await TikTokBrowserActions.SubmitAsync(
+                        page,
+                        L,
+                        ct,
+                        [item.Title],
+                        verifySeriesListStatus: false)
+                    .ConfigureAwait(false);
 
-            return PublishResult.Success("版权证明已补全并提交");
+            await VerifyPersistedCopyrightProofMaterialsAsync(
+                    page,
+                    detailUrl,
+                    options.CopyrightMaterialTypes,
+                    L,
+                    ct)
+                .ConfigureAwait(false);
+
+            return PublishResult.Success(
+                finalAction == FinalAction.Draft
+                    ? "版权证明已保存并通过落库复查"
+                    : "版权证明已提交并通过落库复查");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -169,4 +186,95 @@ public static class TikTokCopyrightProofEditService
 
     private static bool IsLoginPage(string url) =>
         (url ?? string.Empty).Contains("/login", StringComparison.OrdinalIgnoreCase);
+
+    private static async Task VerifyPersistedCopyrightProofMaterialsAsync(
+        IPage page,
+        string detailUrl,
+        IEnumerable<string>? configuredMaterialTypes,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var configured = TikTokPublishConstants
+            .NormalizeCopyrightMaterialTypes(configuredMaterialTypes)
+            .ToArray();
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        var attempt = 0;
+        var lastFailure = "版权证明表单尚未完成复查";
+
+        // Give TikTok a short moment to persist the edit before the first reload. The following
+        // retries handle eventual consistency without ever treating the already-published series
+        // status as proof that the copyright files were saved.
+        await Task.Delay(2000, ct).ConfigureAwait(false);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            attempt++;
+            try
+            {
+                log?.Invoke($"提交后第 {attempt} 次复查版权证明材料：重新打开当前剧集。");
+                await page.GotoAsync(detailUrl, new PageGotoOptions
+                {
+                    WaitUntil = WaitUntilState.DOMContentLoaded,
+                    Timeout = 90000,
+                }).ConfigureAwait(false);
+                try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 }); }
+                catch { /* SPA or background polling */ }
+                await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log).ConfigureAwait(false);
+
+                if (IsLoginPage(page.Url))
+                    throw new InvalidOperationException("TikTok 登录态失效，无法完成版权材料落库复查。");
+
+                var copyrightTab = page.GetByText("版权证明", new() { Exact = true }).Last;
+                await copyrightTab.WaitForAsync(new()
+                {
+                    State = WaitForSelectorState.Visible,
+                    Timeout = 30000,
+                }).ConfigureAwait(false);
+                await copyrightTab.ClickAsync(new() { Timeout = 15000 }).ConfigureAwait(false);
+
+                var coverage = await TikTokBrowserActions
+                    .ProbeConfiguredCopyrightProofMaterialsAsync(page, configured, ct)
+                    .ConfigureAwait(false);
+                foreach (var detail in coverage.Details)
+                    log?.Invoke($"提交后版权材料复查：{detail}。");
+
+                if (coverage.FormAvailable && coverage.Plan.IsComplete)
+                {
+                    log?.Invoke("TikTok 版权证明提交后复查通过：账号配置的材料均已实际保存。");
+                    return;
+                }
+
+                if (!coverage.FormAvailable)
+                {
+                    lastFailure = "版权证明表单未加载或无法识别";
+                }
+                else
+                {
+                    var missingLabels = coverage.Plan.MissingMaterialTypes
+                        .Select(key => TikTokPublishConstants.CopyrightMaterialLabels[key])
+                        .ToArray();
+                    lastFailure = missingLabels.Length == 0
+                        ? "版权材料状态尚未稳定"
+                        : $"缺少：{string.Join("、", missingLabels)}";
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                lastFailure = ex.Message;
+            }
+
+            if (DateTime.UtcNow >= deadline)
+                break;
+
+            log?.Invoke($"版权证明提交后复查尚未通过（{lastFailure}），5 秒后重试。");
+            await Task.Delay(5000, ct).ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException(
+            $"TikTok 版权证明提交后复查未通过，不能标记为成功：{lastFailure}");
+    }
 }
