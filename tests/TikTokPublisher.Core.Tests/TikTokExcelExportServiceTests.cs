@@ -58,6 +58,76 @@ public sealed class TikTokExcelExportServiceTests
         }
     }
 
+    [Fact]
+    public async Task Export_Retries_A_Transiently_Locked_Report()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"tiktok-excel-lock-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var outputPath = Path.Combine(tempDir, "records.xlsx");
+            var account = new TikTokAccountProfile { TiktokExcelReportPath = outputPath };
+            var items = new[] { BuildItem(tempDir, "project-a", "剧一", "acct-1", "账号一") };
+            TikTokExcelExportService.Export(tempDir, items, account, new ClientSettings());
+
+            using var reportLock = File.Open(
+                outputPath,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None);
+            var exportTask = Task.Run(() =>
+                TikTokExcelExportService.Export(tempDir, items, account, new ClientSettings()));
+
+            await Task.Delay(250);
+            reportLock.Dispose();
+
+            var exported = await exportTask;
+            exported.Should().Be(outputPath);
+            using var document = SpreadsheetDocument.Open(exported, false);
+            document.WorkbookPart.Should().NotBeNull();
+            Directory.GetFiles(tempDir, ".*.tmp.xlsx").Should().BeEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Export_Serializes_Concurrent_Writes_To_The_Same_Report()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"tiktok-excel-concurrent-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var outputPath = Path.Combine(tempDir, "records.xlsx");
+            var account = new TikTokAccountProfile { TiktokExcelReportPath = outputPath };
+            var items = Enumerable.Range(1, 12)
+                .Select(index => BuildItem(tempDir, $"project-{index}", $"剧{index}", "acct-1", "账号一"))
+                .ToArray();
+
+            var exports = Enumerable.Range(0, 8)
+                .Select(_ => Task.Run(() =>
+                    TikTokExcelExportService.Export(tempDir, items, account, new ClientSettings())))
+                .ToArray();
+
+            var exportedPaths = await Task.WhenAll(exports);
+
+            exportedPaths.Should().OnlyContain(path => path == outputPath);
+            using var document = SpreadsheetDocument.Open(outputPath, false);
+            ReadRows(document.WorkbookPart!, "汇总").Should().HaveCount(items.Length + 1);
+            Directory.GetFiles(tempDir, ".*.tmp.xlsx").Should().BeEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     private static QueueProjectItem BuildItem(
         string root,
         string folderName,

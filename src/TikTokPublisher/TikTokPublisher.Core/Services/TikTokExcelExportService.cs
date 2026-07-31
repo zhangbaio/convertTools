@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
@@ -9,6 +10,15 @@ namespace TikTokPublisher.Core.Services;
 public static class TikTokExcelExportService
 {
     private const string SummarySheet = "汇总";
+    private static readonly ConcurrentDictionary<string, object> ExportLocks =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan[] ReplaceRetryDelays =
+    [
+        TimeSpan.FromMilliseconds(150),
+        TimeSpan.FromMilliseconds(300),
+        TimeSpan.FromMilliseconds(600),
+        TimeSpan.FromMilliseconds(1200),
+    ];
 
     public static string ResolveReportPath(TikTokAccountProfile? account, ClientSettings? settings = null)
     {
@@ -31,23 +41,109 @@ public static class TikTokExcelExportService
     {
         settings ??= ClientSettingsStore.Load();
         var outputPath = ResolveReportPath(account, settings);
+        var exportLock = ExportLocks.GetOrAdd(outputPath, static _ => new object());
+        lock (exportLock)
+        {
+            return ExportCore(
+                workspace,
+                items,
+                outputPath,
+                workspaceByProject,
+                accountProfiles);
+        }
+    }
+
+    private static string ExportCore(
+        string workspace,
+        IReadOnlyList<QueueProjectItem> items,
+        string outputPath,
+        IReadOnlyDictionary<string, string>? workspaceByProject,
+        IReadOnlyList<TikTokAccountProfile>? accountProfiles)
+    {
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         var projectKeys = BuildProjectKeySet(items);
         var manualValues = LoadManualValues(outputPath, projectKeys);
         var accountLookup = BuildAccountLookup(accountProfiles);
+        var tempPath = BuildTemporaryReportPath(outputPath);
 
-        using var document = SpreadsheetDocument.Create(outputPath, SpreadsheetDocumentType.Workbook);
-        var workbookPart = document.AddWorkbookPart();
-        workbookPart.Workbook = new Workbook();
-        var stylesPart = workbookPart.AddNewPart<WorkbookStylesPart>();
-        stylesPart.Stylesheet = BuildStylesheet();
-        stylesPart.Stylesheet.Save();
+        try
+        {
+            using (var document = SpreadsheetDocument.Create(tempPath, SpreadsheetDocumentType.Workbook))
+            {
+                var workbookPart = document.AddWorkbookPart();
+                workbookPart.Workbook = new Workbook();
+                var stylesPart = workbookPart.AddNewPart<WorkbookStylesPart>();
+                stylesPart.Stylesheet = BuildStylesheet();
+                stylesPart.Stylesheet.Save();
 
-        var sheets = workbookPart.Workbook.AppendChild(new Sheets());
-        AppendSheet(workbookPart, sheets, SummarySheet, 1U, BuildCurrentQueueRows(workspace, items, manualValues, workspaceByProject, accountLookup));
+                var sheets = workbookPart.Workbook.AppendChild(new Sheets());
+                AppendSheet(
+                    workbookPart,
+                    sheets,
+                    SummarySheet,
+                    1U,
+                    BuildCurrentQueueRows(
+                        workspace,
+                        items,
+                        manualValues,
+                        workspaceByProject,
+                        accountLookup));
 
-        workbookPart.Workbook.Save();
-        return outputPath;
+                workbookPart.Workbook.Save();
+            }
+
+            ReplaceReportFileWithRetry(tempPath, outputPath);
+            return outputPath;
+        }
+        finally
+        {
+            TryDeleteTemporaryReport(tempPath);
+        }
+    }
+
+    private static string BuildTemporaryReportPath(string outputPath)
+    {
+        var directory = Path.GetDirectoryName(outputPath)!;
+        var fileName = Path.GetFileNameWithoutExtension(outputPath);
+        return Path.Combine(directory, $".{fileName}.{Guid.NewGuid():N}.tmp.xlsx");
+    }
+
+    private static void ReplaceReportFileWithRetry(string tempPath, string outputPath)
+    {
+        Exception? lastError = null;
+        for (var attempt = 0; attempt <= ReplaceRetryDelays.Length; attempt++)
+        {
+            try
+            {
+                File.Move(tempPath, outputPath, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                lastError = ex;
+                if (attempt >= ReplaceRetryDelays.Length)
+                    break;
+
+                Thread.Sleep(ReplaceRetryDelays[attempt]);
+            }
+        }
+
+        throw new IOException(
+            $"Excel 报表正在被其他进程占用，自动重试 {ReplaceRetryDelays.Length} 次后仍无法保存：{outputPath}",
+            lastError);
+    }
+
+    private static void TryDeleteTemporaryReport(string tempPath)
+    {
+        try
+        {
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
+        catch
+        {
+            // Best-effort cleanup. The completed report is never deleted here.
+        }
     }
 
     private static IReadOnlyList<IReadOnlyList<object?>> BuildCurrentQueueRows(
