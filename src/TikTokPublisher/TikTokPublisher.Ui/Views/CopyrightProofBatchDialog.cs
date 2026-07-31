@@ -2,12 +2,14 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Views;
 
 public sealed record CopyrightProofBatchDialogResult(
-    IReadOnlyList<CopyrightProofProjectMatch> SelectedMatches);
+    IReadOnlyList<CopyrightProofProjectMatch> SelectedMatches,
+    CopyrightProofExecutionMode ExecutionMode);
 
 public sealed class CopyrightProofBatchDialog : Window
 {
@@ -15,6 +17,7 @@ public sealed class CopyrightProofBatchDialog : Window
     private readonly TextBox _input;
     private readonly StackPanel _previewRows;
     private readonly TextBlock _summary;
+    private readonly CopyrightProofExecutionModeSelector _executionModeSelector = new();
     private IReadOnlyList<CopyrightProofProjectMatch> _matches = [];
 
     private CopyrightProofBatchDialog(
@@ -33,7 +36,7 @@ public sealed class CopyrightProofBatchDialog : Window
         var root = new Grid
         {
             Margin = new Thickness(18),
-            RowDefinitions = new RowDefinitions("Auto,150,Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,150,Auto,Auto,Auto"),
             RowSpacing = 10,
         };
         root.Children.Add(new TextBlock
@@ -50,7 +53,10 @@ public sealed class CopyrightProofBatchDialog : Window
             Watermark = "每行输入一个新剧名",
             Text = initialInput ?? string.Empty,
         };
-        Grid.SetRow(_input, 1);
+        Grid.SetRow(_executionModeSelector, 1);
+        root.Children.Add(_executionModeSelector);
+
+        Grid.SetRow(_input, 2);
         root.Children.Add(_input);
 
         var previewHeader = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
@@ -65,7 +71,7 @@ public sealed class CopyrightProofBatchDialog : Window
         refreshButton.Click += (_, _) => RefreshPreview();
         Grid.SetColumn(refreshButton, 1);
         previewHeader.Children.Add(refreshButton);
-        Grid.SetRow(previewHeader, 2);
+        Grid.SetRow(previewHeader, 3);
         root.Children.Add(previewHeader);
 
         _previewRows = new StackPanel { Spacing = 6 };
@@ -75,7 +81,7 @@ public sealed class CopyrightProofBatchDialog : Window
             MaxHeight = 240,
             VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
         };
-        Grid.SetRow(scroller, 3);
+        Grid.SetRow(scroller, 4);
         root.Children.Add(scroller);
 
         var buttons = new StackPanel
@@ -99,12 +105,14 @@ public sealed class CopyrightProofBatchDialog : Window
                 return;
             }
 
-            Close(new CopyrightProofBatchDialogResult(selected));
+            Close(new CopyrightProofBatchDialogResult(
+                selected,
+                _executionModeSelector.ExecutionMode));
         };
         cancel.Click += (_, _) => Close(null);
         buttons.Children.Add(execute);
         buttons.Children.Add(cancel);
-        Grid.SetRow(buttons, 4);
+        Grid.SetRow(buttons, 5);
         root.Children.Add(buttons);
         Content = root;
         Opened += (_, _) =>
