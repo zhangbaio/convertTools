@@ -56,6 +56,40 @@ public sealed class CopyrightProofQueuePreparationServiceTests
             unrelated.StepStates[QueueStepRegistry.UploadSeries]);
     }
 
+    [Fact]
+    public void Prepare_generate_only_preserves_existing_upload_states()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"copyright-proof-generate-only-{Guid.NewGuid():N}");
+        var completedUpload = Project(
+            Path.Combine(root, "completed"),
+            QueueStepStatus.Failed,
+            QueueStepStatus.Completed);
+        var stoppedUpload = Project(
+            Path.Combine(root, "stopped"),
+            QueueStepStatus.Stopped,
+            QueueStepStatus.Stopped);
+
+        var summary = CopyrightProofQueuePreparationService.Prepare(
+            [completedUpload, stoppedUpload],
+            [completedUpload, stoppedUpload],
+            [],
+            CopyrightProofExecutionMode.GenerateMaterialOnly);
+
+        Assert.Equal(2, summary.PendingProofMaterialCount);
+        Assert.Equal(
+            QueueStepStatus.Completed,
+            completedUpload.StepStates[QueueStepRegistry.UploadSeries]);
+        Assert.Equal(
+            QueueStepStatus.Stopped,
+            stoppedUpload.StepStates[QueueStepRegistry.UploadSeries]);
+        Assert.Equal(
+            QueueStepStatus.Pending,
+            completedUpload.StepStates[QueueStepRegistry.GenerateProofMaterial]);
+        Assert.Equal(
+            QueueStepStatus.Pending,
+            stoppedUpload.StepStates[QueueStepRegistry.GenerateProofMaterial]);
+    }
+
     private static QueueProjectItem Project(
         string projectDir,
         string proofStatus,

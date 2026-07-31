@@ -21,6 +21,22 @@ public sealed class QueueRunOptionsTests
     }
 
     [Fact]
+    public void CopyrightProofMaterialOnlyEntryMode_RoundTripsButIsNotPersisted()
+    {
+        var options = new QueueRunOptions
+        {
+            UploadEntryMode = QueueRunOptions.CopyrightProofMaterialOnlyEntryMode,
+        };
+
+        var transient = QueueRunOptions.FromDictionary(options.ToDictionary());
+        var persistent = QueueRunOptions.FromDictionary(options.ToPersistentDictionary());
+
+        Assert.True(transient.IsCopyrightProofMaterialOnlyRun());
+        Assert.True(transient.IsCopyrightProofWorkflowRun());
+        Assert.Equal(string.Empty, persistent.UploadEntryMode);
+    }
+
+    [Fact]
     public void ConfigureForCopyrightProofCompletion_reuses_completed_proof_but_still_runs_edit()
     {
         var options = new QueueRunOptions
@@ -40,6 +56,30 @@ public sealed class QueueRunOptionsTests
         options.AutoArchiveAfterUpload.Should().BeFalse();
         options.SyncManagementAfterUpload.Should().BeFalse();
         options.IsCopyrightProofOnlyRun().Should().BeTrue();
+    }
+
+    [Fact]
+    public void ConfigureForCopyrightProof_generate_only_never_enables_TikTok_edit()
+    {
+        var options = new QueueRunOptions
+        {
+            EnabledSteps = [QueueStepRegistry.UploadSeries],
+            ForceRerunCompletedSteps = true,
+            AutoArchiveAfterUpload = true,
+            SyncManagementAfterUpload = true,
+            UploadEntryMode = QueueRunOptions.CopyrightProofOnlyEntryMode,
+        };
+
+        options.ConfigureForCopyrightProof(
+            CopyrightProofExecutionMode.GenerateMaterialOnly);
+
+        options.EnabledSteps.Should().Equal(QueueStepRegistry.GenerateProofMaterial);
+        options.ForceRerunCompletedSteps.Should().BeFalse();
+        options.AutoArchiveAfterUpload.Should().BeFalse();
+        options.SyncManagementAfterUpload.Should().BeFalse();
+        options.IsCopyrightProofOnlyRun().Should().BeFalse();
+        options.IsCopyrightProofMaterialOnlyRun().Should().BeTrue();
+        options.IsCopyrightProofWorkflowRun().Should().BeTrue();
     }
 
     [Fact]

@@ -1801,7 +1801,8 @@ public partial class TikTokQueueView : UserControl
             vm,
             workspace,
             proofAccount,
-            dialogResult.SelectedMatches);
+            dialogResult.SelectedMatches,
+            dialogResult.ExecutionMode);
     }
 
     private async void OnManualDeletedCopyrightProofClick(object? sender, RoutedEventArgs e)
@@ -1923,6 +1924,7 @@ public partial class TikTokQueueView : UserControl
             workspace,
             proofAccount,
             validatedMatches,
+            dialogResult.ExecutionMode,
             manualDeletedMode: dialogResult.Mode);
     }
 
@@ -1932,8 +1934,13 @@ public partial class TikTokQueueView : UserControl
         string workspace,
         TikTokAccountProfile proofAccount,
         IReadOnlyList<CopyrightProofProjectMatch> selectedMatches,
+        CopyrightProofExecutionMode executionMode,
         ManualDeletedCopyrightProofInputMode? manualDeletedMode = null)
     {
+        var executionDescription =
+            executionMode == CopyrightProofExecutionMode.GenerateMaterialOnly
+                ? "本次仅生成或复用本地证明材料，不会打开或编辑 TikTok 版权证明页面。"
+                : "本次将生成或复用证明材料，并继续编辑 TikTok 版权证明页面；不会重新上传剧集。";
         var archivedTargets = selectedMatches
             .Where(match => match.Location == CopyrightProofProjectLocation.Archived)
             .ToArray();
@@ -1986,7 +1993,7 @@ public partial class TikTokQueueView : UserControl
                 "并在生成证明材料时按需恢复所需视频：" +
                 $"{Environment.NewLine}{Environment.NewLine}{names}" +
                 $"{Environment.NewLine}{Environment.NewLine}" +
-                "本次只会生成证明材料并编辑 TikTok 版权证明页面，不会重新上传剧集。确认继续吗？");
+                $"{executionDescription}确认继续吗？");
             if (!confirmed)
             {
                 vm.StatusMessage = "已取消重建已删除项目和补全版权证明";
@@ -2002,7 +2009,9 @@ public partial class TikTokQueueView : UserControl
         }
 
         var ct = recoveryToken.Value;
-        vm.StatusMessage = "补全版权证明执行中…";
+        vm.StatusMessage = executionMode == CopyrightProofExecutionMode.GenerateMaterialOnly
+            ? "证明材料生成中…"
+            : "补全版权证明执行中…";
         // 已删除项目尚未重建进队列时，日志服务无法把新剧名映射到项目路径。
         // 若报告页仍筛选着上一个项目，准备/下载日志会被隐藏，直到项目重建后才成批出现。
         // 准备阶段先显示全部项目，确保首条日志和后续下载进度能够立即呈现。
@@ -2231,7 +2240,8 @@ public partial class TikTokQueueView : UserControl
             var preparation = CopyrightProofQueuePreparationService.Prepare(
                 refreshedProjects,
                 matchedProjects,
-                currentProofMaterialProjects);
+                currentProofMaterialProjects,
+                executionMode);
 
             var missingAfterRestore = selectedTitles
                 .Except(matchedProjects.Select(item => item.NewTitle), StringComparer.Ordinal)
@@ -2258,7 +2268,7 @@ public partial class TikTokQueueView : UserControl
                 persistedOptions);
 
             var options = vm.CreateCurrentQueueRunOptionsSnapshot();
-            options.ConfigureForCopyrightProofCompletion();
+            options.ConfigureForCopyrightProof(executionMode);
             var executionProjectDirs = matchedProjects
                 .Select(item => Path.GetFullPath(item.ProjectDir))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -2270,15 +2280,28 @@ public partial class TikTokQueueView : UserControl
             };
 
             vm.AppendLog(
-                $"补全版权证明：匹配 {selectedMatches.Count} 个，" +
+                $"{(executionMode == CopyrightProofExecutionMode.GenerateMaterialOnly ? "仅生成证明材料" : "补全版权证明")}：" +
+                $"匹配 {selectedMatches.Count} 个，" +
                 $"回退归档 {restoredCount} 个，重建已删除项目 {recoveredCount} 个，" +
                 $"准备执行 {matchedProjects.Length} 个；" +
                 $"复用已有证明材料 {preparation.ReusedProofMaterialCount} 个，" +
-                $"需要生成 {preparation.PendingProofMaterialCount} 个。");
+                $"需要生成 {preparation.PendingProofMaterialCount} 个；" +
+                (executionMode == CopyrightProofExecutionMode.GenerateMaterialOnly
+                    ? "不会执行 TikTok 页面编辑。"
+                    : $"需要编辑 TikTok 页面 {preparation.TargetCount} 个。"));
             foreach (var failure in restoreFailures)
                 vm.AppendLog($"补全版权证明回退失败：{failure}");
             foreach (var title in missingAfterRestore)
                 vm.AppendLog($"补全版权证明跳过：恢复后未找到唯一的新剧名项目「{title}」");
+
+            if (executionMode == CopyrightProofExecutionMode.GenerateMaterialOnly &&
+                preparation.PendingProofMaterialCount == 0)
+            {
+                vm.StatusMessage =
+                    $"证明材料已全部就绪：复用 {preparation.ReusedProofMaterialCount} 个，无需重新生成";
+                vm.AppendLog(vm.StatusMessage);
+                return;
+            }
 
             ct.ThrowIfCancellationRequested();
             await StartQueueRunAsync(
@@ -2290,7 +2313,9 @@ public partial class TikTokQueueView : UserControl
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            vm.StatusMessage = "补全版权证明已停止";
+            vm.StatusMessage = executionMode == CopyrightProofExecutionMode.GenerateMaterialOnly
+                ? "证明材料生成已停止"
+                : "补全版权证明已停止";
             vm.AppendLog(vm.StatusMessage);
         }
         finally
@@ -2494,26 +2519,28 @@ public partial class TikTokQueueView : UserControl
         if (matchedProjects.Length > 12)
             previewNames += $"{Environment.NewLine}• …另有 {matchedProjects.Length - 12} 个项目";
 
-        var confirmation =
+        var modePrompt =
             $"已勾选 {selectedTitlesByDir.Count} 个项目，准备执行 {matchedProjects.Length} 个。" +
             $"{Environment.NewLine}{Environment.NewLine}" +
             $"可复用证明材料：{reusableProofMaterialProjects.Count} 个" +
             $"{Environment.NewLine}" +
-            $"需要继续生成材料：{pendingProofMaterialCount} 个" +
-            $"{Environment.NewLine}" +
-            $"需要执行版权证明页面编辑：{matchedProjects.Length} 个";
+            $"需要继续生成材料：{pendingProofMaterialCount} 个";
         if (missingTitles.Length > 0)
         {
-            confirmation +=
+            modePrompt +=
                 $"{Environment.NewLine}" +
                 $"刷新后未找到、将跳过：{missingTitles.Length} 个";
         }
-        confirmation +=
+        modePrompt +=
             $"{Environment.NewLine}{Environment.NewLine}{previewNames}" +
             $"{Environment.NewLine}{Environment.NewLine}" +
             "已完成的材料会直接复用；失败或中止的材料将从缺失步骤继续，不会强制重跑已完成步骤。";
 
-        if (!await ConfirmAsync(owner, "继续补全勾选项目", confirmation))
+        var executionMode = await CopyrightProofExecutionModeDialog.ShowAsync(
+            owner,
+            "补全勾选证明材料",
+            modePrompt);
+        if (executionMode is null)
         {
             vm.StatusMessage = "已取消继续补全勾选项目";
             return;
@@ -2522,7 +2549,8 @@ public partial class TikTokQueueView : UserControl
         var preparation = CopyrightProofQueuePreparationService.Prepare(
             refreshedProjects,
             matchedProjects,
-            reusableProofMaterialProjects);
+            reusableProofMaterialProjects,
+            executionMode.Value);
         var persistedOptions = WorkspaceQueueService.LoadRunOptions(workspace);
         WorkspaceQueueService.SaveRunOptions(workspace, refreshedProjects, persistedOptions);
         await vm.ApplyPreparedWorkspaceQueueSnapshotAsync(
@@ -2531,7 +2559,7 @@ public partial class TikTokQueueView : UserControl
             persistedOptions);
 
         var options = vm.CreateCurrentQueueRunOptionsSnapshot();
-        options.ConfigureForCopyrightProofCompletion();
+        options.ConfigureForCopyrightProof(executionMode.Value);
         var executionProjectDirs = matchedProjects
             .Select(item => Path.GetFullPath(item.ProjectDir))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -2549,12 +2577,24 @@ public partial class TikTokQueueView : UserControl
             PreferPersistedQueueSnapshot = true,
         };
         vm.AppendLog(
-            $"继续补全勾选项目：准备执行 {preparation.TargetCount} 个；" +
+            $"{(executionMode.Value == CopyrightProofExecutionMode.GenerateMaterialOnly ? "仅生成勾选项目证明材料" : "继续补全勾选项目")}：" +
+            $"准备执行 {preparation.TargetCount} 个；" +
             $"复用已有证明材料 {preparation.ReusedProofMaterialCount} 个，" +
             $"继续生成 {preparation.PendingProofMaterialCount} 个；" +
-            $"网页编辑 {preparation.TargetCount} 个。");
+            (executionMode.Value == CopyrightProofExecutionMode.GenerateMaterialOnly
+                ? "不会执行 TikTok 页面编辑。"
+                : $"网页编辑 {preparation.TargetCount} 个。"));
         foreach (var title in missingTitles)
             vm.AppendLog($"继续补全勾选项目跳过：刷新后未找到「{title}」");
+
+        if (executionMode.Value == CopyrightProofExecutionMode.GenerateMaterialOnly &&
+            preparation.PendingProofMaterialCount == 0)
+        {
+            vm.StatusMessage =
+                $"勾选项目证明材料已全部就绪：复用 {preparation.ReusedProofMaterialCount} 个，无需重新生成";
+            vm.AppendLog(vm.StatusMessage);
+            return;
+        }
 
         var runCompleted = await StartQueueRunAsync(
             options,
@@ -2565,18 +2605,24 @@ public partial class TikTokQueueView : UserControl
             return;
 
         var executionDirs = executionProjectDirs.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var completionStep = executionMode.Value == CopyrightProofExecutionMode.GenerateMaterialOnly
+            ? QueueStepRegistry.GenerateProofMaterial
+            : QueueStepRegistry.UploadSeries;
         var completedRows = vm.QueueProjectRows
             .Where(row =>
                 !string.IsNullOrWhiteSpace(row.Item.ProjectDir) &&
                 executionDirs.Contains(Path.GetFullPath(row.Item.ProjectDir)) &&
-                row.Item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) ==
+                row.Item.StepStates.GetValueOrDefault(completionStep) ==
                     QueueStepStatus.Completed)
             .ToArray();
 
         var retryCount = executionProjectDirs.Length - completedRows.Length;
+        var completionLabel = executionMode.Value == CopyrightProofExecutionMode.GenerateMaterialOnly
+            ? "勾选项目证明材料生成"
+            : "勾选项目版权证明补全";
         vm.StatusMessage = retryCount == 0
-            ? $"勾选项目版权证明补全完成：成功 {completedRows.Length} 个"
-            : $"勾选项目版权证明补全结束：成功 {completedRows.Length} 个，仍需重试 {retryCount} 个";
+            ? $"{completionLabel}完成：成功 {completedRows.Length} 个"
+            : $"{completionLabel}结束：成功 {completedRows.Length} 个，仍需重试 {retryCount} 个";
         vm.AppendLog(vm.StatusMessage);
     }
 
@@ -3082,9 +3128,11 @@ public partial class TikTokQueueView : UserControl
         var workerReturnedSummary = false;
         var displayOptions = optionsOverride ?? vm.CreateCurrentQueueRunOptionsSnapshot();
         var isEditRun = string.Equals(displayOptions.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
-        var isCopyrightProofRun = displayOptions.IsCopyrightProofOnlyRun();
-        vm.StatusMessage = isCopyrightProofRun
-            ? "补全版权证明执行中…"
+        var isCopyrightProofRun = displayOptions.IsCopyrightProofWorkflowRun();
+        vm.StatusMessage = displayOptions.IsCopyrightProofMaterialOnlyRun()
+            ? "证明材料生成中…"
+            : isCopyrightProofRun
+                ? "补全版权证明执行中…"
             : isEditRun
                 ? "编辑剧集执行中…"
                 : "TikTok 队列执行中…";

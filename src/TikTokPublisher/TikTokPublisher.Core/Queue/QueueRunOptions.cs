@@ -58,10 +58,17 @@ public static class QueueStepRegistry
 
 public readonly record struct QueueStepDefinition(string Key, string Label, bool Implemented);
 
+public enum CopyrightProofExecutionMode
+{
+    GenerateMaterialOnly,
+    GenerateAndEdit,
+}
+
 public sealed class QueueRunOptions
 {
     public const string EditUploadEntryMode = "edit";
     public const string CopyrightProofOnlyEntryMode = "copyright_proof_only";
+    public const string CopyrightProofMaterialOnlyEntryMode = "copyright_proof_material_only";
 
     public List<string> EnabledSteps { get; set; } = QueueStepRegistry.DefaultEnabledSteps.ToList();
     public bool AutoArchiveAfterUpload { get; set; }
@@ -154,25 +161,48 @@ public sealed class QueueRunOptions
         var normalized = (value ?? "").Trim().ToLowerInvariant();
         if (normalized is "edit" or "edit_existing" or "existing")
             return EditUploadEntryMode;
-        return normalized is "copyright_proof_only" or "proof_only"
-            ? CopyrightProofOnlyEntryMode
-            : "";
+        if (normalized is "copyright_proof_only" or "proof_only")
+            return CopyrightProofOnlyEntryMode;
+        return normalized is "copyright_proof_material_only" or "proof_material_only"
+            ? CopyrightProofMaterialOnlyEntryMode
+            : string.Empty;
     }
 
     public bool IsCopyrightProofOnlyRun() =>
         string.Equals(UploadEntryMode, CopyrightProofOnlyEntryMode, StringComparison.OrdinalIgnoreCase);
 
+    public bool IsCopyrightProofMaterialOnlyRun() =>
+        string.Equals(
+            UploadEntryMode,
+            CopyrightProofMaterialOnlyEntryMode,
+            StringComparison.OrdinalIgnoreCase);
+
+    public bool IsCopyrightProofWorkflowRun() =>
+        IsCopyrightProofOnlyRun() || IsCopyrightProofMaterialOnlyRun();
+
     public void ConfigureForCopyrightProofCompletion()
     {
-        EnabledSteps =
-        [
-            QueueStepRegistry.GenerateProofMaterial,
-            QueueStepRegistry.UploadSeries,
-        ];
+        ConfigureForCopyrightProof(CopyrightProofExecutionMode.GenerateAndEdit);
+    }
+
+    public void ConfigureForCopyrightProof(CopyrightProofExecutionMode executionMode)
+    {
+        EnabledSteps = executionMode == CopyrightProofExecutionMode.GenerateAndEdit
+            ?
+            [
+                QueueStepRegistry.GenerateProofMaterial,
+                QueueStepRegistry.UploadSeries,
+            ]
+            :
+            [
+                QueueStepRegistry.GenerateProofMaterial,
+            ];
         ForceRerunCompletedSteps = false;
         AutoArchiveAfterUpload = false;
         SyncManagementAfterUpload = false;
-        UploadEntryMode = CopyrightProofOnlyEntryMode;
+        UploadEntryMode = executionMode == CopyrightProofExecutionMode.GenerateAndEdit
+            ? CopyrightProofOnlyEntryMode
+            : CopyrightProofMaterialOnlyEntryMode;
     }
 
     private static bool GetBool(Dictionary<string, object?> payload, string key) =>

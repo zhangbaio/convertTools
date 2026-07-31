@@ -2,13 +2,15 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Views;
 
 public sealed record ManualDeletedCopyrightProofDialogResult(
     ManualDeletedCopyrightProofInputMode Mode,
-    IReadOnlyList<ManualDeletedCopyrightProofEntry> Entries);
+    IReadOnlyList<ManualDeletedCopyrightProofEntry> Entries,
+    CopyrightProofExecutionMode ExecutionMode);
 
 public sealed class ManualDeletedCopyrightProofDialog : Window
 {
@@ -23,6 +25,7 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         Watermark = "一行输入一个新剧名，可一次粘贴多个",
     };
     private readonly TextBlock _summary = new();
+    private readonly CopyrightProofExecutionModeSelector _executionModeSelector = new();
     private readonly List<EntryEditor> _editors = [];
     private readonly Grid _knownModePanel;
     private ManualDeletedCopyrightProofInputMode _mode =
@@ -41,13 +44,16 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         var root = new Grid
         {
             Margin = new Thickness(18),
-            RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,*,Auto,Auto"),
             RowSpacing = 12,
         };
 
         _instructions.TextWrapping = TextWrapping.Wrap;
         _instructions.FontWeight = FontWeight.SemiBold;
         root.Children.Add(_instructions);
+
+        Grid.SetRow(_executionModeSelector, 1);
+        root.Children.Add(_executionModeSelector);
 
         _knownModePanel = BuildKnownModePanel();
         var modeTabs = new TabControl
@@ -74,12 +80,12 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
                 : ManualDeletedCopyrightProofInputMode.UnknownOriginalTitle;
             SetInputMode(mode, focus: true);
         };
-        Grid.SetRow(modeTabs, 1);
+        Grid.SetRow(modeTabs, 2);
         root.Children.Add(modeTabs);
 
         _unknownTitles.TextChanged += (_, _) => UpdateSummary();
         _summary.Foreground = Brushes.DimGray;
-        Grid.SetRow(_summary, 2);
+        Grid.SetRow(_summary, 3);
         root.Children.Add(_summary);
 
         var buttons = new StackPanel
@@ -102,7 +108,7 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         cancel.Click += (_, _) => Close(null);
         buttons.Children.Add(execute);
         buttons.Children.Add(cancel);
-        Grid.SetRow(buttons, 3);
+        Grid.SetRow(buttons, 4);
         root.Children.Add(buttons);
 
         Content = root;
@@ -255,7 +261,10 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         if (entries is null)
             return;
 
-        Close(new ManualDeletedCopyrightProofDialogResult(_mode, entries));
+        Close(new ManualDeletedCopyrightProofDialogResult(
+            _mode,
+            entries,
+            _executionModeSelector.ExecutionMode));
     }
 
     private IReadOnlyList<ManualDeletedCopyrightProofEntry>? ReadKnownOriginalEntries()

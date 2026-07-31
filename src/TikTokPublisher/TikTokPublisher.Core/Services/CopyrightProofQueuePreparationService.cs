@@ -16,7 +16,8 @@ public static class CopyrightProofQueuePreparationService
     public static CopyrightProofQueuePreparationSummary Prepare(
         IEnumerable<QueueProjectItem> allProjects,
         IEnumerable<QueueProjectItem> targetProjects,
-        IEnumerable<string> reusableProofMaterialProjectDirs)
+        IEnumerable<string> reusableProofMaterialProjectDirs,
+        CopyrightProofExecutionMode executionMode = CopyrightProofExecutionMode.GenerateAndEdit)
     {
         ArgumentNullException.ThrowIfNull(allProjects);
         ArgumentNullException.ThrowIfNull(targetProjects);
@@ -54,6 +55,9 @@ public static class CopyrightProofQueuePreparationService
         var reusedCount = 0;
         foreach (var item in targets)
         {
+            var hadUploadState = item.StepStates.TryGetValue(
+                QueueStepRegistry.UploadSeries,
+                out var previousUploadState);
             item.NormalizeStepStates();
             var proofMaterialCurrent = reusableDirs.Contains(Path.GetFullPath(item.ProjectDir));
             item.StepStates[QueueStepRegistry.GenerateProofMaterial] = proofMaterialCurrent
@@ -62,9 +66,20 @@ public static class CopyrightProofQueuePreparationService
             if (proofMaterialCurrent)
                 reusedCount++;
 
-            // UploadSeries is the execution slot used by copyright_proof_only to edit
-            // an existing TikTok project. Always reopen it for the selected retry.
-            item.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.Pending;
+            if (executionMode == CopyrightProofExecutionMode.GenerateAndEdit)
+            {
+                // UploadSeries is the execution slot used by copyright_proof_only to edit
+                // an existing TikTok project. Reopen it only when the user selected editing.
+                item.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.Pending;
+            }
+            else if (hadUploadState)
+            {
+                item.StepStates[QueueStepRegistry.UploadSeries] = previousUploadState!;
+            }
+            else
+            {
+                item.StepStates.Remove(QueueStepRegistry.UploadSeries);
+            }
             item.CurrentStep = string.Empty;
             item.StatusText = QueueStepStatus.Pending;
             item.LastError = string.Empty;
