@@ -9,7 +9,7 @@ public sealed record ManualDeletedCopyrightProofEntry(
     string OriginalTitle);
 
 /// <summary>
-/// Builds recoverable deleted-project snapshots from a user-supplied exact new/original title pair.
+/// Builds recoverable deleted-project snapshots from an exact new title and an optional original title.
 /// Existing queue/archive projects still take precedence so the manual fallback cannot create duplicates.
 /// </summary>
 public static class ManualDeletedCopyrightProofService
@@ -29,9 +29,7 @@ public static class ManualDeletedCopyrightProofService
             .Select(entry => new ManualDeletedCopyrightProofEntry(
                 (entry.NewTitle ?? string.Empty).Trim(),
                 (entry.OriginalTitle ?? string.Empty).Trim()))
-            .Where(entry =>
-                !string.IsNullOrWhiteSpace(entry.NewTitle) &&
-                !string.IsNullOrWhiteSpace(entry.OriginalTitle))
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.NewTitle))
             .Distinct()
             .ToArray();
         if (normalized.Length == 0)
@@ -68,10 +66,13 @@ public static class ManualDeletedCopyrightProofService
             }
 
             var originalTitle = originalTitles[0];
+            var projectDirectoryName = string.IsNullOrWhiteSpace(originalTitle)
+                ? SanitizeFileName(group.Key) + "_版权恢复"
+                : originalTitle;
             var item = new QueueProjectItem
             {
-                ProjectDir = Path.Combine(workspace, originalTitle),
-                DisplayName = originalTitle,
+                ProjectDir = Path.Combine(workspace, projectDirectoryName),
+                DisplayName = string.IsNullOrWhiteSpace(originalTitle) ? group.Key : originalTitle,
                 OriginalTitle = originalTitle,
                 NewTitle = group.Key,
                 EpisodeCount = 0,
@@ -81,7 +82,9 @@ public static class ManualDeletedCopyrightProofService
                 UploadCompletedAt = timestamp,
                 Enabled = true,
                 StatusText = QueueStepStatus.Completed,
-                Remark = "用户手动指定原剧名，用于重建已删除项目并补全版权证明",
+                Remark = string.IsNullOrWhiteSpace(originalTitle)
+                    ? "原剧名未知，将从 TikTok 已发布项目恢复视频并补全版权证明"
+                    : "用户手动指定原剧名，用于重建已删除项目并补全版权证明",
                 StepStates = new Dictionary<string, string>
                 {
                     [QueueStepKeys.UploadSeries] = QueueStepStatus.Completed,
@@ -98,5 +101,17 @@ public static class ManualDeletedCopyrightProofService
         }
 
         return results;
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
+        var sanitized = new string((value ?? string.Empty)
+                .Trim()
+                .Select(ch => invalid.Contains(ch) ? '_' : ch)
+                .ToArray())
+            .Trim()
+            .Trim('.');
+        return string.IsNullOrWhiteSpace(sanitized) ? "已发布剧集" : sanitized;
     }
 }

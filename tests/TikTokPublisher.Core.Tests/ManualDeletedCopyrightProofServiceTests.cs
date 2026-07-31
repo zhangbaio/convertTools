@@ -111,7 +111,7 @@ public sealed class ManualDeletedCopyrightProofServiceTests
     }
 
     [Fact]
-    public void BuildMatches_deduplicates_identical_rows_and_skips_incomplete_rows()
+    public void BuildMatches_deduplicates_rows_allows_missing_original_and_skips_missing_new_title()
     {
         var matches = ManualDeletedCopyrightProofService.BuildMatches(
             [
@@ -123,7 +123,16 @@ public sealed class ManualDeletedCopyrightProofServiceTests
             Path.GetTempPath(),
             _account);
 
-        matches.Should().ContainSingle();
-        matches[0].NewTitle.Should().Be("新剧");
+        matches.Should().HaveCount(2);
+        matches.Select(match => match.NewTitle)
+            .Should()
+            .Equal("新剧", "缺少原剧");
+
+        var platformRecovery = matches.Single(match => match.NewTitle == "缺少原剧");
+        platformRecovery.CanExecute.Should().BeTrue();
+        platformRecovery.HistorySnapshot.Should().NotBeNull();
+        platformRecovery.HistorySnapshot!.Item.OriginalTitle.Should().BeEmpty();
+        platformRecovery.HistorySnapshot.Item.ProjectDir.Should().EndWith("缺少原剧_版权恢复");
+        platformRecovery.HistorySnapshot.Item.Remark.Should().Contain("TikTok");
     }
 }
