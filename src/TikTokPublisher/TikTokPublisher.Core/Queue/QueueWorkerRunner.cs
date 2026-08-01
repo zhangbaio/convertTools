@@ -965,8 +965,9 @@ public sealed class QueueWorkerRunner
             if (isDailyLimit)
             {
                 mutate(() => MarkStopped(item, QueueStepRegistry.UploadSeries));
+                var accountLabel = DescribeDailyLimitAccount(account);
                 Report(onProgress, workspace, item,
-                    $"已达单日创建剧集上限，任务队列已停止，请明天再继续上传：{failureMessage}",
+                    $"账号「{accountLabel}」已达单日创建剧集上限，任务队列已停止，请明天再继续上传：{failureMessage}",
                     QueueStepRegistry.UploadSeries);
             }
             else
@@ -1285,6 +1286,24 @@ public sealed class QueueWorkerRunner
             : !string.IsNullOrWhiteSpace(name)
                 ? name
                 : "未绑定";
+    }
+
+    private static string DescribeDailyLimitAccount(TikTokAccountProfile account)
+    {
+        var displayName = (account.DisplayName ?? "").Trim();
+        var loginEmail = (account.ResolveTikTokAccountName() ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(displayName) &&
+            !string.IsNullOrWhiteSpace(loginEmail) &&
+            !string.Equals(displayName, loginEmail, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{displayName}（{loginEmail}）";
+        }
+
+        return !string.IsNullOrWhiteSpace(displayName)
+            ? displayName
+            : !string.IsNullOrWhiteSpace(loginEmail)
+                ? loginEmail
+                : account.Id;
     }
 
     private static void MarkRunning(QueueProjectItem item, string stepKey)

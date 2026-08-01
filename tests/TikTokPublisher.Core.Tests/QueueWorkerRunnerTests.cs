@@ -326,6 +326,8 @@ public sealed class QueueWorkerRunnerTests
         {
             Id = "acct-daily-limit",
             Name = "daily-limit",
+            TiktokAccountNickname = "账号2",
+            TiktokLoginEmail = "2720937754@qq.com",
             TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
         };
         var store = CreateAccountStore(account);
@@ -334,6 +336,7 @@ public sealed class QueueWorkerRunnerTests
         firstItem.QueuedAt = "2026-01-01T00:00:00";
         nextItem.QueuedAt = "2026-01-01T00:00:01";
         var host = new DailyLimitPublishHost();
+        var progressMessages = new List<string>();
 
         var summary = await new QueueWorkerRunner().RunAsync(
             Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-daily-limit-test"),
@@ -346,7 +349,7 @@ public sealed class QueueWorkerRunnerTests
             host,
             store,
             FinalAction.None,
-            onProgress: null,
+            onProgress: progress => progressMessages.Add(progress.Message),
             onPersist: null,
             CancellationToken.None);
 
@@ -355,6 +358,8 @@ public sealed class QueueWorkerRunnerTests
         summary.FailedCount.Should().Be(1);
         host.PublishedProjectDirs.Should().Equal(firstItem.ProjectDir);
         firstItem.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Stopped);
+        progressMessages.Should().Contain(message =>
+            message.Contains("账号「账号2（2720937754@qq.com）」已达单日创建剧集上限", StringComparison.Ordinal));
     }
 
     [Fact]
