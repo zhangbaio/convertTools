@@ -18,6 +18,7 @@ public sealed class QueueWorkerSummary
     public int TotalCount { get; init; }
     public int SuccessCount { get; init; }
     public int FailedCount { get; init; }
+    public int ExcludedCount { get; init; }
     public int StoppedAccountCount { get; init; }
     public bool Stopped { get; init; }
 }
@@ -144,6 +145,11 @@ public sealed class QueueWorkerRunner
         var filter = filterOrder?.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var candidateQuery = items
             .Where(i => i.Enabled && !i.Archived)
+            .Where(i => !i.PipelineExcluded ||
+                        (options.ForceRerunCompletedSteps &&
+                         orderedSteps.Contains(QueueStepRegistry.DetectLiveAction) &&
+                         options.ShouldRunLiveActionDetection(
+                             QueueAccountBindingResolver.Resolve(accountStore, i))))
             .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)))
             .Where(i => orderedSteps.Any(stepKey => ShouldRunStep(
                 i,
@@ -232,6 +238,7 @@ public sealed class QueueWorkerRunner
 
         var success = 0;
         var failed = 0;
+        var excluded = 0;
         var stopped = false;
         var stateLock = new object();
 
@@ -260,7 +267,11 @@ public sealed class QueueWorkerRunner
         Mutate(() =>
         {
             foreach (var item in candidates)
-                MarkQueuedForRun(item, orderedSteps, options);
+                MarkQueuedForRun(
+                    item,
+                    orderedSteps,
+                    options,
+                    QueueAccountBindingResolver.Resolve(accountStore, item));
         });
 
         void FillPreUploadSlots()
@@ -273,14 +284,29 @@ public sealed class QueueWorkerRunner
                        && preUploadTasks.Count < projectConcurrency)
                 {
                     var (_, item) = pendingPreUpload.Dequeue();
-                    if (preUploadSteps.Count > 0)
+                    var itemAccount = QueueAccountBindingResolver.Resolve(accountStore, item);
+                    var itemPreUploadSteps = preUploadSteps
+                        .Where(stepKey =>
+                            stepKey != QueueStepRegistry.DetectLiveAction ||
+                            options.ShouldRunLiveActionDetection(itemAccount))
+                        .ToList();
+                    if (preUploadSteps.Contains(QueueStepRegistry.DetectLiveAction) &&
+                        !options.ShouldRunLiveActionDetection(itemAccount))
+                    {
+                        var reason = options.LiveActionDetectionMode == LiveActionDetectionRunMode.ForceSkip
+                            ? "本次队列设置为跳过"
+                            : $"账号「{itemAccount?.DisplayName ?? item.AccountProfileName ?? "未绑定"}」未启用";
+                        Report(onProgress, workspace, item, $"真人检测：{reason}，跳过", QueueStepRegistry.DetectLiveAction);
+                    }
+
+                    if (itemPreUploadSteps.Count > 0)
                     {
                         var captured = item;
                         var task = MakeUniqueTask(StartPreUploadPipeline(
                             () => RunPreUploadPipelineAsync(
                                 workspace,
                                 captured,
-                                preUploadSteps,
+                                itemPreUploadSteps,
                                 options,
                                 accountStore,
                                 onProgress,
@@ -439,6 +465,7 @@ public sealed class QueueWorkerRunner
                 stateLock,
                 orderedSteps,
                 options,
+                accountStore,
                 onPersist);
         }
 
@@ -523,6 +550,10 @@ public sealed class QueueWorkerRunner
                         if (stopped)
                         {
                             MarkStopped(preItem, uploadEnabled ? QueueStepRegistry.UploadSeries : preItem.CurrentStep);
+                        }
+                        else if (preItem.PipelineExcluded)
+                        {
+                            excluded++;
                         }
                         else if (uploadEnabled && ShouldRunStep(preItem, QueueStepRegistry.UploadSeries, options))
                         {
@@ -695,6 +726,7 @@ public sealed class QueueWorkerRunner
             TotalCount = candidates.Count,
             SuccessCount = success,
             FailedCount = failed,
+            ExcludedCount = excluded,
             StoppedAccountCount = candidates
                 .Where(item => item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Stopped)
                 .Select(item => item.AccountProfileId)
@@ -705,8 +737,8 @@ public sealed class QueueWorkerRunner
         };
         Report(onProgress, workspace, null,
             summary.Stopped
-                ? $"队列已停止：成功 {summary.SuccessCount}，失败 {summary.FailedCount}"
-                : $"队列执行结束：成功 {summary.SuccessCount}，失败 {summary.FailedCount}");
+                ? $"队列已停止：成功 {summary.SuccessCount}，真人剧排除 {summary.ExcludedCount}，失败 {summary.FailedCount}"
+                : $"队列执行结束：成功 {summary.SuccessCount}，真人剧排除 {summary.ExcludedCount}，失败 {summary.FailedCount}");
         return summary;
     }
 
@@ -728,6 +760,16 @@ public sealed class QueueWorkerRunner
             var stepAccount = QueueAccountBindingResolver.Resolve(accountStore, item);
             if (!ShouldRunStep(item, stepKey, options, stepAccount))
             {
+                if (stepKey == QueueStepRegistry.DetectLiveAction &&
+                    !options.ShouldRunLiveActionDetection(stepAccount))
+                {
+                    var reason = options.LiveActionDetectionMode == LiveActionDetectionRunMode.ForceSkip
+                        ? "本次队列设置为跳过"
+                        : $"账号「{stepAccount?.DisplayName ?? item.AccountProfileName ?? "未绑定"}」未启用";
+                    Report(onProgress, workspace, item, $"真人检测：{reason}，跳过", stepKey);
+                    continue;
+                }
+
                 Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 已完成，跳过", stepKey);
                 continue;
             }
@@ -747,13 +789,35 @@ public sealed class QueueWorkerRunner
                 ? QueueStepLogFilters.SummaryOnly(msg => Report(onProgress, workspace, item, msg, stepKey))
                 : msg => Report(onProgress, workspace, item, msg, stepKey);
 
-            await RunPreUploadStepAsync(
+            var liveActionResult = await RunPreUploadStepAsync(
                 item,
                 stepKey,
                 options,
                 stepAccount,
                 stepLog,
                 ct).ConfigureAwait(false);
+
+            if (liveActionResult is not null)
+            {
+                mutate(() => ApplyLiveActionDetectionResult(item, liveActionResult));
+                if (liveActionResult.Classification == LiveActionClassification.LiveAction)
+                {
+                    mutate(() => MarkLiveActionExcluded(item, options.OrderedEnabledSteps()));
+                    Report(
+                        onProgress,
+                        workspace,
+                        item,
+                        $"检测为真人实拍剧（置信度 {liveActionResult.Confidence:P0}），已跳过当前项目全部后续流程：{liveActionResult.Reason}",
+                        stepKey);
+                    return;
+                }
+
+                if (liveActionResult.Classification == LiveActionClassification.Uncertain)
+                {
+                    throw new InvalidOperationException(
+                        $"真人检测无法可靠判断（置信度 {liveActionResult.Confidence:P0}），为避免误处理已停止当前项目：{liveActionResult.Reason}");
+                }
+            }
 
             mutate(() => MarkCompleted(item, stepKey));
             Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 完成", stepKey);
@@ -1033,7 +1097,7 @@ public sealed class QueueWorkerRunner
         return false;
     }
 
-    private static async Task RunPreUploadStepAsync(
+    private static async Task<LiveActionDetectionResult?> RunPreUploadStepAsync(
         QueueProjectItem item,
         string stepKey,
         QueueRunOptions options,
@@ -1048,6 +1112,14 @@ public sealed class QueueWorkerRunner
             case QueueStepRegistry.Download:
                 await QueueMaterialStepService.RunDownloadAsync(item, settings, log, ct).ConfigureAwait(false);
                 break;
+            case QueueStepRegistry.DetectLiveAction:
+                return await TikTokLiveActionDetectionService.DetectAsync(
+                        item,
+                        settings,
+                        options.ForceRerunCompletedSteps,
+                        log,
+                        ct)
+                    .ConfigureAwait(false);
             case QueueStepRegistry.RewriteInfo:
                 await QueueMaterialStepService.RunRewriteAsync(
                     item, settings, account, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
@@ -1093,6 +1165,8 @@ public sealed class QueueWorkerRunner
             default:
                 throw new InvalidOperationException($"未知预处理步骤：{stepKey}");
         }
+
+        return null;
     }
 
     private static async Task SyncManagementAfterUploadIfEnabledAsync(
@@ -1147,6 +1221,11 @@ public sealed class QueueWorkerRunner
         QueueRunOptions options,
         TikTokAccountProfile? account = null)
     {
+        if (stepKey == QueueStepRegistry.DetectLiveAction &&
+            !options.ShouldRunLiveActionDetection(account))
+        {
+            return false;
+        }
         if (stepKey == QueueStepRegistry.UploadSeries && options.IsCopyrightProofOnlyRun())
             return true;
         if (options.ForceRerunCompletedSteps) return true;
@@ -1168,7 +1247,8 @@ public sealed class QueueWorkerRunner
         {
             return true;
         }
-        return item.StepStates.GetValueOrDefault(stepKey) != QueueStepStatus.Completed;
+        return item.StepStates.GetValueOrDefault(stepKey) is not
+            (QueueStepStatus.Completed or QueueStepStatus.Excluded or QueueStepStatus.Skipped);
     }
 
     private static string BuildNonQueueCancellationMessage(string stepLabel, OperationCanceledException ex)
@@ -1249,15 +1329,20 @@ public sealed class QueueWorkerRunner
     private static void MarkQueuedForRun(
         QueueProjectItem item,
         IReadOnlyList<string> orderedSteps,
-        QueueRunOptions options)
+        QueueRunOptions options,
+        TikTokAccountProfile? account)
     {
-        var hasRunnableStep = orderedSteps.Any(stepKey => ShouldRunStep(item, stepKey, options));
+        var hasRunnableStep = orderedSteps.Any(stepKey => ShouldRunStep(item, stepKey, options, account));
         if (!hasRunnableStep)
             return;
 
         item.CurrentStep = "";
         item.StatusText = QueueStepStatus.Pending;
         item.LastError = "";
+        if (options.ForceRerunCompletedSteps &&
+            orderedSteps.Contains(QueueStepRegistry.DetectLiveAction) &&
+            options.ShouldRunLiveActionDetection(account))
+            item.PipelineExcluded = false;
 
         foreach (var key in item.StepStates.Keys.ToList())
         {
@@ -1267,7 +1352,7 @@ public sealed class QueueWorkerRunner
 
         foreach (var stepKey in orderedSteps)
         {
-            if (!ShouldRunStep(item, stepKey, options))
+            if (!ShouldRunStep(item, stepKey, options, account))
                 continue;
             if (stepKey == QueueStepRegistry.UploadSeries)
                 item.ManualUploadStatus = "";
@@ -1324,6 +1409,45 @@ public sealed class QueueWorkerRunner
         item.StatusText = QueueStepStatus.Completed;
         item.StepStates[stepKey] = QueueStepStatus.Completed;
         item.LastError = "";
+        item.NormalizeStepStates();
+    }
+
+    private static void ApplyLiveActionDetectionResult(
+        QueueProjectItem item,
+        LiveActionDetectionResult result)
+    {
+        item.LiveActionClassification = result.Classification.ToString();
+        item.LiveActionConfidence = result.Confidence;
+        item.LiveActionDetectionReason = result.Reason;
+        item.LiveActionDetectedAt = DateTimeOffset.Now.ToString("o");
+        item.LiveActionVideoFingerprint = result.VideoFingerprint;
+        if (result.Classification == LiveActionClassification.NonLiveAction)
+            item.PipelineExcluded = false;
+    }
+
+    private static void MarkLiveActionExcluded(
+        QueueProjectItem item,
+        IReadOnlyList<string> orderedSteps)
+    {
+        item.PipelineExcluded = true;
+        item.CurrentStep = "";
+        item.StatusText = QueueStepStatus.Excluded;
+        item.LastError = "";
+        item.StepStates[QueueStepRegistry.DetectLiveAction] = QueueStepStatus.Excluded;
+        var detectionIndex = -1;
+        for (var index = 0; index < orderedSteps.Count; index++)
+        {
+            if (string.Equals(
+                    orderedSteps[index],
+                    QueueStepRegistry.DetectLiveAction,
+                    StringComparison.Ordinal))
+            {
+                detectionIndex = index;
+                break;
+            }
+        }
+        for (var index = detectionIndex + 1; index < orderedSteps.Count; index++)
+            item.StepStates[orderedSteps[index]] = QueueStepStatus.Skipped;
         item.NormalizeStepStates();
     }
 
@@ -1410,6 +1534,7 @@ public sealed class QueueWorkerRunner
         object stateLock,
         IReadOnlyList<string> orderedSteps,
         QueueRunOptions options,
+        AccountStore accountStore,
         Action<IReadOnlyList<QueueProjectItem>>? onPersist)
     {
         List<QueueProjectItem> batch;
@@ -1437,8 +1562,10 @@ public sealed class QueueWorkerRunner
                         continue;
 
                     CopyQueueItemForAppend(existingCandidate, item);
-                    MarkQueuedForRun(existingCandidate, orderedSteps, options);
-                    if (!orderedSteps.Any(stepKey => ShouldRunStep(existingCandidate, stepKey, options)))
+                    var existingAccount = QueueAccountBindingResolver.Resolve(accountStore, existingCandidate);
+                    MarkQueuedForRun(existingCandidate, orderedSteps, options, existingAccount);
+                    if (!orderedSteps.Any(stepKey =>
+                            ShouldRunStep(existingCandidate, stepKey, options, existingAccount)))
                         continue;
 
                     pendingPreUpload.Enqueue((candidates.IndexOf(existingCandidate) + 1, existingCandidate));
@@ -1455,7 +1582,11 @@ public sealed class QueueWorkerRunner
 
                 queueItem.Enabled = true;
                 CopyQueueItemForAppend(queueItem, item);
-                MarkQueuedForRun(queueItem, orderedSteps, options);
+                MarkQueuedForRun(
+                    queueItem,
+                    orderedSteps,
+                    options,
+                    QueueAccountBindingResolver.Resolve(accountStore, queueItem));
                 candidates.Add(queueItem);
                 pendingPreUpload.Enqueue((candidates.Count, queueItem));
                 added = true;
@@ -1496,6 +1627,12 @@ public sealed class QueueWorkerRunner
         target.LastError = source.LastError;
         target.Remark = source.Remark;
         target.ManualUploadStatus = source.ManualUploadStatus;
+        target.LiveActionClassification = source.LiveActionClassification;
+        target.LiveActionConfidence = source.LiveActionConfidence;
+        target.LiveActionDetectionReason = source.LiveActionDetectionReason;
+        target.LiveActionDetectedAt = source.LiveActionDetectedAt;
+        target.LiveActionVideoFingerprint = source.LiveActionVideoFingerprint;
+        target.PipelineExcluded = source.PipelineExcluded;
         target.StepStates = new Dictionary<string, string>(source.StepStates);
         target.Archived = source.Archived;
         target.PrimaryVideoPath = source.PrimaryVideoPath;

@@ -16,6 +16,7 @@ using TikTokPublisher.Ui.Services.TikTok;
 namespace TikTokPublisher.Ui.ViewModels;
 
 public sealed record FinalActionChoice(string Label, FinalAction Value);
+public sealed record LiveActionDetectionModeChoice(string Label, LiveActionDetectionRunMode Value);
 
 public sealed record ManualInterventionDialogRequest(
     string WorkspaceRoot,
@@ -123,6 +124,13 @@ public sealed partial class MainViewModel : ViewModelBase
         new FinalActionChoice("直接发表", FinalAction.Publish),
     };
 
+    public IReadOnlyList<LiveActionDetectionModeChoice> LiveActionDetectionModeChoices { get; } =
+    [
+        new LiveActionDetectionModeChoice("真人检测：跟随账号", LiveActionDetectionRunMode.FollowAccount),
+        new LiveActionDetectionModeChoice("真人检测：本次启用", LiveActionDetectionRunMode.ForceEnable),
+        new LiveActionDetectionModeChoice("真人检测：本次跳过", LiveActionDetectionRunMode.ForceSkip),
+    ];
+
     [ObservableProperty] private AccountItemViewModel? _selectedAccount;
     [ObservableProperty] private string _statusMessage = "就绪";
     [ObservableProperty] private string _otherRunningStatusMessage = "";
@@ -141,6 +149,8 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _preferUploadWhenReady;
     [ObservableProperty] private bool _syncManagementAfterUpload;
     [ObservableProperty] private bool _queueDownloadEnabled;
+    [ObservableProperty] private LiveActionDetectionModeChoice _selectedLiveActionDetectionMode =
+        new("真人检测：跟随账号", LiveActionDetectionRunMode.FollowAccount);
     [ObservableProperty] private bool _queueRewriteEnabled;
     [ObservableProperty] private bool _queueGeneratePosterEnabled;
     [ObservableProperty] private bool _queueGenerateProofMaterialEnabled;
@@ -532,6 +542,8 @@ public sealed partial class MainViewModel : ViewModelBase
     }
 
     partial void OnQueueDownloadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnSelectedLiveActionDetectionModeChanged(LiveActionDetectionModeChoice value) =>
+        UpdateQueueRunOptionsFromUi();
     partial void OnQueueRewriteEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGeneratePosterEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateProofMaterialEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -690,6 +702,8 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = true;
+            SelectedLiveActionDetectionMode = LiveActionDetectionModeChoices.First(choice =>
+                choice.Value == LiveActionDetectionRunMode.ForceEnable);
             QueueRewriteEnabled = true;
             QueueGeneratePosterEnabled = true;
             QueueGenerateProofMaterialEnabled = true;
@@ -720,6 +734,8 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = false;
+            SelectedLiveActionDetectionMode = LiveActionDetectionModeChoices.First(choice =>
+                choice.Value == LiveActionDetectionRunMode.ForceSkip);
             QueueRewriteEnabled = false;
             QueueGeneratePosterEnabled = false;
             QueueGenerateProofMaterialEnabled = false;
@@ -1257,6 +1273,8 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokProofDeclarantCompanyName = account.TiktokProofDeclarantCompanyName,
         TiktokProofSealPath = account.TiktokProofSealPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
+        TiktokLiveActionDetectionEnabled = account.TiktokLiveActionDetectionEnabled,
+        TiktokLiveActionDetectionConfigured = account.TiktokLiveActionDetectionConfigured,
         TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,
     };
 
@@ -3278,6 +3296,8 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.Download);
+            SelectedLiveActionDetectionMode = LiveActionDetectionModeChoices.First(choice =>
+                choice.Value == _queueRunOptions.LiveActionDetectionMode);
             QueueRewriteEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RewriteInfo);
             QueueGeneratePosterEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GeneratePoster);
             QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
@@ -3317,6 +3337,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var concurrency = SelectedAccount?.Model.TiktokProjectConcurrency ?? _queueRunOptions.ProjectConcurrency;
         _queueRunOptions.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
         _queueRunOptions.UploadEntryMode = "";
+        _queueRunOptions.LiveActionDetectionMode = SelectedLiveActionDetectionMode.Value;
     }
 
     private void ApplyAccountQueueEnabledSteps(string workspaceRoot, QueueRunOptions? preloadedOptions = null)

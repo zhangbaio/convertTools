@@ -3,6 +3,7 @@ namespace TikTokPublisher.Core.Queue;
 public static class QueueStepKeys
 {
     public const string Download = "download";
+    public const string DetectLiveAction = "detect_live_action";
     public const string RewriteInfo = "rewrite_info";
     public const string GeneratePoster = "generate_poster";
     public const string GenerateProjectImages = "generate_project_images";
@@ -25,6 +26,8 @@ public static class QueueStepStatus
     public const string Stopped = "已停止";
     public const string WaitingUploadSlot = "待上传槽位";
     public const string ManualIntervention = "等待人工介入";
+    public const string Excluded = "真人剧已拦截";
+    public const string Skipped = "已跳过";
 }
 
 public sealed class QueueProjectItem
@@ -48,6 +51,12 @@ public sealed class QueueProjectItem
     public string LastError { get; set; } = "";
     public string Remark { get; set; } = "";
     public string ManualUploadStatus { get; set; } = "";
+    public string LiveActionClassification { get; set; } = "";
+    public double LiveActionConfidence { get; set; }
+    public string LiveActionDetectionReason { get; set; } = "";
+    public string LiveActionDetectedAt { get; set; } = "";
+    public string LiveActionVideoFingerprint { get; set; } = "";
+    public bool PipelineExcluded { get; set; }
     public Dictionary<string, string> StepStates { get; set; } = new();
     public bool Archived { get; set; }
 
@@ -61,7 +70,7 @@ public sealed class QueueProjectItem
 
     public bool IsUploadCompleted => UploadSeriesStatus == QueueStepStatus.Completed;
 
-    public bool IsPendingUpload => Enabled && !Archived && !IsUploadCompleted;
+    public bool IsPendingUpload => Enabled && !Archived && !PipelineExcluded && !IsUploadCompleted;
 
     public void NormalizeStepStates()
     {
@@ -73,6 +82,7 @@ public sealed class QueueProjectItem
         foreach (var key in new[]
                  {
                      QueueStepKeys.Download,
+                     QueueStepKeys.DetectLiveAction,
                      QueueStepKeys.RewriteInfo,
                      QueueStepKeys.GeneratePoster,
                      QueueStepKeys.GenerateProjectImages,
@@ -130,6 +140,12 @@ public sealed class QueueProjectItem
             ["last_error"] = LastError,
             ["remark"] = Remark,
             ["manual_upload_status"] = ManualUploadStatus,
+            ["live_action_classification"] = LiveActionClassification,
+            ["live_action_confidence"] = LiveActionConfidence,
+            ["live_action_detection_reason"] = LiveActionDetectionReason,
+            ["live_action_detected_at"] = LiveActionDetectedAt,
+            ["live_action_video_fingerprint"] = LiveActionVideoFingerprint,
+            ["pipeline_excluded"] = PipelineExcluded,
             ["step_states"] = new Dictionary<string, string>(StepStates),
             ["archived"] = Archived,
             ["primary_video_path"] = PrimaryVideoPath,
@@ -160,6 +176,12 @@ public sealed class QueueProjectItem
             LastError = GetString(payload, "last_error"),
             Remark = GetString(payload, "remark"),
             ManualUploadStatus = GetString(payload, "manual_upload_status"),
+            LiveActionClassification = GetString(payload, "live_action_classification"),
+            LiveActionConfidence = GetDouble(payload, "live_action_confidence"),
+            LiveActionDetectionReason = GetString(payload, "live_action_detection_reason"),
+            LiveActionDetectedAt = GetString(payload, "live_action_detected_at"),
+            LiveActionVideoFingerprint = GetString(payload, "live_action_video_fingerprint"),
+            PipelineExcluded = GetBool(payload, "pipeline_excluded"),
             Archived = GetBool(payload, "archived"),
             StepStates = GetStepStates(payload),
             PrimaryVideoPath = GetString(payload, "primary_video_path"),
@@ -203,6 +225,18 @@ public sealed class QueueProjectItem
             string s => bool.TryParse(s, out var parsed) && parsed,
             _ => fallback,
         };
+    }
+
+    private static double GetDouble(Dictionary<string, object?> payload, string key, double fallback = 0)
+    {
+        if (!payload.TryGetValue(key, out var value) || value is null) return fallback;
+        return double.TryParse(
+            value.ToString(),
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var number)
+            ? number
+            : fallback;
     }
 }
 

@@ -370,7 +370,7 @@
                     <Grid Classes="profileForm"
                           Margin="2,4,2,2"
                           ColumnDefinitions="140,*"
-                          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                           RowSpacing="10"
                           ColumnSpacing="10">
                         <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="短剧中心地址" VerticalAlignment="Center" />
@@ -404,6 +404,12 @@
                         <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <CheckBox x:Name="DeleteVideosOnArchiveBox" Content="归档时删除视频文件" />
                             <TextBlock Text="关闭后归档目录会保留视频，占用更多磁盘" Foreground="#B8C8D8" VerticalAlignment="Center" />
+                        </StackPanel>
+
+                        <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="下载后真人检测" VerticalAlignment="Center" />
+                        <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <CheckBox x:Name="LiveActionDetectionEnabledBox" Content="启用" />
+                            <TextBlock Text="检测为真人实拍剧时，停止该项目的后续流程" Foreground="#B8C8D8" VerticalAlignment="Center" />
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>
