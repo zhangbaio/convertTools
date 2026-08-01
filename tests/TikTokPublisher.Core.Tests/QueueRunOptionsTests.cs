@@ -121,7 +121,7 @@ public sealed class QueueRunOptionsTests
     }
 
     [Fact]
-    public void Live_action_detection_runs_immediately_after_download_but_uses_dedicated_mode()
+    public void Live_action_detection_is_a_regular_checkbox_step_after_download()
     {
         var options = new QueueRunOptions
         {
@@ -130,8 +130,8 @@ public sealed class QueueRunOptionsTests
                 QueueStepRegistry.UploadSeries,
                 QueueStepRegistry.RewriteInfo,
                 QueueStepRegistry.Download,
+                QueueStepRegistry.DetectLiveAction,
             ],
-            LiveActionDetectionMode = LiveActionDetectionRunMode.ForceEnable,
         };
 
         options.OrderedEnabledSteps().Should().Equal(
@@ -140,58 +140,56 @@ public sealed class QueueRunOptionsTests
             QueueStepRegistry.RewriteInfo,
             QueueStepRegistry.UploadSeries);
         QueueStepRegistry.UserSelectable.Select(step => step.Key)
-            .Should().NotContain(QueueStepRegistry.DetectLiveAction);
+            .Should().Contain(QueueStepRegistry.DetectLiveAction);
     }
 
     [Fact]
-    public void Live_action_detection_mode_follows_each_account_and_supports_run_override()
+    public void Live_action_detection_checkbox_round_trips_and_is_disabled_by_default()
     {
-        var enabledAccount = new TikTokAccountProfile { TiktokLiveActionDetectionEnabled = true };
-        var disabledAccount = new TikTokAccountProfile { TiktokLiveActionDetectionEnabled = false };
         var options = new QueueRunOptions();
 
-        options.ShouldRunLiveActionDetection(enabledAccount).Should().BeTrue();
-        options.ShouldRunLiveActionDetection(disabledAccount).Should().BeFalse();
-
-        options.LiveActionDetectionMode = LiveActionDetectionRunMode.ForceEnable;
-        options.ShouldRunLiveActionDetection(disabledAccount).Should().BeTrue();
-
-        options.LiveActionDetectionMode = LiveActionDetectionRunMode.ForceSkip;
-        options.ShouldRunLiveActionDetection(enabledAccount).Should().BeFalse();
         options.OrderedEnabledSteps().Should().NotContain(QueueStepRegistry.DetectLiveAction);
+        options.EnabledSteps.Add(QueueStepRegistry.DetectLiveAction);
+
+        QueueRunOptions.FromDictionary(options.ToDictionary()).OrderedEnabledSteps()
+            .Should().Contain(QueueStepRegistry.DetectLiveAction);
+        QueueRunOptions.FromDictionary(options.ToPersistentDictionary()).OrderedEnabledSteps()
+            .Should().Contain(QueueStepRegistry.DetectLiveAction);
     }
 
-    [Fact]
-    public void Live_action_detection_run_override_round_trips_but_is_not_persisted()
+    [Theory]
+    [InlineData("force_enable", true)]
+    [InlineData("force_skip", false)]
+    public void Legacy_live_action_mode_migrates_to_checkbox_step(string mode, bool expectedEnabled)
     {
-        var options = new QueueRunOptions
+        var options = QueueRunOptions.FromDictionary(new Dictionary<string, object?>
         {
-            LiveActionDetectionMode = LiveActionDetectionRunMode.ForceEnable,
-        };
+            ["enabled_steps"] = Array.Empty<object?>(),
+            ["live_action_detection_mode"] = mode,
+        });
 
-        QueueRunOptions.FromDictionary(options.ToDictionary()).LiveActionDetectionMode
-            .Should().Be(LiveActionDetectionRunMode.ForceEnable);
-        QueueRunOptions.FromDictionary(options.ToPersistentDictionary()).LiveActionDetectionMode
-            .Should().Be(LiveActionDetectionRunMode.FollowAccount);
+        options.IsStepEnabled(QueueStepRegistry.DetectLiveAction)
+            .Should().Be(expectedEnabled);
     }
 
     [Fact]
-    public void Legacy_live_action_step_migrates_to_account_default_once()
+    public void Legacy_account_live_action_switch_migrates_to_checkbox_step_once()
     {
         var account = new TikTokAccountProfile
         {
+            TiktokLiveActionDetectionEnabled = true,
             TiktokQueueEnabledSteps =
             [
                 QueueStepRegistry.Download,
-                QueueStepRegistry.DetectLiveAction,
             ],
         };
 
         AccountStore.MigrateLegacyLiveActionDetectionConfig([account]).Should().BeTrue();
 
-        account.TiktokLiveActionDetectionEnabled.Should().BeTrue();
-        account.TiktokLiveActionDetectionConfigured.Should().BeTrue();
-        account.TiktokQueueEnabledSteps.Should().Equal(QueueStepRegistry.Download);
+        account.TiktokLiveActionDetectionStepMigrated.Should().BeTrue();
+        account.TiktokQueueEnabledSteps.Should().Equal(
+            QueueStepRegistry.Download,
+            QueueStepRegistry.DetectLiveAction);
         AccountStore.MigrateLegacyLiveActionDetectionConfig([account]).Should().BeFalse();
     }
 
@@ -209,7 +207,6 @@ public sealed class QueueRunOptionsTests
         options.ConfigureForCopyrightProof(executionMode);
 
         options.EnabledSteps.Should().NotContain(QueueStepRegistry.DetectLiveAction);
-        options.LiveActionDetectionMode.Should().Be(LiveActionDetectionRunMode.ForceSkip);
         options.OrderedEnabledSteps().Should().NotContain(QueueStepRegistry.DetectLiveAction);
     }
 

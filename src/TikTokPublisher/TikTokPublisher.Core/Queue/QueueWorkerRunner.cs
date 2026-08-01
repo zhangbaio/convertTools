@@ -147,9 +147,7 @@ public sealed class QueueWorkerRunner
             .Where(i => i.Enabled && !i.Archived)
             .Where(i => !i.PipelineExcluded ||
                         (options.ForceRerunCompletedSteps &&
-                         orderedSteps.Contains(QueueStepRegistry.DetectLiveAction) &&
-                         options.ShouldRunLiveActionDetection(
-                             QueueAccountBindingResolver.Resolve(accountStore, i))))
+                         orderedSteps.Contains(QueueStepRegistry.DetectLiveAction)))
             .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)))
             .Where(i => orderedSteps.Any(stepKey => ShouldRunStep(
                 i,
@@ -284,20 +282,7 @@ public sealed class QueueWorkerRunner
                        && preUploadTasks.Count < projectConcurrency)
                 {
                     var (_, item) = pendingPreUpload.Dequeue();
-                    var itemAccount = QueueAccountBindingResolver.Resolve(accountStore, item);
-                    var itemPreUploadSteps = preUploadSteps
-                        .Where(stepKey =>
-                            stepKey != QueueStepRegistry.DetectLiveAction ||
-                            options.ShouldRunLiveActionDetection(itemAccount))
-                        .ToList();
-                    if (preUploadSteps.Contains(QueueStepRegistry.DetectLiveAction) &&
-                        !options.ShouldRunLiveActionDetection(itemAccount))
-                    {
-                        var reason = options.LiveActionDetectionMode == LiveActionDetectionRunMode.ForceSkip
-                            ? "本次队列设置为跳过"
-                            : $"账号「{itemAccount?.DisplayName ?? item.AccountProfileName ?? "未绑定"}」未启用";
-                        Report(onProgress, workspace, item, $"真人检测：{reason}，跳过", QueueStepRegistry.DetectLiveAction);
-                    }
+                    var itemPreUploadSteps = preUploadSteps;
 
                     if (itemPreUploadSteps.Count > 0)
                     {
@@ -760,16 +745,6 @@ public sealed class QueueWorkerRunner
             var stepAccount = QueueAccountBindingResolver.Resolve(accountStore, item);
             if (!ShouldRunStep(item, stepKey, options, stepAccount))
             {
-                if (stepKey == QueueStepRegistry.DetectLiveAction &&
-                    !options.ShouldRunLiveActionDetection(stepAccount))
-                {
-                    var reason = options.LiveActionDetectionMode == LiveActionDetectionRunMode.ForceSkip
-                        ? "本次队列设置为跳过"
-                        : $"账号「{stepAccount?.DisplayName ?? item.AccountProfileName ?? "未绑定"}」未启用";
-                    Report(onProgress, workspace, item, $"真人检测：{reason}，跳过", stepKey);
-                    continue;
-                }
-
                 Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 已完成，跳过", stepKey);
                 continue;
             }
@@ -1221,11 +1196,6 @@ public sealed class QueueWorkerRunner
         QueueRunOptions options,
         TikTokAccountProfile? account = null)
     {
-        if (stepKey == QueueStepRegistry.DetectLiveAction &&
-            !options.ShouldRunLiveActionDetection(account))
-        {
-            return false;
-        }
         if (stepKey == QueueStepRegistry.UploadSeries && options.IsCopyrightProofOnlyRun())
             return true;
         if (options.ForceRerunCompletedSteps) return true;
@@ -1340,8 +1310,7 @@ public sealed class QueueWorkerRunner
         item.StatusText = QueueStepStatus.Pending;
         item.LastError = "";
         if (options.ForceRerunCompletedSteps &&
-            orderedSteps.Contains(QueueStepRegistry.DetectLiveAction) &&
-            options.ShouldRunLiveActionDetection(account))
+            orderedSteps.Contains(QueueStepRegistry.DetectLiveAction))
             item.PipelineExcluded = false;
 
         foreach (var key in item.StepStates.Keys.ToList())

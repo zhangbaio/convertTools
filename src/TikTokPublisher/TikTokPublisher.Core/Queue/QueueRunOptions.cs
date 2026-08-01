@@ -1,5 +1,3 @@
-using TikTokPublisher.Core.Models;
-
 namespace TikTokPublisher.Core.Queue;
 
 public static class QueueStepRegistry
@@ -40,7 +38,6 @@ public static class QueueStepRegistry
     public static IReadOnlyList<QueueStepDefinition> UserSelectable { get; } =
         All.Where(step =>
                 step.Key != GenerateProjectImages &&
-                step.Key != DetectLiveAction &&
                 IsAvailable(step.Key))
             .ToArray();
 
@@ -72,13 +69,6 @@ public enum CopyrightProofExecutionMode
     GenerateAndEdit,
 }
 
-public enum LiveActionDetectionRunMode
-{
-    FollowAccount,
-    ForceEnable,
-    ForceSkip,
-}
-
 public sealed class QueueRunOptions
 {
     public const string EditUploadEntryMode = "edit";
@@ -92,16 +82,12 @@ public sealed class QueueRunOptions
     public bool SyncManagementAfterUpload { get; set; }
     public int ProjectConcurrency { get; set; } = 4;
     public string UploadEntryMode { get; set; } = "";
-    public LiveActionDetectionRunMode LiveActionDetectionMode { get; set; } =
-        LiveActionDetectionRunMode.FollowAccount;
 
     public bool IsStepEnabled(string stepKey)
     {
-        if (string.Equals(stepKey, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal))
-        {
-            return !IsCopyrightProofWorkflowRun() &&
-                   LiveActionDetectionMode != LiveActionDetectionRunMode.ForceSkip;
-        }
+        if (IsCopyrightProofWorkflowRun() &&
+            string.Equals(stepKey, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal))
+            return false;
 
         return QueueStepRegistry.IsAvailable(stepKey) &&
                EnabledSteps.Contains(stepKey, StringComparer.Ordinal);
@@ -109,25 +95,12 @@ public sealed class QueueRunOptions
 
     public IReadOnlyList<string> OrderedEnabledSteps()
     {
-        var enabled = EnabledSteps
-            .Where(step => !string.Equals(step, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal))
-            .ToList();
-        if (!IsCopyrightProofWorkflowRun() &&
-            LiveActionDetectionMode != LiveActionDetectionRunMode.ForceSkip)
-        {
-            enabled.Add(QueueStepRegistry.DetectLiveAction);
-        }
-
+        var enabled = IsCopyrightProofWorkflowRun()
+            ? EnabledSteps.Where(step =>
+                !string.Equals(step, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal))
+            : EnabledSteps;
         return QueueStepRegistry.OrderEnabledSteps(enabled).ToList();
     }
-
-    public bool ShouldRunLiveActionDetection(TikTokAccountProfile? account) =>
-        !IsCopyrightProofWorkflowRun() && LiveActionDetectionMode switch
-        {
-            LiveActionDetectionRunMode.ForceEnable => true,
-            LiveActionDetectionRunMode.ForceSkip => false,
-            _ => account?.TiktokLiveActionDetectionEnabled == true,
-        };
 
     public QueueRunOptions Clone() => new()
     {
@@ -138,7 +111,6 @@ public sealed class QueueRunOptions
         SyncManagementAfterUpload = SyncManagementAfterUpload,
         ProjectConcurrency = ProjectConcurrency,
         UploadEntryMode = UploadEntryMode,
-        LiveActionDetectionMode = LiveActionDetectionMode,
     };
 
     public QueueRunOptions ClonePersistent()
@@ -152,22 +124,17 @@ public sealed class QueueRunOptions
     {
         ForceRerunCompletedSteps = false;
         UploadEntryMode = "";
-        LiveActionDetectionMode = LiveActionDetectionRunMode.FollowAccount;
     }
 
     public Dictionary<string, object?> ToDictionary() => new()
     {
-        ["enabled_steps"] = QueueStepRegistry.OrderEnabledSteps(
-                EnabledSteps.Where(step =>
-                    !string.Equals(step, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal)))
-            .ToList(),
+        ["enabled_steps"] = QueueStepRegistry.OrderEnabledSteps(EnabledSteps).ToList(),
         ["auto_archive_after_upload"] = AutoArchiveAfterUpload,
         ["force_rerun_completed_steps"] = ForceRerunCompletedSteps,
         ["prefer_upload_when_ready"] = PreferUploadWhenReady,
         ["sync_management_after_upload"] = SyncManagementAfterUpload,
         ["project_concurrency"] = Math.Clamp(ProjectConcurrency, 1, 20),
         ["upload_entry_mode"] = NormalizeUploadEntryMode(UploadEntryMode),
-        ["live_action_detection_mode"] = NormalizeLiveActionDetectionMode(LiveActionDetectionMode),
     };
 
     public Dictionary<string, object?> ToPersistentDictionary() =>
@@ -192,8 +159,7 @@ public sealed class QueueRunOptions
         if (!hasEnabledSteps)
             enabled = QueueStepRegistry.DefaultEnabledSteps.ToList();
 
-        var hadLegacyLiveActionStep = enabled.RemoveAll(step =>
-            string.Equals(step, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal)) > 0;
+        ApplyLegacyLiveActionDetectionMode(payload, enabled);
 
         return new QueueRunOptions
         {
@@ -206,9 +172,6 @@ public sealed class QueueRunOptions
                 GetBool(payload, "sync_management_on_upload_success"),
             ProjectConcurrency = Math.Clamp(GetInt(payload, "project_concurrency", 4), 1, 20),
             UploadEntryMode = NormalizeUploadEntryMode(GetString(payload, "upload_entry_mode")),
-            LiveActionDetectionMode = ParseLiveActionDetectionMode(
-                GetString(payload, "live_action_detection_mode"),
-                hadLegacyLiveActionStep),
         };
     }
 
@@ -256,32 +219,28 @@ public sealed class QueueRunOptions
         ForceRerunCompletedSteps = false;
         AutoArchiveAfterUpload = false;
         SyncManagementAfterUpload = false;
-        LiveActionDetectionMode = LiveActionDetectionRunMode.ForceSkip;
         UploadEntryMode = executionMode == CopyrightProofExecutionMode.GenerateAndEdit
             ? CopyrightProofOnlyEntryMode
             : CopyrightProofMaterialOnlyEntryMode;
     }
 
-    private static string NormalizeLiveActionDetectionMode(LiveActionDetectionRunMode mode) => mode switch
+    private static void ApplyLegacyLiveActionDetectionMode(
+        Dictionary<string, object?> payload,
+        List<string> enabledSteps)
     {
-        LiveActionDetectionRunMode.ForceEnable => "force_enable",
-        LiveActionDetectionRunMode.ForceSkip => "force_skip",
-        _ => "follow_account",
-    };
-
-    private static LiveActionDetectionRunMode ParseLiveActionDetectionMode(
-        string? value,
-        bool hadLegacyLiveActionStep)
-    {
-        return (value ?? "").Trim().ToLowerInvariant() switch
+        var legacyMode = GetString(payload, "live_action_detection_mode").ToLowerInvariant();
+        if (legacyMode is "force_enable" or "enable" or "enabled")
         {
-            "force_enable" or "enable" or "enabled" => LiveActionDetectionRunMode.ForceEnable,
-            "force_skip" or "skip" or "disabled" => LiveActionDetectionRunMode.ForceSkip,
-            "follow_account" or "account" or "default" => LiveActionDetectionRunMode.FollowAccount,
-            _ => hadLegacyLiveActionStep
-                ? LiveActionDetectionRunMode.ForceEnable
-                : LiveActionDetectionRunMode.FollowAccount,
-        };
+            if (!enabledSteps.Contains(QueueStepRegistry.DetectLiveAction, StringComparer.Ordinal))
+                enabledSteps.Add(QueueStepRegistry.DetectLiveAction);
+            return;
+        }
+
+        if (legacyMode is "force_skip" or "skip" or "disabled")
+        {
+            enabledSteps.RemoveAll(step =>
+                string.Equals(step, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal));
+        }
     }
 
     private static bool GetBool(Dictionary<string, object?> payload, string key) =>
