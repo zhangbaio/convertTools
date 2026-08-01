@@ -9,6 +9,57 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class WorkspaceQueueServiceTests
 {
     [Fact]
+    public void ScanProjects_preserves_live_action_exclusion_state()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "live-action-project");
+
+        try
+        {
+            CreateProject(project);
+            WorkspaceQueueService.SaveProjects(
+                workspace,
+                [
+                    new QueueProjectItem
+                    {
+                        ProjectDir = project,
+                        DisplayName = "真人剧",
+                        LiveActionClassification = nameof(LiveActionClassification.LiveAction),
+                        LiveActionConfidence = 0.94,
+                        LiveActionDetectionReason = "多帧均为真实演员实拍",
+                        LiveActionDetectedAt = "2026-08-01T12:00:00+08:00",
+                        LiveActionVideoFingerprint = "video-fingerprint",
+                        PipelineExcluded = true,
+                        StatusText = QueueStepStatus.Excluded,
+                        StepStates = new Dictionary<string, string>
+                        {
+                            [QueueStepRegistry.DetectLiveAction] = QueueStepStatus.Excluded,
+                            [QueueStepRegistry.RewriteInfo] = QueueStepStatus.Skipped,
+                        },
+                    },
+                ]);
+
+            var refreshed = WorkspaceQueueService.ScanProjects(workspace)
+                .Should().ContainSingle().Subject;
+
+            refreshed.LiveActionClassification.Should().Be(nameof(LiveActionClassification.LiveAction));
+            refreshed.LiveActionConfidence.Should().BeApproximately(0.94, 0.0001);
+            refreshed.LiveActionDetectionReason.Should().Be("多帧均为真实演员实拍");
+            refreshed.LiveActionDetectedAt.Should().Be("2026-08-01T12:00:00+08:00");
+            refreshed.LiveActionVideoFingerprint.Should().Be("video-fingerprint");
+            refreshed.PipelineExcluded.Should().BeTrue();
+            refreshed.IsPendingUpload.Should().BeFalse();
+            refreshed.StatusText.Should().Be(QueueStepStatus.Excluded);
+            refreshed.StepStates[QueueStepRegistry.DetectLiveAction].Should().Be(QueueStepStatus.Excluded);
+            refreshed.StepStates[QueueStepRegistry.RewriteInfo].Should().Be(QueueStepStatus.Skipped);
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
+    [Fact]
     public void ResolveExecutionSnapshot_can_bypass_stale_displayed_queue_for_prepared_batch()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");

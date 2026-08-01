@@ -85,13 +85,15 @@ public sealed class AccountStore
 
         var migratedProofConfig = MigrateLegacyProofMaterialConfig(_accounts);
         var migratedArchiveConfig = MigrateLegacyArchiveRootConfig(_accounts);
+        var migratedLiveActionConfig = MigrateLegacyLiveActionDetectionConfig(_accounts);
         foreach (var account in _accounts)
         {
             NormalizeProfileDefaults(account);
             EnsureProfileDirs(account);
         }
 
-        if ((!File.Exists(AppPaths.AccountsFile) || migratedProofConfig || migratedArchiveConfig) &&
+        if ((!File.Exists(AppPaths.AccountsFile) || migratedProofConfig || migratedArchiveConfig ||
+             migratedLiveActionConfig) &&
             _accounts.Count > 0)
             SaveAccounts();
     }
@@ -222,6 +224,8 @@ public sealed class AccountStore
             TiktokDeleteVideosOnArchiveConfigured = true,
             TiktokArchiveRootConfigMigrated = true,
             TiktokProofAccountConfigMigrated = true,
+            TiktokLiveActionDetectionEnabled = false,
+            TiktokLiveActionDetectionConfigured = true,
             TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
         };
     }
@@ -277,6 +281,31 @@ public sealed class AccountStore
         }
 
         return ApplyLegacyProofMaterialConfig(pending, legacySettings);
+    }
+
+    internal static bool MigrateLegacyLiveActionDetectionConfig(
+        IEnumerable<TikTokAccountProfile> accounts)
+    {
+        var changed = false;
+        foreach (var account in accounts)
+        {
+            var enabledSteps = account.TiktokQueueEnabledSteps;
+            if (!account.TiktokLiveActionDetectionConfigured)
+            {
+                account.TiktokLiveActionDetectionEnabled =
+                    enabledSteps?.Contains(QueueStepRegistry.DetectLiveAction, StringComparer.Ordinal) == true;
+                account.TiktokLiveActionDetectionConfigured = true;
+                changed = true;
+            }
+
+            if (enabledSteps?.RemoveAll(step =>
+                    string.Equals(step, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal)) > 0)
+            {
+                changed = true;
+            }
+        }
+
+        return changed;
     }
 
     internal static bool ApplyLegacyProofMaterialConfig(

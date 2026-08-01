@@ -54,6 +54,10 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
           .Append(item.LastError).Append('|')
           .Append(item.Remark).Append('|')
           .Append(item.ManualUploadStatus).Append('|')
+          .Append(item.LiveActionClassification).Append('|')
+          .Append(item.LiveActionConfidence.ToString("0.###", CultureInfo.InvariantCulture)).Append('|')
+          .Append(item.LiveActionDetectionReason).Append('|')
+          .Append(item.PipelineExcluded ? '1' : '0').Append('|')
           .Append(item.UploadCompletedAt).Append('|')
           .Append(item.Title).Append('|')
           .Append(item.NewTitle).Append('|')
@@ -114,6 +118,16 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         : Item.AccountProfileName;
 
     public string DownloadStatus => StepOf(QueueStepKeys.Download);
+    public string LiveActionStatus => Item.LiveActionClassification switch
+    {
+        nameof(LiveActionClassification.LiveAction) => "真人剧",
+        nameof(LiveActionClassification.NonLiveAction) => "非真人",
+        nameof(LiveActionClassification.Uncertain) => "待确认",
+        _ => StepOf(QueueStepKeys.DetectLiveAction),
+    };
+    public string LiveActionTooltip => string.IsNullOrWhiteSpace(Item.LiveActionDetectionReason)
+        ? LiveActionStatus
+        : $"{LiveActionStatus} · 置信度 {Item.LiveActionConfidence:P0} · {Item.LiveActionDetectionReason}";
     public string RewriteStatus => StepOf(QueueStepKeys.RewriteInfo);
     public string PosterStatus => StepOf(QueueStepKeys.GeneratePoster);
     public string ProjectImageStatus => StepOf(QueueStepKeys.GenerateProjectImages);
@@ -128,6 +142,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
 
     public string StatusText => Item.StatusText;
     public IBrush DownloadStatusBrush => BrushOf(DownloadStatus);
+    public IBrush LiveActionStatusBrush => BrushOf(LiveActionStatus);
     public IBrush RewriteStatusBrush => BrushOf(RewriteStatus);
     public IBrush PosterStatusBrush => BrushOf(PosterStatus);
     public IBrush ProjectImageStatusBrush => BrushOf(ProjectImageStatus);
@@ -148,6 +163,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
             ? FailedBrush
             : LinkBrush;
     public IBrush DownloadStatusBackgroundBrush => BackgroundOf(DownloadStatus);
+    public IBrush LiveActionStatusBackgroundBrush => BackgroundOf(LiveActionStatus);
     public IBrush RewriteStatusBackgroundBrush => BackgroundOf(RewriteStatus);
     public IBrush PosterStatusBackgroundBrush => BackgroundOf(PosterStatus);
     public IBrush ProjectImageStatusBackgroundBrush => BackgroundOf(ProjectImageStatus);
@@ -161,6 +177,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush UploadStatusBackgroundBrush => BackgroundOf(UploadStatus);
     public IBrush StatusTextBackgroundBrush => BackgroundOf(StatusText);
     public IBrush DownloadStatusBorderBrush => BorderOf(DownloadStatus);
+    public IBrush LiveActionStatusBorderBrush => BorderOf(LiveActionStatus);
     public IBrush RewriteStatusBorderBrush => BorderOf(RewriteStatus);
     public IBrush PosterStatusBorderBrush => BorderOf(PosterStatus);
     public IBrush ProjectImageStatusBorderBrush => BorderOf(ProjectImageStatus);
@@ -210,6 +227,9 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         QueueStepStatus.Stopped => StoppedBrush,
         QueueStepStatus.WaitingUploadSlot => UploadSlotBrush,
         QueueStepStatus.ManualIntervention => ManualInterventionBrush,
+        QueueStepStatus.Excluded or "真人剧" => FailedBrush,
+        QueueStepStatus.Skipped or "非真人" => CompletedBrush,
+        "待确认" => ManualInterventionBrush,
         _ => DefaultBrush,
     };
 
@@ -222,6 +242,9 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         QueueStepStatus.Stopped => StoppedBackgroundBrush,
         QueueStepStatus.WaitingUploadSlot => UploadSlotBackgroundBrush,
         QueueStepStatus.ManualIntervention => ManualInterventionBackgroundBrush,
+        QueueStepStatus.Excluded or "真人剧" => FailedBackgroundBrush,
+        QueueStepStatus.Skipped or "非真人" => CompletedBackgroundBrush,
+        "待确认" => ManualInterventionBackgroundBrush,
         _ => DefaultBackgroundBrush,
     };
 
@@ -234,6 +257,9 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         QueueStepStatus.Stopped => StoppedBorderBrush,
         QueueStepStatus.WaitingUploadSlot => UploadSlotBorderBrush,
         QueueStepStatus.ManualIntervention => ManualInterventionBorderBrush,
+        QueueStepStatus.Excluded or "真人剧" => FailedBorderBrush,
+        QueueStepStatus.Skipped or "非真人" => CompletedBorderBrush,
+        "待确认" => ManualInterventionBorderBrush,
         _ => DefaultBorderBrush,
     };
 

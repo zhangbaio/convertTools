@@ -1,5 +1,7 @@
 using FluentAssertions;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
@@ -116,6 +118,130 @@ public sealed class QueueRunOptionsTests
     {
         QueueStepRegistry.DefaultEnabledSteps.Should().BeEmpty();
         new QueueRunOptions().EnabledSteps.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Live_action_detection_runs_immediately_after_download_but_uses_dedicated_mode()
+    {
+        var options = new QueueRunOptions
+        {
+            EnabledSteps =
+            [
+                QueueStepRegistry.UploadSeries,
+                QueueStepRegistry.RewriteInfo,
+                QueueStepRegistry.Download,
+            ],
+            LiveActionDetectionMode = LiveActionDetectionRunMode.ForceEnable,
+        };
+
+        options.OrderedEnabledSteps().Should().Equal(
+            QueueStepRegistry.Download,
+            QueueStepRegistry.DetectLiveAction,
+            QueueStepRegistry.RewriteInfo,
+            QueueStepRegistry.UploadSeries);
+        QueueStepRegistry.UserSelectable.Select(step => step.Key)
+            .Should().NotContain(QueueStepRegistry.DetectLiveAction);
+    }
+
+    [Fact]
+    public void Live_action_detection_mode_follows_each_account_and_supports_run_override()
+    {
+        var enabledAccount = new TikTokAccountProfile { TiktokLiveActionDetectionEnabled = true };
+        var disabledAccount = new TikTokAccountProfile { TiktokLiveActionDetectionEnabled = false };
+        var options = new QueueRunOptions();
+
+        options.ShouldRunLiveActionDetection(enabledAccount).Should().BeTrue();
+        options.ShouldRunLiveActionDetection(disabledAccount).Should().BeFalse();
+
+        options.LiveActionDetectionMode = LiveActionDetectionRunMode.ForceEnable;
+        options.ShouldRunLiveActionDetection(disabledAccount).Should().BeTrue();
+
+        options.LiveActionDetectionMode = LiveActionDetectionRunMode.ForceSkip;
+        options.ShouldRunLiveActionDetection(enabledAccount).Should().BeFalse();
+        options.OrderedEnabledSteps().Should().NotContain(QueueStepRegistry.DetectLiveAction);
+    }
+
+    [Fact]
+    public void Live_action_detection_run_override_round_trips_but_is_not_persisted()
+    {
+        var options = new QueueRunOptions
+        {
+            LiveActionDetectionMode = LiveActionDetectionRunMode.ForceEnable,
+        };
+
+        QueueRunOptions.FromDictionary(options.ToDictionary()).LiveActionDetectionMode
+            .Should().Be(LiveActionDetectionRunMode.ForceEnable);
+        QueueRunOptions.FromDictionary(options.ToPersistentDictionary()).LiveActionDetectionMode
+            .Should().Be(LiveActionDetectionRunMode.FollowAccount);
+    }
+
+    [Fact]
+    public void Legacy_live_action_step_migrates_to_account_default_once()
+    {
+        var account = new TikTokAccountProfile
+        {
+            TiktokQueueEnabledSteps =
+            [
+                QueueStepRegistry.Download,
+                QueueStepRegistry.DetectLiveAction,
+            ],
+        };
+
+        AccountStore.MigrateLegacyLiveActionDetectionConfig([account]).Should().BeTrue();
+
+        account.TiktokLiveActionDetectionEnabled.Should().BeTrue();
+        account.TiktokLiveActionDetectionConfigured.Should().BeTrue();
+        account.TiktokQueueEnabledSteps.Should().Equal(QueueStepRegistry.Download);
+        AccountStore.MigrateLegacyLiveActionDetectionConfig([account]).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(CopyrightProofExecutionMode.GenerateMaterialOnly)]
+    [InlineData(CopyrightProofExecutionMode.GenerateAndEdit)]
+    public void Copyright_proof_workflows_never_enable_live_action_detection(
+        CopyrightProofExecutionMode executionMode)
+    {
+        var options = new QueueRunOptions
+        {
+            EnabledSteps = [QueueStepRegistry.DetectLiveAction],
+        };
+
+        options.ConfigureForCopyrightProof(executionMode);
+
+        options.EnabledSteps.Should().NotContain(QueueStepRegistry.DetectLiveAction);
+        options.LiveActionDetectionMode.Should().Be(LiveActionDetectionRunMode.ForceSkip);
+        options.OrderedEnabledSteps().Should().NotContain(QueueStepRegistry.DetectLiveAction);
+    }
+
+    [Fact]
+    public void Live_action_result_round_trips_with_queue_payload()
+    {
+        var item = new QueueProjectItem
+        {
+            LiveActionClassification = "LiveAction",
+            LiveActionConfidence = 0.93,
+            LiveActionDetectionReason = "多帧均为真实演员实拍",
+            LiveActionDetectedAt = "2026-08-01T12:00:00+08:00",
+            LiveActionVideoFingerprint = "fingerprint",
+            PipelineExcluded = true,
+            StepStates = new Dictionary<string, string>
+            {
+                [QueueStepRegistry.DetectLiveAction] = QueueStepStatus.Excluded,
+                [QueueStepRegistry.RewriteInfo] = QueueStepStatus.Skipped,
+            },
+        };
+
+        var restored = QueueProjectItem.FromPayload(item.ToPayload());
+
+        restored.LiveActionClassification.Should().Be("LiveAction");
+        restored.LiveActionConfidence.Should().BeApproximately(0.93, 0.0001);
+        restored.LiveActionDetectionReason.Should().Be("多帧均为真实演员实拍");
+        restored.LiveActionDetectedAt.Should().Be("2026-08-01T12:00:00+08:00");
+        restored.LiveActionVideoFingerprint.Should().Be("fingerprint");
+        restored.PipelineExcluded.Should().BeTrue();
+        restored.IsPendingUpload.Should().BeFalse();
+        restored.StepStates[QueueStepRegistry.DetectLiveAction].Should().Be(QueueStepStatus.Excluded);
+        restored.StepStates[QueueStepRegistry.RewriteInfo].Should().Be(QueueStepStatus.Skipped);
     }
 
     [Fact]
