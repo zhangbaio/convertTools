@@ -67,7 +67,6 @@ public partial class AccountSettingsDialog : Window
         GenreCountBox.Value = TikTokPublishOptions.NormalizeGenreCount(p.TiktokGenreCount);
         UploadStallBox.Value = p.TiktokUploadStallSeconds;
         ProjectConcurrencyBox.Value = p.TiktokProjectConcurrency;
-        LiveActionDetectionEnabledBox.IsChecked = p.TiktokLiveActionDetectionEnabled;
         UploadBatchSizeBox.Value = p.TiktokUploadBatchSize;
         UploadBatchStallBox.Value = p.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = p.TiktokUploadBatchMaxRetries;
@@ -136,8 +135,6 @@ public partial class AccountSettingsDialog : Window
         p.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount((int)(GenreCountBox.Value ?? TikTokPublishOptions.DefaultGenreCount));
         p.TiktokUploadStallSeconds = (int)(UploadStallBox.Value ?? 180);
         p.TiktokProjectConcurrency = (int)(ProjectConcurrencyBox.Value ?? 4);
-        p.TiktokLiveActionDetectionEnabled = LiveActionDetectionEnabledBox.IsChecked == true;
-        p.TiktokLiveActionDetectionConfigured = true;
         p.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
         p.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
         p.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);

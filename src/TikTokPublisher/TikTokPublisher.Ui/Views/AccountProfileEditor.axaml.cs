@@ -100,7 +100,6 @@ public partial class AccountProfileEditor : UserControl
         DownloadWorkspaceBox.Text = profile.LastDownloadWorkspace;
         ExcelReportBox.Text = profile.TiktokExcelReportPath;
         DeleteVideosOnArchiveBox.IsChecked = profile.TiktokDeleteVideosOnArchive;
-        LiveActionDetectionEnabledBox.IsChecked = profile.TiktokLiveActionDetectionEnabled;
 
         SelectByTag(LoginBrowserModeCombo, profile.TiktokLoginBrowserMode, "embedded");
         CdpEndpointBox.Text = profile.TiktokExternalBrowserCdpEndpoint;
@@ -204,8 +203,6 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokExcelReportPath = ExcelReportBox.Text?.Trim() ?? "";
             profile.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
             profile.TiktokDeleteVideosOnArchiveConfigured = true;
-            profile.TiktokLiveActionDetectionEnabled = LiveActionDetectionEnabledBox.IsChecked == true;
-            profile.TiktokLiveActionDetectionConfigured = true;
 
             profile.TiktokLoginBrowserMode = TagOf(LoginBrowserModeCombo, "embedded");
             profile.TiktokExternalBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";

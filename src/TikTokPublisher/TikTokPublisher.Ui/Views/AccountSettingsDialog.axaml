@@ -38,7 +38,7 @@
                 <ScrollViewer>
                     <StackPanel Spacing="8" Margin="4">
                         <Grid ColumnDefinitions="130,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
@@ -212,11 +212,6 @@
                                                    HorizontalAlignment="Left" />
                                 </Grid>
                             </StackPanel>
-
-                            <TextBlock Grid.Row="35" Grid.Column="0" Text="下载后真人检测" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="35" Grid.Column="1"
-                                      x:Name="LiveActionDetectionEnabledBox"
-                                      Content="启用；检测为真人实拍剧时停止后续流程" />
 
                         </Grid>
                     </StackPanel>

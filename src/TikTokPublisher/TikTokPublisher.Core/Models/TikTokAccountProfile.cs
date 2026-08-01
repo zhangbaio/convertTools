@@ -71,10 +71,12 @@ public sealed class TikTokAccountProfile
     public bool TiktokPaidRatioEnabled { get; set; }
     public double TiktokPaidRatioPercent { get; set; } = 20.0;
     public int TiktokProjectConcurrency { get; set; } = 4;
-    /// <summary>下载完成后是否默认检测真人实拍剧；真人剧会停止当前项目的后续流水线。</summary>
+    /// <summary>旧版账号级真人检测开关，仅用于迁移到队列步骤。</summary>
     public bool TiktokLiveActionDetectionEnabled { get; set; }
-    /// <summary>旧版普通步骤配置是否已迁移为账号级真人检测开关。</summary>
+    /// <summary>旧版账号级真人检测配置标记，仅用于兼容读取。</summary>
     public bool TiktokLiveActionDetectionConfigured { get; set; }
+    /// <summary>旧版账号级真人检测开关是否已迁移到普通队列步骤。</summary>
+    public bool TiktokLiveActionDetectionStepMigrated { get; set; }
 
     // 发布表单扩展（对齐 Python account_profiles 字段）
     public bool TiktokAnchorPromotionEnabled { get; set; } = true;

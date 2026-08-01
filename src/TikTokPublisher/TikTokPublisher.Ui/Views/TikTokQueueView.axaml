@@ -257,17 +257,10 @@
                             <TextBlock Grid.Column="0" Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
                             <WrapPanel Grid.Column="1" Orientation="Horizontal">
                                 <CheckBox Content="下载剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
-                                <ComboBox ItemsSource="{Binding LiveActionDetectionModeChoices}"
-                                          SelectedItem="{Binding SelectedLiveActionDetectionMode, Mode=TwoWay}"
-                                          Width="176"
+                                <CheckBox Content="真人检测"
+                                          IsChecked="{Binding QueueLiveActionDetectionEnabled, Mode=TwoWay}"
                                           Margin="0,0,12,2"
-                                          ToolTip.Tip="账号配置决定长期默认；这里可仅覆盖本次队列">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:LiveActionDetectionModeChoice">
-                                            <TextBlock Text="{Binding Label}" />
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
+                                          ToolTip.Tip="初始状态跟随当前账号配置；手动切换仅覆盖本次队列" />
                                 <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成证明材料" IsChecked="{Binding QueueGenerateProofMaterialEnabled}" Margin="0,0,12,2" />

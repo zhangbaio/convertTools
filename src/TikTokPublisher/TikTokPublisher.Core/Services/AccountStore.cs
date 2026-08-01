@@ -224,8 +224,7 @@ public sealed class AccountStore
             TiktokDeleteVideosOnArchiveConfigured = true,
             TiktokArchiveRootConfigMigrated = true,
             TiktokProofAccountConfigMigrated = true,
-            TiktokLiveActionDetectionEnabled = false,
-            TiktokLiveActionDetectionConfigured = true,
+            TiktokLiveActionDetectionStepMigrated = true,
             TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
         };
     }
@@ -289,20 +288,20 @@ public sealed class AccountStore
         var changed = false;
         foreach (var account in accounts)
         {
+            if (account.TiktokLiveActionDetectionStepMigrated)
+                continue;
+
             var enabledSteps = account.TiktokQueueEnabledSteps;
-            if (!account.TiktokLiveActionDetectionConfigured)
+            if (account.TiktokLiveActionDetectionEnabled)
             {
-                account.TiktokLiveActionDetectionEnabled =
-                    enabledSteps?.Contains(QueueStepRegistry.DetectLiveAction, StringComparer.Ordinal) == true;
-                account.TiktokLiveActionDetectionConfigured = true;
-                changed = true;
+                enabledSteps ??= [];
+                if (!enabledSteps.Contains(QueueStepRegistry.DetectLiveAction, StringComparer.Ordinal))
+                    enabledSteps.Add(QueueStepRegistry.DetectLiveAction);
+                account.TiktokQueueEnabledSteps = enabledSteps;
             }
 
-            if (enabledSteps?.RemoveAll(step =>
-                    string.Equals(step, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal)) > 0)
-            {
-                changed = true;
-            }
+            account.TiktokLiveActionDetectionStepMigrated = true;
+            changed = true;
         }
 
         return changed;
