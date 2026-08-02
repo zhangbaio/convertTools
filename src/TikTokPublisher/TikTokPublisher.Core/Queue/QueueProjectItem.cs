@@ -30,6 +30,9 @@ public static class QueueStepStatus
 
 public sealed class QueueProjectItem
 {
+    private const string LegacyLiveActionStep = "detect_live_action";
+    private const string LegacyLiveActionBlockedStatus = "真人剧已拦截";
+
     public string ProjectDir { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string OriginalTitle { get; set; } = "";
@@ -66,6 +69,8 @@ public sealed class QueueProjectItem
 
     public void NormalizeStepStates()
     {
+        RecoverLegacyLiveActionBlock();
+
         // An explicit pending proof-material state must survive normalization (for example,
         // after a title rename). Only legacy uploaded records that predate this step are
         // backfilled as completed.
@@ -105,6 +110,31 @@ public sealed class QueueProjectItem
             if (StepStates.GetValueOrDefault(QueueStepKeys.SilenceRepair) == QueueStepStatus.Pending)
                 StepStates[QueueStepKeys.SilenceRepair] = QueueStepStatus.Completed;
         }
+    }
+
+    private void RecoverLegacyLiveActionBlock()
+    {
+        var wasBlocked = string.Equals(StatusText, LegacyLiveActionBlockedStatus, StringComparison.Ordinal) ||
+                         string.Equals(
+                             StepStates.GetValueOrDefault(LegacyLiveActionStep),
+                             LegacyLiveActionBlockedStatus,
+                             StringComparison.Ordinal);
+
+        // 真人检测步骤已经移除。旧版本在判定为真人剧时会把所有后续生产步骤
+        // 批量标记为“已跳过”；只迁移带有明确拦截标记的记录，避免覆盖用户主动跳过。
+        StepStates.Remove(LegacyLiveActionStep);
+        if (!wasBlocked)
+            return;
+
+        foreach (var stepKey in StepStates.Keys.ToArray())
+        {
+            if (string.Equals(StepStates[stepKey], QueueStepStatus.Skipped, StringComparison.Ordinal))
+                StepStates[stepKey] = QueueStepStatus.Pending;
+        }
+
+        StatusText = QueueStepStatus.Pending;
+        CurrentStep = "";
+        LastError = "";
     }
 
     public Dictionary<string, object?> ToPayload()
