@@ -1,6 +1,8 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Models;
@@ -17,6 +19,78 @@ public sealed class TikTokAccountInventorySyncCoordinatorTestCollection
 [Collection(TikTokAccountInventorySyncCoordinatorTestCollection.Name)]
 public sealed class TikTokAccountInventorySyncCoordinatorTests
 {
+    [Fact]
+    public async Task Start_QueuesCurrentSnapshotImmediately()
+    {
+        var requestBodies = new ConcurrentQueue<string>();
+        using var http = new HttpClient(new StubHandler(async request =>
+        {
+            requestBodies.Enqueue(await request.Content!.ReadAsStringAsync());
+            return Json(HttpStatusCode.OK, """{"ok":true}""");
+        }));
+        var service = CreateService(http);
+        var store = CreateStoreWithAccounts([
+            new TikTokAccountProfile
+            {
+                Id = "acct-a",
+                TiktokLoginEmail = "account-a@example.test",
+                TiktokProofCopyrightCompanyName = "武汉速视科技有限公司",
+            },
+        ]);
+
+        using var coordinator = new TikTokAccountInventorySyncCoordinator(
+            store,
+            service,
+            static (_, _) => Task.CompletedTask,
+            TimeSpan.Zero);
+        coordinator.Start();
+
+        await WaitUntilAsync(() => requestBodies.Count >= 1);
+
+        requestBodies.TryPeek(out var body).Should().BeTrue();
+        var account = JsonDocument.Parse(body!).RootElement
+            .GetProperty("accounts")[0];
+        account.GetProperty("client_account_id").GetString().Should().Be("acct-a");
+        account.GetProperty("tiktok_username").GetString().Should().Be("account-a@example.test");
+        account.GetProperty("subject_company").GetString().Should().Be("武汉速视科技有限公司");
+    }
+
+    [Fact]
+    public async Task AccountsChanged_AfterSubjectCompanyUpdate_QueuesLatestSnapshot()
+    {
+        var requestBodies = new ConcurrentQueue<string>();
+        using var http = new HttpClient(new StubHandler(async request =>
+        {
+            requestBodies.Enqueue(await request.Content!.ReadAsStringAsync());
+            return Json(HttpStatusCode.OK, """{"ok":true}""");
+        }));
+        var service = CreateService(http);
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-a",
+            TiktokLoginEmail = "account-a@example.test",
+            TiktokProofCopyrightCompanyName = "旧主体公司",
+        };
+        var store = CreateStoreWithAccounts([account]);
+
+        using var coordinator = new TikTokAccountInventorySyncCoordinator(
+            store,
+            service,
+            static (_, _) => Task.CompletedTask,
+            TimeSpan.Zero);
+        coordinator.Start();
+        await WaitUntilAsync(() => requestBodies.Count >= 1);
+
+        account.TiktokProofCopyrightCompanyName = "新主体公司";
+        RaiseAccountsChanged(store);
+
+        await WaitUntilAsync(() => requestBodies.Count >= 2);
+        var latestBody = requestBodies.Last();
+        var latestAccount = JsonDocument.Parse(latestBody).RootElement
+            .GetProperty("accounts")[0];
+        latestAccount.GetProperty("subject_company").GetString().Should().Be("新主体公司");
+    }
+
     [Fact]
     public async Task LicenseStateChanged_AfterCorruptAccountsLoad_DoesNotSendEmptySnapshot()
     {
@@ -55,6 +129,31 @@ public sealed class TikTokAccountInventorySyncCoordinatorTests
             "a corrupt accounts file must quarantine snapshot sync even after authorization changes");
     }
 
+    private static TikTokManagementAccountSnapshotSyncService CreateService(HttpClient http) =>
+        new(
+            http,
+            () => new ClientSettings { AuthServerUrl = "https://manage.example" },
+            () => new LicenseState
+            {
+                AccountUsername = "software-user",
+                MachineId = "machine-a",
+                Token = "signed-token",
+            });
+
+    private static AccountStore CreateStoreWithAccounts(IReadOnlyList<TikTokAccountProfile> accounts)
+    {
+        var store = new AccountStore();
+        var accountList = (List<TikTokAccountProfile>)typeof(AccountStore)
+            .GetField("_accounts", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(store)!;
+        accountList.Clear();
+        accountList.AddRange(accounts);
+        typeof(AccountStore)
+            .GetField("_activeAccountId", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(store, accounts.FirstOrDefault()?.Id ?? "");
+        return store;
+    }
+
     private static void SetCanSyncAccountSnapshot(AccountStore store, bool value)
     {
         var setter = typeof(AccountStore)
@@ -68,6 +167,23 @@ public sealed class TikTokAccountInventorySyncCoordinatorTests
         typeof(LicenseStore)
             .GetMethod("NotifyStateChanged", BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, null);
+    }
+
+    private static void RaiseAccountsChanged(AccountStore store)
+    {
+        typeof(AccountStore)
+            .GetMethod("NotifyAccountsChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(store, null);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (!condition())
+        {
+            cts.Token.ThrowIfCancellationRequested();
+            await Task.Delay(20, cts.Token);
+        }
     }
 
     private static HttpResponseMessage Json(HttpStatusCode status, string json) => new(status)
