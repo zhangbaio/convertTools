@@ -10,21 +10,12 @@ namespace ShortDrama.Infrastructure.Automation;
 public static partial class HongguoDeviceId
 {
     private static readonly Regex GuidPattern = GuidRegex();
-    private static readonly Regex Hex32Pattern = Hex32Regex();
-
-    public static string Normalize(string? value) => (value ?? string.Empty).Trim();
+    public static string Normalize(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant();
 
     public static bool LooksLikeGuid(string? value) =>
         !string.IsNullOrWhiteSpace(value) && GuidPattern.IsMatch(value.Trim());
 
-    public static bool LooksLikeHex32(string? value) =>
-        !string.IsNullOrWhiteSpace(value) && Hex32Pattern.IsMatch(value.Trim());
-
-    /// <param name="preferAes">
-    /// true：1.4.x AES，读 HongGuoClient GUID；
-    /// false：>=1.5.0 REST，只读 HongGuopy 32hex（不再回退 GUID）。
-    /// </param>
-    public static string? TryReadFromRegistry(bool preferAes = false)
+    public static string? TryReadFromRegistry()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -33,22 +24,13 @@ public static partial class HongguoDeviceId
 
         try
         {
-            // REST：仅 HongGuopy（GUID 只服务 1.4.x，不再给 1.5.0 用）
-            string[] restOnly =
-            [
-                @"Software\HongGuopy",
-                // @"Software\HongGuoClient",
-                // @"Software\WOW6432Node\HongGuoClient"
-            ];
-            // AES / 1.4.x：GUID 优先
-            string[] aesFirst =
+            string[] registryPaths =
             [
                 @"Software\HongGuoClient",
-                @"Software\WOW6432Node\HongGuoClient",
-                // @"Software\HongGuopy" // 1.5.0 设备号，1.4.x 读取时不再回退
+                @"Software\WOW6432Node\HongGuoClient"
             ];
 
-            foreach (var subKey in preferAes ? aesFirst : restOnly)
+            foreach (var subKey in registryPaths)
             {
                 using var key = Registry.CurrentUser.OpenSubKey(subKey, false)
                     ?? Registry.LocalMachine.OpenSubKey(subKey, false);
@@ -59,13 +41,10 @@ public static partial class HongguoDeviceId
                     continue;
                 }
 
-                // 1.4.x 读取 HongGuoClient GUID 时统一成大写展示（保存时仍允许用户手改大小写）
-                if (preferAes && LooksLikeGuid(normalized))
+                if (LooksLikeGuid(normalized))
                 {
-                    return normalized.ToUpperInvariant();
+                    return normalized;
                 }
-
-                return normalized;
             }
         }
         catch
@@ -78,7 +57,4 @@ public static partial class HongguoDeviceId
 
     [GeneratedRegex(@"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", RegexOptions.CultureInvariant)]
     private static partial Regex GuidRegex();
-
-    [GeneratedRegex(@"^[0-9a-fA-F]{32}$", RegexOptions.CultureInvariant)]
-    private static partial Regex Hex32Regex();
 }

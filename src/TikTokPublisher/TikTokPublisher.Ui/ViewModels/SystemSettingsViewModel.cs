@@ -163,9 +163,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewAccount = HgnewAccount.Trim(),
         HgnewPassword = HgnewPassword,
         HgnewUdid = ClientSettingsStore.NormalizeUdid(HgnewUdid),
-        HgnewClientVersion = string.IsNullOrWhiteSpace(HgnewClientVersion)
-            ? ClientSettings.DefaultHongguoClientVersion
-            : HgnewClientVersion.Trim(),
+        HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion),
         HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
         HongguoLocalApiKey = HongguoLocalApiKey.Trim(),
         HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(HongguoLocalDownloadMode),
@@ -363,9 +361,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [RelayCommand]
     private void ReadHgnewUdid()
     {
-        // 1.4.x AES 优先 HongGuoClient GUID；>=1.5.0 REST 优先 HongGuopy 32hex
-        var preferAes = !HongguoClientVersion.IsRest(HgnewClientVersion);
-        if (HongguoDeviceUdidHelper.TryReadFromRegistry(out var udid, out var message, preferAes))
+        if (HongguoDeviceUdidHelper.TryReadFromRegistry(out var udid, out var message))
         {
             HgnewUdid = udid;
         }

@@ -8,7 +8,7 @@ public sealed record DramaSourceSettings
     public string HgnewAccount { get; init; } = "";
     public string HgnewPassword { get; init; } = "";
     public string HgnewUdid { get; init; } = "";
-    public string HgnewClientVersion { get; init; } = "1.5.0";
+    public string HgnewClientVersion { get; init; } = "1.4.2";
     public string HongguoDownloadTimeoutSeconds { get; init; } = "60";
     public string HongguoEpisodeDownloadAttempts { get; init; } = "5";
     public string DownloadFileSegments { get; init; } = "4";

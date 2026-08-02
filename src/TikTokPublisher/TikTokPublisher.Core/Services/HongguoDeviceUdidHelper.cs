@@ -4,11 +4,7 @@ namespace TikTokPublisher.Core.Services;
 
 public static class HongguoDeviceUdidHelper
 {
-    /// <param name="preferAes">
-    /// true：1.4.x，读 HongGuoClient GUID；
-    /// false：>=1.5.0，只读 HongGuopy 32hex（GUID 不再用于 1.5.0）。
-    /// </param>
-    public static bool TryReadFromRegistry(out string udid, out string message, bool preferAes = false)
+    public static bool TryReadFromRegistry(out string udid, out string message)
     {
         udid = "";
         message = "";
@@ -21,17 +17,15 @@ public static class HongguoDeviceUdidHelper
 
         try
         {
-            var value = HongguoDeviceId.TryReadFromRegistry(preferAes);
+            var value = HongguoDeviceId.TryReadFromRegistry();
             if (string.IsNullOrWhiteSpace(value))
             {
-                message = "未在注册表中找到 HongGuopy/HongGuoClient\\DeviceUDID。";
+                message = "未在注册表中找到 HongGuoClient\\DeviceUDID。";
                 return false;
             }
 
             udid = ClientSettingsStore.NormalizeUdid(value);
-            message = preferAes
-                ? "已从注册表读取设备唯一标识（优先 HongGuoClient）。"
-                : "已从注册表读取设备唯一标识（优先 HongGuopy）。";
+            message = "已从注册表读取 HongGuoClient 设备唯一标识。";
             return true;
         }
         catch (Exception ex)
