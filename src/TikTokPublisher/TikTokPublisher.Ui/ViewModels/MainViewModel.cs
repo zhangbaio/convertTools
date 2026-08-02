@@ -128,7 +128,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _preferUploadWhenReady;
     [ObservableProperty] private bool _syncManagementAfterUpload;
     [ObservableProperty] private bool _queueDownloadEnabled;
-    [ObservableProperty] private bool _queueLiveActionDetectionEnabled;
     [ObservableProperty] private bool _queueRewriteEnabled;
     [ObservableProperty] private bool _queueGeneratePosterEnabled;
     [ObservableProperty] private bool _queueGenerateProofMaterialEnabled;
@@ -520,8 +519,6 @@ public sealed partial class MainViewModel : ViewModelBase
     }
 
     partial void OnQueueDownloadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueLiveActionDetectionEnabledChanged(bool value)
-        => UpdateQueueRunOptionsFromUi();
     partial void OnQueueRewriteEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGeneratePosterEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateProofMaterialEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -680,7 +677,6 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = true;
-            QueueLiveActionDetectionEnabled = true;
             QueueRewriteEnabled = true;
             QueueGeneratePosterEnabled = true;
             QueueGenerateProofMaterialEnabled = true;
@@ -711,7 +707,6 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = false;
-            QueueLiveActionDetectionEnabled = false;
             QueueRewriteEnabled = false;
             QueueGeneratePosterEnabled = false;
             QueueGenerateProofMaterialEnabled = false;
@@ -1249,7 +1244,6 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokProofDeclarantCompanyName = account.TiktokProofDeclarantCompanyName,
         TiktokProofSealPath = account.TiktokProofSealPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
-        TiktokLiveActionDetectionStepMigrated = account.TiktokLiveActionDetectionStepMigrated,
         TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,
     };
 
@@ -3260,8 +3254,6 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.Download);
-            QueueLiveActionDetectionEnabled =
-                _queueRunOptions.IsStepEnabled(QueueStepRegistry.DetectLiveAction);
             QueueRewriteEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RewriteInfo);
             QueueGeneratePosterEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GeneratePoster);
             QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
@@ -3283,7 +3275,6 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var steps = new List<string>();
         if (QueueDownloadEnabled) steps.Add(QueueStepRegistry.Download);
-        if (QueueLiveActionDetectionEnabled) steps.Add(QueueStepRegistry.DetectLiveAction);
         if (QueueRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
         if (QueueGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
         if (QueueGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);

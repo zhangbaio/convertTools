@@ -257,10 +257,6 @@
                             <TextBlock Grid.Column="0" Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
                             <WrapPanel Grid.Column="1" Orientation="Horizontal">
                                 <CheckBox Content="下载剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="真人检测"
-                                          IsChecked="{Binding QueueLiveActionDetectionEnabled, Mode=TwoWay}"
-                                          Margin="0,0,12,2"
-                                          ToolTip.Tip="初始状态跟随当前账号配置；手动切换仅覆盖本次队列" />
                                 <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成证明材料" IsChecked="{Binding QueueGenerateProofMaterialEnabled}" Margin="0,0,12,2" />
@@ -357,8 +353,8 @@
                           HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
                           AllowAutoHide="False">
-                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1756">
-                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,72,68,68,76,68,0,68,68,68,68,68,180">
+                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1684">
+                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,0,68,68,76,68,0,68,68,68,68,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
@@ -367,7 +363,6 @@
                         <TextBlock Grid.Column="5" Text="集数" Classes="tableHeader" />
                         <TextBlock Grid.Column="6" Text="加入时间" Classes="tableHeader" />
                         <TextBlock Grid.Column="7" Text="下载" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="8" Text="真人检测" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="9" Text="改写" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="10" Text="海报" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="11" Text="证明材料" Classes="tableHeader stepTableHeader" />
@@ -387,7 +382,6 @@
                         <Border Grid.Column="5" Classes="queueColumnResizer" Tag="5" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="6" Classes="queueColumnResizer" Tag="6" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="7" Classes="queueColumnResizer" Tag="7" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                        <Border Grid.Column="8" Classes="queueColumnResizer" Tag="8" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="9" Classes="queueColumnResizer" Tag="9" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="10" Classes="queueColumnResizer" Tag="10" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="11" Classes="queueColumnResizer" Tag="11" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
@@ -409,8 +403,8 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Border Classes="queueTableRow" Width="1756" Height="42" Loaded="OnQueueTableRowLoaded">
-                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,72,68,68,76,68,0,68,68,68,68,68,180" ClipToBounds="True">
+                                <Border Classes="queueTableRow" Width="1684" Height="42" Loaded="OnQueueTableRowLoaded">
+                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,0,68,68,76,68,0,68,68,68,68,68,180" ClipToBounds="True">
                                         <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="4,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -448,9 +442,6 @@
                                         <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="6,0" FontSize="12" TextTrimming="CharacterEllipsis" ClipToBounds="True" ToolTip.Tip="{Binding QueuedAtTooltip}" />
                                         <Border Grid.Column="7" Classes="stepStatusBadge" Background="{Binding DownloadStatusBackgroundBrush}" BorderBrush="{Binding DownloadStatusBorderBrush}" ToolTip.Tip="{Binding DownloadStatus}">
                                             <TextBlock Text="{Binding DownloadStatus}" Foreground="{Binding DownloadStatusBrush}" Classes="stepStatusText" />
-                                        </Border>
-                                        <Border Grid.Column="8" Classes="stepStatusBadge" Background="{Binding LiveActionStatusBackgroundBrush}" BorderBrush="{Binding LiveActionStatusBorderBrush}" ToolTip.Tip="{Binding LiveActionTooltip}">
-                                            <TextBlock Text="{Binding LiveActionStatus}" Foreground="{Binding LiveActionStatusBrush}" Classes="stepStatusText" />
                                         </Border>
                                         <Border Grid.Column="9" Classes="stepStatusBadge" Background="{Binding RewriteStatusBackgroundBrush}" BorderBrush="{Binding RewriteStatusBorderBrush}" ToolTip.Tip="{Binding RewriteStatus}">
                                             <TextBlock Text="{Binding RewriteStatus}" Foreground="{Binding RewriteStatusBrush}" Classes="stepStatusText" />

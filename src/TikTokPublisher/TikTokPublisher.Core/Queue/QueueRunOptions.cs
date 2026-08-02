@@ -5,7 +5,6 @@ public static class QueueStepRegistry
     public const string UploadSeries = QueueStepKeys.UploadSeries;
     public const string MaterialValidate = QueueStepKeys.MaterialValidate;
     public const string Download = QueueStepKeys.Download;
-    public const string DetectLiveAction = QueueStepKeys.DetectLiveAction;
     public const string RewriteInfo = QueueStepKeys.RewriteInfo;
     public const string GeneratePoster = QueueStepKeys.GeneratePoster;
     public const string GenerateProjectImages = QueueStepKeys.GenerateProjectImages;
@@ -21,7 +20,6 @@ public static class QueueStepRegistry
     public static IReadOnlyList<QueueStepDefinition> All { get; } = new[]
     {
         new QueueStepDefinition(QueueStepKeys.Download, "下载剧集", true),
-        new QueueStepDefinition(QueueStepKeys.DetectLiveAction, "真人检测", true),
         new QueueStepDefinition(QueueStepKeys.RewriteInfo, "改写信息", true),
         new QueueStepDefinition(QueueStepKeys.GeneratePoster, "生成海报", true),
         new QueueStepDefinition(QueueStepKeys.GenerateProjectImages, "生成工程图", true),
@@ -85,21 +83,13 @@ public sealed class QueueRunOptions
 
     public bool IsStepEnabled(string stepKey)
     {
-        if (IsCopyrightProofWorkflowRun() &&
-            string.Equals(stepKey, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal))
-            return false;
-
         return QueueStepRegistry.IsAvailable(stepKey) &&
                EnabledSteps.Contains(stepKey, StringComparer.Ordinal);
     }
 
     public IReadOnlyList<string> OrderedEnabledSteps()
     {
-        var enabled = IsCopyrightProofWorkflowRun()
-            ? EnabledSteps.Where(step =>
-                !string.Equals(step, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal))
-            : EnabledSteps;
-        return QueueStepRegistry.OrderEnabledSteps(enabled).ToList();
+        return QueueStepRegistry.OrderEnabledSteps(EnabledSteps).ToList();
     }
 
     public QueueRunOptions Clone() => new()
@@ -158,8 +148,6 @@ public sealed class QueueRunOptions
         }
         if (!hasEnabledSteps)
             enabled = QueueStepRegistry.DefaultEnabledSteps.ToList();
-
-        ApplyLegacyLiveActionDetectionMode(payload, enabled);
 
         return new QueueRunOptions
         {
@@ -222,25 +210,6 @@ public sealed class QueueRunOptions
         UploadEntryMode = executionMode == CopyrightProofExecutionMode.GenerateAndEdit
             ? CopyrightProofOnlyEntryMode
             : CopyrightProofMaterialOnlyEntryMode;
-    }
-
-    private static void ApplyLegacyLiveActionDetectionMode(
-        Dictionary<string, object?> payload,
-        List<string> enabledSteps)
-    {
-        var legacyMode = GetString(payload, "live_action_detection_mode").ToLowerInvariant();
-        if (legacyMode is "force_enable" or "enable" or "enabled")
-        {
-            if (!enabledSteps.Contains(QueueStepRegistry.DetectLiveAction, StringComparer.Ordinal))
-                enabledSteps.Add(QueueStepRegistry.DetectLiveAction);
-            return;
-        }
-
-        if (legacyMode is "force_skip" or "skip" or "disabled")
-        {
-            enabledSteps.RemoveAll(step =>
-                string.Equals(step, QueueStepRegistry.DetectLiveAction, StringComparison.Ordinal));
-        }
     }
 
     private static bool GetBool(Dictionary<string, object?> payload, string key) =>

@@ -85,15 +85,13 @@ public sealed class AccountStore
 
         var migratedProofConfig = MigrateLegacyProofMaterialConfig(_accounts);
         var migratedArchiveConfig = MigrateLegacyArchiveRootConfig(_accounts);
-        var migratedLiveActionConfig = MigrateLegacyLiveActionDetectionConfig(_accounts);
         foreach (var account in _accounts)
         {
             NormalizeProfileDefaults(account);
             EnsureProfileDirs(account);
         }
 
-        if ((!File.Exists(AppPaths.AccountsFile) || migratedProofConfig || migratedArchiveConfig ||
-             migratedLiveActionConfig) &&
+        if ((!File.Exists(AppPaths.AccountsFile) || migratedProofConfig || migratedArchiveConfig) &&
             _accounts.Count > 0)
             SaveAccounts();
     }
@@ -225,7 +223,6 @@ public sealed class AccountStore
             TiktokDeleteVideosOnArchiveConfigured = true,
             TiktokArchiveRootConfigMigrated = true,
             TiktokProofAccountConfigMigrated = true,
-            TiktokLiveActionDetectionStepMigrated = true,
             TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
         };
     }
@@ -281,31 +278,6 @@ public sealed class AccountStore
         }
 
         return ApplyLegacyProofMaterialConfig(pending, legacySettings);
-    }
-
-    internal static bool MigrateLegacyLiveActionDetectionConfig(
-        IEnumerable<TikTokAccountProfile> accounts)
-    {
-        var changed = false;
-        foreach (var account in accounts)
-        {
-            if (account.TiktokLiveActionDetectionStepMigrated)
-                continue;
-
-            var enabledSteps = account.TiktokQueueEnabledSteps;
-            if (account.TiktokLiveActionDetectionEnabled)
-            {
-                enabledSteps ??= [];
-                if (!enabledSteps.Contains(QueueStepRegistry.DetectLiveAction, StringComparer.Ordinal))
-                    enabledSteps.Add(QueueStepRegistry.DetectLiveAction);
-                account.TiktokQueueEnabledSteps = enabledSteps;
-            }
-
-            account.TiktokLiveActionDetectionStepMigrated = true;
-            changed = true;
-        }
-
-        return changed;
     }
 
     internal static bool ApplyLegacyProofMaterialConfig(

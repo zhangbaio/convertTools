@@ -18,7 +18,6 @@ public sealed class QueueWorkerSummary
     public int TotalCount { get; init; }
     public int SuccessCount { get; init; }
     public int FailedCount { get; init; }
-    public int ExcludedCount { get; init; }
     public int StoppedAccountCount { get; init; }
     public bool Stopped { get; init; }
 }
@@ -145,9 +144,6 @@ public sealed class QueueWorkerRunner
         var filter = filterOrder?.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var candidateQuery = items
             .Where(i => i.Enabled && !i.Archived)
-            .Where(i => !i.PipelineExcluded ||
-                        (options.ForceRerunCompletedSteps &&
-                         orderedSteps.Contains(QueueStepRegistry.DetectLiveAction)))
             .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)))
             .Where(i => orderedSteps.Any(stepKey => ShouldRunStep(
                 i,
@@ -236,7 +232,6 @@ public sealed class QueueWorkerRunner
 
         var success = 0;
         var failed = 0;
-        var excluded = 0;
         var stopped = false;
         var stateLock = new object();
 
@@ -536,10 +531,6 @@ public sealed class QueueWorkerRunner
                         {
                             MarkStopped(preItem, uploadEnabled ? QueueStepRegistry.UploadSeries : preItem.CurrentStep);
                         }
-                        else if (preItem.PipelineExcluded)
-                        {
-                            excluded++;
-                        }
                         else if (uploadEnabled && ShouldRunStep(preItem, QueueStepRegistry.UploadSeries, options))
                         {
                             MarkWaitingSlot(preItem);
@@ -711,7 +702,6 @@ public sealed class QueueWorkerRunner
             TotalCount = candidates.Count,
             SuccessCount = success,
             FailedCount = failed,
-            ExcludedCount = excluded,
             StoppedAccountCount = candidates
                 .Where(item => item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Stopped)
                 .Select(item => item.AccountProfileId)
@@ -722,8 +712,8 @@ public sealed class QueueWorkerRunner
         };
         Report(onProgress, workspace, null,
             summary.Stopped
-                ? $"队列已停止：成功 {summary.SuccessCount}，真人剧排除 {summary.ExcludedCount}，失败 {summary.FailedCount}"
-                : $"队列执行结束：成功 {summary.SuccessCount}，真人剧排除 {summary.ExcludedCount}，失败 {summary.FailedCount}");
+                ? $"队列已停止：成功 {summary.SuccessCount}，失败 {summary.FailedCount}"
+                : $"队列执行结束：成功 {summary.SuccessCount}，失败 {summary.FailedCount}");
         return summary;
     }
 
@@ -764,35 +754,13 @@ public sealed class QueueWorkerRunner
                 ? QueueStepLogFilters.SummaryOnly(msg => Report(onProgress, workspace, item, msg, stepKey))
                 : msg => Report(onProgress, workspace, item, msg, stepKey);
 
-            var liveActionResult = await RunPreUploadStepAsync(
+            await RunPreUploadStepAsync(
                 item,
                 stepKey,
                 options,
                 stepAccount,
                 stepLog,
                 ct).ConfigureAwait(false);
-
-            if (liveActionResult is not null)
-            {
-                mutate(() => ApplyLiveActionDetectionResult(item, liveActionResult));
-                if (liveActionResult.Classification == LiveActionClassification.LiveAction)
-                {
-                    mutate(() => MarkLiveActionExcluded(item, options.OrderedEnabledSteps()));
-                    Report(
-                        onProgress,
-                        workspace,
-                        item,
-                        $"检测为真人实拍剧（置信度 {liveActionResult.Confidence:P0}），已跳过当前项目全部后续流程：{liveActionResult.Reason}",
-                        stepKey);
-                    return;
-                }
-
-                if (liveActionResult.Classification == LiveActionClassification.Uncertain)
-                {
-                    throw new InvalidOperationException(
-                        $"真人检测无法可靠判断（置信度 {liveActionResult.Confidence:P0}），为避免误处理已停止当前项目：{liveActionResult.Reason}");
-                }
-            }
 
             mutate(() => MarkCompleted(item, stepKey));
             Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 完成", stepKey);
@@ -1072,7 +1040,7 @@ public sealed class QueueWorkerRunner
         return false;
     }
 
-    private static async Task<LiveActionDetectionResult?> RunPreUploadStepAsync(
+    private static async Task RunPreUploadStepAsync(
         QueueProjectItem item,
         string stepKey,
         QueueRunOptions options,
@@ -1087,14 +1055,6 @@ public sealed class QueueWorkerRunner
             case QueueStepRegistry.Download:
                 await QueueMaterialStepService.RunDownloadAsync(item, settings, log, ct).ConfigureAwait(false);
                 break;
-            case QueueStepRegistry.DetectLiveAction:
-                return await TikTokLiveActionDetectionService.DetectAsync(
-                        item,
-                        settings,
-                        options.ForceRerunCompletedSteps,
-                        log,
-                        ct)
-                    .ConfigureAwait(false);
             case QueueStepRegistry.RewriteInfo:
                 await QueueMaterialStepService.RunRewriteAsync(
                     item, settings, account, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
@@ -1141,7 +1101,6 @@ public sealed class QueueWorkerRunner
                 throw new InvalidOperationException($"未知预处理步骤：{stepKey}");
         }
 
-        return null;
     }
 
     private static async Task SyncManagementAfterUploadIfEnabledAsync(
@@ -1218,7 +1177,7 @@ public sealed class QueueWorkerRunner
             return true;
         }
         return item.StepStates.GetValueOrDefault(stepKey) is not
-            (QueueStepStatus.Completed or QueueStepStatus.Excluded or QueueStepStatus.Skipped);
+            (QueueStepStatus.Completed or QueueStepStatus.Skipped);
     }
 
     private static string BuildNonQueueCancellationMessage(string stepLabel, OperationCanceledException ex)
@@ -1309,10 +1268,6 @@ public sealed class QueueWorkerRunner
         item.CurrentStep = "";
         item.StatusText = QueueStepStatus.Pending;
         item.LastError = "";
-        if (options.ForceRerunCompletedSteps &&
-            orderedSteps.Contains(QueueStepRegistry.DetectLiveAction))
-            item.PipelineExcluded = false;
-
         foreach (var key in item.StepStates.Keys.ToList())
         {
             if (item.StepStates[key] is QueueStepStatus.Failed or QueueStepStatus.Stopped or QueueStepStatus.ManualIntervention)
@@ -1378,45 +1333,6 @@ public sealed class QueueWorkerRunner
         item.StatusText = QueueStepStatus.Completed;
         item.StepStates[stepKey] = QueueStepStatus.Completed;
         item.LastError = "";
-        item.NormalizeStepStates();
-    }
-
-    private static void ApplyLiveActionDetectionResult(
-        QueueProjectItem item,
-        LiveActionDetectionResult result)
-    {
-        item.LiveActionClassification = result.Classification.ToString();
-        item.LiveActionConfidence = result.Confidence;
-        item.LiveActionDetectionReason = result.Reason;
-        item.LiveActionDetectedAt = DateTimeOffset.Now.ToString("o");
-        item.LiveActionVideoFingerprint = result.VideoFingerprint;
-        if (result.Classification == LiveActionClassification.NonLiveAction)
-            item.PipelineExcluded = false;
-    }
-
-    private static void MarkLiveActionExcluded(
-        QueueProjectItem item,
-        IReadOnlyList<string> orderedSteps)
-    {
-        item.PipelineExcluded = true;
-        item.CurrentStep = "";
-        item.StatusText = QueueStepStatus.Excluded;
-        item.LastError = "";
-        item.StepStates[QueueStepRegistry.DetectLiveAction] = QueueStepStatus.Excluded;
-        var detectionIndex = -1;
-        for (var index = 0; index < orderedSteps.Count; index++)
-        {
-            if (string.Equals(
-                    orderedSteps[index],
-                    QueueStepRegistry.DetectLiveAction,
-                    StringComparison.Ordinal))
-            {
-                detectionIndex = index;
-                break;
-            }
-        }
-        for (var index = detectionIndex + 1; index < orderedSteps.Count; index++)
-            item.StepStates[orderedSteps[index]] = QueueStepStatus.Skipped;
         item.NormalizeStepStates();
     }
 
@@ -1596,12 +1512,6 @@ public sealed class QueueWorkerRunner
         target.LastError = source.LastError;
         target.Remark = source.Remark;
         target.ManualUploadStatus = source.ManualUploadStatus;
-        target.LiveActionClassification = source.LiveActionClassification;
-        target.LiveActionConfidence = source.LiveActionConfidence;
-        target.LiveActionDetectionReason = source.LiveActionDetectionReason;
-        target.LiveActionDetectedAt = source.LiveActionDetectedAt;
-        target.LiveActionVideoFingerprint = source.LiveActionVideoFingerprint;
-        target.PipelineExcluded = source.PipelineExcluded;
         target.StepStates = new Dictionary<string, string>(source.StepStates);
         target.Archived = source.Archived;
         target.PrimaryVideoPath = source.PrimaryVideoPath;
