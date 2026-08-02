@@ -150,6 +150,7 @@ public sealed class AccountStore
         account.Name = name;
         account.UpdatedAt = DateTimeOffset.Now.ToString("o");
         SaveAccounts();
+        NotifyAccountsChanged();
         return true;
     }
 

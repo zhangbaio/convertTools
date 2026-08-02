@@ -21,6 +21,7 @@ public sealed class TikTokManagementAccountSnapshotSyncServiceTests
                 TiktokAccountNickname = "昵称不能上传",
                 TiktokLoginEmail = " 2720937754@qq.com ",
                 TiktokLoginPassword = "secret-a",
+                TiktokProofCopyrightCompanyName = "武汉速视科技有限公司",
             },
             new TikTokAccountProfile
             {
@@ -39,7 +40,7 @@ public sealed class TikTokManagementAccountSnapshotSyncServiceTests
         var snapshot = TikTokManagementAccountSnapshotSyncService.BuildSnapshot(profiles);
 
         snapshot.Should().Equal(
-            new TikTokClientAccountSnapshotItem("acct-a", "2720937754@qq.com"),
+            new TikTokClientAccountSnapshotItem("acct-a", "2720937754@qq.com", "武汉速视科技有限公司"),
             new TikTokClientAccountSnapshotItem("acct-b", "15327086817@163.com"));
     }
 
@@ -65,7 +66,7 @@ public sealed class TikTokManagementAccountSnapshotSyncServiceTests
 
         var result = await service.SyncAsync(
         [
-            new TikTokClientAccountSnapshotItem("acct-a", "2720937754@qq.com"),
+            new TikTokClientAccountSnapshotItem("acct-a", "2720937754@qq.com", "武汉速视科技有限公司"),
         ]);
 
         result.Ok.Should().BeTrue();
@@ -78,9 +79,11 @@ public sealed class TikTokManagementAccountSnapshotSyncServiceTests
         var account = body.GetProperty("accounts")[0];
         account.EnumerateObject().Select(item => item.Name).Should().BeEquivalentTo(
             "client_account_id",
-            "tiktok_username");
+            "tiktok_username",
+            "subject_company");
         account.GetProperty("client_account_id").GetString().Should().Be("acct-a");
         account.GetProperty("tiktok_username").GetString().Should().Be("2720937754@qq.com");
+        account.GetProperty("subject_company").GetString().Should().Be("武汉速视科技有限公司");
         body.GetRawText().Should().NotContain("password").And.NotContain("nickname");
     }
 

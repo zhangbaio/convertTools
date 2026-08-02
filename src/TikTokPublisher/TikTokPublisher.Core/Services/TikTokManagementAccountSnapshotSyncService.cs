@@ -12,7 +12,8 @@ namespace TikTokPublisher.Core.Services;
 
 public sealed record TikTokClientAccountSnapshotItem(
     [property: JsonPropertyName("client_account_id")] string ClientAccountId,
-    [property: JsonPropertyName("tiktok_username")] string TikTokUsername);
+    [property: JsonPropertyName("tiktok_username")] string TikTokUsername,
+    [property: JsonPropertyName("subject_company")] string SubjectCompany = "");
 
 public sealed record TikTokAccountSnapshotSyncResult(
     bool Ok,
@@ -134,7 +135,10 @@ public sealed class TikTokManagementAccountSnapshotSyncService
             var username = profile.ResolveTikTokAccountName().Trim();
             if (string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(username))
                 continue;
-            byId[accountId] = new TikTokClientAccountSnapshotItem(accountId, username);
+            byId[accountId] = new TikTokClientAccountSnapshotItem(
+                accountId,
+                username,
+                (profile.TiktokProofCopyrightCompanyName ?? "").Trim());
         }
 
         return byId.Values
@@ -153,7 +157,9 @@ public sealed class TikTokManagementAccountSnapshotSyncService
             builder.Append('\u001d')
                 .Append(account.ClientAccountId)
                 .Append('\u001f')
-                .Append(account.TikTokUsername);
+                .Append(account.TikTokUsername)
+                .Append('\u001f')
+                .Append(account.SubjectCompany);
         }
         return builder.ToString();
     }
