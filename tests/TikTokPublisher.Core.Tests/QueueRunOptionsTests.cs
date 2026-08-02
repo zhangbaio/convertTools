@@ -8,6 +8,51 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class QueueRunOptionsTests
 {
     [Fact]
+    public void NormalizeStepStates_RecoversStepsSkippedByRemovedLiveActionDetection()
+    {
+        var item = new QueueProjectItem
+        {
+            StatusText = "真人剧已拦截",
+            CurrentStep = "detect_live_action",
+            LastError = "检测为真人剧",
+            StepStates = new Dictionary<string, string>
+            {
+                ["detect_live_action"] = "真人剧已拦截",
+                [QueueStepKeys.Download] = QueueStepStatus.Completed,
+                [QueueStepKeys.RewriteInfo] = QueueStepStatus.Skipped,
+                [QueueStepKeys.UploadSeries] = QueueStepStatus.Skipped,
+            },
+        };
+
+        item.NormalizeStepStates();
+
+        item.StepStates.Should().NotContainKey("detect_live_action");
+        item.StepStates[QueueStepKeys.Download].Should().Be(QueueStepStatus.Completed);
+        item.StepStates[QueueStepKeys.RewriteInfo].Should().Be(QueueStepStatus.Pending);
+        item.StepStates[QueueStepKeys.UploadSeries].Should().Be(QueueStepStatus.Pending);
+        item.StatusText.Should().Be(QueueStepStatus.Pending);
+        item.CurrentStep.Should().BeEmpty();
+        item.LastError.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void NormalizeStepStates_DoesNotResetUnrelatedSkippedSteps()
+    {
+        var item = new QueueProjectItem
+        {
+            StatusText = QueueStepStatus.Pending,
+            StepStates = new Dictionary<string, string>
+            {
+                [QueueStepKeys.RewriteInfo] = QueueStepStatus.Skipped,
+            },
+        };
+
+        item.NormalizeStepStates();
+
+        item.StepStates[QueueStepKeys.RewriteInfo].Should().Be(QueueStepStatus.Skipped);
+    }
+
+    [Fact]
     public void CopyrightProofOnlyEntryMode_RoundTripsButIsNotPersisted()
     {
         var options = new QueueRunOptions
