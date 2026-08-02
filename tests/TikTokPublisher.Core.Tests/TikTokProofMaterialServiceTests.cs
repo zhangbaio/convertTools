@@ -499,23 +499,48 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
-    public void Wps_script_uses_expected_com_ids_and_closes_without_saving()
+    public async Task Wps_renderer_uses_direct_sta_com_automation_without_powershell()
     {
-        var script = WpsProofMaterialPdfRenderer.BuildPowerShellScript(
-            @"C:\work\proof.docx",
-            @"C:\work\proof.pdf",
-            @"C:\WPS\wps.exe");
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
 
-        script.Should().Contain("'KWPS.Application', 'wps.Application'");
-        script.Should().Contain("$documents.Open($docPath, $false, $true)");
-        script.Should().Contain("$doc.Close(0)");
-        script.Should().Contain("$app.Quit()");
-        script.Should().Contain("ExportAsFixedFormat");
-        script.Should().Contain("$i -lt 120");
-        script.Should().Contain("等待 WPS 自动化组件就绪超时（60 秒）");
-        script.Should().Contain("ExportAsFixedFormat: $($_.Exception.Message)");
-        script.Should().Contain("SaveAs2: $($_.Exception.Message)");
-        script.Should().Contain("SaveAs: $($_.Exception.Message)");
+        using var fixture = new ProofTemplateFixture();
+        var docxPath = fixture.CreateTemplate();
+        var outputPath = Path.Combine(fixture.DirectoryPath, "direct-com.pdf");
+        var wpsPath = Path.Combine(fixture.DirectoryPath, "wps.exe");
+        await File.WriteAllBytesAsync(wpsPath, []);
+        ApartmentState? apartmentState = null;
+        string? capturedDocxPath = null;
+        string? capturedOutputPath = null;
+        string? capturedWpsPath = null;
+        var automation = new StubWpsProofMaterialAutomation((docx, output, wps, _) =>
+        {
+            apartmentState = Thread.CurrentThread.GetApartmentState();
+            capturedDocxPath = docx;
+            capturedOutputPath = output;
+            capturedWpsPath = wps;
+            File.WriteAllBytes(output, "%PDF-1.4\n"u8.ToArray());
+        });
+        var renderer = new WpsProofMaterialPdfRenderer(automation);
+
+        await renderer.RenderAsync(
+            docxPath,
+            outputPath,
+            new TikTokProofMaterialPdfRenderOptions
+            {
+                WpsExecutablePath = wpsPath,
+                Timeout = TimeSpan.FromSeconds(5),
+            },
+            CancellationToken.None);
+
+        apartmentState.Should().Be(ApartmentState.STA);
+        capturedDocxPath.Should().Be(Path.GetFullPath(docxPath));
+        capturedOutputPath.Should().Be(Path.GetFullPath(outputPath));
+        capturedWpsPath.Should().Be(Path.GetFullPath(wpsPath));
+        File.Exists(outputPath).Should().BeTrue();
+        WpsProofMaterialComAutomation.ProgIds.Should().Equal("KWPS.Application", "wps.Application");
     }
 
     [Fact]
@@ -1101,6 +1126,17 @@ public sealed class TikTokProofMaterialServiceTests
             TikTokProofMaterialPdfRenderOptions options,
             CancellationToken cancellationToken) =>
             render(docxPath, outputPdfPath, cancellationToken);
+    }
+
+    private sealed class StubWpsProofMaterialAutomation(
+        Action<string, string, string?, CancellationToken> export) : IWpsProofMaterialAutomation
+    {
+        public void ExportToPdf(
+            string docxPath,
+            string outputPdfPath,
+            string? wpsExecutablePath,
+            CancellationToken cancellationToken) =>
+            export(docxPath, outputPdfPath, wpsExecutablePath, cancellationToken);
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

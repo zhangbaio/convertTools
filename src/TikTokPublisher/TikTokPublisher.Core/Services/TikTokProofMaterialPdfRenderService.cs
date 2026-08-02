@@ -1,6 +1,6 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using System.Text;
 using Microsoft.Win32;
 
 namespace TikTokPublisher.Core.Services;
@@ -166,6 +166,17 @@ public sealed class TikTokProofMaterialPdfRenderService
 public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRenderer
 {
     private static readonly SemaphoreSlim RenderLock = new(1, 1);
+    private readonly IWpsProofMaterialAutomation _automation;
+
+    public WpsProofMaterialPdfRenderer()
+        : this(new WpsProofMaterialComAutomation())
+    {
+    }
+
+    internal WpsProofMaterialPdfRenderer(IWpsProofMaterialAutomation automation)
+    {
+        _automation = automation ?? throw new ArgumentNullException(nameof(automation));
+    }
 
     public string Name => "WPS";
 
@@ -185,40 +196,27 @@ public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRendere
         {
             TikTokProofMaterialPdfRenderService.TryDelete(outputPdfPath);
             var wpsPath = WpsExecutableResolver.Resolve(options.WpsExecutablePath) ?? string.Empty;
-            var script = BuildPowerShellScript(docxPath, outputPdfPath, wpsPath);
-            var encodedScript = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-            var startInfo = new ProcessStartInfo
+            var timeout = options.Timeout <= TimeSpan.Zero
+                ? TimeSpan.FromSeconds(180)
+                : options.Timeout;
+            using var timeoutCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCancellation.CancelAfter(timeout);
+            var automationTask = RunOnStaThreadAsync(
+                () => _automation.ExportToPdf(
+                    Path.GetFullPath(docxPath),
+                    Path.GetFullPath(outputPdfPath),
+                    wpsPath,
+                    timeoutCancellation.Token));
+            try
             {
-                FileName = ResolvePowerShellExecutable(),
-                WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(docxPath)) ?? Environment.CurrentDirectory,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-            };
-            foreach (var argument in new[]
-                     {
-                         "-NoLogo",
-                         "-NoProfile",
-                         "-NonInteractive",
-                         "-ExecutionPolicy",
-                         "Bypass",
-                         "-EncodedCommand",
-                         encodedScript,
-                     })
-            {
-                startInfo.ArgumentList.Add(argument);
+                await automationTask.WaitAsync(timeoutCancellation.Token).ConfigureAwait(false);
             }
-
-            var result = await ProofMaterialProcessRunner.RunAsync(
-                startInfo,
-                options.Timeout,
-                cancellationToken).ConfigureAwait(false);
-            if (result.ExitCode != 0)
+            catch (OperationCanceledException exception)
+                when (!cancellationToken.IsCancellationRequested && timeoutCancellation.IsCancellationRequested)
             {
-                throw new InvalidOperationException(
-                    $"WPS 转 PDF 失败（退出码 {result.ExitCode}）：{CleanPowerShellOutput(result.StandardError, result.StandardOutput)}");
+                throw new TimeoutException(
+                    $"WPS 程序内直接导出 PDF 超时（{timeout.TotalSeconds:F0} 秒）。请关闭 WPS 弹窗或完成首次启动后重试。",
+                    exception);
             }
 
             if (!File.Exists(outputPdfPath))
@@ -237,132 +235,272 @@ public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRendere
         }
     }
 
-    internal static string BuildPowerShellScript(string docxPath, string outputPdfPath, string? wpsPath)
+    [SupportedOSPlatform("windows")]
+    private static Task RunOnStaThreadAsync(Action action)
     {
-        var docx = EscapePowerShellSingleQuoted(Path.GetFullPath(docxPath));
-        var pdf = EscapePowerShellSingleQuoted(Path.GetFullPath(outputPdfPath));
-        var executable = EscapePowerShellSingleQuoted(wpsPath?.Trim() ?? string.Empty);
-        return $$"""
-            $ErrorActionPreference = 'Stop'
-            $OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-            $docPath = '{{docx}}'
-            $pdfPath = '{{pdf}}'
-            $wpsPath = '{{executable}}'
-            $app = $null
-            $doc = $null
-            $progIds = @('KWPS.Application', 'wps.Application')
-            $comErrors = [System.Collections.Generic.List[string]]::new()
-
-            function New-WpsApplication {
-                foreach ($progId in $progIds) {
-                    try {
-                        $candidate = New-Object -ComObject $progId
-                        if ($candidate) { return $candidate }
-                    } catch {
-                        $message = $_.Exception.Message
-                        $entry = "${progId}: $message"
-                        if ($message -and -not $comErrors.Contains($entry)) { $comErrors.Add($entry) }
-                    }
-                }
-                return $null
-            }
-
-            try {
-                $app = New-WpsApplication
-                if (-not $app -and $wpsPath -and (Test-Path -LiteralPath $wpsPath)) {
-                    Start-Process -FilePath $wpsPath -WindowStyle Hidden | Out-Null
-                    # Cold start, first-run initialization and post-update startup can exceed 10 seconds.
-                    for ($i = 0; $i -lt 120; $i++) {
-                        Start-Sleep -Milliseconds 500
-                        $app = New-WpsApplication
-                        if ($app) { break }
-                    }
-                }
-
-                if (-not $app) {
-                    $detail = if ($comErrors.Count -gt 0) { $comErrors -join '; ' } else { '未返回 COM 对象' }
-                    throw "等待 WPS 自动化组件就绪超时（60 秒）：$detail。请先手动打开 WPS 文字并完成首次启动、用户协议或升级提示后重试。"
-                }
-
-                try { $app.Visible = $false } catch {}
-                try { $app.DisplayAlerts = 0 } catch {}
-                try { $app.AutomationSecurity = 3 } catch {}
-                $documents = $app.Documents
-                if (-not $documents) { throw 'WPS Documents 集合不可用。' }
-                $doc = $documents.Open($docPath, $false, $true)
-                if (-not $doc) { throw 'WPS 未能以只读方式打开证明材料 DOCX。' }
-
-                $wdExportFormatPDF = 17
-                $exported = $false
-                $exportErrors = [System.Collections.Generic.List[string]]::new()
-                try {
-                    $doc.ExportAsFixedFormat($pdfPath, $wdExportFormatPDF)
-                    $exported = $true
-                } catch {
-                    $exportErrors.Add("ExportAsFixedFormat: $($_.Exception.Message)")
-                }
-                if (-not $exported) {
-                    try {
-                        $doc.SaveAs2($pdfPath, $wdExportFormatPDF)
-                        $exported = $true
-                    } catch {
-                        $exportErrors.Add("SaveAs2: $($_.Exception.Message)")
-                    }
-                }
-                if (-not $exported) {
-                    try {
-                        $doc.SaveAs($pdfPath, $wdExportFormatPDF)
-                        $exported = $true
-                    } catch {
-                        $exportErrors.Add("SaveAs: $($_.Exception.Message)")
-                    }
-                }
-                if (-not $exported) {
-                    throw "WPS PDF 导出接口全部失败：$($exportErrors -join '; ')"
-                }
-            } finally {
-                if ($doc) {
-                    try { $doc.Close(0) } catch {}
-                    try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($doc) } catch {}
-                }
-                if ($app) {
-                    try { $app.Quit() } catch {}
-                    try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($app) } catch {}
-                }
-                [GC]::Collect()
-                [GC]::WaitForPendingFinalizers()
-            }
-            """;
-    }
-
-    private static string EscapePowerShellSingleQuoted(string value) => value.Replace("'", "''", StringComparison.Ordinal);
-
-    private static string ResolvePowerShellExecutable()
-    {
-        var systemDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
-        var systemPowerShell = string.IsNullOrWhiteSpace(systemDirectory)
-            ? string.Empty
-            : Path.Combine(systemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
-        return File.Exists(systemPowerShell)
-            ? systemPowerShell
-            : ProofMaterialExecutableResolver.FindOnPath("powershell.exe") ?? "powershell.exe";
-    }
-
-    private static string CleanPowerShellOutput(params string[] values)
-    {
-        foreach (var value in values)
+        var completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
         {
-            if (string.IsNullOrWhiteSpace(value))
+            try
             {
-                continue;
+                action();
+                completion.TrySetResult(null);
             }
+            catch (OperationCanceledException exception)
+            {
+                completion.TrySetCanceled(exception.CancellationToken);
+            }
+            catch (Exception exception)
+            {
+                completion.TrySetException(exception);
+            }
+        })
+        {
+            IsBackground = true,
+            Name = "TikTokPublisher-WPS-PDF",
+        };
 
-            var cleaned = value.Replace("#< CLIXML", string.Empty, StringComparison.OrdinalIgnoreCase);
-            cleaned = string.Join(' ', cleaned.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-            return cleaned.Length <= 1000 ? cleaned : cleaned[..1000];
+        try
+        {
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
         }
 
-        return "无错误输出";
+        return completion.Task;
+    }
+}
+
+internal interface IWpsProofMaterialAutomation
+{
+    void ExportToPdf(
+        string docxPath,
+        string outputPdfPath,
+        string? wpsExecutablePath,
+        CancellationToken cancellationToken);
+}
+
+internal sealed class WpsProofMaterialComAutomation : IWpsProofMaterialAutomation
+{
+    internal static IReadOnlyList<string> ProgIds { get; } = ["KWPS.Application", "wps.Application"];
+
+    [SupportedOSPlatform("windows")]
+    public void ExportToPdf(
+        string docxPath,
+        string outputPdfPath,
+        string? wpsExecutablePath,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        object? app = null;
+        object? documents = null;
+        object? document = null;
+        var comErrors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            app = TryCreateApplication(comErrors);
+            var executablePath = wpsExecutablePath?.Trim() ?? string.Empty;
+            if (app is null && executablePath.Length > 0 && File.Exists(executablePath))
+            {
+                StartWpsDirectly(executablePath);
+                for (var attempt = 0; attempt < 120 && app is null; attempt++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Thread.Sleep(500);
+                    app = TryCreateApplication(comErrors);
+                }
+            }
+
+            if (app is null)
+            {
+                var detail = comErrors.Count > 0
+                    ? string.Join("; ", comErrors.Take(8))
+                    : "未返回 COM 对象";
+                throw new InvalidOperationException(
+                    $"等待 WPS 自动化组件就绪超时（60 秒）：{detail}。请先手动打开 WPS 文字并完成首次启动、用户协议或升级提示后重试。");
+            }
+
+            ConfigureApplication(app);
+            dynamic dynamicApp = app;
+            documents = dynamicApp.Documents;
+            if (documents is null)
+            {
+                throw new InvalidOperationException("WPS Documents 集合不可用。");
+            }
+
+            dynamic dynamicDocuments = documents;
+            document = dynamicDocuments.Open(docxPath, false, true);
+            if (document is null)
+            {
+                throw new InvalidOperationException("WPS 未能以只读方式打开证明材料 DOCX。");
+            }
+
+            ExportDocument(document, outputPdfPath);
+        }
+        finally
+        {
+            CloseDocument(document);
+            QuitApplication(app);
+            ReleaseComObject(document);
+            ReleaseComObject(documents);
+            ReleaseComObject(app);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static object? TryCreateApplication(ISet<string> errors)
+    {
+        foreach (var progId in ProgIds)
+        {
+            try
+            {
+                var type = Type.GetTypeFromProgID(progId, throwOnError: false);
+                if (type is null)
+                {
+                    errors.Add($"{progId}: COM 未注册");
+                    continue;
+                }
+
+                var candidate = Activator.CreateInstance(type);
+                if (candidate is not null)
+                {
+                    return candidate;
+                }
+
+                errors.Add($"{progId}: 未返回 COM 对象");
+            }
+            catch (Exception exception)
+            {
+                errors.Add($"{progId}: {ShortExceptionMessage(exception)}");
+            }
+        }
+
+        return null;
+    }
+
+    private static void StartWpsDirectly(string executablePath)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executablePath,
+            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? Environment.CurrentDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+        };
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException($"无法直接启动 WPS：{executablePath}");
+    }
+
+    private static void ConfigureApplication(object app)
+    {
+        dynamic dynamicApp = app;
+        try { dynamicApp.Visible = false; } catch { }
+        try { dynamicApp.DisplayAlerts = 0; } catch { }
+        try { dynamicApp.AutomationSecurity = 3; } catch { }
+    }
+
+    private static void ExportDocument(object document, string outputPdfPath)
+    {
+        const int wdExportFormatPdf = 17;
+        var errors = new List<string>();
+        dynamic dynamicDocument = document;
+
+        try
+        {
+            dynamicDocument.ExportAsFixedFormat(outputPdfPath, wdExportFormatPdf);
+            return;
+        }
+        catch (Exception exception)
+        {
+            errors.Add($"ExportAsFixedFormat: {ShortExceptionMessage(exception)}");
+        }
+
+        try
+        {
+            dynamicDocument.SaveAs2(outputPdfPath, wdExportFormatPdf);
+            return;
+        }
+        catch (Exception exception)
+        {
+            errors.Add($"SaveAs2: {ShortExceptionMessage(exception)}");
+        }
+
+        try
+        {
+            dynamicDocument.SaveAs(outputPdfPath, wdExportFormatPdf);
+            return;
+        }
+        catch (Exception exception)
+        {
+            errors.Add($"SaveAs: {ShortExceptionMessage(exception)}");
+        }
+
+        throw new InvalidOperationException($"WPS PDF 导出接口全部失败：{string.Join("; ", errors)}");
+    }
+
+    private static void CloseDocument(object? document)
+    {
+        if (document is null)
+        {
+            return;
+        }
+
+        try
+        {
+            ((dynamic)document).Close(0);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void QuitApplication(object? app)
+    {
+        if (app is null)
+        {
+            return;
+        }
+
+        try
+        {
+            ((dynamic)app).Quit();
+        }
+        catch
+        {
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void ReleaseComObject(object? value)
+    {
+        if (value is null || !Marshal.IsComObject(value))
+        {
+            return;
+        }
+
+        try
+        {
+            Marshal.FinalReleaseComObject(value);
+        }
+        catch
+        {
+        }
+    }
+
+    private static string ShortExceptionMessage(Exception exception)
+    {
+        var actual = exception.GetBaseException();
+        var message = string.IsNullOrWhiteSpace(actual.Message)
+            ? actual.GetType().Name
+            : string.Join(' ', actual.Message.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return message.Length <= 500 ? message : message[..500];
     }
 }
 
