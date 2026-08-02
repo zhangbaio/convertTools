@@ -11,8 +11,7 @@ namespace ShortDrama.Infrastructure.Automation;
 public static class HongguoNewLoginClient
 {
     private const string BaseUrlTemplate = "https://au.s1o.cc/api/user/1000/win/{0}";
-    private const string RestApiBase = "http://101.35.49.94/api";
-    // AES（default 1.4.x）；>=1.5.0 走 REST JWT（与 weixin-channel-tool hongguo_auth_service 对齐）
+    // 仅支持 1.4.x AES。
     private const string AppKey = "de0852fd2493377d766f27d8a9f686af";
     private static readonly byte[] AesKey = Encoding.UTF8.GetBytes("UMgfJjHhMizNdJGl");
     private const string DefaultVersion = HongguoClientVersion.Default;
@@ -40,40 +39,10 @@ public static class HongguoNewLoginClient
         var normalizedPassword = password ?? string.Empty;
         var version = NormalizeVersion(clientVersion);
         var normalizedUdid = HongguoDeviceId.Normalize(udid);
-        if (IsRestV15(version))
+        if (string.IsNullOrWhiteSpace(normalizedUdid) || !HongguoDeviceId.LooksLikeGuid(normalizedUdid))
         {
-            // GUID 仅支持 1.4.x；1.5.0 REST 不再把 GUID 自动换成 32hex
-            // if (HongguoDeviceId.LooksLikeGuid(normalizedUdid) || string.IsNullOrWhiteSpace(normalizedUdid))
-            // {
-            //     var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: false);
-            //     if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeHex32(registryId))
-            //     {
-            //         normalizedUdid = registryId;
-            //     }
-            // }
-            if (HongguoDeviceId.LooksLikeGuid(normalizedUdid))
-            {
-                throw new HongguoLoginException(
-                    "客户端版本 >=1.5.0 仅支持 HongGuopy 的 32 位设备号，GUID 仅用于 1.4.x；请改版本为 1.4.1 或填写 32hex DeviceId");
-            }
-
-            if (string.IsNullOrWhiteSpace(normalizedUdid))
-            {
-                normalizedUdid = HongguoDeviceId.TryReadFromRegistry(preferAes: false) ?? "";
-            }
+            normalizedUdid = HongguoDeviceId.TryReadFromRegistry() ?? normalizedUdid;
         }
-        else if (string.IsNullOrWhiteSpace(normalizedUdid))
-        {
-            normalizedUdid = HongguoDeviceId.TryReadFromRegistry(preferAes: true) ?? "";
-        }
-        // else if (HongguoDeviceId.LooksLikeHex32(normalizedUdid))
-        // {
-        //     var registryId = HongguoDeviceId.TryReadFromRegistry(preferAes: true);
-        //     if (!string.IsNullOrWhiteSpace(registryId) && HongguoDeviceId.LooksLikeGuid(registryId))
-        //     {
-        //         normalizedUdid = registryId;
-        //     }
-        // }
 
         var missing = new List<string>();
         if (normalizedAccount.Length == 0) missing.Add("账号");
@@ -82,6 +51,10 @@ public static class HongguoNewLoginClient
         if (missing.Count > 0)
         {
             throw new HongguoLoginException($"红果新接口未配置：{string.Join("、", missing)}");
+        }
+        if (!HongguoDeviceId.LooksLikeGuid(normalizedUdid))
+        {
+            throw new HongguoLoginException("设备唯一标识必须是 1.4.x 使用的大写 GUID。");
         }
 
         return new HongguoCredentials(normalizedAccount, normalizedPassword, normalizedUdid, version);
@@ -93,11 +66,6 @@ public static class HongguoNewLoginClient
         int timeoutSeconds,
         CancellationToken cancellationToken)
     {
-        if (IsRestV15(credentials.ClientVersion))
-        {
-            return await RestLoginAsync(httpClient, credentials, timeoutSeconds, cancellationToken);
-        }
-
         var url = BuildBaseUrl(credentials.ClientVersion) + "/m4";  // 1.3.9: /logon -> /m4
         var response = await PostEncryptedFormAsync(
             httpClient,
@@ -218,66 +186,6 @@ public static class HongguoNewLoginClient
 
     private static string NormalizeVersion(string? clientVersion) =>
         HongguoClientVersion.Normalize(clientVersion);
-
-    private static bool IsRestV15(string clientVersion) =>
-        HongguoClientVersion.IsRest(clientVersion);
-
-    private static async Task<HongguoLoginProbeResult> RestLoginAsync(
-        HttpClient httpClient,
-        HongguoCredentials credentials,
-        int timeoutSeconds,
-        CancellationToken cancellationToken)
-    {
-        var url = RestApiBase.TrimEnd('/') + "/User/login";
-        var payload = new Dictionary<string, object?>
-        {
-            ["email"] = credentials.Account,
-            ["password"] = credentials.Password,
-            ["deviceId"] = credentials.Udid,
-            ["deviceInfo"] = $"Windows {Environment.OSVersion.VersionString} | {Environment.MachineName}"
-        };
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, url);
-        var version = credentials.ClientVersion;
-        request.Headers.TryAddWithoutValidation("User-Agent", $"HGXZQ-Client/{version} (Windows)");
-        request.Headers.TryAddWithoutValidation("X-Client-Name", "HGXZQ");
-        request.Headers.TryAddWithoutValidation("X-Client-Version", version);
-        request.Headers.TryAddWithoutValidation("X-Device-Id", credentials.Udid);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-        request.Version = HttpVersion.Version11;
-        request.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        cts.CancelAfter(TimeSpan.FromSeconds(Math.Max(10, timeoutSeconds)));
-        using var response = await httpClient.SendAsync(request, cts.Token);
-        var body = await response.Content.ReadAsStringAsync(cts.Token);
-        var outer = ParseJsonObject(body, "REST login");
-        if (outer.TryGetValue("success", out var success) && success is false)
-        {
-            var message = FirstNonEmpty(GetStringValue(outer, "message"), "登录失败");
-            if (message.Contains("当前设备未绑定", StringComparison.Ordinal))
-            {
-                message = "账号未绑定当前设备唯一标识，请在红果客户端或服务端重新绑定后再试";
-            }
-
-            throw new HongguoLoginException(message, (int)response.StatusCode);
-        }
-
-        if (outer.TryGetValue("data", out var dataValue) && dataValue is Dictionary<string, object?> data)
-        {
-            var token = FirstNonEmpty(GetStringValue(data, "accessToken"), GetStringValue(data, "token"));
-            if (!string.IsNullOrWhiteSpace(token))
-            {
-                return new HongguoLoginProbeResult(
-                    token.Trim(),
-                    FirstNonEmpty(GetStringValue(data, "email"), credentials.Account),
-                    NormalizeDisplayDate(GetStringValue(data, "memberEndDate")));
-            }
-        }
-
-        throw new HongguoLoginException("Login response does not contain accessToken.");
-    }
 
     private static string BuildSignBaseString(IReadOnlyDictionary<string, string> fields) =>
         string.Join(

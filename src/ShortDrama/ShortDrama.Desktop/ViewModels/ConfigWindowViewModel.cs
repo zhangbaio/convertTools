@@ -413,10 +413,9 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
         try
         {
-            var preferAes = !HongguoClientVersion.IsRest(HgnewClientVersion);
-            var value = HongguoDeviceId.TryReadFromRegistry(preferAes);
+            var value = HongguoDeviceId.TryReadFromRegistry();
             HgnewProbeStatus = string.IsNullOrWhiteSpace(value)
-                ? "未在注册表中找到 HongGuopy/HongGuoClient\\DeviceUDID。"
+                ? "未在注册表中找到 HongGuoClient\\DeviceUDID。"
                 : "已从注册表读取 DeviceUDID。";
             if (!string.IsNullOrWhiteSpace(value))
             {
@@ -648,7 +647,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HgnewAccount = HgnewAccount.Trim(),
             HgnewPassword = HgnewPassword,
             HgnewUdid = HongguoDeviceId.Normalize(HgnewUdid),
-            HgnewClientVersion = HgnewClientVersion.Trim(),
+            HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion),
             HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds.Trim(),
             HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts.Trim(),
             HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
@@ -758,7 +757,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HgnewAccount = HgnewAccount.Trim(),
             HgnewPassword = HgnewPassword,
             HgnewUdid = HongguoDeviceId.Normalize(HgnewUdid),
-            HgnewClientVersion = HgnewClientVersion.Trim(),
+            HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion),
             HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds.Trim(),
             HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts.Trim(),
             HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),

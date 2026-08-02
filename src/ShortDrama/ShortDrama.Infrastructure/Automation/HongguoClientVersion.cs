@@ -4,28 +4,17 @@ namespace ShortDrama.Infrastructure.Automation;
 
 /// <summary>
 /// 红果新接口客户端版本分流（与 weixin-channel-tool hongguo_auth_service 对齐）。
-/// AES：version &lt; 1.5.0（版本号原样进 URL，1.4.1/1.4.2 均可）；
-/// REST：version &gt;= 1.5.0。
+/// 仅支持 1.4.x AES（版本号原样进入 URL）。
 /// </summary>
 public static class HongguoClientVersion
 {
-    public const string Default = "1.4.1";
-    private static readonly Version RestMinVersion = new(1, 5, 0);
+    public const string Default = "1.4.2";
     private static readonly Version AesLineMinVersion = new(1, 4, 0);
-
-    public static bool IsRest(string? clientVersion)
-    {
-        if (!TryParse(clientVersion, out var parsed))
-        {
-            return false;
-        }
-
-        return parsed >= RestMinVersion;
-    }
+    private static readonly Version AesLineMaxVersion = new(1, 5, 0);
 
     /// <summary>
     /// 解析设置中的版本：协议按阈值分流，版本号本身尽量原样透传。
-    /// &gt;=1.5.0 REST 原样；&gt;=1.4.0 且 &lt;1.5.0 AES 原样；&lt;1.4.0（如 1.3.9）抬到 Default。
+    /// 1.4.x 原样保留；其他版本统一回落到默认版本。
     /// </summary>
     public static string Normalize(string? clientVersion)
     {
@@ -40,12 +29,7 @@ public static class HongguoClientVersion
             return Default;
         }
 
-        if (parsed >= RestMinVersion)
-        {
-            return trimmed;
-        }
-
-        if (parsed < AesLineMinVersion)
+        if (parsed < AesLineMinVersion || parsed >= AesLineMaxVersion)
         {
             return Default;
         }

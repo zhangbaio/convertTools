@@ -240,9 +240,7 @@ public static class ClientSettingsStore
         settings.HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(settings.HongguoLocalDownloadMode);
         settings.HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine);
         settings.HgnewUdid = NormalizeUdid(settings.HgnewUdid);
-        settings.HgnewClientVersion = string.IsNullOrWhiteSpace(settings.HgnewClientVersion)
-            ? ClientSettings.DefaultHongguoClientVersion
-            : settings.HgnewClientVersion.Trim();
+        settings.HgnewClientVersion = HongguoClientVersion.Normalize(settings.HgnewClientVersion);
         settings.PikachuDramaType = string.Equals(settings.PikachuDramaType, "manga", StringComparison.OrdinalIgnoreCase)
             ? "manga"
             : "short";

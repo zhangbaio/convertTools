@@ -68,7 +68,7 @@
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="客户端版本" VerticalAlignment="Center" />
                             <TextBox Grid.Row="3" Grid.Column="1"
                                      Text="{Binding HgnewClientVersion, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     Watermark="1.4.1=GUID；1.5.0=仅32hex" />
+                                     Watermark="仅支持 1.4.x（大写 GUID）" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="测试结果" VerticalAlignment="Center" />
                             <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding HgnewProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />

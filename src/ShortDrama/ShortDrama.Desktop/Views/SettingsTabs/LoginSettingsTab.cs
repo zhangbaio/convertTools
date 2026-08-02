@@ -40,7 +40,7 @@ public sealed class LoginSettingsTab : UserControl
         panel.Children.Add(BuildSourceRow());
 
         panel.Children.Add(SectionTitle("hgnew"));
-        panel.Children.Add(Hint("客户端版本：默认 1.4.1（AES/GUID）；填 >=1.5.0 走 REST（仅 32hex，不再支持 GUID）。"));
+        panel.Children.Add(Hint("仅支持 1.4.x AES 协议；设备唯一标识必须是大写 GUID。"));
         panel.Children.Add(Row("账号", BindText(nameof(ConfigWindowViewModel.HgnewAccount))));
         panel.Children.Add(Row("密码", BindPassword(nameof(ConfigWindowViewModel.HgnewPassword))));
         panel.Children.Add(Row("UDID", BuildHgnewUdidRow()));
