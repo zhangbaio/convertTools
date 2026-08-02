@@ -92,9 +92,43 @@ public sealed class TikTokAccountInventorySyncCoordinatorTests
     }
 
     [Fact]
+    public async Task SyncFailure_DoesNotRaiseStatus()
+    {
+        var requestBodies = new ConcurrentQueue<string>();
+        var statusMessages = new ConcurrentQueue<string>();
+        using var http = new HttpClient(new StubHandler(async request =>
+        {
+            requestBodies.Enqueue(await request.Content!.ReadAsStringAsync());
+            return Json(HttpStatusCode.Unauthorized, """{"ok":false,"message":"invalid token"}""");
+        }));
+        var service = CreateService(http);
+        var store = CreateStoreWithAccounts([
+            new TikTokAccountProfile
+            {
+                Id = "acct-a",
+                TiktokLoginEmail = "account-a@example.test",
+            },
+        ]);
+
+        using var coordinator = new TikTokAccountInventorySyncCoordinator(
+            store,
+            service,
+            static (_, _) => Task.CompletedTask,
+            TimeSpan.Zero);
+        coordinator.StatusChanged += statusMessages.Enqueue;
+        coordinator.Start();
+
+        await WaitUntilAsync(() => requestBodies.Count >= 1);
+        await Task.Delay(100);
+
+        statusMessages.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task LicenseStateChanged_AfterCorruptAccountsLoad_DoesNotSendEmptySnapshot()
     {
         var requestCount = 0;
+        var statusMessages = new ConcurrentQueue<string>();
         using var http = new HttpClient(new StubHandler(_ =>
         {
             Interlocked.Increment(ref requestCount);
@@ -120,6 +154,7 @@ public sealed class TikTokAccountInventorySyncCoordinatorTests
             service,
             static (_, _) => Task.CompletedTask,
             TimeSpan.Zero);
+        coordinator.StatusChanged += statusMessages.Enqueue;
         coordinator.Start();
 
         RaiseLicenseStateChanged();
@@ -127,6 +162,7 @@ public sealed class TikTokAccountInventorySyncCoordinatorTests
 
         Volatile.Read(ref requestCount).Should().Be(0,
             "a corrupt accounts file must quarantine snapshot sync even after authorization changes");
+        statusMessages.Should().BeEmpty();
     }
 
     private static TikTokManagementAccountSnapshotSyncService CreateService(HttpClient http) =>

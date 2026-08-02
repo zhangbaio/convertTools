@@ -77,7 +77,6 @@ public sealed class TikTokAccountInventorySyncCoordinator : IDisposable
     {
         if (!_store.CanSyncAccountSnapshot)
         {
-            RaiseStatus("客户端账号文件读取失败，已跳过空快照同步以避免误删管理端数据");
             return;
         }
 
@@ -145,7 +144,6 @@ public sealed class TikTokAccountInventorySyncCoordinator : IDisposable
                     continue;
                 }
 
-                RaiseStatus(result.Message);
                 if (!result.ShouldRetry)
                     return;
 
@@ -164,9 +162,10 @@ public sealed class TikTokAccountInventorySyncCoordinator : IDisposable
         {
             // 正常停止。
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            RaiseStatus($"客户端 TikTok 账号同步异常：{ex.Message}");
+            // Account snapshot sync is best-effort telemetry for the management console.
+            // Failures must stay silent and never affect the desktop client workflow.
         }
         finally
         {
