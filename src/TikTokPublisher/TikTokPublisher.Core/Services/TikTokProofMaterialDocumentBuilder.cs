@@ -326,8 +326,10 @@ public sealed class TikTokProofMaterialDocumentBuilder
         }
 
         var imagePath = Path.GetFullPath(sealImagePath);
-        var preparedImage = TikTokProofSealImageProcessor.Prepare(imagePath);
+        var frameAspectRatio = ResolveSealFrameAspectRatio(blips, relationshipId);
+        var preparedImage = TikTokProofSealImageProcessor.Prepare(imagePath, frameAspectRatio);
         ClearSealImageRotation(blips, relationshipId);
+        ClearSealImageCrop(blips, relationshipId);
         var imageType = ResolveImagePartType(preparedImage.Extension);
         var sourceContentType = ResolveImageContentType(preparedImage.Extension);
         if (string.Equals(oldImagePart.ContentType, sourceContentType, StringComparison.OrdinalIgnoreCase))
@@ -351,6 +353,38 @@ public sealed class TikTokProofMaterialDocumentBuilder
 
         mainPart.DeletePart(oldImagePart);
         return relationshipIds.Length;
+    }
+
+    private static double? ResolveSealFrameAspectRatio(
+        IEnumerable<DrawingBlip> blips,
+        string relationshipId)
+    {
+        var extents = blips.FirstOrDefault(
+                blip => string.Equals(blip.Embed?.Value, relationshipId, StringComparison.Ordinal))?
+            .Ancestors<DrawingPicture>()
+            .FirstOrDefault()?
+            .ShapeProperties?
+            .Transform2D?
+            .Extents;
+        var width = extents?.Cx?.Value;
+        var height = extents?.Cy?.Value;
+        return width is > 0L && height is > 0L
+            ? width.Value / (double)height.Value
+            : null;
+    }
+
+    private static void ClearSealImageCrop(
+        IEnumerable<DrawingBlip> blips,
+        string relationshipId)
+    {
+        foreach (var blip in blips.Where(
+                     blip => string.Equals(blip.Embed?.Value, relationshipId, StringComparison.Ordinal)))
+        {
+            blip.Parent?
+                .Elements<DocumentFormat.OpenXml.Drawing.SourceRectangle>()
+                .FirstOrDefault()?
+                .Remove();
+        }
     }
 
     private static void NormalizeSingleTemplateSealRotation(MainDocumentPart mainPart)

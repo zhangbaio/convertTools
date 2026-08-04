@@ -2,6 +2,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -30,7 +31,7 @@ internal static class TikTokProofSealImageProcessor
             ".tiff",
         };
 
-    public static TikTokProofSealImagePayload Prepare(string sourcePath)
+    public static TikTokProofSealImagePayload Prepare(string sourcePath, double? targetAspectRatio = null)
     {
         var fullPath = Path.GetFullPath(sourcePath);
         var extension = Path.GetExtension(fullPath).ToLowerInvariant();
@@ -51,11 +52,14 @@ internal static class TikTokProofSealImageProcessor
                     "印章图片包含多个画面，无法确定应使用哪一帧；请转换为单张透明 PNG 后重试。");
             }
 
-            if (HasMeaningfulTransparency(image))
+            var backgroundWasMadeTransparent = false;
+            if (HasMeaningfulTransparency(image) && !NeedsAspectPadding(image, targetAspectRatio))
             {
                 return new TikTokProofSealImagePayload(sourceBytes, detectedExtension, false);
             }
 
+            if (!HasMeaningfulTransparency(image))
+            {
             var backgroundSample = SampleDominantBorderColor(image);
             if (!CanSafelyRemoveBackground(backgroundSample))
             {
@@ -77,12 +81,19 @@ internal static class TikTokProofSealImageProcessor
                     "印章图片没有透明背景，且自动处理后未识别到清晰的印章前景和透明背景；请提供白底印章图或透明 PNG。");
             }
 
+                backgroundWasMadeTransparent = true;
+            }
+
+            using var paddedImage = PadToAspectRatio(image, targetAspectRatio);
             using var output = new MemoryStream();
-            image.Save(output, new PngEncoder
+            (paddedImage ?? image).Save(output, new PngEncoder
             {
                 ColorType = PngColorType.RgbWithAlpha,
             });
-            return new TikTokProofSealImagePayload(output.ToArray(), ".png", true);
+            return new TikTokProofSealImagePayload(
+                output.ToArray(),
+                ".png",
+                backgroundWasMadeTransparent);
         }
         catch (UnknownImageFormatException ex)
         {
@@ -92,6 +103,43 @@ internal static class TikTokProofSealImageProcessor
         {
             throw new InvalidDataException($"印章图片内容已损坏：{fullPath}。", ex);
         }
+    }
+
+    private static bool NeedsAspectPadding(Image<Rgba32> image, double? targetAspectRatio)
+    {
+        if (targetAspectRatio is not > 0d ||
+            double.IsNaN(targetAspectRatio.Value) ||
+            double.IsInfinity(targetAspectRatio.Value))
+        {
+            return false;
+        }
+
+        var sourceAspectRatio = image.Width / (double)image.Height;
+        return Math.Abs(sourceAspectRatio - targetAspectRatio.Value) > 0.0001d;
+    }
+
+    private static Image<Rgba32>? PadToAspectRatio(
+        Image<Rgba32> image,
+        double? targetAspectRatio)
+    {
+        if (!NeedsAspectPadding(image, targetAspectRatio))
+            return null;
+
+        var target = targetAspectRatio!.Value;
+        var source = image.Width / (double)image.Height;
+        var canvasWidth = image.Width;
+        var canvasHeight = image.Height;
+        if (source < target)
+            canvasWidth = Math.Max(image.Width, (int)Math.Ceiling(image.Height * target));
+        else
+            canvasHeight = Math.Max(image.Height, (int)Math.Ceiling(image.Width / target));
+
+        var canvas = new Image<Rgba32>(canvasWidth, canvasHeight, new Rgba32(0, 0, 0, 0));
+        var offset = new Point(
+            (canvasWidth - image.Width) / 2,
+            (canvasHeight - image.Height) / 2);
+        canvas.Mutate(context => context.DrawImage(image, offset, 1f));
+        return canvas;
     }
 
     private static string ResolveDetectedRasterExtension(IImageFormat format, string fullPath) =>
