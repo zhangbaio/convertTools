@@ -228,10 +228,10 @@ public sealed class TikTokProofMaterialServiceTests
         {
             var outputSnapshot = ReadDocumentSnapshot(result.DocxPath);
             sourceSnapshot.SealRotation.Should().Be(HalfTurnDrawingAngle);
-            sourceSnapshot.AnchorXml.Should().Contain("t=\"1545\"").And.Contain("b=\"1545\"");
+            sourceSnapshot.AnchorXml.Should().Contain("t=\"745\"").And.Contain("b=\"745\"");
             outputSnapshot.SealRotation.Should().BeNull();
             outputSnapshot.AnchorXmlWithoutRotation.Should().Be(sourceSnapshot.AnchorXmlWithoutRotation);
-            outputSnapshot.AnchorXml.Should().Contain("t=\"1545\"").And.Contain("b=\"1545\"");
+            outputSnapshot.AnchorXml.Should().Contain("t=\"745\"").And.Contain("b=\"745\"");
         }
         finally
         {
