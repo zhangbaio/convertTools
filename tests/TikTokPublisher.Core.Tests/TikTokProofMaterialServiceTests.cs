@@ -851,6 +851,51 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Theory]
+    [InlineData(64, 32)]
+    [InlineData(32, 64)]
+    public void Builder_pads_non_square_seal_with_transparency_and_clears_template_crop(
+        int width,
+        int height)
+    {
+        using var fixture = new ProofTemplateFixture();
+        var templatePath = fixture.CreateTemplate(sealCrop: 745);
+        var sealPath = Path.Combine(fixture.DirectoryPath, $"seal-{width}x{height}.png");
+        using (var seal = new Image<Rgba32>(width, height, new Rgba32(0, 0, 0, 0)))
+        {
+            for (var y = height / 8; y < height * 7 / 8; y++)
+            {
+                for (var x = width / 8; x < width * 7 / 8; x++)
+                    seal[x, y] = new Rgba32(220, 20, 30, 255);
+            }
+
+            seal.SaveAsPng(sealPath);
+        }
+
+        var request = CreateRequest(templatePath, Path.Combine(fixture.DirectoryPath, "proof.pdf")) with
+        {
+            DeclarantCompanyName = "Wide Seal Company",
+            SealImagePath = sealPath,
+            TemporaryDirectory = fixture.DirectoryPath,
+        };
+
+        var result = new TikTokProofMaterialDocumentBuilder().CreateTemporaryDocx(request);
+        try
+        {
+            var outputSnapshot = ReadDocumentSnapshot(result.DocxPath);
+            outputSnapshot.AnchorXml.Should().NotContain("srcRect");
+            using var outputImage = Image.Load<Rgba32>(outputSnapshot.ImageBytes);
+            outputImage.Width.Should().Be(64);
+            outputImage.Height.Should().Be(64);
+            outputImage[32, 0].A.Should().Be(0);
+            outputImage[32, 32].A.Should().Be(255);
+        }
+        finally
+        {
+            TikTokProofMaterialDocumentBuilder.TryDeleteDirectory(result.WorkingDirectory);
+        }
+    }
+
+    [Theory]
     [InlineData("2026-07-18", 2026, 7, 18)]
     [InlineData("", 0, 0, 0)]
     [InlineData("2026/07/18", 0, 0, 0)]
@@ -1154,7 +1199,10 @@ public sealed class TikTokProofMaterialServiceTests
 
         public string DirectoryPath { get; }
 
-        public string CreateTemplate(bool includeDramaTitle = true, int? sealRotation = null)
+        public string CreateTemplate(
+            bool includeDramaTitle = true,
+            int? sealRotation = null,
+            int? sealCrop = null)
         {
             var path = Path.Combine(DirectoryPath, $"template-{Guid.NewGuid():N}.docx");
             using var document = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document);
@@ -1181,7 +1229,7 @@ public sealed class TikTokProofMaterialServiceTests
                     new W.Run(new W.Text(includeDramaTitle ? "闺蜜反目维权】。" : "模板标题】。"))),
                 new W.Paragraph(
                     new W.Run(new W.Text("声明人：【武汉速视科技有限公司】 ")),
-                    new W.Run(CreateFloatingSeal(imageRelationshipId, sealRotation))),
+                    new W.Run(CreateFloatingSeal(imageRelationshipId, sealRotation, sealCrop))),
                 new W.Paragraph(
                     new W.Run(new W.Text("2026")),
                     new W.Run(new W.Text("年【")),
@@ -1204,7 +1252,10 @@ public sealed class TikTokProofMaterialServiceTests
             }
         }
 
-        private static W.Drawing CreateFloatingSeal(string relationshipId, int? sealRotation)
+        private static W.Drawing CreateFloatingSeal(
+            string relationshipId,
+            int? sealRotation,
+            int? sealCrop)
         {
             const long width = 1_800_000L;
             const long height = 1_800_000L;
@@ -1216,13 +1267,22 @@ public sealed class TikTokProofMaterialServiceTests
                 transform.Rotation = sealRotation.Value;
             }
 
+            var blipFill = new PIC.BlipFill(new A.Blip { Embed = relationshipId });
+            if (sealCrop is not null)
+            {
+                blipFill.Append(new A.SourceRectangle
+                {
+                    Top = sealCrop.Value,
+                    Bottom = sealCrop.Value,
+                });
+            }
+            blipFill.Append(new A.Stretch(new A.FillRectangle()));
+
             var picture = new PIC.Picture(
                 new PIC.NonVisualPictureProperties(
                     new PIC.NonVisualDrawingProperties { Id = 1U, Name = "template-seal.png" },
                     new PIC.NonVisualPictureDrawingProperties()),
-                new PIC.BlipFill(
-                    new A.Blip { Embed = relationshipId },
-                    new A.Stretch(new A.FillRectangle())),
+                blipFill,
                 new PIC.ShapeProperties(
                     transform,
                     new A.PresetGeometry(new A.AdjustValueList())
