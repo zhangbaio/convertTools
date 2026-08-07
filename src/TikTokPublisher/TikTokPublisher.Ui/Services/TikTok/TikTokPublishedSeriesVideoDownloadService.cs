@@ -39,6 +39,7 @@ public static class TikTokPublishedSeriesVideoDownloadService
         string newTitle,
         string workspaceRoot,
         int requiredEpisodeCount,
+        bool willEditTikTok,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -95,8 +96,10 @@ public static class TikTokPublishedSeriesVideoDownloadService
                 return Fail($"TikTok 原创管理中存在 {exactRows.Count} 个同名项目：{title}");
 
             var match = exactRows[0];
-            if (!TikTokPublishedSeriesMatchText.IsPublishedStatus(match.PlatformStatus))
-                return Fail($"TikTok 项目「{title}」尚未发布，当前状态：{match.PlatformStatus}");
+            if (!TikTokPublishedSeriesMatchText.CanUseForCopyrightProofVideoRecovery(
+                    match.PlatformStatus,
+                    willEditTikTok))
+                return Fail($"TikTok 项目「{title}」当前状态不支持补全版权证明：{match.PlatformStatus}");
             if (string.IsNullOrWhiteSpace(match.DetailUrl))
                 return Fail($"TikTok 项目「{title}」缺少详情页地址。");
 
@@ -105,7 +108,7 @@ public static class TikTokPublishedSeriesVideoDownloadService
             Directory.CreateDirectory(staging);
 
             log?.Invoke(
-                $"平台视频恢复：已按新剧名定位 TikTok 已发布项目「{title}」，" +
+                $"平台视频恢复：已按新剧名定位可补全版权证明的 TikTok 项目「{title}」（{match.PlatformStatus}），" +
                 $"准备获取前 {required} 集。");
             await PrepareDownloadPageAsync(page, match.DetailUrl, log, ct).ConfigureAwait(false);
             var platformEpisodeCount = await ReadPlatformEpisodeCountAsync(page).ConfigureAwait(false);

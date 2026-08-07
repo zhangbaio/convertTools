@@ -45,6 +45,17 @@ public static class TikTokPublishedSeriesMatchText
                string.Equals(value, "Published", StringComparison.OrdinalIgnoreCase);
     }
 
+    public static bool IsCopyrightProofEligibleStatus(string? status)
+    {
+        var value = (status ?? string.Empty).Trim();
+        return IsPublishedStatus(value) ||
+               string.Equals(value, "分发受限", StringComparison.Ordinal) ||
+               string.Equals(value, "Distribution restricted", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool CanUseForCopyrightProofVideoRecovery(string? status, bool willEditTikTok) =>
+        !willEditTikTok || IsCopyrightProofEligibleStatus(status);
+
     public static string BuildPublishedTitlesCopyText(
         IEnumerable<TikTokPublishedSeriesMatch> matches) =>
         string.Join(

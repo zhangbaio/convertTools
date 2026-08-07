@@ -28,6 +28,37 @@ public sealed class TikTokPublishedSeriesMatchTextTests
         Assert.Equal(expected, TikTokPublishedSeriesMatchText.IsPublishedStatus(status));
     }
 
+    [Theory]
+    [InlineData("已发布", true)]
+    [InlineData("Published", true)]
+    [InlineData("分发受限", true)]
+    [InlineData("Distribution restricted", true)]
+    [InlineData("审核中", false)]
+    [InlineData("草稿", false)]
+    public void IsCopyrightProofEligibleStatus_AcceptsPublishedAndDistributionRestricted(
+        string status,
+        bool expected)
+    {
+        Assert.Equal(expected, TikTokPublishedSeriesMatchText.IsCopyrightProofEligibleStatus(status));
+    }
+
+    [Theory]
+    [InlineData("未发布", false, true)]
+    [InlineData("审核中", false, true)]
+    [InlineData("草稿", false, true)]
+    [InlineData("未发布", true, false)]
+    [InlineData("分发受限", true, true)]
+    [InlineData("已发布", true, true)]
+    public void CanUseForCopyrightProofVideoRecovery_AllowsAnyStatusForMaterialOnly(
+        string status,
+        bool willEditTikTok,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            TikTokPublishedSeriesMatchText.CanUseForCopyrightProofVideoRecovery(status, willEditTikTok));
+    }
+
     [Fact]
     public void BuildPublishedTitlesCopyText_OnlyCopiesPublishedTitles()
     {
