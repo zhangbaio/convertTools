@@ -2151,6 +2151,7 @@ public partial class TikTokQueueView : UserControl
                                 match.NewTitle,
                                 workspace,
                                 requiredEpisodes,
+                                executionMode == CopyrightProofExecutionMode.GenerateAndEdit,
                                 preparationLog,
                                 ct);
                         if (!download.Ok)
