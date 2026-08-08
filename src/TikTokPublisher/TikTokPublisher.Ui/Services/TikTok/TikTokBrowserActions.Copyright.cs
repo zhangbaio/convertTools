@@ -259,11 +259,6 @@ public static partial class TikTokBrowserActions
                 "请选择「制作协议、联合出品协议等合作协议」，以及可选的「原始文件或素材文件信息」/「AI 生成过程截图」/「剪辑工程文件」。");
         }
 
-        if (!configuredMaterialKeys.Contains(
-                TikTokPublishConstants.ProductionAgreementMaterialType,
-                StringComparer.Ordinal))
-            throw new InvalidOperationException("TikTok 上传材料类型必须包含「制作协议、联合出品协议等合作协议」。");
-
         var includeSourceFileInformation = configuredMaterialKeys.Contains(
             TikTokPublishConstants.SourceFileInformationMaterialType,
             StringComparer.Ordinal);
@@ -315,7 +310,10 @@ public static partial class TikTokBrowserActions
                 "请先执行「生成证明材料」或「生成工程图」。");
         }
 
-        var uploadProductionAgreement = completionPlan.ShouldUpload(
+        var includeProductionAgreement = configuredMaterialKeys.Contains(
+            TikTokPublishConstants.ProductionAgreementMaterialType,
+            StringComparer.Ordinal);
+        var uploadProductionAgreement = includeProductionAgreement && completionPlan.ShouldUpload(
             TikTokPublishConstants.ProductionAgreementMaterialType);
         var resolvedFilePath = string.Empty;
         if (uploadProductionAgreement)
@@ -360,20 +358,23 @@ public static partial class TikTokBrowserActions
             TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.AiGenerationScreenshotsMaterialType];
         var editingProjectLabel =
             TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.EditingProjectFilesMaterialType];
-        var productionAgreementOption = await WaitForCopyrightMaterialCheckboxAsync(
-            page,
-            TikTokPublishConstants.ProductionAgreementMaterialType,
-            productionAgreementLabel,
-            CopyrightControlTimeoutMs,
-            ct);
-        await EnsureCopyrightMaterialCheckboxStateAsync(
-            page,
-            TikTokPublishConstants.ProductionAgreementMaterialType,
-            productionAgreementLabel,
-            productionAgreementOption,
-            shouldSelect: true,
-            log,
-            ct);
+        if (includeProductionAgreement)
+        {
+            var productionAgreementOption = await WaitForCopyrightMaterialCheckboxAsync(
+                page,
+                TikTokPublishConstants.ProductionAgreementMaterialType,
+                productionAgreementLabel,
+                CopyrightControlTimeoutMs,
+                ct);
+            await EnsureCopyrightMaterialCheckboxStateAsync(
+                page,
+                TikTokPublishConstants.ProductionAgreementMaterialType,
+                productionAgreementLabel,
+                productionAgreementOption,
+                shouldSelect: true,
+                log,
+                ct);
+        }
 
         if (includeSourceFileInformation)
         {
@@ -432,7 +433,8 @@ public static partial class TikTokBrowserActions
         // 页面可能保留上一次未提交的选择；清掉当前未配置的已知类型，避免出现无文件映射的上传框。
         foreach (var pair in TikTokPublishConstants.CopyrightMaterialLabels)
         {
-            if (string.Equals(pair.Key, TikTokPublishConstants.ProductionAgreementMaterialType, StringComparison.Ordinal))
+            if (includeProductionAgreement &&
+                string.Equals(pair.Key, TikTokPublishConstants.ProductionAgreementMaterialType, StringComparison.Ordinal))
                 continue;
             if (includeSourceFileInformation &&
                 string.Equals(pair.Key, TikTokPublishConstants.SourceFileInformationMaterialType, StringComparison.Ordinal))
@@ -457,7 +459,9 @@ public static partial class TikTokBrowserActions
         }
         await ClosePopupIfOpenAsync(page);
 
-        var selectedParts = new List<string> { productionAgreementLabel };
+        var selectedParts = new List<string>();
+        if (includeProductionAgreement)
+            selectedParts.Add(productionAgreementLabel);
         if (includeSourceFileInformation)
             selectedParts.Add(sourceInfoLabel);
         if (includeAiGenerationScreenshots)

@@ -37,6 +37,9 @@ public sealed record TikTokProofMaterialRequest(
 
     public TimeSpan RenderTimeout { get; init; } = TimeSpan.FromSeconds(180);
 
+    /// <summary>是否生成合作协议 PDF（由账号上传材料类型勾选决定）。</summary>
+    public bool GenerateProductionAgreement { get; init; } = true;
+
     /// <summary>是否生成「原始文件或素材文件信息」截图（由账号上传材料类型勾选决定）。</summary>
     public bool GenerateSourceFileScreenshots { get; init; }
 
