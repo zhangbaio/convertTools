@@ -221,10 +221,7 @@ public static partial class TikTokBrowserActions
                 $"TikTok 上传材料类型配置无效：{string.Join("、", unknownMaterialKeys)}。");
 
         if (configuredMaterialKeys.Count == 0)
-        {
-            Log(log, "当前账号未勾选版权材料，跳过版权证明材料配置与上传。");
-            return;
-        }
+            throw new InvalidOperationException("TikTok 上传材料类型未配置，请选择「制作协议、联合出品协议等合作协议」。");
 
         var completionPlan = TikTokCopyrightMaterialCompletionPlan.Create(
             configuredMaterialKeys,

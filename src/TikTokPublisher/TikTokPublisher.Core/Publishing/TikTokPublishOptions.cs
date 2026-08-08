@@ -73,12 +73,23 @@ public static class TikTokPublishConstants
                 normalized.Add(canonical);
         }
 
-        return normalized;
+        return normalized.Count > 0
+            ? normalized
+            : [ProductionAgreementMaterialType];
     }
 
     public static IReadOnlyList<string> ValidateCopyrightMaterialTypes(IEnumerable<string>? materialTypes)
     {
-        return NormalizeCopyrightMaterialTypes(materialTypes);
+        var normalized = NormalizeCopyrightMaterialTypes(materialTypes);
+        var coreCount = normalized.Count(CoreCopyrightMaterialTypes.Contains);
+        var auxiliaryCount = normalized.Count(AuxiliaryCopyrightMaterialTypes.Contains);
+        if (coreCount == 0 && auxiliaryCount < 2)
+        {
+            throw new InvalidOperationException(
+                "TikTok 上传材料类型配置无效：请至少选择 1 个核心材料，或至少 2 个辅助材料。");
+        }
+
+        return normalized;
     }
 
     public static bool RequiresGeneratedProofMaterial(IEnumerable<string>? materialTypes) =>
