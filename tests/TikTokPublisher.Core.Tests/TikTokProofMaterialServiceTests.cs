@@ -699,6 +699,35 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
+    public void Queue_request_does_not_require_agreement_inputs_for_auxiliary_only_materials()
+    {
+        var item = new QueueProjectItem { NewTitle = "辅助材料剧名" };
+        var account = new TikTokAccountProfile
+        {
+            TiktokProofSealPath = @"Z:\missing\seal-directory",
+            TiktokProofAccountConfigMigrated = true,
+            TiktokCopyrightMaterialTypes =
+            [
+                TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+                TikTokPublishConstants.EditingProjectFilesMaterialType,
+            ],
+        };
+
+        var request = TikTokProofMaterialService.CreateQueueRequest(
+            item,
+            new ClientSettings { TiktokProofTemplateDocxPath = @"Z:\missing\template.docx" },
+            account,
+            Path.GetTempPath(),
+            new DateOnly(2026, 8, 8));
+
+        request.GenerateProductionAgreement.Should().BeFalse();
+        request.TemplateDocxPath.Should().BeEmpty();
+        request.GenerateAiGenerationScreenshots.Should().BeTrue();
+        request.GenerateEditingProjectFiles.Should().BeTrue();
+        request.GenerateSourceFileScreenshots.Should().BeFalse();
+    }
+
+    [Fact]
     public void Queue_request_resolves_seal_png_from_configured_directory()
     {
         using var fixture = new ProofTemplateFixture();
