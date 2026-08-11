@@ -25,6 +25,34 @@
       <Link>templates\project-image\image_template_project_image_3\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="..\..\ShortDrama\templates\project-image\image_template_project_image_4\**\*">
+      <Link>templates\project-image\image_template_project_image_4\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\ShortDrama\templates\project-image\image_template_project_image_5\**\*">
+      <Link>templates\project-image\image_template_project_image_5\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\ShortDrama\templates\project-image\image_template_project_image_6\**\*">
+      <Link>templates\project-image\image_template_project_image_6\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\ShortDrama\templates\project-image\image_template_project_image_7\**\*">
+      <Link>templates\project-image\image_template_project_image_7\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\ShortDrama\templates\project-image\image_template_project_image_8\**\*">
+      <Link>templates\project-image\image_template_project_image_8\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\ShortDrama\templates\project-image\image_template_project_image_9\**\*">
+      <Link>templates\project-image\image_template_project_image_9\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\ShortDrama\templates\project-image\image_template_project_image_10\**\*">
+      <Link>templates\project-image\image_template_project_image_10\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Resources\FableCut\**\*">
       <Link>fablecut\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

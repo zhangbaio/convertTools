@@ -36,7 +36,9 @@ public sealed record ProjectImageTemplateManifest(
     string Name,
     int Count,
     IReadOnlyList<ProjectImageTemplatePage> Templates,
-    bool RenderTimelineOverlay = false)
+    bool RenderTimelineOverlay = false,
+    long AssetVersion = 0,
+    bool ExtractDialogue = true)
 {
     public static ProjectImageTemplateManifest Load(string templateDirectory)
     {
@@ -52,6 +54,8 @@ public sealed record ProjectImageTemplateManifest(
         var name = GetString(root, "name") ?? id;
         var count = GetInt(root, "count") ?? 0;
         var renderTimelineOverlay = GetBool(root, "render_timeline_overlay");
+        var assetVersion = GetLong(root, "asset_version") ?? GetLong(root, "version") ?? 0;
+        var extractDialogue = GetBool(root, "extract_dialogue", defaultValue: true);
 
         if (!root.TryGetProperty("templates", out var templatesElement) || templatesElement.ValueKind != JsonValueKind.Array)
         {
@@ -88,7 +92,14 @@ public sealed record ProjectImageTemplateManifest(
         }
 
         var resolvedCount = count > 0 ? count : pages.Count;
-        return new ProjectImageTemplateManifest(id, name, resolvedCount, pages, renderTimelineOverlay);
+        return new ProjectImageTemplateManifest(
+            id,
+            name,
+            resolvedCount,
+            pages,
+            renderTimelineOverlay,
+            assetVersion,
+            extractDialogue);
     }
 
     private static IReadOnlyList<ProjectImageTemplateRegion> ParseRegions(JsonElement element)
@@ -166,11 +177,28 @@ public sealed record ProjectImageTemplateManifest(
             : null;
     }
 
-    private static bool GetBool(JsonElement element, string propertyName)
+    private static long? GetLong(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var property))
         {
-            return false;
+            return null;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetInt64(out var number))
+        {
+            return number;
+        }
+
+        return property.ValueKind == JsonValueKind.String && long.TryParse(property.GetString(), out number)
+            ? number
+            : null;
+    }
+
+    private static bool GetBool(JsonElement element, string propertyName, bool defaultValue = false)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return defaultValue;
         }
 
         return property.ValueKind switch
@@ -178,7 +206,7 @@ public sealed record ProjectImageTemplateManifest(
             JsonValueKind.True => true,
             JsonValueKind.False => false,
             JsonValueKind.String => bool.TryParse(property.GetString(), out var parsed) && parsed,
-            _ => false
+            _ => defaultValue
         };
     }
 }

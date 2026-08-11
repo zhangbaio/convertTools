@@ -71,21 +71,9 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
 
         Directory.CreateDirectory(request.OutputDir);
         var projectInfo = await _projectInfoParser.ParseAsync(request.ProjectDir, cancellationToken);
-        var manifest = ProjectImageTemplateManifest.Load(templateDirectory);
         var configMap = !string.IsNullOrWhiteSpace(request.ConfigFile) && File.Exists(request.ConfigFile)
             ? KeyValueConfigReader.Read(request.ConfigFile)
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        var count = request.Count ?? LoadProjectImageCount(request.ConfigFile) ?? manifest.Count;
-        if (count <= 0)
-        {
-            throw new InvalidOperationException($"工程图数量必须大于 0，当前值为 {count}。");
-        }
-
-        if (manifest.Templates.Count == 0)
-        {
-            throw new InvalidOperationException("工程图模板清单中没有可用页面。");
-        }
 
         var sourceVideos = ResolveSourceVideos(request);
         var renderEpisodeLimit = LoadProjectImageRenderEpisodeLimit(configMap);
@@ -112,6 +100,8 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             .ToArray();
         var episodeDurations = new List<double>(sourceVideos.Length);
         var episodeFrames = new List<Image<Rgba32>>(sourceVideos.Length);
+        ProjectImageTemplateManifest? manifest = null;
+        var portrait = false;
 
         try
         {
@@ -123,14 +113,43 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                     $"工程图/预览抽帧 [{sourceIndex + 1}/{sourceVideos.Length}]：{Path.GetFileName(sourceVideo)}");
                 var duration = await GetDurationSecondsAsync(ffprobe, sourceVideo, cancellationToken);
                 episodeDurations.Add(duration);
-                episodeFrames.Add(await ExtractFrameAsync(
+                var episodeFrame = await ExtractFrameAsync(
                     ffmpeg,
                     sourceVideo,
                     ResolveEpisodePreviewTime(duration),
-                    cancellationToken));
+                    cancellationToken);
+                episodeFrames.Add(episodeFrame);
+
+                if (sourceIndex == 0)
+                {
+                    portrait = episodeFrame.Height > episodeFrame.Width;
+                    templateDirectory = ResolveOrientedTemplateDirectory(templateDirectory, portrait);
+                    manifest = ProjectImageTemplateManifest.Load(templateDirectory);
+                    if (manifest.Templates.Count == 0)
+                    {
+                        throw new InvalidOperationException("工程图模板清单中没有可用页面。");
+                    }
+                }
             }
 
-            var portrait = episodeFrames[0].Height > episodeFrames[0].Width;
+            if (manifest is null)
+            {
+                throw new InvalidOperationException("工程图模板清单未能加载。");
+            }
+            var count = request.Count ?? LoadProjectImageCount(request.ConfigFile) ?? manifest.Count;
+            if (count <= 0)
+            {
+                throw new InvalidOperationException($"工程图数量必须大于 0，当前值为 {count}。");
+            }
+
+            var waveformData = manifest.RenderTimelineOverlay
+                ? await ProjectImageAudioWaveformRenderer.DecodeAsync(
+                    _processRunner,
+                    ffmpeg,
+                    sourceVideos,
+                    episodeDurations,
+                    cancellationToken)
+                : null;
             var outputs = new List<string>(count);
 
             for (var index = 0; index < count; index++)
@@ -157,7 +176,8 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                     throw new FileNotFoundException($"工程图模板图片不存在: {templateImagePath}");
                 }
 
-                using var templateImage = Image.Load<Rgba32>(templateImagePath);
+                using var loadedTemplateImage = Image.Load<Rgba32>(templateImagePath);
+                using var templateImage = PadScreenshotCompatImage(loadedTemplateImage);
                 using var composite = await ComposeModernTemplateImageAsync(
                     templateImage,
                     page,
@@ -171,6 +191,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                     episodeDurations,
                     episodeFrames,
                     ffmpeg,
+                    waveformData,
                     count,
                     index + 1,
                     portrait,
@@ -240,6 +261,39 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             .ToArray();
     }
 
+    internal static string ResolveOrientedTemplateDirectory(string templateDirectory, bool portrait)
+    {
+        var baseDirectory = Path.GetFullPath(templateDirectory);
+        var preferredNames = portrait
+            ? new[] { "portrait", "vertical", "竖屏模板" }
+            : new[] { "landscape", "horizontal", "横屏模板" };
+        foreach (var name in preferredNames)
+        {
+            var candidate = Path.Combine(baseDirectory, name);
+            if (Directory.Exists(candidate) && File.Exists(Path.Combine(candidate, "template.json")))
+            {
+                return candidate;
+            }
+        }
+
+        return baseDirectory;
+    }
+
+    internal static Image<Rgba32> PadScreenshotCompatImage(Image<Rgba32> image)
+    {
+        const int targetWidth = 1920;
+        const int targetHeight = 1080;
+        if (image.Width != targetWidth || image.Height >= targetHeight || targetHeight - image.Height > 96)
+        {
+            return image.Clone();
+        }
+
+        var fill = image[image.Width / 2, image.Height - 1];
+        var canvas = new Image<Rgba32>(targetWidth, targetHeight, fill);
+        canvas.Mutate(ctx => ctx.DrawImage(image, Point.Empty, 1f));
+        return canvas;
+    }
+
     private static void PrepareScreenshotMetadata(Image<Rgba32> image)
     {
         image.Metadata.HorizontalResolution = 96.012;
@@ -273,6 +327,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         IReadOnlyList<double> episodeDurations,
         IReadOnlyList<Image<Rgba32>> episodeFrames,
         string ffmpeg,
+        ProjectImageAudioWaveformData? waveformData,
         int outputCount,
         int currentIndex,
         bool portrait,
@@ -298,33 +353,58 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             var displayFrames = ResolveVideoTrackDisplayFrames(videoTrackRects, episodeFrames, trackEpisodeIndex + 1, trackEpisodeFrames);
             var previewFrame = SelectTrackPlayheadFrame(videoTrackRects, displayFrames)
                 ?? episodeFrames[Math.Clamp(trackEpisodeIndex, 0, episodeFrames.Count - 1)];
-            var playerRect = ResolvePlayerRegion(page, portrait);
-            using var subtitleProbe = playerRect is not null
-                ? BuildPlayerImage(
-                    previewFrame,
-                    playerRect,
-                    portrait ? new Rgba32(0, 0, 0, 255) : SampleRectColor(canvas, playerRect))
-                : previewFrame.Clone();
-            var subtitleText = await ResolveSubtitleTextAsync(
-                projectDir,
-                outputPath,
-                configMap,
-                subtitleProbe,
-                sourceVideos[Math.Clamp(trackEpisodeIndex, 0, sourceVideos.Count - 1)],
-                currentIndex,
-                page,
-                episodeNames,
-                projectInfo,
-                trackEpisodeIndex,
-                cancellationToken);
+            var subtitleText = string.Empty;
+            if (manifest.ExtractDialogue)
+            {
+                var playerRect = ResolvePlayerRegion(page, portrait);
+                using var subtitleProbe = playerRect is not null
+                    ? BuildPlayerImage(
+                        previewFrame,
+                        playerRect,
+                        portrait ? new Rgba32(0, 0, 0, 255) : SampleRectColor(canvas, playerRect))
+                    : previewFrame.Clone();
+                subtitleText = await ResolveSubtitleTextAsync(
+                    projectDir,
+                    outputPath,
+                    configMap,
+                    subtitleProbe,
+                    sourceVideos[Math.Clamp(trackEpisodeIndex, 0, sourceVideos.Count - 1)],
+                    currentIndex,
+                    page,
+                    episodeNames,
+                    projectInfo,
+                    trackEpisodeIndex,
+                    cancellationToken);
+            }
 
             RenderAutosaveStatus(canvas, page, pageIndex, manifest.Templates.Count);
-            RenderTopTitle(canvas, page, projectInfo.Title);
+            RenderTopTitle(canvas, page, projectInfo.Title, trackEpisodeIndex, episodeNames);
+            RenderDraftName(canvas, page, projectInfo.Title, trackEpisodeIndex, episodeNames);
+            RenderSavePath(canvas, page, projectInfo.Title, trackEpisodeIndex, episodeNames);
+            RenderPlayerCanvas(canvas, page, portrait);
             RenderPlayer(canvas, page, previewFrame, portrait);
             RenderRightSubtitle(canvas, page, portrait, subtitleText);
-            RenderMaterialPanel(canvas, page, episodeFrames, episodeNames, episodeDurations, projectInfo.Title);
+            RenderMaterialPanel(
+                canvas,
+                page,
+                episodeFrames,
+                episodeNames,
+                episodeDurations,
+                projectInfo.Title,
+                displayFrames,
+                trackEpisodeIndex);
+            RenderMaterialVideoImages(canvas, page, displayFrames);
             RenderVideoTrackImages(canvas, videoTrackRects, episodeFrames, trackEpisodeIndex + 1, trackEpisodeFrames);
             RenderTrackTexts(canvas, page, pageIndex, currentIndex, episodeNames, episodeDurations, projectInfo.Title, episodeFrames.Count, videoTrackRects, subtitleText);
+            if (manifest.RenderTimelineOverlay && waveformData is not null)
+            {
+                ProjectImageAudioWaveformRenderer.Render(
+                    canvas,
+                    waveformData,
+                    trackEpisodeIndex,
+                    videoTrackRects.Count > 0 ? ResolveConfiguredPlayheadX(videoTrackRects[0]) : null,
+                    cancellationToken);
+            }
 
             return canvas;
         }
@@ -415,13 +495,24 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             .Replace("%S", "ss", StringComparison.Ordinal);
     }
 
-    private static void RenderTopTitle(Image<Rgba32> canvas, ProjectImageTemplatePage page, string title)
+    private static void RenderTopTitle(
+        Image<Rgba32> canvas,
+        ProjectImageTemplatePage page,
+        string projectTitle,
+        int trackEpisodeIndex,
+        IReadOnlyList<string> episodeNames)
     {
         var rect = page.GetRegion("top_title");
-        if (rect is null || string.IsNullOrWhiteSpace(title))
+        if (rect is null)
         {
             return;
         }
+
+        var title = string.Equals(NoteValue(rect, "title_mode"), "episode", StringComparison.OrdinalIgnoreCase)
+            ? ResolveTrackEpisodeText(trackEpisodeIndex, episodeNames, projectTitle)
+            : projectTitle;
+        if (string.IsNullOrWhiteSpace(title))
+            return;
 
         var expanded = ExpandTopTitleRect(canvas, rect, title);
         FillRect(canvas, expanded, SampleSurroundingColor(canvas, expanded));
@@ -433,6 +524,69 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             Math.Max(11, Math.Min(18, expanded.Height - 3)),
             true,
             "center");
+    }
+
+    private static void RenderDraftName(
+        Image<Rgba32> canvas,
+        ProjectImageTemplatePage page,
+        string projectTitle,
+        int trackEpisodeIndex,
+        IReadOnlyList<string> episodeNames)
+    {
+        var rect = page.GetRegion("draft_name");
+        if (rect is null)
+            return;
+
+        var text = string.Equals(NoteValue(rect, "title_mode") ?? "episode", "episode", StringComparison.OrdinalIgnoreCase)
+            ? ResolveTrackEpisodeText(trackEpisodeIndex, episodeNames, projectTitle)
+            : projectTitle;
+        FillRect(canvas, rect, SampleSurroundingColor(canvas, rect));
+        DrawSingleLineText(
+            canvas,
+            rect,
+            text,
+            new Rgba32(232, 232, 232, 255),
+            Math.Max(9, Math.Min(12, rect.Height - 7)),
+            false,
+            "left");
+    }
+
+    private static void RenderSavePath(
+        Image<Rgba32> canvas,
+        ProjectImageTemplatePage page,
+        string projectTitle,
+        int trackEpisodeIndex,
+        IReadOnlyList<string> episodeNames)
+    {
+        var rect = page.GetRegion("save_path");
+        if (rect is null)
+            return;
+
+        var episodeText = ResolveTrackEpisodeText(trackEpisodeIndex, episodeNames, projectTitle);
+        var prefix = NoteValue(rect, "path_prefix")
+            ?? "C:/Users/PC/AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft/";
+        FillRect(canvas, rect, SampleSurroundingColor(canvas, rect));
+        DrawWrappedText(
+            canvas,
+            rect,
+            $"{prefix}{episodeText}",
+            new Rgba32(232, 232, 232, 255),
+            Math.Max(8, Math.Min(11, rect.Height / 3)),
+            false,
+            "left",
+            "top");
+    }
+
+    private static void RenderPlayerCanvas(Image<Rgba32> canvas, ProjectImageTemplatePage page, bool portrait)
+    {
+        var rect = portrait
+            ? page.GetRegion("player_canvas")
+            : page.GetRegion("player_canvas_landscape");
+        if (rect is null)
+            return;
+
+        var fill = ParseHexColor(NoteValue(rect, "fill")) ?? SampleSurroundingColor(canvas, rect);
+        FillRect(canvas, rect, fill);
     }
 
     private static void RenderPlayer(Image<Rgba32> canvas, ProjectImageTemplatePage page, Image<Rgba32> previewFrame, bool portrait)
@@ -487,7 +641,9 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         IReadOnlyList<Image<Rgba32>> episodeFrames,
         IReadOnlyList<string> episodeNames,
         IReadOnlyList<double> episodeDurations,
-        string projectTitle)
+        string projectTitle,
+        IReadOnlyList<Image<Rgba32>> trackFrames,
+        int trackEpisodeIndex)
     {
         var rect = page.GetRegion("material_panel");
         if (rect is null || episodeFrames.Count == 0)
@@ -495,28 +651,96 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             return;
         }
 
-        FillRect(canvas, rect, SampleRectColor(canvas, rect));
+        var sourceMode = (NoteValue(rect, "source") ?? string.Empty).Trim().ToLowerInvariant();
+        var useTrackFrames = sourceMode is ("track" or "track_frames" or "current_episode") && trackFrames.Count > 0;
+        if (useTrackFrames && ProjectImageTrackMaterialPanelRenderer.TryRender(
+                canvas,
+                rect,
+                trackFrames,
+                trackEpisodeIndex >= 0 && trackEpisodeIndex < episodeDurations.Count
+                    ? episodeDurations[trackEpisodeIndex]
+                    : 0d))
+        {
+            return;
+        }
 
-        var columns = rect.Width >= rect.Height ? 2 : 1;
-        var rows = Math.Max(1, Math.Min(3, (int)Math.Ceiling(Math.Min(episodeFrames.Count, 6) / (double)columns)));
-        const int gap = 10;
-        var cellWidth = Math.Max(1, (rect.Width - gap * (columns + 1)) / columns);
-        var cellHeight = Math.Max(1, (rect.Height - gap * (rows + 1)) / rows);
-        var itemCount = Math.Min(episodeFrames.Count, rows * columns);
+        var frames = useTrackFrames ? trackFrames : episodeFrames;
+        var requestedItems = NoteInt(rect, "item_count", useTrackFrames ? Math.Min(16, frames.Count) : Math.Min(6, frames.Count), 1, 16);
+        var itemCount = Math.Min(frames.Count, requestedItems);
+        if (itemCount <= 0)
+            return;
+
+        var panelRect = useTrackFrames
+            ? InsetRect(canvas, ExpandRect(canvas, rect, top: 20, bottom: 18, left: 8), top: 18, bottom: 18)
+            : rect;
+        FillRect(canvas, panelRect, SampleRectColor(canvas, panelRect));
+
+        var columns = useTrackFrames ? 4 : panelRect.Width >= panelRect.Height ? 2 : 1;
+        var rows = Math.Max(1, Math.Min(useTrackFrames ? 4 : 3, (int)Math.Ceiling(itemCount / (double)columns)));
+        const int gap = 8;
+        var cellWidth = Math.Max(1, (panelRect.Width - gap * (columns + 1)) / columns);
+        var cellHeight = Math.Max(1, (panelRect.Height - gap * (rows + 1)) / rows);
+        itemCount = Math.Min(itemCount, rows * columns);
 
         for (var index = 0; index < itemCount; index++)
         {
             var row = index / columns;
             var col = index % columns;
-            var x = rect.X + gap + col * (cellWidth + gap);
-            var y = rect.Y + gap + row * (cellHeight + gap);
+            var x = panelRect.X + gap + col * (cellWidth + gap);
+            var y = panelRect.Y + gap + row * (cellHeight + gap) + (row == 0 ? 2 : 0);
+
+            var name = useTrackFrames
+                ? $"素材{index + 1}.mp4"
+                : ResolveTrackEpisodeTextWithDuration(index, episodeNames, episodeDurations, projectTitle);
+            var duration = useTrackFrames && trackEpisodeIndex < episodeDurations.Count
+                ? Math.Max(0, Math.Min(10, episodeDurations[trackEpisodeIndex] - index * 10d))
+                : index < episodeDurations.Count ? episodeDurations[index] : 0d;
 
             using var card = BuildTrackThumbnailCard(
-                episodeFrames[index],
-                ResolveTrackEpisodeTextWithDuration(index, episodeNames, episodeDurations, projectTitle),
+                frames[index],
+                useTrackFrames ? $"{name}  {FormatTrackTimecode(duration)}" : name,
                 cellWidth,
                 cellHeight);
             canvas.Mutate(ctx => ctx.DrawImage(card, new Point(x, y), 1f));
+        }
+    }
+
+    private static void RenderMaterialVideoImages(
+        Image<Rgba32> canvas,
+        ProjectImageTemplatePage page,
+        IReadOnlyList<Image<Rgba32>> trackFrames)
+    {
+        var rects = page.GetRegions("material_video_images");
+        if (rects.Count == 0 || trackFrames.Count == 0)
+            return;
+
+        var sharedPadding = rects.Max(rect => NoteInt(rect, "cover_padding", 0, 0, 6));
+        for (var index = 0; index < rects.Count; index++)
+        {
+            var rect = sharedPadding > 0
+                ? ExpandRect(canvas, rects[index], sharedPadding, sharedPadding, sharedPadding, sharedPadding)
+                : rects[index];
+            using var thumb = ResizeCrop(trackFrames[index % trackFrames.Count], rect.Width, rect.Height);
+            canvas.Mutate(ctx => ctx.DrawImage(thumb, new Point(rect.X, rect.Y), 1f));
+
+            if (rect.Width < 80 || rect.Height < 24)
+                continue;
+
+            var badgeY = rect.Y + 7;
+            var addedRect = new ProjectImageTemplateRegion(rect.X + 4, badgeY, 39, 16);
+            var durationRect = new ProjectImageTemplateRegion(rect.X + rect.Width - 31, badgeY, 27, 16);
+            FillRect(canvas, addedRect, new Rgba32(5, 5, 5, 245));
+            FillRect(canvas, durationRect, new Rgba32(22, 22, 22, 235));
+            DrawSingleLineText(canvas, addedRect, "已添加", new Rgba32(238, 242, 244, 255), 8, true, "center", false);
+            DrawSingleLineText(
+                canvas,
+                durationRect,
+                NoteValue(rects[index], "duration") ?? "00:10",
+                new Rgba32(245, 245, 245, 255),
+                8,
+                true,
+                "center",
+                false);
         }
     }
 
@@ -557,40 +781,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         ProjectImageTemplateRegion rect,
         IReadOnlyList<Image<Rgba32>> frames)
     {
-        using var playheadOverlay = CapturePlayheadOverlay(canvas, rect);
-        var thumbHeight = GetTrackThumbnailHeight(rect);
-        var thumbY = Math.Max(0, (rect.Height - thumbHeight) / 2);
-        var clipWidth = Math.Max(28, Math.Min(72, (int)Math.Round(thumbHeight * 1.35)));
-        var clipCount = Math.Max(1, (int)Math.Ceiling(rect.Width / (double)clipWidth));
-
-        using var strip = new Image<Rgba32>(rect.Width, rect.Height, SampleVideoTrackBackground(canvas, rect, thumbY, thumbHeight));
-        for (var index = 0; index < clipCount; index++)
-        {
-            var x = index * clipWidth;
-            var width = Math.Min(clipWidth, rect.Width - x);
-            if (width <= 0)
-            {
-                break;
-            }
-
-            using var thumb = ResizeCrop(frames[index % frames.Count], clipWidth, thumbHeight);
-            if (width != clipWidth)
-            {
-                using var partial = thumb.Clone(ctx => ctx.Crop(new Rectangle(0, 0, width, thumbHeight)));
-                strip.Mutate(ctx => ctx.DrawImage(partial, new Point(x, thumbY), 1f));
-            }
-            else
-            {
-                strip.Mutate(ctx => ctx.DrawImage(thumb, new Point(x, thumbY), 1f));
-            }
-        }
-
-        if (playheadOverlay is not null)
-        {
-            strip.Mutate(ctx => ctx.DrawImage(playheadOverlay, Point.Empty, 1f));
-        }
-
-        canvas.Mutate(ctx => ctx.DrawImage(strip, new Point(rect.X, rect.Y), 1f));
+        ProjectImageAdvancedTrackRenderer.RenderStrip(canvas, rect, frames);
     }
 
     private static void RenderTrackTexts(
@@ -689,7 +880,11 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             ? Math.Max(0.1, durationSeconds * 0.5)
             : Math.Max(0.1, durationSeconds * currentPage / (pageCount + 1d));
         var playheadSlot = ResolveVideoTrackPlayheadSlot(rect, sampleCount);
-        var sampleTimes = BuildTrackSampleTimes(durationSeconds, sampleCount, focusTime, playheadSlot);
+        var fullEpisodeSampling = (NoteValue(rect, "sample_scope") ?? string.Empty).Trim().ToLowerInvariant()
+            is "full" or "full_episode" or "distributed";
+        var sampleTimes = fullEpisodeSampling
+            ? BuildFullEpisodeSampleTimes(durationSeconds, sampleCount)
+            : BuildTrackSampleTimes(durationSeconds, sampleCount, focusTime, playheadSlot);
         var frames = new Image<Rgba32>?[sampleTimes.Count];
         using var semaphore = new SemaphoreSlim(Math.Min(4, sampleTimes.Count));
         var tasks = sampleTimes.Select(async (time, index) =>
@@ -743,6 +938,23 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         }
 
         sampleTimes[slot] = focus;
+        return sampleTimes;
+    }
+
+    internal static IReadOnlyList<double> BuildFullEpisodeSampleTimes(double durationSeconds, int sampleCount)
+    {
+        var duration = Math.Max(0.1, durationSeconds);
+        var count = Math.Clamp(sampleCount <= 0 ? 18 : sampleCount, 4, 72);
+        var maximumTime = Math.Max(0.1, duration - 0.1);
+        var sampleTimes = new double[count];
+        for (var index = 0; index < count; index++)
+        {
+            sampleTimes[index] = Math.Clamp(
+                duration * (index + 1d) / (count + 1d),
+                0.1,
+                maximumTime);
+        }
+
         return sampleTimes;
     }
 

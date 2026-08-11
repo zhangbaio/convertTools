@@ -85,7 +85,7 @@ public static class TikTokProjectImageService
         }
         else
         {
-            templateDir = ResolveTemplateDirectory(settings);
+            templateDir = ResolveTemplateDirectory(settings, log);
             if (string.IsNullOrWhiteSpace(templateDir))
             {
                 throw new DirectoryNotFoundException(
@@ -225,7 +225,7 @@ public static class TikTokProjectImageService
             }
             else
             {
-                var templateDir = ResolveTemplateDirectory(normalized);
+                var templateDir = ResolveTemplateDirectory(normalized, log: null);
                 if (string.IsNullOrWhiteSpace(templateDir))
                     return false;
                 resourceFingerprint = ComputeDirectoryFingerprint(templateDir);
@@ -401,22 +401,77 @@ public static class TikTokProjectImageService
             context.WorkflowProjectDir);
     }
 
-    private static string ResolveTemplateDirectory(ClientSettings settings)
+    private static string ResolveTemplateDirectory(ClientSettings settings, Action<string>? log)
     {
-        var resolved = ProjectImageTemplateCatalog.ResolveTemplateDirectory(
-            settings.TiktokProjectImageTemplateRoot,
-            settings.TiktokProjectImageTemplateId,
-            fallbackDirectory: "",
-            projectRoot: null);
-        if (!string.IsNullOrWhiteSpace(resolved))
-            return resolved;
-
         var bundledRoot = Path.Combine(AppContext.BaseDirectory, "templates", "project-image");
-        return ProjectImageTemplateCatalog.ResolveTemplateDirectory(
-            bundledRoot,
-            ClientSettingsDefaults.TiktokProjectImageTemplateId,
-            fallbackDirectory: "",
-            projectRoot: null);
+        return ResolveTemplateDirectoryFromRoots(settings, bundledRoot, log);
+    }
+
+    internal static string ResolveTemplateDirectoryFromRoots(
+        ClientSettings settings,
+        string bundledRoot,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        var selectedId = (settings.TiktokProjectImageTemplateId ?? string.Empty).Trim();
+        if (selectedId.Length == 0)
+            selectedId = ClientSettingsDefaults.TiktokProjectImageTemplateId;
+
+        var explicitRoot = (settings.TiktokProjectImageTemplateRoot ?? string.Empty).Trim();
+        var explicitDirectory = FindSelectedTemplateDirectory(explicitRoot, selectedId);
+        if (!string.IsNullOrWhiteSpace(explicitDirectory))
+            return explicitDirectory;
+
+        var bundledDirectory = FindSelectedTemplateDirectory(bundledRoot, selectedId);
+        if (!string.IsNullOrWhiteSpace(bundledDirectory))
+        {
+            if (!string.IsNullOrWhiteSpace(explicitRoot))
+            {
+                log?.Invoke(
+                    $"配置模板根目录未找到所选模板“{selectedId}”：{explicitRoot}；" +
+                    $"已回落到内置同 ID 模板：{bundledDirectory}");
+            }
+
+            return bundledDirectory;
+        }
+
+        if (!string.IsNullOrWhiteSpace(explicitRoot))
+        {
+            log?.Invoke(
+                $"配置模板根目录与内置模板目录均未找到所选模板“{selectedId}”，不会回退到其他模板。");
+        }
+
+        return string.Empty;
+    }
+
+    private static string FindSelectedTemplateDirectory(string? root, string selectedId)
+    {
+        if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(selectedId))
+            return string.Empty;
+
+        string resolvedRoot;
+        try
+        {
+            resolvedRoot = Path.GetFullPath(root.Trim());
+            if (File.Exists(resolvedRoot) &&
+                string.Equals(Path.GetFileName(resolvedRoot), "template.json", StringComparison.OrdinalIgnoreCase))
+            {
+                resolvedRoot = Path.GetDirectoryName(resolvedRoot) ?? resolvedRoot;
+            }
+        }
+        catch
+        {
+            return string.Empty;
+        }
+
+        if (!Directory.Exists(resolvedRoot))
+            return string.Empty;
+
+        return ProjectImageTemplateCatalog.Discover(resolvedRoot)
+                   .FirstOrDefault(item => string.Equals(item.Id, selectedId, StringComparison.OrdinalIgnoreCase))
+                   ?.TemplateDirectory
+               ?? string.Empty;
     }
 
     private static int ResolveCount(ClientSettings settings) =>
@@ -529,7 +584,7 @@ public static class TikTokProjectImageService
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
     }
 
-    private static string ComputeDirectoryFingerprint(string directory)
+    internal static string ComputeDirectoryFingerprint(string directory)
     {
         var payload = DirectorySignature(directory);
         var json = JsonSerializer.Serialize(payload);
@@ -540,12 +595,36 @@ public static class TikTokProjectImageService
     {
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
             return Array.Empty<object>();
-        return Directory.EnumerateFiles(directory, "*.*", SearchOption.TopDirectoryOnly)
-            .Where(path => string.Equals(Path.GetFileName(path), "template.json", StringComparison.OrdinalIgnoreCase) ||
+        var root = Path.GetFullPath(directory);
+        return Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+            .Where(path => string.Equals(Path.GetExtension(path), ".json", StringComparison.OrdinalIgnoreCase) ||
                            string.Equals(Path.GetExtension(path), ".png", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-            .Select(FileSignature)
+            .Select(path => new
+            {
+                Path = path,
+                RelativePath = Path.GetRelativePath(root, path).Replace('\\', '/'),
+            })
+            .OrderBy(item => item.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .Select(item => RelativeFileSignature(item.Path, item.RelativePath))
             .ToArray();
+    }
+
+    private static object RelativeFileSignature(string path, string relativePath)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists)
+                return new object?[] { relativePath, 0, 0, string.Empty };
+
+            using var stream = File.OpenRead(path);
+            var contentHash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+            return new object?[] { relativePath, info.Length, info.LastWriteTimeUtc.Ticks, contentHash };
+        }
+        catch
+        {
+            return new object?[] { relativePath, 0, 0, string.Empty };
+        }
     }
 
     private static object FileSignature(string path)

@@ -56,7 +56,8 @@ public static class ClientSettingsWorkflowConfigWriter
             ["ProjectImageGenerationMode"] = settings.TiktokProjectImageGenerationMode,
             ["ProjectImageTemplateRoot"] = settings.TiktokProjectImageTemplateRoot,
             ["ProjectImageTemplateId"] = settings.TiktokProjectImageTemplateId,
-            ["ProjectImageTemplateName"] = ClientSettingsDefaults.TiktokProjectImageTemplateName,
+            ["ProjectImageTemplateName"] = TikTokProjectImageTemplateCatalog.ResolveName(
+                settings.TiktokProjectImageTemplateId),
             ["ProjectImageCount"] = settings.TiktokProjectImageCount,
             ["ProjectImageRenderEpisodeLimit"] = settings.TiktokProjectImageRenderEpisodeLimit,
             ["ProjectImageSubtitleAiMode"] = settings.TiktokProjectImageSubtitleAiMode,

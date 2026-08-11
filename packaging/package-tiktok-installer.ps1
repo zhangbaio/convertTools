@@ -105,6 +105,70 @@ function Copy-DirectoryContents {
     }
 }
 
+function Assert-ProjectImageTemplatesPublished {
+    param(
+        [Parameter(Mandatory = $true)][string]$PublishDirectory,
+        [Parameter(Mandatory = $true)][int[]]$TemplateNumbers
+    )
+
+    $publishedTemplateRoot = Join-Path $PublishDirectory "templates\project-image"
+    foreach ($templateNumber in $TemplateNumbers) {
+        $templateName = "image_template_project_image_$templateNumber"
+        $templateDirectory = Join-Path $publishedTemplateRoot $templateName
+        $rootManifestPath = Join-Path $templateDirectory "template.json"
+        if (-not (Test-Path -LiteralPath $rootManifestPath -PathType Leaf)) {
+            throw "Project image template manifest was not published: $rootManifestPath"
+        }
+
+        $templateBoundary = [System.IO.Path]::GetFullPath($templateDirectory).TrimEnd('\', '/') +
+            [System.IO.Path]::DirectorySeparatorChar
+        $manifestFiles = @(
+            Get-ChildItem -LiteralPath $templateDirectory -Recurse -File -Filter "template.json" |
+                Sort-Object FullName
+        )
+        foreach ($manifestFile in $manifestFiles) {
+            try {
+                $manifest = Get-Content -LiteralPath $manifestFile.FullName -Raw -Encoding UTF8 |
+                    ConvertFrom-Json
+            }
+            catch {
+                throw "Project image template manifest is invalid JSON: $($manifestFile.FullName) -> $($_.Exception.Message)"
+            }
+
+            $pages = @($manifest.templates)
+            if ($pages.Count -ne 4 -or [int]$manifest.count -ne 4) {
+                throw "Project image template manifest must contain four pages: $($manifestFile.FullName)"
+            }
+            if ($manifestFile.FullName -eq $rootManifestPath -and
+                [string]$manifest.id -ne "image-template-project-image-$templateNumber") {
+                throw "Project image template ID does not match its package: $($manifestFile.FullName) -> $($manifest.id)"
+            }
+
+            foreach ($page in $pages) {
+                $relativePagePath = [string]$page.file
+                if ([string]::IsNullOrWhiteSpace($relativePagePath)) {
+                    throw "Project image template page path is empty: $($manifestFile.FullName)"
+                }
+
+                $pagePath = [System.IO.Path]::GetFullPath(
+                    (Join-Path $manifestFile.DirectoryName $relativePagePath)
+                )
+                if (-not $pagePath.StartsWith(
+                        $templateBoundary,
+                        [System.StringComparison]::OrdinalIgnoreCase)) {
+                    throw "Project image template page escapes its template directory: $($manifestFile.FullName) -> $relativePagePath"
+                }
+                if (-not (Test-Path -LiteralPath $pagePath -PathType Leaf)) {
+                    throw "Project image template page was not published: $($manifestFile.FullName) -> $pagePath"
+                }
+                if ((Get-Item -LiteralPath $pagePath).Length -le 0) {
+                    throw "Project image template page is empty: $pagePath"
+                }
+            }
+        }
+    }
+}
+
 function Invoke-DownloadFile {
     param(
         [Parameter(Mandatory = $true)][string]$Url,
@@ -522,6 +586,8 @@ foreach ($relativePath in $fableCutRequiredFiles) {
         throw "FableCut runtime asset was not published: $publishedAsset"
     }
 }
+
+Assert-ProjectImageTemplatesPublished -PublishDirectory $PublishDir -TemplateNumbers (3..10)
 
 $publishTools = Join-Path $PublishDir "tools"
 $repoFonts = Join-Path $Root "src\ShortDrama\tools\fonts"

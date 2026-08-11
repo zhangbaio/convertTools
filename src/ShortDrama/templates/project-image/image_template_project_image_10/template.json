@@ -1,0 +1,107 @@
+{
+  "id": "image-template-project-image-10",
+  "name": "图片模板工程图10",
+  "mode": "image_template",
+  "extract_dialogue": false,
+  "asset_version": 2026080603,
+  "count": 4,
+  "description": "剪映四集双层视频轨工程图模板；保留对白、配乐、字幕、特效及关联轨，仅替换剧名、路径、播放器、视频素材卡和主视频轨画面。",
+  "templates": [
+    {
+      "file": "template1.png",
+      "regions": {
+        "top_title": {"x": 800, "y": 7, "width": 320, "height": 20, "note": "title_mode=episode"},
+        "draft_name": {"x": 1515, "y": 91, "width": 380, "height": 23, "note": "title_mode=episode"},
+        "autosave_status": {"x": 154, "y": 7, "width": 220, "height": 22, "note": "format=%H:%M:%S;suffix=自动保存本地;font_size=12;color=#A4A9AE;text_x_offset=19"},
+        "save_path": {"x": 1515, "y": 126, "width": 380, "height": 43, "note": "path_prefix=C:/Users/PC/AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft/"},
+        "player": {"x": 983, "y": 79, "width": 221, "height": 393},
+        "player_canvas_landscape": {"x": 790, "y": 79, "width": 607, "height": 395, "note": "fill=#292929"},
+        "player_landscape": {"x": 791, "y": 132, "width": 606, "height": 338},
+        "material_video_images": [
+          {"x": 117, "y": 149, "width": 119, "height": 80, "note": "duration=00:10;cover_padding=2"},
+          {"x": 254, "y": 149, "width": 119, "height": 80, "note": "duration=00:15"},
+          {"x": 390, "y": 149, "width": 119, "height": 80, "note": "duration=00:15"},
+          {"x": 527, "y": 149, "width": 119, "height": 80, "note": "duration=00:02"},
+          {"x": 117, "y": 262, "width": 119, "height": 80, "note": "duration=00:10"},
+          {"x": 254, "y": 262, "width": 119, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 262, "width": 119, "height": 80, "note": "duration=00:05"},
+          {"x": 527, "y": 262, "width": 119, "height": 80, "note": "duration=00:15"},
+          {"x": 117, "y": 374, "width": 119, "height": 80, "note": "duration=00:10;cover_padding=2"},
+          {"x": 254, "y": 374, "width": 119, "height": 80, "note": "duration=00:10"},
+          {"x": 390, "y": 374, "width": 119, "height": 80, "note": "duration=00:05"},
+          {"x": 527, "y": 374, "width": 119, "height": 80, "note": "duration=00:05"}
+        ],
+        "video_track_images": [
+          {"x": 183, "y": 773, "width": 1549, "height": 57, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=18;thumbnail_height=39;preserve_text_height=18;preserve_boundary_xs=301|476|656|669|789|848|907|1084|1202|1320|1379|1438|1556;preserve_boundary_width=3;clip_count=14;single_episode_track=1;track_episode_index=1;playhead_x=1201;playhead_brightness=255;playhead_alpha=255"}
+        ]
+      }
+    },
+    {
+      "file": "template2.png",
+      "regions": {
+        "top_title": {"x": 800, "y": 7, "width": 320, "height": 20, "note": "title_mode=episode"},
+        "draft_name": {"x": 1515, "y": 91, "width": 380, "height": 23, "note": "title_mode=episode"},
+        "autosave_status": {"x": 154, "y": 7, "width": 220, "height": 22, "note": "format=%H:%M:%S;suffix=自动保存本地;font_size=12;color=#A4A9AE;text_x_offset=19"},
+        "save_path": {"x": 1515, "y": 126, "width": 380, "height": 43, "note": "path_prefix=C:/Users/PC/AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft/"},
+        "player": {"x": 983, "y": 79, "width": 221, "height": 393},
+        "player_canvas_landscape": {"x": 790, "y": 79, "width": 602, "height": 395, "note": "fill=#292929"},
+        "player_landscape": {"x": 791, "y": 132, "width": 600, "height": 338},
+        "material_video_images": [
+          {"x": 117, "y": 374, "width": 119, "height": 80, "note": "duration=00:10;cover_padding=2"},
+          {"x": 254, "y": 374, "width": 119, "height": 80, "note": "duration=00:15"},
+          {"x": 390, "y": 374, "width": 119, "height": 80, "note": "duration=00:03"},
+          {"x": 527, "y": 374, "width": 119, "height": 80, "note": "duration=00:10"},
+          {"x": 117, "y": 486, "width": 119, "height": 80, "note": "duration=00:05"}
+        ],
+        "video_track_images": [
+          {"x": 183, "y": 725, "width": 1549, "height": 57, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=18;thumbnail_height=39;preserve_text_height=18;preserve_boundary_xs=363|724|1266|1627;preserve_boundary_width=3;clip_count=5;single_episode_track=1;track_episode_index=2;playhead_x=1573;playhead_brightness=255;playhead_alpha=255"}
+        ]
+      }
+    },
+    {
+      "file": "template3.png",
+      "regions": {
+        "top_title": {"x": 800, "y": 7, "width": 320, "height": 20, "note": "title_mode=episode"},
+        "draft_name": {"x": 1515, "y": 91, "width": 380, "height": 23, "note": "title_mode=episode"},
+        "autosave_status": {"x": 154, "y": 7, "width": 220, "height": 22, "note": "format=%H:%M:%S;suffix=自动保存本地;font_size=12;color=#A4A9AE;text_x_offset=19"},
+        "save_path": {"x": 1515, "y": 126, "width": 380, "height": 43, "note": "path_prefix=C:/Users/PC/AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft/"},
+        "player": {"x": 983, "y": 79, "width": 221, "height": 393},
+        "player_canvas_landscape": {"x": 790, "y": 79, "width": 602, "height": 395, "note": "fill=#292929"},
+        "player_landscape": {"x": 791, "y": 132, "width": 600, "height": 338},
+        "material_video_images": [
+          {"x": 117, "y": 374, "width": 119, "height": 80, "note": "duration=00:05;cover_padding=2"},
+          {"x": 254, "y": 374, "width": 119, "height": 80, "note": "duration=00:01"},
+          {"x": 390, "y": 374, "width": 119, "height": 80, "note": "duration=00:10"},
+          {"x": 527, "y": 374, "width": 119, "height": 80, "note": "duration=00:05"},
+          {"x": 117, "y": 486, "width": 119, "height": 80, "note": "duration=00:10"},
+          {"x": 254, "y": 486, "width": 119, "height": 80, "note": "duration=00:15"}
+        ],
+        "video_track_images": [
+          {"x": 183, "y": 762, "width": 1549, "height": 57, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=18;thumbnail_height=39;preserve_text_height=18;preserve_boundary_xs=352|691|1200|1370|1710;preserve_boundary_width=3;clip_count=6;single_episode_track=1;track_episode_index=3;playhead_x=1370;playhead_brightness=255;playhead_alpha=255"}
+        ]
+      }
+    },
+    {
+      "file": "template4.png",
+      "regions": {
+        "top_title": {"x": 800, "y": 7, "width": 320, "height": 20, "note": "title_mode=episode"},
+        "draft_name": {"x": 1515, "y": 91, "width": 380, "height": 23, "note": "title_mode=episode"},
+        "autosave_status": {"x": 154, "y": 7, "width": 220, "height": 22, "note": "format=%H:%M:%S;suffix=自动保存本地;font_size=12;color=#A4A9AE;text_x_offset=19"},
+        "save_path": {"x": 1515, "y": 126, "width": 380, "height": 43, "note": "path_prefix=C:/Users/PC/AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft/"},
+        "player": {"x": 983, "y": 79, "width": 221, "height": 393},
+        "player_canvas_landscape": {"x": 790, "y": 79, "width": 602, "height": 395, "note": "fill=#292929"},
+        "player_landscape": {"x": 791, "y": 132, "width": 600, "height": 338},
+        "material_video_images": [
+          {"x": 254, "y": 374, "width": 119, "height": 80, "note": "duration=00:03;cover_padding=2"},
+          {"x": 390, "y": 374, "width": 119, "height": 80, "note": "duration=00:05"},
+          {"x": 527, "y": 374, "width": 119, "height": 80, "note": "duration=00:15"},
+          {"x": 117, "y": 486, "width": 119, "height": 80, "note": "duration=00:10"},
+          {"x": 254, "y": 486, "width": 119, "height": 80, "note": "duration=00:10"}
+        ],
+        "video_track_images": [
+          {"x": 183, "y": 749, "width": 1549, "height": 57, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=18;thumbnail_height=39;preserve_text_height=18;preserve_boundary_xs=363|724|1266|1627;preserve_boundary_width=3;clip_count=5;single_episode_track=1;track_episode_index=4;playhead_x=614;playhead_brightness=255;playhead_alpha=255"}
+        ]
+      }
+    }
+  ]
+}

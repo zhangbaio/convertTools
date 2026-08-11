@@ -402,7 +402,8 @@
                                 <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TiktokProjectImageTemplateRoot}" Watermark="留空使用内置模板" />
 
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="截图模板" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TiktokProjectImageTemplateId}" IsReadOnly="True" />
+                                <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ProjectImageTemplateCombo"
+                                          Width="460" HorizontalAlignment="Left" />
 
                                 <TextBlock Grid.Row="2" Grid.Column="0" Text="工程图AI台词" VerticalAlignment="Center" />
                                 <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ProjectImageSubtitleAiModeCombo" Width="180" HorizontalAlignment="Left" />
