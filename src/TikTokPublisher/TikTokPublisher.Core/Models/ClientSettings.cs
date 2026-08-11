@@ -103,6 +103,8 @@ public sealed class ClientSettings
     public int TiktokProjectImageCount { get; set; } = ClientSettingsDefaults.TiktokProjectImageCount;
     public int TiktokProjectImageRenderEpisodeLimit { get; set; } = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
     public string TiktokProjectImageSubtitleAiMode { get; set; } = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
+    public string TiktokProjectImageFableCutRoot { get; set; } = ClientSettingsDefaults.TiktokProjectImageFableCutRoot;
+    public int TiktokProjectImageFableCutClipCount { get; set; } = ClientSettingsDefaults.TiktokProjectImageFableCutClipCount;
     public string TiktokProofTemplateDocxPath { get; set; } = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
     public string TiktokProofWpsPath { get; set; } = ClientSettingsDefaults.TiktokProofWpsPath;
     // Legacy global values retained only for one-time/account-unmigrated compatibility.
@@ -244,6 +246,8 @@ public sealed class ClientSettings
         TiktokProjectImageCount = TiktokProjectImageCount,
         TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit,
         TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode,
+        TiktokProjectImageFableCutRoot = TiktokProjectImageFableCutRoot,
+        TiktokProjectImageFableCutClipCount = TiktokProjectImageFableCutClipCount,
         TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath,
         TiktokProofWpsPath = TiktokProofWpsPath,
         TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName,

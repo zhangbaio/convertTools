@@ -218,7 +218,13 @@ public sealed class TikTokProofMaterialServiceTests
         using var fixture = new ProofTemplateFixture();
         var templatePath = TikTokProofMaterialTemplateProvider.EnsureBuiltInTemplate(fixture.DirectoryPath);
         var sourceSnapshot = ReadDocumentSnapshot(templatePath);
-        var request = CreateRequest(templatePath, Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
+        var request = new TikTokProofMaterialRequest(
+            templatePath,
+            Path.Combine(fixture.DirectoryPath, "证明材料.pdf"),
+            TikTokProofMaterialDocumentBuilder.TemplateCopyrightCompanyName,
+            TikTokProofMaterialDocumentBuilder.TemplateDeclarantCompanyName,
+            "新剧名",
+            new DateOnly(2026, 7, 14))
         {
             TemporaryDirectory = fixture.DirectoryPath,
         };
@@ -227,11 +233,9 @@ public sealed class TikTokProofMaterialServiceTests
         try
         {
             var outputSnapshot = ReadDocumentSnapshot(result.DocxPath);
-            sourceSnapshot.SealRotation.Should().Be(HalfTurnDrawingAngle);
-            sourceSnapshot.AnchorXml.Should().Contain("t=\"745\"").And.Contain("b=\"745\"");
             outputSnapshot.SealRotation.Should().BeNull();
             outputSnapshot.AnchorXmlWithoutRotation.Should().Be(sourceSnapshot.AnchorXmlWithoutRotation);
-            outputSnapshot.AnchorXml.Should().Contain("t=\"745\"").And.Contain("b=\"745\"");
+            outputSnapshot.ImageBytes.Should().Equal(sourceSnapshot.ImageBytes);
         }
         finally
         {
@@ -699,6 +703,40 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
+    public void Builder_supports_new_builtin_template_with_tiktok_recipient_format()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var templatePath = TikTokProofMaterialTemplateProvider.ResolveTemplatePath(
+            null,
+            fixture.DirectoryPath);
+        var request = new TikTokProofMaterialRequest(
+            templatePath,
+            Path.Combine(fixture.DirectoryPath, "proof.pdf"),
+            "TikTok Inc.",
+            TikTokProofMaterialDocumentBuilder.TemplateDeclarantCompanyName,
+            "新剧名",
+            new DateOnly(2026, 8, 11))
+        {
+            TemporaryDirectory = fixture.DirectoryPath,
+        };
+
+        var result = new TikTokProofMaterialDocumentBuilder().CreateTemporaryDocx(request);
+        try
+        {
+            var snapshot = ReadDocumentSnapshot(result.DocxPath);
+            snapshot.Text.Should().Contain("致：TikTok Inc.（下称 “贵方”）");
+            snapshot.Text.Should().Contain("剧名暂定【新剧名】");
+            snapshot.Text.Should().NotContain(TikTokProofMaterialDocumentBuilder.TemplateDramaTitle);
+            result.Replacements.Should().Be(
+                new TikTokProofMaterialReplacementCounts(1, 2, 1, 1, 0));
+        }
+        finally
+        {
+            TikTokProofMaterialDocumentBuilder.TryDeleteDirectory(result.WorkingDirectory);
+        }
+    }
+
+    [Fact]
     public void Queue_request_does_not_require_agreement_inputs_for_auxiliary_only_materials()
     {
         var item = new QueueProjectItem { NewTitle = "辅助材料剧名" };
@@ -1127,8 +1165,8 @@ public sealed class TikTokProofMaterialServiceTests
         new(
             templatePath,
             outputPath,
-            TikTokProofMaterialDocumentBuilder.TemplateCopyrightCompanyName,
-            TikTokProofMaterialDocumentBuilder.TemplateDeclarantCompanyName,
+            TikTokProofMaterialDocumentBuilder.LegacyTemplateCopyrightCompanyName,
+            TikTokProofMaterialDocumentBuilder.LegacyTemplateDeclarantCompanyName,
             "新剧名",
             new DateOnly(2026, 7, 14));
 

@@ -239,16 +239,39 @@ public static class TikTokSilenceAsrService
         Action<string>? log,
         CancellationToken ct)
     {
+        var segments = await RecognizeLocalTranscriptAsync(videoPath, settings, log, ct)
+            .ConfigureAwait(false);
+        return LocalParaformerAsrClient.ToSpeechIntervals(segments);
+    }
+
+    /// <summary>
+    /// 强制使用本地 Paraformer 识别视频台词。该入口负责抽取 16kHz 单声道 WAV，
+    /// 并在识别完成或失败后清理临时文件。
+    /// </summary>
+    public static async Task<IReadOnlyList<TranscriptSegment>> RecognizeLocalTranscriptAsync(
+        string videoPath,
+        ClientSettings settings,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(videoPath);
+        ArgumentNullException.ThrowIfNull(settings);
+        ct.ThrowIfCancellationRequested();
+
         var (ok, reason) = SherpaOnnxModelResolver.CheckAvailable(settings);
         if (!ok)
             throw new InvalidOperationException(reason);
 
+        log?.Invoke($"本地 Paraformer ASR：正在抽取音频（{Path.GetFileName(videoPath)}）…");
         var wavPath = await ExtractAsrWavAsync(videoPath, ct).ConfigureAwait(false);
         try
         {
             log?.Invoke("本地 Paraformer ASR 识别中…");
-            return await LocalParaformerAsrClient.RecognizeSpeechIntervalsAsync(wavPath, settings, ct)
+            var segments = await LocalParaformerAsrClient
+                .RecognizeTranscriptSegmentsAsync(wavPath, settings, ct)
                 .ConfigureAwait(false);
+            log?.Invoke($"本地 Paraformer ASR 完成：识别到 {segments.Count} 段台词。");
+            return segments;
         }
         finally
         {
@@ -392,15 +415,23 @@ public static class TikTokSilenceAsrService
         var tempDir = Path.Combine(Path.GetTempPath(), $"tiktok-silence-asr-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
         var wav = Path.Combine(tempDir, Path.GetFileNameWithoutExtension(videoPath) + ".16k.wav");
-        await FfmpegRunner.RunAsync(ffmpeg, new[]
+        try
         {
-            "-y", "-hide_banner", "-loglevel", "error",
-            "-i", videoPath, "-vn", "-ac", "1", "-ar", "16000",
-            "-c:a", "pcm_s16le", wav,
-        }, ct).ConfigureAwait(false);
-        if (!File.Exists(wav))
-            throw new InvalidOperationException("音频抽取失败");
-        return wav;
+            await FfmpegRunner.RunAsync(ffmpeg, new[]
+            {
+                "-y", "-hide_banner", "-loglevel", "error",
+                "-i", videoPath, "-vn", "-ac", "1", "-ar", "16000",
+                "-c:a", "pcm_s16le", wav,
+            }, ct).ConfigureAwait(false);
+            if (!File.Exists(wav))
+                throw new InvalidOperationException("音频抽取失败");
+            return wav;
+        }
+        catch
+        {
+            TryDelete(tempDir);
+            throw;
+        }
     }
 
     public static (double MaxGapSeconds, double StartSeconds, double EndSeconds) ComputeMaxNoSpeechGap(

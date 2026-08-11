@@ -3,6 +3,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace TikTokPublisher.Ui.Views;
@@ -10,6 +11,7 @@ namespace TikTokPublisher.Ui.Views;
 public partial class SystemSettingsView : UserControl
 {
     private SystemSettingsViewModel? _vm;
+    private bool _syncingProjectImageTemplateCombo;
 
     public SystemSettingsView()
     {
@@ -41,6 +43,8 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.PosterMode)
                 or nameof(SystemSettingsViewModel.ImageProvider)
                 or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
+                or nameof(SystemSettingsViewModel.TiktokProjectImageGenerationMode)
+                or nameof(SystemSettingsViewModel.TiktokProjectImageTemplateId)
                 or nameof(SystemSettingsViewModel.TiktokProjectImageSubtitleAiMode)
                 or nameof(SystemSettingsViewModel.TiktokProofPdfRenderer)
                 or nameof(SystemSettingsViewModel.ManagementDedupScope))
@@ -130,6 +134,14 @@ public partial class SystemSettingsView : UserControl
         PosterTitleVerifyModeCombo.Items.Add(CreateItem("AI重试后阻断", "blocking"));
         PosterTitleVerifyModeCombo.SelectionChanged += OnPosterTitleVerifyModeChanged;
 
+        ProjectImageGenerationModeCombo.Items.Clear();
+        ProjectImageGenerationModeCombo.Items.Add(CreateItem("图片模板", "image_template"));
+        ProjectImageGenerationModeCombo.Items.Add(CreateItem("FableCut真实工程", "fablecut"));
+        ProjectImageGenerationModeCombo.SelectionChanged += OnProjectImageGenerationModeChanged;
+
+        ProjectImageTemplateCombo.SelectionChanged -= OnProjectImageTemplateChanged;
+        ProjectImageTemplateCombo.SelectionChanged += OnProjectImageTemplateChanged;
+
         ProjectImageSubtitleAiModeCombo.Items.Clear();
         ProjectImageSubtitleAiModeCombo.Items.Add(CreateItem("快速（推荐）", "fast"));
         ProjectImageSubtitleAiModeCombo.Items.Add(CreateItem("准确", "accurate"));
@@ -164,6 +176,8 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(PosterModeCombo, ClientSettingsDefaults.PosterMode);
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
         SelectComboItem(PosterTitleVerifyModeCombo, _vm.PosterTitleVerifyMode);
+        SelectComboItem(ProjectImageGenerationModeCombo, _vm.TiktokProjectImageGenerationMode);
+        SyncProjectImageTemplateComboFromVm();
         SelectComboItem(ProjectImageSubtitleAiModeCombo, _vm.TiktokProjectImageSubtitleAiMode);
         SelectComboItem(ProofPdfRendererCombo, _vm.TiktokProofPdfRenderer);
         SelectComboItem(ManagementDedupScopeCombo, _vm.ManagementDedupScope);
@@ -179,6 +193,44 @@ public partial class SystemSettingsView : UserControl
                 combo.SelectedItem = item;
                 return;
             }
+        }
+    }
+
+    private void SyncProjectImageTemplateComboFromVm()
+    {
+        if (_vm is null)
+            return;
+
+        var selectedId = (_vm.TiktokProjectImageTemplateId ?? string.Empty).Trim();
+        if (selectedId.Length == 0)
+            selectedId = ClientSettingsDefaults.TiktokProjectImageTemplateId;
+
+        _syncingProjectImageTemplateCombo = true;
+        try
+        {
+            ProjectImageTemplateCombo.Items.Clear();
+            foreach (var option in TikTokProjectImageTemplateCatalog.BuiltInOptions)
+                ProjectImageTemplateCombo.Items.Add(CreateItem(option.SelectionLabel, option.Id));
+
+            var selectedItem = ProjectImageTemplateCombo.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => string.Equals(
+                    item.Tag as string,
+                    selectedId,
+                    StringComparison.OrdinalIgnoreCase));
+            if (selectedItem is null)
+            {
+                selectedItem = CreateItem(
+                    TikTokProjectImageTemplateCatalog.CreateSelectionLabel(selectedId),
+                    selectedId);
+                ProjectImageTemplateCombo.Items.Add(selectedItem);
+            }
+
+            ProjectImageTemplateCombo.SelectedItem = selectedItem;
+        }
+        finally
+        {
+            _syncingProjectImageTemplateCombo = false;
         }
     }
 
@@ -250,6 +302,26 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || ProjectImageSubtitleAiModeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.TiktokProjectImageSubtitleAiMode = item.Tag as string ?? "fast";
+    }
+
+    private void OnProjectImageGenerationModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ProjectImageGenerationModeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.TiktokProjectImageGenerationMode = item.Tag as string ?? ClientSettingsDefaults.TiktokProjectImageGenerationMode;
+    }
+
+    private void OnProjectImageTemplateChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingProjectImageTemplateCombo ||
+            _vm is null ||
+            ProjectImageTemplateCombo.SelectedItem is not ComboBoxItem item ||
+            item.Tag is not string templateId ||
+            string.IsNullOrWhiteSpace(templateId))
+        {
+            return;
+        }
+
+        _vm.TiktokProjectImageTemplateId = templateId;
     }
 
     private void OnProofPdfRendererChanged(object? sender, SelectionChangedEventArgs e)

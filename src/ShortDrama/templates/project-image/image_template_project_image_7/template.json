@@ -1,0 +1,146 @@
+{
+  "id": "image-template-project-image-7",
+  "name": "图片模板工程图7",
+  "mode": "image_template",
+  "asset_version": 2026073102,
+  "count": 4,
+  "description": "剪映素材与单集时间线模板；每页固定使用前四集中的对应一集。",
+  "templates": [
+    {
+      "file": "template1.png",
+      "regions": {
+        "top_title": {
+          "x": 800,
+          "y": 7,
+          "width": 320,
+          "height": 20,
+          "note": "title_mode=episode"
+        },
+        "material_panel": {
+          "x": 117,
+          "y": 149,
+          "width": 549,
+          "height": 396,
+          "note": "source=track_frames;item_count=16"
+        },
+        "player": {
+          "x": 983,
+          "y": 79,
+          "width": 230,
+          "height": 395
+        },
+        "video_track_images": [
+          {
+            "x": 87,
+            "y": 774,
+            "width": 1817,
+            "height": 75,
+            "note": "replace_image_only=1;thumbnail_y=17;thumbnail_height=40;preserve_text_height=20;preserve_boundary_xs=415|748|1076|1407|1738;preserve_boundary_width=8;single_episode_track=1;track_episode_index=1;playhead_x=893;playhead_brightness=255;playhead_alpha=255"
+          }
+        ]
+      }
+    },
+    {
+      "file": "template2.png",
+      "regions": {
+        "top_title": {
+          "x": 800,
+          "y": 7,
+          "width": 320,
+          "height": 20,
+          "note": "title_mode=episode"
+        },
+        "material_panel": {
+          "x": 117,
+          "y": 149,
+          "width": 549,
+          "height": 396,
+          "note": "source=track_frames;item_count=6"
+        },
+        "player": {
+          "x": 983,
+          "y": 79,
+          "width": 230,
+          "height": 395
+        },
+        "video_track_images": [
+          {
+            "x": 87,
+            "y": 774,
+            "width": 1817,
+            "height": 75,
+            "note": "replace_image_only=1;thumbnail_y=17;thumbnail_height=40;preserve_text_height=20;preserve_boundary_xs=427|771|1112|1455|1796;preserve_boundary_width=8;single_episode_track=1;track_episode_index=2;playhead_x=923;playhead_brightness=255;playhead_alpha=255"
+          }
+        ]
+      }
+    },
+    {
+      "file": "template3.png",
+      "regions": {
+        "top_title": {
+          "x": 800,
+          "y": 7,
+          "width": 320,
+          "height": 20,
+          "note": "title_mode=episode"
+        },
+        "material_panel": {
+          "x": 117,
+          "y": 149,
+          "width": 549,
+          "height": 396,
+          "note": "source=track_frames;item_count=6"
+        },
+        "player": {
+          "x": 983,
+          "y": 79,
+          "width": 230,
+          "height": 395
+        },
+        "video_track_images": [
+          {
+            "x": 87,
+            "y": 774,
+            "width": 1817,
+            "height": 75,
+            "note": "replace_image_only=1;thumbnail_y=17;thumbnail_height=40;preserve_text_height=20;preserve_boundary_xs=526|963|1404|1842;preserve_boundary_width=8;single_episode_track=1;track_episode_index=3;playhead_x=727;playhead_brightness=255;playhead_alpha=255"
+          }
+        ]
+      }
+    },
+    {
+      "file": "template4.png",
+      "regions": {
+        "top_title": {
+          "x": 800,
+          "y": 7,
+          "width": 320,
+          "height": 20,
+          "note": "title_mode=episode"
+        },
+        "material_panel": {
+          "x": 117,
+          "y": 149,
+          "width": 549,
+          "height": 396,
+          "note": "source=track_frames;item_count=5"
+        },
+        "player": {
+          "x": 983,
+          "y": 79,
+          "width": 230,
+          "height": 395
+        },
+        "video_track_images": [
+          {
+            "x": 87,
+            "y": 774,
+            "width": 1817,
+            "height": 75,
+            "note": "replace_image_only=1;thumbnail_y=17;thumbnail_height=40;preserve_text_height=20;preserve_boundary_xs=359|632|906|1179|1454|1726;preserve_boundary_width=8;single_episode_track=1;track_episode_index=4;playhead_x=509;playhead_brightness=255;playhead_alpha=255"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -5,8 +5,10 @@ public static class QueueStepKeys
     public const string Download = "download";
     public const string RewriteInfo = "rewrite_info";
     public const string GeneratePoster = "generate_poster";
+    public const string GenerateEpisodeScript = "generate_episode_script";
     public const string GenerateProjectImages = "generate_project_images";
     public const string GenerateProofMaterial = "generate_proof_material";
+    public const string GenerateTimestampCertificate = "generate_timestamp_certificate";
     public const string SmallVideoRepair = "small_video_repair";
     public const string VideoTranslate = "video_translate";
     public const string SilenceDetect = "silence_detect";
@@ -75,14 +77,18 @@ public sealed class QueueProjectItem
         // after a title rename). Only legacy uploaded records that predate this step are
         // backfilled as completed.
         var hadProofMaterialState = StepStates.ContainsKey(QueueStepKeys.GenerateProofMaterial);
+        var hadEpisodeScriptState = StepStates.ContainsKey(QueueStepKeys.GenerateEpisodeScript);
+        var hadTimestampState = StepStates.ContainsKey(QueueStepKeys.GenerateTimestampCertificate);
 
         foreach (var key in new[]
                  {
                      QueueStepKeys.Download,
                      QueueStepKeys.RewriteInfo,
                      QueueStepKeys.GeneratePoster,
+                     QueueStepKeys.GenerateEpisodeScript,
                      QueueStepKeys.GenerateProjectImages,
                      QueueStepKeys.GenerateProofMaterial,
+                     QueueStepKeys.GenerateTimestampCertificate,
                      QueueStepKeys.DeleteSourceVideos,
                      QueueStepKeys.UploadSeries,
                      QueueStepKeys.MaterialValidate,
@@ -97,6 +103,10 @@ public sealed class QueueProjectItem
         {
             if (!hadProofMaterialState)
                 StepStates[QueueStepKeys.GenerateProofMaterial] = QueueStepStatus.Completed;
+            if (!hadEpisodeScriptState)
+                StepStates[QueueStepKeys.GenerateEpisodeScript] = QueueStepStatus.Completed;
+            if (!hadTimestampState)
+                StepStates[QueueStepKeys.GenerateTimestampCertificate] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.MaterialValidate) == QueueStepStatus.Pending)
                 StepStates[QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.GenerateProjectImages) == QueueStepStatus.Pending)

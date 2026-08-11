@@ -251,6 +251,7 @@ public sealed class AccountStore
         if (account.TiktokProjectConcurrency <= 0) account.TiktokProjectConcurrency = 4;
         account.TiktokProofCopyrightCompanyName = (account.TiktokProofCopyrightCompanyName ?? "").Trim();
         account.TiktokProofDeclarantCompanyName = (account.TiktokProofDeclarantCompanyName ?? "").Trim();
+        account.TiktokTimestampApplicantName = (account.TiktokTimestampApplicantName ?? "").Trim();
         account.TiktokProofSealPath = (account.TiktokProofSealPath ?? "").Trim();
         account.TiktokArchiveRootDir = (account.TiktokArchiveRootDir ?? "").Trim();
         account.TiktokCopyrightMaterialTypes = TikTokPublishConstants

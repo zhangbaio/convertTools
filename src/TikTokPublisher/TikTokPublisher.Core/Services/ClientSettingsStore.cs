@@ -341,7 +341,7 @@ public static class ClientSettingsStore
             ClientSettingsDefaults.PosterGenerationSafeRetryPrompt);
         settings.PosterNameSystemPrompt = DefaultIfBlank(settings.PosterNameSystemPrompt, ClientSettingsDefaults.PosterNameSystemPrompt);
         settings.PosterNameUserPrompt = DefaultIfBlank(settings.PosterNameUserPrompt, ClientSettingsDefaults.PosterNameUserPrompt);
-        settings.TiktokProjectImageGenerationMode = ClientSettingsDefaults.TiktokProjectImageGenerationMode;
+        settings.TiktokProjectImageGenerationMode = NormalizeProjectImageGenerationMode(settings.TiktokProjectImageGenerationMode);
         settings.TiktokProjectImageTemplateRoot = (settings.TiktokProjectImageTemplateRoot ?? "").Trim();
         settings.TiktokProjectImageTemplateId = DefaultIfBlank(
             settings.TiktokProjectImageTemplateId,
@@ -359,6 +359,13 @@ public static class ClientSettingsStore
             1,
             200);
         settings.TiktokProjectImageSubtitleAiMode = NormalizeProjectImageSubtitleAiMode(settings.TiktokProjectImageSubtitleAiMode);
+        settings.TiktokProjectImageFableCutRoot = (settings.TiktokProjectImageFableCutRoot ?? "").Trim();
+        settings.TiktokProjectImageFableCutClipCount = Math.Clamp(
+            settings.TiktokProjectImageFableCutClipCount <= 0
+                ? ClientSettingsDefaults.TiktokProjectImageFableCutClipCount
+                : settings.TiktokProjectImageFableCutClipCount,
+            12,
+            36);
         settings.TiktokProofTemplateDocxPath = (settings.TiktokProofTemplateDocxPath ?? "").Trim();
         if (TikTokProofMaterialTemplateProvider.IsLegacyDefaultPath(settings.TiktokProofTemplateDocxPath))
             settings.TiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
@@ -483,6 +490,14 @@ public static class ClientSettingsStore
         {
             "accurate" or "fast" or "off" => (value ?? ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode).Trim().ToLowerInvariant(),
             _ => ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode
+        };
+
+    private static string NormalizeProjectImageGenerationMode(string? value) =>
+        (value ?? ClientSettingsDefaults.TiktokProjectImageGenerationMode).Trim().ToLowerInvariant() switch
+        {
+            "fablecut" or "fablecut_editor" => "fablecut",
+            "image_template" or "image_templates" or "image_template_overlay" => "image_template",
+            _ => ClientSettingsDefaults.TiktokProjectImageGenerationMode,
         };
 
     private static string NormalizeProofPdfRenderer(string? value) =>

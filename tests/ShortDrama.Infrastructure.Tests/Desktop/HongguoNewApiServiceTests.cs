@@ -20,6 +20,20 @@ public sealed class HongguoNewApiServiceTests
     }
 
     [Fact]
+    public void HongguoDeviceId_Identifies_Legacy_32Hex_And_Explains_Migration()
+    {
+        const string legacyDeviceId = "c59044ea7f4c58d5cb1c2465cc30c9a2";
+
+        HongguoDeviceId.Normalize(legacyDeviceId)
+            .Should().Be("C59044EA7F4C58D5CB1C2465CC30C9A2");
+        HongguoDeviceId.LooksLikeLegacyHex32(legacyDeviceId).Should().BeTrue();
+        HongguoDeviceId.GetV14ValidationMessage(legacyDeviceId)
+            .Should().Contain("旧版 1.5.x")
+            .And.Contain("读取设备标识")
+            .And.Contain("重新绑定账号");
+    }
+
+    [Fact]
     public void HongguoClientVersion_Allows_Only_14x()
     {
         HongguoClientVersion.Default.Should().Be("1.4.2");

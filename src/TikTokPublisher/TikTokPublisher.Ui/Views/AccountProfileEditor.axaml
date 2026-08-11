@@ -229,12 +229,12 @@
                             <TextBlock Classes="formLabel" Grid.Row="20" Grid.Column="0" Text="上传材料类型" VerticalAlignment="Top" Margin="0,5,0,0" />
                             <StackPanel Grid.Row="20" Grid.Column="1" Spacing="6">
                                 <CheckBox x:Name="ProductionAgreementMaterialBox" Content="合作协议（核心）" />
-                                <TextBlock Text="自动上传当前项目生成的“证明材料.pdf”。勾选下方材料时，生成证明材料步骤会同步产出对应文件并尝试自动上传（目前支持：AI 生成截图、原始文件信息、剪辑工程文件/工程图）："
+                                <TextBlock Text="自动上传当前项目生成的“证明材料.pdf”。勾选“备案/发行许可”后会自动生成可信时间戳认证证书，并上传到 TikTok 的“网络剧片备案、发行许可、监管审批文件”材料栏："
                                            Classes="pageSummary"
                                            TextWrapping="Wrap" />
                                 <WrapPanel Orientation="Horizontal">
                                     <CheckBox x:Name="WorkRegistrationMaterialBox" Content="作品登记证书" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="FilingLicenseMaterialBox" Content="备案/发行许可" Margin="0,0,12,6" />
+                                    <CheckBox x:Name="FilingLicenseMaterialBox" Content="备案/发行许可（上传可信时间戳）" Margin="0,0,12,6" />
                                     <CheckBox x:Name="RightsNoticeMaterialBox" Content="片头片尾权利标识" Margin="0,0,12,6" />
                                     <CheckBox x:Name="AiScreenshotsMaterialBox" Content="AI 生成截图" Margin="0,0,12,6" />
                                     <CheckBox x:Name="EditingProjectMaterialBox" Content="剪辑工程文件" Margin="0,0,12,6" />
@@ -294,20 +294,23 @@
                                    Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid Classes="profileForm"
                               ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto"
                               RowSpacing="10"
                               ColumnSpacing="10">
                             <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="本公司/声明人" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" x:Name="ProofDeclarantCompanyNameBox" Watermark="用于正文和声明人" />
 
-                            <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="印章图片" VerticalAlignment="Center" />
-                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">
+                            <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="可信时间戳申请人" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="TimestampApplicantNameBox" Watermark="留空时使用本公司/声明人" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="印章图片" VerticalAlignment="Center" />
+                            <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto">
                                 <TextBox Grid.Column="0" x:Name="ProofSealPathBox" Watermark="PNG、JPG、JPEG 或 BMP 图片" />
                                 <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofSealClick" Margin="8,0,0,0" />
                             </Grid>
 
-                            <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="致贵方名称" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" x:Name="ProofCopyrightCompanyNameBox" Watermark="用于“致【…】（下称贵方）”" />
+                            <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="致贵方名称" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="3" Grid.Column="1" x:Name="ProofCopyrightCompanyNameBox" Watermark="用于“致【…】（下称贵方）”" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

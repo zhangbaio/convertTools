@@ -7,6 +7,7 @@ public static class TikTokPublishConstants
 {
     public const string ProductionAgreementMaterialType = "production_agreement";
     public const string SourceFileInformationMaterialType = "source_file_information";
+    public const string FilingOrDistributionLicenseMaterialType = "filing_or_distribution_license";
     public const string AiGenerationScreenshotsMaterialType = "ai_generation_screenshots";
     public const string EditingProjectFilesMaterialType = "editing_project_files";
     public const string ContractIdModeManual = "manual";
@@ -16,12 +17,29 @@ public static class TikTokPublishConstants
     {
         ["production_agreement"] = "制作协议、联合出品协议等合作协议",
         ["work_registration_certificate"] = "作品登记证书",
-        ["filing_or_distribution_license"] = "网络剧片备案、发行许可、监管审批文件",
+        [FilingOrDistributionLicenseMaterialType] = "网络剧片备案、发行许可、监管审批文件、可信时间戳认证证书",
         ["opening_ending_rights_notice"] = "片头片尾及权利标识",
         [AiGenerationScreenshotsMaterialType] = "AI 生成过程截图",
         [EditingProjectFilesMaterialType] = "剪辑工程文件",
         [SourceFileInformationMaterialType] = "原始文件或素材文件信息",
     };
+
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> CopyrightMaterialLabelAliases =
+        new Dictionary<string, IReadOnlyList<string>>
+        {
+            [FilingOrDistributionLicenseMaterialType] =
+                ["网络剧片备案、发行许可、监管审批文件"],
+        };
+
+    public static IReadOnlyList<string> GetCopyrightMaterialLabelCandidates(string materialType)
+    {
+        var candidates = new List<string>();
+        if (CopyrightMaterialLabels.TryGetValue(materialType, out var label))
+            candidates.Add(label);
+        if (CopyrightMaterialLabelAliases.TryGetValue(materialType, out var aliases))
+            candidates.AddRange(aliases);
+        return candidates.Distinct(StringComparer.Ordinal).ToArray();
+    }
 
     /// <summary>
     /// TikTok 版权材料下拉项使用的稳定 i18n key。页面翻译资源异常时会直接显示这些 key，
@@ -54,7 +72,7 @@ public static class TikTokPublishConstants
 
     public static readonly IReadOnlySet<string> AuxiliaryCopyrightMaterialTypes = new HashSet<string>(StringComparer.Ordinal)
     {
-        "filing_or_distribution_license",
+        FilingOrDistributionLicenseMaterialType,
         "opening_ending_rights_notice",
         AiGenerationScreenshotsMaterialType,
         EditingProjectFilesMaterialType,
