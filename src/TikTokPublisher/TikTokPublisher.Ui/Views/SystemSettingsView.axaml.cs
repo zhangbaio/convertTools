@@ -198,7 +198,7 @@ public partial class SystemSettingsView : UserControl
 
     private void SyncProjectImageTemplateComboFromVm()
     {
-        if (_vm is null)
+        if (_vm is null || _syncingProjectImageTemplateCombo)
             return;
 
         var selectedId = (_vm.TiktokProjectImageTemplateId ?? string.Empty).Trim();
@@ -321,7 +321,18 @@ public partial class SystemSettingsView : UserControl
             return;
         }
 
-        _vm.TiktokProjectImageTemplateId = templateId;
+        // Updating the view model raises PropertyChanged synchronously. The view reacts by
+        // synchronizing all combo boxes, which must not clear this ComboBox while Avalonia is
+        // still committing the user's selection; doing so corrupts its internal selected index.
+        _syncingProjectImageTemplateCombo = true;
+        try
+        {
+            _vm.TiktokProjectImageTemplateId = templateId;
+        }
+        finally
+        {
+            _syncingProjectImageTemplateCombo = false;
+        }
     }
 
     private void OnProofPdfRendererChanged(object? sender, SelectionChangedEventArgs e)
