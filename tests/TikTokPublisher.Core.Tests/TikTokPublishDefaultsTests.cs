@@ -905,6 +905,20 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Filing_license_material_supports_current_and_legacy_tiktok_labels()
+    {
+        TikTokPublishConstants.CopyrightMaterialLabels[
+                TikTokPublishConstants.FilingOrDistributionLicenseMaterialType]
+            .Should().Be("网络剧片备案、发行许可、监管审批文件、可信时间戳认证证书");
+
+        TikTokPublishConstants.GetCopyrightMaterialLabelCandidates(
+                TikTokPublishConstants.FilingOrDistributionLicenseMaterialType)
+            .Should().Equal(
+                "网络剧片备案、发行许可、监管审批文件、可信时间戳认证证书",
+                "网络剧片备案、发行许可、监管审批文件");
+    }
+
+    [Fact]
     public void Publish_options_builder_maps_filing_license_to_timestamp_certificate_only()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-proof-aux-{Guid.NewGuid():N}");

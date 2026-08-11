@@ -517,6 +517,7 @@ public static partial class TikTokBrowserActions
         {
             await UploadCopyrightMaterialFilesAsync(
                 page,
+                TikTokPublishConstants.ProductionAgreementMaterialType,
                 productionAgreementLabel,
                 [resolvedFilePath],
                 preferProductionAgreementFieldId: true,
@@ -532,6 +533,7 @@ public static partial class TikTokBrowserActions
         {
             await UploadCopyrightMaterialFilesAsync(
                 page,
+                TikTokPublishConstants.SourceFileInformationMaterialType,
                 sourceInfoLabel,
                 sourceInfoFiles.ToArray(),
                 preferProductionAgreementFieldId: false,
@@ -547,6 +549,7 @@ public static partial class TikTokBrowserActions
         {
             await UploadCopyrightMaterialFilesAsync(
                 page,
+                TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
                 aiScreenshotLabel,
                 aiScreenshotFiles.ToArray(),
                 preferProductionAgreementFieldId: false,
@@ -562,6 +565,7 @@ public static partial class TikTokBrowserActions
         {
             await UploadCopyrightMaterialFilesAsync(
                 page,
+                TikTokPublishConstants.EditingProjectFilesMaterialType,
                 editingProjectLabel,
                 editingProjectFiles.ToArray(),
                 preferProductionAgreementFieldId: false,
@@ -577,6 +581,7 @@ public static partial class TikTokBrowserActions
         {
             await UploadCopyrightMaterialFilesAsync(
                 page,
+                TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
                 filingLicenseLabel,
                 [filingLicenseFile],
                 preferProductionAgreementFieldId: false,
@@ -714,6 +719,7 @@ public static partial class TikTokBrowserActions
 
     private static async Task UploadCopyrightMaterialFilesAsync(
         IPage page,
+        string materialKey,
         string label,
         IReadOnlyList<string> filePaths,
         bool preferProductionAgreementFieldId,
@@ -725,6 +731,7 @@ public static partial class TikTokBrowserActions
 
         var uploadControl = await WaitForCopyrightMaterialUploadControlAsync(
             page,
+            materialKey,
             label,
             CopyrightControlTimeoutMs,
             preferProductionAgreementFieldId,
@@ -822,11 +829,7 @@ public static partial class TikTokBrowserActions
             }
         }
 
-        var candidates = new List<string> { label };
-        if (TikTokPublishConstants.CopyrightMaterialI18nKeys.TryGetValue(
-                materialKey,
-                out var i18nKey))
-            candidates.Insert(0, i18nKey);
+        var candidates = GetCopyrightMaterialTextCandidates(materialKey, label);
 
         foreach (var candidateText in candidates.Distinct(StringComparer.Ordinal))
         {
@@ -930,10 +933,7 @@ public static partial class TikTokBrowserActions
         string materialKey,
         string label)
     {
-        var candidates = new List<string>();
-        if (TikTokPublishConstants.CopyrightMaterialI18nKeys.TryGetValue(materialKey, out var i18nKey))
-            candidates.Add(i18nKey);
-        candidates.Add(label);
+        var candidates = GetCopyrightMaterialTextCandidates(materialKey, label);
 
         foreach (var candidateText in candidates.Distinct(StringComparer.Ordinal))
         {
@@ -1012,6 +1012,7 @@ public static partial class TikTokBrowserActions
 
     private static async Task<(ILocator Field, ILocator Input)> WaitForCopyrightMaterialUploadControlAsync(
         IPage page,
+        string materialKey,
         string label,
         int timeoutMs,
         bool preferProductionAgreementFieldId,
@@ -1023,6 +1024,7 @@ public static partial class TikTokBrowserActions
             ct.ThrowIfCancellationRequested();
             result = await TryFindCopyrightMaterialUploadControlAsync(
                 page,
+                materialKey,
                 label,
                 preferProductionAgreementFieldId);
             return result is not null;
@@ -1036,6 +1038,7 @@ public static partial class TikTokBrowserActions
 
     private static async Task<(ILocator Field, ILocator Input)?> TryFindCopyrightMaterialUploadControlAsync(
         IPage page,
+        string materialKey,
         string label,
         bool preferProductionAgreementFieldId)
     {
@@ -1046,33 +1049,48 @@ public static partial class TikTokBrowserActions
                 return fieldBasedControl;
         }
 
-        var exactLabels = page.Locator(
-            $"xpath=//*[normalize-space(translate(text(), '*', ''))={XPathLiteral(label)}]");
-        if (await exactLabels.CountAsync() == 0)
-            exactLabels = page.GetByText(label, new() { Exact = true });
-        var count = await exactLabels.CountAsync();
-        for (var index = count - 1; index >= 0; index--)
+        foreach (var candidateText in GetCopyrightMaterialTextCandidates(materialKey, label))
         {
-            try
+            var exactLabels = page.Locator(
+                $"xpath=//*[normalize-space(translate(text(), '*', ''))={XPathLiteral(candidateText)}]");
+            if (await exactLabels.CountAsync() == 0)
+                exactLabels = page.GetByText(candidateText, new() { Exact = true });
+            var count = await exactLabels.CountAsync();
+            for (var index = count - 1; index >= 0; index--)
             {
-                var exactLabel = exactLabels.Nth(index);
-                if (!await exactLabel.IsVisibleAsync()) continue;
+                try
+                {
+                    var exactLabel = exactLabels.Nth(index);
+                    if (!await exactLabel.IsVisibleAsync()) continue;
 
-                var field = exactLabel.Locator("xpath=ancestor::*[.//input[@type='file']][1]");
-                if (await field.CountAsync() == 0 || !await field.IsVisibleAsync()) continue;
+                    var field = exactLabel.Locator("xpath=ancestor::*[.//input[@type='file']][1]");
+                    if (await field.CountAsync() == 0 || !await field.IsVisibleAsync()) continue;
 
-                var input = field.Locator("input[type='file']").First;
-                if (await input.CountAsync() == 0) continue;
-                if (!await input.EvaluateAsync<bool>("element => element.isConnected && !element.disabled")) continue;
-                return (field, input);
-            }
-            catch
-            {
-                // 选择材料后上传组件会异步重绘，下一轮重新定位。
+                    var input = field.Locator("input[type='file']").First;
+                    if (await input.CountAsync() == 0) continue;
+                    if (!await input.EvaluateAsync<bool>("element => element.isConnected && !element.disabled")) continue;
+                    return (field, input);
+                }
+                catch
+                {
+                    // 选择材料后上传组件会异步重绘，下一轮重新定位。
+                }
             }
         }
 
         return null;
+    }
+
+    private static IReadOnlyList<string> GetCopyrightMaterialTextCandidates(
+        string materialKey,
+        string label)
+    {
+        var candidates = new List<string>();
+        if (TikTokPublishConstants.CopyrightMaterialI18nKeys.TryGetValue(materialKey, out var i18nKey))
+            candidates.Add(i18nKey);
+        candidates.Add(label);
+        candidates.AddRange(TikTokPublishConstants.GetCopyrightMaterialLabelCandidates(materialKey));
+        return candidates.Distinct(StringComparer.Ordinal).ToArray();
     }
 
     private static async Task<ILocator> WaitForCopyrightMaterialTypeTriggerAsync(

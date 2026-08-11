@@ -9,9 +9,19 @@ namespace TikTokPublisher.Core.Services;
 
 public sealed class TikTokProofMaterialDocumentBuilder
 {
-    public const string TemplateCopyrightCompanyName = "武汉星漫光年科技有限公司";
-    public const string TemplateDeclarantCompanyName = "武汉速视科技有限公司";
-    public const string TemplateDramaTitle = "创业路上闺蜜反目维权";
+    public const string TemplateCopyrightCompanyName = "TikTok Inc.";
+    public const string TemplateDeclarantCompanyName = "广州弈初科技有限公司";
+    public const string TemplateDramaTitle = "寒门女子携手沉默汉子改命";
+    public const string LegacyTemplateCopyrightCompanyName = "武汉星漫光年科技有限公司";
+    public const string LegacyTemplateDeclarantCompanyName = "武汉速视科技有限公司";
+    public const string LegacyTemplateDramaTitle = "创业路上闺蜜反目维权";
+
+    private static readonly string[] CopyrightCompanyMarkers =
+        [TemplateCopyrightCompanyName, LegacyTemplateCopyrightCompanyName];
+    private static readonly string[] DeclarantCompanyMarkers =
+        [TemplateDeclarantCompanyName, LegacyTemplateDeclarantCompanyName];
+    private static readonly string[] DramaTitleMarkers =
+        [TemplateDramaTitle, LegacyTemplateDramaTitle];
 
     private const int ExpectedCopyrightCompanyMatches = 1;
     private const int ExpectedDeclarantCompanyMatches = 2;
@@ -45,19 +55,30 @@ public sealed class TikTokProofMaterialDocumentBuilder
 
             // Locate and validate every template slot before mutating any text. This avoids
             // a replacement value accidentally being mistaken for a later template marker.
-            var copyrightMatches = FindExactMatches(body, TemplateCopyrightCompanyName);
-            var declarantMatches = FindExactMatches(body, TemplateDeclarantCompanyName);
-            var titleMatches = FindExactMatches(body, TemplateDramaTitle);
+            var copyrightMatches = FindMarkerMatches(body, CopyrightCompanyMarkers);
+            var declarantMatches = FindMarkerMatches(body, DeclarantCompanyMarkers);
+            var titleMatches = FindMarkerMatches(body, DramaTitleMarkers);
             var dateMatches = FindStatementDateMatches(body);
             EnsureExpectedCount("版权公司", ExpectedCopyrightCompanyMatches, copyrightMatches.Count);
             EnsureExpectedCount("本公司/声明人公司", ExpectedDeclarantCompanyMatches, declarantMatches.Count);
             EnsureExpectedCount("改写后剧名", ExpectedDramaTitleMatches, titleMatches.Count);
             EnsureExpectedCount("声明日期", ExpectedStatementDateMatches, dateMatches.Count);
+            if (string.IsNullOrWhiteSpace(request.SealImagePath))
+            {
+                var templateDeclarant = declarantMatches[0].Marker;
+                if (!string.Equals(
+                        request.DeclarantCompanyName.Trim(),
+                        templateDeclarant,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("声明公司与模板印章不一致，请配置印章。");
+                }
+            }
             ApplyReplacementPlans(
             [
-                .. copyrightMatches.Select(match => new ReplacementPlan(match, request.CopyrightCompanyName.Trim())),
-                .. declarantMatches.Select(match => new ReplacementPlan(match, request.DeclarantCompanyName.Trim())),
-                .. titleMatches.Select(match => new ReplacementPlan(match, request.DramaTitle.Trim())),
+                .. copyrightMatches.Select(match => new ReplacementPlan(match.Match, request.CopyrightCompanyName.Trim())),
+                .. declarantMatches.Select(match => new ReplacementPlan(match.Match, request.DeclarantCompanyName.Trim())),
+                .. titleMatches.Select(match => new ReplacementPlan(match.Match, request.DramaTitle.Trim())),
                 .. dateMatches.Select(match => new ReplacementPlan(
                     match,
                     $"{request.StatementDate.Year}年【{request.StatementDate.Month}】月【{request.StatementDate.Day}】日")),
@@ -148,15 +169,6 @@ public sealed class TikTokProofMaterialDocumentBuilder
         ValidateReplacementValue(request.DeclarantCompanyName, "本公司/声明人公司");
         ValidateReplacementValue(request.DramaTitle, "改写后剧名");
 
-        if (string.IsNullOrWhiteSpace(request.SealImagePath) &&
-            !string.Equals(
-                request.DeclarantCompanyName.Trim(),
-                TemplateDeclarantCompanyName,
-                StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException("声明公司与模板印章不一致，请配置印章。");
-        }
-
         if (!string.IsNullOrWhiteSpace(request.SealImagePath))
         {
             var sealPath = Path.GetFullPath(request.SealImagePath);
@@ -189,6 +201,14 @@ public sealed class TikTokProofMaterialDocumentBuilder
 
     private static List<ParagraphMatch> FindExactMatches(OpenXmlElement root, string value) =>
         FindMatches(root, text => FindAllExact(text, value));
+
+    private static List<MarkerMatch> FindMarkerMatches(
+        OpenXmlElement root,
+        IEnumerable<string> markers) =>
+        markers
+            .SelectMany(marker => FindExactMatches(root, marker)
+                .Select(match => new MarkerMatch(marker, match)))
+            .ToList();
 
     private static List<ParagraphMatch> FindStatementDateMatches(OpenXmlElement root) =>
         FindMatches(
@@ -480,6 +500,8 @@ public sealed class TikTokProofMaterialDocumentBuilder
     private sealed record MatchRange(int Start, int End);
 
     private sealed record ParagraphMatch(Paragraph Paragraph, int Start, int End);
+
+    private sealed record MarkerMatch(string Marker, ParagraphMatch Match);
 
     private sealed record ReplacementPlan(ParagraphMatch Match, string Replacement);
 }
