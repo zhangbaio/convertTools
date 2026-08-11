@@ -1,0 +1,197 @@
+{
+  "render_dpi": 150,
+  "bg_color": [240, 248, 250],
+  "fonts": {
+    "source_serif": [
+      "NotoSerifSC-Light.ttf",
+      "NotoSerifSC-VF.ttf",
+      "Source Han Serif SC Heavy (TrueType).ttf",
+      "simsun.ttc",
+      "SIMSUN.TTC"
+    ],
+    "source_sans": [
+      "NotoSansSC-Regular.otf",
+      "NotoSansSC-Regular.ttf",
+      "Noto Sans SC (TrueType).otf",
+      "NotoSansSC-VF.ttf",
+      "msyh.ttc",
+      "simhei.ttf"
+    ],
+    "regular": [
+      "NotoSerifSC-Light.ttf",
+      "NotoSerifSC-VF.ttf",
+      "simsun.ttc",
+      "SIMSUN.TTC",
+      "msyh.ttc"
+    ],
+    "latin": [
+      "times.ttf",
+      "NotoSerifSC-Light.ttf",
+      "NotoSerifSC-VF.ttf",
+      "arial.ttf"
+    ]
+  },
+  "declaration_template": "本文件已经申请可信时间戳认证，{name}拥有该作品的著作权（包括但不限于发表权、署名权、修改权、保护作品完整权、复制权、发行权、出租权、展览权、表演权、放映权、广播权、信息网络传播权、摄制权、改编权、翻译权、汇编权）和法律授予的其他权利，未经授权，任何单位和个人禁止以任何方式使用本文件。",
+  "pages": [
+    {
+      "page_index": 0,
+      "lang": "zh",
+      "fields": {
+        "certificate_no": {
+          "box_pt": [360.0, 58.08, 496.8, 68.16],
+          "erase_box_pt": [359.04, 57.6, 489.6, 68.16],
+          "font_pt": 9,
+          "fit_by": "size",
+          "erase_mode": "ink",
+          "color": [0, 0, 0],
+          "align": "left",
+          "whiteout_pad": 3,
+          "font": "source_serif",
+          "font_variation": "Light"
+        },
+        "applicant": {
+          "box_pt": [190.0, 278.88, 537.0, 290.88],
+          "font_pt": 12,
+          "fit_by": "size",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "font": "source_serif",
+          "font_variation": "Light"
+        },
+        "apply_time": {
+          "box_pt": [190.0, 306.88, 400.0, 318.88],
+          "font_pt": 12,
+          "fit_by": "size",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "font": "source_serif",
+          "font_variation": "Light"
+        },
+        "auth_code": {
+          "box_pt": [190.0, 334.13, 532.657, 343.13],
+          "font_pt": 9,
+          "fit_by": "size",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "font": "source_serif",
+          "font_variation": "Light"
+        },
+        "protection_type": {
+          "box_pt": [190.0, 361.88, 280.0, 373.88],
+          "font_pt": 12,
+          "fit_by": "size",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "font": "source_serif",
+          "font_variation": "Light",
+          "text": "视听作品"
+        },
+        "file_name": {
+          "box_pt": [190.0, 388.88, 537.0, 400.88],
+          "font_pt": 12,
+          "fit_by": "size",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "font": "source_serif",
+          "font_variation": "Light"
+        },
+        "declaration": {
+          "box_pt": [196.0, 419.3, 537.0, 494.0],
+          "font_pt": 11,
+          "fit_by": "wrap",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "line_step_pt": 12.6,
+          "font": "source_serif",
+          "font_variation": "Light"
+        }
+      }
+    },
+    {
+      "page_index": 1,
+      "lang": "en",
+      "fields": {
+        "certificate_no": {
+          "box_pt": [380.16, 60.48, 506.4, 69.12],
+          "erase_box_pt": [378.24, 59.52, 499.2, 70.08],
+          "font_pt": 8,
+          "fit_by": "size",
+          "erase_mode": "ink",
+          "color": [0, 0, 0],
+          "align": "left",
+          "whiteout_pad": 3,
+          "font": "source_sans",
+          "font_variation": "Regular"
+        },
+        "applicant": {
+          "box_pt": [150.0, 261.52, 520.0, 269.52],
+          "font_pt": 8,
+          "fit_by": "size",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "font": "source_sans",
+          "font_variation": "Regular"
+        },
+        "apply_time": {
+          "box_pt": [178.0, 290.52, 360.0, 298.52],
+          "font_pt": 8,
+          "fit_by": "size",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "font": "source_sans",
+          "font_variation": "Regular"
+        },
+        "auth_code": {
+          "box_pt": [252.0, 322.52, 549.024, 330.52],
+          "font_pt": 8,
+          "fit_by": "size",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "font": "source_sans",
+          "font_variation": "Regular"
+        },
+        "protection_type": {
+          "box_pt": [174.0, 352.52, 300.0, 360.52],
+          "font_pt": 8,
+          "fit_by": "size",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "font": "source_sans",
+          "font_variation": "Regular",
+          "text": "Audiovisual Work"
+        },
+        "file_name": {
+          "box_pt": [150.0, 381.52, 520.0, 389.52],
+          "font_pt": 8,
+          "fit_by": "size",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "font": "source_sans",
+          "font_variation": "Regular"
+        },
+        "declaration": {
+          "box_pt": [178.0, 409.52, 522.0, 468.0],
+          "font_pt": 8,
+          "fit_by": "wrap",
+          "erase_mode": "none",
+          "color": [0, 0, 0],
+          "align": "left",
+          "line_step_pt": 9.5,
+          "font": "source_sans",
+          "font_variation": "Regular"
+        }
+      }
+    }
+  ]
+}

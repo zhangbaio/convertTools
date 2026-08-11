@@ -11,6 +11,7 @@
     <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.3" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
     <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+    <PackageReference Include="PDFsharp" Version="6.2.2" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
     <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.7" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
@@ -26,6 +27,10 @@
     </Content>
     <Content Include="Resources\FableCut\**\*">
       <Link>fablecut\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Resources\TimestampCertificate\**\*">
+      <Link>timestamp-certificate\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

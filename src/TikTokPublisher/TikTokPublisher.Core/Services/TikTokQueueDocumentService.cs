@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -132,57 +131,6 @@ public static class TikTokEpisodeScriptService
 
     private static string FormatTime(double seconds) =>
         TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString(@"hh\:mm\:ss\.fff");
-}
-
-public static class TikTokTimestampCertificateService
-{
-    public const string OutputFileName = "时间戳证明.pdf";
-
-    public static async Task<string> GenerateAsync(
-        QueueProjectItem item,
-        ClientSettings settings,
-        bool forceRerun,
-        Action<string>? log,
-        CancellationToken ct)
-    {
-        var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
-        var outputPdf = Path.Combine(context.WorkflowProjectDir, OutputFileName);
-        var outputDocx = Path.ChangeExtension(outputPdf, ".docx");
-        if (!forceRerun && File.Exists(outputPdf) && new FileInfo(outputPdf).Length > 100)
-        {
-            log?.Invoke($"已跳过生成时间戳：本地已存在 {OutputFileName}。");
-            return outputPdf;
-        }
-
-        var files = ProjectVideoResolver.ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
-            .Concat(Directory.EnumerateFiles(context.WorkflowProjectDir, "*.pdf", SearchOption.TopDirectoryOnly)
-                .Where(path => !string.Equals(Path.GetFileName(path), OutputFileName, StringComparison.OrdinalIgnoreCase)))
-            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        if (files.Length == 0) throw new InvalidOperationException("生成时间戳失败：没有可登记的项目文件。");
-
-        var records = new List<string>();
-        foreach (var file in files)
-        {
-            ct.ThrowIfCancellationRequested();
-            await using var stream = File.OpenRead(file);
-            var hash = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
-            records.Add($"{Path.GetFileName(file)} | {new FileInfo(file).Length} 字节 | SHA-256 {hash}");
-        }
-        var createdAt = DateTimeOffset.Now;
-        var certificateNo = $"LOCAL-{createdAt:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..35].ToUpperInvariant();
-        var title = string.IsNullOrWhiteSpace(item.NewTitle) ? item.Title : item.NewTitle.Trim();
-        var sections = new List<(string Heading, string Content)>
-        {
-            ("登记信息", $"项目名称：{title}\n生成时间：{createdAt:yyyy-MM-dd HH:mm:ss zzz}\n证明编号：{certificateNo}"),
-            ("文件摘要", string.Join('\n', records)),
-            ("重要说明", "本文件由软件在本地生成，用于记录生成时刻及文件哈希，不是第三方时间戳认证机构签发的证书，不支持官网验真。"),
-        };
-        TikTokQueueDocumentWriter.WriteDocument(outputDocx, "本地时间戳证明", "项目文件哈希留档", sections);
-        await TikTokQueueDocumentWriter.RenderPdfAsync(outputDocx, outputPdf, settings, ct).ConfigureAwait(false);
-        if (!settings.TiktokProofKeepDocx) TikTokProofMaterialPdfRenderService.TryDelete(outputDocx);
-        log?.Invoke($"本地时间戳证明已生成：{outputPdf}");
-        return outputPdf;
-    }
 }
 
 internal static class TikTokQueueDocumentWriter
