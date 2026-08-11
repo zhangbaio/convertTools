@@ -38,11 +38,7 @@ public static class HongguoNewLoginClient
         var normalizedAccount = (account ?? string.Empty).Trim();
         var normalizedPassword = password ?? string.Empty;
         var version = NormalizeVersion(clientVersion);
-        var normalizedUdid = HongguoDeviceId.Normalize(udid);
-        if (string.IsNullOrWhiteSpace(normalizedUdid) || !HongguoDeviceId.LooksLikeGuid(normalizedUdid))
-        {
-            normalizedUdid = HongguoDeviceId.TryReadFromRegistry() ?? normalizedUdid;
-        }
+        var normalizedUdid = HongguoDeviceId.ResolveV14(udid);
 
         var missing = new List<string>();
         if (normalizedAccount.Length == 0) missing.Add("账号");
@@ -54,7 +50,7 @@ public static class HongguoNewLoginClient
         }
         if (!HongguoDeviceId.LooksLikeGuid(normalizedUdid))
         {
-            throw new HongguoLoginException("设备唯一标识必须是 1.4.x 使用的大写 GUID。");
+            throw new HongguoLoginException(HongguoDeviceId.GetV14ValidationMessage(normalizedUdid));
         }
 
         return new HongguoCredentials(normalizedAccount, normalizedPassword, normalizedUdid, version);

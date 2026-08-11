@@ -812,11 +812,7 @@ public sealed partial class HongguoNewApiService
         var account = (settings.HgnewAccount ?? string.Empty).Trim();
         var password = (settings.HgnewPassword ?? string.Empty).Trim();
         var clientVersion = NormalizeVersion(settings.HgnewClientVersion);
-        var udid = HongguoDeviceId.Normalize(settings.HgnewUdid);
-        if (string.IsNullOrWhiteSpace(udid) || !HongguoDeviceId.LooksLikeGuid(udid))
-        {
-            udid = HongguoDeviceId.TryReadFromRegistry() ?? udid;
-        }
+        var udid = HongguoDeviceId.ResolveV14(settings.HgnewUdid);
 
         var missing = new List<string>();
         if (account.Length == 0) missing.Add("账号");
@@ -828,7 +824,7 @@ public sealed partial class HongguoNewApiService
         }
         if (!HongguoDeviceId.LooksLikeGuid(udid))
         {
-            throw new HongguoNewApiException("设备唯一标识必须是 1.4.x 使用的大写 GUID。");
+            throw new HongguoNewApiException(HongguoDeviceId.GetV14ValidationMessage(udid));
         }
 
         return new HongguoCredentials(account, password, udid, clientVersion);

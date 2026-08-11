@@ -396,7 +396,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [RelayCommand]
     private async Task ProbeHgnewLoginAsync()
     {
-        HgnewUdid = ClientSettingsStore.NormalizeUdid(HgnewUdid);
+        HgnewUdid = HongguoDeviceId.ResolveV14(HgnewUdid);
         if (string.IsNullOrWhiteSpace(HgnewAccount) || string.IsNullOrWhiteSpace(HgnewPassword))
         {
             HgnewProbeStatus = "请先填写红果账号和红果密码。";
@@ -625,7 +625,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HongguoEpisodeDownloadAttempts = settings.HongguoEpisodeDownloadAttempts;
         HgnewAccount = settings.HgnewAccount;
         HgnewPassword = settings.HgnewPassword;
-        HgnewUdid = settings.HgnewUdid;
+        HgnewUdid = HongguoDeviceId.ResolveV14(settings.HgnewUdid);
         HgnewClientVersion = settings.HgnewClientVersion;
         HongguoLocalBaseUrl = settings.HongguoLocalBaseUrl;
         HongguoLocalApiKey = settings.HongguoLocalApiKey;
