@@ -12,7 +12,10 @@ namespace TikTokPublisher.Core.Services;
 
 public static class TikTokEpisodeScriptService
 {
-    public const string OutputSuffix = "-前5集剧本.pdf";
+    public const string OutputSuffix = "前5集剧本.pdf";
+    private const int MaximumTranscriptCharacters = 24000;
+    private const int MaximumCharacterTableSourceCharacters = 48000;
+    private static readonly TimeSpan CharacterTableRequestTimeout = TimeSpan.FromSeconds(90);
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(8) };
 
     public static async Task<string> GenerateAsync(
@@ -30,7 +33,8 @@ public static class TikTokEpisodeScriptService
 
         var title = string.IsNullOrWhiteSpace(item.NewTitle) ? item.Title : item.NewTitle.Trim();
         var safeTitle = string.Concat(title.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
-        var outputPdf = Path.Combine(context.WorkflowProjectDir, safeTitle + OutputSuffix);
+        var outputSuffix = videos.Length == 5 ? OutputSuffix : $"前{videos.Length}集剧本.pdf";
+        var outputPdf = Path.Combine(context.WorkflowProjectDir, safeTitle + outputSuffix);
         var outputDocx = Path.ChangeExtension(outputPdf, ".docx");
         if (!forceRerun && File.Exists(outputPdf) && new FileInfo(outputPdf).Length > 100)
         {
@@ -39,24 +43,39 @@ public static class TikTokEpisodeScriptService
         }
 
         EnsureAiConfigured(settings);
-        var episodes = new List<(string Heading, string Content)>();
+        var episodes = new List<EpisodeScriptSection>();
         for (var i = 0; i < videos.Length; i++)
         {
             ct.ThrowIfCancellationRequested();
             var video = videos[i];
             log?.Invoke($"剧本 {i + 1}/{videos.Length}：提取字幕与台词…");
             var transcript = await ResolveTranscriptAsync(video, settings, log, ct).ConfigureAwait(false);
-            log?.Invoke($"剧本 {i + 1}/{videos.Length}：AI 整理分场剧本…");
+            log?.Invoke($"剧本 {i + 1}/{videos.Length}：AI 整理参考版式分场剧本…");
             var content = await RequestScriptAsync(title, i + 1, Path.GetFileName(video), transcript, settings, ct)
                 .ConfigureAwait(false);
-            episodes.Add(($"第{i + 1}集", content));
+            episodes.Add(new EpisodeScriptSection(i + 1, Path.GetFileName(video), content));
         }
 
-        TikTokQueueDocumentWriter.WriteDocument(
-            outputDocx,
-            $"{title} 前{videos.Length}集剧本",
-            "根据成片字幕整理，用于内容审核材料归档。",
-            episodes);
+        string characterTable;
+        try
+        {
+            log?.Invoke("剧本：汇总前几集角色表…");
+            using var characterTableTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            characterTableTimeout.CancelAfter(CharacterTableRequestTimeout);
+            characterTable = await RequestCharacterTableAsync(
+                    title,
+                    episodes,
+                    settings,
+                    characterTableTimeout.Token)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            log?.Invoke($"角色表 AI 汇总失败，已按分集人物名单生成基础角色表：{ex.Message}");
+            characterTable = TikTokQueueDocumentWriter.BuildFallbackCharacterTable(episodes);
+        }
+
+        TikTokQueueDocumentWriter.WriteScriptDocument(outputDocx, title, episodes, characterTable);
         await TikTokQueueDocumentWriter.RenderPdfAsync(outputDocx, outputPdf, settings, ct).ConfigureAwait(false);
         if (!settings.TiktokProofKeepDocx) TikTokProofMaterialPdfRenderService.TryDelete(outputDocx);
         log?.Invoke($"前{videos.Length}集剧本已生成：{outputPdf}");
@@ -90,14 +109,86 @@ public static class TikTokEpisodeScriptService
         ClientSettings settings,
         CancellationToken ct)
     {
-        var prompt = $"""
-                     请根据以下短剧字幕时间轴整理第{episode}集规范中文剧本。不得编造字幕和剧情中不存在的信息。
-                     输出纯文本，依次包含：本集梗概、人物、分场剧本。每个场次写明时间、场景、人物、动作和台词。
-                     剧名：{title}
-                     视频：{videoName}
-                     字幕时间轴：
-                     {transcript[..Math.Min(transcript.Length, 24000)]}
-                     """;
+        var prompt = BuildEpisodePrompt(title, episode, videoName, transcript);
+        return await RequestTextAsync(prompt, settings, ct).ConfigureAwait(false);
+    }
+
+    internal static string BuildEpisodePrompt(string title, int episode, string videoName, string transcript)
+    {
+        var transcriptExcerpt = transcript[..Math.Min(transcript.Length, MaximumTranscriptCharacters)];
+        return $"""
+                请根据下面的短剧字幕时间轴，把第 {episode} 集整理成可直接排版的中文分场剧本。
+                只输出本集的分场正文，不要使用 Markdown、代码围栏、项目符号或序号说明。
+
+                严格使用下面的行格式：
+                {episode}-1 场景名称 深夜/室外
+                人物：角色甲，角色乙
+                △画面、动作、表情或镜头描述。
+                角色甲：台词。
+                音效：声音说明。
+                BGM：音乐说明。
+
+                格式要求：
+                1. 第一行必须从“{episode}-1”场次开始，后续场次依次写成“{episode}-2”“{episode}-3”。
+                2. 场次标题必须写明场所、时段，以及“室内”或“室外”，格式为“集号-场号 场所 时段/室内外”。
+                3. 每个场次标题下一行必须写“人物：”，多个人物使用中文逗号分隔。
+                4. 每段画面、动作、表情或镜头描述必须单独成段并以“△”开头。
+                5. 对白必须写成“角色名：台词”，不加引号，不在对白前加“△”。
+                6. 旁白、内心独白、音效和音乐分别使用“旁白：”“OS：”“音效：”“BGM：”。
+                7. 不要输出剧名、视频名、“第 {episode} 集”、本集梗概、分场剧本、角色表或任何解释文字。
+                8. 不得编造字幕中不存在的台词、人物关系、年龄、外貌或关键剧情；画面无法确认时使用中性动作描述。
+
+                剧名：{title}
+                视频：{videoName}
+                字幕时间轴：
+                {transcriptExcerpt}
+                """;
+    }
+
+    private static async Task<string> RequestCharacterTableAsync(
+        string title,
+        IReadOnlyList<EpisodeScriptSection> episodes,
+        ClientSettings settings,
+        CancellationToken ct)
+    {
+        var prompt = BuildCharacterTablePrompt(title, episodes);
+        return await RequestTextAsync(prompt, settings, ct).ConfigureAwait(false);
+    }
+
+    internal static string BuildCharacterTablePrompt(
+        string title,
+        IReadOnlyList<EpisodeScriptSection> episodes)
+    {
+        var perEpisodeBudget = Math.Max(
+            512,
+            MaximumCharacterTableSourceCharacters / Math.Max(1, episodes.Count) - 64);
+        var source = string.Join("\n\n", episodes.Select(episode =>
+            $"第 {episode.EpisodeNumber} 集：\n{BalancedExcerpt(episode.Content, perEpisodeBudget)}"));
+        return $"""
+                请根据以下《{title}》前 {episodes.Count} 集剧本汇总角色表。
+                只输出角色条目，不要输出“角色表”等标题，不要使用 Markdown、代码围栏、表格或项目符号。
+                每个角色单独一段，格式为“角色名：性别、年龄、外貌、服装、身份、性格或人物关系等剧本已经明确的信息。”
+                合并同一角色的重复信息；没有明确出现的信息就省略，严禁推测或编造。
+
+                {source}
+                """;
+    }
+
+    private static string BalancedExcerpt(string content, int maximumCharacters)
+    {
+        if (content.Length <= maximumCharacters) return content;
+        const string omission = "\n…（中间内容已省略）…\n";
+        var retainedCharacters = maximumCharacters - omission.Length;
+        var headLength = retainedCharacters / 2;
+        var tailLength = retainedCharacters - headLength;
+        return content[..headLength] + omission + content[^tailLength..];
+    }
+
+    private static async Task<string> RequestTextAsync(
+        string prompt,
+        ClientSettings settings,
+        CancellationToken ct)
+    {
         var endpoint = settings.AiTextEndpoint.Trim().TrimEnd('/');
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint + "/chat/completions");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.AiTextApiKey.Trim());
@@ -107,7 +198,7 @@ public static class TikTokEpisodeScriptService
             temperature = 0.2,
             messages = new object[]
             {
-                new { role = "system", content = "你是影视编剧和审核材料整理专家，只依据输入事实整理剧本。" },
+                new { role = "system", content = "你是影视编剧和审核材料整理专家，只依据输入事实整理剧本，并严格遵守指定的纯文本格式。" },
                 new { role = "user", content = prompt },
             },
         }), Encoding.UTF8, "application/json");
@@ -133,13 +224,33 @@ public static class TikTokEpisodeScriptService
         TimeSpan.FromSeconds(Math.Max(0, seconds)).ToString(@"hh\:mm\:ss\.fff");
 }
 
+internal sealed record EpisodeScriptSection(int EpisodeNumber, string VideoFileName, string Content);
+
 internal static class TikTokQueueDocumentWriter
 {
-    public static void WriteDocument(
+    private const string AccentBlue = "4F81BD";
+    private const string TitleBlue = "17365D";
+    private const string BodyFont = "SimSun";
+    private const string BodyLatinFont = "Cambria";
+    private const string HeadingFont = "MS Gothic";
+    private const string HeadingLatinFont = "Calibri";
+    private const int BodyFontSize = 22;
+    private const int EpisodeHeadingFontSize = 26;
+    private static readonly Regex SceneHeadingPattern = new(
+        @"^(?<episode>\d+)\s*[-－—–.]\s*(?<scene>\d+)\s+(?<description>.+)$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex EpisodeHeadingPattern = new(
+        @"^第\s*\d+\s*集(?:\s*[·.．]\s*.+)?$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex DialoguePattern = new(
+        @"^[^：:]{1,20}[：:]\s*.+$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    public static void WriteScriptDocument(
         string path,
         string title,
-        string subtitle,
-        IReadOnlyList<(string Heading, string Content)> sections)
+        IReadOnlyList<EpisodeScriptSection> episodes,
+        string characterTable)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         TikTokProofMaterialPdfRenderService.TryDelete(path);
@@ -147,14 +258,49 @@ internal static class TikTokQueueDocumentWriter
         var main = document.AddMainDocumentPart();
         main.Document = new Document(new Body());
         var body = main.Document.Body!;
-        body.Append(Paragraph(title, 36, true, JustificationValues.Center));
-        body.Append(Paragraph(subtitle, 20, false, JustificationValues.Center));
-        foreach (var section in sections)
+
+        body.Append(CreateTitleParagraph($"{title} 前 {episodes.Count} 集剧本"));
+        for (var episodeIndex = 0; episodeIndex < episodes.Count; episodeIndex++)
         {
-            body.Append(Paragraph(section.Heading, 27, true, JustificationValues.Left));
-            foreach (var line in Regex.Split(section.Content, "\\r?\\n"))
-                body.Append(Paragraph(line, 22, false, JustificationValues.Left));
+            var episode = episodes[episodeIndex];
+            body.Append(CreateEpisodeHeadingParagraph(
+                $"第 {episode.EpisodeNumber} 集 · {episode.VideoFileName}",
+                before: episodeIndex == 0 ? 0 : 700,
+                after: 570));
+            body.Append(CreateEpisodeHeadingParagraph(
+                $"第 {episode.EpisodeNumber} 集",
+                before: 0,
+                after: 520));
+
+            var firstScene = true;
+            foreach (var line in NormalizeEpisodeLines(episode.Content, episode.EpisodeNumber))
+            {
+                body.Append(CreateScriptParagraph(line, firstScene));
+                if (line.Kind == ScriptParagraphKind.SceneHeading) firstScene = false;
+            }
         }
+
+        var characterLines = NormalizeCharacterLines(characterTable);
+        if (characterLines.Count > 0)
+        {
+            body.Append(CreateAggregateCharacterHeadingParagraph("全集角色表"));
+            body.Append(CreateCharacterHeadingParagraph("角色表"));
+            foreach (var line in characterLines)
+                body.Append(CreateBodyParagraph(line));
+        }
+
+        body.Append(new SectionProperties(
+            new PageSize { Width = 12240, Height = 15840 },
+            new PageMargin
+            {
+                Top = 1440,
+                Right = 1800,
+                Bottom = 1440,
+                Left = 1800,
+                Header = 720,
+                Footer = 720,
+                Gutter = 0,
+            }));
         main.Document.Save();
     }
 
@@ -172,14 +318,263 @@ internal static class TikTokQueueDocumentWriter
         }, cancellationToken: ct).ConfigureAwait(false);
     }
 
-    private static Paragraph Paragraph(string text, int size, bool bold, JustificationValues alignment)
+    internal static string BuildFallbackCharacterTable(IReadOnlyList<EpisodeScriptSection> episodes)
     {
-        var runProperties = new RunProperties(
-            new RunFonts { EastAsia = "Microsoft YaHei", Ascii = "Microsoft YaHei" },
-            new FontSize { Val = size.ToString() });
-        if (bold) runProperties.Append(new Bold());
-        return new Paragraph(
-            new ParagraphProperties(new Justification { Val = alignment }, new SpacingBetweenLines { After = "120" }),
-            new Run(runProperties, new Text(text ?? string.Empty) { Space = SpaceProcessingModeValues.Preserve }));
+        var appearances = new Dictionary<string, SortedSet<int>>(StringComparer.Ordinal);
+        foreach (var episode in episodes)
+        {
+            foreach (var line in NormalizeEpisodeLines(episode.Content, episode.EpisodeNumber)
+                         .Where(line => line.Kind == ScriptParagraphKind.Characters))
+            {
+                var names = line.Text[(line.Text.IndexOf('：') + 1)..]
+                    .Split(['，', '、', ',', '；', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                foreach (var name in names.Where(name => name is not ("无" or "无人")))
+                {
+                    if (!appearances.TryGetValue(name, out var episodeNumbers))
+                        appearances[name] = episodeNumbers = [];
+                    episodeNumbers.Add(episode.EpisodeNumber);
+                }
+            }
+        }
+
+        return string.Join('\n', appearances.Select(pair =>
+            $"{pair.Key}：出现在第 {string.Join("、", pair.Value)} 集，其他人物信息以剧本正文为准。"));
     }
+
+    private static IReadOnlyList<ScriptLine> NormalizeEpisodeLines(string content, int episodeNumber)
+    {
+        var cleaned = Regex.Split(content ?? string.Empty, "\\r?\\n")
+            .Select(CleanModelLine)
+            .Where(line => line.Length > 0)
+            .ToList();
+        var firstSceneIndex = cleaned.FindIndex(line => SceneHeadingPattern.IsMatch(line));
+        if (firstSceneIndex > 0) cleaned.RemoveRange(0, firstSceneIndex);
+
+        var result = new List<ScriptLine>();
+        var nextSceneNumber = 1;
+        foreach (var line in cleaned)
+        {
+            if (IsCharacterTableHeading(line)) break;
+            if (EpisodeHeadingPattern.IsMatch(line) || IsDiscardedEpisodeHeading(line)) continue;
+
+            var scene = SceneHeadingPattern.Match(line);
+            if (scene.Success)
+            {
+                result.Add(new ScriptLine(
+                    $"{episodeNumber}-{nextSceneNumber++} {scene.Groups["description"].Value.Trim()}",
+                    ScriptParagraphKind.SceneHeading));
+                continue;
+            }
+
+            if (line.StartsWith("人物：", StringComparison.Ordinal) ||
+                line.StartsWith("人物:", StringComparison.Ordinal))
+            {
+                var names = Regex.Replace(
+                    line[(line.IndexOfAny(['：', ':']) + 1)..].Trim(),
+                    @"\s*[,、;；]\s*",
+                    "，");
+                result.Add(new ScriptLine("人物：" + names,
+                    ScriptParagraphKind.Characters));
+                continue;
+            }
+
+            if (line[0] is '△' or '▲' or 'Δ')
+            {
+                result.Add(new ScriptLine("△" + line[1..].TrimStart(), ScriptParagraphKind.Body));
+                continue;
+            }
+
+            var actionLabel = Regex.Match(line, @"^(?:动作|画面|镜头)[：:]\s*(?<text>.+)$");
+            if (actionLabel.Success)
+            {
+                result.Add(new ScriptLine("△" + actionLabel.Groups["text"].Value.Trim(), ScriptParagraphKind.Body));
+                continue;
+            }
+
+            result.Add(new ScriptLine(
+                DialoguePattern.IsMatch(line) ? NormalizeColon(line) : "△" + line,
+                ScriptParagraphKind.Body));
+        }
+
+        return result;
+    }
+
+    private static IReadOnlyList<string> NormalizeCharacterLines(string characterTable) =>
+        Regex.Split(characterTable ?? string.Empty, "\\r?\\n")
+            .Select(CleanModelLine)
+            .Where(line => line.Length > 0 && !IsCharacterTableHeading(line))
+            .Select(NormalizeColon)
+            .ToArray();
+
+    private static Paragraph CreateTitleParagraph(string text)
+    {
+        var properties = new ParagraphProperties(
+            new KeepNext(),
+            new KeepLines(),
+            new WidowControl(),
+            new ParagraphBorders(new BottomBorder
+            {
+                Val = BorderValues.Single,
+                Color = AccentBlue,
+                Size = 8,
+                Space = 1,
+            }),
+            new SpacingBetweenLines { After = "420", Line = "624", LineRule = LineSpacingRuleValues.Exact },
+            new Justification { Val = JustificationValues.Left });
+        return CreateParagraphWithLatinSpaces(
+            properties, text, HeadingFont, HeadingLatinFont, 52, bold: false, TitleBlue);
+    }
+
+    private static Paragraph CreateEpisodeHeadingParagraph(string text, int before, int after)
+    {
+        var properties = new ParagraphProperties(
+            new KeepLines(),
+            new WidowControl(),
+            new SpacingBetweenLines
+            {
+                Before = before.ToString(),
+                After = after.ToString(),
+                Line = "312",
+                LineRule = LineSpacingRuleValues.Exact,
+            },
+            new Justification { Val = JustificationValues.Left });
+        return CreateParagraphWithLatinSpaces(
+            properties, text, HeadingFont, HeadingLatinFont, EpisodeHeadingFontSize, bold: true, AccentBlue);
+    }
+
+    private static Paragraph CreateCharacterHeadingParagraph(string text)
+    {
+        var properties = new ParagraphProperties(
+            new KeepNext(),
+            new KeepLines(),
+            new WidowControl(),
+            new SpacingBetweenLines { Before = "480", After = "200", Line = "330", LineRule = LineSpacingRuleValues.Exact },
+            new Justification { Val = JustificationValues.Left });
+        return new Paragraph(properties, CreateRun(
+            text, HeadingFont, HeadingLatinFont, BodyFontSize, bold: true, AccentBlue));
+    }
+
+    private static Paragraph CreateAggregateCharacterHeadingParagraph(string text)
+    {
+        var properties = new ParagraphProperties(
+            new KeepLines(),
+            new WidowControl(),
+            new SpacingBetweenLines { Before = "700", After = "200", Line = "330", LineRule = LineSpacingRuleValues.Exact },
+            new Justification { Val = JustificationValues.Left });
+        return new Paragraph(properties, CreateRun(
+            text, BodyFont, BodyLatinFont, BodyFontSize, bold: false));
+    }
+
+    private static Paragraph CreateScriptParagraph(ScriptLine line, bool firstScene)
+    {
+        if (line.Kind != ScriptParagraphKind.SceneHeading) return CreateBodyParagraph(line.Text);
+
+        var properties = new ParagraphProperties(
+            new KeepLines(),
+            new WidowControl(),
+            new SpacingBetweenLines
+            {
+                Before = firstScene ? "0" : "700",
+                After = "200",
+                Line = "330",
+                LineRule = LineSpacingRuleValues.Exact,
+            },
+            new Justification { Val = JustificationValues.Left });
+        return new Paragraph(properties, CreateRun(
+            line.Text, BodyFont, BodyLatinFont, BodyFontSize, bold: true));
+    }
+
+    private static Paragraph CreateBodyParagraph(string text)
+    {
+        var properties = new ParagraphProperties(
+            new KeepLines(),
+            new WidowControl(),
+            new SpacingBetweenLines { After = "200", Line = "330", LineRule = LineSpacingRuleValues.Exact },
+            new Justification { Val = JustificationValues.Left });
+        return new Paragraph(properties, CreateRun(
+            text, BodyFont, BodyLatinFont, BodyFontSize, bold: false));
+    }
+
+    private static Run CreateRun(
+        string text,
+        string eastAsiaFont,
+        string latinFont,
+        int size,
+        bool bold,
+        string? color = null,
+        int? scale = null)
+    {
+        var properties = new RunProperties(new RunFonts
+        {
+            Ascii = latinFont,
+            HighAnsi = latinFont,
+            EastAsia = eastAsiaFont,
+            ComplexScript = latinFont,
+        });
+        if (bold) properties.Append(new Bold());
+        if (!string.IsNullOrWhiteSpace(color)) properties.Append(new Color { Val = color });
+        if (scale.HasValue) properties.Append(new CharacterScale { Val = scale.Value });
+        properties.Append(
+            new FontSize { Val = size.ToString() },
+            new FontSizeComplexScript { Val = size.ToString() },
+            new Languages { EastAsia = "zh-CN" });
+        return new Run(properties, new Text(text ?? string.Empty) { Space = SpaceProcessingModeValues.Preserve });
+    }
+
+    private static Paragraph CreateParagraphWithLatinSpaces(
+        ParagraphProperties properties,
+        string text,
+        string eastAsiaFont,
+        string latinFont,
+        int size,
+        bool bold,
+        string? color)
+    {
+        var paragraph = new Paragraph(properties);
+        foreach (var part in Regex.Split(text, "( +)").Where(part => part.Length > 0))
+        {
+            var isSpace = part.All(character => character == ' ');
+            paragraph.Append(CreateRun(
+                part,
+                isSpace ? latinFont : eastAsiaFont,
+                latinFont,
+                size,
+                bold,
+                color,
+                scale: isSpace ? 50 : null));
+        }
+        return paragraph;
+    }
+
+    private static string CleanModelLine(string value)
+    {
+        var line = value.Trim();
+        if (line.StartsWith("```", StringComparison.Ordinal) || line is "---" or "***") return string.Empty;
+        line = Regex.Replace(line, @"^#{1,6}\s*", string.Empty);
+        line = Regex.Replace(line, @"^(?:[-*•]\s+)", string.Empty);
+        return line.Replace("**", string.Empty, StringComparison.Ordinal)
+            .Replace("__", string.Empty, StringComparison.Ordinal)
+            .Trim();
+    }
+
+    private static bool IsDiscardedEpisodeHeading(string line) =>
+        Regex.IsMatch(line, @"^(?:本集梗概|梗概|分场剧本|剧本正文|正文)(?:[：:].*)?$", RegexOptions.CultureInvariant);
+
+    private static bool IsCharacterTableHeading(string line) =>
+        Regex.IsMatch(line, @"^(?:全集)?角色表(?:[：:]?)$", RegexOptions.CultureInvariant);
+
+    private static string NormalizeColon(string line)
+    {
+        var index = line.IndexOf(':');
+        return index < 0 ? line : line[..index] + '：' + line[(index + 1)..].TrimStart();
+    }
+
+    private enum ScriptParagraphKind
+    {
+        SceneHeading,
+        Characters,
+        Body,
+    }
+
+    private sealed record ScriptLine(string Text, ScriptParagraphKind Kind);
 }
