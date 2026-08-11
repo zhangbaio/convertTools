@@ -1063,6 +1063,10 @@ public sealed class QueueWorkerRunner
             case QueueStepRegistry.GeneratePoster:
                 await QueueMaterialStepService.RunGeneratePosterAsync(item, settings, log, ct).ConfigureAwait(false);
                 break;
+            case QueueStepRegistry.GenerateEpisodeScript:
+                await TikTokEpisodeScriptService.GenerateAsync(
+                    item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
+                break;
             case QueueStepRegistry.GenerateProjectImages:
                 await TikTokProjectImageService.GenerateAsync(
                     item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
@@ -1075,6 +1079,10 @@ public sealed class QueueWorkerRunner
                     options.ForceRerunCompletedSteps,
                     log,
                     ct).ConfigureAwait(false);
+                break;
+            case QueueStepRegistry.GenerateTimestampCertificate:
+                await TikTokTimestampCertificateService.GenerateAsync(
+                    item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.DeleteSourceVideos:
                 await QueueMaterialStepService.RunDeleteSourceVideosAsync(item, settings, log, ct).ConfigureAwait(false);
