@@ -230,6 +230,7 @@ public static partial class TikTokBrowserActions
         var supportedAutoUploadKeys = new HashSet<string>(StringComparer.Ordinal)
         {
             TikTokPublishConstants.ProductionAgreementMaterialType,
+            TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
             TikTokPublishConstants.SourceFileInformationMaterialType,
             TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
             TikTokPublishConstants.EditingProjectFilesMaterialType,
@@ -310,6 +311,23 @@ public static partial class TikTokBrowserActions
                 "请先执行「生成证明材料」或「生成工程图」。");
         }
 
+        var includeFilingLicense = configuredMaterialKeys.Contains(
+            TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
+            StringComparer.Ordinal);
+        var uploadFilingLicense = includeFilingLicense && completionPlan.ShouldUpload(
+            TikTokPublishConstants.FilingOrDistributionLicenseMaterialType);
+        var filingLicenseFile = string.Empty;
+        if (uploadFilingLicense)
+        {
+            filingLicenseFile = options.ResolveCopyrightMaterialFilePath(
+                TikTokPublishConstants.FilingOrDistributionLicenseMaterialType);
+            if (string.IsNullOrWhiteSpace(filingLicenseFile) || !File.Exists(filingLicenseFile))
+                throw new FileNotFoundException(
+                    "“备案/发行许可”已勾选，但未找到可信时间戳认证证书；请先生成时间戳。",
+                    filingLicenseFile);
+            filingLicenseFile = Path.GetFullPath(filingLicenseFile);
+        }
+
         var includeProductionAgreement = configuredMaterialKeys.Contains(
             TikTokPublishConstants.ProductionAgreementMaterialType,
             StringComparer.Ordinal);
@@ -358,6 +376,8 @@ public static partial class TikTokBrowserActions
             TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.AiGenerationScreenshotsMaterialType];
         var editingProjectLabel =
             TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.EditingProjectFilesMaterialType];
+        var filingLicenseLabel =
+            TikTokPublishConstants.CopyrightMaterialLabels[TikTokPublishConstants.FilingOrDistributionLicenseMaterialType];
         if (includeProductionAgreement)
         {
             var productionAgreementOption = await WaitForCopyrightMaterialCheckboxAsync(
@@ -430,6 +450,24 @@ public static partial class TikTokBrowserActions
                 ct);
         }
 
+        if (includeFilingLicense)
+        {
+            var filingOption = await WaitForCopyrightMaterialCheckboxAsync(
+                page,
+                TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
+                filingLicenseLabel,
+                CopyrightControlTimeoutMs,
+                ct);
+            await EnsureCopyrightMaterialCheckboxStateAsync(
+                page,
+                TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
+                filingLicenseLabel,
+                filingOption,
+                shouldSelect: true,
+                log,
+                ct);
+        }
+
         // 页面可能保留上一次未提交的选择；清掉当前未配置的已知类型，避免出现无文件映射的上传框。
         foreach (var pair in TikTokPublishConstants.CopyrightMaterialLabels)
         {
@@ -444,6 +482,9 @@ public static partial class TikTokBrowserActions
                 continue;
             if (includeEditingProjectFiles &&
                 string.Equals(pair.Key, TikTokPublishConstants.EditingProjectFilesMaterialType, StringComparison.Ordinal))
+                continue;
+            if (includeFilingLicense &&
+                string.Equals(pair.Key, TikTokPublishConstants.FilingOrDistributionLicenseMaterialType, StringComparison.Ordinal))
                 continue;
             ct.ThrowIfCancellationRequested();
             var option = await TryFindCopyrightMaterialCheckboxAsync(page, pair.Key, pair.Value);
@@ -468,6 +509,8 @@ public static partial class TikTokBrowserActions
             selectedParts.Add(aiScreenshotLabel);
         if (includeEditingProjectFiles)
             selectedParts.Add(editingProjectLabel);
+        if (includeFilingLicense)
+            selectedParts.Add(filingLicenseLabel);
         Log(log, $"TikTok 版权材料类型已确认：{string.Join("、", selectedParts)}。");
 
         if (uploadProductionAgreement)
@@ -528,6 +571,21 @@ public static partial class TikTokBrowserActions
         else if (includeEditingProjectFiles)
         {
             Log(log, $"TikTok 版权材料已存在，保留并跳过重复上传：{editingProjectLabel}。");
+        }
+
+        if (includeFilingLicense && uploadFilingLicense)
+        {
+            await UploadCopyrightMaterialFilesAsync(
+                page,
+                filingLicenseLabel,
+                [filingLicenseFile],
+                preferProductionAgreementFieldId: false,
+                log,
+                ct);
+        }
+        else if (includeFilingLicense)
+        {
+            Log(log, $"TikTok 版权材料已存在，保留并跳过重复上传：{filingLicenseLabel}。");
         }
     }
 

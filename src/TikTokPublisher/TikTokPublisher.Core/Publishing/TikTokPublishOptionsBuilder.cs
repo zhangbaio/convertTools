@@ -48,6 +48,20 @@ public static class TikTokPublishOptionsBuilder
             }
 
             if (options.CopyrightMaterialTypes.Contains(
+                    TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
+                    StringComparer.Ordinal))
+            {
+                var timestampCertificate = Path.Combine(
+                    workflowProjectDir,
+                    TikTokTimestampCertificateService.OutputFileName);
+                paths[TikTokPublishConstants.FilingOrDistributionLicenseMaterialType] = timestampCertificate;
+                log?.Invoke(
+                    File.Exists(timestampCertificate)
+                        ? $"TikTok 备案/发行许可时间戳已就绪：{timestampCertificate}"
+                        : $"TikTok 备案/发行许可时间戳等待生成：{timestampCertificate}");
+            }
+
+            if (options.CopyrightMaterialTypes.Contains(
                     TikTokPublishConstants.SourceFileInformationMaterialType,
                     StringComparer.Ordinal))
             {

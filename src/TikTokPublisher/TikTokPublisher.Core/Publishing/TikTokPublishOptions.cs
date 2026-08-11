@@ -7,6 +7,7 @@ public static class TikTokPublishConstants
 {
     public const string ProductionAgreementMaterialType = "production_agreement";
     public const string SourceFileInformationMaterialType = "source_file_information";
+    public const string FilingOrDistributionLicenseMaterialType = "filing_or_distribution_license";
     public const string AiGenerationScreenshotsMaterialType = "ai_generation_screenshots";
     public const string EditingProjectFilesMaterialType = "editing_project_files";
     public const string ContractIdModeManual = "manual";
@@ -16,7 +17,7 @@ public static class TikTokPublishConstants
     {
         ["production_agreement"] = "制作协议、联合出品协议等合作协议",
         ["work_registration_certificate"] = "作品登记证书",
-        ["filing_or_distribution_license"] = "网络剧片备案、发行许可、监管审批文件",
+        [FilingOrDistributionLicenseMaterialType] = "网络剧片备案、发行许可、监管审批文件",
         ["opening_ending_rights_notice"] = "片头片尾及权利标识",
         [AiGenerationScreenshotsMaterialType] = "AI 生成过程截图",
         [EditingProjectFilesMaterialType] = "剪辑工程文件",
@@ -54,7 +55,7 @@ public static class TikTokPublishConstants
 
     public static readonly IReadOnlySet<string> AuxiliaryCopyrightMaterialTypes = new HashSet<string>(StringComparer.Ordinal)
     {
-        "filing_or_distribution_license",
+        FilingOrDistributionLicenseMaterialType,
         "opening_ending_rights_notice",
         AiGenerationScreenshotsMaterialType,
         EditingProjectFilesMaterialType,
