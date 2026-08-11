@@ -22,6 +22,7 @@ public static class TikTokTimestampCertificateService
     public static Task<string> GenerateAsync(
         QueueProjectItem item,
         ClientSettings settings,
+        TikTokAccountProfile? account,
         bool forceRerun,
         Action<string>? log,
         CancellationToken ct)
@@ -42,7 +43,7 @@ public static class TikTokTimestampCertificateService
 
         var now = DateTimeOffset.Now;
         var title = FirstNonEmpty(item.NewTitle, item.Title, new DirectoryInfo(context.WorkflowProjectDir).Name.TrimStart('_'));
-        var applicant = ResolveApplicant(context.WorkflowProjectDir, settings);
+        var applicant = ResolveApplicant(context.WorkflowProjectDir, settings, account);
         var fields = new CertificateFields(
             applicant,
             now.AddHours(-2).ToString("yyyy-MM-dd HH:mm:ss（UTC+8）"),
@@ -146,7 +147,10 @@ public static class TikTokTimestampCertificateService
         return lines;
     }
 
-    private static string ResolveApplicant(string projectDir, ClientSettings settings)
+    internal static string ResolveApplicant(
+        string projectDir,
+        ClientSettings settings,
+        TikTokAccountProfile? account)
     {
         var infoPath = Path.Combine(projectDir, "短剧信息.txt");
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -158,7 +162,9 @@ public static class TikTokTimestampCertificateService
                 if (index > 0) values[line[..index].Trim()] = line[(index + 1)..].Trim();
             }
         }
-        return FirstNonEmpty(settings.TiktokProofDeclarantCompanyName,
+        return FirstNonEmpty(account?.TiktokTimestampApplicantName,
+            account?.TiktokProofDeclarantCompanyName,
+            settings.TiktokProofDeclarantCompanyName,
             values.GetValueOrDefault("制作公司"), values.GetValueOrDefault("报审机构名称"),
             values.GetValueOrDefault("报审机构"), "未填写报审机构");
     }

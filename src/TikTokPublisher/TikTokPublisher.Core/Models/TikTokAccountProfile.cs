@@ -88,6 +88,8 @@ public sealed class TikTokAccountProfile
     public string TiktokProofCopyrightCompanyName { get; set; } = "";
     /// <summary>证明材料正文及声明人位置使用的本公司名称。</summary>
     public string TiktokProofDeclarantCompanyName { get; set; } = "";
+    /// <summary>可信时间戳认证证书中的申请人；留空时使用本公司/声明人。</summary>
+    public string TiktokTimestampApplicantName { get; set; } = "";
     /// <summary>与本公司名称匹配的印章图片；留空时仅允许保留模板固定公司的印章。</summary>
     public string TiktokProofSealPath { get; set; } = "";
     /// <summary>旧全局证明材料配置是否已迁移为账号级配置。</summary>

@@ -224,20 +224,23 @@
                         <TextBlock Text="这些公司与印章信息仅用于当前账号生成的权利声明。"
                                    Foreground="#6B7280" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="130,*"
-                              RowDefinitions="Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto"
                               RowSpacing="10"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本公司/声明人" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" x:Name="ProofDeclarantCompanyNameBox" Watermark="用于正文和声明人" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="印章图片" VerticalAlignment="Center" />
-                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="可信时间戳申请人" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="TimestampApplicantNameBox" Watermark="留空时使用本公司/声明人" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="印章图片" VerticalAlignment="Center" />
+                            <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto">
                                 <TextBox Grid.Column="0" x:Name="ProofSealPathBox" Watermark="PNG、JPG、JPEG 或 BMP 图片" />
                                 <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofSealClick" Margin="8,0,0,0" />
                             </Grid>
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="致贵方名称" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" x:Name="ProofCopyrightCompanyNameBox" Watermark="用于“致【…】（下称贵方）”" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="致贵方名称" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="3" Grid.Column="1" x:Name="ProofCopyrightCompanyNameBox" Watermark="用于“致【…】（下称贵方）”" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

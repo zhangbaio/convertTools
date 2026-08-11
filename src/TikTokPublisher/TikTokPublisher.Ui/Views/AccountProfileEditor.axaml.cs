@@ -126,6 +126,7 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(ContentOriginalityCombo, profile.TiktokContentOriginalityType, "original");
         LoadCopyrightMaterialTypes(profile.TiktokCopyrightMaterialTypes);
         ProofDeclarantCompanyNameBox.Text = profile.TiktokProofDeclarantCompanyName;
+        TimestampApplicantNameBox.Text = profile.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = profile.TiktokProofSealPath;
         ProofCopyrightCompanyNameBox.Text = profile.TiktokProofCopyrightCompanyName;
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
@@ -225,6 +226,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
             profile.TiktokCopyrightMaterialTypes = ReadCopyrightMaterialTypes();
             profile.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
+            profile.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
             profile.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
             profile.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
             profile.TiktokProofAccountConfigMigrated = true;

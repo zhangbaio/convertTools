@@ -1,11 +1,36 @@
 using FluentAssertions;
 using PdfSharp.Pdf.IO;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokTimestampCertificateRenderingTests
 {
+    [Fact]
+    public void ResolveApplicant_PrefersAccountTimestampApplicant()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"timestamp-applicant-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var applicant = TikTokTimestampCertificateService.ResolveApplicant(
+                directory,
+                new ClientSettings { TiktokProofDeclarantCompanyName = "全局声明人" },
+                new TikTokAccountProfile
+                {
+                    TiktokProofDeclarantCompanyName = "账号声明人",
+                    TiktokTimestampApplicantName = "时间戳专用申请人",
+                });
+
+            applicant.Should().Be("时间戳专用申请人");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void Render_UsesBundledTemplateAndCreatesChineseEnglishPages()
     {

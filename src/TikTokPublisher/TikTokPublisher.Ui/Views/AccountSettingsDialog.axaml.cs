@@ -55,6 +55,7 @@ public partial class AccountSettingsDialog : Window
         SelectByTag(ContentOriginalityCombo, p.TiktokContentOriginalityType, "original");
         LoadCopyrightMaterialTypes(p.TiktokCopyrightMaterialTypes);
         ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
+        TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = p.TiktokProofSealPath;
         ProofCopyrightCompanyNameBox.Text = p.TiktokProofCopyrightCompanyName;
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
@@ -121,6 +122,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
         p.TiktokCopyrightMaterialTypes = ReadCopyrightMaterialTypes();
         p.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
+        p.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
         p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
         p.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
         p.TiktokProofAccountConfigMigrated = true;
