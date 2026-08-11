@@ -133,7 +133,7 @@ public sealed class TikTokProofMaterialService
             TryDelete(outputDocxPath);
         }
 
-        if (!forceRerun && HasCurrentOutput(context, request, fingerprint))
+        if (!forceRerun && HasCurrentOutput(context, request, fingerprint, settings))
         {
             var renderer = GetStateString(checkpoint, "renderer");
             log?.Invoke($"[合作协议（核心）] 复用现有文件：{request.OutputPdfPath}。");
@@ -277,7 +277,8 @@ public sealed class TikTokProofMaterialService
             (!aiCompleted || !TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir));
         var editingNeedsVideo =
             request.GenerateEditingProjectFiles &&
-            (!editingCompleted || !TikTokProjectImageService.HasCurrentOutput(context.WorkflowProjectDir));
+            (!editingCompleted ||
+             !TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings));
         var proofVideoEpisodeCount = ResolveTemporaryVideoEpisodeCount(
             aiNeedsVideo,
             editingNeedsVideo,
@@ -338,7 +339,7 @@ public sealed class TikTokProofMaterialService
 
         cancellationToken.ThrowIfCancellationRequested();
         if (request.GenerateEditingProjectFiles && editingCompleted &&
-            TikTokProjectImageService.HasCurrentOutput(context.WorkflowProjectDir))
+            TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings))
         {
             LogExistingMaterial(
                 log,
@@ -530,7 +531,7 @@ public sealed class TikTokProofMaterialService
                 context.WorkflowProjectDir,
                 ResolveStatementDate(item, state));
             var fingerprint = ComputeFingerprint(request);
-            return !HasCurrentOutput(context, request, fingerprint);
+            return !HasCurrentOutput(context, request, fingerprint, settings);
         }
         catch
         {
@@ -557,7 +558,7 @@ public sealed class TikTokProofMaterialService
                 account,
                 context.WorkflowProjectDir,
                 ResolveStatementDate(item, state));
-            return HasCurrentOutput(context, request, ComputeFingerprint(request));
+            return HasCurrentOutput(context, request, ComputeFingerprint(request), settings);
         }
         catch
         {
@@ -838,7 +839,8 @@ public sealed class TikTokProofMaterialService
     private static bool HasCurrentOutput(
         ProjectWorkspaceContext context,
         TikTokProofMaterialRequest request,
-        string fingerprint)
+        string fingerprint,
+        ClientSettings settings)
     {
         var state = LoadState(context);
         if (!string.Equals(
@@ -875,7 +877,7 @@ public sealed class TikTokProofMaterialService
         }
 
         if (request.GenerateEditingProjectFiles &&
-            !TikTokProjectImageService.HasCurrentOutput(context.WorkflowProjectDir))
+            !TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings))
         {
             return false;
         }

@@ -505,6 +505,24 @@ Invoke-Checked -FilePath $dotnet -Arguments @(
     "/p:IncludeNativeLibrariesForSelfExtract=true"
 )
 
+$fableCutRequiredFiles = @(
+    "index.html",
+    "app.js",
+    "style.css",
+    "ruler-worker.js",
+    "meter-worklet.js",
+    "favicon.svg",
+    "icons\favicon-32.png",
+    "LICENSE",
+    "version.json"
+)
+foreach ($relativePath in $fableCutRequiredFiles) {
+    $publishedAsset = Join-Path (Join-Path $PublishDir "fablecut") $relativePath
+    if (-not (Test-Path -LiteralPath $publishedAsset -PathType Leaf)) {
+        throw "FableCut runtime asset was not published: $publishedAsset"
+    }
+}
+
 $publishTools = Join-Path $PublishDir "tools"
 $repoFonts = Join-Path $Root "src\ShortDrama\tools\fonts"
 Copy-DirectoryContents -Source $repoFonts -Destination (Join-Path $publishTools "fonts")

@@ -60,6 +60,9 @@ public static class ClientSettingsWorkflowConfigWriter
             ["ProjectImageCount"] = settings.TiktokProjectImageCount,
             ["ProjectImageRenderEpisodeLimit"] = settings.TiktokProjectImageRenderEpisodeLimit,
             ["ProjectImageSubtitleAiMode"] = settings.TiktokProjectImageSubtitleAiMode,
+            ["ProjectImageFableCutRoot"] = settings.TiktokProjectImageFableCutRoot,
+            ["ProjectImageFableCutClipCount"] = settings.TiktokProjectImageFableCutClipCount,
+            ["ProjectImageFableCutScreenshotStyle"] = ClientSettingsDefaults.TiktokProjectImageFableCutScreenshotStyle,
         };
         PosterImageConfigHelper.ApplyPosterRuntimeConfig(payload, settings);
 

@@ -4,6 +4,12 @@ using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Services.Asr;
 
+/// <summary>本地 ASR 识别到的一段台词及其在音频中的时间区间（秒）。</summary>
+public readonly record struct TranscriptSegment(
+    double StartSeconds,
+    double EndSeconds,
+    string Text);
+
 /// <summary>本地离线 ASR：sherpa-onnx Paraformer + silero VAD（对齐 Python <c>_local_intervals</c>）。</summary>
 public static class LocalParaformerAsrClient
 {
@@ -11,13 +17,57 @@ public static class LocalParaformerAsrClient
     private static readonly Dictionary<string, OfflineRecognizer> RecognizerCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<char> NonLexicalChars = new("啦啊哦呜嗯哈呀咦唔哼嘿喔噢哎呵嗷啧唉咯喂呐喏嘞咧呣噜啰嗯呃哟");
 
-    public static Task<IReadOnlyList<SpeechInterval>> RecognizeSpeechIntervalsAsync(
+    /// <summary>识别 WAV 中的台词文本和时间区间。</summary>
+    public static Task<IReadOnlyList<TranscriptSegment>> RecognizeTranscriptSegmentsAsync(
         string wavPath,
         ClientSettings settings,
         CancellationToken ct)
-        => Task.Run(() => RecognizeSpeechIntervals(wavPath, settings, ct), ct);
+        => Task.Run(() => RecognizeTranscriptSegments(wavPath, settings, ct), ct);
 
-    private static IReadOnlyList<SpeechInterval> RecognizeSpeechIntervals(
+    /// <summary>兼容旧静音检测调用，仅保留台词段的时间区间。</summary>
+    public static async Task<IReadOnlyList<SpeechInterval>> RecognizeSpeechIntervalsAsync(
+        string wavPath,
+        ClientSettings settings,
+        CancellationToken ct)
+    {
+        var segments = await RecognizeTranscriptSegmentsAsync(wavPath, settings, ct).ConfigureAwait(false);
+        return ToSpeechIntervals(segments);
+    }
+
+    internal static IReadOnlyList<SpeechInterval> ToSpeechIntervals(
+        IReadOnlyList<TranscriptSegment> segments)
+    {
+        if (segments.Count == 0)
+            return Array.Empty<SpeechInterval>();
+
+        return segments
+            .Select(segment => new SpeechInterval(segment.StartSeconds, segment.EndSeconds))
+            .ToArray();
+    }
+
+    internal static TranscriptSegment? CreateTranscriptSegment(
+        long startSample,
+        int sampleCount,
+        int sampleRate,
+        string? recognizedText)
+    {
+        if (sampleRate <= 0)
+            throw new ArgumentOutOfRangeException(nameof(sampleRate), "采样率必须大于 0");
+        if (startSample < 0)
+            throw new ArgumentOutOfRangeException(nameof(startSample), "起始采样点不能小于 0");
+        if (sampleCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(sampleCount), "采样点数量不能小于 0");
+
+        var text = recognizedText?.Trim() ?? "";
+        if (!IsLexical(text))
+            return null;
+
+        var start = startSample / (double)sampleRate;
+        var end = start + sampleCount / (double)sampleRate;
+        return new TranscriptSegment(start, end, text);
+    }
+
+    private static IReadOnlyList<TranscriptSegment> RecognizeTranscriptSegments(
         string wavPath,
         ClientSettings settings,
         CancellationToken ct)
@@ -43,7 +93,7 @@ public static class LocalParaformerAsrClient
         var bufferSeconds = Math.Max(30, (int)(samples.Length / (double)sampleRate) + 5);
         using var detector = new VoiceActivityDetector(vadConfig, bufferSeconds);
         var window = vadConfig.SileroVad.WindowSize > 0 ? vadConfig.SileroVad.WindowSize : 512;
-        var intervals = new List<SpeechInterval>();
+        var segments = new List<TranscriptSegment>();
 
         lock (RecognizerLock)
         {
@@ -59,14 +109,14 @@ public static class LocalParaformerAsrClient
                 Array.Copy(samples, offset, chunk, 0, window);
                 detector.AcceptWaveform(chunk);
                 offset += window;
-                DrainSegments(detector, recognizer, sampleRate, intervals);
+                DrainSegments(detector, recognizer, sampleRate, segments, ct);
             }
 
             detector.Flush();
-            DrainSegments(detector, recognizer, sampleRate, intervals);
+            DrainSegments(detector, recognizer, sampleRate, segments, ct);
         }
 
-        return intervals;
+        return segments;
     }
 
     private static OfflineRecognizer GetOrCreateRecognizer(SherpaOnnxModelPaths paths)
@@ -93,21 +143,23 @@ public static class LocalParaformerAsrClient
         VoiceActivityDetector detector,
         OfflineRecognizer recognizer,
         int sampleRate,
-        List<SpeechInterval> intervals)
+        List<TranscriptSegment> segments,
+        CancellationToken ct)
     {
         while (!detector.IsEmpty())
         {
+            ct.ThrowIfCancellationRequested();
             var seg = detector.Front();
             using var stream = recognizer.CreateStream();
             stream.AcceptWaveform(sampleRate, seg.Samples);
             recognizer.Decode(stream);
-            var text = stream.Result.Text?.Trim() ?? "";
-            if (IsLexical(text))
-            {
-                var start = seg.Start / (double)sampleRate;
-                var end = start + seg.Samples.Length / (double)sampleRate;
-                intervals.Add(new SpeechInterval(start, end));
-            }
+            var transcript = CreateTranscriptSegment(
+                seg.Start,
+                seg.Samples.Length,
+                sampleRate,
+                stream.Result.Text);
+            if (transcript is { } value)
+                segments.Add(value);
 
             detector.Pop();
         }

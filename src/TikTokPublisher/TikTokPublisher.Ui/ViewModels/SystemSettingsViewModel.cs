@@ -115,6 +115,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokProjectImageCount = ClientSettingsDefaults.TiktokProjectImageCount;
     [ObservableProperty] private int _tiktokProjectImageRenderEpisodeLimit = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
     [ObservableProperty] private string _tiktokProjectImageSubtitleAiMode = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
+    [ObservableProperty] private string _tiktokProjectImageFableCutRoot = ClientSettingsDefaults.TiktokProjectImageFableCutRoot;
+    [ObservableProperty] private int _tiktokProjectImageFableCutClipCount = ClientSettingsDefaults.TiktokProjectImageFableCutClipCount;
     [ObservableProperty] private string _tiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
     [ObservableProperty] private string _tiktokProofWpsPath = ClientSettingsDefaults.TiktokProofWpsPath;
     [ObservableProperty] private string _tiktokProofDeclarantCompanyName = "";
@@ -140,8 +142,21 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> PosterModeOptions { get; } = [ClientSettingsDefaults.PosterMode];
     public IReadOnlyList<string> ImageProviderOptions { get; } = ["doubao", "ofox_image2"];
     public IReadOnlyList<string> PosterTitleVerifyModeOptions { get; } = ["fallback_repaint", "warn", "blocking"];
+    public IReadOnlyList<string> ProjectImageGenerationModeOptions { get; } = ["image_template", "fablecut"];
     public IReadOnlyList<string> ProjectImageSubtitleAiModeOptions { get; } = ["fast", "accurate", "off"];
     public IReadOnlyList<string> ManagementDedupScopeOptions { get; } = ["tiktok_username", "software_user", "all_series"];
+
+    public bool IsProjectImageTemplateMode => !IsProjectImageFableCutMode;
+    public bool IsProjectImageFableCutMode => string.Equals(
+        TiktokProjectImageGenerationMode,
+        "fablecut",
+        StringComparison.OrdinalIgnoreCase);
+
+    partial void OnTiktokProjectImageGenerationModeChanged(string value)
+    {
+        OnPropertyChanged(nameof(IsProjectImageTemplateMode));
+        OnPropertyChanged(nameof(IsProjectImageFableCutMode));
+    }
 
     public void Load(string? workspacePath = null)
     {
@@ -232,6 +247,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokProjectImageCount = TiktokProjectImageCount,
         TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit,
         TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode,
+        TiktokProjectImageFableCutRoot = TiktokProjectImageFableCutRoot.Trim(),
+        TiktokProjectImageFableCutClipCount = Math.Clamp(TiktokProjectImageFableCutClipCount, 12, 36),
         TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath.Trim(),
         TiktokProofWpsPath = TiktokProofWpsPath.Trim(),
         TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName.Trim(),
@@ -678,6 +695,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokProjectImageCount = settings.TiktokProjectImageCount;
         TiktokProjectImageRenderEpisodeLimit = settings.TiktokProjectImageRenderEpisodeLimit;
         TiktokProjectImageSubtitleAiMode = settings.TiktokProjectImageSubtitleAiMode;
+        TiktokProjectImageFableCutRoot = settings.TiktokProjectImageFableCutRoot;
+        TiktokProjectImageFableCutClipCount = settings.TiktokProjectImageFableCutClipCount;
         TiktokProofTemplateDocxPath = settings.TiktokProofTemplateDocxPath;
         TiktokProofWpsPath = settings.TiktokProofWpsPath;
         TiktokProofDeclarantCompanyName = settings.TiktokProofDeclarantCompanyName;

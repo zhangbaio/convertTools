@@ -31,6 +31,9 @@ public static class ClientSettingsDefaults
     public const int TiktokProjectImageCount = 4;
     public const int TiktokProjectImageRenderEpisodeLimit = 16;
     public const string TiktokProjectImageSubtitleAiMode = "fast";
+    public const string TiktokProjectImageFableCutRoot = "";
+    public const int TiktokProjectImageFableCutClipCount = 24;
+    public const string TiktokProjectImageFableCutScreenshotStyle = "standard";
     // Empty means use the DOCX embedded in TikTokPublisher.Core.
     public const string TiktokProofTemplateDocxPath = "";
     public const string TiktokProofWpsPath = "";

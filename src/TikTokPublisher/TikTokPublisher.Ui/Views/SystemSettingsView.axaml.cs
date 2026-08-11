@@ -41,6 +41,7 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.PosterMode)
                 or nameof(SystemSettingsViewModel.ImageProvider)
                 or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
+                or nameof(SystemSettingsViewModel.TiktokProjectImageGenerationMode)
                 or nameof(SystemSettingsViewModel.TiktokProjectImageSubtitleAiMode)
                 or nameof(SystemSettingsViewModel.TiktokProofPdfRenderer)
                 or nameof(SystemSettingsViewModel.ManagementDedupScope))
@@ -130,6 +131,11 @@ public partial class SystemSettingsView : UserControl
         PosterTitleVerifyModeCombo.Items.Add(CreateItem("AI重试后阻断", "blocking"));
         PosterTitleVerifyModeCombo.SelectionChanged += OnPosterTitleVerifyModeChanged;
 
+        ProjectImageGenerationModeCombo.Items.Clear();
+        ProjectImageGenerationModeCombo.Items.Add(CreateItem("图片模板", "image_template"));
+        ProjectImageGenerationModeCombo.Items.Add(CreateItem("FableCut真实工程", "fablecut"));
+        ProjectImageGenerationModeCombo.SelectionChanged += OnProjectImageGenerationModeChanged;
+
         ProjectImageSubtitleAiModeCombo.Items.Clear();
         ProjectImageSubtitleAiModeCombo.Items.Add(CreateItem("快速（推荐）", "fast"));
         ProjectImageSubtitleAiModeCombo.Items.Add(CreateItem("准确", "accurate"));
@@ -164,6 +170,7 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(PosterModeCombo, ClientSettingsDefaults.PosterMode);
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
         SelectComboItem(PosterTitleVerifyModeCombo, _vm.PosterTitleVerifyMode);
+        SelectComboItem(ProjectImageGenerationModeCombo, _vm.TiktokProjectImageGenerationMode);
         SelectComboItem(ProjectImageSubtitleAiModeCombo, _vm.TiktokProjectImageSubtitleAiMode);
         SelectComboItem(ProofPdfRendererCombo, _vm.TiktokProofPdfRenderer);
         SelectComboItem(ManagementDedupScopeCombo, _vm.ManagementDedupScope);
@@ -250,6 +257,12 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || ProjectImageSubtitleAiModeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.TiktokProjectImageSubtitleAiMode = item.Tag as string ?? "fast";
+    }
+
+    private void OnProjectImageGenerationModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ProjectImageGenerationModeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.TiktokProjectImageGenerationMode = item.Tag as string ?? ClientSettingsDefaults.TiktokProjectImageGenerationMode;
     }
 
     private void OnProofPdfRendererChanged(object? sender, SelectionChangedEventArgs e)

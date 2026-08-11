@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FableCut — Video Editor</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png">
+<meta name="theme-color" content="#0e0e10">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ══════════ TOP BAR ══════════ -->
+  <header class="topbar">
+    <div class="logo"><span class="logo-mark">▶</span> Fable<b>Cut</b></div>
+    <div class="topbar-center" id="projectName">Untitled Project</div>
+    <div class="topbar-right">
+      <span class="layout-tools">
+        <button type="button" class="btn tiny" id="btnLayoutReset" title="Restore default layout">⊡ Layout</button>
+        <span class="btn-group" id="trackSizeGroup" title="Timeline track height">
+          <button type="button" class="btn tiny" data-track-size="s" title="Compact tracks (no thumbnails)">S</button>
+          <button type="button" class="btn tiny" data-track-size="m" title="Medium tracks">M</button>
+          <button type="button" class="btn tiny" data-track-size="l" title="Large tracks">L</button>
+        </span>
+      </span>
+      <button class="btn ghost" id="btnSettings" title="Settings" aria-label="Settings">
+        <svg class="ico" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+          <path fill="currentColor" fill-rule="evenodd" d="M6.71 2.81L6.88.94L9.12.94L9.29 2.81L10.76 3.41L12.2 2.22L13.78 3.8L12.59 5.24L13.19 6.71L15.06 6.88L15.06 9.12L13.19 9.29L12.59 10.76L13.78 12.2L12.2 13.78L10.76 12.59L9.29 13.19L9.12 15.06L6.88 15.06L6.71 13.19L5.24 12.59L3.8 13.78L2.22 12.2L3.41 10.76L2.81 9.29L.94 9.12L.94 6.88L2.81 6.71L3.41 5.24L2.22 3.8L3.8 2.22L5.24 3.41Z M5.15 8a2.85 2.85 0 1 0 5.7 0a2.85 2.85 0 1 0-5.7 0"/>
+        </svg>
+      </button>
+      <button class="btn ghost" id="btnHelp" title="Keyboard shortcuts">?</button>
+      <button class="btn primary" id="btnExport">⬇ Export</button>
+    </div>
+  </header>
+
+  <!-- ══════════ UPPER PANELS ══════════ -->
+  <div class="upper">
+
+    <!-- Media bin -->
+    <aside class="panel bin">
+      <div class="panel-head">
+        <span>Assets</span>
+        <span class="panel-head-actions">
+          <button type="button" class="btn tiny" id="btnTitle" title="Add a title card at the playhead">+ Title</button>
+          <button type="button" class="btn tiny" id="btnAdjust" title="Add an adjustment layer (grades everything below it)">+ Adjust</button>
+          <label class="btn tiny accent" id="btnImport" for="fileInput" title="Import media files">+ Import</label>
+        </span>
+      </div>
+      <div class="bin-tabs" id="binTabs">
+        <button type="button" data-tab="project" class="on" title="Media used by this project — right-click for New folder">Project</button>
+        <button type="button" data-tab="elements" title="Overlay art from library/elements">Elements</button>
+        <button type="button" data-tab="sfx" title="Sound effects from library/sfx">Sound FX</button>
+        <button type="button" data-tab="svg" title="Vector animations from library/svg">SVG</button>
+      </div>
+      <input type="file" id="fileInput" class="sr-only" multiple accept="video/*,audio/*,image/*,.mp4,.mov,.webm,.mkv,.mp3,.wav,.m4a,.png,.jpg,.jpeg,.gif,.webp,.svg">
+      <div class="bin-list" id="binList">
+        <div class="bin-empty" id="binEmpty">
+          <div class="bin-empty-icon">🎬</div>
+          <p>Drop video, audio or images here<br>or click <b>+ Import</b></p>
+          <p class="hint">Then drag media onto the timeline below.</p>
+        </div>
+      </div>
+      <div class="bin-list hidden" id="libList"></div>
+    </aside>
+
+    <!-- Program monitor -->
+    <section class="panel monitor">
+      <div class="panel-head">
+        <span class="panel-head-title">
+          <span>Program Monitor</span>
+          <button class="btn tiny hidden" id="btnZoom100" title="Reset monitor view to fit stage"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" d="M1.5 5V1.5H5M11 1.5h3.5V5M14.5 11v3.5H11M5 14.5H1.5V11"/><path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M3.2 3.2l2.6 2.6M12.8 3.2l-2.6 2.6M12.8 12.8l-2.6-2.6M3.2 12.8l2.6-2.6"/></svg> Fit</button>
+        </span>
+        <span class="panel-head-actions">
+          <select id="aspectSel" class="head-select" title="Canvas aspect preset"></select>
+          <button class="btn tiny toggle" id="btnGuides" title="Toggle safe-area guides">▦ Safe</button>
+          <span class="dim" id="monitorRes">1280 × 720 · 30fps</span>
+        </span>
+      </div>
+      <div class="monitor-stage" id="monitorStage">
+        <div class="monitor-scroll" id="monitorScroll">
+          <div class="monitor-zoom-inner" id="monitorZoomInner">
+            <canvas id="preview" width="1280" height="720"></canvas>
+            <div id="safeOverlay" class="hidden">
+              <div class="sa-action"></div>
+              <div class="sa-title"></div>
+              <div class="sa-ui-bottom"></div>
+              <div class="sa-ui-right"></div>
+            </div>
+          </div>
+        </div>
+        <div class="kf-graphs" id="kfGraphs" hidden></div>
+        <div class="vu-meter" id="vuMeter" title="Click to switch RMS / LUFS / Peak"></div>
+      </div>
+      <div class="transport">
+        <span class="timecode" id="tcCurrent">00:00:00</span>
+        <div class="transport-btns">
+          <button class="btn icon" id="btnHome" title="Go to start (Home)">⏮</button>
+          <button class="btn icon" id="btnBack" title="Back 1 frame (←)">◀︎</button>
+          <button class="btn icon big" id="btnPlay" title="Play / Pause (Space)">▶</button>
+          <button class="btn icon" id="btnFwd" title="Forward 1 frame (→)">▶︎</button>
+          <button class="btn icon" id="btnEnd" title="Go to end (End)">⏭</button>
+          <button class="btn icon toggle" id="btnSpeed" title="Preview speed — click to cycle 1×/1.5×/2×/4×. While playing: L faster · J slower · K play/pause and reset to 1×. Preview only, not export.">1×</button>
+        </div>
+        <span class="timecode dim" id="tcTotal">00:00:00</span>
+      </div>
+    </section>
+
+    <!-- Inspector -->
+    <aside class="panel inspector">
+      <div class="panel-head"><span>Inspector</span></div>
+      <div class="inspector-body" id="inspector">
+        <div class="inspector-empty">Select a clip to edit its<br>transform, effects &amp; audio.</div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="v-split" id="splitUpperTimeline" role="separator" aria-orientation="horizontal" title="Drag to resize · double-click to reset"></div>
+
+  <!-- ══════════ TIMELINE ══════════ -->
+  <section class="panel timeline-panel" id="timelinePanel">
+    <div class="timeline-toolbar">
+      <button class="btn tiny hidden" id="btnTrimIO" title="Trim clips to IN/OUT (⇧T)"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" d="M1.25 4.5H12M4.5 1.25V12M4.5 12H14.75M12 4.5V14.75"/></svg> Trim</button>
+      <button class="btn tiny toggle hidden" id="btnWorkAreaPlay" title="Limit playback to IN/OUT (Home/End jump to markers; playhead outside = override)"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="square" stroke-linejoin="miter" d="M1.5 2.5V13.5M14.5 2.5V13.5M4.25 8H11.75M9.35 5.6L12 8L9.35 10.4"/></svg> Limit</button>
+      <button class="btn tiny" id="btnSplit" title="Split at playhead (S)">✂ Split</button>
+      <button class="btn tiny" id="btnCloseGap" title="Close gap at playhead (⇧G)"><svg class="ico" viewBox="0 0 16 16" width="14" height="14" style="vertical-align:-3px" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" d="M0.75 4.5H3.5V11.5H0.75M15.25 4.5H12.5V11.5H15.25"/><path fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" d="M6.35 5.85L9.65 10.15M9.65 5.85L6.35 10.15"/></svg> Close gap</button>
+      <button class="btn tiny" id="btnNextGap" title="Find gap (G)"><svg class="ico" viewBox="0 0 16 16" width="14" height="14" style="vertical-align:-3px" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" d="M0.75 4.5H3.5V11.5H0.75M15.25 4.5H12.5V11.5H15.25"/><text x="8" y="11.1" text-anchor="middle" fill="currentColor" font-size="9.5" font-family="Segoe UI, system-ui, sans-serif" font-weight="700">?</text></svg> Find gap</button>
+      <button class="btn tiny" id="btnDelete" title="Delete selected (Del)"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M5.5 1.5h5v1.25H14v1.5H2v-1.5h3.5V1.5zM3.75 5.5h8.5v8.25a1.5 1.5 0 0 1-1.5 1.5h-5.5a1.5 1.5 0 0 1-1.5-1.5V5.5zm2 2v5h1.25v-5H5.75zm3.25 0v5H10.25v-5H9z"/></svg> Delete</button>
+      <button class="btn tiny toggle on" id="btnSnap" title="Toggle snapping (N)"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" style="vertical-align:-3px" aria-hidden="true"><g transform="rotate(270 8 7)"><path fill="none" stroke="currentColor" stroke-width="3.25" stroke-linecap="butt" d="M4 10.25V7a4 4 0 0 1 8 0v3.25"/><path fill="currentColor" d="M2.375 10.75h3.25v2.5h-3.25zm8 0h3.25v2.5h-3.25z"/></g></svg> Snap</button>
+      <button class="btn tiny toggle" id="btnAudioHold" title="Audio Hold — while paused, loop one frame of audio at the playhead. Play/Stop turns it off."><svg class="ico" viewBox="0 0 16 16" width="13" height="13" style="vertical-align:-3px" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" d="M1.75 2.75V13.25M14.25 2.75V13.25"/><path fill="currentColor" d="M5.2 5.85h1.15v4.3H5.2V5.85zM7.05 5.85h0.55l2.85-2.2v8.7l-2.85-2.2H7.05V5.85z"/></svg> Audio hold</button>
+      <span class="flex-spacer"></span>
+      <span class="dim tiny-label">Zoom</span>
+      <input type="range" id="zoomSlider" min="1" max="300" value="60">
+      <button class="btn tiny" id="btnZoomFit" title="Zoom timeline to fit (⇧Z)"><span class="fit-icon">│<span class="fit-arrow">↔</span>│</span> Fit</button>
+    </div>
+    <div class="timeline">
+      <div class="track-headers" id="trackHeaders"></div>
+      <div class="timeline-scroll" id="timelineScroll">
+        <canvas class="ruler" id="ruler"></canvas>
+        <div class="tracks-content" id="tracksContent">
+          <div class="work-dim work-dim-l hidden" id="workDimL"></div>
+          <div class="work-dim work-dim-r hidden" id="workDimR"></div>
+          <div class="tracks" id="tracks"></div>
+          <div class="playhead" id="playhead"><div class="playhead-cap"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ══════════ EXPORT SETUP ══════════ -->
+<div class="overlay hidden" id="exportSetup">
+  <div class="dialog">
+    <h2>Export</h2>
+    <label class="engine-opt">
+      <input type="radio" name="engine" id="engineFast">
+      <span><b>Fast (ffmpeg)</b><br><span class="dim" id="engineFastNote">Frame-accurate ffmpeg encode. Keeps rendering if you switch tabs.</span></span>
+    </label>
+    <label class="engine-opt">
+      <input type="radio" name="engine" id="engineRealtime">
+      <span><b>Realtime (in-browser)</b><br><span class="dim">Plays the timeline once and records it. Keep the tab focused.</span></span>
+    </label>
+    <div class="export-track-warn hidden" id="exportTrackWarn" role="status"></div>
+    <div class="dialog-actions">
+      <button class="btn" id="btnCancelSetup">Cancel</button>
+      <button class="btn primary" id="btnStartExport">Export</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ EXPORT OVERLAY ══════════ -->
+<div class="overlay hidden" id="exportOverlay">
+  <div class="dialog">
+    <h2 id="exportTitle">Exporting…</h2>
+    <p class="dim" id="exportNote">Rendering your sequence in real time. Keep this tab focused.</p>
+    <div class="progress"><div class="progress-fill" id="exportProgress"></div></div>
+    <div class="dialog-actions"><button class="btn" id="btnCancelExport">Cancel</button></div>
+  </div>
+</div>
+
+<!-- ══════════ SETTINGS OVERLAY ══════════ -->
+<div class="overlay hidden" id="settingsOverlay">
+  <div class="dialog settings" id="settingsDialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" tabindex="-1">
+    <h2 id="settingsTitle">Settings</h2>
+    <p class="dim settings-intro">Preferences are stored in this browser only.</p>
+    <div class="settings-section">
+      <h3>Selection</h3>
+      <label class="settings-row">
+        <input type="checkbox" id="setLinkSelect">
+        <span>
+          <span class="settings-label">Link timeline and Project bin selection</span>
+          <span class="settings-hint">Selecting a timeline clip highlights its media in Project, and the reverse. Off by default.</span>
+        </span>
+      </label>
+    </div>
+    <div class="dialog-actions"><button class="btn primary" id="btnCloseSettings">Close</button></div>
+  </div>
+</div>
+
+<!-- ══════════ HELP OVERLAY ══════════ -->
+<div class="overlay hidden" id="helpOverlay">
+  <div class="dialog help">
+    <h2>Keyboard shortcuts</h2>
+    <div class="keys-cols">
+      <table class="keys">
+        <tr><td><kbd>Space</kbd></td><td>Play / pause</td></tr>
+        <tr><td><kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td><td>Shuttle preview — <kbd>L</kbd> faster / <kbd>J</kbd> slower (1× · 1.5× · 2× · 4×); <kbd>K</kbd> play/pause + reset to 1×</td></tr>
+        <tr><td><kbd>S</kbd></td><td>Split clip(s) at playhead</td></tr>
+        <tr><td><kbd>G</kbd></td><td>Find next shared gap (wraps; respects IN/OUT)</td></tr>
+        <tr><td><kbd>⇧</kbd>+<kbd>G</kbd></td><td>Close gap at playhead (enabled tracks)</td></tr>
+        <tr><td><kbd>Alt</kbd>+<kbd>T</kbd></td><td>Add transition at playhead (in / out by half)</td></tr>
+        <tr><td><kbd>Del</kbd></td><td>Delete selected clip(s), or clear focused transition</td></tr>
+        <tr><td>Drag empty area</td><td>Marquee-select clips</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+click bin</td><td>Import media files</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+click clip</td><td>Add / remove from selection</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd> / <kbd>Esc</kbd></td><td>Select all / deselect</td></tr>
+        <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Step 1 frame (⇧ = 1 second)</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>←</kbd> / <kbd>Ctrl</kbd>+<kbd>→</kbd></td><td>Go to previous / next keyframe</td></tr>
+        <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Trim selected in / out to playhead</td></tr>
+        <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>Jump to start / end</td></tr>
+      </table>
+      <table class="keys">
+        <tr><td><kbd>M</kbd></td><td>Add / remove marker at playhead</td></tr>
+        <tr><td><kbd>I</kbd> / <kbd>O</kbd></td><td>Set IN / OUT work-area marker</td></tr>
+        <tr><td><kbd>⇧</kbd>+<kbd>I</kbd> / <kbd>⇧</kbd>+<kbd>O</kbd></td><td>Clear IN / OUT marker</td></tr>
+        <tr><td><kbd>T</kbd></td><td>Split clips at IN/OUT markers</td></tr>
+        <tr><td><kbd>⇧</kbd>+<kbd>T</kbd></td><td>Trim clips to IN/OUT (remove heads/tails)</td></tr>
+        <tr><td>Limit (toolbar)</td><td>Play stops at OUT; Home/End use IN/OUT</td></tr>
+        <tr><td><kbd>N</kbd></td><td>Toggle snapping</td></tr>
+        <tr><td><kbd>+</kbd> / <kbd>-</kbd></td><td>Zoom timeline</td></tr>
+        <tr><td><kbd>Z</kbd></td><td>Zoom to selected clip(s)</td></tr>
+        <tr><td><kbd>Alt</kbd>+<kbd>Z</kbd></td><td>Zoom to IN–OUT work area</td></tr>
+        <tr><td><kbd>⇧</kbd>+<kbd>Z</kbd></td><td>Zoom timeline to fit</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>⇧</kbd>+<kbd>Z</kbd></td><td>Undo / redo</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+wheel</td><td>Zoom timeline at cursor</td></tr>
+      </table>
+    </div>
+    <div class="dialog-actions"><button class="btn primary" id="btnCloseHelp">Close</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

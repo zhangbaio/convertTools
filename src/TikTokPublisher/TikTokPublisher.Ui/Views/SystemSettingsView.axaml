@@ -390,24 +390,47 @@
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4">
                         <TextBlock Text="TikTok 工程图" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="生成方式" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TiktokProjectImageGenerationMode}" IsReadOnly="True" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="ProjectImageGenerationModeCombo" Width="260" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="模板根目录" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TiktokProjectImageTemplateRoot}" Watermark="留空使用内置模板" />
+                            <Grid Grid.Row="1" Grid.ColumnSpan="2"
+                                  ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto"
+                                  RowSpacing="10" ColumnSpacing="10"
+                                  IsVisible="{Binding IsProjectImageTemplateMode}">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="模板根目录" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TiktokProjectImageTemplateRoot}" Watermark="留空使用内置模板" />
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="截图模板" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding TiktokProjectImageTemplateId}" IsReadOnly="True" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="截图模板" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TiktokProjectImageTemplateId}" IsReadOnly="True" />
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="工程图数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding TiktokProjectImageCount}" Minimum="1" Maximum="20" Width="120" HorizontalAlignment="Left" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="工程图AI台词" VerticalAlignment="Center" />
+                                <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ProjectImageSubtitleAiModeCombo" Width="180" HorizontalAlignment="Left" />
+                            </Grid>
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="工程图导入集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding TiktokProjectImageRenderEpisodeLimit}" Minimum="1" Maximum="200" Width="120" HorizontalAlignment="Left" />
+                            <Grid Grid.Row="1" Grid.ColumnSpan="2"
+                                  ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto"
+                                  RowSpacing="10" ColumnSpacing="10"
+                                  IsVisible="{Binding IsProjectImageFableCutMode}">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="FableCut目录" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TiktokProjectImageFableCutRoot}" Watermark="留空使用内置 FableCut" />
 
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="工程图AI台词" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="5" Grid.Column="1" x:Name="ProjectImageSubtitleAiModeCombo" Width="180" HorizontalAlignment="Left" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="时间线片段数" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TiktokProjectImageFableCutClipCount}" Minimum="12" Maximum="36" Width="120" HorizontalAlignment="Left" />
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="截图样式" VerticalAlignment="Center" />
+                                <TextBox Grid.Row="2" Grid.Column="1" Text="标准工程图" IsReadOnly="True" />
+                            </Grid>
+
+                            <Grid Grid.Row="2" Grid.ColumnSpan="2"
+                                  ColumnDefinitions="140,*" RowDefinitions="Auto,Auto"
+                                  RowSpacing="10" ColumnSpacing="10">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="工程图数量" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokProjectImageCount}" Minimum="1" Maximum="20" Width="120" HorizontalAlignment="Left" />
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="工程图导入集数" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TiktokProjectImageRenderEpisodeLimit}" Minimum="1" Maximum="200" Width="120" HorizontalAlignment="Left" />
+                            </Grid>
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>
