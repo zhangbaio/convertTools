@@ -44,11 +44,11 @@ public partial class TikTokQueueView : UserControl
     private static readonly TimeSpan QueueAutoLoginTimeout = TimeSpan.FromMinutes(10);
     private static readonly double[] QueueTableDefaultColumnWidths =
     {
-        48, 56, 104, 210, 210, 60, 128, 68, 0, 68, 68, 76, 68, 0, 68, 68, 68, 68, 68, 68, 68, 180,
+        48, 56, 104, 210, 210, 60, 128, 68, 68, 68, 68, 76, 68, 0, 68, 68, 68, 68, 68, 68, 68, 180,
     };
     private static readonly double[] QueueTableMinColumnWidths =
     {
-        42, 48, 72, 120, 120, 48, 92, 56, 0, 56, 56, 62, 62, 0, 62, 62, 62, 62, 56, 56, 56, 120,
+        42, 48, 72, 120, 120, 48, 92, 56, 56, 56, 56, 62, 62, 0, 62, 62, 62, 62, 56, 56, 56, 120,
     };
     private readonly double[] _queueTableColumnWidths = QueueTableDefaultColumnWidths.ToArray();
     private readonly List<WeakReference<Grid>> _queueTableRowGrids = new();
@@ -2764,6 +2764,78 @@ public partial class TikTokQueueView : UserControl
             workspace,
             account,
             string.Join(Environment.NewLine, missingTitles));
+    }
+
+    private async void OnCleanupCopyrightProofMaterialsClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var vm = _vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var accountVm = vm?.SelectedAccount;
+        if (vm is null || owner is null)
+            return;
+        if (accountVm is null)
+        {
+            vm.StatusMessage = "请先选择要清理版权辅助材料的账号";
+            return;
+        }
+
+        var titles = await CopyrightProofMaterialCleanupDialog.ShowAsync(owner);
+        if (titles is null || titles.Count == 0)
+        {
+            vm.StatusMessage = "已取消删除版权辅助材料";
+            return;
+        }
+
+        var account = accountVm.Model;
+        using var cts = new CancellationTokenSource();
+        try
+        {
+            vm.StatusMessage = $"正在准备账号「{account.DisplayName}」的浏览器登录态…";
+            var ready = await EnsureAccountBrowserReadyAsync(account, vm.AppendLog, cts.Token);
+            if (!ready.Ok)
+                throw new InvalidOperationException(ready.Message);
+
+            IEmbeddedBrowser? browser = null;
+            if (!UsesPlaywrightUploadBrowser(account))
+                browser = _browserHost?.TryGetHost(account.Id);
+
+            vm.StatusMessage = $"正在清理 {titles.Count} 个项目的版权辅助材料…";
+            vm.AppendLog(
+                $"开始清理版权辅助材料，共 {titles.Count} 个新剧名；" +
+                "仅删除平台上的 AI 生成过程截图和剪辑工程文件，不删除本地文件。");
+            var results = await TikTokCopyrightProofMaterialCleanupService.ExecuteAsync(
+                account,
+                browser,
+                titles,
+                vm.AppendLog,
+                cts.Token);
+            var succeeded = results.Count(result => result.Success);
+            var failures = results.Where(result => !result.Success).ToArray();
+            vm.StatusMessage =
+                $"版权辅助材料清理结束：成功 {succeeded} 个，失败 {failures.Length} 个";
+            vm.AppendLog(vm.StatusMessage);
+
+            var detail = string.Join(
+                Environment.NewLine,
+                results.Select(result =>
+                    $"{(result.Success ? "成功" : "失败")}｜{result.Title}｜{result.Message}"));
+            await ShowMessageAsync(
+                owner,
+                "删除版权辅助材料",
+                detail,
+                warning: failures.Length > 0);
+        }
+        catch (OperationCanceledException)
+        {
+            vm.StatusMessage = "已停止删除版权辅助材料";
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"删除版权辅助材料失败：{ex.Message}";
+            vm.AppendLog(vm.StatusMessage);
+            await ShowMessageAsync(owner, "删除版权辅助材料失败", ex.Message, warning: true);
+        }
     }
 
     private async Task<IReadOnlyList<TikTokCopyrightProofAuditItem>>

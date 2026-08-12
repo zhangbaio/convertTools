@@ -184,7 +184,7 @@ public static class TikTokEpisodeScriptService
         return content[..headLength] + omission + content[^tailLength..];
     }
 
-    private static async Task<string> RequestTextAsync(
+    internal static async Task<string> RequestTextAsync(
         string prompt,
         ClientSettings settings,
         CancellationToken ct)
@@ -212,7 +212,7 @@ public static class TikTokEpisodeScriptService
         return content.Trim();
     }
 
-    private static void EnsureAiConfigured(ClientSettings settings)
+    internal static void EnsureAiConfigured(ClientSettings settings)
     {
         if (string.IsNullOrWhiteSpace(settings.AiTextEndpoint) ||
             string.IsNullOrWhiteSpace(settings.AiTextApiKey) ||

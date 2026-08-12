@@ -117,6 +117,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public string RewriteStatus => StepOf(QueueStepKeys.RewriteInfo);
     public string PosterStatus => StepOf(QueueStepKeys.GeneratePoster);
     public string EpisodeScriptStatus => StepOf(QueueStepKeys.GenerateEpisodeScript);
+    public string AiScriptOutlineStatus => StepOf(QueueStepKeys.GenerateAiScriptOutline);
     public string ProjectImageStatus => StepOf(QueueStepKeys.GenerateProjectImages);
     public string ProofMaterialStatus => StepOf(QueueStepKeys.GenerateProofMaterial);
     public string TimestampCertificateStatus => StepOf(QueueStepKeys.GenerateTimestampCertificate);
@@ -133,6 +134,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush RewriteStatusBrush => BrushOf(RewriteStatus);
     public IBrush PosterStatusBrush => BrushOf(PosterStatus);
     public IBrush EpisodeScriptStatusBrush => BrushOf(EpisodeScriptStatus);
+    public IBrush AiScriptOutlineStatusBrush => BrushOf(AiScriptOutlineStatus);
     public IBrush ProjectImageStatusBrush => BrushOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBrush => BrushOf(ProofMaterialStatus);
     public IBrush TimestampCertificateStatusBrush => BrushOf(TimestampCertificateStatus);
@@ -155,6 +157,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush RewriteStatusBackgroundBrush => BackgroundOf(RewriteStatus);
     public IBrush PosterStatusBackgroundBrush => BackgroundOf(PosterStatus);
     public IBrush EpisodeScriptStatusBackgroundBrush => BackgroundOf(EpisodeScriptStatus);
+    public IBrush AiScriptOutlineStatusBackgroundBrush => BackgroundOf(AiScriptOutlineStatus);
     public IBrush ProjectImageStatusBackgroundBrush => BackgroundOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBackgroundBrush => BackgroundOf(ProofMaterialStatus);
     public IBrush TimestampCertificateStatusBackgroundBrush => BackgroundOf(TimestampCertificateStatus);
@@ -170,6 +173,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush RewriteStatusBorderBrush => BorderOf(RewriteStatus);
     public IBrush PosterStatusBorderBrush => BorderOf(PosterStatus);
     public IBrush EpisodeScriptStatusBorderBrush => BorderOf(EpisodeScriptStatus);
+    public IBrush AiScriptOutlineStatusBorderBrush => BorderOf(AiScriptOutlineStatus);
     public IBrush ProjectImageStatusBorderBrush => BorderOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBorderBrush => BorderOf(ProofMaterialStatus);
     public IBrush TimestampCertificateStatusBorderBrush => BorderOf(TimestampCertificateStatus);

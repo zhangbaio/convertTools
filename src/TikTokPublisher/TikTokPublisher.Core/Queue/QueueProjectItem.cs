@@ -6,6 +6,7 @@ public static class QueueStepKeys
     public const string RewriteInfo = "rewrite_info";
     public const string GeneratePoster = "generate_poster";
     public const string GenerateEpisodeScript = "generate_episode_script";
+    public const string GenerateAiScriptOutline = "generate_ai_script_outline";
     public const string GenerateProjectImages = "generate_project_images";
     public const string GenerateProofMaterial = "generate_proof_material";
     public const string GenerateTimestampCertificate = "generate_timestamp_certificate";
@@ -78,6 +79,7 @@ public sealed class QueueProjectItem
         // backfilled as completed.
         var hadProofMaterialState = StepStates.ContainsKey(QueueStepKeys.GenerateProofMaterial);
         var hadEpisodeScriptState = StepStates.ContainsKey(QueueStepKeys.GenerateEpisodeScript);
+        var hadAiScriptOutlineState = StepStates.ContainsKey(QueueStepKeys.GenerateAiScriptOutline);
         var hadTimestampState = StepStates.ContainsKey(QueueStepKeys.GenerateTimestampCertificate);
 
         foreach (var key in new[]
@@ -86,6 +88,7 @@ public sealed class QueueProjectItem
                      QueueStepKeys.RewriteInfo,
                      QueueStepKeys.GeneratePoster,
                      QueueStepKeys.GenerateEpisodeScript,
+                     QueueStepKeys.GenerateAiScriptOutline,
                      QueueStepKeys.GenerateProjectImages,
                      QueueStepKeys.GenerateProofMaterial,
                      QueueStepKeys.GenerateTimestampCertificate,
@@ -105,6 +108,8 @@ public sealed class QueueProjectItem
                 StepStates[QueueStepKeys.GenerateProofMaterial] = QueueStepStatus.Completed;
             if (!hadEpisodeScriptState)
                 StepStates[QueueStepKeys.GenerateEpisodeScript] = QueueStepStatus.Completed;
+            if (!hadAiScriptOutlineState)
+                StepStates[QueueStepKeys.GenerateAiScriptOutline] = QueueStepStatus.Completed;
             if (!hadTimestampState)
                 StepStates[QueueStepKeys.GenerateTimestampCertificate] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.MaterialValidate) == QueueStepStatus.Pending)

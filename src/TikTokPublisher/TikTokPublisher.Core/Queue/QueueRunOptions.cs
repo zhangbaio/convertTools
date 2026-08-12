@@ -8,6 +8,7 @@ public static class QueueStepRegistry
     public const string RewriteInfo = QueueStepKeys.RewriteInfo;
     public const string GeneratePoster = QueueStepKeys.GeneratePoster;
     public const string GenerateEpisodeScript = QueueStepKeys.GenerateEpisodeScript;
+    public const string GenerateAiScriptOutline = QueueStepKeys.GenerateAiScriptOutline;
     public const string GenerateProjectImages = QueueStepKeys.GenerateProjectImages;
     public const string GenerateProofMaterial = QueueStepKeys.GenerateProofMaterial;
     public const string GenerateTimestampCertificate = QueueStepKeys.GenerateTimestampCertificate;
@@ -23,6 +24,7 @@ public static class QueueStepRegistry
     {
         new QueueStepDefinition(QueueStepKeys.Download, "下载剧集", true),
         new QueueStepDefinition(QueueStepKeys.RewriteInfo, "改写信息", true),
+        new QueueStepDefinition(QueueStepKeys.GenerateAiScriptOutline, "生成AI大纲", true),
         new QueueStepDefinition(QueueStepKeys.GeneratePoster, "生成海报", true),
         new QueueStepDefinition(QueueStepKeys.GenerateEpisodeScript, "生成剧本", true),
         new QueueStepDefinition(QueueStepKeys.GenerateProjectImages, "生成工程图", true),

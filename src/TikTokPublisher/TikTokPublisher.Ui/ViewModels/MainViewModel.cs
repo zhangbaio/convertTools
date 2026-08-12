@@ -131,6 +131,7 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _queueRewriteEnabled;
     [ObservableProperty] private bool _queueGeneratePosterEnabled;
     [ObservableProperty] private bool _queueGenerateEpisodeScriptEnabled;
+    [ObservableProperty] private bool _queueGenerateAiScriptOutlineEnabled;
     [ObservableProperty] private bool _queueGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _queueGenerateTimestampCertificateEnabled;
     [ObservableProperty] private bool _queueDeleteSourceVideosEnabled;
@@ -524,6 +525,7 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnQueueRewriteEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGeneratePosterEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateEpisodeScriptEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnQueueGenerateAiScriptOutlineEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateProofMaterialEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateTimestampCertificateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueDeleteSourceVideosEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -684,6 +686,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueRewriteEnabled = true;
             QueueGeneratePosterEnabled = true;
             QueueGenerateEpisodeScriptEnabled = true;
+            QueueGenerateAiScriptOutlineEnabled = true;
             QueueGenerateProofMaterialEnabled = true;
             QueueGenerateTimestampCertificateEnabled = true;
             QueueDeleteSourceVideosEnabled = true;
@@ -716,6 +719,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueRewriteEnabled = false;
             QueueGeneratePosterEnabled = false;
             QueueGenerateEpisodeScriptEnabled = false;
+            QueueGenerateAiScriptOutlineEnabled = false;
             QueueGenerateProofMaterialEnabled = false;
             QueueGenerateTimestampCertificateEnabled = false;
             QueueDeleteSourceVideosEnabled = false;
@@ -3266,6 +3270,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueRewriteEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RewriteInfo);
             QueueGeneratePosterEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GeneratePoster);
             QueueGenerateEpisodeScriptEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateEpisodeScript);
+            QueueGenerateAiScriptOutlineEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateAiScriptOutline);
             QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
             QueueGenerateTimestampCertificateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateTimestampCertificate);
             QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
@@ -3289,6 +3294,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
         if (QueueGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
         if (QueueGenerateEpisodeScriptEnabled) steps.Add(QueueStepRegistry.GenerateEpisodeScript);
+        if (QueueGenerateAiScriptOutlineEnabled) steps.Add(QueueStepRegistry.GenerateAiScriptOutline);
         if (QueueGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (QueueGenerateTimestampCertificateEnabled) steps.Add(QueueStepRegistry.GenerateTimestampCertificate);
         if (QueueDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);
