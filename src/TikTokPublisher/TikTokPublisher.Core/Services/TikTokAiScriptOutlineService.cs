@@ -10,7 +10,7 @@ namespace TikTokPublisher.Core.Services;
 
 public static class TikTokAiScriptOutlineService
 {
-    public const string OutputSuffix = "-AI剧本大纲.pdf";
+    public const string OutputFileName = "AI剧本大纲.pdf";
     private const string TemplateResourceName = "TikTokPublisher.Core.Resources.AiScriptOutlineTemplate.docx";
 
     public static async Task<string> GenerateAsync(
@@ -30,8 +30,7 @@ public static class TikTokAiScriptOutlineService
         if (string.IsNullOrWhiteSpace(synopsis))
             throw new InvalidOperationException("生成 AI 剧本大纲失败：没有找到改写前的旧简介。");
 
-        var safeTitle = string.Concat(title.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
-        var outputPdf = Path.Combine(context.WorkflowProjectDir, safeTitle + OutputSuffix);
+        var outputPdf = Path.Combine(context.WorkflowProjectDir, OutputFileName);
         var outputDocx = Path.ChangeExtension(outputPdf, ".docx");
         if (!forceRerun && File.Exists(outputPdf) && new FileInfo(outputPdf).Length > 100)
         {

@@ -192,6 +192,9 @@
                                     <CheckBox x:Name="EditingProjectMaterialBox" Content="剪辑工程文件" Margin="0,0,12,6" />
                                     <CheckBox x:Name="SourceInfoMaterialBox" Content="原始文件信息" Margin="0,0,12,6" />
                                 </WrapPanel>
+                                <CheckBox x:Name="UploadAiScriptOutlineWithScreenshotsBox"
+                                          Content="同时上传 AI剧本大纲.pdf 到 AI 生成过程截图"
+                                          IsEnabled="{Binding IsChecked, ElementName=AiScreenshotsMaterialBox}" />
                             </StackPanel>
 
                             <TextBlock Grid.Row="34" Grid.Column="0" Text="0 元投放" VerticalAlignment="Top" Margin="0,5,0,0" />

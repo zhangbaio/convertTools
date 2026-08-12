@@ -2,6 +2,7 @@ using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 using DocumentFormat.OpenXml.Packaging;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 
 namespace TikTokPublisher.Core.Tests;
 
@@ -13,6 +14,28 @@ public sealed class TikTokAiScriptOutlineServiceTests
         var profile = new TikTokAccountProfile();
 
         Assert.Equal(15, profile.TiktokAiScriptOutlineEpisodeCount);
+    }
+
+    [Fact]
+    public void PublishOptions_BindsOptionalOutlinePdfToCurrentWorkflow()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-outline-upload-{Guid.NewGuid():N}");
+        var account = new TikTokAccountProfile
+        {
+            TiktokCopyrightMaterialTypes =
+            [
+                TikTokPublishConstants.ProductionAgreementMaterialType,
+                TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+            ],
+            TiktokUploadAiScriptOutlineWithScreenshots = true,
+        };
+
+        var options = TikTokPublishOptionsBuilder.FromAccount(account, workflow);
+
+        Assert.True(options.UploadAiScriptOutlineWithScreenshots);
+        Assert.Equal(
+            Path.Combine(workflow, TikTokAiScriptOutlineService.OutputFileName),
+            options.AiScriptOutlineFilePath);
     }
 
     [Fact]

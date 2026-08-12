@@ -1256,6 +1256,7 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokProofDeclarantCompanyName = account.TiktokProofDeclarantCompanyName,
         TiktokTimestampApplicantName = account.TiktokTimestampApplicantName,
         TiktokAiScriptOutlineEpisodeCount = account.TiktokAiScriptOutlineEpisodeCount,
+        TiktokUploadAiScriptOutlineWithScreenshots = account.TiktokUploadAiScriptOutlineWithScreenshots,
         TiktokProofSealPath = account.TiktokProofSealPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
         TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,

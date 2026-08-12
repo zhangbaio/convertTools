@@ -189,6 +189,8 @@ public sealed class TikTokPublishOptions
     public IReadOnlyList<string> CopyrightMaterialTypes { get; set; } = new[] { TikTokPublishConstants.ProductionAgreementMaterialType };
     public IReadOnlyDictionary<string, string> CopyrightMaterialFilePaths { get; set; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
+    public bool UploadAiScriptOutlineWithScreenshots { get; set; }
+    public string AiScriptOutlineFilePath { get; set; } = "";
     /// <summary>旧版单文件字段，仅兼容合作协议；其他材料不得复用此路径。</summary>
     public string CopyrightMaterialFilePath { get; set; } = "";
     public string PublishMode { get; set; } = "auto_after_review";
@@ -291,6 +293,7 @@ public sealed class TikTokPublishOptions
             : account.TiktokContentOriginalityType.Trim(),
         CopyrightMaterialTypes = TikTokPublishConstants.NormalizeCopyrightMaterialTypes(
             account.TiktokCopyrightMaterialTypes),
+        UploadAiScriptOutlineWithScreenshots = account.TiktokUploadAiScriptOutlineWithScreenshots,
         // 账号级测试文件不再参与正式上传。合作协议只能由当前项目生成的证明材料提供。
         CopyrightMaterialFilePath = "",
         PublishMode = string.IsNullOrWhiteSpace(account.TiktokPublishMode) ? "auto_after_review" : account.TiktokPublishMode,

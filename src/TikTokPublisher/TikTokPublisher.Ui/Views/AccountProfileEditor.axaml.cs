@@ -125,6 +125,7 @@ public partial class AccountProfileEditor : UserControl
         OriginalRightsHolderBox.IsChecked = profile.TiktokIsOriginalRightsHolder;
         SelectByTag(ContentOriginalityCombo, profile.TiktokContentOriginalityType, "original");
         LoadCopyrightMaterialTypes(profile.TiktokCopyrightMaterialTypes);
+        UploadAiScriptOutlineWithScreenshotsBox.IsChecked = profile.TiktokUploadAiScriptOutlineWithScreenshots;
         ProofDeclarantCompanyNameBox.Text = profile.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = profile.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = profile.TiktokProofSealPath;
@@ -231,6 +232,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokIsOriginalRightsHolder = OriginalRightsHolderBox.IsChecked == true;
             profile.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
             profile.TiktokCopyrightMaterialTypes = ReadCopyrightMaterialTypes();
+            profile.TiktokUploadAiScriptOutlineWithScreenshots = UploadAiScriptOutlineWithScreenshotsBox.IsChecked == true;
             profile.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
             profile.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
             profile.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
@@ -769,6 +771,7 @@ public partial class AccountProfileEditor : UserControl
         ProofSealPathBox.Text = "";
         ProofCopyrightCompanyNameBox.Text = "";
         AiScriptOutlineEpisodeCountBox.Value = TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount;
+        UploadAiScriptOutlineWithScreenshotsBox.IsChecked = false;
         ZeroCostAdsBox.IsChecked = false;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
         SubmitEnabledBox.IsChecked = true;

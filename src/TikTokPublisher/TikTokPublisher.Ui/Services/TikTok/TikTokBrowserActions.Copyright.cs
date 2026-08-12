@@ -484,6 +484,23 @@ public static partial class TikTokBrowserActions
                 "请先执行「生成证明材料」。");
         }
 
+        IReadOnlyList<string> aiUploadFiles = aiScreenshotFiles;
+        if (includeAiGenerationScreenshots && uploadAiGenerationScreenshots &&
+            options.UploadAiScriptOutlineWithScreenshots)
+        {
+            var outlineFile = options.AiScriptOutlineFilePath?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(outlineFile) || !File.Exists(outlineFile))
+            {
+                throw new FileNotFoundException(
+                    "已配置向「AI 生成过程截图」上传 AI剧本大纲.pdf，但文件不存在；" +
+                    "请先执行「生成AI大纲」步骤。",
+                    outlineFile);
+            }
+
+            outlineFile = Path.GetFullPath(outlineFile);
+            aiUploadFiles = aiScreenshotFiles.Concat([outlineFile]).ToArray();
+        }
+
         var includeEditingProjectFiles = configuredMaterialKeys.Contains(
             TikTokPublishConstants.EditingProjectFilesMaterialType,
             StringComparer.Ordinal);
@@ -741,7 +758,7 @@ public static partial class TikTokBrowserActions
                 page,
                 TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
                 aiScreenshotLabel,
-                aiScreenshotFiles.ToArray(),
+                aiUploadFiles,
                 preferProductionAgreementFieldId: false,
                 log,
                 ct);
