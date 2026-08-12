@@ -587,7 +587,7 @@ foreach ($relativePath in $fableCutRequiredFiles) {
     }
 }
 
-Assert-ProjectImageTemplatesPublished -PublishDirectory $PublishDir -TemplateNumbers (3..10)
+Assert-ProjectImageTemplatesPublished -PublishDirectory $PublishDir -TemplateNumbers (3..11)
 
 $publishTools = Join-Path $PublishDir "tools"
 $repoFonts = Join-Path $Root "src\ShortDrama\tools\fonts"

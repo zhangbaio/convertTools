@@ -54,10 +54,17 @@ public partial class AccountSettingsDialog : Window
         OriginalRightsHolderBox.IsChecked = p.TiktokIsOriginalRightsHolder;
         SelectByTag(ContentOriginalityCombo, p.TiktokContentOriginalityType, "original");
         LoadCopyrightMaterialTypes(p.TiktokCopyrightMaterialTypes);
+        UploadAiScriptOutlineWithScreenshotsBox.IsChecked = p.TiktokUploadAiScriptOutlineWithScreenshots;
         ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = p.TiktokProofSealPath;
         ProofCopyrightCompanyNameBox.Text = p.TiktokProofCopyrightCompanyName;
+        AiScriptOutlineEpisodeCountBox.Value = Math.Clamp(
+            p.TiktokAiScriptOutlineEpisodeCount > 0
+                ? p.TiktokAiScriptOutlineEpisodeCount
+                : TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount,
+            1,
+            120);
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
@@ -121,10 +128,15 @@ public partial class AccountSettingsDialog : Window
         p.TiktokIsOriginalRightsHolder = OriginalRightsHolderBox.IsChecked == true;
         p.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
         p.TiktokCopyrightMaterialTypes = ReadCopyrightMaterialTypes();
+        p.TiktokUploadAiScriptOutlineWithScreenshots = UploadAiScriptOutlineWithScreenshotsBox.IsChecked == true;
         p.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
         p.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
         p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
         p.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
+        p.TiktokAiScriptOutlineEpisodeCount = Math.Clamp(
+            (int)(AiScriptOutlineEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount),
+            1,
+            120);
         p.TiktokProofAccountConfigMigrated = true;
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;

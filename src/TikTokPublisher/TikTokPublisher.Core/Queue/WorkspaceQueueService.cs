@@ -305,6 +305,7 @@ public static class WorkspaceQueueService
                 AccountProfileName = persisted.AccountProfileName,
                 QueueEntryDramaType = persisted.QueueEntryDramaType,
                 DisplayName = persisted.DisplayName,
+                VideoVertical = persisted.VideoVertical,
             };
 
         item.ProjectDir = scanned.ProjectDir;
@@ -317,6 +318,8 @@ public static class WorkspaceQueueService
         item.Description = scanned.Description;
         item.GenreCategory = scanned.GenreCategory;
         item.EpisodeCount = scanned.EpisodeCount;
+        if (scanned.VideoVertical is 0 or 1)
+            item.VideoVertical = scanned.VideoVertical;
         item.PrimaryVideoPath = scanned.PrimaryVideoPath;
         item.CoverPath = scanned.CoverPath;
         ApplyWorkspaceBinding(item, binding);

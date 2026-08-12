@@ -232,10 +232,12 @@
                     <Button Content="导入本地剧集" Click="OnImportLocalDramaClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="编辑剧集" Click="OnEditSelectedClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="补全版权证明" Click="OnCompleteCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="补全AI大纲（仅PDF）" Click="OnCompleteAiScriptOutlineClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="补全勾选证明材料" Click="OnResumeSelectedCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="手动补已删除证明" Click="OnManualDeletedCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="匹配已发布剧集" Click="OnMatchPublishedSeriesClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="检查未补版权证明" Click="OnAuditPublishedCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="删除版权辅助材料" Click="OnCleanupCopyrightProofMaterialsClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" IsVisible="False" />
                     <Button Content="改新剧名" Click="OnRenameNewTitleClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="修复静音视频" Click="OnRepairSilenceClick" Classes="repairAction compactAction" Margin="0,0,8,8" />
                     <Button Content="全选" Click="OnSelectAllQueueClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
@@ -279,6 +281,7 @@
                                 <CheckBox Content="润色剧名" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="制作海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成剧本" IsChecked="{Binding QueueGenerateEpisodeScriptEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="生成AI大纲" IsChecked="{Binding QueueGenerateAiScriptOutlineEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="整理授权材料" IsChecked="{Binding QueueGenerateProofMaterialEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成时间戳" IsChecked="{Binding QueueGenerateTimestampCertificateEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="预处理成片" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,2" />
@@ -413,8 +416,8 @@
                           HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
                           AllowAutoHide="False">
-                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1820">
-                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,0,68,68,76,68,0,68,68,68,68,68,68,68,180">
+                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1888">
+                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,76,68,0,68,68,68,68,68,68,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
@@ -423,6 +426,7 @@
                         <TextBlock Grid.Column="5" Text="集数" Classes="tableHeader" />
                         <TextBlock Grid.Column="6" Text="加入时间" Classes="tableHeader" />
                         <TextBlock Grid.Column="7" Text="获取" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="8" Text="AI大纲" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="9" Text="润色" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="10" Text="海报" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="11" Text="授权材料" Classes="tableHeader stepTableHeader" />
@@ -444,6 +448,7 @@
                         <Border Grid.Column="5" Classes="queueColumnResizer" Tag="5" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="6" Classes="queueColumnResizer" Tag="6" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="7" Classes="queueColumnResizer" Tag="7" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="8" Classes="queueColumnResizer" Tag="8" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="9" Classes="queueColumnResizer" Tag="9" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="10" Classes="queueColumnResizer" Tag="10" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="11" Classes="queueColumnResizer" Tag="11" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
@@ -467,8 +472,8 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Border Classes="queueTableRow" Width="1820" Height="42" Loaded="OnQueueTableRowLoaded">
-                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,0,68,68,76,68,0,68,68,68,68,68,68,68,180" ClipToBounds="True">
+                                <Border Classes="queueTableRow" Width="1888" Height="42" Loaded="OnQueueTableRowLoaded">
+                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,76,68,0,68,68,68,68,68,68,68,180" ClipToBounds="True">
                                         <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="4,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -506,6 +511,9 @@
                                         <TextBlock Grid.Column="6" Text="{Binding QueuedAt}" VerticalAlignment="Center" Margin="6,0" FontSize="12" TextTrimming="CharacterEllipsis" ClipToBounds="True" ToolTip.Tip="{Binding QueuedAtTooltip}" />
                                         <Border Grid.Column="7" Classes="stepStatusBadge" Background="{Binding DownloadStatusBackgroundBrush}" BorderBrush="{Binding DownloadStatusBorderBrush}" ToolTip.Tip="{Binding DownloadStatus}">
                                             <TextBlock Text="{Binding DownloadStatus}" Foreground="{Binding DownloadStatusBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                        <Border Grid.Column="8" Classes="stepStatusBadge" Background="{Binding AiScriptOutlineStatusBackgroundBrush}" BorderBrush="{Binding AiScriptOutlineStatusBorderBrush}" ToolTip.Tip="{Binding AiScriptOutlineStatus}">
+                                            <TextBlock Text="{Binding AiScriptOutlineStatus}" Foreground="{Binding AiScriptOutlineStatusBrush}" Classes="stepStatusText" />
                                         </Border>
                                         <Border Grid.Column="9" Classes="stepStatusBadge" Background="{Binding RewriteStatusBackgroundBrush}" BorderBrush="{Binding RewriteStatusBorderBrush}" ToolTip.Tip="{Binding RewriteStatus}">
                                             <TextBlock Text="{Binding RewriteStatus}" Foreground="{Binding RewriteStatusBrush}" Classes="stepStatusText" />

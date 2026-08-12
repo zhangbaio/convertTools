@@ -24,6 +24,7 @@ public static class TikTokProjectImageTemplateCatalog
                 new("image-template-project-image-8", "图片模板工程图8"),
                 new("image-template-project-image-9", "图片模板工程图9"),
                 new("image-template-project-image-10", "图片模板工程图10"),
+                new("image-template-project-image-11", "图片模板工程图11"),
             });
 
     private static readonly IReadOnlyDictionary<string, TikTokProjectImageTemplateOption> OptionsById =

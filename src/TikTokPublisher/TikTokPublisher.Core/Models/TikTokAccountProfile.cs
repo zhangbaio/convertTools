@@ -9,6 +9,7 @@ namespace TikTokPublisher.Core.Models;
 /// </summary>
 public sealed class TikTokAccountProfile
 {
+    public const int DefaultAiScriptOutlineEpisodeCount = 15;
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string CreatedAt { get; set; } = "";
@@ -83,6 +84,8 @@ public sealed class TikTokAccountProfile
     [
         "production_agreement",
     ];
+    /// <summary>选择 AI 生成截图材料时，是否同时上传项目的 AI 剧本大纲 PDF。</summary>
+    public bool TiktokUploadAiScriptOutlineWithScreenshots { get; set; }
     public string TiktokCopyrightMaterialFilePath { get; set; } = "";
     /// <summary>证明材料抬头中的版权公司名称（“致【...】”）。</summary>
     public string TiktokProofCopyrightCompanyName { get; set; } = "";
@@ -90,6 +93,8 @@ public sealed class TikTokAccountProfile
     public string TiktokProofDeclarantCompanyName { get; set; } = "";
     /// <summary>可信时间戳认证证书中的申请人；留空时使用本公司/声明人。</summary>
     public string TiktokTimestampApplicantName { get; set; } = "";
+    /// <summary>AI 剧本大纲生成集数；旧账号未配置时默认 15 集。</summary>
+    public int TiktokAiScriptOutlineEpisodeCount { get; set; } = DefaultAiScriptOutlineEpisodeCount;
     /// <summary>与本公司名称匹配的印章图片；留空时仅允许保留模板固定公司的印章。</summary>
     public string TiktokProofSealPath { get; set; } = "";
     /// <summary>旧全局证明材料配置是否已迁移为账号级配置。</summary>

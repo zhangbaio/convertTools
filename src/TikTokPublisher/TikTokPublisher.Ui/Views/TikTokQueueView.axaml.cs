@@ -44,11 +44,11 @@ public partial class TikTokQueueView : UserControl
     private static readonly TimeSpan QueueAutoLoginTimeout = TimeSpan.FromMinutes(10);
     private static readonly double[] QueueTableDefaultColumnWidths =
     {
-        48, 56, 104, 210, 210, 60, 128, 68, 0, 68, 68, 76, 68, 0, 68, 68, 68, 68, 68, 68, 68, 180,
+        48, 56, 104, 210, 210, 60, 128, 68, 68, 68, 68, 76, 68, 0, 68, 68, 68, 68, 68, 68, 68, 180,
     };
     private static readonly double[] QueueTableMinColumnWidths =
     {
-        42, 48, 72, 120, 120, 48, 92, 56, 0, 56, 56, 62, 62, 0, 62, 62, 62, 62, 56, 56, 56, 120,
+        42, 48, 72, 120, 120, 48, 92, 56, 56, 56, 56, 62, 62, 0, 62, 62, 62, 62, 56, 56, 56, 120,
     };
     private readonly double[] _queueTableColumnWidths = QueueTableDefaultColumnWidths.ToArray();
     private readonly List<WeakReference<Grid>> _queueTableRowGrids = new();
@@ -1748,6 +1748,206 @@ public partial class TikTokQueueView : UserControl
             proofAccount);
     }
 
+    private async void OnCompleteAiScriptOutlineClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var vm = _vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (vm is null || owner is null)
+            return;
+
+        if (vm.IsQueueRunning)
+        {
+            vm.StatusMessage = "当前工作目录队列正在运行，请结束后再补全 AI 剧本大纲";
+            return;
+        }
+
+        var account = vm.SelectedAccount?.Model;
+        if (account is null)
+        {
+            vm.StatusMessage = "请先选择生成 AI 剧本大纲所使用的账号";
+            return;
+        }
+
+        var workspace = (vm.WorkspacePath ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
+        {
+            vm.StatusMessage = "请先选择有效的 TikTok 工作目录";
+            return;
+        }
+
+        var projects = vm.QueueProjectRows
+            .Select(row => row.Item)
+            .Where(item => !item.Archived)
+            .ToArray();
+        IReadOnlyList<ArchivedProjectItem> archives;
+        try
+        {
+            archives = await Task.Run(() => TikTokArchivedProjectService.List(
+                workspace,
+                account.ResolveArchiveRootPath(workspace)));
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"读取已归档项目失败：{ex.Message}";
+            return;
+        }
+        var initialTitles = string.Join(
+            Environment.NewLine,
+            GetSelectedQueueRows()
+                .Select(row => row.Item.NewTitle?.Trim())
+                .Where(title => !string.IsNullOrWhiteSpace(title))
+                .Distinct(StringComparer.Ordinal));
+        var result = await AiScriptOutlineBatchDialog.ShowAsync(owner, projects, archives, initialTitles);
+        if (result is null)
+        {
+            vm.StatusMessage = "已取消补全 AI 剧本大纲";
+            return;
+        }
+
+        if (result.ExecutionMode == CopyrightProofExecutionMode.GenerateAndEdit &&
+            (!account.TiktokCopyrightMaterialTypes.Contains(
+                 TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+                 StringComparer.Ordinal) ||
+             !account.TiktokUploadAiScriptOutlineWithScreenshots))
+        {
+            await ShowMessageAsync(
+                owner,
+                "账号配置未启用大纲上传",
+                "“生成并编辑 TikTok”需要在账号发布配置中同时勾选“AI 生成截图”和“同时上传 AI剧本大纲.pdf”。",
+                warning: true);
+            return;
+        }
+
+        var archivedMatches = result.Matches
+            .Where(match => match.Location == CopyrightProofProjectLocation.Archived)
+            .ToArray();
+        if (archivedMatches.Length > 0)
+        {
+            var names = string.Join(Environment.NewLine, archivedMatches.Select(match => $"• {match.NewTitle}"));
+            var confirmed = await ConfirmAsync(
+                owner,
+                "确认回退归档项目",
+                $"以下 {archivedMatches.Length} 个项目已归档，将先回退到当前工作目录，再生成 AI 剧本大纲：" +
+                $"{Environment.NewLine}{Environment.NewLine}{names}" +
+                $"{Environment.NewLine}{Environment.NewLine}确认继续吗？");
+            if (!confirmed)
+            {
+                vm.StatusMessage = "已取消回退归档和补全 AI 剧本大纲";
+                return;
+            }
+        }
+
+        var selectedTitles = result.Matches
+            .Select(match => match.NewTitle)
+            .ToHashSet(StringComparer.Ordinal);
+        var restoreFailures = new List<string>();
+        foreach (var match in archivedMatches)
+        {
+            try
+            {
+                vm.StatusMessage = $"正在回退归档项目：{match.NewTitle}";
+                await Task.Run(() => TikTokArchivedProjectService.Restore(
+                    workspace,
+                    match.ArchivedProject!.ArchiveProjectDir,
+                    account.ResolveArchiveRootPath(workspace)));
+                vm.AppendLog($"补全 AI 剧本大纲：已回退归档项目「{match.NewTitle}」。");
+            }
+            catch (Exception ex)
+            {
+                selectedTitles.Remove(match.NewTitle);
+                restoreFailures.Add($"{match.NewTitle}：{ex.Message}");
+            }
+        }
+
+        var refreshedProjects = await Task.Run(() => WorkspaceQueueService.ScanProjects(workspace));
+        var matchedProjects = refreshedProjects
+            .Where(item => !item.Archived && selectedTitles.Contains((item.NewTitle ?? string.Empty).Trim()))
+            .GroupBy(item => item.NewTitle.Trim(), StringComparer.Ordinal)
+            .Where(group => group.Count() == 1)
+            .Select(group => group.Single())
+            .ToArray();
+        await vm.RefreshWorkspaceProjectsNowAsync(workspace, force: true);
+
+        if (restoreFailures.Count > 0)
+        {
+            await ShowMessageAsync(
+                owner,
+                matchedProjects.Length > 0 ? "部分归档项目回退失败" : "归档项目回退失败",
+                string.Join(Environment.NewLine, restoreFailures.Select(message => $"• {message}")),
+                warning: true);
+        }
+
+        // Queue execution only accepts the persisted/current queue instances and filters out
+        // disabled items. Supplement targets are commonly completed projects, so they are usually
+        // unchecked before this command. Resolve the rescan results back to the live queue rows and
+        // explicitly enable them before starting the focused run.
+        var matchedDirs = matchedProjects
+            .Select(project => Path.GetFullPath(project.ProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var activeRows = vm.QueueProjectRows
+            .Where(row => matchedDirs.Contains(Path.GetFullPath(row.Item.ProjectDir)))
+            .ToArray();
+        vm.SetQueueRowsEnabled(activeRows, enabled: true);
+        var activeProjects = activeRows
+            .Select(row => row.Item)
+            .ToArray();
+        var dirs = activeProjects
+            .Select(project => Path.GetFullPath(project.ProjectDir))
+            .Where(Directory.Exists)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (dirs.Length == 0)
+        {
+            vm.StatusMessage = "没有匹配到可执行的 AI 剧本大纲项目";
+            return;
+        }
+
+        foreach (var project in activeProjects)
+        {
+            var workflow = ProjectWorkspaceService.LoadContext(project.ProjectDir).WorkflowProjectDir;
+            var output = Path.Combine(workflow, TikTokAiScriptOutlineService.OutputFileName);
+            if (result.ForceRegenerate || !File.Exists(output))
+            {
+                project.StepStates[QueueStepRegistry.GenerateAiScriptOutline] = QueueStepStatus.Pending;
+            }
+            else
+            {
+                // The supplement flow may be started for a project whose historical step state
+                // is pending/failed even though the requested artifact already exists. Treat the
+                // file as authoritative so edit mode goes straight to TikTok without regenerating it.
+                project.StepStates[QueueStepRegistry.GenerateAiScriptOutline] = QueueStepStatus.Completed;
+                vm.AppendLog($"补全 AI 剧本大纲：复用「{project.NewTitle}」已有的 {TikTokAiScriptOutlineService.OutputFileName}。");
+            }
+        }
+
+        var options = vm.CreateCurrentQueueRunOptionsSnapshot();
+        options.EnabledSteps = result.ExecutionMode == CopyrightProofExecutionMode.GenerateMaterialOnly
+            ? new List<string> { QueueStepRegistry.GenerateAiScriptOutline }
+            : new List<string>
+            {
+                QueueStepRegistry.GenerateAiScriptOutline,
+                QueueStepRegistry.UploadSeries,
+            };
+        options.ForceRerunCompletedSteps = result.ForceRegenerate;
+        options.UploadEntryMode = result.ExecutionMode == CopyrightProofExecutionMode.GenerateMaterialOnly
+            ? ""
+            : QueueRunOptions.AiOutlineSupplementEntryMode;
+        if (result.ExecutionMode == CopyrightProofExecutionMode.GenerateAndEdit)
+        {
+            vm.AppendLog(
+                "AI 大纲补全专用模式已启用：仅执行“生成AI大纲、上传剧集”，" +
+                "禁止生成其他证明材料及下载视频补源；编辑阶段只追加 AI剧本大纲.pdf。");
+        }
+        vm.AppendLog(
+            $"补全 AI 剧本大纲：准备执行 {dirs.Length} 个项目；" +
+            (result.ForceRegenerate ? "强制重新生成已有文件；" : "已有文件将自动复用；") +
+            (result.ExecutionMode == CopyrightProofExecutionMode.GenerateMaterialOnly
+                ? "只生成本地产物。"
+                : "生成后继续编辑 TikTok 版权证明页。"));
+        await StartQueueRunAsync(options, dirs, confirmForceRerun: false);
+    }
+
     private async Task ShowCopyrightProofBatchAsync(
         Window owner,
         MainViewModel vm,
@@ -2799,6 +2999,78 @@ public partial class TikTokQueueView : UserControl
             string.Join(Environment.NewLine, missingTitles));
     }
 
+    private async void OnCleanupCopyrightProofMaterialsClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        var vm = _vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var accountVm = vm?.SelectedAccount;
+        if (vm is null || owner is null)
+            return;
+        if (accountVm is null)
+        {
+            vm.StatusMessage = "请先选择要清理版权辅助材料的账号";
+            return;
+        }
+
+        var titles = await CopyrightProofMaterialCleanupDialog.ShowAsync(owner);
+        if (titles is null || titles.Count == 0)
+        {
+            vm.StatusMessage = "已取消删除版权辅助材料";
+            return;
+        }
+
+        var account = accountVm.Model;
+        using var cts = new CancellationTokenSource();
+        try
+        {
+            vm.StatusMessage = $"正在准备账号「{account.DisplayName}」的浏览器登录态…";
+            var ready = await EnsureAccountBrowserReadyAsync(account, vm.AppendLog, cts.Token);
+            if (!ready.Ok)
+                throw new InvalidOperationException(ready.Message);
+
+            IEmbeddedBrowser? browser = null;
+            if (!UsesPlaywrightUploadBrowser(account))
+                browser = _browserHost?.TryGetHost(account.Id);
+
+            vm.StatusMessage = $"正在清理 {titles.Count} 个项目的版权辅助材料…";
+            vm.AppendLog(
+                $"开始清理版权辅助材料，共 {titles.Count} 个新剧名；" +
+                "仅删除平台上的 AI 生成过程截图和剪辑工程文件，不删除本地文件。");
+            var results = await TikTokCopyrightProofMaterialCleanupService.ExecuteAsync(
+                account,
+                browser,
+                titles,
+                vm.AppendLog,
+                cts.Token);
+            var succeeded = results.Count(result => result.Success);
+            var failures = results.Where(result => !result.Success).ToArray();
+            vm.StatusMessage =
+                $"版权辅助材料清理结束：成功 {succeeded} 个，失败 {failures.Length} 个";
+            vm.AppendLog(vm.StatusMessage);
+
+            var detail = string.Join(
+                Environment.NewLine,
+                results.Select(result =>
+                    $"{(result.Success ? "成功" : "失败")}｜{result.Title}｜{result.Message}"));
+            await ShowMessageAsync(
+                owner,
+                "删除版权辅助材料",
+                detail,
+                warning: failures.Length > 0);
+        }
+        catch (OperationCanceledException)
+        {
+            vm.StatusMessage = "已停止删除版权辅助材料";
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"删除版权辅助材料失败：{ex.Message}";
+            vm.AppendLog(vm.StatusMessage);
+            await ShowMessageAsync(owner, "删除版权辅助材料失败", ex.Message, warning: true);
+        }
+    }
+
     private async Task<IReadOnlyList<TikTokCopyrightProofAuditItem>>
         AuditPublishedCopyrightProofAsync(
             TikTokAccountProfile account,
@@ -3248,7 +3520,9 @@ public partial class TikTokQueueView : UserControl
         var displayOptions = optionsOverride ?? vm.CreateCurrentQueueRunOptionsSnapshot();
         var isEditRun = string.Equals(displayOptions.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
         var isCopyrightProofRun = displayOptions.IsCopyrightProofWorkflowRun();
-        vm.StatusMessage = displayOptions.IsCopyrightProofMaterialOnlyRun()
+        vm.StatusMessage = displayOptions.IsAiOutlineSupplementRun()
+            ? "AI 大纲补全执行中…"
+            : displayOptions.IsCopyrightProofMaterialOnlyRun()
             ? "证明材料生成中…"
             : isCopyrightProofRun
                 ? "补全版权证明执行中…"
@@ -3785,7 +4059,7 @@ public partial class TikTokQueueView : UserControl
         var attemptSignature = UploadAttemptSignature(project.ProjectDir);
         var result = item.CopyrightProofOnly
             ? await TikTokCopyrightProofEditService
-                .UpdateAsync(account, item, browser, effectiveAction, log, ct)
+                .UpdateAsync(account, item, browser, effectiveAction, log, ct, options.IsAiOutlineSupplementRun())
                 .ConfigureAwait(false)
             : await _automation
                 .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
@@ -3817,7 +4091,7 @@ public partial class TikTokQueueView : UserControl
 
                 result = item.CopyrightProofOnly
                     ? await TikTokCopyrightProofEditService
-                        .UpdateAsync(account, item, browser, effectiveAction, log, ct)
+                        .UpdateAsync(account, item, browser, effectiveAction, log, ct, options.IsAiOutlineSupplementRun())
                         .ConfigureAwait(false)
                     : await _automation
                         .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
@@ -3850,7 +4124,7 @@ public partial class TikTokQueueView : UserControl
 
                 result = item.CopyrightProofOnly
                     ? await TikTokCopyrightProofEditService
-                        .UpdateAsync(account, item, browser, effectiveAction, log, ct)
+                        .UpdateAsync(account, item, browser, effectiveAction, log, ct, options.IsAiOutlineSupplementRun())
                         .ConfigureAwait(false)
                     : await _automation
                         .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)

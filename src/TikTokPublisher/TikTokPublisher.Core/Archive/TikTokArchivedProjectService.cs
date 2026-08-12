@@ -866,6 +866,7 @@ public static partial class TikTokArchivedProjectService
                     Description = scanned.Description,
                     GenreCategory = scanned.GenreCategory,
                     EpisodeCount = scanned.EpisodeCount,
+                    VideoVertical = scanned.VideoVertical,
                     PrimaryVideoPath = scanned.PrimaryVideoPath,
                     CoverPath = scanned.CoverPath,
                     Archived = false,

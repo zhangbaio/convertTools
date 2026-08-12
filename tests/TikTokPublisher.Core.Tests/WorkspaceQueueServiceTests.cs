@@ -8,6 +8,19 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class WorkspaceQueueServiceTests
 {
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void QueuePayload_PreservesVideoVerticalIncludingZero(int videoVertical)
+    {
+        var restored = QueueProjectItem.FromPayload(new QueueProjectItem
+        {
+            VideoVertical = videoVertical,
+        }.ToPayload());
+
+        Assert.Equal(videoVertical, restored.VideoVertical);
+    }
+
     [Fact]
     public void ResolveExecutionSnapshot_can_bypass_stale_displayed_queue_for_prepared_batch()
     {

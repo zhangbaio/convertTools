@@ -8,6 +8,7 @@ public static class QueueStepRegistry
     public const string RewriteInfo = QueueStepKeys.RewriteInfo;
     public const string GeneratePoster = QueueStepKeys.GeneratePoster;
     public const string GenerateEpisodeScript = QueueStepKeys.GenerateEpisodeScript;
+    public const string GenerateAiScriptOutline = QueueStepKeys.GenerateAiScriptOutline;
     public const string GenerateProjectImages = QueueStepKeys.GenerateProjectImages;
     public const string GenerateProofMaterial = QueueStepKeys.GenerateProofMaterial;
     public const string GenerateTimestampCertificate = QueueStepKeys.GenerateTimestampCertificate;
@@ -23,6 +24,7 @@ public static class QueueStepRegistry
     {
         new QueueStepDefinition(QueueStepKeys.Download, "下载剧集", true),
         new QueueStepDefinition(QueueStepKeys.RewriteInfo, "改写信息", true),
+        new QueueStepDefinition(QueueStepKeys.GenerateAiScriptOutline, "生成AI大纲", true),
         new QueueStepDefinition(QueueStepKeys.GeneratePoster, "生成海报", true),
         new QueueStepDefinition(QueueStepKeys.GenerateEpisodeScript, "生成剧本", true),
         new QueueStepDefinition(QueueStepKeys.GenerateProjectImages, "生成工程图", true),
@@ -76,6 +78,7 @@ public sealed class QueueRunOptions
     public const string EditUploadEntryMode = "edit";
     public const string CopyrightProofOnlyEntryMode = "copyright_proof_only";
     public const string CopyrightProofMaterialOnlyEntryMode = "copyright_proof_material_only";
+    public const string AiOutlineSupplementEntryMode = "ai_outline_supplement";
 
     public List<string> EnabledSteps { get; set; } = QueueStepRegistry.DefaultEnabledSteps.ToList();
     public bool AutoArchiveAfterUpload { get; set; }
@@ -174,13 +177,19 @@ public sealed class QueueRunOptions
             return EditUploadEntryMode;
         if (normalized is "copyright_proof_only" or "proof_only")
             return CopyrightProofOnlyEntryMode;
+        if (normalized is "ai_outline_supplement" or "outline_supplement")
+            return AiOutlineSupplementEntryMode;
         return normalized is "copyright_proof_material_only" or "proof_material_only"
             ? CopyrightProofMaterialOnlyEntryMode
             : string.Empty;
     }
 
     public bool IsCopyrightProofOnlyRun() =>
-        string.Equals(UploadEntryMode, CopyrightProofOnlyEntryMode, StringComparison.OrdinalIgnoreCase);
+        string.Equals(UploadEntryMode, CopyrightProofOnlyEntryMode, StringComparison.OrdinalIgnoreCase) ||
+        IsAiOutlineSupplementRun();
+
+    public bool IsAiOutlineSupplementRun() =>
+        string.Equals(UploadEntryMode, AiOutlineSupplementEntryMode, StringComparison.OrdinalIgnoreCase);
 
     public bool IsCopyrightProofMaterialOnlyRun() =>
         string.Equals(

@@ -85,6 +85,17 @@ public static class TikTokPublishOptionsBuilder
                     aiCount >= TikTokAiGenerationScreenshotService.RequiredImageCount
                         ? $"TikTok AI 生成过程截图已就绪：{aiCount} 张 → {aiDir}"
                         : $"TikTok AI 生成过程截图等待生成：{aiDir}");
+
+                if (options.UploadAiScriptOutlineWithScreenshots)
+                {
+                    options.AiScriptOutlineFilePath = Path.Combine(
+                        workflowProjectDir,
+                        TikTokAiScriptOutlineService.OutputFileName);
+                    log?.Invoke(
+                        File.Exists(options.AiScriptOutlineFilePath)
+                            ? $"TikTok AI 剧本大纲已就绪：{options.AiScriptOutlineFilePath}"
+                            : $"TikTok AI 剧本大纲等待生成：{options.AiScriptOutlineFilePath}");
+                }
             }
 
             if (options.CopyrightMaterialTypes.Contains(

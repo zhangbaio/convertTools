@@ -34,6 +34,8 @@ public static class WorkspaceProjectScanner
         public string Description { get; init; } = "";
         public string GenreCategory { get; init; } = "";
         public int EpisodeCount { get; init; }
+        /// <summary>视频方向：1=竖屏，0=横屏，-1=未知。</summary>
+        public int VideoVertical { get; init; } = -1;
         public string? PrimaryVideoPath { get; init; }
         public string? CoverPath { get; init; }
     }
@@ -214,9 +216,23 @@ public static class WorkspaceProjectScanner
             Description = description,
             GenreCategory = genre,
             EpisodeCount = Math.Max(1, episodeCount),
+            VideoVertical = ReadVideoVertical(metadata),
             PrimaryVideoPath = primaryVideo,
             CoverPath = cover,
         };
+    }
+
+    private static int ReadVideoVertical(JsonObject? metadata)
+    {
+        if (metadata is null) return -1;
+        foreach (var key in new[] { "videoVertical", "video_vertical" })
+        {
+            if (metadata[key] is not JsonValue value) continue;
+            if (value.TryGetValue<int>(out var number) && number is 0 or 1) return number;
+            if (value.TryGetValue<string>(out var text) && int.TryParse(text, out number) && number is 0 or 1)
+                return number;
+        }
+        return -1;
     }
 
     private static void CacheProject(

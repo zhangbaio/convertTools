@@ -12,6 +12,7 @@ using SixLabors.ImageSharp.Metadata;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -41,6 +42,16 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         ".wmv",
         ".webm"
     };
+
+    private static readonly HashSet<string> JianyingDraftNameModes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "draft",
+        "draft_name",
+        "jianying_draft",
+        "jianying_draft_name"
+    };
+
+    private static readonly Rgba32 PortraitMaterialPadColor = new(7, 7, 9, 255);
 
     private readonly IExternalProcessRunner _processRunner;
     private readonly IProjectInfoParser _projectInfoParser;
@@ -354,6 +365,10 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             var previewFrame = SelectTrackPlayheadFrame(videoTrackRects, displayFrames)
                 ?? episodeFrames[Math.Clamp(trackEpisodeIndex, 0, episodeFrames.Count - 1)];
             var subtitleText = string.Empty;
+            var draftName = BuildJianyingDraftName(
+                projectInfo.Title,
+                ResolveTrackEpisodeText(trackEpisodeIndex, episodeNames, projectInfo.Title),
+                trackEpisodeIndex);
             if (manifest.ExtractDialogue)
             {
                 var playerRect = ResolvePlayerRegion(page, portrait);
@@ -378,12 +393,13 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             }
 
             RenderAutosaveStatus(canvas, page, pageIndex, manifest.Templates.Count);
-            RenderTopTitle(canvas, page, projectInfo.Title, trackEpisodeIndex, episodeNames);
-            RenderDraftName(canvas, page, projectInfo.Title, trackEpisodeIndex, episodeNames);
-            RenderSavePath(canvas, page, projectInfo.Title, trackEpisodeIndex, episodeNames);
+            RenderTopTitle(canvas, page, projectInfo.Title, trackEpisodeIndex, episodeNames, draftName);
+            RenderDraftName(canvas, page, projectInfo.Title, trackEpisodeIndex, episodeNames, draftName);
+            RenderSavePath(canvas, page, projectInfo.Title, trackEpisodeIndex, episodeNames, draftName);
             RenderPlayerCanvas(canvas, page, portrait);
             RenderPlayer(canvas, page, previewFrame, portrait);
             RenderRightSubtitle(canvas, page, portrait, subtitleText);
+            RenderAspectRatioLabels(canvas, page, portrait);
             RenderMaterialPanel(
                 canvas,
                 page,
@@ -500,7 +516,8 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         ProjectImageTemplatePage page,
         string projectTitle,
         int trackEpisodeIndex,
-        IReadOnlyList<string> episodeNames)
+        IReadOnlyList<string> episodeNames,
+        string draftName)
     {
         var rect = page.GetRegion("top_title");
         if (rect is null)
@@ -508,9 +525,10 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             return;
         }
 
-        var title = string.Equals(NoteValue(rect, "title_mode"), "episode", StringComparison.OrdinalIgnoreCase)
+        var titleMode = NoteValue(rect, "title_mode") ?? string.Empty;
+        var title = string.Equals(titleMode, "episode", StringComparison.OrdinalIgnoreCase)
             ? ResolveTrackEpisodeText(trackEpisodeIndex, episodeNames, projectTitle)
-            : projectTitle;
+            : JianyingDraftNameModes.Contains(titleMode) ? draftName : projectTitle;
         if (string.IsNullOrWhiteSpace(title))
             return;
 
@@ -521,7 +539,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             expanded,
             title,
             new Rgba32(238, 238, 238, 255),
-            Math.Max(11, Math.Min(18, expanded.Height - 3)),
+            NoteInt(expanded, "font_size", Math.Max(11, Math.Min(18, expanded.Height - 3)), 8, 72),
             true,
             "center");
     }
@@ -531,15 +549,17 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         ProjectImageTemplatePage page,
         string projectTitle,
         int trackEpisodeIndex,
-        IReadOnlyList<string> episodeNames)
+        IReadOnlyList<string> episodeNames,
+        string draftName)
     {
         var rect = page.GetRegion("draft_name");
         if (rect is null)
             return;
 
-        var text = string.Equals(NoteValue(rect, "title_mode") ?? "episode", "episode", StringComparison.OrdinalIgnoreCase)
+        var titleMode = NoteValue(rect, "title_mode") ?? "episode";
+        var text = string.Equals(titleMode, "episode", StringComparison.OrdinalIgnoreCase)
             ? ResolveTrackEpisodeText(trackEpisodeIndex, episodeNames, projectTitle)
-            : projectTitle;
+            : JianyingDraftNameModes.Contains(titleMode) ? draftName : projectTitle;
         FillRect(canvas, rect, SampleSurroundingColor(canvas, rect));
         DrawSingleLineText(
             canvas,
@@ -556,13 +576,19 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         ProjectImageTemplatePage page,
         string projectTitle,
         int trackEpisodeIndex,
-        IReadOnlyList<string> episodeNames)
+        IReadOnlyList<string> episodeNames,
+        string draftName)
     {
         var rect = page.GetRegion("save_path");
         if (rect is null)
             return;
 
         var episodeText = ResolveTrackEpisodeText(trackEpisodeIndex, episodeNames, projectTitle);
+        var nameMode = NoteValue(rect, "name_mode") ?? string.Empty;
+        if (JianyingDraftNameModes.Contains(nameMode))
+        {
+            episodeText = draftName;
+        }
         var prefix = NoteValue(rect, "path_prefix")
             ?? "C:/Users/PC/AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft/";
         FillRect(canvas, rect, SampleSurroundingColor(canvas, rect));
@@ -705,7 +731,63 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         }
     }
 
-    private static void RenderMaterialVideoImages(
+    internal static void RenderAspectRatioLabels(
+        Image<Rgba32> canvas,
+        ProjectImageTemplatePage page,
+        bool portrait)
+    {
+        var text = portrait ? "9:16" : "16:9";
+        var draftRect = page.GetRegion("draft_aspect_ratio");
+        if (draftRect is not null)
+        {
+            var background = ParseHexColor(NoteValue(draftRect, "fill")) ?? SampleSurroundingColor(canvas, draftRect);
+            var textFill = ParseHexColor(NoteValue(draftRect, "text_fill")) ?? new Rgba32(185, 185, 185, 255);
+            FillRect(canvas, draftRect, background);
+            DrawSingleLineText(
+                canvas,
+                draftRect,
+                text,
+                textFill,
+                NoteInt(draftRect, "font_size", 11, 8, 24),
+                false,
+                "left");
+        }
+
+        var badgeRect = page.GetRegion("player_aspect_ratio");
+        if (badgeRect is null)
+        {
+            return;
+        }
+
+        var badgeBackground = ParseHexColor(NoteValue(badgeRect, "fill")) ?? SampleSurroundingColor(canvas, badgeRect);
+        var badgeFill = ParseHexColor(NoteValue(badgeRect, "badge_fill")) ?? badgeBackground;
+        var borderFill = ParseHexColor(NoteValue(badgeRect, "border")) ?? new Rgba32(132, 132, 132, 255);
+        var badgeTextFill = ParseHexColor(NoteValue(badgeRect, "text_fill")) ?? new Rgba32(230, 230, 230, 255);
+        FillRect(canvas, badgeRect, badgeBackground);
+
+        var insetX = NoteInt(badgeRect, "badge_inset_x", 2, 0, 12);
+        var insetY = NoteInt(badgeRect, "badge_inset_y", 3, 0, 12);
+        var inner = new ProjectImageTemplateRegion(
+            badgeRect.X + insetX,
+            badgeRect.Y + insetY,
+            Math.Max(1, badgeRect.Width - insetX * 2),
+            Math.Max(1, badgeRect.Height - insetY * 2));
+        canvas.Mutate(ctx =>
+        {
+            ctx.Fill(badgeFill, new RectangleF(inner.X, inner.Y, inner.Width, inner.Height));
+            ctx.Draw(borderFill, 1f, new RectangleF(inner.X, inner.Y, inner.Width - 1, inner.Height - 1));
+        });
+        DrawSingleLineText(
+            canvas,
+            inner,
+            text,
+            badgeTextFill,
+            NoteInt(badgeRect, "font_size", 9, 8, 18),
+            false,
+            "center");
+    }
+
+    internal static void RenderMaterialVideoImages(
         Image<Rgba32> canvas,
         ProjectImageTemplatePage page,
         IReadOnlyList<Image<Rgba32>> trackFrames)
@@ -717,11 +799,29 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         var sharedPadding = rects.Max(rect => NoteInt(rect, "cover_padding", 0, 0, 6));
         for (var index = 0; index < rects.Count; index++)
         {
+            var configuredRect = rects[index];
             var rect = sharedPadding > 0
-                ? ExpandRect(canvas, rects[index], sharedPadding, sharedPadding, sharedPadding, sharedPadding)
-                : rects[index];
-            using var thumb = ResizeCrop(trackFrames[index % trackFrames.Count], rect.Width, rect.Height);
-            canvas.Mutate(ctx => ctx.DrawImage(thumb, new Point(rect.X, rect.Y), 1f));
+                ? ExpandRect(canvas, configuredRect, sharedPadding, sharedPadding, sharedPadding, sharedPadding)
+                : configuredRect;
+            var renderHeight = NoteInt(
+                configuredRect,
+                "card_height",
+                rect.Height,
+                rect.Height,
+                Math.Max(rect.Height, canvas.Height));
+            var source = trackFrames[index % trackFrames.Count];
+            using var renderedThumb = source.Height > source.Width
+                ? ResizeBoxPad(source, rect.Width, renderHeight, PortraitMaterialPadColor)
+                : ResizeCrop(source, rect.Width, renderHeight);
+            if (renderHeight == rect.Height)
+            {
+                canvas.Mutate(ctx => ctx.DrawImage(renderedThumb, new Point(rect.X, rect.Y), 1f));
+            }
+            else
+            {
+                using var visibleThumb = renderedThumb.Clone(ctx => ctx.Crop(new Rectangle(0, 0, rect.Width, rect.Height)));
+                canvas.Mutate(ctx => ctx.DrawImage(visibleThumb, new Point(rect.X, rect.Y), 1f));
+            }
 
             if (rect.Width < 80 || rect.Height < 24)
                 continue;
@@ -735,7 +835,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             DrawSingleLineText(
                 canvas,
                 durationRect,
-                NoteValue(rects[index], "duration") ?? "00:10",
+                NoteValue(configuredRect, "duration") ?? "00:10",
                 new Rgba32(245, 245, 245, 255),
                 8,
                 true,
@@ -1029,9 +1129,9 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         return frames[frameIndex];
     }
 
-    private static ProjectImageTemplateRegion ExpandTopTitleRect(Image<Rgba32> canvas, ProjectImageTemplateRegion rect, string text)
+    internal static ProjectImageTemplateRegion ExpandTopTitleRect(Image<Rgba32> canvas, ProjectImageTemplateRegion rect, string text)
     {
-        if (string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrWhiteSpace(text) || NoteInt(rect, "fixed_width", 0, 0, 1) == 1)
         {
             return rect;
         }
@@ -1618,6 +1718,31 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         }
 
         return $"{projectTitle} 第{trackEpisodeIndex + 1:00}集";
+    }
+
+    internal static string BuildJianyingDraftName(
+        string projectTitle,
+        string episodeText,
+        int trackEpisodeIndex,
+        int? displayToken = null)
+    {
+        var safeTitle = Regex.Replace(projectTitle ?? string.Empty, "[\\\\/:*?\"<>|\\x00-\\x1f]+", "_")
+            .Trim(' ', '.', '_');
+        if (safeTitle.Length > 24)
+        {
+            safeTitle = safeTitle[..24];
+        }
+        if (safeTitle.Length == 0)
+        {
+            safeTitle = "短剧";
+        }
+
+        var episodeMatch = Regex.Match(episodeText ?? string.Empty, @"第\s*(\d+)\s*集");
+        var episodeNumber = episodeMatch.Success && int.TryParse(episodeMatch.Groups[1].Value, out var parsed)
+            ? parsed
+            : trackEpisodeIndex + 1;
+        var token = displayToken ?? RandomNumberGenerator.GetInt32(0, 1_000_000);
+        return $"{safeTitle}_第{Math.Max(1, episodeNumber)}集_{Math.Clamp(token, 0, 999_999):D6}";
     }
 
     private static string ResolveTrackEpisodeTextWithDuration(int trackEpisodeIndex, IReadOnlyList<string> episodeNames, IReadOnlyList<double> episodeDurations, string projectTitle)
@@ -2404,7 +2529,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         }
     }
 
-    private static void DrawSingleLineText(
+    internal static void DrawSingleLineText(
         Image<Rgba32> canvas,
         ProjectImageTemplateRegion rect,
         string text,
@@ -2420,21 +2545,29 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             return;
         }
 
-        var paddingX = Math.Min(10, Math.Max(2, rect.Width / 32));
+        var paddingX = NoteInt(rect, "padding_x", Math.Min(10, Math.Max(2, rect.Width / 32)), 0, 50);
         var maxWidth = Math.Max(1, rect.Width - paddingX * 2);
         var size = Math.Max(8, fontSize);
         var font = GetFont(size, bold);
-        while (size > 8 && TextMeasurer.MeasureBounds(text, new TextOptions(font)).Width > maxWidth)
+        var overflowMode = (NoteValue(rect, "text_overflow") ?? NoteValue(rect, "overflow") ?? string.Empty)
+            .Trim()
+            .ToLowerInvariant();
+        var clipLeft = overflowMode is "clip_left" or "left_clip";
+        while (!clipLeft && size > 8 && TextMeasurer.MeasureBounds(text, new TextOptions(font)).Width > maxWidth)
         {
             size--;
             font = GetFont(size, bold);
         }
 
-        var finalText = truncateMiddle ? FitTextMiddle(text, font, maxWidth) : FitTextEnd(text, font, maxWidth);
+        var finalText = clipLeft
+            ? FitTextSuffix(text, font, maxWidth)
+            : truncateMiddle ? FitTextMiddle(text, font, maxWidth) : FitTextEnd(text, font, maxWidth);
         var bounds = TextMeasurer.MeasureBounds(finalText, new TextOptions(font));
         var textWidth = (int)Math.Ceiling(bounds.Width);
         var textHeight = (int)Math.Ceiling(bounds.Height);
-        var x = align == "center"
+        var x = clipLeft
+            ? rect.X + rect.Width - paddingX - textWidth
+            : align == "center"
             ? rect.X + (rect.Width - textWidth) / 2
             : rect.X + paddingX;
         var y = rect.Y + Math.Max(0, (rect.Height - textHeight) / 2) - 1;
@@ -2541,6 +2674,26 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         }
 
         return working + ellipsis;
+    }
+
+    internal static string FitTextSuffix(string text, Font font, int maxWidth)
+    {
+        if (TextMeasurer.MeasureBounds(text, new TextOptions(font)).Width <= maxWidth)
+        {
+            return text;
+        }
+
+        var suffix = string.Empty;
+        for (var index = text.Length - 1; index >= 0; index--)
+        {
+            var candidate = text[index] + suffix;
+            if (TextMeasurer.MeasureBounds(candidate, new TextOptions(font)).Width > maxWidth)
+            {
+                break;
+            }
+            suffix = candidate;
+        }
+        return suffix;
     }
 
     private static string FitTextMiddle(string text, Font font, int maxWidth)
