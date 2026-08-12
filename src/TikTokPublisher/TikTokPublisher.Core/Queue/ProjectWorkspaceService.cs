@@ -356,6 +356,7 @@ public static class ProjectWorkspaceService
         item.Description = FirstNonEmpty(project.Description, item.Description);
         item.GenreCategory = FirstNonEmpty(project.GenreCategory, item.GenreCategory);
         if (project.EpisodeCount > 0) item.EpisodeCount = project.EpisodeCount;
+        if (project.VideoVertical is 0 or 1) item.VideoVertical = project.VideoVertical;
         item.PrimaryVideoPath = project.PrimaryVideoPath;
         item.CoverPath = project.CoverPath;
     }

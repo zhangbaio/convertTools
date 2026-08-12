@@ -389,6 +389,8 @@ public static class WorkspaceMergeService
         clonedItem.GenreCategory = FirstNonEmpty(sourceItem.GenreCategory, clonedItem.GenreCategory);
         if (sourceItem.EpisodeCount > 0)
             clonedItem.EpisodeCount = sourceItem.EpisodeCount;
+        if (sourceItem.VideoVertical is 0 or 1)
+            clonedItem.VideoVertical = sourceItem.VideoVertical;
         RewriteAndSaveProjectDocuments(
             sourceRoot,
             targetRoot,

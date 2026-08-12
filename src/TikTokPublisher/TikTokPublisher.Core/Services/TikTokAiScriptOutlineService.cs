@@ -1,9 +1,11 @@
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
@@ -66,7 +68,8 @@ public static class TikTokAiScriptOutlineService
             outline = ParseOutline(response, episodeCount);
         }
 
-        CreateDocument(outputDocx, title, episodeCount, outline);
+        var videoVertical = await ResolveVideoVerticalAsync(item, context, log, ct).ConfigureAwait(false);
+        CreateDocument(outputDocx, title, episodeCount, outline, videoVertical);
         await TikTokQueueDocumentWriter.RenderPdfAsync(outputDocx, outputPdf, settings, ct).ConfigureAwait(false);
         if (!settings.TiktokProofKeepDocx) TikTokProofMaterialPdfRenderService.TryDelete(outputDocx);
         log?.Invoke($"AI 剧本大纲已生成：{outputPdf}");
@@ -155,13 +158,23 @@ public static class TikTokAiScriptOutlineService
         input.CopyTo(output);
     }
 
-    internal static void CreateDocument(string outputDocx, string title, int episodeCount, AiScriptOutline outline)
+    internal static void CreateDocument(
+        string outputDocx,
+        string title,
+        int episodeCount,
+        AiScriptOutline outline,
+        int videoVertical = -1)
     {
         ExtractTemplate(outputDocx);
-        WriteDocument(outputDocx, title, episodeCount, outline);
+        WriteDocument(outputDocx, title, episodeCount, outline, videoVertical);
     }
 
-    private static void WriteDocument(string path, string title, int episodeCount, AiScriptOutline outline)
+    private static void WriteDocument(
+        string path,
+        string title,
+        int episodeCount,
+        AiScriptOutline outline,
+        int videoVertical)
     {
         using var document = WordprocessingDocument.Open(path, true);
         var main = document.MainDocumentPart ?? throw new InvalidDataException("AI 剧本大纲模板缺少正文。");
@@ -173,7 +186,9 @@ public static class TikTokAiScriptOutlineService
         body.Append(Line($"项目名称：{title}"));
         body.Append(Line($"类型：{outline.Genre}"));
         body.Append(Line($"风格：{outline.Style}"));
-        body.Append(Line("默认比例：9:16（竖屏短剧）"));
+        var aspectRatio = FormatAspectRatio(videoVertical);
+        if (!string.IsNullOrWhiteSpace(aspectRatio))
+            body.Append(Line(aspectRatio));
         body.Append(Line($"剧作基调：{outline.Tone}"));
 
         body.Append(Heading("产物一：剧情梗概", 30, true));
@@ -204,6 +219,59 @@ public static class TikTokAiScriptOutlineService
 
         if (section is not null) body.Append(section);
         main.Document.Save();
+    }
+
+    internal static string FormatAspectRatio(int videoVertical) => videoVertical switch
+    {
+        1 => "画面比例：9:16（竖屏短剧）",
+        0 => "画面比例：16:9（横屏短剧）",
+        _ => "",
+    };
+
+    private static async Task<int> ResolveVideoVerticalAsync(
+        QueueProjectItem item,
+        ProjectWorkspaceContext context,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (item.VideoVertical is 0 or 1)
+        {
+            log?.Invoke($"AI 剧本大纲：使用项目元数据中的{(item.VideoVertical == 1 ? "竖屏" : "横屏")}信息。");
+            return item.VideoVertical;
+        }
+
+        var candidates = new[]
+        {
+            item.PrimaryVideoPath,
+            WorkspaceProjectScanner.BuildProject(context.SourceProjectDir).PrimaryVideoPath,
+            WorkspaceProjectScanner.BuildProject(context.WorkflowProjectDir).PrimaryVideoPath,
+        };
+        var video = candidates.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path));
+        if (string.IsNullOrWhiteSpace(video))
+        {
+            log?.Invoke("AI 剧本大纲：项目无横竖屏元数据且未找到可检测的视频，画面比例标记为未知。");
+            return -1;
+        }
+
+        try
+        {
+            var probe = await MediaProbe.ProbeAsync(MediaBinaryResolver.ResolveFfprobe(), video, ct)
+                .ConfigureAwait(false);
+            if (probe.Width <= 0 || probe.Height <= 0) return -1;
+            if (probe.Width == probe.Height)
+            {
+                log?.Invoke($"AI 剧本大纲：首集视频为等宽高 {probe.Width}x{probe.Height}，不写入画面比例。");
+                return -1;
+            }
+            item.VideoVertical = probe.Height > probe.Width ? 1 : 0;
+            log?.Invoke($"AI 剧本大纲：根据首集视频 {probe.Width}x{probe.Height} 判定为{(item.VideoVertical == 1 ? "竖屏" : "横屏")}。");
+            return item.VideoVertical;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log?.Invoke($"AI 剧本大纲：视频方向检测失败，画面比例标记为未知：{ex.Message}");
+            return -1;
+        }
     }
 
     private static Paragraph Heading(string text, int halfPoints, bool pageBreakBefore)
@@ -286,6 +354,7 @@ internal sealed class AiOutlineCharacter
     public string Motivation { get; set; } = "";
     public string Arc { get; set; } = "";
     public string Visual { get; set; } = "";
+    [JsonConverter(typeof(FlexibleStringJsonConverter))]
     public string Props { get; set; } = "";
 }
 
@@ -296,6 +365,7 @@ internal sealed class AiOutlineScene
     public string Function { get; set; } = "";
     public string Space { get; set; } = "";
     public string Mood { get; set; } = "";
+    [JsonConverter(typeof(FlexibleStringJsonConverter))]
     public string Props { get; set; } = "";
     public string Time { get; set; } = "";
 }
@@ -307,4 +377,33 @@ internal sealed class AiOutlineEpisode
     public string Event { get; set; } = "";
     public string Hook { get; set; } = "";
     public string Foreshadow { get; set; } = "";
+}
+
+internal sealed class FlexibleStringJsonConverter : JsonConverter<string>
+{
+    public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+            return reader.GetString() ?? "";
+        if (reader.TokenType == JsonTokenType.Null)
+            return "";
+
+        using var document = JsonDocument.ParseValue(ref reader);
+        return Format(document.RootElement);
+    }
+
+    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value);
+
+    private static string Format(JsonElement element) => element.ValueKind switch
+    {
+        JsonValueKind.String => element.GetString() ?? "",
+        JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => element.ToString(),
+        JsonValueKind.Array => string.Join("、", element.EnumerateArray()
+            .Select(Format)
+            .Where(value => !string.IsNullOrWhiteSpace(value))),
+        JsonValueKind.Object => string.Join("；", element.EnumerateObject()
+            .Select(property => $"{property.Name}：{Format(property.Value)}")),
+        _ => "",
+    };
 }

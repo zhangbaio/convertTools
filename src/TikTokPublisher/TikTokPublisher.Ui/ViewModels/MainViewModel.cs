@@ -3948,6 +3948,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 Description = scanned.Description,
                 GenreCategory = scanned.GenreCategory,
                 EpisodeCount = scanned.EpisodeCount,
+                VideoVertical = scanned.VideoVertical,
                 PrimaryVideoPath = scanned.PrimaryVideoPath,
                 CoverPath = scanned.CoverPath,
                 Enabled = true,

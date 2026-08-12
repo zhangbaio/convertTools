@@ -41,6 +41,8 @@ public sealed class QueueProjectItem
     public string OriginalTitle { get; set; } = "";
     public string NewTitle { get; set; } = "";
     public int EpisodeCount { get; set; }
+    /// <summary>视频方向：1=竖屏，0=横屏，-1=未知。</summary>
+    public int VideoVertical { get; set; } = -1;
     public string GenreCategory { get; set; } = "";
     public string Description { get; set; } = "";
     public string QueueEntryDramaType { get; set; } = "";
@@ -162,6 +164,7 @@ public sealed class QueueProjectItem
             ["original_title"] = OriginalTitle,
             ["new_title"] = NewTitle,
             ["episode_count"] = EpisodeCount,
+            ["video_vertical"] = VideoVertical,
             ["genre_category"] = GenreCategory,
             ["description"] = Description,
             ["queue_entry_drama_type"] = QueueEntryDramaType,
@@ -192,6 +195,7 @@ public sealed class QueueProjectItem
             OriginalTitle = GetString(payload, "original_title"),
             NewTitle = GetString(payload, "new_title"),
             EpisodeCount = GetInt(payload, "episode_count"),
+            VideoVertical = NormalizeVideoVertical(GetInt(payload, "video_vertical", -1)),
             GenreCategory = GetString(payload, "genre_category"),
             Description = GetString(payload, "description"),
             QueueEntryDramaType = GetString(payload, "queue_entry_drama_type"),
@@ -250,6 +254,8 @@ public sealed class QueueProjectItem
             _ => fallback,
         };
     }
+
+    private static int NormalizeVideoVertical(int value) => value is 0 or 1 ? value : -1;
 
     private static double GetDouble(Dictionary<string, object?> payload, string key, double fallback = 0)
     {

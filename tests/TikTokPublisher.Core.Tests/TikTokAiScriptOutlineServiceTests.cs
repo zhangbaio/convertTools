@@ -3,11 +3,42 @@ using TikTokPublisher.Core.Services;
 using DocumentFormat.OpenXml.Packaging;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
+using System.Text.Json;
 
 namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokAiScriptOutlineServiceTests
 {
+    [Theory]
+    [InlineData(1, "画面比例：9:16（竖屏短剧）")]
+    [InlineData(0, "画面比例：16:9（横屏短剧）")]
+    [InlineData(-1, "")]
+    public void FormatAspectRatio_UsesResolvedVideoOrientation(int videoVertical, string expected)
+    {
+        Assert.Equal(expected, TikTokAiScriptOutlineService.FormatAspectRatio(videoVertical));
+    }
+
+    [Fact]
+    public void OutlineCharacterProps_AcceptsObjectAndArrayValues()
+    {
+        const string json = """
+            {
+              "characters": [
+                { "name": "甲", "props": { "item": "玉佩", "meaning": "身份" } },
+                { "name": "乙", "props": ["药箱", "银针"] }
+              ]
+            }
+            """;
+
+        var outline = JsonSerializer.Deserialize<AiScriptOutline>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+        })!;
+
+        Assert.Equal("item：玉佩；meaning：身份", outline.Characters[0].Props);
+        Assert.Equal("药箱、银针", outline.Characters[1].Props);
+    }
+
     [Fact]
     public void AccountProfile_DefaultOutlineEpisodeCountIsFifteen()
     {
