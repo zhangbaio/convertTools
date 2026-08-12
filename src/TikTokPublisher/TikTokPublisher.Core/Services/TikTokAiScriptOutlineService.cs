@@ -75,7 +75,7 @@ public static class TikTokAiScriptOutlineService
 
     internal static string BuildPrompt(string title, string originalSynopsis, int episodeCount) => $$"""
         你是专业短剧总编剧。请根据“新剧名”和“改写前的旧简介”扩写一份完整、连贯、可用于项目审核的 AI 剧本大纲。
-        不得沿用旧剧名，不得改变旧简介中的核心人物关系和主线冲突。总集数必须严格为 {{episodeCount}} 集。
+        不得沿用旧剧名，不得改变旧简介中的核心人物关系和主线冲突。仅生成前 {{episodeCount}} 集的分集内容；这不代表项目总集数，不得输出或声明项目总集数。
         仅输出合法 JSON，不要 Markdown，不要解释。JSON 结构：
         {
           "genre":"类型",
@@ -174,7 +174,6 @@ public static class TikTokAiScriptOutlineService
         body.Append(Line($"类型：{outline.Genre}"));
         body.Append(Line($"风格：{outline.Style}"));
         body.Append(Line("默认比例：9:16（竖屏短剧）"));
-        body.Append(Line($"总集数：{episodeCount} 集"));
         body.Append(Line($"剧作基调：{outline.Tone}"));
 
         body.Append(Heading("产物一：剧情梗概", 30, true));
@@ -197,7 +196,7 @@ public static class TikTokAiScriptOutlineService
             ["场景编号", "场景名称", "场景类型 / 功能", "空间概念方向", "情绪氛围基调", "叙事性关键陈设", "常见时间 / 内外景"],
             outline.Scenes.Select(s => new[] { s.Number, s.Name, s.Function, s.Space, s.Mood, s.Props, s.Time })));
 
-        body.Append(Heading($"产物四：{episodeCount} 集分集大纲", 30, true));
+        body.Append(Heading("产物四：分集大纲", 30, true));
         body.Append(CreateTable(
             ["集数", "单集标题", "核心事件", "钩子 / 爽点", "伏笔"],
             outline.Episodes.OrderBy(e => e.Number)

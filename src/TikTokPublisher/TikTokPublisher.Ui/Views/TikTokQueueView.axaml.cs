@@ -1878,12 +1878,19 @@ public partial class TikTokQueueView : UserControl
                 warning: true);
         }
 
-        var activeProjects = vm.QueueProjectRows
+        // Queue execution only accepts the persisted/current queue instances and filters out
+        // disabled items. Supplement targets are commonly completed projects, so they are usually
+        // unchecked before this command. Resolve the rescan results back to the live queue rows and
+        // explicitly enable them before starting the focused run.
+        var matchedDirs = matchedProjects
+            .Select(project => Path.GetFullPath(project.ProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var activeRows = vm.QueueProjectRows
+            .Where(row => matchedDirs.Contains(Path.GetFullPath(row.Item.ProjectDir)))
+            .ToArray();
+        vm.SetQueueRowsEnabled(activeRows, enabled: true);
+        var activeProjects = activeRows
             .Select(row => row.Item)
-            .Where(item => !item.Archived && selectedTitles.Contains((item.NewTitle ?? string.Empty).Trim()))
-            .GroupBy(item => item.NewTitle.Trim(), StringComparer.Ordinal)
-            .Where(group => group.Count() == 1)
-            .Select(group => group.Single())
             .ToArray();
         var dirs = activeProjects
             .Select(project => Path.GetFullPath(project.ProjectDir))

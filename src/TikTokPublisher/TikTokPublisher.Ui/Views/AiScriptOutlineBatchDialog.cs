@@ -123,7 +123,16 @@ public sealed class AiScriptOutlineBatchDialog : Window
         var execute = new Button { Content = "开始补全", MinWidth = 108 };
         execute.Click += (_, _) =>
         {
-            RefreshPreview();
+            try
+            {
+                RefreshPreview();
+            }
+            catch (Exception ex)
+            {
+                _summary.Text = $"匹配项目失败：{ex.Message}";
+                _summary.Foreground = Brushes.IndianRed;
+                return;
+            }
             if (_matched.Count == 0)
             {
                 _summary.Text = "没有匹配到可执行项目。";
@@ -192,8 +201,7 @@ public sealed class AiScriptOutlineBatchDialog : Window
                 }
                 else
                 {
-                    var workflow = ProjectWorkspaceService.LoadContext(match.QueueProject!.ProjectDir).WorkflowProjectDir;
-                    var exists = File.Exists(Path.Combine(workflow, TikTokAiScriptOutlineService.OutputFileName));
+                    var exists = AiOutlineExists(match.QueueProject!);
                     AddPreview(match.NewTitle, exists ? "文件已存在" : "待生成", exists ? Brushes.DarkOrange : Brushes.SeaGreen);
                 }
             }
@@ -201,6 +209,21 @@ public sealed class AiScriptOutlineBatchDialog : Window
         _matched = matched;
         _summary.Text = $"输入 {titles.Length} 个，匹配 {matched.Count} 个，跳过 {titles.Length - matched.Count} 个。";
         _summary.Foreground = Brushes.Black;
+    }
+
+    private static bool AiOutlineExists(QueueProjectItem project)
+    {
+        try
+        {
+            var workflow = ProjectWorkspaceService.LoadContext(project.ProjectDir).WorkflowProjectDir;
+            return File.Exists(Path.Combine(workflow, TikTokAiScriptOutlineService.OutputFileName));
+        }
+        catch
+        {
+            // This check only affects the preview label. Queue execution performs the full
+            // validation and must not be blocked by stale workflow metadata here.
+            return false;
+        }
     }
 
     private void AddPreview(string title, string state, IBrush color) =>

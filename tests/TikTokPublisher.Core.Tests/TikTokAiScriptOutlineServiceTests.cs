@@ -45,7 +45,8 @@ public sealed class TikTokAiScriptOutlineServiceTests
 
         Assert.Contains("新剧名：新剧名", prompt);
         Assert.Contains("这是改写前的旧简介", prompt);
-        Assert.Contains("总集数必须严格为 47 集", prompt);
+        Assert.Contains("仅生成前 47 集的分集内容", prompt);
+        Assert.Contains("不得输出或声明项目总集数", prompt);
         Assert.Contains("episodes 必须从 1 连续到 47", prompt);
     }
 
@@ -101,7 +102,8 @@ public sealed class TikTokAiScriptOutlineServiceTests
             using var document = WordprocessingDocument.Open(output, false);
             var body = document.MainDocumentPart!.Document.Body!;
             Assert.Contains("项目名称：新剧名", body.InnerText);
-            Assert.Contains("产物四：2 集分集大纲", body.InnerText);
+            Assert.Contains("产物四：分集大纲", body.InnerText);
+            Assert.DoesNotContain("总集数", body.InnerText);
             Assert.Equal(2, body.Elements<DocumentFormat.OpenXml.Wordprocessing.Table>().Count());
         }
         finally
