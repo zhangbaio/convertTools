@@ -1,0 +1,135 @@
+{
+  "id": "image-template-project-image-11",
+  "name": "图片模板工程图11",
+  "mode": "image_template",
+  "extract_dialogue": false,
+  "asset_version": 2026081204,
+  "count": 4,
+  "description": "剪映四集高密度多轨工程图模板；保留字幕、贴纸、特效和配乐轨道，仅替换剧集标题、草稿路径、播放器、素材卡和主视频轨画面。",
+  "templates": [
+    {
+      "file": "template1.png",
+      "regions": {
+        "top_title": {"x": 835, "y": 7, "width": 160, "height": 20, "note": "title_mode=jianying_draft;fixed_width=1;text_overflow=clip_left;padding_x=0;font_size=11"},
+        "draft_name": {"x": 1504, "y": 91, "width": 391, "height": 23, "note": "title_mode=jianying_draft"},
+        "save_path": {"x": 1504, "y": 126, "width": 391, "height": 43, "note": "name_mode=jianying_draft;path_prefix=C:/Users/PC/AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft/"},
+        "draft_aspect_ratio": {"x": 1504, "y": 172, "width": 48, "height": 22, "note": "fill=#1B1B1C;text_fill=#B9B9B9;font_size=11;padding_x=5"},
+        "player_aspect_ratio": {"x": 1316, "y": 512, "width": 31, "height": 20, "note": "fill=#1B1B1C;badge_fill=#1B1B1C;border=#848484;text_fill=#E6E6E6;font_size=9;badge_inset_x=2;badge_inset_y=3"},
+        "player_canvas": {"x": 607, "y": 79, "width": 711, "height": 400, "note": "fill=#1B1B1C"},
+        "player": {"x": 850, "y": 79, "width": 225, "height": 400},
+        "player_canvas_landscape": {"x": 607, "y": 79, "width": 711, "height": 400, "note": "fill=#000000"},
+        "player_landscape": {"x": 607, "y": 79, "width": 711, "height": 400},
+        "material_video_images": [
+          {"x": 118, "y": 180, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 180, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 180, "width": 120, "height": 80, "note": "duration=00:10"},
+          {"x": 118, "y": 292, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 292, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 292, "width": 120, "height": 80, "note": "duration=00:10"},
+          {"x": 118, "y": 404, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 404, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 404, "width": 120, "height": 80, "note": "duration=00:10"},
+          {"x": 118, "y": 516, "width": 120, "height": 33, "note": "duration=00:05;card_height=80"},
+          {"x": 254, "y": 516, "width": 120, "height": 33, "note": "duration=00:10;card_height=80"},
+          {"x": 390, "y": 516, "width": 120, "height": 33, "note": "duration=00:05;card_height=80"}
+        ],
+        "video_track_images": [
+          {"x": 171, "y": 754, "width": 1734, "height": 72, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=18;thumbnail_height=38;preserve_text_height=18;preserve_boundary_xs=250|328|486|565|613|643|801|879|958|1116|1194|1273|1430|1509|1588|1745|1824;preserve_boundary_width=3;clip_count=18;single_episode_track=1;track_episode_index=1;playhead_x=612;playhead_brightness=255;playhead_alpha=255"}
+        ]
+      }
+    },
+    {
+      "file": "template2.png",
+      "regions": {
+        "top_title": {"x": 835, "y": 7, "width": 160, "height": 20, "note": "title_mode=jianying_draft;fixed_width=1;text_overflow=clip_left;padding_x=0;font_size=11"},
+        "draft_name": {"x": 1504, "y": 91, "width": 391, "height": 23, "note": "title_mode=jianying_draft"},
+        "save_path": {"x": 1504, "y": 126, "width": 391, "height": 43, "note": "name_mode=jianying_draft;path_prefix=C:/Users/PC/AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft/"},
+        "draft_aspect_ratio": {"x": 1504, "y": 172, "width": 48, "height": 22, "note": "fill=#1B1B1C;text_fill=#B9B9B9;font_size=11;padding_x=5"},
+        "player_aspect_ratio": {"x": 1316, "y": 512, "width": 31, "height": 20, "note": "fill=#1B1B1C;badge_fill=#1B1B1C;border=#848484;text_fill=#E6E6E6;font_size=9;badge_inset_x=2;badge_inset_y=3"},
+        "player_canvas": {"x": 607, "y": 79, "width": 711, "height": 400, "note": "fill=#1B1B1C"},
+        "player": {"x": 850, "y": 79, "width": 225, "height": 400},
+        "player_canvas_landscape": {"x": 607, "y": 79, "width": 711, "height": 400, "note": "fill=#000000"},
+        "player_landscape": {"x": 607, "y": 79, "width": 711, "height": 400},
+        "material_video_images": [
+          {"x": 118, "y": 180, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 180, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 180, "width": 120, "height": 80, "note": "duration=00:10"},
+          {"x": 118, "y": 292, "width": 120, "height": 80, "note": "duration=00:10"},
+          {"x": 254, "y": 292, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 292, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 404, "width": 120, "height": 80, "note": "duration=00:10"},
+          {"x": 254, "y": 404, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 404, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 516, "width": 120, "height": 33, "note": "duration=00:05;card_height=80"},
+          {"x": 254, "y": 516, "width": 120, "height": 33, "note": "duration=00:10;card_height=80"},
+          {"x": 390, "y": 516, "width": 120, "height": 33, "note": "duration=00:05;card_height=80"}
+        ],
+        "video_track_images": [
+          {"x": 171, "y": 754, "width": 1734, "height": 72, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=18;thumbnail_height=38;preserve_text_height=18;preserve_boundary_xs=255|338|506|673|756|841|1007|1091|1175|1342|1425|1509|1760;preserve_boundary_width=3;clip_count=14;single_episode_track=1;track_episode_index=2;playhead_x=839;playhead_brightness=255;playhead_alpha=255"}
+        ]
+      }
+    },
+    {
+      "file": "template3.png",
+      "regions": {
+        "top_title": {"x": 835, "y": 7, "width": 160, "height": 20, "note": "title_mode=jianying_draft;fixed_width=1;text_overflow=clip_left;padding_x=0;font_size=11"},
+        "draft_name": {"x": 1504, "y": 91, "width": 391, "height": 23, "note": "title_mode=jianying_draft"},
+        "save_path": {"x": 1504, "y": 126, "width": 391, "height": 43, "note": "name_mode=jianying_draft;path_prefix=C:/Users/PC/AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft/"},
+        "draft_aspect_ratio": {"x": 1504, "y": 172, "width": 48, "height": 22, "note": "fill=#1B1B1C;text_fill=#B9B9B9;font_size=11;padding_x=5"},
+        "player_aspect_ratio": {"x": 1316, "y": 512, "width": 31, "height": 20, "note": "fill=#1B1B1C;badge_fill=#1B1B1C;border=#848484;text_fill=#E6E6E6;font_size=9;badge_inset_x=2;badge_inset_y=3"},
+        "player_canvas": {"x": 607, "y": 79, "width": 711, "height": 400, "note": "fill=#1B1B1C"},
+        "player": {"x": 850, "y": 79, "width": 225, "height": 400},
+        "player_canvas_landscape": {"x": 607, "y": 79, "width": 711, "height": 400, "note": "fill=#000000"},
+        "player_landscape": {"x": 607, "y": 79, "width": 711, "height": 400},
+        "material_video_images": [
+          {"x": 118, "y": 180, "width": 120, "height": 80, "note": "duration=00:15"},
+          {"x": 254, "y": 180, "width": 120, "height": 80, "note": "duration=00:15"},
+          {"x": 390, "y": 180, "width": 120, "height": 80, "note": "duration=00:15"},
+          {"x": 118, "y": 292, "width": 120, "height": 80, "note": "duration=00:10"},
+          {"x": 254, "y": 292, "width": 120, "height": 80, "note": "duration=00:15"},
+          {"x": 390, "y": 292, "width": 120, "height": 80, "note": "duration=00:10"},
+          {"x": 118, "y": 404, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 404, "width": 120, "height": 80, "note": "duration=00:15"},
+          {"x": 390, "y": 404, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 516, "width": 120, "height": 33, "note": "duration=00:10;card_height=80"},
+          {"x": 254, "y": 516, "width": 120, "height": 33, "note": "duration=00:05;card_height=80"},
+          {"x": 390, "y": 516, "width": 120, "height": 33, "note": "duration=00:05;card_height=80"}
+        ],
+        "video_track_images": [
+          {"x": 171, "y": 754, "width": 1734, "height": 72, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=18;thumbnail_height=38;preserve_text_height=18;preserve_boundary_xs=260|528|617|795|885|1063|1152|1420|1509|1598|1777|1866;preserve_boundary_width=3;clip_count=13;single_episode_track=1;track_episode_index=3;playhead_x=1498;playhead_brightness=255;playhead_alpha=255"}
+        ]
+      }
+    },
+    {
+      "file": "template4.png",
+      "regions": {
+        "top_title": {"x": 835, "y": 7, "width": 160, "height": 20, "note": "title_mode=jianying_draft;fixed_width=1;text_overflow=clip_left;padding_x=0;font_size=11"},
+        "draft_name": {"x": 1504, "y": 91, "width": 391, "height": 23, "note": "title_mode=jianying_draft"},
+        "save_path": {"x": 1504, "y": 126, "width": 391, "height": 43, "note": "name_mode=jianying_draft;path_prefix=C:/Users/PC/AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft/"},
+        "draft_aspect_ratio": {"x": 1504, "y": 172, "width": 48, "height": 22, "note": "fill=#1B1B1C;text_fill=#B9B9B9;font_size=11;padding_x=5"},
+        "player_aspect_ratio": {"x": 1316, "y": 512, "width": 31, "height": 20, "note": "fill=#1B1B1C;badge_fill=#1B1B1C;border=#848484;text_fill=#E6E6E6;font_size=9;badge_inset_x=2;badge_inset_y=3"},
+        "player_canvas": {"x": 607, "y": 79, "width": 711, "height": 400, "note": "fill=#1B1B1C"},
+        "player": {"x": 850, "y": 79, "width": 225, "height": 400},
+        "player_canvas_landscape": {"x": 607, "y": 79, "width": 711, "height": 400, "note": "fill=#000000"},
+        "player_landscape": {"x": 607, "y": 79, "width": 711, "height": 400},
+        "material_video_images": [
+          {"x": 118, "y": 180, "width": 120, "height": 80, "note": "duration=00:15"},
+          {"x": 254, "y": 180, "width": 120, "height": 80, "note": "duration=00:15"},
+          {"x": 390, "y": 180, "width": 120, "height": 80, "note": "duration=00:10"},
+          {"x": 118, "y": 292, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 292, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 292, "width": 120, "height": 80, "note": "duration=00:10"},
+          {"x": 118, "y": 404, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 404, "width": 120, "height": 80, "note": "duration=00:10"},
+          {"x": 390, "y": 404, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 516, "width": 120, "height": 33, "note": "duration=00:05;card_height=80"},
+          {"x": 254, "y": 516, "width": 120, "height": 33, "note": "duration=00:05;card_height=80"},
+          {"x": 390, "y": 516, "width": 120, "height": 33, "note": "duration=00:10;card_height=80"}
+        ],
+        "video_track_images": [
+          {"x": 171, "y": 754, "width": 1734, "height": 72, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=18;thumbnail_height=38;preserve_text_height=18;preserve_boundary_xs=245|468|617|691|766|914|989|1057|1137|1212|1286|1435|1509|1583|1732|1806;preserve_boundary_width=3;clip_count=17;single_episode_track=1;track_episode_index=4;playhead_x=1055;playhead_brightness=255;playhead_alpha=255"}
+        ]
+      }
+    }
+  ]
+}

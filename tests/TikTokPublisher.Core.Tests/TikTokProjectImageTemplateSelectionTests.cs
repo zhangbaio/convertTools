@@ -10,9 +10,9 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokProjectImageTemplateSelectionTests
 {
     [Fact]
-    public void Built_in_options_cover_templates_3_through_10_with_ui_labels_and_ids()
+    public void Built_in_options_cover_templates_3_through_11_with_ui_labels_and_ids()
     {
-        var expected = Enumerable.Range(3, 8)
+        var expected = Enumerable.Range(3, 9)
             .Select(number => new
             {
                 Id = $"image-template-project-image-{number}",
@@ -43,6 +43,7 @@ public sealed class TikTokProjectImageTemplateSelectionTests
     [Theory]
     [InlineData("image-template-project-image-4", "图片模板工程图4")]
     [InlineData("image-template-project-image-10", "图片模板工程图10")]
+    [InlineData("image-template-project-image-11", "图片模板工程图11")]
     [InlineData("legacy-private-template", "legacy-private-template")]
     public void Workflow_config_writes_the_selected_template_name(string templateId, string expectedName)
     {

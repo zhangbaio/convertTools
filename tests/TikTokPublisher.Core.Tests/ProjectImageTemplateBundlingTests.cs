@@ -7,7 +7,7 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class ProjectImageTemplateBundlingTests
 {
     [Fact]
-    public void Build_output_contains_templates_3_through_10_and_all_manifest_pages()
+    public void Build_output_contains_templates_3_through_11_and_all_manifest_pages()
     {
         var templateRoot = Path.Combine(AppContext.BaseDirectory, "templates", "project-image");
         var expectedVersions = new Dictionary<int, long>
@@ -20,9 +20,10 @@ public sealed class ProjectImageTemplateBundlingTests
             [8] = 2026080101,
             [9] = 2026080504,
             [10] = 2026080603,
+            [11] = 2026081204,
         };
 
-        foreach (var number in Enumerable.Range(3, 8))
+        foreach (var number in Enumerable.Range(3, 9))
         {
             var templateDirectory = Path.Combine(templateRoot, $"image_template_project_image_{number}");
             var rootManifestPath = Path.Combine(templateDirectory, "template.json");
@@ -85,6 +86,52 @@ public sealed class ProjectImageTemplateBundlingTests
                 File.Exists(Path.Combine(templateDirectory, "landscape", "template.json"))
                     .Should().BeTrue($"template {number} must publish its landscape variant");
             }
+        }
+    }
+
+    [Fact]
+    public void Template_11_publishes_the_four_page_portrait_and_landscape_contract()
+    {
+        var templateDirectory = Path.Combine(
+            AppContext.BaseDirectory,
+            "templates",
+            "project-image",
+            "image_template_project_image_11");
+        using var manifest = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(templateDirectory, "template.json")));
+
+        manifest.RootElement.GetProperty("id").GetString()
+            .Should().Be("image-template-project-image-11");
+        manifest.RootElement.GetProperty("name").GetString()
+            .Should().Be("图片模板工程图11");
+        manifest.RootElement.GetProperty("asset_version").GetInt64()
+            .Should().Be(2026081204);
+
+        var pages = manifest.RootElement.GetProperty("templates").EnumerateArray().ToArray();
+        pages.Should().HaveCount(4);
+        foreach (var (page, pageIndex) in pages.Select((value, index) => (value, index)))
+        {
+            var regions = page.GetProperty("regions");
+            regions.GetProperty("top_title").GetProperty("note").GetString()
+                .Should().Contain("title_mode=jianying_draft")
+                .And.Contain("fixed_width=1")
+                .And.Contain("text_overflow=clip_left");
+            regions.GetProperty("player").GetProperty("width").GetInt32().Should().Be(225);
+            regions.GetProperty("player").GetProperty("height").GetInt32().Should().Be(400);
+            regions.GetProperty("player_landscape").GetProperty("width").GetInt32().Should().Be(711);
+            regions.TryGetProperty("draft_aspect_ratio", out _).Should().BeTrue();
+            regions.TryGetProperty("player_aspect_ratio", out _).Should().BeTrue();
+
+            var materialCards = regions.GetProperty("material_video_images").EnumerateArray().ToArray();
+            materialCards.Should().HaveCount(12);
+            materialCards.Skip(9).Should().OnlyContain(card =>
+                card.GetProperty("note").GetString()!.Contains("card_height=80", StringComparison.Ordinal));
+
+            var track = regions.GetProperty("video_track_images")[0];
+            track.GetProperty("note").GetString()
+                .Should().Contain($"track_episode_index={pageIndex + 1}")
+                .And.Contain("sample_scope=full_episode")
+                .And.Contain("replace_image_only=1");
         }
     }
 }
