@@ -388,14 +388,15 @@ public static partial class TikTokBrowserActions
         TikTokPublishOptions options,
         Action<string>? log,
         CancellationToken ct) =>
-        ConfigureCopyrightProofAsync(page, options, [], log, ct);
+        ConfigureCopyrightProofAsync(page, options, [], log, ct, uploadAiScriptOutlineOnly: false);
 
     internal static async Task ConfigureCopyrightProofAsync(
         IPage page,
         TikTokPublishOptions options,
         IEnumerable<string>? existingMaterialTypes,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool uploadAiScriptOutlineOnly = false)
     {
         ct.ThrowIfCancellationRequested();
 
@@ -472,10 +473,12 @@ public static partial class TikTokBrowserActions
             StringComparer.Ordinal);
         var uploadAiGenerationScreenshots = completionPlan.ShouldUpload(
             TikTokPublishConstants.AiGenerationScreenshotsMaterialType);
-        var aiScreenshotFiles = includeAiGenerationScreenshots && uploadAiGenerationScreenshots
+        var aiScreenshotFiles = includeAiGenerationScreenshots && uploadAiGenerationScreenshots &&
+                                !uploadAiScriptOutlineOnly
             ? ResolveAiGenerationScreenshotFiles(options)
             : [];
         if (includeAiGenerationScreenshots && uploadAiGenerationScreenshots &&
+            !uploadAiScriptOutlineOnly &&
             aiScreenshotFiles.Count < TikTokAiGenerationScreenshotService.RequiredImageCount)
         {
             throw new FileNotFoundException(
@@ -498,8 +501,14 @@ public static partial class TikTokBrowserActions
             }
 
             outlineFile = Path.GetFullPath(outlineFile);
-            aiUploadFiles = aiScreenshotFiles.Concat([outlineFile]).ToArray();
+            aiUploadFiles = uploadAiScriptOutlineOnly
+                ? [outlineFile]
+                : aiScreenshotFiles.Concat([outlineFile]).ToArray();
         }
+
+        if (uploadAiScriptOutlineOnly && aiUploadFiles.Count != 1)
+            throw new InvalidOperationException(
+                "补全 AI 剧本大纲时只允许向“AI 生成过程截图”材料栏追加 AI剧本大纲.pdf。");
 
         var includeEditingProjectFiles = configuredMaterialKeys.Contains(
             TikTokPublishConstants.EditingProjectFilesMaterialType,

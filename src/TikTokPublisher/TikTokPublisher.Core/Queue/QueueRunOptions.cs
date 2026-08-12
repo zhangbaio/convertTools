@@ -78,6 +78,7 @@ public sealed class QueueRunOptions
     public const string EditUploadEntryMode = "edit";
     public const string CopyrightProofOnlyEntryMode = "copyright_proof_only";
     public const string CopyrightProofMaterialOnlyEntryMode = "copyright_proof_material_only";
+    public const string AiOutlineSupplementEntryMode = "ai_outline_supplement";
 
     public List<string> EnabledSteps { get; set; } = QueueStepRegistry.DefaultEnabledSteps.ToList();
     public bool AutoArchiveAfterUpload { get; set; }
@@ -176,13 +177,19 @@ public sealed class QueueRunOptions
             return EditUploadEntryMode;
         if (normalized is "copyright_proof_only" or "proof_only")
             return CopyrightProofOnlyEntryMode;
+        if (normalized is "ai_outline_supplement" or "outline_supplement")
+            return AiOutlineSupplementEntryMode;
         return normalized is "copyright_proof_material_only" or "proof_material_only"
             ? CopyrightProofMaterialOnlyEntryMode
             : string.Empty;
     }
 
     public bool IsCopyrightProofOnlyRun() =>
-        string.Equals(UploadEntryMode, CopyrightProofOnlyEntryMode, StringComparison.OrdinalIgnoreCase);
+        string.Equals(UploadEntryMode, CopyrightProofOnlyEntryMode, StringComparison.OrdinalIgnoreCase) ||
+        IsAiOutlineSupplementRun();
+
+    public bool IsAiOutlineSupplementRun() =>
+        string.Equals(UploadEntryMode, AiOutlineSupplementEntryMode, StringComparison.OrdinalIgnoreCase);
 
     public bool IsCopyrightProofMaterialOnlyRun() =>
         string.Equals(

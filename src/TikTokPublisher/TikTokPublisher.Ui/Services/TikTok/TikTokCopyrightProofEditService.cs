@@ -18,7 +18,8 @@ public static class TikTokCopyrightProofEditService
         IEmbeddedBrowser browser,
         FinalAction finalAction,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool forceAiOutlineSupplement = false)
     {
         void L(string message) => log?.Invoke(message);
         if (string.IsNullOrWhiteSpace(item.Title))
@@ -83,6 +84,17 @@ public static class TikTokCopyrightProofEditService
 
             var workflowDir = TikTokUploadStateStore.ResolveWorkflowProjectDir(item.ProjectDir);
             var options = TikTokPublishOptionsBuilder.FromAccount(account, workflowDir, L);
+            if (forceAiOutlineSupplement)
+            {
+                if (!options.UploadAiScriptOutlineWithScreenshots ||
+                    string.IsNullOrWhiteSpace(options.AiScriptOutlineFilePath) ||
+                    !File.Exists(options.AiScriptOutlineFilePath))
+                {
+                    return PublishResult.Fail(
+                        "补全 AI 大纲失败：账号未启用大纲上传，或项目中不存在 AI剧本大纲.pdf。");
+                }
+                L("本次为 AI 剧本大纲补传，将强制重新处理“AI 生成过程截图”材料栏。");
+            }
             var coverage = await TikTokBrowserActions
                 .ProbeConfiguredCopyrightProofMaterialsAsync(
                     page,
@@ -94,7 +106,7 @@ public static class TikTokCopyrightProofEditService
                 foreach (var detail in coverage.Details)
                     L($"TikTok 版权材料逐项检查：{detail}。");
 
-                if (coverage.Plan.IsComplete)
+                if (coverage.Plan.IsComplete && !forceAiOutlineSupplement)
                 {
                     L("账号配置的版权材料均已上传，跳过重复编辑。");
                     return PublishResult.Success("TikTok 账号配置的版权材料均已上传，已跳过重复编辑");
@@ -109,12 +121,24 @@ public static class TikTokCopyrightProofEditService
                 L("未能在预检阶段识别版权材料字段，将按账号配置执行完整填写。");
             }
 
+            var existingMaterialTypes = coverage.Plan.ExistingMaterialTypes;
+            if (forceAiOutlineSupplement)
+            {
+                existingMaterialTypes = existingMaterialTypes
+                    .Where(key => !string.Equals(
+                        key,
+                        TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+                        StringComparison.Ordinal))
+                    .ToArray();
+            }
+
             await TikTokBrowserActions.ConfigureCopyrightProofAsync(
                     page,
                     options,
-                    coverage.Plan.ExistingMaterialTypes,
+                    existingMaterialTypes,
                     L,
-                    ct)
+                    ct,
+                    uploadAiScriptOutlineOnly: forceAiOutlineSupplement)
                 .ConfigureAwait(false);
 
             if (finalAction == FinalAction.None)

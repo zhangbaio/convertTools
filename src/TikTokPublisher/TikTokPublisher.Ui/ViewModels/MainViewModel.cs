@@ -907,6 +907,9 @@ public sealed partial class MainViewModel : ViewModelBase
     public void RefreshWorkspaceProjects(string? workspaceRoot = null, bool force = false) =>
         _ = RefreshWorkspaceProjectsAsync(workspaceRoot, force);
 
+    public Task RefreshWorkspaceProjectsNowAsync(string? workspaceRoot = null, bool force = false) =>
+        RefreshWorkspaceProjectsAsync(workspaceRoot, force);
+
     public async Task ApplyPreparedWorkspaceQueueSnapshotAsync(
         string workspaceRoot,
         IReadOnlyList<QueueProjectItem> items,
