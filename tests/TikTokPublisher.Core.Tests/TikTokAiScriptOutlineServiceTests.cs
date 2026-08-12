@@ -1,11 +1,20 @@
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 using DocumentFormat.OpenXml.Packaging;
+using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokAiScriptOutlineServiceTests
 {
+    [Fact]
+    public void AccountProfile_DefaultOutlineEpisodeCountIsFifteen()
+    {
+        var profile = new TikTokAccountProfile();
+
+        Assert.Equal(15, profile.TiktokAiScriptOutlineEpisodeCount);
+    }
+
     [Fact]
     public void BuildPrompt_UsesNewTitleOriginalSynopsisAndExactEpisodeCount()
     {

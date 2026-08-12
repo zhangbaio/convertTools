@@ -187,7 +187,8 @@ public static class TikTokEpisodeScriptService
     internal static async Task<string> RequestTextAsync(
         string prompt,
         ClientSettings settings,
-        CancellationToken ct)
+        CancellationToken ct,
+        int maxOutputTokens = 8192)
     {
         var endpoint = settings.AiTextEndpoint.Trim().TrimEnd('/');
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint + "/chat/completions");
@@ -196,6 +197,7 @@ public static class TikTokEpisodeScriptService
         {
             model = settings.AiTextModel.Trim(),
             temperature = 0.2,
+            max_tokens = Math.Clamp(maxOutputTokens, 1024, 32768),
             messages = new object[]
             {
                 new { role = "system", content = "你是影视编剧和审核材料整理专家，只依据输入事实整理剧本，并严格遵守指定的纯文本格式。" },

@@ -129,6 +129,12 @@ public partial class AccountProfileEditor : UserControl
         TimestampApplicantNameBox.Text = profile.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = profile.TiktokProofSealPath;
         ProofCopyrightCompanyNameBox.Text = profile.TiktokProofCopyrightCompanyName;
+        AiScriptOutlineEpisodeCountBox.Value = Math.Clamp(
+            profile.TiktokAiScriptOutlineEpisodeCount > 0
+                ? profile.TiktokAiScriptOutlineEpisodeCount
+                : TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount,
+            1,
+            120);
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
@@ -229,6 +235,10 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
             profile.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
             profile.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
+            profile.TiktokAiScriptOutlineEpisodeCount = Math.Clamp(
+                (int)(AiScriptOutlineEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount),
+                1,
+                120);
             profile.TiktokProofAccountConfigMigrated = true;
             profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
@@ -758,6 +768,7 @@ public partial class AccountProfileEditor : UserControl
         ProofDeclarantCompanyNameBox.Text = "";
         ProofSealPathBox.Text = "";
         ProofCopyrightCompanyNameBox.Text = "";
+        AiScriptOutlineEpisodeCountBox.Value = TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount;
         ZeroCostAdsBox.IsChecked = false;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
         SubmitEnabledBox.IsChecked = true;

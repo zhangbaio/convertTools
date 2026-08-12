@@ -58,6 +58,12 @@ public partial class AccountSettingsDialog : Window
         TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = p.TiktokProofSealPath;
         ProofCopyrightCompanyNameBox.Text = p.TiktokProofCopyrightCompanyName;
+        AiScriptOutlineEpisodeCountBox.Value = Math.Clamp(
+            p.TiktokAiScriptOutlineEpisodeCount > 0
+                ? p.TiktokAiScriptOutlineEpisodeCount
+                : TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount,
+            1,
+            120);
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
@@ -125,6 +131,10 @@ public partial class AccountSettingsDialog : Window
         p.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
         p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
         p.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
+        p.TiktokAiScriptOutlineEpisodeCount = Math.Clamp(
+            (int)(AiScriptOutlineEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount),
+            1,
+            120);
         p.TiktokProofAccountConfigMigrated = true;
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;

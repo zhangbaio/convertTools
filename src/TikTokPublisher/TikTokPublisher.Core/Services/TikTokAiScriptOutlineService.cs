@@ -16,6 +16,7 @@ public static class TikTokAiScriptOutlineService
     public static async Task<string> GenerateAsync(
         QueueProjectItem item,
         ClientSettings settings,
+        TikTokAccountProfile? account,
         bool forceRerun,
         Action<string>? log,
         CancellationToken ct)
@@ -39,11 +40,32 @@ public static class TikTokAiScriptOutlineService
         }
 
         TikTokEpisodeScriptService.EnsureAiConfigured(settings);
-        var episodeCount = Math.Max(1, item.EpisodeCount);
+        var configuredEpisodeCount = account?.TiktokAiScriptOutlineEpisodeCount ?? 0;
+        var episodeCount = Math.Clamp(
+            configuredEpisodeCount > 0
+                ? configuredEpisodeCount
+                : TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount,
+            1,
+            120);
         log?.Invoke($"AI 剧本大纲：正在根据新剧名和旧简介生成 {episodeCount} 集大纲…");
+        var prompt = BuildPrompt(title, synopsis, episodeCount);
         var response = await TikTokEpisodeScriptService.RequestTextAsync(
-            BuildPrompt(title, synopsis, episodeCount), settings, ct).ConfigureAwait(false);
-        var outline = ParseOutline(response, episodeCount);
+            prompt, settings, ct, maxOutputTokens: 16384).ConfigureAwait(false);
+        AiScriptOutline outline;
+        try
+        {
+            outline = ParseOutline(response, episodeCount);
+        }
+        catch (InvalidOperationException ex) when (!ct.IsCancellationRequested)
+        {
+            log?.Invoke($"AI 剧本大纲首次返回不完整，正在自动重试：{ex.Message}");
+            response = await TikTokEpisodeScriptService.RequestTextAsync(
+                prompt + "\n上一次输出被截断或不是完整 JSON。本次必须从头重新输出完整 JSON，并确保最后一个字符为 }。",
+                settings,
+                ct,
+                maxOutputTokens: 24576).ConfigureAwait(false);
+            outline = ParseOutline(response, episodeCount);
+        }
 
         CreateDocument(outputDocx, title, episodeCount, outline);
         await TikTokQueueDocumentWriter.RenderPdfAsync(outputDocx, outputPdf, settings, ct).ConfigureAwait(false);
