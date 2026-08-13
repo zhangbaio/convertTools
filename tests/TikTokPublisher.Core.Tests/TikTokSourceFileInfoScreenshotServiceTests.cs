@@ -40,14 +40,35 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
         var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(workflow, outputs);
 
         requests.Select(request => request.OutputPath).Should().Equal(outputs);
-        requests.Select(request => request.Directory)
-            .Should().Equal(
-                Path.Combine(package, "01_剧本与分镜"),
-                Path.Combine(package, "02_角色素材"),
-                Path.Combine(package, "04_镜头首帧"),
-                Path.Combine(package, "06_视频源片段"));
+        requests.Select(request => Path.GetFileName(request.Directory))
+            .Should().Equal("01", "02", "03", "04");
+        requests.Select(request => Directory.EnumerateFiles(request.Directory).Count())
+            .Should().OnlyContain(count => count > 0);
         requests.Select(request => request.LargeIcons)
             .Should().Equal(false, true, true, false);
+        Directory.Delete(workflow, recursive: true);
+    }
+
+    [Fact]
+    public void Explorer_capture_plan_falls_back_to_real_package_files_when_video_is_absent()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"capture-plan-no-video-{Guid.NewGuid():N}");
+        var package = Path.Combine(workflow, TikTokSourceFileInfoScreenshotService.EvidenceDirectoryName, "EP01_源文件包");
+        foreach (var name in new[] { "01_剧本与分镜", "02_角色素材", "04_镜头首帧", "06_视频源片段" })
+            Directory.CreateDirectory(Path.Combine(package, name));
+        File.WriteAllText(Path.Combine(package, "EP01_素材清单.csv"), "name,type");
+        File.WriteAllText(Path.Combine(package, "01_剧本与分镜", "script.docx"), "script");
+        File.WriteAllText(Path.Combine(package, "02_角色素材", "character.jpg"), "image");
+        File.WriteAllText(Path.Combine(package, "04_镜头首帧", "shot.png"), "image");
+        File.WriteAllText(Path.Combine(package, "06_视频源片段", "视频源文件索引.txt"), "未发现视频");
+
+        var outputs = Enumerable.Range(1, 4).Select(index => Path.Combine(workflow, $"{index}.png")).ToArray();
+        var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(workflow, outputs);
+
+        requests[3].Directory.Should().Contain(".source-info-capture-staging");
+        Directory.EnumerateFiles(requests[3].Directory)
+            .Select(Path.GetFileName)
+            .Should().Contain(name => name!.Contains("素材清单", StringComparison.Ordinal));
         Directory.Delete(workflow, recursive: true);
     }
 
