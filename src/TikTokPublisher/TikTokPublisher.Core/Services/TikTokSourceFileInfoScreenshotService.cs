@@ -16,6 +16,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using ShortDrama.Infrastructure.Process;
 using ShortDrama.Infrastructure.Rendering;
 using TikTokPublisher.Core.Media;
+using TikTokPublisher.Core.Queue;
 using Color = SixLabors.ImageSharp.Color;
 using FontFamily = SixLabors.Fonts.FontFamily;
 using ImageFont = SixLabors.Fonts.Font;
@@ -32,17 +33,17 @@ public static class TikTokSourceFileInfoScreenshotService
     public const string OutputDirectoryName = "原始文件信息截图";
     public const string EvidenceDirectoryName = "项目原始资料";
     public const int RequiredImageCount = 4;
-    public const string ScreenshotVersion = "v6-explorer-and-real-script";
+    public const string ScreenshotVersion = "v7-real-explorer-only";
 
     private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
     private const int ContactSheetFrameCount = 4;
     private const int MaxCatalogFiles = 12;
     private static readonly string[] FileNames =
     [
-        "01_真实项目文件目录.png",
-        "02_角色与场景素材.png",
-        "03_剧本与分镜文件.png",
-        "04_镜头生成源文件.png",
+        "01_源项目文件目录_详细信息.png",
+        "02_源项目文件目录_大图标.png",
+        "03_工作流文件目录_详细信息.png",
+        "04_工作流文件目录_大图标.png",
     ];
 
     public static string GetOutputDirectory(string workflowProjectDirectory) =>
@@ -77,12 +78,32 @@ public static class TikTokSourceFileInfoScreenshotService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowProjectDirectory);
         var workflow = Path.GetFullPath(workflowProjectDirectory);
+        var sourceProjectDirectory = ResolveSourceProjectDirectory(workflow);
         var title = string.IsNullOrWhiteSpace(dramaTitle) ? "未命名短剧" : dramaTitle.Trim();
         var company = string.IsNullOrWhiteSpace(companyName) ? "制作方未填写" : companyName.Trim();
         cancellationToken.ThrowIfCancellationRequested();
 
         TryDeleteOutput(workflow);
         var outputDir = GetOutputDirectory(workflow);
+        Directory.CreateDirectory(outputDir);
+        var explorerOutputs = GetExpectedOutputPaths(workflow).ToArray();
+        var explorerRequests = BuildExplorerCaptureRequests(
+            sourceProjectDirectory,
+            workflow,
+            explorerOutputs);
+        if (WindowsExplorerScreenshotService.TryCaptureAll(explorerRequests, log, cancellationToken))
+        {
+            log?.Invoke(
+                $"原始文件信息截图已生成：4 张真实 Windows 资源管理器完整窗口截图（源项目与工作流目录）→ {outputDir}");
+            return explorerOutputs;
+        }
+
+        TryDeleteOutput(workflow);
+        throw new InvalidOperationException(
+            "原始文件信息截图生成失败：未能获取真实 Windows 资源管理器窗口截图；" +
+            "已停止生成，不会使用 AI 过程图、成片抽帧或程序合成页面替代。");
+
+#if false // Legacy synthetic evidence renderer retained temporarily for migration reference only.
         var evidenceDir = GetEvidenceDirectory(workflow);
         TryDeleteDirectory(evidenceDir);
         var characterDir = Path.Combine(evidenceDir, "03_角色参考");
@@ -156,30 +177,30 @@ public static class TikTokSourceFileInfoScreenshotService
 
         var explorerOutputs = GetExpectedOutputPaths(workflow).ToArray();
         var explorerRequests = BuildExplorerCaptureRequests(
+            sourceProjectDirectory,
             workflow,
-            evidenceDir,
-            episodePackage.RootDirectory,
             explorerOutputs);
-        var explorerCaptured = records.Count > 0 && WindowsExplorerScreenshotService.TryCaptureAll(
+        var explorerCaptured = WindowsExplorerScreenshotService.TryCaptureAll(
             explorerRequests,
             log,
             cancellationToken);
-        var scriptCaptured = explorerCaptured && TryRenderRealScriptPage(
-            episodePackage.ScriptPath,
-            explorerOutputs[2],
-            evidenceDir,
-            cancellationToken,
-            log);
-        if (explorerCaptured && scriptCaptured)
+        if (explorerCaptured)
         {
             foreach (var frame in characterFrames.Concat(sceneFrames).Concat(keyframeFrames))
             {
                 frame.Image.Dispose();
             }
             log?.Invoke(
-                $"原始文件信息截图已生成：3 张真实 Windows 资源管理器目录截图、1 张真实剧本页面截图 → {outputDir}");
+                $"原始文件信息截图已生成：4 张真实 Windows 资源管理器截图（源项目与工作流目录）→ {outputDir}");
             return explorerOutputs;
         }
+
+        foreach (var frame in characterFrames.Concat(sceneFrames).Concat(keyframeFrames))
+            frame.Image.Dispose();
+        TryDeleteOutput(workflow);
+        throw new InvalidOperationException(
+            "原始文件信息截图生成失败：未能获取真实 Windows 资源管理器窗口截图；" +
+            "已停止生成，不会使用 AI 过程图、成片抽帧或程序合成页面替代。");
 
         var family = ResolveFontFamily()
             ?? throw new InvalidOperationException("未找到可用中文字体，无法生成原始文件信息截图。");
@@ -241,13 +262,13 @@ public static class TikTokSourceFileInfoScreenshotService
 
         log?.Invoke($"原始文件信息截图已生成：{outputs.Count} 张；真实资料目录：{evidenceDir}");
         return outputs;
+#endif
     }
 
     internal static IReadOnlyList<WindowsExplorerScreenshotService.CaptureRequest>
         BuildExplorerCaptureRequests(
+            string sourceProjectDirectory,
             string workflow,
-            string evidenceDirectory,
-            string episodePackageDirectory,
             IReadOnlyList<string> outputs)
     {
         if (outputs.Count < RequiredImageCount)
@@ -260,14 +281,30 @@ public static class TikTokSourceFileInfoScreenshotService
         return
         [
             new WindowsExplorerScreenshotService.CaptureRequest(
-                workflow, outputs[0], LargeIcons: false),
+                sourceProjectDirectory, outputs[0], LargeIcons: false),
             new WindowsExplorerScreenshotService.CaptureRequest(
-                evidenceDirectory, outputs[1], LargeIcons: false),
-            // The third output is reserved for the rendered script page. The episode package
-            // directory belongs to "镜头生成源文件", which is the fourth fixed filename.
+                sourceProjectDirectory, outputs[1], LargeIcons: true),
             new WindowsExplorerScreenshotService.CaptureRequest(
-                episodePackageDirectory, outputs[3], LargeIcons: false),
+                workflow, outputs[2], LargeIcons: false),
+            new WindowsExplorerScreenshotService.CaptureRequest(
+                workflow, outputs[3], LargeIcons: true),
         ];
+    }
+
+    internal static string ResolveSourceProjectDirectory(string workflowProjectDirectory)
+    {
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(workflowProjectDirectory);
+            if (Directory.Exists(context.SourceProjectDir))
+                return Path.GetFullPath(context.SourceProjectDir);
+        }
+        catch
+        {
+            // Invalid or legacy metadata falls back to the directory the caller supplied.
+        }
+
+        return Path.GetFullPath(workflowProjectDirectory);
     }
 
     private static bool TryRenderRealScriptPage(

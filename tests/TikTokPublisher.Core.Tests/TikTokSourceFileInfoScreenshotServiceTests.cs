@@ -18,7 +18,7 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
     }
 
     [Fact]
-    public void Explorer_capture_plan_reserves_third_output_for_script_page()
+    public void Explorer_capture_plan_uses_real_source_and_workflow_views()
     {
         var outputs = new[]
         {
@@ -29,15 +29,38 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
         };
 
         var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(
+            @"C:\source",
             @"C:\workflow",
-            @"C:\workflow\项目原始资料",
-            @"C:\workflow\项目原始资料\EP01_源文件包",
             outputs);
 
-        requests.Select(request => request.OutputPath)
-            .Should()
-            .Equal(outputs[0], outputs[1], outputs[3]);
-        requests.Should().NotContain(request => request.OutputPath == outputs[2]);
+        requests.Select(request => request.OutputPath).Should().Equal(outputs);
+        requests.Select(request => request.Directory)
+            .Should().Equal(@"C:\source", @"C:\source", @"C:\workflow", @"C:\workflow");
+        requests.Select(request => request.LargeIcons)
+            .Should().Equal(false, true, false, true);
+    }
+
+    [Fact]
+    public void Resolve_source_project_directory_reads_workflow_metadata()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"tiktok-source-resolution-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "source");
+        var workflow = Path.Combine(root, "workflow", "project");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(workflow, "shortdrama-project.json"),
+                $$"""{ "sourceProjectDir": {{System.Text.Json.JsonSerializer.Serialize(source)}} }""");
+
+            TikTokSourceFileInfoScreenshotService.ResolveSourceProjectDirectory(workflow)
+                .Should().Be(Path.GetFullPath(source));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
