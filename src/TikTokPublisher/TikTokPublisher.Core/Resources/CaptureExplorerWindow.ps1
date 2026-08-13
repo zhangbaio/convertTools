@@ -69,30 +69,11 @@ try {
             $graphics.ReleaseHdc($hdc)
             $graphics.Dispose()
         }
-        # Remove the Explorer title/address area and the left navigation tree.
-        # Keep only the real file command bar and file content pane.
-        $dpi = [ExplorerCaptureNative]::GetDpiForWindow($hwnd)
-        if ($dpi -le 0) { $dpi = 96 }
-        $dpiScale = $dpi / 96.0
-        $cropLeft = [Math]::Min(
-            [int][Math]::Round(150 * $dpiScale),
-            [Math]::Max(0, $width - 1))
-        $cropTop = [Math]::Min(
-            [int][Math]::Round(88 * $dpiScale),
-            [Math]::Max(0, $height - 1))
-        $cropRect = [Drawing.Rectangle]::new(
-            $cropLeft,
-            $cropTop,
-            ($width - $cropLeft),
-            ($height - $cropTop))
-        $cropped = $bitmap.Clone($cropRect, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        # Preserve the complete Explorer window. In particular, keep the address bar
+        # so the captured directory can be verified from the screenshot itself.
         $outputFull = [IO.Path]::GetFullPath($OutputPath)
         [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($outputFull)) | Out-Null
-        try {
-            $cropped.Save($outputFull, [Drawing.Imaging.ImageFormat]::Png)
-        } finally {
-            $cropped.Dispose()
-        }
+        $bitmap.Save($outputFull, [Drawing.Imaging.ImageFormat]::Png)
         Write-Output $outputFull
     } finally {
         $bitmap.Dispose()

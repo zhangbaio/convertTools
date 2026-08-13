@@ -58,7 +58,7 @@ internal static class WindowsExplorerScreenshotService
         }
         catch (Exception ex)
         {
-            log?.Invoke($"原始文件信息/资源管理器截图失败，将使用兼容渲染图：{ex.Message}");
+            log?.Invoke($"原始文件信息/资源管理器真实截图失败：{ex.Message}");
             foreach (var request in requests)
             {
                 TryDelete(request.OutputPath);
