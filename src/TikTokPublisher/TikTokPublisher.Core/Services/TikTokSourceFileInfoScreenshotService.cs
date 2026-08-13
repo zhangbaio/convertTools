@@ -33,17 +33,17 @@ public static class TikTokSourceFileInfoScreenshotService
     public const string OutputDirectoryName = "原始文件信息截图";
     public const string EvidenceDirectoryName = "项目原始资料";
     public const int RequiredImageCount = 4;
-    public const string ScreenshotVersion = "v7-real-explorer-only";
+    public const string ScreenshotVersion = "v8-private-real-materials";
 
     private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
     private const int ContactSheetFrameCount = 4;
     private const int MaxCatalogFiles = 12;
     private static readonly string[] FileNames =
     [
-        "01_源项目文件目录_详细信息.png",
-        "02_源项目文件目录_大图标.png",
-        "03_工作流文件目录_详细信息.png",
-        "04_工作流文件目录_大图标.png",
+        "01_剧本与分镜文件.png",
+        "02_角色与场景素材.png",
+        "03_镜头首帧与项目素材.png",
+        "04_视频Raw文件.png",
     ];
 
     public static string GetOutputDirectory(string workflowProjectDirectory) =>
@@ -78,7 +78,6 @@ public static class TikTokSourceFileInfoScreenshotService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowProjectDirectory);
         var workflow = Path.GetFullPath(workflowProjectDirectory);
-        var sourceProjectDirectory = ResolveSourceProjectDirectory(workflow);
         var title = string.IsNullOrWhiteSpace(dramaTitle) ? "未命名短剧" : dramaTitle.Trim();
         var company = string.IsNullOrWhiteSpace(companyName) ? "制作方未填写" : companyName.Trim();
         cancellationToken.ThrowIfCancellationRequested();
@@ -87,14 +86,11 @@ public static class TikTokSourceFileInfoScreenshotService
         var outputDir = GetOutputDirectory(workflow);
         Directory.CreateDirectory(outputDir);
         var explorerOutputs = GetExpectedOutputPaths(workflow).ToArray();
-        var explorerRequests = BuildExplorerCaptureRequests(
-            sourceProjectDirectory,
-            workflow,
-            explorerOutputs);
+        var explorerRequests = BuildExplorerCaptureRequests(workflow, explorerOutputs);
         if (WindowsExplorerScreenshotService.TryCaptureAll(explorerRequests, log, cancellationToken))
         {
             log?.Invoke(
-                $"原始文件信息截图已生成：4 张真实 Windows 资源管理器完整窗口截图（源项目与工作流目录）→ {outputDir}");
+                $"原始文件信息截图已生成：4 张真实材料目录内容截图（已隐藏地址栏、目录树和本机路径）→ {outputDir}");
             return explorerOutputs;
         }
 
@@ -267,7 +263,6 @@ public static class TikTokSourceFileInfoScreenshotService
 
     internal static IReadOnlyList<WindowsExplorerScreenshotService.CaptureRequest>
         BuildExplorerCaptureRequests(
-            string sourceProjectDirectory,
             string workflow,
             IReadOnlyList<string> outputs)
     {
@@ -278,17 +273,68 @@ public static class TikTokSourceFileInfoScreenshotService
                 nameof(outputs));
         }
 
+        var package = ResolveEvidencePackageDirectory(workflow);
+        var script = RequireMaterialDirectory(package, "01_剧本与分镜");
+        var characterOrScene = ResolveFirstMaterialDirectory(
+            package, "02_角色素材", "03_场景素材");
+        var keyframes = RequireMaterialDirectory(package, "04_镜头首帧");
+        var rawVideo = RequireVideoMaterialDirectory(package, "06_视频源片段");
+
         return
         [
             new WindowsExplorerScreenshotService.CaptureRequest(
-                sourceProjectDirectory, outputs[0], LargeIcons: false),
+                script, outputs[0], LargeIcons: false),
             new WindowsExplorerScreenshotService.CaptureRequest(
-                sourceProjectDirectory, outputs[1], LargeIcons: true),
+                characterOrScene, outputs[1], LargeIcons: true),
             new WindowsExplorerScreenshotService.CaptureRequest(
-                workflow, outputs[2], LargeIcons: false),
+                keyframes, outputs[2], LargeIcons: true),
             new WindowsExplorerScreenshotService.CaptureRequest(
-                workflow, outputs[3], LargeIcons: true),
+                rawVideo, outputs[3], LargeIcons: false),
         ];
+    }
+
+    internal static string ResolveEvidencePackageDirectory(string workflowProjectDirectory)
+    {
+        var evidenceDirectory = GetEvidenceDirectory(workflowProjectDirectory);
+        if (!Directory.Exists(evidenceDirectory))
+            throw new DirectoryNotFoundException($"缺少项目原始资料目录：{EvidenceDirectoryName}");
+
+        var package = Directory.EnumerateDirectories(evidenceDirectory, "EP*_源文件包")
+            .OrderByDescending(Directory.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+        return package ?? throw new DirectoryNotFoundException("缺少 EPxx_源文件包，无法生成真实材料截图。");
+    }
+
+    private static string RequireMaterialDirectory(string packageDirectory, string name)
+    {
+        var directory = Path.Combine(packageDirectory, name);
+        if (!Directory.Exists(directory) || !Directory.EnumerateFiles(directory).Any())
+            throw new InvalidOperationException($"真实材料目录为空或不存在：{name}");
+        return directory;
+    }
+
+    private static string ResolveFirstMaterialDirectory(string packageDirectory, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var directory = Path.Combine(packageDirectory, name);
+            if (Directory.Exists(directory) && Directory.EnumerateFiles(directory).Any())
+                return directory;
+        }
+
+        throw new InvalidOperationException($"真实角色/场景材料目录为空：{string.Join("、", names)}");
+    }
+
+    private static string RequireVideoMaterialDirectory(string packageDirectory, string name)
+    {
+        var directory = Path.Combine(packageDirectory, name);
+        string[] videoExtensions = [".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"];
+        var hasVideo = Directory.Exists(directory) && Directory.EnumerateFiles(directory)
+            .Any(path => videoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase));
+        if (!hasVideo)
+            throw new InvalidOperationException(
+                $"真实视频 Raw 材料目录不存在或没有视频文件：{name}；文本索引不能作为视频文件截图。");
+        return directory;
     }
 
     internal static string ResolveSourceProjectDirectory(string workflowProjectDirectory)

@@ -18,7 +18,7 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
     }
 
     [Fact]
-    public void Explorer_capture_plan_uses_real_source_and_workflow_views()
+    public void Explorer_capture_plan_uses_four_real_material_categories()
     {
         var outputs = new[]
         {
@@ -28,16 +28,27 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
             @"C:\shots\04_镜头生成源文件.png",
         };
 
-        var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(
-            @"C:\source",
-            @"C:\workflow",
-            outputs);
+        var workflow = Path.Combine(Path.GetTempPath(), $"capture-plan-{Guid.NewGuid():N}");
+        var package = Path.Combine(workflow, TikTokSourceFileInfoScreenshotService.EvidenceDirectoryName, "EP01_源文件包");
+        foreach (var name in new[] { "01_剧本与分镜", "02_角色素材", "04_镜头首帧", "06_视频源片段" })
+        {
+            var directory = Path.Combine(package, name);
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(Path.Combine(directory, "material.txt"), "real material");
+        }
+
+        var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(workflow, outputs);
 
         requests.Select(request => request.OutputPath).Should().Equal(outputs);
         requests.Select(request => request.Directory)
-            .Should().Equal(@"C:\source", @"C:\source", @"C:\workflow", @"C:\workflow");
+            .Should().Equal(
+                Path.Combine(package, "01_剧本与分镜"),
+                Path.Combine(package, "02_角色素材"),
+                Path.Combine(package, "04_镜头首帧"),
+                Path.Combine(package, "06_视频源片段"));
         requests.Select(request => request.LargeIcons)
-            .Should().Equal(false, true, false, true);
+            .Should().Equal(false, true, true, false);
+        Directory.Delete(workflow, recursive: true);
     }
 
     [Fact]

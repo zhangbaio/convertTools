@@ -69,11 +69,30 @@ try {
             $graphics.ReleaseHdc($hdc)
             $graphics.Dispose()
         }
-        # Preserve the complete Explorer window. In particular, keep the address bar
-        # so the captured directory can be verified from the screenshot itself.
+        # Export only the real file-content pane. Hide the title/address/search area
+        # and navigation tree so local drive, user and parent-directory data cannot leak.
+        $dpi = [ExplorerCaptureNative]::GetDpiForWindow($hwnd)
+        if ($dpi -le 0) { $dpi = 96 }
+        $dpiScale = $dpi / 96.0
+        $cropLeft = [Math]::Min(
+            [int][Math]::Round(170 * $dpiScale),
+            [Math]::Max(0, $width - 1))
+        $cropTop = [Math]::Min(
+            [int][Math]::Round(128 * $dpiScale),
+            [Math]::Max(0, $height - 1))
+        $cropRect = [Drawing.Rectangle]::new(
+            $cropLeft,
+            $cropTop,
+            [Math]::Max(1, $width - $cropLeft - [int][Math]::Round(300 * $dpiScale)),
+            [Math]::Max(1, $height - $cropTop - [int][Math]::Round(28 * $dpiScale)))
+        $cropped = $bitmap.Clone($cropRect, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
         $outputFull = [IO.Path]::GetFullPath($OutputPath)
         [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($outputFull)) | Out-Null
-        $bitmap.Save($outputFull, [Drawing.Imaging.ImageFormat]::Png)
+        try {
+            $cropped.Save($outputFull, [Drawing.Imaging.ImageFormat]::Png)
+        } finally {
+            $cropped.Dispose()
+        }
         Write-Output $outputFull
     } finally {
         $bitmap.Dispose()
