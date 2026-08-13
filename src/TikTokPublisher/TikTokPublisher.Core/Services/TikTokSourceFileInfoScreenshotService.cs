@@ -332,15 +332,24 @@ public static class TikTokSourceFileInfoScreenshotService
             .ThenBy(path => path, StringComparer.OrdinalIgnoreCase);
         CopySelectedMaterials(documents, directories[0], 12);
 
+        var productionMaterialRoot = Path.Combine(
+            GetEvidenceDirectory(workflow),
+            TikTokAiDramaProductionMaterialService.OutputDirectoryName);
         var roleAndScene = allFiles.Where(path => imageExtensions.Contains(Path.GetExtension(path)))
-            .Where(path => path.Contains("角色", StringComparison.OrdinalIgnoreCase) ||
-                           path.Contains("场景", StringComparison.OrdinalIgnoreCase) ||
-                           path.Contains("抽帧原图", StringComparison.OrdinalIgnoreCase));
+            .Where(path =>
+                path.StartsWith(Path.Combine(productionMaterialRoot, TikTokAiDramaProductionMaterialService.CharacterDirectoryName), StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith(Path.Combine(productionMaterialRoot, TikTokAiDramaProductionMaterialService.SceneDirectoryName), StringComparison.OrdinalIgnoreCase) ||
+                (!path.Contains("抽帧原图", StringComparison.OrdinalIgnoreCase) &&
+                 (path.Contains("角色设定", StringComparison.OrdinalIgnoreCase) ||
+                  path.Contains("场景设定", StringComparison.OrdinalIgnoreCase))));
         CopySelectedMaterials(SelectEvenly(roleAndScene, 16), directories[1], 16);
 
         var keyframes = allFiles.Where(path => imageExtensions.Contains(Path.GetExtension(path)))
-            .Where(path => path.Contains("镜头首帧", StringComparison.OrdinalIgnoreCase) ||
-                           path.Contains("抽帧原图", StringComparison.OrdinalIgnoreCase));
+            .Where(path =>
+                path.StartsWith(Path.Combine(productionMaterialRoot, TikTokAiDramaProductionMaterialService.StoryboardDirectoryName), StringComparison.OrdinalIgnoreCase) ||
+                path.Contains("镜头首帧", StringComparison.OrdinalIgnoreCase) ||
+                path.Contains("分镜工作台", StringComparison.OrdinalIgnoreCase))
+            .Where(path => !path.Contains("抽帧原图", StringComparison.OrdinalIgnoreCase));
         CopySelectedMaterials(SelectEvenly(keyframes.Reverse(), 16), directories[2], 16);
 
         var videos = allFiles.Where(path => videoExtensions.Contains(Path.GetExtension(path))).Take(12).ToArray();

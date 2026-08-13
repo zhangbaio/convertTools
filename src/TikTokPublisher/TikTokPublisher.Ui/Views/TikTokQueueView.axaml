@@ -262,6 +262,7 @@
                                 <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成剧本" IsChecked="{Binding QueueGenerateEpisodeScriptEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="生成AI漫剧素材" IsChecked="{Binding QueueGenerateAiDramaMaterialsEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成AI大纲" IsChecked="{Binding QueueGenerateAiScriptOutlineEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成证明材料" IsChecked="{Binding QueueGenerateProofMaterialEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成时间戳" IsChecked="{Binding QueueGenerateTimestampCertificateEnabled}" Margin="0,0,12,2" />
