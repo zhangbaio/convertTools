@@ -28,12 +28,17 @@ public static class TikTokEpisodeScriptService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var videos = ProjectVideoResolver.ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
             .Take(5).ToArray();
-        if (videos.Length == 0)
-            throw new InvalidOperationException("生成剧本失败：项目中没有可用视频。");
 
         var title = string.IsNullOrWhiteSpace(item.NewTitle) ? item.Title : item.NewTitle.Trim();
+        var synopsis = ResolveSynopsis(item, context);
+        var targetEpisodeCount = videos.Length > 0
+            ? videos.Length
+            : Math.Clamp(item.EpisodeCount > 0 ? item.EpisodeCount : 5, 1, 5);
+        if (videos.Length == 0 && string.IsNullOrWhiteSpace(synopsis))
+            throw new InvalidOperationException("生成剧本失败：项目既没有可用视频，也没有旧简介。");
+
         var safeTitle = string.Concat(title.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
-        var outputSuffix = videos.Length == 5 ? OutputSuffix : $"前{videos.Length}集剧本.pdf";
+        var outputSuffix = targetEpisodeCount == 5 ? OutputSuffix : $"前{targetEpisodeCount}集剧本.pdf";
         var outputPdf = Path.Combine(context.WorkflowProjectDir, safeTitle + outputSuffix);
         var outputDocx = Path.ChangeExtension(outputPdf, ".docx");
         if (!forceRerun && File.Exists(outputPdf) && new FileInfo(outputPdf).Length > 100)
@@ -44,16 +49,27 @@ public static class TikTokEpisodeScriptService
 
         EnsureAiConfigured(settings);
         var episodes = new List<EpisodeScriptSection>();
-        for (var i = 0; i < videos.Length; i++)
+        for (var i = 0; i < targetEpisodeCount; i++)
         {
             ct.ThrowIfCancellationRequested();
-            var video = videos[i];
-            log?.Invoke($"剧本 {i + 1}/{videos.Length}：提取字幕与台词…");
-            var transcript = await ResolveTranscriptAsync(video, settings, log, ct).ConfigureAwait(false);
-            log?.Invoke($"剧本 {i + 1}/{videos.Length}：AI 整理参考版式分场剧本…");
-            var content = await RequestScriptAsync(title, i + 1, Path.GetFileName(video), transcript, settings, ct)
-                .ConfigureAwait(false);
-            episodes.Add(new EpisodeScriptSection(i + 1, Path.GetFileName(video), content));
+            if (videos.Length > 0)
+            {
+                var video = videos[i];
+                log?.Invoke($"剧本 {i + 1}/{targetEpisodeCount}：提取字幕与台词…");
+                var transcript = await ResolveTranscriptAsync(video, settings, log, ct).ConfigureAwait(false);
+                log?.Invoke($"剧本 {i + 1}/{targetEpisodeCount}：AI 整理参考版式分场剧本…");
+                var content = await RequestScriptAsync(title, i + 1, Path.GetFileName(video), transcript, settings, ct)
+                    .ConfigureAwait(false);
+                episodes.Add(new EpisodeScriptSection(i + 1, Path.GetFileName(video), content));
+            }
+            else
+            {
+                log?.Invoke($"剧本 {i + 1}/{targetEpisodeCount}：无本地视频，正在根据新剧名和旧简介生成分场剧本…");
+                var content = await RequestSynopsisScriptAsync(
+                        title, i + 1, targetEpisodeCount, synopsis, settings, ct)
+                    .ConfigureAwait(false);
+                episodes.Add(new EpisodeScriptSection(i + 1, "旧简介", content));
+            }
         }
 
         string characterTable;
@@ -78,9 +94,70 @@ public static class TikTokEpisodeScriptService
         TikTokQueueDocumentWriter.WriteScriptDocument(outputDocx, title, episodes, characterTable);
         await TikTokQueueDocumentWriter.RenderPdfAsync(outputDocx, outputPdf, settings, ct).ConfigureAwait(false);
         if (!settings.TiktokProofKeepDocx) TikTokProofMaterialPdfRenderService.TryDelete(outputDocx);
-        log?.Invoke($"前{videos.Length}集剧本已生成：{outputPdf}");
+        log?.Invoke($"前{targetEpisodeCount}集剧本已生成：{outputPdf}");
         return outputPdf;
     }
+
+    private static string ResolveSynopsis(QueueProjectItem item, ProjectWorkspaceContext context)
+    {
+        if (!string.IsNullOrWhiteSpace(item.Description)) return item.Description.Trim();
+        try
+        {
+            var metadataPath = new[]
+                {
+                    Path.Combine(context.WorkflowProjectDir, "shortdrama-project.json"),
+                    Path.Combine(context.SourceProjectDir, "shortdrama-project.json"),
+                }
+                .FirstOrDefault(File.Exists);
+            if (metadataPath is null) return "";
+            using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
+            var root = document.RootElement;
+            foreach (var name in new[] { "intro", "description", "desc" })
+            {
+                if (root.TryGetProperty(name, out var value) &&
+                    value.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(value.GetString()))
+                    return value.GetString()!.Trim();
+            }
+        }
+        catch
+        {
+            // Queue data remains the primary source; invalid legacy metadata is ignored.
+        }
+        return "";
+    }
+
+    private static async Task<string> RequestSynopsisScriptAsync(
+        string title,
+        int episode,
+        int episodeCount,
+        string synopsis,
+        ClientSettings settings,
+        CancellationToken ct)
+    {
+        var prompt = BuildSynopsisEpisodePrompt(title, episode, episodeCount, synopsis);
+        return await RequestTextAsync(prompt, settings, ct).ConfigureAwait(false);
+    }
+
+    internal static string BuildSynopsisEpisodePrompt(
+        string title,
+        int episode,
+        int episodeCount,
+        string synopsis) => $"""
+        请根据下面的短剧旧简介，为新剧名《{title}》创作前 {episodeCount} 集中的第 {episode} 集分场剧本。
+        只输出本集分场正文，不输出剧名、总集数、解释、Markdown 或代码围栏。
+        必须保持旧简介中的核心人物关系、主线冲突和结局方向，不得沿用旧剧名，不得增加改变剧情性质的设定。
+
+        格式要求：
+        1. 场次依次写成“{episode}-1 场所 时段/室内外”“{episode}-2 场所 时段/室内外”。
+        2. 每场第二行写“人物：角色甲，角色乙”。
+        3. 画面、动作和镜头描述单独成段并以“△”开头。
+        4. 对白写成“角色名：台词”；旁白、内心、音效和音乐分别使用“旁白：”“OS：”“音效：”“BGM：”。
+        5. 本集要与前后集衔接，内容量适合一集竖屏短剧；不能声称内容来自视频或字幕。
+
+        旧简介：
+        {synopsis}
+        """;
 
     private static async Task<string> ResolveTranscriptAsync(
         string video,

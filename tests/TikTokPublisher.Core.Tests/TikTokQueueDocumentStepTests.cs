@@ -11,6 +11,19 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokQueueDocumentStepTests
 {
     [Fact]
+    public void Synopsis_script_prompt_does_not_claim_video_or_total_episode_count()
+    {
+        var prompt = TikTokEpisodeScriptService.BuildSynopsisEpisodePrompt(
+            "新剧名", 2, 5, "旧简介中的人物关系与主线冲突。");
+
+        prompt.Should().Contain("新剧名");
+        prompt.Should().Contain("旧简介中的人物关系与主线冲突");
+        prompt.Should().Contain("第 2 集");
+        prompt.Should().Contain("不能声称内容来自视频或字幕");
+        prompt.Should().NotContain("总集数：");
+    }
+
+    [Fact]
     public void Document_steps_are_registered_in_expected_order()
     {
         var keys = QueueStepRegistry.All.Select(step => step.Key).ToArray();
