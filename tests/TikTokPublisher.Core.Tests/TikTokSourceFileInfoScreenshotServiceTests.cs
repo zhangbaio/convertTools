@@ -1,5 +1,4 @@
 using FluentAssertions;
-using DocumentFormat.OpenXml.Packaging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using TikTokPublisher.Core.Publishing;
@@ -70,6 +69,65 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
             .Select(Path.GetFileName)
             .Should().Contain(name => name!.Contains("素材清单", StringComparison.Ordinal));
         Directory.Delete(workflow, recursive: true);
+    }
+
+    [Fact]
+    public void Explorer_capture_plan_uses_other_real_project_files_when_categories_are_missing()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"capture-plan-partial-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            File.WriteAllText(Path.Combine(workflow, "短剧第1集.mp4"), "test video 1");
+            File.WriteAllText(Path.Combine(workflow, "短剧第2集.mp4"), "test video 2");
+            var outputs = Enumerable.Range(1, 4)
+                .Select(index => Path.Combine(workflow, $"{index}.png"))
+                .ToArray();
+            var logs = new List<string>();
+
+            var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(
+                workflow, outputs, logs.Add);
+
+            requests.Should().HaveCount(4);
+            requests.Select(request => Directory.EnumerateFiles(request.Directory).Count())
+                .Should().OnlyContain(count => count > 0);
+            logs.Should().Contain(message =>
+                message.Contains("缺少专属素材", StringComparison.Ordinal) &&
+                message.Contains("其他真实项目文件补位", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Explorer_capture_plan_rejects_project_without_real_source_evidence()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"capture-plan-empty-{Guid.NewGuid():N}");
+        var excluded = Path.Combine(
+            workflow,
+            TikTokAiGenerationScreenshotService.OutputDirectoryName);
+        Directory.CreateDirectory(excluded);
+        try
+        {
+            File.WriteAllText(Path.Combine(excluded, "AI过程图.png"), "not source evidence");
+            var outputs = Enumerable.Range(1, 4)
+                .Select(index => Path.Combine(workflow, $"{index}.png"))
+                .ToArray();
+
+            var action = () => TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(
+                workflow, outputs);
+
+            action.Should().Throw<InvalidOperationException>()
+                .WithMessage("*没有可用于“原始文件或素材文件信息”的真实图片、文档或视频文件*");
+            Directory.Exists(Path.Combine(workflow, ".source-info-capture-staging"))
+                .Should().BeFalse("失败时不应保留截图暂存目录");
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
     }
 
     [Fact]
@@ -153,25 +211,18 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
                 logs.Add);
 
             outputs.Should().HaveCount(4);
-            logs.Should().Contain(message => message.Contains("复用真实主体/定妆文件 1 张", StringComparison.Ordinal));
-            logs.Should().Contain(message => message.Contains("复用真实场景参考文件 1 张", StringComparison.Ordinal));
-
-            var evidenceDir = TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflow);
-            Directory.EnumerateFiles(Path.Combine(evidenceDir, "03_角色参考"))
-                .Should().BeEmpty("直接角色素材应只读复用，不应产生额外抽帧图片");
-            Directory.EnumerateFiles(Path.Combine(evidenceDir, "04_场景参考"))
-                .Should().BeEmpty("直接场景素材应只读复用，不应产生额外抽帧图片");
-            var episodePackage = Path.Combine(evidenceDir, "EP01_源文件包");
-            Directory.Exists(episodePackage).Should().BeTrue();
-            File.Exists(Path.Combine(episodePackage, "EP01_素材清单.csv")).Should().BeTrue();
-            File.Exists(Path.Combine(episodePackage, "EP01_镜头清单.json")).Should().BeTrue();
-            File.Exists(Path.Combine(
-                    episodePackage, "01_剧本与分镜", "EP01_30秒片段正式制作剧本.docx"))
-                .Should().BeTrue();
-            File.Exists(Path.Combine(episodePackage, "06_视频源片段", "视频源文件索引.txt"))
-                .Should().BeTrue();
-            Directory.EnumerateFiles(episodePackage, "*.mp4", SearchOption.AllDirectories)
-                .Should().BeEmpty("视频只登记真实路径和元数据，不应复制或转码");
+            outputs.Should().OnlyContain(path => File.Exists(path));
+            logs.Should().Contain(message =>
+                message.Contains("第 2 类已选取", StringComparison.Ordinal));
+            logs.Should().Contain(message =>
+                message.Contains("第 3 类已选取", StringComparison.Ordinal));
+            Directory.Exists(TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflow))
+                .Should().BeFalse("截图流程只能读取现有真实素材，不应合成额外证据文件");
+            Directory.EnumerateFiles(workflow, "*.png", SearchOption.AllDirectories)
+                .Where(path => !path.Contains(
+                    TikTokSourceFileInfoScreenshotService.OutputDirectoryName,
+                    StringComparison.OrdinalIgnoreCase))
+                .Should().HaveCount(7, "原有的主体、场景和首帧素材不应被修改或扩增");
         }
         finally
         {
@@ -206,43 +257,19 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
             var outputDir = TikTokSourceFileInfoScreenshotService.GetOutputDirectory(workflow);
             var evidenceDir = TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflow);
             Directory.Exists(outputDir).Should().BeTrue();
-            Directory.Exists(evidenceDir).Should().BeTrue();
+            Directory.Exists(evidenceDir)
+                .Should().BeFalse("只有海报时应直接截图真实文件，不应生成剧本或清单冒充源文件");
             Path.GetFileName(outputDir).Should().Be(TikTokSourceFileInfoScreenshotService.OutputDirectoryName);
-            File.Exists(Path.Combine(evidenceDir, "视频文件清单.csv")).Should().BeTrue();
-            File.Exists(Path.Combine(evidenceDir, "项目说明.txt")).Should().BeTrue();
-            var scriptDocx = Directory.EnumerateFiles(
-                    evidenceDir, "*_30秒片段正式制作剧本.docx", SearchOption.AllDirectories)
-                .Should().ContainSingle().Subject;
-            using (var document = WordprocessingDocument.Open(scriptDocx, false))
-            {
-                var documentText = document.MainDocumentPart!.Document.Body!.InnerText;
-                documentText.Should().Contain("片段时间码");
-                documentText.Should().NotContain("character_main.ai");
-                if (File.Exists(@"D:\code\短剧制作\《福生小店》20集AI真人漫剧完整剧本.docx"))
-                {
-                    documentText.Should().Contain("集体辞职");
-                    documentText.Should().Contain("赵强");
-                    documentText.Should().Contain("福生");
-                }
-            }
-
-            var manifest = File.ReadAllText(Path.Combine(evidenceDir, "视频文件清单.csv"));
-            manifest.Should().Contain("SHA-256");
-            manifest.Should().NotContain("character_main.ai");
-            manifest.Should().NotContain("scene_palace.psd");
-            manifest.Should().NotContain("raw/A001_C001.mov");
-            logs.Should().Contain(message => message.Contains("原始文件信息/初始化", StringComparison.Ordinal));
-            logs.Should().Contain(message => message.Contains("原始文件信息/扫描", StringComparison.Ordinal));
-            logs.Should().Contain(message => message.Contains("原始文件信息/清单", StringComparison.Ordinal));
-            logs.Should().Contain(message => message.Contains("原始文件信息/文档", StringComparison.Ordinal));
+            File.Exists(Path.Combine(workflow, "海报图片.png")).Should().BeTrue();
+            logs.Should().Contain(message => message.Contains("其他真实项目文件补位", StringComparison.Ordinal));
             logs.Should().Contain(message => message.Contains("原始文件信息截图已生成", StringComparison.Ordinal));
 
             foreach (var path in outputs)
             {
                 Path.GetDirectoryName(path).Should().Be(outputDir);
                 using var image = Image.Load(path);
-                image.Width.Should().BeGreaterThan(1000);
-                image.Height.Should().BeGreaterThan(700);
+                image.Width.Should().BeGreaterThanOrEqualTo(800);
+                image.Height.Should().BeGreaterThanOrEqualTo(500);
             }
         }
         finally

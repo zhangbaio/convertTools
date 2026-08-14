@@ -42,8 +42,8 @@ public static class TikTokSourceFileInfoScreenshotService
     private const int MaxCatalogFiles = 12;
     private static readonly string[] FileNames =
     [
-        "01_剧本与分镜文件.png",
-        "02_角色与场景素材.png",
+        "01_剧本与项目资料.png",
+        "02_角色场景或项目素材.png",
         "03_镜头首帧与项目素材.png",
         "04_视频Raw或项目素材文件.png",
     ];
@@ -332,7 +332,21 @@ public static class TikTokSourceFileInfoScreenshotService
         if (!source.Equals(workflow, StringComparison.OrdinalIgnoreCase) && Directory.Exists(source))
             allFiles = allFiles.Concat(Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
-        var documents = allFiles.Where(path => documentExtensions.Contains(Path.GetExtension(path)))
+        var eligibleFiles = allFiles
+            .Where(path => imageExtensions.Contains(Path.GetExtension(path)) ||
+                           documentExtensions.Contains(Path.GetExtension(path)) ||
+                           videoExtensions.Contains(Path.GetExtension(path)))
+            .Where(IsEligibleSourceEvidenceFile)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (eligibleFiles.Length == 0)
+        {
+            TryDeleteDirectory(staging);
+            throw new InvalidOperationException(
+                "当前项目没有可用于“原始文件或素材文件信息”的真实图片、文档或视频文件。");
+        }
+
+        var documents = eligibleFiles.Where(path => documentExtensions.Contains(Path.GetExtension(path)))
             .OrderByDescending(path => path.StartsWith(package, StringComparison.OrdinalIgnoreCase))
             .ThenBy(path => path, StringComparer.OrdinalIgnoreCase);
         CopySelectedMaterials(documents, directories[0], 12);
@@ -340,7 +354,7 @@ public static class TikTokSourceFileInfoScreenshotService
         var productionMaterialRoot = Path.Combine(
             GetEvidenceDirectory(workflow),
             TikTokAiDramaProductionMaterialService.OutputDirectoryName);
-        var roleAndScene = allFiles.Where(path => imageExtensions.Contains(Path.GetExtension(path)))
+        var roleAndScene = eligibleFiles.Where(path => imageExtensions.Contains(Path.GetExtension(path)))
             .Where(path =>
                 path.StartsWith(Path.Combine(productionMaterialRoot, TikTokAiDramaProductionMaterialService.CharacterDirectoryName), StringComparison.OrdinalIgnoreCase) ||
                 path.StartsWith(Path.Combine(productionMaterialRoot, TikTokAiDramaProductionMaterialService.SceneDirectoryName), StringComparison.OrdinalIgnoreCase) ||
@@ -348,35 +362,61 @@ public static class TikTokSourceFileInfoScreenshotService
                  (path.Contains("角色设定", StringComparison.OrdinalIgnoreCase) ||
                   path.Contains("场景设定", StringComparison.OrdinalIgnoreCase) ||
                   path.Contains("角色素材", StringComparison.OrdinalIgnoreCase) ||
-                  path.Contains("场景素材", StringComparison.OrdinalIgnoreCase))));
+                  path.Contains("场景素材", StringComparison.OrdinalIgnoreCase) ||
+                  path.Contains("可灵主体", StringComparison.OrdinalIgnoreCase) ||
+                  path.Contains("场景参考", StringComparison.OrdinalIgnoreCase))));
         CopySelectedMaterials(SelectEvenly(roleAndScene, 16), directories[1], 16);
 
-        var keyframes = allFiles.Where(path => imageExtensions.Contains(Path.GetExtension(path)))
+        var keyframes = eligibleFiles.Where(path => imageExtensions.Contains(Path.GetExtension(path)))
             .Where(path =>
                 path.StartsWith(Path.Combine(productionMaterialRoot, TikTokAiDramaProductionMaterialService.StoryboardDirectoryName), StringComparison.OrdinalIgnoreCase) ||
                 path.Contains("镜头首帧", StringComparison.OrdinalIgnoreCase) ||
+                path.Contains("首帧", StringComparison.OrdinalIgnoreCase) ||
                 path.Contains("分镜工作台", StringComparison.OrdinalIgnoreCase))
             .Where(path => !path.Contains("抽帧原图", StringComparison.OrdinalIgnoreCase));
         CopySelectedMaterials(SelectEvenly(keyframes.Reverse(), 16), directories[2], 16);
 
-        var videos = allFiles.Where(path => videoExtensions.Contains(Path.GetExtension(path))).Take(12).ToArray();
+        var videos = eligibleFiles.Where(path => videoExtensions.Contains(Path.GetExtension(path))).Take(12).ToArray();
         if (videos.Length > 0)
             CopySelectedMaterials(videos, directories[3], 12, preferHardLink: true);
         else
         {
-            var projectMaterials = allFiles.Where(path =>
+            var projectMaterials = eligibleFiles.Where(path =>
                     imageExtensions.Contains(Path.GetExtension(path)) ||
                     documentExtensions.Contains(Path.GetExtension(path)))
-                .Where(path => !path.Contains("AI 生成过程截图", StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(path => path.StartsWith(package, StringComparison.OrdinalIgnoreCase));
             CopySelectedMaterials(SelectEvenly(projectMaterials, 12), directories[3], 12);
         }
 
+        var fallbackFiles = eligibleFiles
+            .OrderByDescending(path => path.StartsWith(package, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         for (var index = 0; index < directories.Length; index++)
         {
             var count = Directory.EnumerateFiles(directories[index]).Count();
             if (count == 0)
-                throw new InvalidOperationException($"第 {index + 1} 类没有可用的真实材料文件。");
+            {
+                var rotatedFallback = fallbackFiles
+                    .Skip(index % fallbackFiles.Length)
+                    .Concat(fallbackFiles.Take(index % fallbackFiles.Length));
+                count = CopySelectedMaterials(
+                    SelectEvenly(rotatedFallback, 12),
+                    directories[index],
+                    12,
+                    preferHardLink: true,
+                    displayIndexOffset: index);
+                log?.Invoke(
+                    $"原始文件信息/截图素材汇总：第 {index + 1} 类缺少专属素材，" +
+                    $"已使用 {count} 个其他真实项目文件补位。");
+            }
+
+            if (count == 0)
+            {
+                TryDeleteDirectory(staging);
+                throw new InvalidOperationException(
+                    $"第 {index + 1} 张截图无法复制任何真实项目文件；请检查文件权限或文件是否仍然存在。");
+            }
             log?.Invoke($"原始文件信息/截图素材汇总：第 {index + 1} 类已选取 {count} 个真实文件。");
         }
 
@@ -391,16 +431,35 @@ public static class TikTokSourceFileInfoScreenshotService
             .Select(index => items[(int)Math.Round(index * (items.Length - 1d) / (maximum - 1d))]);
     }
 
-    private static void CopySelectedMaterials(
+    private static bool IsEligibleSourceEvidenceFile(string path)
+    {
+        string[] excludedDirectories =
+        [
+            OutputDirectoryName,
+            LegacyOutputDirectoryName,
+            TikTokAiGenerationScreenshotService.OutputDirectoryName,
+            TikTokProjectImageService.OutputDirectoryName,
+        ];
+        return !excludedDirectories.Any(name =>
+            path.Contains(
+                $"{Path.DirectorySeparatorChar}{name}{Path.DirectorySeparatorChar}",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static int CopySelectedMaterials(
         IEnumerable<string> files,
         string destination,
         int maximum,
-        bool preferHardLink = false)
+        bool preferHardLink = false,
+        int displayIndexOffset = 0)
     {
         var index = 0;
+        var copied = 0;
         foreach (var source in files.Take(maximum))
         {
-            var target = Path.Combine(destination, $"{++index:D2}_{Path.GetFileName(source)}");
+            var target = Path.Combine(
+                destination,
+                $"{displayIndexOffset + ++index:D2}_{Path.GetFileName(source)}");
             try
             {
                 if (preferHardLink && OperatingSystem.IsWindows())
@@ -409,13 +468,21 @@ public static class TikTokSourceFileInfoScreenshotService
                         throw new IOException($"无法创建视频材料硬链接：{source}");
                 }
                 else File.Copy(source, target, overwrite: false);
+                copied++;
             }
             catch
             {
                 if (!preferHardLink || new FileInfo(source).Length > 64L * 1024 * 1024) continue;
-                try { File.Copy(source, target, overwrite: false); } catch { }
+                try
+                {
+                    File.Copy(source, target, overwrite: false);
+                    copied++;
+                }
+                catch { }
             }
         }
+
+        return copied;
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]

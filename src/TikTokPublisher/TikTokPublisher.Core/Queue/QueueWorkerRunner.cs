@@ -909,7 +909,7 @@ public sealed class QueueWorkerRunner
                     onProgress,
                     workspace,
                     item,
-                    "合作协议已选中，上传前检查当前项目证明材料…",
+                    "已勾选版权证明材料，上传前检查当前项目证明材料…",
                     QueueStepRegistry.GenerateProofMaterial);
             }
 
