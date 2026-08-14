@@ -17,6 +17,24 @@ public static class TikTokAiDramaProductionMaterialService
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".png", ".jpg", ".jpeg", ".webp", ".bmp" };
 
+    public static bool CanGenerate(string workflowProjectDirectory)
+    {
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        return FindImagesInNamedDirectories(workflow, "抽帧原图", recursiveFiles: true).Take(12).Count() >= 12 &&
+               (FindImagesInNamedDirectories(workflow, "AI 生成过程截图", recursiveFiles: false).Any() ||
+                FindImagesInNamedDirectories(workflow, TikTokProjectImageService.OutputDirectoryName, recursiveFiles: false).Any());
+    }
+
+    public static bool HasCurrentOutput(string workflowProjectDirectory)
+    {
+        var root = Path.Combine(
+            TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflowProjectDirectory),
+            OutputDirectoryName);
+        return HasEnoughFiles(Path.Combine(root, CharacterDirectoryName), 6) &&
+               HasEnoughFiles(Path.Combine(root, SceneDirectoryName), 6) &&
+               HasEnoughFiles(Path.Combine(root, StoryboardDirectoryName), 4);
+    }
+
     public static async Task GenerateAsync(
         QueueProjectItem item,
         ClientSettings settings,

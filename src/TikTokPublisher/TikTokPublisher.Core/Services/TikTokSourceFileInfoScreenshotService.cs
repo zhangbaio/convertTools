@@ -304,7 +304,12 @@ public static class TikTokSourceFileInfoScreenshotService
         Action<string>? log = null)
     {
         var workflow = Path.GetFullPath(workflowProjectDirectory);
-        var package = ResolveEvidencePackageDirectory(workflow);
+        var evidenceDirectory = GetEvidenceDirectory(workflow);
+        var package = Directory.Exists(evidenceDirectory)
+            ? Directory.EnumerateDirectories(evidenceDirectory, "EP*_源文件包")
+                .OrderByDescending(Directory.GetLastWriteTimeUtc)
+                .FirstOrDefault() ?? evidenceDirectory
+            : workflow;
         var staging = Path.Combine(workflow, CaptureStagingDirectoryName);
         TryDeleteDirectory(staging);
         var directories = Enumerable.Range(1, RequiredImageCount)
@@ -341,7 +346,9 @@ public static class TikTokSourceFileInfoScreenshotService
                 path.StartsWith(Path.Combine(productionMaterialRoot, TikTokAiDramaProductionMaterialService.SceneDirectoryName), StringComparison.OrdinalIgnoreCase) ||
                 (!path.Contains("抽帧原图", StringComparison.OrdinalIgnoreCase) &&
                  (path.Contains("角色设定", StringComparison.OrdinalIgnoreCase) ||
-                  path.Contains("场景设定", StringComparison.OrdinalIgnoreCase))));
+                  path.Contains("场景设定", StringComparison.OrdinalIgnoreCase) ||
+                  path.Contains("角色素材", StringComparison.OrdinalIgnoreCase) ||
+                  path.Contains("场景素材", StringComparison.OrdinalIgnoreCase))));
         CopySelectedMaterials(SelectEvenly(roleAndScene, 16), directories[1], 16);
 
         var keyframes = allFiles.Where(path => imageExtensions.Contains(Path.GetExtension(path)))

@@ -243,6 +243,17 @@ public sealed class TikTokProofMaterialService
         else if (request.GenerateSourceFileScreenshots)
         {
             var timer = Stopwatch.StartNew();
+            if (!TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir) &&
+                TikTokAiDramaProductionMaterialService.CanGenerate(context.WorkflowProjectDir))
+            {
+                log?.Invoke("[原始文件或素材文件信息] 检测到真实抽帧和工作台素材，自动整理 AI 漫剧制作素材。");
+                await TikTokAiDramaProductionMaterialService.GenerateAsync(
+                    item,
+                    settings,
+                    forceRerun: false,
+                    log,
+                    cancellationToken).ConfigureAwait(false);
+            }
             log?.Invoke(
                 $"[原始文件或素材文件信息] 开始：来源={context.WorkflowProjectDir}；" +
                 $"输出目录={TikTokSourceFileInfoScreenshotService.GetOutputDirectory(context.WorkflowProjectDir)}。");
