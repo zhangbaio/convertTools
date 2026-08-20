@@ -75,6 +75,10 @@
                       LogicalName="TikTokPublisher.Core.Resources.CaptureExplorerWindow.ps1" />
     <EmbeddedResource Include="Resources\RoleVectorTemplate\角色矢量图模板.png"
                       LogicalName="TikTokPublisher.Core.Resources.RoleVectorTemplate.png" />
+    <EmbeddedResource Include="Resources\RoleVectorTemplate\角色矢量图模板_3人.png"
+                      LogicalName="TikTokPublisher.Core.Resources.RoleVectorTemplate3.png" />
+    <EmbeddedResource Include="Resources\RoleVectorTemplate\角色矢量图模板_4人.png"
+                      LogicalName="TikTokPublisher.Core.Resources.RoleVectorTemplate4.png" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="TikTokPublisher.Core.Tests" />

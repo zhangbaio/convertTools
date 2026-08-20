@@ -13,8 +13,12 @@ internal static class RoleVectorTemplateRenderer
 {
     internal const int CanvasWidth = 2342;
     internal const int CanvasHeight = 1280;
-    private const string TemplateResourceName =
+    private const string DefaultTemplateResourceName =
         "TikTokPublisher.Core.Resources.RoleVectorTemplate.png";
+    private const string ThreeCharacterTemplateResourceName =
+        "TikTokPublisher.Core.Resources.RoleVectorTemplate3.png";
+    private const string FourCharacterTemplateResourceName =
+        "TikTokPublisher.Core.Resources.RoleVectorTemplate4.png";
 
     private static readonly Rgba32 EmptySlotColor = new(14, 15, 17, 255);
 
@@ -75,16 +79,90 @@ internal static class RoleVectorTemplateRenderer
             ReferenceSlots: [new Rectangle(2023, 882, 150, 233)]),
     ];
 
+    internal static IReadOnlyList<RoleVectorGroup> ThreeCharacterGroups { get; } =
+    [
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(676, 152, 104, 200),
+                new Rectangle(824, 120, 108, 160),
+                new Rectangle(968, 72, 112, 156),
+                new Rectangle(968, 240, 112, 164),
+            ],
+            ReferenceSlots: [new Rectangle(1488, 124, 144, 268)]),
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(676, 512, 104, 194),
+                new Rectangle(824, 472, 108, 160),
+                new Rectangle(968, 432, 112, 164),
+                new Rectangle(968, 608, 112, 160),
+            ],
+            ReferenceSlots: [new Rectangle(1488, 512, 148, 268)]),
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(676, 876, 104, 200),
+                new Rectangle(824, 840, 108, 160),
+                new Rectangle(968, 796, 112, 168),
+                new Rectangle(968, 972, 112, 160),
+            ],
+            ReferenceSlots: [new Rectangle(1488, 848, 144, 268)]),
+    ];
+
+    internal static IReadOnlyList<RoleVectorGroup> FourCharacterGroups { get; } =
+    [
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(200, 220, 76, 160),
+                new Rectangle(276, 220, 76, 160),
+                new Rectangle(412, 148, 116, 172),
+                new Rectangle(608, 132, 96, 168),
+                new Rectangle(780, 184, 112, 172),
+            ],
+            ReferenceSlots: [new Rectangle(988, 224, 116, 180)]),
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(200, 560, 76, 156),
+                new Rectangle(276, 560, 76, 156),
+                new Rectangle(416, 500, 116, 164),
+                new Rectangle(604, 472, 100, 172),
+                new Rectangle(780, 524, 112, 176),
+            ],
+            ReferenceSlots: [new Rectangle(988, 548, 116, 180)]),
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(228, 896, 100, 168),
+                new Rectangle(416, 844, 112, 164),
+                new Rectangle(596, 816, 96, 172),
+                new Rectangle(780, 876, 108, 172),
+            ],
+            ReferenceSlots: [new Rectangle(992, 908, 116, 180)]),
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(1440, 412, 116, 152),
+                new Rectangle(1612, 380, 100, 184),
+                new Rectangle(1448, 600, 112, 160),
+                new Rectangle(1612, 672, 108, 164),
+            ],
+            ReferenceSlots: [new Rectangle(2032, 504, 160, 260)]),
+    ];
+
     internal static void Render(
         string outputPath,
         IReadOnlyList<string> characterImages,
         IReadOnlyList<string> referenceFrames)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
-        using var canvas = LoadTemplate();
-        for (var groupIndex = 0; groupIndex < Groups.Count; groupIndex++)
+        var layout = ResolveLayout(characterImages.Count);
+        using var canvas = LoadTemplate(layout.ResourceName);
+        for (var groupIndex = 0; groupIndex < layout.Groups.Count; groupIndex++)
         {
-            var group = Groups[groupIndex];
+            var group = layout.Groups[groupIndex];
             if (groupIndex >= characterImages.Count || !File.Exists(characterImages[groupIndex]))
             {
                 ClearGroup(canvas, group);
@@ -111,10 +189,17 @@ internal static class RoleVectorTemplateRenderer
         canvas.SaveAsPng(outputPath);
     }
 
-    private static Image<Rgba32> LoadTemplate()
+    internal static RoleVectorLayout ResolveLayout(int characterCount) => characterCount switch
     {
-        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(TemplateResourceName)
-            ?? throw new InvalidOperationException($"未找到角色矢量图模板资源：{TemplateResourceName}");
+        3 => new RoleVectorLayout(ThreeCharacterTemplateResourceName, ThreeCharacterGroups),
+        4 => new RoleVectorLayout(FourCharacterTemplateResourceName, FourCharacterGroups),
+        _ => new RoleVectorLayout(DefaultTemplateResourceName, Groups),
+    };
+
+    private static Image<Rgba32> LoadTemplate(string resourceName)
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"未找到角色矢量图模板资源：{resourceName}");
         var image = Image.Load<Rgba32>(stream);
         if (image.Width != CanvasWidth || image.Height != CanvasHeight)
         {
@@ -169,4 +254,8 @@ internal static class RoleVectorTemplateRenderer
     internal sealed record RoleVectorGroup(
         IReadOnlyList<Rectangle> CharacterSlots,
         IReadOnlyList<Rectangle> ReferenceSlots);
+
+    internal sealed record RoleVectorLayout(
+        string ResourceName,
+        IReadOnlyList<RoleVectorGroup> Groups);
 }

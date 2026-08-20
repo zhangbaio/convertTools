@@ -118,14 +118,15 @@ public sealed class TikTokReferenceSourcePackageServiceTests
             RoleVectorTemplateRenderer.Render(outputPath, characters, [frame]);
 
             using var output = Image.Load<Rgba32>(outputPath);
+            var layout = RoleVectorTemplateRenderer.ResolveLayout(characters.Length);
             using var templateStream = typeof(TikTokReferenceSourcePackageService).Assembly
-                .GetManifestResourceStream("TikTokPublisher.Core.Resources.RoleVectorTemplate.png")!;
+                .GetManifestResourceStream(layout.ResourceName)!;
             using var template = Image.Load<Rgba32>(templateStream);
             output.Width.Should().Be(RoleVectorTemplateRenderer.CanvasWidth);
             output.Height.Should().Be(RoleVectorTemplateRenderer.CanvasHeight);
 
             var mask = new bool[output.Width * output.Height];
-            foreach (var slot in RoleVectorTemplateRenderer.Groups
+            foreach (var slot in layout.Groups
                          .SelectMany(group => group.CharacterSlots.Concat(group.ReferenceSlots)))
             {
                 for (var y = slot.Top; y < slot.Bottom; y++)
@@ -142,18 +143,37 @@ public sealed class TikTokReferenceSourcePackageServiceTests
             }
             outsideMismatchCount.Should().Be(0, "模板工具栏、节点连线和画布必须原样保留");
 
-            var active = RoleVectorTemplateRenderer.Groups[0].CharacterSlots[0];
+            var active = layout.Groups[0].CharacterSlots[0];
             output[active.X + active.Width / 2, active.Y + active.Height / 2].R.Should().BeGreaterThan(200);
-            var unused = RoleVectorTemplateRenderer.Groups[3].CharacterSlots[0];
-            var unusedPixel = output[unused.X + unused.Width / 2, unused.Y + unused.Height / 2];
-            unusedPixel.R.Should().BeLessThan(25);
-            unusedPixel.G.Should().BeLessThan(25);
-            unusedPixel.B.Should().BeLessThan(25);
+            layout.Groups.Should().HaveCount(3);
         }
         finally
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public void Role_vector_renderer_selects_dedicated_three_and_four_character_layouts()
+    {
+        var three = RoleVectorTemplateRenderer.ResolveLayout(3);
+        var four = RoleVectorTemplateRenderer.ResolveLayout(4);
+        var six = RoleVectorTemplateRenderer.ResolveLayout(6);
+
+        three.ResourceName.Should().EndWith("RoleVectorTemplate3.png");
+        three.Groups.Should().HaveCount(3);
+        three.Groups.SelectMany(group => group.CharacterSlots)
+            .Min(slot => slot.X).Should().BeGreaterThan(600, "三人布局应整体位于画布中部");
+
+        four.ResourceName.Should().EndWith("RoleVectorTemplate4.png");
+        four.Groups.Should().HaveCount(4);
+        four.Groups.Take(3).SelectMany(group => group.CharacterSlots)
+            .Max(slot => slot.Right).Should().BeLessThan(1200);
+        four.Groups[3].CharacterSlots.Min(slot => slot.X)
+            .Should().BeGreaterThan(1400, "第四个人物应独立位于右侧中部");
+
+        six.ResourceName.Should().EndWith("RoleVectorTemplate.png");
+        six.Groups.Should().HaveCount(6);
     }
 
     private static void SaveSolidImage(string path, Rgba32? color = null)
