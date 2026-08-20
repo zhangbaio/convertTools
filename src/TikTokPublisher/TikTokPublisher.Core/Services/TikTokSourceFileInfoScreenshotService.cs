@@ -35,7 +35,7 @@ public static class TikTokSourceFileInfoScreenshotService
     public const string EvidenceDirectoryName = "项目原始资料";
     private const string CaptureStagingDirectoryName = ".source-info-capture-staging";
     public const int RequiredImageCount = 4;
-    public const string ScreenshotVersion = "v8-private-real-materials";
+    public const string ScreenshotVersion = "v9-reference-package-image-model-characters";
 
     private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
     private const int ContactSheetFrameCount = 4;
@@ -95,7 +95,7 @@ public static class TikTokSourceFileInfoScreenshotService
             if (WindowsExplorerScreenshotService.TryCaptureAll(explorerRequests, log, cancellationToken))
             {
                 log?.Invoke(
-                    $"原始文件信息截图已生成：4 张高密度真实材料目录内容截图（已隐藏地址栏、目录树和本机路径）→ {outputDir}");
+                    $"原始文件信息截图已生成：4 张真实资源管理器截图（保留左侧目录导航，隐藏地址栏）→ {outputDir}");
                 return explorerOutputs;
             }
 
@@ -304,6 +304,35 @@ public static class TikTokSourceFileInfoScreenshotService
         Action<string>? log = null)
     {
         var workflow = Path.GetFullPath(workflowProjectDirectory);
+        var referencePackage = TikTokReferenceSourcePackageService.GetRoot(workflow);
+        if (TikTokReferenceSourcePackageService.HasCurrentOutput(workflow))
+        {
+            var characterDirectory = Path.Combine(
+                referencePackage,
+                TikTokReferenceSourcePackageService.CharacterDirectoryName);
+            var materialRoot = Path.Combine(
+                referencePackage,
+                TikTokReferenceSourcePackageService.MaterialDirectoryName);
+            var materialDirectory = Directory.EnumerateDirectories(materialRoot)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault() ?? materialRoot;
+            var titleDirectory = Directory.EnumerateDirectories(referencePackage)
+                .Where(path => !Path.GetFileName(path).Equals(
+                    TikTokReferenceSourcePackageService.CharacterDirectoryName,
+                    StringComparison.OrdinalIgnoreCase))
+                .Where(path => !Path.GetFileName(path).Equals(
+                    TikTokReferenceSourcePackageService.VideoDirectoryName,
+                    StringComparison.OrdinalIgnoreCase))
+                .Where(path => !Path.GetFileName(path).Equals(
+                    TikTokReferenceSourcePackageService.MaterialDirectoryName,
+                    StringComparison.OrdinalIgnoreCase))
+                .FirstOrDefault(path => File.Exists(Path.Combine(path, "shortdrama-project.json")))
+                ?? referencePackage;
+
+            log?.Invoke("原始文件信息/截图素材汇总：使用参考项目格式素材包（根目录、角色、视频素材、项目信息）。");
+            return [referencePackage, characterDirectory, materialDirectory, titleDirectory];
+        }
+
         var evidenceDirectory = GetEvidenceDirectory(workflow);
         var package = Directory.Exists(evidenceDirectory)
             ? Directory.EnumerateDirectories(evidenceDirectory, "EP*_源文件包")

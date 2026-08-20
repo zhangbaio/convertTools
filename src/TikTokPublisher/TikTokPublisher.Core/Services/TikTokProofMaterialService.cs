@@ -243,6 +243,13 @@ public sealed class TikTokProofMaterialService
         else if (request.GenerateSourceFileScreenshots)
         {
             var timer = Stopwatch.StartNew();
+            log?.Invoke("[原始文件或素材文件信息] 正在生成参考格式素材包；角色定妆图将由已配置的图片模型生成。");
+            await TikTokReferenceSourcePackageService.GenerateAsync(
+                item,
+                settings,
+                forceRerun,
+                log,
+                cancellationToken).ConfigureAwait(false);
             if (!TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir) &&
                 TikTokAiDramaProductionMaterialService.CanGenerate(context.WorkflowProjectDir))
             {

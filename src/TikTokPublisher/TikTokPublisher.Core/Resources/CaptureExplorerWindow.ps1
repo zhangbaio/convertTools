@@ -5,13 +5,20 @@ param(
 )
 
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 public static class ExplorerCaptureNative {
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X; public int Y; }
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT point);
+    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, int data, UIntPtr extraInfo);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint flags);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int command);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -19,6 +26,59 @@ public static class ExplorerCaptureNative {
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
 }
 '@
+
+function Reset-ExplorerNavigationPaneScroll {
+    param([IntPtr]$WindowHandle)
+
+    try {
+        $root = [System.Windows.Automation.AutomationElement]::FromHandle($WindowHandle)
+        if ($null -eq $root) { return }
+        $rootBounds = $root.Current.BoundingRectangle
+        $leftPaneLimit = $rootBounds.Left + ($rootBounds.Width * 0.35)
+        $elements = $root.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition)
+        foreach ($element in $elements) {
+            try {
+                $bounds = $element.Current.BoundingRectangle
+                if ($bounds.Width -lt 80 -or $bounds.Height -lt 180 -or $bounds.Left -ge $leftPaneLimit) {
+                    continue
+                }
+
+                $patternObject = $null
+                if (-not $element.TryGetCurrentPattern(
+                        [System.Windows.Automation.ScrollPattern]::Pattern,
+                        [ref]$patternObject)) {
+                    continue
+                }
+                $scrollPattern = [System.Windows.Automation.ScrollPattern]$patternObject
+                if (-not $scrollPattern.Current.VerticallyScrollable) { continue }
+                $scrollPattern.SetScrollPercent(
+                    [System.Windows.Automation.ScrollPattern]::NoScroll,
+                    0)
+            } catch {}
+        }
+    } catch {}
+}
+
+function Wheel-ExplorerNavigationPaneToTop {
+    param([IntPtr]$WindowHandle)
+
+    $windowRect = New-Object ExplorerCaptureNative+RECT
+    $originalCursor = New-Object ExplorerCaptureNative+POINT
+    if (-not [ExplorerCaptureNative]::GetWindowRect($WindowHandle, [ref]$windowRect)) { return }
+    if (-not [ExplorerCaptureNative]::GetCursorPos([ref]$originalCursor)) { return }
+    try {
+        # The navigation pane occupies the left side below the command bar. Wheel input
+        # changes only its scroll position and does not select or open another directory.
+        [ExplorerCaptureNative]::SetCursorPos($windowRect.Left + 110, $windowRect.Top + 260) | Out-Null
+        for ($index = 0; $index -lt 48; $index++) {
+            [ExplorerCaptureNative]::mouse_event(0x0800, 0, 0, 120, [UIntPtr]::Zero)
+        }
+    } finally {
+        [ExplorerCaptureNative]::SetCursorPos($originalCursor.X, $originalCursor.Y) | Out-Null
+    }
+}
 
 $resolved = [IO.Path]::GetFullPath($TargetPath).TrimEnd('\')
 $before = @{}
@@ -54,6 +114,11 @@ try {
         }
     } catch {}
     Start-Sleep -Milliseconds 1200
+    Reset-ExplorerNavigationPaneScroll -WindowHandle $hwnd
+    Start-Sleep -Milliseconds 400
+    Reset-ExplorerNavigationPaneScroll -WindowHandle $hwnd
+    Wheel-ExplorerNavigationPaneToTop -WindowHandle $hwnd
+    Start-Sleep -Milliseconds 150
 
     $rect = New-Object ExplorerCaptureNative+RECT
     if (-not [ExplorerCaptureNative]::GetWindowRect($hwnd, [ref]$rect)) { throw 'Cannot read Explorer window bounds' }
@@ -69,21 +134,20 @@ try {
             $graphics.ReleaseHdc($hdc)
             $graphics.Dispose()
         }
-        # Export only the real file-content pane. Hide the title/address/search area
-        # and navigation tree so local drive, user and parent-directory data cannot leak.
+        # Keep the command bar, left navigation tree, file list and preview pane so the
+        # screenshot visibly retains the Explorer directory context requested by users.
+        # Only the window title/address/search area and bottom status strip are removed.
         $dpi = [ExplorerCaptureNative]::GetDpiForWindow($hwnd)
         if ($dpi -le 0) { $dpi = 96 }
         $dpiScale = $dpi / 96.0
-        $cropLeft = [Math]::Min(
-            [int][Math]::Round(170 * $dpiScale),
-            [Math]::Max(0, $width - 1))
+        $cropLeft = 0
         $cropTop = [Math]::Min(
-            [int][Math]::Round(128 * $dpiScale),
+            [int][Math]::Round(72 * $dpiScale),
             [Math]::Max(0, $height - 1))
         $cropRect = [Drawing.Rectangle]::new(
             $cropLeft,
             $cropTop,
-            [Math]::Max(1, $width - $cropLeft - [int][Math]::Round(300 * $dpiScale)),
+            [Math]::Max(1, $width - $cropLeft),
             [Math]::Max(1, $height - $cropTop - [int][Math]::Round(28 * $dpiScale)))
         $cropped = $bitmap.Clone($cropRect, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
         $outputFull = [IO.Path]::GetFullPath($OutputPath)
