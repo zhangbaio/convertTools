@@ -1518,6 +1518,76 @@ public static class TikTokAiGenerationScreenshotService
         return (faceScore * 8.0) + (sharpness * 1.5) + (exposure * 0.15);
     }
 
+    internal static int CountLikelyFaces(Image<Rgba32> source)
+    {
+        using var image = source.Clone(ctx => ctx.Resize(new ResizeOptions
+        {
+            Mode = ResizeMode.Max,
+            Size = new Size(160, 160),
+        }));
+        var width = image.Width;
+        var height = image.Height;
+        if (width <= 0 || height <= 0) return 0;
+
+        var skin = new bool[width * height];
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+            skin[y * width + x] = IsLikelySkin(image[x, y]);
+
+        var visited = new bool[skin.Length];
+        var queue = new Queue<int>();
+        var faces = 0;
+        for (var start = 0; start < skin.Length; start++)
+        {
+            if (!skin[start] || visited[start]) continue;
+            visited[start] = true;
+            queue.Enqueue(start);
+            var count = 0;
+            var minX = width;
+            var maxX = 0;
+            var minY = height;
+            var maxY = 0;
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                var x = current % width;
+                var y = current / width;
+                count++;
+                minX = Math.Min(minX, x);
+                maxX = Math.Max(maxX, x);
+                minY = Math.Min(minY, y);
+                maxY = Math.Max(maxY, y);
+                Visit(x - 1, y);
+                Visit(x + 1, y);
+                Visit(x, y - 1);
+                Visit(x, y + 1);
+            }
+
+            var componentWidth = maxX - minX + 1;
+            var componentHeight = maxY - minY + 1;
+            var areaRatio = count / (double)(width * height);
+            var aspect = componentWidth / (double)Math.Max(1, componentHeight);
+            var centerX = (minX + maxX) / 2d / width;
+            var centerY = (minY + maxY) / 2d / height;
+            if (areaRatio is >= 0.004 and <= 0.12
+                && aspect is >= 0.45 and <= 1.75
+                && centerX is >= 0.05 and <= 0.95
+                && centerY is >= 0.04 and <= 0.55)
+                faces++;
+
+            void Visit(int x, int y)
+            {
+                if (x < 0 || x >= width || y < 0 || y >= height) return;
+                var index = y * width + x;
+                if (!skin[index] || visited[index]) return;
+                visited[index] = true;
+                queue.Enqueue(index);
+            }
+        }
+
+        return faces;
+    }
+
     private static bool IsLikelySkin(Rgba32 pixel)
     {
         var r = (int)pixel.R;

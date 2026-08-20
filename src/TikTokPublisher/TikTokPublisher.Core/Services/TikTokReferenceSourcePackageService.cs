@@ -36,7 +36,7 @@ public static partial class TikTokReferenceSourcePackageService
     public const string SceneDesignFileName1 = "场景设计图1.png";
     public const string SceneDesignFileName2 = "场景设计图2.png";
     public const string StateFileName = ".reference-source-package.json";
-    public const string Version = "v2-limited-character-manifest";
+    public const string Version = "v5-clear-single-frame-selection";
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -84,7 +84,13 @@ public static partial class TikTokReferenceSourcePackageService
         var originalTitle = FirstNonEmpty(item.OriginalTitle, item.DisplayName, title);
         var intro = ResolveIntro(item, context);
         var script = ReadProjectScript(context, title, intro);
-        var sourceFingerprint = ComputeSourceFingerprint(title, intro, script, settings);
+        var candidates = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
+        var characters = SelectCharacterProfiles(candidates, configuredCharacterCount);
+        var episodeCharacterSources = FindEpisodeCharacterSources(context, root)
+            .Take(characters.Length)
+            .ToArray();
+        var sourceFingerprint = ComputeSourceFingerprint(
+            title, intro, script, settings, episodeCharacterSources);
         if (!forceRerun && HasCurrentOutput(context.WorkflowProjectDir) &&
             HasMatchingFingerprint(context.WorkflowProjectDir, sourceFingerprint))
         {
@@ -93,12 +99,13 @@ public static partial class TikTokReferenceSourcePackageService
             return root;
         }
 
+        var useEpisodeCharacters = episodeCharacterSources.Length >= MinCharacterCount;
         var existingCharacterDir = Path.Combine(root, CharacterDirectoryName);
-        var reusableCharacterPaths = !forceRerun && Directory.Exists(existingCharacterDir)
+        var reusableCharacterPaths = !forceRerun && !useEpisodeCharacters && Directory.Exists(existingCharacterDir)
             ? SelectExistingCharacterImages(existingCharacterDir, log, configuredCharacterCount).ToArray()
             : [];
         var reuseCharacters = reusableCharacterPaths.Length >= MinCharacterCount;
-        if (!reuseCharacters) EnsureImageModelConfigured(settings);
+        if (!useEpisodeCharacters && !reuseCharacters) EnsureImageModelConfigured(settings);
         ResetPackageRoot(root, preserveCharactersAndRoleVector: reuseCharacters);
         var characterDir = Path.Combine(root, CharacterDirectoryName);
         var videoDir = Path.Combine(root, VideoDirectoryName);
@@ -108,7 +115,19 @@ public static partial class TikTokReferenceSourcePackageService
         Directory.CreateDirectory(materialDir);
 
         var generatedCharacters = new List<GeneratedCharacter>();
-        if (reuseCharacters)
+        if (useEpisodeCharacters)
+        {
+            generatedCharacters.AddRange(await ImportEpisodeCharacterImagesAsync(
+                characterDir,
+                characters,
+                episodeCharacterSources,
+                settings,
+                log,
+                ct).ConfigureAwait(false));
+            log?.Invoke(
+                $"参考格式素材包：已从剧集真实角色素材生成 {generatedCharacters.Count} 张定妆图，人物形象与成片保持一致。");
+        }
+        else if (reuseCharacters)
         {
             generatedCharacters.AddRange(reusableCharacterPaths.Select(path => new GeneratedCharacter(
                 new CharacterProfile(Path.GetFileNameWithoutExtension(path), "复用已有图片模型角色定妆图"),
@@ -117,9 +136,6 @@ public static partial class TikTokReferenceSourcePackageService
         }
         else
         {
-            var candidates = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
-            var characters = SelectCharacterProfiles(candidates, configuredCharacterCount);
-
             log?.Invoke($"参考格式素材包：识别 {characters.Length} 个主要角色，开始调用图片模型生成真人定妆图。");
             foreach (var (character, index) in characters.Select((value, index) => (value, index)))
             {
@@ -131,12 +147,8 @@ public static partial class TikTokReferenceSourcePackageService
                 await SaveNormalizedPngAsync(bytes, output, 768, 1024, ct).ConfigureAwait(false);
                 generatedCharacters.Add(new GeneratedCharacter(character, output));
             }
-            WriteCharacterManifest(
-                characterDir,
-                generatedCharacters,
-                configuredCharacterCount,
-                candidates.Length);
         }
+        WriteCharacterManifest(characterDir, generatedCharacters, configuredCharacterCount, candidates.Length);
 
         var videos = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).ToArray();
         LinkVideos(videos, videoDir, materialDir, title, ct);
@@ -161,7 +173,7 @@ public static partial class TikTokReferenceSourcePackageService
                     x.Profile.Name,
                     x.Profile.Description,
                     file = Path.GetFileName(x.Path),
-                    source = "image-model",
+                    source = x.Source,
                 }),
             }, new JsonSerializerOptions { WriteIndented = true }),
             new UTF8Encoding(false),
@@ -207,6 +219,30 @@ public static partial class TikTokReferenceSourcePackageService
         var characterDir = Path.Combine(root, CharacterDirectoryName);
         Directory.CreateDirectory(characterDir);
 
+        var title = FirstNonEmpty(item.NewTitle, item.Title, item.OriginalTitle, Path.GetFileName(context.SourceProjectDir));
+        var intro = ResolveIntro(item, context);
+        var script = ReadProjectScript(context, title, intro);
+        var candidates = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
+        var profiles = SelectCharacterProfiles(candidates, configuredCharacterCount);
+
+        var episodeCharacterSources = FindEpisodeCharacterSources(context, root)
+            .Take(profiles.Length)
+            .ToArray();
+        if (episodeCharacterSources.Length >= MinCharacterCount)
+        {
+            var imported = await ImportEpisodeCharacterImagesAsync(
+                characterDir,
+                profiles,
+                episodeCharacterSources,
+                settings,
+                log,
+                ct).ConfigureAwait(false);
+            WriteCharacterManifest(characterDir, imported, configuredCharacterCount, episodeCharacterSources.Length);
+            log?.Invoke(
+                $"角色矢量图：已使用 {imported.Count} 张剧集真实角色素材，不再重新生成其他演员形象。");
+            return imported.Select(character => character.Path).ToArray();
+        }
+
         var existing = SelectExistingCharacterImages(characterDir, log, configuredCharacterCount).ToList();
         if (existing.Count >= MinCharacterCount)
         {
@@ -215,11 +251,6 @@ public static partial class TikTokReferenceSourcePackageService
         }
 
         EnsureImageModelConfigured(settings);
-        var title = FirstNonEmpty(item.NewTitle, item.Title, item.OriginalTitle, Path.GetFileName(context.SourceProjectDir));
-        var intro = ResolveIntro(item, context);
-        var script = ReadProjectScript(context, title, intro);
-        var candidates = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
-        var profiles = SelectCharacterProfiles(candidates, configuredCharacterCount);
 
         foreach (var (profile, index) in profiles.Select((value, index) => (value, index)))
         {
@@ -476,6 +507,182 @@ public static partial class TikTokReferenceSourcePackageService
         _ => "主要角色",
     };
 
+    internal static IReadOnlyList<string> FindEpisodeCharacterSources(
+        ProjectWorkspaceContext context,
+        string packageRoot)
+    {
+        var preferredDirectoryNames = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [TikTokAiDramaProductionMaterialService.CharacterDirectoryName] = 0,
+            ["02_角色素材"] = 1,
+            ["角色定妆"] = 2,
+            ["角色素材"] = 3,
+            ["角色设定"] = 4,
+            ["角色"] = 5,
+        };
+
+        var roots = new[] { context.WorkflowProjectDir, context.SourceProjectDir }
+            .Where(Directory.Exists)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var extractedFrames = roots
+            .SelectMany(root => Directory.EnumerateDirectories(
+                root,
+                TikTokAiGenerationScreenshotService.RetainedFramesDirectoryName,
+                SearchOption.AllDirectories))
+            .Where(directory => !directory.StartsWith(packageRoot, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(directory => Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            .Where(IsImage)
+            .Select(path => new CharacterSourcePath(path, IsExtractedFrame: true));
+        var curatedCharacters = roots
+            .SelectMany(root => Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
+            .Where(directory => !directory.StartsWith(packageRoot, StringComparison.OrdinalIgnoreCase))
+            .Select(directory => new
+            {
+                Directory = directory,
+                Rank = preferredDirectoryNames.TryGetValue(Path.GetFileName(directory), out var rank)
+                    ? rank
+                    : int.MaxValue,
+            })
+            .Where(item => item.Rank != int.MaxValue)
+            .OrderBy(item => item.Rank)
+            .ThenBy(item => item.Directory, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(item => Directory.EnumerateFiles(item.Directory, "*", SearchOption.TopDirectoryOnly)
+                .Where(IsImage)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            .Where(path => !string.Equals(
+                Path.GetFileName(path), CharacterWorkbenchFileName, StringComparison.OrdinalIgnoreCase))
+            .Select(path => new CharacterSourcePath(path, IsExtractedFrame: false));
+
+        return extractedFrames
+            .Concat(curatedCharacters)
+            .GroupBy(candidate => Path.GetFullPath(candidate.Path), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(candidate => candidate.IsExtractedFrame).First())
+            .Select(AnalyzeCharacterSource)
+            .Where(candidate => candidate is not null)
+            .Select(candidate => candidate!)
+            .OrderBy(CharacterSourceCategory)
+            .ThenByDescending(candidate => candidate.QualityScore)
+            .ThenBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(candidate => candidate.Path)
+            .ToArray();
+    }
+
+    private static CharacterSourceCandidate? AnalyzeCharacterSource(CharacterSourcePath source)
+    {
+        try
+        {
+            using var image = Image.Load<Rgba32>(source.Path);
+            var faceCount = TikTokAiGenerationScreenshotService.CountLikelyFaces(image);
+            var visibility = TikTokAiGenerationScreenshotService.ScoreFaceVisibility(image);
+            var resolutionBonus = Math.Clamp(Math.Min(image.Width, image.Height) / 720d, 0d, 1d) * 0.25;
+            return new CharacterSourceCandidate(
+                source.Path,
+                source.IsExtractedFrame,
+                faceCount,
+                visibility + resolutionBonus);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static int CharacterSourceCategory(CharacterSourceCandidate candidate) =>
+        (candidate.LikelyFaceCount, candidate.IsExtractedFrame) switch
+        {
+            (1, true) => 0,
+            (1, false) => 1,
+            (0, true) => 2,
+            (0, false) => 3,
+            (_, true) => 4,
+            _ => 5,
+        };
+
+    private static async Task<IReadOnlyList<GeneratedCharacter>> ImportEpisodeCharacterImagesAsync(
+        string characterDirectory,
+        IReadOnlyList<CharacterProfile> profiles,
+        IReadOnlyList<string> sources,
+        ClientSettings settings,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var count = Math.Min(profiles.Count, sources.Count);
+        if (count < MinCharacterCount)
+            return [];
+
+        var staged = new List<(
+            CharacterProfile Profile,
+            string Temporary,
+            string Output,
+            bool GeneratedWithReference)>();
+        try
+        {
+            for (var index = 0; index < count; index++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var output = Path.Combine(
+                    characterDirectory,
+                    $"{SanitizeFileName(profiles[index].Name)}.png");
+                var temporary = Path.Combine(characterDirectory, $".episode-character-{Guid.NewGuid():N}.png");
+                byte[] bytes;
+                var generatedWithReference = false;
+                if (IsImageModelConfigured(settings))
+                {
+                    try
+                    {
+                        log?.Invoke(
+                            $"角色图片 {index + 1}/{count}：已优选单人清晰参考帧 {Path.GetFileName(sources[index])}，" +
+                            $"以剧集画面中的 {profiles[index].Name} 为形象参考生成全身定妆照。");
+                        bytes = await GenerateReferenceImageWithRetryAsync(
+                            BuildReferenceCharacterPrompt(profiles[index]),
+                            sources[index],
+                            settings,
+                            profiles[index].Name,
+                            ct).ConfigureAwait(false);
+                        generatedWithReference = true;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        log?.Invoke(
+                            $"角色“{profiles[index].Name}”参考图生图失败，改用剧集原画面兜底，确保不生成陌生演员：{ex.Message}");
+                        bytes = await File.ReadAllBytesAsync(sources[index], ct).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    log?.Invoke(
+                        $"角色“{profiles[index].Name}”未配置图片模型，使用剧集原画面兜底；配置图片模型后可生成同人物全身定妆照。");
+                    bytes = await File.ReadAllBytesAsync(sources[index], ct).ConfigureAwait(false);
+                }
+                await SaveNormalizedPngAsync(bytes, temporary, 768, 1024, ct).ConfigureAwait(false);
+                staged.Add((profiles[index], temporary, output, generatedWithReference));
+            }
+
+            foreach (var oldImage in Directory.EnumerateFiles(characterDirectory).Where(IsImage)
+                         .Where(path => staged.All(item => !string.Equals(
+                             item.Temporary, path, StringComparison.OrdinalIgnoreCase))))
+                File.Delete(oldImage);
+
+            foreach (var item in staged)
+                File.Move(item.Temporary, item.Output, overwrite: true);
+
+            return staged.Select(item => new GeneratedCharacter(
+                new CharacterProfile(
+                    item.Profile.Name,
+                    item.Profile.Description + "（形象取自剧集真实角色画面）"),
+                item.Output,
+                item.GeneratedWithReference
+                    ? "episode-reference-image-model"
+                    : "episode-character-source-fallback")).ToArray();
+        }
+        finally
+        {
+            foreach (var item in staged)
+                try { if (File.Exists(item.Temporary)) File.Delete(item.Temporary); } catch { }
+        }
+    }
+
     internal static string BuildCharacterPrompt(CharacterProfile profile) =>
         "Use case: photorealistic-natural\n" +
         "Asset type: 中国短剧角色真人定妆参考图\n" +
@@ -486,6 +693,16 @@ public static partial class TikTokReferenceSourcePackageService
         "Lighting/mood: 柔和专业棚拍光线，自然真实皮肤、头发和服装纹理\n" +
         "Constraints: 虚构中国成年人；严格遵循角色年龄、身份、气质和服装；画面中仅一人；无文字、无Logo、无水印\n" +
         "Avoid: 现实明星或公众人物脸、儿童、卡通、动漫、插画、塑料皮肤、过度磨皮、多余手指、多人、拼贴、字幕";
+
+    internal static string BuildReferenceCharacterPrompt(CharacterProfile profile) =>
+        "任务类型：严格参考图人物一致性的真人角色定妆照编辑。\n" +
+        $"角色：{profile.Name}。{profile.Description}\n" +
+        "参考图是人物身份的唯一依据。必须保留参考图中主要人物完全相同的脸部身份、五官结构、脸型、年龄、肤色、发型和整体气质，" +
+        "必须让观众一眼认出是剧集里的同一个人；不得换脸、不得重新选角、不得生成相似但不同的人。\n" +
+        "将该人物自然补全为正面全身或四分之三全身单人定妆照，保持剧中人物所属时代、身份和核心服装特征，" +
+        "姿态自然，完整显示头部、双手和双脚，人物居中。\n" +
+        "竖版3:4，干净浅灰色摄影棚无缝背景，柔和专业棚拍光，真实影视摄影，自然皮肤、头发和服装纹理。\n" +
+        "画面仅一人，无文字、无Logo、无水印；不是动漫、插画或3D。最高优先级：人物身份与参考图严格一致。";
 
     internal static CharacterProfile[] AddFallbackCharacters(
         IReadOnlyList<CharacterProfile> existing,
@@ -537,6 +754,96 @@ public static partial class TikTokReferenceSourcePackageService
         throw new InvalidOperationException($"角色“{roleName}”图片模型生成失败：{last?.Message}", last);
     }
 
+    private static async Task<byte[]> GenerateReferenceImageWithRetryAsync(
+        string prompt,
+        string referenceImagePath,
+        ClientSettings settings,
+        string roleName,
+        CancellationToken ct)
+    {
+        Exception? last = null;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                return await GenerateReferenceImageAsync(
+                    prompt, referenceImagePath, settings, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (attempt < 3 && !ct.IsCancellationRequested)
+            {
+                last = ex;
+            }
+        }
+        throw new InvalidOperationException($"角色“{roleName}”参考图生图失败：{last?.Message}", last);
+    }
+
+    private static async Task<byte[]> GenerateReferenceImageAsync(
+        string prompt,
+        string referenceImagePath,
+        ClientSettings settings,
+        CancellationToken ct)
+    {
+        var provider = PosterImageConfigHelper.NormalizeImageProvider(settings.ImageProvider);
+        var endpoint = provider == "ofox_image2"
+            ? FirstNonEmpty(settings.OfoxImage2Endpoint, ClientSettingsDefaults.OfoxImage2Endpoint)
+            : FirstNonEmpty(settings.ImageModelEndpoint, ClientSettingsDefaults.ImageModelEndpoint);
+        var model = ResolveModelId(settings);
+        var apiKey = provider == "ofox_image2" ? settings.OfoxImage2ApiKey : settings.ImageModelApiKey;
+        var mediaType = ResolveImageMediaType(referenceImagePath);
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            endpoint.TrimEnd('/') + (provider == "ofox_image2" ? "/images/edits" : "/images/generations"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+        if (provider == "ofox_image2")
+        {
+            var form = new MultipartFormDataContent();
+            form.Add(new StringContent(model), "model");
+            form.Add(new StringContent(prompt, Encoding.UTF8), "prompt");
+            form.Add(new StringContent(NormalizeOfoxPortraitSize(settings.OfoxImage2Size)), "size");
+            form.Add(new StringContent(FirstNonEmpty(settings.OfoxImage2Quality, "medium")), "quality");
+            var imageContent = new ByteArrayContent(await File.ReadAllBytesAsync(referenceImagePath, ct)
+                .ConfigureAwait(false));
+            imageContent.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
+            form.Add(imageContent, "image", Path.GetFileName(referenceImagePath));
+            request.Content = form;
+        }
+        else
+        {
+            var imageBytes = await File.ReadAllBytesAsync(referenceImagePath, ct).ConfigureAwait(false);
+            var payload = BuildDoubaoReferenceImagePayload(
+                model,
+                prompt,
+                $"data:{mediaType};base64,{Convert.ToBase64String(imageBytes)}",
+                PosterImageConfigHelper.DoubaoImageSizeForRatio(settings.DoubaoImageResolution, "3:4"));
+            request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+        }
+
+        using var response = await Http.SendAsync(request, ct).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(
+                $"角色参考图生图失败：HTTP {(int)response.StatusCode} {response.ReasonPhrase}；" +
+                $"请确认当前图片模型支持图生图。响应：{Truncate(body, 1200)}");
+        return await ReadGeneratedImageBytesAsync(body, ct).ConfigureAwait(false);
+    }
+
+    internal static Dictionary<string, object?> BuildDoubaoReferenceImagePayload(
+        string model,
+        string prompt,
+        string referenceDataUri,
+        string size) => new()
+        {
+            ["model"] = model,
+            ["prompt"] = prompt,
+            ["image"] = new[] { referenceDataUri },
+            ["size"] = size,
+            ["response_format"] = "b64_json",
+            ["watermark"] = false,
+            ["sequential_image_generation"] = "disabled",
+        };
+
     private static async Task<byte[]> GenerateImageAsync(
         string prompt,
         ClientSettings settings,
@@ -575,6 +882,11 @@ public static partial class TikTokReferenceSourcePackageService
                 $"角色真人定妆图生成失败：HTTP {(int)response.StatusCode} {response.ReasonPhrase}；" +
                 $"请检查系统设置中的图片模型、Endpoint 和 API Key。响应：{Truncate(body, 1200)}");
 
+        return await ReadGeneratedImageBytesAsync(body, ct).ConfigureAwait(false);
+    }
+
+    private static async Task<byte[]> ReadGeneratedImageBytesAsync(string body, CancellationToken ct)
+    {
         using var document = JsonDocument.Parse(body);
         if (!document.RootElement.TryGetProperty("data", out var data) ||
             data.ValueKind != JsonValueKind.Array || data.GetArrayLength() == 0)
@@ -873,18 +1185,31 @@ public static partial class TikTokReferenceSourcePackageService
 
     private static void EnsureImageModelConfigured(ClientSettings settings)
     {
+        if (!IsImageModelConfigured(settings))
+            throw new InvalidOperationException(
+                "生成参考格式原始文件信息需要图片模型生成真人角色图；请先在系统设置中完整配置豆包或 Ofox Image2。不会使用视频抽帧冒充角色模型图。");
+    }
+
+    private static bool IsImageModelConfigured(ClientSettings settings)
+    {
         var provider = PosterImageConfigHelper.NormalizeImageProvider(settings.ImageProvider);
-        var configured = provider == "ofox_image2"
+        return provider == "ofox_image2"
             ? !string.IsNullOrWhiteSpace(settings.OfoxImage2Endpoint) &&
               !string.IsNullOrWhiteSpace(settings.OfoxImage2ApiKey) &&
               !string.IsNullOrWhiteSpace(settings.OfoxImage2ModelId)
             : !string.IsNullOrWhiteSpace(settings.ImageModelEndpoint) &&
               !string.IsNullOrWhiteSpace(settings.ImageModelApiKey) &&
               !string.IsNullOrWhiteSpace(settings.ImageModelId);
-        if (!configured)
-            throw new InvalidOperationException(
-                "生成参考格式原始文件信息需要图片模型生成真人角色图；请先在系统设置中完整配置豆包或 Ofox Image2。不会使用视频抽帧冒充角色模型图。");
     }
+
+    private static string ResolveImageMediaType(string path) =>
+        Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            ".bmp" => "image/bmp",
+            _ => "image/png",
+        };
 
     private static string ResolveModelId(ClientSettings settings) =>
         PosterImageConfigHelper.NormalizeImageProvider(settings.ImageProvider) == "ofox_image2"
@@ -901,15 +1226,22 @@ public static partial class TikTokReferenceSourcePackageService
         string title,
         string intro,
         string script,
-        ClientSettings settings)
+        ClientSettings settings,
+        IReadOnlyList<string> episodeCharacterSources)
     {
+        var characterSourceFingerprint = string.Join('|', episodeCharacterSources.Select(path =>
+        {
+            using var stream = File.OpenRead(path);
+            return $"{Path.GetFullPath(path)}:{Convert.ToHexString(SHA256.HashData(stream))}";
+        }));
         var value = string.Join('\n',
             Version,
             title,
             intro,
             script,
             PosterImageConfigHelper.NormalizeImageProvider(settings.ImageProvider),
-            ResolveModelId(settings));
+            ResolveModelId(settings),
+            characterSourceFingerprint);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     }
 
@@ -1017,5 +1349,14 @@ public static partial class TikTokReferenceSourcePackageService
         IntPtr securityAttributes);
 
     internal sealed record CharacterProfile(string Name, string Description);
-    private sealed record GeneratedCharacter(CharacterProfile Profile, string Path);
+    private sealed record CharacterSourcePath(string Path, bool IsExtractedFrame);
+    private sealed record CharacterSourceCandidate(
+        string Path,
+        bool IsExtractedFrame,
+        int LikelyFaceCount,
+        double QualityScore);
+    private sealed record GeneratedCharacter(
+        CharacterProfile Profile,
+        string Path,
+        string Source = "image-model");
 }

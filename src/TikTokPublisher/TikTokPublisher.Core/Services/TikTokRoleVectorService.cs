@@ -12,7 +12,7 @@ public static class TikTokRoleVectorService
     public const string OutputFileName = TikTokReferenceSourcePackageService.CharacterWorkbenchFileName;
     public const string BackupFileName = "角色矢量图_旧版.png";
     public const string StateFileName = ".role-vector-state.json";
-    public const string StateVersion = "v1-counted-layouts";
+    public const string StateVersion = "v4-clear-single-frame-selection";
 
     public static string GetOutputPath(string workflowProjectDirectory) =>
         Path.Combine(TikTokReferenceSourcePackageService.GetRoot(workflowProjectDirectory), OutputFileName);

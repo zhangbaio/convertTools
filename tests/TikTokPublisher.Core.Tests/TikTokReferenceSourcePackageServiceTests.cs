@@ -41,6 +41,81 @@ public sealed class TikTokReferenceSourcePackageServiceTests
     }
 
     [Fact]
+    public void Reference_character_prompt_makes_episode_identity_the_highest_priority()
+    {
+        var prompt = TikTokReferenceSourcePackageService.BuildReferenceCharacterPrompt(
+            new TikTokReferenceSourcePackageService.CharacterProfile(
+                "陆小满",
+                "23岁中国女性，清秀温婉。"));
+
+        prompt.Should().Contain("参考图是人物身份的唯一依据");
+        prompt.Should().Contain("不得换脸");
+        prompt.Should().Contain("不得重新选角");
+        prompt.Should().Contain("完整显示头部、双手和双脚");
+        prompt.Should().Contain("人物身份与参考图严格一致");
+    }
+
+    [Fact]
+    public void Doubao_reference_generation_payload_contains_image_input_and_disables_group_generation()
+    {
+        var payload = TikTokReferenceSourcePackageService.BuildDoubaoReferenceImagePayload(
+            "doubao-seedream-5-0-lite-260128",
+            "保持人物身份一致",
+            "data:image/jpeg;base64,AAAA",
+            "1728x2304");
+
+        payload["image"].Should().BeEquivalentTo(new[] { "data:image/jpeg;base64,AAAA" });
+        payload["size"].Should().Be("1728x2304");
+        payload["response_format"].Should().Be("b64_json");
+        payload["watermark"].Should().Be(false);
+        payload["sequential_image_generation"].Should().Be("disabled");
+    }
+
+    [Fact]
+    public void Character_source_selection_prefers_single_person_extracted_frames()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"character-source-selection-{Guid.NewGuid():N}");
+        var workflow = Path.Combine(root, "workflow", "_短剧");
+        var source = Path.Combine(root, "短剧");
+        var extracted = Path.Combine(workflow, TikTokAiGenerationScreenshotService.RetainedFramesDirectoryName);
+        var curated = Path.Combine(workflow, "角色设定");
+        Directory.CreateDirectory(extracted);
+        Directory.CreateDirectory(curated);
+        var extractedSingle = Path.Combine(extracted, "清晰单人.png");
+        var extractedMultiple = Path.Combine(extracted, "多人.png");
+        var curatedSingle = Path.Combine(curated, "整理单人.png");
+        SaveFaces(extractedSingle, 1);
+        SaveFaces(extractedMultiple, 2);
+        SaveFaces(curatedSingle, 1);
+
+        try
+        {
+            var selected = TikTokReferenceSourcePackageService.FindEpisodeCharacterSources(
+                new TikTokPublisher.Core.Queue.ProjectWorkspaceContext(source, workflow, root),
+                Path.Combine(workflow, "项目原始资料", "参考格式原始素材包"));
+
+            selected.Should().Equal(extractedSingle, curatedSingle, extractedMultiple);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+
+        static void SaveFaces(string path, int count)
+        {
+            using var image = new Image<Rgba32>(160, 160, new Rgba32(35, 45, 60));
+            var regions = count == 1
+                ? new[] { (Left: 60, Right: 100) }
+                : new[] { (Left: 25, Right: 55), (Left: 105, Right: 135) };
+            foreach (var region in regions)
+            for (var y = 24; y < 58; y++)
+            for (var x = region.Left; x < region.Right; x++)
+                image[x, y] = new Rgba32(210, 155, 125);
+            image.SaveAsPng(path);
+        }
+    }
+
+    [Fact]
     public void Character_profiles_fall_back_to_explicit_name_list_in_synopsis()
     {
         const string intro = "民间组织成员莫老头、邱胖子、沈秋三人率队携石像生赴滇西村落执行秘密任务。";
