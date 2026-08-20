@@ -304,17 +304,11 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
                 TikTokPublishConstants.ProductionAgreementMaterialType,
                 TikTokPublishConstants.SourceFileInformationMaterialType);
             options.CopyrightMaterialFilePaths[TikTokPublishConstants.SourceFileInformationMaterialType]
-                .Should().Be(TikTokSourceFileInfoScreenshotService.GetOutputDirectory(workflow));
+                .Should().Be(TikTokSourceFileInfoUploadPackageService.GetOutputDirectory(workflow));
 
-            var images = options.ResolveCopyrightMaterialFilePaths(
+            var files = options.ResolveCopyrightMaterialFilePaths(
                 TikTokPublishConstants.SourceFileInformationMaterialType);
-            images.Should().HaveCount(4);
-            images.Should().OnlyContain(path =>
-                path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
-                && path.Contains(
-                    Path.DirectorySeparatorChar + TikTokSourceFileInfoScreenshotService.OutputDirectoryName
-                    + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase));
+            files.Should().BeEmpty("新的混合上传包尚未整理时不应回落到旧版四张截图");
         }
         finally
         {

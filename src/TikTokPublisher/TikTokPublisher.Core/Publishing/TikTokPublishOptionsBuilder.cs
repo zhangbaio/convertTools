@@ -65,13 +65,13 @@ public static class TikTokPublishOptionsBuilder
                     TikTokPublishConstants.SourceFileInformationMaterialType,
                     StringComparer.Ordinal))
             {
-                var sourceInfoDir = TikTokSourceFileInfoScreenshotService.GetOutputDirectory(workflowProjectDir);
+                var sourceInfoDir = TikTokSourceFileInfoUploadPackageService.GetOutputDirectory(workflowProjectDir);
                 paths[TikTokPublishConstants.SourceFileInformationMaterialType] = sourceInfoDir;
-                var imageCount = TikTokSourceFileInfoScreenshotService.ListGeneratedImages(workflowProjectDir).Count;
+                var fileCount = TikTokSourceFileInfoUploadPackageService.ListFiles(workflowProjectDir).Count;
                 log?.Invoke(
-                    imageCount >= TikTokSourceFileInfoScreenshotService.RequiredImageCount
-                        ? $"TikTok 原始文件截图已就绪：{imageCount} 张 → {sourceInfoDir}"
-                        : $"TikTok 原始文件截图等待生成：{sourceInfoDir}");
+                    fileCount == TikTokSourceFileInfoUploadPackageService.RequiredFileCount
+                        ? $"TikTok 原始文件信息上传包已就绪：{fileCount} 个文件 → {sourceInfoDir}"
+                        : $"TikTok 原始文件信息上传包等待生成：{sourceInfoDir}");
             }
 
             if (options.CopyrightMaterialTypes.Contains(

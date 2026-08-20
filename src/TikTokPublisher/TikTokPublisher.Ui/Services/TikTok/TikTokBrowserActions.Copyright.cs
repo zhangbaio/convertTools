@@ -458,7 +458,7 @@ public static partial class TikTokBrowserActions
                 throw new InvalidOperationException(
                     $"已选择版权材料「{string.Join("、", labels)}」，但尚未配置对应的独立文件；" +
                     "证明材料.pdf 仅可上传到「制作协议、联合出品协议等合作协议」，" +
-                    "原始文件截图仅可上传到「原始文件或素材文件信息」，" +
+                    "AI 大纲、剧本、项目资料截图和角色矢量图仅可上传到「原始文件或素材文件信息」，" +
                     "AI 生成截图仅可上传到「AI 生成过程截图」，" +
                     "工程图仅可上传到「剪辑工程文件」。");
 
@@ -475,15 +475,16 @@ public static partial class TikTokBrowserActions
         var uploadSourceFileInformation = completionPlan.ShouldUpload(
             TikTokPublishConstants.SourceFileInformationMaterialType);
         var sourceInfoFiles = includeSourceFileInformation && uploadSourceFileInformation
-            ? ResolveSourceFileInformationScreenshotFiles(options)
+            ? ResolveSourceFileInformationFiles(options)
             : [];
         if (includeSourceFileInformation && uploadSourceFileInformation &&
-            sourceInfoFiles.Count < TikTokSourceFileInfoScreenshotService.RequiredImageCount)
+            sourceInfoFiles.Count != TikTokSourceFileInfoUploadPackageService.RequiredFileCount)
         {
             throw new FileNotFoundException(
-                $"「原始文件或素材文件信息」需要至少 {TikTokSourceFileInfoScreenshotService.RequiredImageCount} 张截图，" +
-                $"当前仅找到 {sourceInfoFiles.Count} 张（目录：{TikTokSourceFileInfoScreenshotService.OutputDirectoryName}）；" +
-                "请先执行「生成证明材料」。");
+                $"「原始文件或素材文件信息」必须上传 {TikTokSourceFileInfoUploadPackageService.RequiredFileCount} 个文件：" +
+                "AI剧本大纲.pdf、剧本.pdf、01_剧本与项目资料.png、角色矢量图.png；" +
+                $"当前找到 {sourceInfoFiles.Count} 个（目录：{TikTokSourceFileInfoUploadPackageService.OutputDirectoryName}）。" +
+                "请先执行“生成证明材料”。");
         }
 
         var includeAiGenerationScreenshots = configuredMaterialKeys.Contains(
@@ -507,7 +508,8 @@ public static partial class TikTokBrowserActions
 
         IReadOnlyList<string> aiUploadFiles = aiScreenshotFiles;
         if (includeAiGenerationScreenshots && uploadAiGenerationScreenshots &&
-            options.UploadAiScriptOutlineWithScreenshots)
+            options.UploadAiScriptOutlineWithScreenshots &&
+            (!includeSourceFileInformation || uploadAiScriptOutlineOnly))
         {
             var outlineFile = options.AiScriptOutlineFilePath?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(outlineFile) || !File.Exists(outlineFile))
@@ -829,9 +831,9 @@ public static partial class TikTokBrowserActions
     }
 
     /// <summary>
-    /// 仅从 workflow 下的「原始文件信息截图」目录取图，不回落到工程图/海报根目录。
+    /// 仅从 workflow 下的「原始文件信息上传」目录读取固定四文件，不回落到旧版四张截图。
     /// </summary>
-    private static IReadOnlyList<string> ResolveSourceFileInformationScreenshotFiles(TikTokPublishOptions options)
+    private static IReadOnlyList<string> ResolveSourceFileInformationFiles(TikTokPublishOptions options)
     {
         var configured = options.ResolveCopyrightMaterialFilePath(
             TikTokPublishConstants.SourceFileInformationMaterialType);
@@ -847,8 +849,9 @@ public static partial class TikTokBrowserActions
             var dirName = Path.GetFileName(fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             if (string.Equals(
                     dirName,
-                    TikTokSourceFileInfoScreenshotService.OutputDirectoryName,
+                    TikTokSourceFileInfoUploadPackageService.OutputDirectoryName,
                     StringComparison.OrdinalIgnoreCase)
+                || string.Equals(dirName, TikTokSourceFileInfoScreenshotService.OutputDirectoryName, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(dirName, "原始文件或素材文件信息", StringComparison.OrdinalIgnoreCase))
             {
                 workflowDir = Directory.GetParent(fullPath)?.FullName;
@@ -867,7 +870,7 @@ public static partial class TikTokBrowserActions
 
         return string.IsNullOrWhiteSpace(workflowDir)
             ? []
-            : TikTokSourceFileInfoScreenshotService.ListGeneratedImages(workflowDir);
+            : TikTokSourceFileInfoUploadPackageService.ListFiles(workflowDir);
     }
 
     /// <summary>
@@ -976,6 +979,11 @@ public static partial class TikTokBrowserActions
         var displayNames = string.Join("、", filePaths.Select(Path.GetFileName));
         var initialFileCardCount = await CountCopyrightMaterialFileCardsAsync(uploadControl.Field);
         Log(log, $"TikTok 版权材料开始上传：{label}（{displayNames}）。");
+        await EnsureCopyrightUploadInputSupportsFilesAsync(
+            uploadControl.Input,
+            filePaths,
+            label,
+            ct);
         var networkOutcome = new TaskCompletionSource<CopyrightUploadNetworkOutcome>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         void OnResponse(object? _, IResponse response)
@@ -1046,6 +1054,43 @@ public static partial class TikTokBrowserActions
             page.Response -= OnResponse;
         }
         Log(log, $"TikTok 版权材料上传完成：{label}（{displayNames}）。");
+    }
+
+    private static async Task EnsureCopyrightUploadInputSupportsFilesAsync(
+        ILocator input,
+        IReadOnlyList<string> filePaths,
+        string label,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (filePaths.Count > 1 && !await input.EvaluateAsync<bool>("element => element.multiple"))
+            throw new InvalidOperationException(
+                $"TikTok「{label}」上传控件当前不支持一次选择多个文件，无法上传 {filePaths.Count} 个材料。");
+
+        var accept = (await input.GetAttributeAsync("accept") ?? string.Empty).Trim().ToLowerInvariant();
+        if (accept.Length == 0) return;
+        var tokens = accept.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var extension in filePaths.Select(Path.GetExtension)
+                     .Where(value => !string.IsNullOrWhiteSpace(value))
+                     .Select(value => value!.ToLowerInvariant())
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var mime = extension switch
+            {
+                ".pdf" => "application/pdf",
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".webp" => "image/webp",
+                _ => string.Empty,
+            };
+            var accepted = tokens.Any(token =>
+                token == extension || token == mime ||
+                (mime.StartsWith("image/", StringComparison.Ordinal) && token == "image/*") ||
+                token == "*/*");
+            if (!accepted)
+                throw new InvalidOperationException(
+                    $"TikTok「{label}」上传控件不接受 {extension} 文件；页面 accept={accept}。");
+        }
     }
 
     private static async Task<ILocator?> TryFindCopyrightMaterialFieldAsync(

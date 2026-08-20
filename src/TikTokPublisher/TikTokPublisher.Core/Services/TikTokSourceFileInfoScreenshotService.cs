@@ -35,7 +35,7 @@ public static class TikTokSourceFileInfoScreenshotService
     public const string EvidenceDirectoryName = "项目原始资料";
     private const string CaptureStagingDirectoryName = ".source-info-capture-staging";
     public const int RequiredImageCount = 4;
-    public const string ScreenshotVersion = "v10-reference-role-vector-template";
+    public const string ScreenshotVersion = "v11-source-upload-mixed-files";
 
     private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
     private const int ContactSheetFrameCount = 4;

@@ -3,10 +3,12 @@ using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 
 var derivedOnly = args.Length == 2 && args[0] == "--derived-only";
-var projectArgument = derivedOnly ? args[1] : args.FirstOrDefault();
+var uploadPackageOnly = args.Length == 2 && args[0] == "--upload-package";
+var projectArgument = derivedOnly || uploadPackageOnly ? args[1] : args.FirstOrDefault();
 if (projectArgument is null || !Directory.Exists(projectArgument))
 {
-    Console.Error.WriteLine("用法：TikTokReferenceSourcePackageSpike [--derived-only] <workflow项目目录>");
+    Console.Error.WriteLine(
+        "用法：TikTokReferenceSourcePackageSpike [--derived-only|--upload-package] <workflow项目目录>");
     return 2;
 }
 
@@ -46,6 +48,18 @@ Console.WriteLine($"图片模型：{settings.ImageProvider} / " +
 
 var logger = new Action<string>(message => Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {message}"));
 var package = TikTokReferenceSourcePackageService.GetRoot(projectDir);
+if (uploadPackageOnly)
+{
+    var outline = await TikTokAiScriptOutlineService.GenerateAsync(
+        item, settings, account: null, forceRerun: false, logger, CancellationToken.None);
+    var script = await TikTokEpisodeScriptService.GenerateAsync(
+        item, settings, forceRerun: false, logger, CancellationToken.None);
+    var uploadFiles = TikTokSourceFileInfoUploadPackageService.Generate(
+        projectDir, outline, script, logger);
+    foreach (var uploadFile in uploadFiles)
+        Console.WriteLine($"上传文件：{uploadFile}");
+    return 0;
+}
 if (derivedOnly)
     await TikTokReferenceSourcePackageService.RefreshDerivedImagesAsync(projectDir, logger, CancellationToken.None);
 else
