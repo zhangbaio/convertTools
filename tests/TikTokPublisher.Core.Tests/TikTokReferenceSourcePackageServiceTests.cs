@@ -158,6 +158,7 @@ public sealed class TikTokReferenceSourcePackageServiceTests
     {
         var three = RoleVectorTemplateRenderer.ResolveLayout(3);
         var four = RoleVectorTemplateRenderer.ResolveLayout(4);
+        var five = RoleVectorTemplateRenderer.ResolveLayout(5);
         var six = RoleVectorTemplateRenderer.ResolveLayout(6);
 
         three.ResourceName.Should().EndWith("RoleVectorTemplate3.png");
@@ -172,8 +173,41 @@ public sealed class TikTokReferenceSourcePackageServiceTests
         four.Groups[3].CharacterSlots.Min(slot => slot.X)
             .Should().BeGreaterThan(1400, "第四个人物应独立位于右侧中部");
 
+        five.ResourceName.Should().EndWith("RoleVectorTemplate5.png");
+        five.Groups.Should().HaveCount(5);
+        five.Groups.Take(3).SelectMany(group => group.CharacterSlots)
+            .Max(slot => slot.Right).Should().BeLessThan(1200);
+        five.Groups.Skip(3).Should().HaveCount(2);
+
         six.ResourceName.Should().EndWith("RoleVectorTemplate.png");
         six.Groups.Should().HaveCount(6);
+
+        var tooFew = () => RoleVectorTemplateRenderer.ResolveLayout(2);
+        var tooMany = () => RoleVectorTemplateRenderer.ResolveLayout(7);
+        tooFew.Should().Throw<ArgumentOutOfRangeException>();
+        tooMany.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Normalize_character_profiles_clamps_to_three_through_six_and_prioritizes_leads()
+    {
+        var tooFew = new[]
+        {
+            new TikTokReferenceSourcePackageService.CharacterProfile("甲", "普通人物"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("乙", "普通人物"),
+        };
+        TikTokReferenceSourcePackageService.NormalizeCharacterProfiles(tooFew, "甲乙共同经历危机。")
+            .Should().HaveCount(3);
+
+        var tooMany = Enumerable.Range(1, 7)
+            .Select(index => new TikTokReferenceSourcePackageService.CharacterProfile(
+                $"角色{index}",
+                index == 7 ? "男主，故事核心" : "普通配角"))
+            .ToArray();
+        var selected = TikTokReferenceSourcePackageService.NormalizeCharacterProfiles(tooMany);
+
+        selected.Should().HaveCount(6);
+        selected[0].Name.Should().Be("角色7");
     }
 
     private static void SaveSolidImage(string path, Rgba32? color = null)

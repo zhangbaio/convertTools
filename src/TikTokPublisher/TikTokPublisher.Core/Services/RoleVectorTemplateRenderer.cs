@@ -19,6 +19,8 @@ internal static class RoleVectorTemplateRenderer
         "TikTokPublisher.Core.Resources.RoleVectorTemplate3.png";
     private const string FourCharacterTemplateResourceName =
         "TikTokPublisher.Core.Resources.RoleVectorTemplate4.png";
+    private const string FiveCharacterTemplateResourceName =
+        "TikTokPublisher.Core.Resources.RoleVectorTemplate5.png";
 
     private static readonly Rgba32 EmptySlotColor = new(14, 15, 17, 255);
 
@@ -152,12 +154,65 @@ internal static class RoleVectorTemplateRenderer
             ReferenceSlots: [new Rectangle(2032, 504, 160, 260)]),
     ];
 
+    internal static IReadOnlyList<RoleVectorGroup> FiveCharacterGroups { get; } =
+    [
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(228, 184, 104, 164),
+                new Rectangle(376, 116, 116, 148),
+                new Rectangle(548, 76, 104, 152),
+                new Rectangle(400, 280, 108, 156),
+            ],
+            ReferenceSlots: [new Rectangle(908, 172, 136, 212)]),
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(212, 568, 116, 168),
+                new Rectangle(372, 492, 112, 160),
+                new Rectangle(540, 468, 112, 152),
+                new Rectangle(428, 668, 112, 144),
+            ],
+            ReferenceSlots: [new Rectangle(908, 536, 148, 220)]),
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(256, 944, 104, 160),
+                new Rectangle(404, 868, 108, 160),
+                new Rectangle(564, 840, 104, 144),
+                new Rectangle(452, 1040, 108, 156),
+            ],
+            ReferenceSlots: [new Rectangle(908, 904, 156, 228)]),
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(1268, 364, 108, 152),
+                new Rectangle(1400, 276, 116, 156),
+                new Rectangle(1564, 204, 116, 168),
+                new Rectangle(1464, 444, 116, 164),
+            ],
+            ReferenceSlots: [new Rectangle(1952, 292, 152, 248)]),
+        new(
+            CharacterSlots:
+            [
+                new Rectangle(1352, 752, 112, 176),
+                new Rectangle(1516, 704, 116, 156),
+                new Rectangle(1484, 924, 108, 156),
+            ],
+            ReferenceSlots: [new Rectangle(2004, 768, 124, 268)]),
+    ];
+
     internal static void Render(
         string outputPath,
         IReadOnlyList<string> characterImages,
         IReadOnlyList<string> referenceFrames)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        if (characterImages.Count is < 3 or > 6)
+            throw new ArgumentOutOfRangeException(
+                nameof(characterImages),
+                characterImages.Count,
+                "角色矢量图仅支持 3、4、5、6 个人物。");
         var layout = ResolveLayout(characterImages.Count);
         using var canvas = LoadTemplate(layout.ResourceName);
         for (var groupIndex = 0; groupIndex < layout.Groups.Count; groupIndex++)
@@ -193,7 +248,12 @@ internal static class RoleVectorTemplateRenderer
     {
         3 => new RoleVectorLayout(ThreeCharacterTemplateResourceName, ThreeCharacterGroups),
         4 => new RoleVectorLayout(FourCharacterTemplateResourceName, FourCharacterGroups),
-        _ => new RoleVectorLayout(DefaultTemplateResourceName, Groups),
+        5 => new RoleVectorLayout(FiveCharacterTemplateResourceName, FiveCharacterGroups),
+        6 => new RoleVectorLayout(DefaultTemplateResourceName, Groups),
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(characterCount),
+            characterCount,
+            "角色矢量图仅支持 3、4、5、6 个人物。"),
     };
 
     private static Image<Rgba32> LoadTemplate(string resourceName)

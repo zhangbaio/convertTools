@@ -27,13 +27,16 @@ public static partial class TikTokReferenceSourcePackageService
 {
     public const string DirectoryName = "参考格式原始素材包";
     public const string CharacterDirectoryName = "角色";
+    public const string CharacterManifestFileName = "角色清单.json";
+    public const int MinCharacterCount = 3;
+    public const int MaxCharacterCount = 6;
     public const string VideoDirectoryName = "videos";
     public const string MaterialDirectoryName = "素材文件";
     public const string CharacterWorkbenchFileName = "角色矢量图.png";
     public const string SceneDesignFileName1 = "场景设计图1.png";
     public const string SceneDesignFileName2 = "场景设计图2.png";
     public const string StateFileName = ".reference-source-package.json";
-    public const string Version = "v1-image-model-characters";
+    public const string Version = "v2-limited-character-manifest";
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -43,6 +46,9 @@ public static partial class TikTokReferenceSourcePackageService
         Path.Combine(
             TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflowProjectDirectory),
             DirectoryName);
+
+    public static string GetCharacterManifestPath(string workflowProjectDirectory) =>
+        Path.Combine(GetRoot(workflowProjectDirectory), CharacterDirectoryName, CharacterManifestFileName);
 
     private static string GetStatePath(string workflowProjectDirectory) =>
         Path.Combine(
@@ -87,13 +93,9 @@ public static partial class TikTokReferenceSourcePackageService
 
         var existingCharacterDir = Path.Combine(root, CharacterDirectoryName);
         var reusableCharacterPaths = !forceRerun && Directory.Exists(existingCharacterDir)
-            ? Directory.EnumerateFiles(existingCharacterDir)
-                .Where(IsImage)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-                .Take(6)
-                .ToArray()
+            ? SelectExistingCharacterImages(existingCharacterDir, log).ToArray()
             : [];
-        var reuseCharacters = reusableCharacterPaths.Length >= 3;
+        var reuseCharacters = reusableCharacterPaths.Length >= MinCharacterCount;
         if (!reuseCharacters) EnsureImageModelConfigured(settings);
         ResetPackageRoot(root, preserveCharactersAndRoleVector: reuseCharacters);
         var characterDir = Path.Combine(root, CharacterDirectoryName);
@@ -113,12 +115,7 @@ public static partial class TikTokReferenceSourcePackageService
         }
         else
         {
-            var characters = ExtractCharacterProfiles(script, intro).Take(6).ToArray();
-            if (characters.Length < 3 || characters.All(character => IsGenericCharacterName(character.Name)))
-            {
-                if (characters.All(character => IsGenericCharacterName(character.Name))) characters = [];
-                characters = AddFallbackCharacters(characters, intro).Take(3).ToArray();
-            }
+            var characters = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
 
             log?.Invoke($"参考格式素材包：识别 {characters.Length} 个主要角色，开始调用图片模型生成真人定妆图。");
             foreach (var (character, index) in characters.Select((value, index) => (value, index)))
@@ -132,6 +129,7 @@ public static partial class TikTokReferenceSourcePackageService
                 generatedCharacters.Add(new GeneratedCharacter(character, output));
             }
         }
+        WriteCharacterManifest(characterDir, generatedCharacters);
 
         var videos = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).ToArray();
         LinkVideos(videos, videoDir, materialDir, title, ct);
@@ -200,12 +198,8 @@ public static partial class TikTokReferenceSourcePackageService
         var characterDir = Path.Combine(root, CharacterDirectoryName);
         Directory.CreateDirectory(characterDir);
 
-        var existing = Directory.EnumerateFiles(characterDir)
-            .Where(IsImage)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-            .Take(6)
-            .ToList();
-        if (existing.Count >= 3)
+        var existing = SelectExistingCharacterImages(characterDir, log).ToList();
+        if (existing.Count >= MinCharacterCount)
         {
             log?.Invoke($"角色矢量图：复用现有角色定妆图 {existing.Count} 张，不调用图片模型。");
             return existing;
@@ -215,12 +209,7 @@ public static partial class TikTokReferenceSourcePackageService
         var title = FirstNonEmpty(item.NewTitle, item.Title, item.OriginalTitle, Path.GetFileName(context.SourceProjectDir));
         var intro = ResolveIntro(item, context);
         var script = ReadProjectScript(context, title, intro);
-        var profiles = ExtractCharacterProfiles(script, intro).Take(6).ToArray();
-        if (profiles.Length < 3 || profiles.All(profile => IsGenericCharacterName(profile.Name)))
-        {
-            if (profiles.All(profile => IsGenericCharacterName(profile.Name))) profiles = [];
-            profiles = AddFallbackCharacters(profiles, intro).Take(3).ToArray();
-        }
+        var profiles = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
 
         foreach (var (profile, index) in profiles.Select((value, index) => (value, index)))
         {
@@ -233,13 +222,17 @@ public static partial class TikTokReferenceSourcePackageService
             await SaveNormalizedPngAsync(bytes, output, 768, 1024, ct).ConfigureAwait(false);
         }
 
-        existing = Directory.EnumerateFiles(characterDir)
-            .Where(IsImage)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-            .Take(6)
+        existing = profiles
+            .Select(profile => Path.Combine(characterDir, $"{SanitizeFileName(profile.Name)}.png"))
+            .Where(File.Exists)
+            .Take(MaxCharacterCount)
             .ToList();
-        if (existing.Count < 3)
-            throw new InvalidOperationException($"生成角色矢量图至少需要 3 张角色定妆图，当前只有 {existing.Count} 张。");
+        if (existing.Count < MinCharacterCount)
+            throw new InvalidOperationException(
+                $"生成角色矢量图至少需要 {MinCharacterCount} 张角色定妆图，当前只有 {existing.Count} 张。");
+        WriteCharacterManifest(
+            characterDir,
+            existing.Select((path, index) => new GeneratedCharacter(profiles[index], path)).ToList());
         return existing;
     }
 
@@ -285,6 +278,147 @@ public static partial class TikTokReferenceSourcePackageService
 
         return profiles.Values.ToArray();
     }
+
+    internal static CharacterProfile[] NormalizeCharacterProfiles(
+        IEnumerable<CharacterProfile> candidates,
+        string intro = "")
+    {
+        var candidateList = candidates.ToList();
+        if (candidateList.Count > 0 && candidateList.All(profile => IsGenericCharacterName(profile.Name)))
+            candidateList.Clear();
+        var indexed = candidateList
+            .Where(profile => !string.IsNullOrWhiteSpace(profile.Name) && !IsNonCharacterName(profile.Name))
+            .Select((profile, index) => new { Profile = profile, Index = index })
+            .GroupBy(item => NormalizeCharacterName(item.Profile.Name), StringComparer.OrdinalIgnoreCase)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+            .Select(group => group.First())
+            .OrderBy(item => CharacterPriority(item.Profile))
+            .ThenBy(item => item.Index)
+            .Select(item => item.Profile)
+            .Take(MaxCharacterCount)
+            .ToList();
+
+        if (indexed.Count < MinCharacterCount)
+            indexed = AddFallbackCharacters(indexed, intro).Take(MinCharacterCount).ToList();
+        if (indexed.Count is < MinCharacterCount or > MaxCharacterCount)
+            throw new InvalidOperationException(
+                $"角色采集结果必须为 {MinCharacterCount}–{MaxCharacterCount} 人，当前为 {indexed.Count} 人。");
+        return indexed.ToArray();
+    }
+
+    private static IReadOnlyList<string> SelectExistingCharacterImages(
+        string characterDirectory,
+        Action<string>? log)
+    {
+        if (!Directory.Exists(characterDirectory)) return [];
+        var all = Directory.EnumerateFiles(characterDirectory)
+            .Where(IsImage)
+            .ToArray();
+        var manifestPath = Path.Combine(characterDirectory, CharacterManifestFileName);
+        if (File.Exists(manifestPath))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(manifestPath));
+                if (document.RootElement.TryGetProperty("characters", out var entries) &&
+                    entries.ValueKind == JsonValueKind.Array)
+                {
+                    var selected = entries.EnumerateArray()
+                        .OrderBy(entry => entry.TryGetProperty("order", out var order) ? order.GetInt32() : int.MaxValue)
+                        .Select(entry => entry.TryGetProperty("file", out var file) ? file.GetString() : null)
+                        .Where(file => !string.IsNullOrWhiteSpace(file))
+                        .Select(file => Path.Combine(characterDirectory, file!))
+                        .Where(path => File.Exists(path) && IsImage(path))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Take(MaxCharacterCount)
+                        .ToArray();
+                    if (selected.Length >= MinCharacterCount) return selected;
+                }
+            }
+            catch
+            {
+                // 旧清单损坏时按现有文件重建。
+            }
+        }
+
+        var fallback = all
+            .OrderBy(path => CharacterFilePriority(Path.GetFileNameWithoutExtension(path)))
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Take(MaxCharacterCount)
+            .ToArray();
+        if (all.Length > MaxCharacterCount)
+            log?.Invoke($"角色矢量图：角色目录共 {all.Length} 张图片，按重要度限制为 {MaxCharacterCount} 人。");
+        if (fallback.Length >= MinCharacterCount)
+        {
+            WriteCharacterManifest(
+                characterDirectory,
+                fallback.Select(path => new GeneratedCharacter(
+                    new CharacterProfile(Path.GetFileNameWithoutExtension(path), "从旧项目角色目录迁移"),
+                    path)).ToList());
+        }
+        return fallback;
+    }
+
+    private static void WriteCharacterManifest(
+        string characterDirectory,
+        IReadOnlyList<GeneratedCharacter> characters)
+    {
+        var selected = characters
+            .GroupBy(character => Path.GetFullPath(character.Path), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .Take(MaxCharacterCount)
+            .ToArray();
+        if (selected.Length < MinCharacterCount)
+            throw new InvalidOperationException(
+                $"角色清单必须包含 {MinCharacterCount}–{MaxCharacterCount} 人，当前为 {selected.Length} 人。");
+
+        var payload = new
+        {
+            version = "v1",
+            characterCount = selected.Length,
+            characters = selected.Select((character, index) => new
+            {
+                order = index + 1,
+                name = character.Profile.Name,
+                roleType = DescribeCharacterRole(character.Profile),
+                importance = 100 - CharacterPriority(character.Profile) * 20 - index,
+                file = Path.GetFileName(character.Path),
+                isFallback = character.Profile.Description.Contains("补充", StringComparison.OrdinalIgnoreCase) ||
+                             character.Profile.Description.Contains("根据剧情简介塑造", StringComparison.OrdinalIgnoreCase),
+            }),
+        };
+        File.WriteAllText(
+            Path.Combine(characterDirectory, CharacterManifestFileName),
+            JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }),
+            new UTF8Encoding(false));
+    }
+
+    private static string NormalizeCharacterName(string name) =>
+        string.Concat((name ?? string.Empty).Where(char.IsLetterOrDigit));
+
+    private static int CharacterPriority(CharacterProfile profile)
+    {
+        var text = profile.Name + " " + profile.Description;
+        if (text.Contains("男主", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("女主", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("主角", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (text.Contains("核心反派", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("反派", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (text.Contains("关键配角", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("主要配角", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("关键角色", StringComparison.OrdinalIgnoreCase)) return 2;
+        return 3;
+    }
+
+    private static int CharacterFilePriority(string name) => CharacterPriority(new CharacterProfile(name, name));
+
+    private static string DescribeCharacterRole(CharacterProfile profile) => CharacterPriority(profile) switch
+    {
+        0 => "主角",
+        1 => "反派",
+        2 => "关键配角",
+        _ => "主要角色",
+    };
 
     internal static string BuildCharacterPrompt(CharacterProfile profile) =>
         "Use case: photorealistic-natural\n" +

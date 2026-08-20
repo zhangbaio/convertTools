@@ -46,12 +46,18 @@ public sealed class TikTokRoleVectorServiceTests
             result.Should().Be(output);
             TikTokRoleVectorService.HasCurrentOutput(workflow).Should().BeTrue();
             File.Exists(Path.Combine(packageRoot, TikTokRoleVectorService.BackupFileName)).Should().BeTrue();
+            File.Exists(TikTokRoleVectorService.GetStatePath(workflow)).Should().BeTrue();
+            File.Exists(TikTokReferenceSourcePackageService.GetCharacterManifestPath(workflow)).Should().BeTrue();
             logs.Should().Contain(message => message.Contains("不调用图片模型", StringComparison.Ordinal));
             logs.Should().Contain(message => message.Contains("三人居中模板", StringComparison.Ordinal));
 
             var legacy = new QueueProjectItem { ProjectDir = source };
             legacy.NormalizeStepStates();
             legacy.StepStates[QueueStepKeys.GenerateRoleVector].Should().Be(QueueStepStatus.Completed);
+
+            SaveImage(Path.Combine(characterDir, "角色1.png"), 128, 192, new Rgba32(250, 10, 10));
+            TikTokRoleVectorService.HasCurrentOutput(workflow)
+                .Should().BeFalse("参与生成的角色图片变化后状态指纹应失效");
         }
         finally
         {
@@ -67,6 +73,45 @@ public sealed class TikTokRoleVectorServiceTests
         item.NormalizeStepStates();
 
         item.StepStates[QueueStepKeys.GenerateRoleVector].Should().Be(QueueStepStatus.Pending);
+    }
+
+    [Fact]
+    public async Task EnsureCharacterImagesAsync_LimitsExistingDirectoryToSixAndWritesManifest()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"role-vector-character-limit-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "原剧名");
+        var workflow = Path.Combine(workspace, "workflow", "_新剧名");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        WriteMetadata(source, source, workflow);
+        WriteMetadata(workflow, source, workflow);
+        var characterDir = Path.Combine(
+            TikTokReferenceSourcePackageService.GetRoot(workflow),
+            TikTokReferenceSourcePackageService.CharacterDirectoryName);
+        Directory.CreateDirectory(characterDir);
+        for (var index = 1; index <= 7; index++)
+            SaveImage(Path.Combine(characterDir, $"角色{index}.png"), 64, 96, new Rgba32((byte)(index * 25), 70, 90));
+        var logs = new List<string>();
+
+        try
+        {
+            var selected = await TikTokReferenceSourcePackageService.EnsureCharacterImagesAsync(
+                new QueueProjectItem { ProjectDir = source },
+                new ClientSettings(),
+                logs.Add,
+                CancellationToken.None);
+
+            selected.Should().HaveCount(6);
+            Directory.EnumerateFiles(characterDir, "*.png").Should().HaveCount(7, "多余角色图片应保留");
+            logs.Should().Contain(message => message.Contains("限制为 6 人", StringComparison.Ordinal));
+            using var manifest = JsonDocument.Parse(File.ReadAllText(
+                TikTokReferenceSourcePackageService.GetCharacterManifestPath(workflow)));
+            manifest.RootElement.GetProperty("characterCount").GetInt32().Should().Be(6);
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
     }
 
     private static void WriteMetadata(string directory, string source, string workflow)
