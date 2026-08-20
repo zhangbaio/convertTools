@@ -466,8 +466,8 @@
                                         <Border Grid.Column="10" Classes="stepStatusBadge" Background="{Binding EpisodeScriptStatusBackgroundBrush}" BorderBrush="{Binding EpisodeScriptStatusBorderBrush}" ToolTip.Tip="{Binding EpisodeScriptStatus}">
                                             <TextBlock Text="{Binding EpisodeScriptStatus}" Foreground="{Binding EpisodeScriptStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="11" Classes="stepStatusBadge" Background="{Binding ProjectImageStatusBackgroundBrush}" BorderBrush="{Binding ProjectImageStatusBorderBrush}" ToolTip.Tip="{Binding ProjectImageStatus}">
-                                            <TextBlock Text="{Binding ProjectImageStatus}" Foreground="{Binding ProjectImageStatusBrush}" Classes="stepStatusText" />
+                                        <Border Grid.Column="11" Classes="stepStatusBadge" Background="{Binding AiDramaMaterialsStatusBackgroundBrush}" BorderBrush="{Binding AiDramaMaterialsStatusBorderBrush}" ToolTip.Tip="{Binding AiDramaMaterialsStatus}">
+                                            <TextBlock Text="{Binding AiDramaMaterialsStatus}" Foreground="{Binding AiDramaMaterialsStatusBrush}" Classes="stepStatusText" />
                                         </Border>
                                         <Border Grid.Column="12" Classes="stepStatusBadge" Background="{Binding AiScriptOutlineStatusBackgroundBrush}" BorderBrush="{Binding AiScriptOutlineStatusBorderBrush}" ToolTip.Tip="{Binding AiScriptOutlineStatus}">
                                             <TextBlock Text="{Binding AiScriptOutlineStatus}" Foreground="{Binding AiScriptOutlineStatusBrush}" Classes="stepStatusText" />

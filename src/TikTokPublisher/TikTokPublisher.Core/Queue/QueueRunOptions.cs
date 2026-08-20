@@ -25,10 +25,10 @@ public static class QueueStepRegistry
     {
         new QueueStepDefinition(QueueStepKeys.Download, "下载剧集", true),
         new QueueStepDefinition(QueueStepKeys.RewriteInfo, "改写信息", true),
-        new QueueStepDefinition(QueueStepKeys.GenerateAiScriptOutline, "生成AI大纲", true),
         new QueueStepDefinition(QueueStepKeys.GeneratePoster, "生成海报", true),
         new QueueStepDefinition(QueueStepKeys.GenerateEpisodeScript, "生成剧本", true),
         new QueueStepDefinition(QueueStepKeys.GenerateAiDramaMaterials, "生成AI漫剧素材", true),
+        new QueueStepDefinition(QueueStepKeys.GenerateAiScriptOutline, "生成AI大纲", true),
         new QueueStepDefinition(QueueStepKeys.GenerateProjectImages, "生成工程图", true),
         new QueueStepDefinition(QueueStepKeys.GenerateProofMaterial, "生成证明材料", true),
         new QueueStepDefinition(QueueStepKeys.GenerateTimestampCertificate, "生成时间戳", true),

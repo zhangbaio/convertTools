@@ -96,16 +96,22 @@ public sealed class TikTokAiScriptOutlineServiceTests
     }
 
     [Fact]
-    public void QueueStepRegistry_PlacesAiOutlineAfterRewriteAndBeforePoster()
+    public void QueueStepRegistry_FollowsVisibleGenerationOrder()
     {
         var keys = QueueStepRegistry.All.Select(step => step.Key).ToArray();
 
         var rewrite = Array.IndexOf(keys, QueueStepKeys.RewriteInfo);
-        var outline = Array.IndexOf(keys, QueueStepKeys.GenerateAiScriptOutline);
         var poster = Array.IndexOf(keys, QueueStepKeys.GeneratePoster);
+        var script = Array.IndexOf(keys, QueueStepKeys.GenerateEpisodeScript);
+        var aiMaterials = Array.IndexOf(keys, QueueStepKeys.GenerateAiDramaMaterials);
+        var outline = Array.IndexOf(keys, QueueStepKeys.GenerateAiScriptOutline);
+        var proof = Array.IndexOf(keys, QueueStepKeys.GenerateProofMaterial);
 
-        Assert.True(rewrite < outline);
-        Assert.True(outline < poster);
+        Assert.True(rewrite < poster);
+        Assert.True(poster < script);
+        Assert.True(script < aiMaterials);
+        Assert.True(aiMaterials < outline);
+        Assert.True(outline < proof);
         Assert.Contains(QueueStepRegistry.UserSelectable, step => step.Key == QueueStepKeys.GenerateAiScriptOutline);
     }
 

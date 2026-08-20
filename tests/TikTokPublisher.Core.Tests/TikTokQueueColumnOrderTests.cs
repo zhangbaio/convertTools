@@ -27,7 +27,7 @@ public sealed class TikTokQueueColumnOrderTests
         var bindings = new[]
         {
             (7, "DownloadStatus"), (8, "RewriteStatus"), (9, "PosterStatus"),
-            (10, "EpisodeScriptStatus"), (11, "ProjectImageStatus"), (12, "AiScriptOutlineStatus"),
+            (10, "EpisodeScriptStatus"), (11, "AiDramaMaterialsStatus"), (12, "AiScriptOutlineStatus"),
             (13, "ProofMaterialStatus"), (14, "TimestampCertificateStatus"), (15, "RepairStatus"),
             (16, "VideoTranslateStatus"), (17, "SilenceDetectStatus"), (18, "SilenceRepairStatus"),
             (19, "ValidateStatus"), (20, "DeleteSourceStatus"), (21, "UploadStatus"),
