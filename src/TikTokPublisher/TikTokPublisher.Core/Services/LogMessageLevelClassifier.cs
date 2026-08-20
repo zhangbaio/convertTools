@@ -16,8 +16,9 @@ public static partial class LogMessageLevelClassifier
             return "error";
         }
 
+        var warningScanMessage = SafeDuplicateHandlingRegex().Replace(message, "");
         if (ContainsAny(
-                message,
+                warningScanMessage,
                 "警告", "重试", "兜底", "重复", "相似", "不合格", "未发现", "未找到", "缺少",
                 "超时", "warn", "warning", "retry", "timeout"))
         {
@@ -48,4 +49,7 @@ public static partial class LogMessageLevelClassifier
           \s* [：:=]? \s* 0
           (?= \s* (?:$|[，,。；;、）)]) )")]
     private static partial Regex ZeroFailureCountRegex();
+
+    [GeneratedRegex(@"(?:正在|开始|继续|已)?(?:排除|避免|防止|去除)重复(?:人物|角色|文件|项目|记录)?")]
+    private static partial Regex SafeDuplicateHandlingRegex();
 }

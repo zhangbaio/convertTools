@@ -180,6 +180,39 @@ public sealed class TikTokReferenceSourcePackageServiceTests
     }
 
     [Fact]
+    public void Supporting_actor_rejects_body_detail_without_visible_face()
+    {
+        var profiles = TikTokReferenceSourcePackageService.AddFallbackCharacters([], "古装短剧");
+        var candidates = new[]
+        {
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(1, "female", "lead-a", true, 96),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(2, "male", "lead-b", true, 94),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(3, "unknown", "body-detail", true, 99, FaceVisible: false),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(4, "female", "support-c", true, 82),
+        };
+
+        TikTokReferenceSourcePackageService.AssignRoleReferenceCandidates(profiles, candidates)
+            .Should().Equal(1, 2, 4);
+    }
+
+    [Fact]
+    public void Supporting_actor_fails_instead_of_using_body_detail()
+    {
+        var profiles = TikTokReferenceSourcePackageService.AddFallbackCharacters([], "古装短剧");
+        var candidates = new[]
+        {
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(1, "female", "lead-a", true, 96),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(2, "male", "lead-b", true, 94),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(3, "unknown", "body-detail", true, 99, FaceVisible: false),
+        };
+
+        var action = () => TikTokReferenceSourcePackageService.AssignRoleReferenceCandidates(profiles, candidates);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*主要配角*清晰露脸*");
+    }
+
+    [Fact]
     public void Role_reference_assignment_fails_when_supporting_actor_duplicates_the_leads()
     {
         var profiles = new[]
@@ -199,7 +232,7 @@ public sealed class TikTokReferenceSourcePackageServiceTests
         var action = () => TikTokReferenceSourcePackageService.AssignRoleReferenceCandidates(profiles, candidates);
 
         action.Should().Throw<InvalidOperationException>()
-            .WithMessage("*主要配角*不同的第三个人物*");
+            .WithMessage("*主要配角*不同*第三个人物*");
     }
 
     [Fact]
