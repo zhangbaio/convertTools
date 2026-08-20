@@ -293,13 +293,15 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 downloadAttempts: downloadAttempts);
         }
 
-        if (bookId.StartsWith(PikachuBookPrefix, StringComparison.OrdinalIgnoreCase))
+        if (bookId.StartsWith(PikachuBookPrefix, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(settings.DramaSourceChain?.Trim(), "pikachu", StringComparison.OrdinalIgnoreCase))
         {
+            var pikachuBookId = EnsurePrefixed(bookId, PikachuBookPrefix);
             return await DownloadWithProviderAsync(
                 request,
                 progress,
                 cancellationToken,
-                resolveEpisodes: ct => GetPikachuEpisodesAsync(bookId, settings, ct),
+                resolveEpisodes: ct => GetPikachuEpisodesAsync(pikachuBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetPikachuVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: PikachuBookPrefix,
                 validateVideoEncoding: false,
@@ -1450,24 +1452,32 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         var results = new List<DramaSearchItem>();
+        var seenBookIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in searchData.EnumerateArray())
         {
-            if (!item.TryGetProperty("cell_slices", out var cells) || cells.ValueKind != JsonValueKind.Array)
+            var bookInfos = new List<JsonElement>();
+            if (item.TryGetProperty("books", out var books) && books.ValueKind == JsonValueKind.Array)
             {
-                continue;
+                bookInfos.AddRange(books.EnumerateArray().Where(book => book.ValueKind == JsonValueKind.Object));
             }
 
-            foreach (var cell in cells.EnumerateArray())
+            if (item.TryGetProperty("cell_slices", out var cells) && cells.ValueKind == JsonValueKind.Array)
             {
-                if (!cell.TryGetProperty("book_slice", out var bookSlice) ||
-                    !bookSlice.TryGetProperty("book_info", out var info) ||
-                    info.ValueKind != JsonValueKind.Object)
+                foreach (var cell in cells.EnumerateArray())
                 {
-                    continue;
+                    if (cell.TryGetProperty("book_slice", out var bookSlice) &&
+                        bookSlice.TryGetProperty("book_info", out var info) &&
+                        info.ValueKind == JsonValueKind.Object)
+                    {
+                        bookInfos.Add(info);
+                    }
                 }
+            }
 
+            foreach (var info in bookInfos)
+            {
                 var bookId = GetString(info, "book_id");
-                if (string.IsNullOrWhiteSpace(bookId))
+                if (string.IsNullOrWhiteSpace(bookId) || !seenBookIds.Add(bookId))
                 {
                     continue;
                 }

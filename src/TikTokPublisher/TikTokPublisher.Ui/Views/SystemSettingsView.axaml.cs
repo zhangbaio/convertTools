@@ -93,7 +93,7 @@ public partial class SystemSettingsView : UserControl
 
         PikachuTypeCombo.Items.Clear();
         PikachuTypeCombo.Items.Add(CreateItem("红果短剧（类型编号 10）", "short"));
-        PikachuTypeCombo.Items.Add(CreateItem("红果漫画（类型编号 13）", "manga"));
+        PikachuTypeCombo.Items.Add(CreateItem("红果漫剧（类型编号 13，免 Cookie）", "manga"));
         PikachuTypeCombo.SelectionChanged += OnPikachuTypeChanged;
 
         HongguoLocalDownloadModeCombo.Items.Clear();

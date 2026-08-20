@@ -75,6 +75,62 @@ public sealed class PikachuDramaChainTests
     }
 
     [Fact]
+    public async Task Manga_Search_Should_Use_V149_Cookie_Free_Form_And_Parse_Books()
+    {
+        var settings = new DramaSourceSettings
+        {
+            DramaSourceChain = "pikachu",
+            PikachuFanqieCookie = "",
+            PikachuDramaType = "manga"
+        };
+        var handler = new PikachuRecordingHandler(mangaSearchResponse: true);
+        using var httpClient = new HttpClient(handler);
+        var router = new DramaSourceRouter(
+            httpClient,
+            new TestDramaSettingsProvider(settings),
+            new HongguoLocalApiService(httpClient),
+            new HongguoNewApiService(httpClient),
+            new HongguoDramaSearchService(httpClient),
+            new HongguoDramaDownloader(httpClient),
+            new HongguoMemoryReaderService());
+
+        var results = await router.SearchAsync("测试漫剧", 1, CancellationToken.None);
+
+        results.Should().ContainSingle();
+        results[0].Title.Should().Be("保留漫剧");
+        results[0].BookId.Should().Be("pikachu:7672717627424246808");
+        handler.SearchCookie.Should().BeNull();
+        handler.SearchForm["limit"].Should().Be("10");
+        handler.SearchForm["offset"].Should().Be("0");
+        handler.SearchForm["query"].Should().Be("测试漫剧");
+        handler.SearchForm["search_ctx_info"].Should().BeEmpty();
+        handler.SearchForm["search_id"].Should().BeEmpty();
+        handler.SearchForm["sub_tab_type"].Should().Be("31");
+        handler.SearchForm["tab_type"].Should().Be("13");
+        handler.SearchForm["search_entrance"].Should().Contain("\"search_tab_id\":13");
+        handler.SearchContentType.Should().Be("application/x-www-form-urlencoded; charset=utf-8");
+    }
+
+    [Fact]
+    public async Task TestConnectivityAsync_Should_Use_Current_Manga_Mode_Without_Cookie()
+    {
+        var handler = new PikachuRecordingHandler(mangaSearchResponse: true);
+        using var httpClient = new HttpClient(handler);
+
+        var result = await PikachuDramaClient.TestConnectivityAsync(
+            httpClient,
+            serverUrl: null,
+            fanqieCookie: null,
+            dramaType: "manga",
+            deviceId: null,
+            cancellationToken: CancellationToken.None);
+
+        result.SearchOk.Should().BeTrue(result.SearchMessage);
+        result.SearchMessage.Should().Contain("红果漫剧搜索正常");
+        handler.SearchCookie.Should().BeNull();
+    }
+
+    [Fact]
     public async Task SearchAsync_Should_Not_Fallback_To_Pikachu_When_Hglocal_Returns_Empty()
     {
         var settings = new DramaSourceSettings
@@ -109,7 +165,7 @@ public sealed class PikachuDramaChainTests
     }
 
     [Fact]
-    public async Task DownloadAsync_Should_Use_Pikachu_DecryptVideo_Endpoint()
+    public async Task DownloadAsync_Should_Use_Selected_Pikachu_For_Bare_BookId()
     {
         var outputDir = Path.Combine(Path.GetTempPath(), $"pikachu-download-{Guid.NewGuid():N}");
         Directory.CreateDirectory(outputDir);
@@ -144,7 +200,7 @@ public sealed class PikachuDramaChainTests
                 ProjectDir: outputDir,
                 OutputDir: outputDir,
                 DisplayName: "test-drama",
-                BookId: "pikachu:book-1",
+                BookId: "7599558182226119705",
                 Episodes: "1",
                 Quality: "1080P+",
                 Concurrent: 1,
@@ -249,11 +305,15 @@ public sealed class PikachuDramaChainTests
         }
     }
 
-    private sealed class PikachuRecordingHandler(string? decryptKey = null, byte[]? cdnContent = null) : HttpMessageHandler
+    private sealed class PikachuRecordingHandler(
+        string? decryptKey = null,
+        byte[]? cdnContent = null,
+        bool mangaSearchResponse = false) : HttpMessageHandler
     {
         public List<HttpRequestMessage> Requests { get; } = [];
         public string? SearchCookie { get; private set; }
         public IReadOnlyList<string> SearchAccept { get; private set; } = [];
+        public string? SearchContentType { get; private set; }
         public IReadOnlyDictionary<string, string> SearchForm { get; private set; } =
             new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly byte[] _cdnContent = cdnContent ?? [0, 0, 0, 24, 102, 116, 121, 112];
@@ -273,7 +333,30 @@ public sealed class PikachuDramaChainTests
                 SearchAccept = request.Headers.TryGetValues("Accept", out var acceptValues)
                     ? acceptValues.ToArray()
                     : [];
+                SearchContentType = request.Content?.Headers.ContentType?.ToString();
                 SearchForm = ParseForm(await request.Content!.ReadAsStringAsync(cancellationToken));
+                if (mangaSearchResponse)
+                {
+                    return JsonResponse("""
+                        {
+                          "code": 0,
+                          "data": {
+                            "search_data": [
+                              {
+                                "books": [
+                                  {
+                                    "book_id": "7672717627424246808",
+                                    "book_name": "保留漫剧",
+                                    "super_category": "9",
+                                    "serial_count": "69"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                        """);
+                }
                 return JsonResponse("""
                     {
                       "code": 0,
