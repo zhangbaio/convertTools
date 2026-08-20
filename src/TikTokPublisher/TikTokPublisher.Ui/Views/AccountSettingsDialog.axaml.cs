@@ -62,6 +62,12 @@ public partial class AccountSettingsDialog : Window
         TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = p.TiktokProofSealPath;
         ProofCopyrightCompanyNameBox.Text = p.TiktokProofCopyrightCompanyName;
+        EpisodeScriptEpisodeCountBox.Value = Math.Clamp(
+            p.TiktokEpisodeScriptEpisodeCount > 0
+                ? p.TiktokEpisodeScriptEpisodeCount
+                : TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount,
+            1,
+            120);
         AiScriptOutlineEpisodeCountBox.Value = Math.Clamp(
             p.TiktokAiScriptOutlineEpisodeCount > 0
                 ? p.TiktokAiScriptOutlineEpisodeCount
@@ -144,6 +150,10 @@ public partial class AccountSettingsDialog : Window
         p.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
         p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
         p.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
+        p.TiktokEpisodeScriptEpisodeCount = Math.Clamp(
+            (int)(EpisodeScriptEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount),
+            1,
+            120);
         p.TiktokAiScriptOutlineEpisodeCount = Math.Clamp(
             (int)(AiScriptOutlineEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount),
             1,

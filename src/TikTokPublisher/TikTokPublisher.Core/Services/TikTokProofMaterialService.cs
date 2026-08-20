@@ -261,6 +261,7 @@ public sealed class TikTokProofMaterialService
             var scriptPdf = await TikTokEpisodeScriptService.GenerateAsync(
                 item,
                 settings,
+                account,
                 forceRerun: false,
                 log,
                 cancellationToken).ConfigureAwait(false);

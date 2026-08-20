@@ -155,10 +155,7 @@ public static class TikTokSourceFileInfoUploadPackageService
             .Where(path => !Path.GetFileName(path).Equals(
                 TikTokAiScriptOutlineService.OutputFileName,
                 StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(path => Path.GetFileName(path).EndsWith(
-                TikTokEpisodeScriptService.OutputSuffix,
-                StringComparison.OrdinalIgnoreCase))
-            .ThenByDescending(File.GetLastWriteTimeUtc)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
             .FirstOrDefault();
     }
 

@@ -133,6 +133,12 @@ public partial class AccountProfileEditor : UserControl
         TimestampApplicantNameBox.Text = profile.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = profile.TiktokProofSealPath;
         ProofCopyrightCompanyNameBox.Text = profile.TiktokProofCopyrightCompanyName;
+        EpisodeScriptEpisodeCountBox.Value = Math.Clamp(
+            profile.TiktokEpisodeScriptEpisodeCount > 0
+                ? profile.TiktokEpisodeScriptEpisodeCount
+                : TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount,
+            1,
+            120);
         AiScriptOutlineEpisodeCountBox.Value = Math.Clamp(
             profile.TiktokAiScriptOutlineEpisodeCount > 0
                 ? profile.TiktokAiScriptOutlineEpisodeCount
@@ -248,6 +254,10 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
             profile.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
             profile.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
+            profile.TiktokEpisodeScriptEpisodeCount = Math.Clamp(
+                (int)(EpisodeScriptEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount),
+                1,
+                120);
             profile.TiktokAiScriptOutlineEpisodeCount = Math.Clamp(
                 (int)(AiScriptOutlineEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount),
                 1,
@@ -758,6 +768,7 @@ public partial class AccountProfileEditor : UserControl
         ProofDeclarantCompanyNameBox.Text = "";
         ProofSealPathBox.Text = "";
         ProofCopyrightCompanyNameBox.Text = "";
+        EpisodeScriptEpisodeCountBox.Value = TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount;
         AiScriptOutlineEpisodeCountBox.Value = TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount;
         RoleVectorCharacterCountBox.Value = TikTokAccountProfile.DefaultRoleVectorCharacterCount;
         CopyrightMaterials.Clear();

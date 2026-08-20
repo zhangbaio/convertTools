@@ -21,19 +21,22 @@ public static class TikTokEpisodeScriptService
     public static async Task<string> GenerateAsync(
         QueueProjectItem item,
         ClientSettings settings,
+        TikTokAccountProfile? account,
         bool forceRerun,
         Action<string>? log,
         CancellationToken ct)
     {
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        var configuredEpisodeCount = ResolveConfiguredEpisodeCount(account);
         var videos = ProjectVideoResolver.ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
-            .Take(5).ToArray();
+            .Take(configuredEpisodeCount).ToArray();
 
         var title = string.IsNullOrWhiteSpace(item.NewTitle) ? item.Title : item.NewTitle.Trim();
         var synopsis = ResolveSynopsis(item, context);
-        var targetEpisodeCount = videos.Length > 0
-            ? videos.Length
-            : Math.Clamp(item.EpisodeCount > 0 ? item.EpisodeCount : 5, 1, 5);
+        var targetEpisodeCount = ResolveTargetEpisodeCount(
+            account,
+            videos.Length,
+            item.EpisodeCount);
         if (videos.Length == 0 && string.IsNullOrWhiteSpace(synopsis))
             throw new InvalidOperationException("生成剧本失败：项目既没有可用视频，也没有旧简介。");
 
@@ -96,6 +99,26 @@ public static class TikTokEpisodeScriptService
         if (!settings.TiktokProofKeepDocx) TikTokProofMaterialPdfRenderService.TryDelete(outputDocx);
         log?.Invoke($"前{targetEpisodeCount}集剧本已生成：{outputPdf}");
         return outputPdf;
+    }
+
+    internal static int ResolveConfiguredEpisodeCount(TikTokAccountProfile? account)
+    {
+        var configured = account?.TiktokEpisodeScriptEpisodeCount ?? 0;
+        return Math.Clamp(
+            configured > 0 ? configured : TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount,
+            1,
+            120);
+    }
+
+    internal static int ResolveTargetEpisodeCount(
+        TikTokAccountProfile? account,
+        int availableVideoCount,
+        int declaredEpisodeCount)
+    {
+        var configured = ResolveConfiguredEpisodeCount(account);
+        return availableVideoCount > 0
+            ? Math.Min(availableVideoCount, configured)
+            : Math.Clamp(declaredEpisodeCount > 0 ? declaredEpisodeCount : configured, 1, configured);
     }
 
     private static string ResolveSynopsis(QueueProjectItem item, ProjectWorkspaceContext context)

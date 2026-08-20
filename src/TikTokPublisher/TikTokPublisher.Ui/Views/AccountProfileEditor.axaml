@@ -345,7 +345,7 @@
                                    Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid Classes="profileForm"
                               ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="10"
                               ColumnSpacing="10">
                             <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="本公司/声明人" VerticalAlignment="Center" />
@@ -363,11 +363,14 @@
                             <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="致贵方名称" VerticalAlignment="Center" />
                             <TextBox Grid.Row="3" Grid.Column="1" x:Name="ProofCopyrightCompanyNameBox" Watermark="用于“致【…】（下称贵方）”" />
 
-                            <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="AI大纲集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="AiScriptOutlineEpisodeCountBox" Minimum="1" Maximum="120" Value="15" Width="160" HorizontalAlignment="Left" />
+                            <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="剧本集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="EpisodeScriptEpisodeCountBox" Minimum="1" Maximum="120" Value="5" Width="160" HorizontalAlignment="Left" />
 
-                            <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="角色矢量图人数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="RoleVectorCharacterCountBox" Minimum="3" Maximum="6" Value="3" Width="160" HorizontalAlignment="Left" />
+                            <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="AI大纲集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="AiScriptOutlineEpisodeCountBox" Minimum="1" Maximum="120" Value="15" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="角色矢量图人数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="RoleVectorCharacterCountBox" Minimum="3" Maximum="6" Value="3" Width="160" HorizontalAlignment="Left" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

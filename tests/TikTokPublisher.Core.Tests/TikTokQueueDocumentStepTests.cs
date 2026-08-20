@@ -10,6 +10,30 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokQueueDocumentStepTests
 {
+    [Theory]
+    [InlineData(5, 40, 40, 5)]
+    [InlineData(10, 40, 40, 10)]
+    [InlineData(10, 3, 40, 3)]
+    [InlineData(8, 0, 6, 6)]
+    [InlineData(8, 0, 0, 8)]
+    public void Episode_script_count_respects_account_configuration_and_available_episodes(
+        int configured,
+        int availableVideos,
+        int declaredEpisodes,
+        int expected)
+    {
+        var account = new TikTokPublisher.Core.Models.TikTokAccountProfile
+        {
+            TiktokEpisodeScriptEpisodeCount = configured,
+        };
+
+        TikTokEpisodeScriptService.ResolveTargetEpisodeCount(
+                account,
+                availableVideos,
+                declaredEpisodes)
+            .Should().Be(expected);
+    }
+
     [Fact]
     public void Synopsis_script_prompt_does_not_claim_video_or_total_episode_count()
     {
