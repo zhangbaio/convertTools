@@ -1,6 +1,6 @@
 using System.Reflection;
+using System.Text.Encodings.Web;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -14,6 +14,17 @@ public static class TikTokAiScriptOutlineService
 {
     public const string OutputFileName = "AI剧本大纲.pdf";
     private const string TemplateResourceName = "TikTokPublisher.Core.Resources.AiScriptOutlineTemplate.docx";
+    private static readonly string[] ForbiddenDisclosurePhrases =
+    [
+        "部分内容可能由AI生成",
+        "部分内容由AI生成",
+        "本内容由AI生成",
+        "内容由AI生成",
+        "AI生成内容",
+        "AI辅助生成",
+        "由人工智能生成",
+        "人工智能辅助生成",
+    ];
 
     public static async Task<string> GenerateAsync(
         QueueProjectItem item,
@@ -77,19 +88,32 @@ public static class TikTokAiScriptOutlineService
     }
 
     internal static string BuildPrompt(string title, string originalSynopsis, int episodeCount) => $$"""
-        你是专业短剧总编剧。请根据“新剧名”和“改写前的旧简介”扩写一份完整、连贯、可用于项目审核的 AI 剧本大纲。
+        你是专业短剧总编剧。请根据“新剧名”和“改写前的旧简介”，扩写一份完整、连贯、可用于项目审核的阅读型剧本大纲。
+        大纲内容必须采用六部分结构：剧本核心定位、世界观核心设定、核心人物设定、分集剧情大纲、核心爽点与名场面设计、剧本主题内核。
         不得沿用旧剧名，不得改变旧简介中的核心人物关系和主线冲突。仅生成前 {{episodeCount}} 集的分集内容；这不代表项目总集数，不得输出或声明项目总集数。
+        分集剧情应按剧情阶段组织，每个阶段包含核心主线、连续集段剧情和阶段结尾钩子。所有连续集段必须无遗漏、无重复地覆盖第 1 集至第 {{episodeCount}} 集。
+        禁止输出任何 AI 内容声明、AI 生成标注、免责声明、水印、页脚说明或类似文字。
         仅输出合法 JSON，不要 Markdown，不要解释。JSON 结构：
         {
-          "genre":"类型",
-          "style":"影像与叙事风格",
-          "tone":"剧作基调",
-          "synopsis":"完整剧情梗概",
-          "characters":[{"name":"姓名","positioning":"一句话定位","personality":"性格","motivation":"动机","arc":"成长弧线","visual":"视觉方向","props":"关键道具或记忆点"}],
-          "scenes":[{"number":"S01","name":"场景名","function":"场景类型/功能","space":"空间概念方向","mood":"情绪氛围基调","props":"叙事性关键陈设","time":"常见时间/内外景"}],
-          "episodes":[{"number":1,"title":"单集标题","event":"核心事件","hook":"钩子/爽点","foreshadow":"伏笔"}]
+          "genre":"题材类型",
+          "coreSellingPoint":"核心卖点",
+          "logline":"一句话梗概",
+          "worldOverview":"世界背景或故事环境与核心规则概述",
+          "worldRules":[{"title":"规则名称","description":"规则说明"}],
+          "characters":[{"name":"姓名","role":"人物角色","identity":"身份","personality":"性格","ability":"核心能力或资源","motivation":"动机","arc":"人物弧光"}],
+          "storyArcs":[{
+            "title":"阶段名称",
+            "startEpisode":1,
+            "endEpisode":5,
+            "mainline":"阶段核心主线",
+            "episodeGroups":[{"startEpisode":1,"endEpisode":2,"plot":"连续集段核心剧情"}],
+            "endingHook":"阶段结尾钩子"
+          }],
+          "highlights":[{"title":"爽点或名场面名称","description":"具体设计"}],
+          "theme":"剧本主题内核"
         }
-        characters 至少包含主要正反派和关键配角；scenes 至少 5 个；episodes 必须从 1 连续到 {{episodeCount}}，不得缺集。
+        worldRules 至少 3 项；characters 至少包含主要正反派和关键配角；storyArcs 应根据集数合理拆分为多个剧情阶段；highlights 至少 4 项。
+        现实、都市等题材的 worldOverview/worldRules 应写故事环境、社会关系和冲突规则，不得强行套用玄幻修仙术语。
 
         新剧名：{{title}}
         改写前的旧简介：
@@ -117,7 +141,7 @@ public static class TikTokAiScriptOutlineService
         return item.Description.Trim();
     }
 
-    private static AiScriptOutline ParseOutline(string raw, int episodeCount)
+    internal static AiScriptOutline ParseOutline(string raw, int episodeCount)
     {
         var text = raw.Trim();
         if (text.StartsWith("```", StringComparison.Ordinal))
@@ -126,6 +150,8 @@ public static class TikTokAiScriptOutlineService
             var lastFence = text.LastIndexOf("```", StringComparison.Ordinal);
             if (firstLine >= 0 && lastFence > firstLine) text = text[(firstLine + 1)..lastFence].Trim();
         }
+        if (ContainsAiContentDisclosure(text))
+            throw new InvalidOperationException("生成 AI 剧本大纲失败：模型输出包含禁止的 AI 内容标注。");
 
         AiScriptOutline? outline;
         try
@@ -140,12 +166,56 @@ public static class TikTokAiScriptOutlineService
             throw new InvalidOperationException($"生成 AI 剧本大纲失败：模型返回的 JSON 无法解析。{ex.Message}");
         }
 
-        if (outline is null || string.IsNullOrWhiteSpace(outline.Synopsis))
-            throw new InvalidOperationException("生成 AI 剧本大纲失败：模型未返回剧情梗概。");
-        if (outline.Episodes.Count != episodeCount ||
-            outline.Episodes.Select(e => e.Number).Order().SequenceEqual(Enumerable.Range(1, episodeCount)) == false)
-            throw new InvalidOperationException($"生成 AI 剧本大纲失败：分集大纲应为 {episodeCount} 集，实际返回 {outline.Episodes.Count} 集。");
+        if (outline is null ||
+            string.IsNullOrWhiteSpace(outline.Genre) ||
+            string.IsNullOrWhiteSpace(outline.CoreSellingPoint) ||
+            string.IsNullOrWhiteSpace(outline.Logline) ||
+            string.IsNullOrWhiteSpace(outline.WorldOverview) ||
+            string.IsNullOrWhiteSpace(outline.Theme))
+            throw new InvalidOperationException("生成 AI 剧本大纲失败：模型返回的六部分大纲内容不完整。");
+        if (outline.WorldRules.Count == 0 || outline.Characters.Count == 0 ||
+            outline.StoryArcs.Count == 0 || outline.Highlights.Count == 0)
+            throw new InvalidOperationException("生成 AI 剧本大纲失败：规则、人物、剧情阶段或爽点内容缺失。");
+
+        ValidateEpisodeCoverage(outline, episodeCount);
+        if (ContainsAiContentDisclosure(JsonSerializer.Serialize(outline, new JsonSerializerOptions
+            {
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            })))
+            throw new InvalidOperationException("生成 AI 剧本大纲失败：模型输出包含禁止的 AI 内容标注。");
         return outline;
+    }
+
+    private static void ValidateEpisodeCoverage(AiScriptOutline outline, int episodeCount)
+    {
+        var covered = new List<int>();
+        foreach (var arc in outline.StoryArcs)
+        {
+            if (arc.StartEpisode < 1 || arc.EndEpisode < arc.StartEpisode || arc.EndEpisode > episodeCount)
+                throw new InvalidOperationException($"生成 AI 剧本大纲失败：剧情阶段“{arc.Title}”的集数范围无效。");
+            if (arc.EpisodeGroups.Count == 0)
+                throw new InvalidOperationException($"生成 AI 剧本大纲失败：剧情阶段“{arc.Title}”没有分集剧情。");
+
+            foreach (var group in arc.EpisodeGroups)
+            {
+                if (group.StartEpisode < arc.StartEpisode || group.EndEpisode < group.StartEpisode ||
+                    group.EndEpisode > arc.EndEpisode || string.IsNullOrWhiteSpace(group.Plot))
+                    throw new InvalidOperationException($"生成 AI 剧本大纲失败：剧情阶段“{arc.Title}”包含无效的连续集段。");
+                covered.AddRange(Enumerable.Range(group.StartEpisode, group.EndEpisode - group.StartEpisode + 1));
+            }
+        }
+
+        var expected = Enumerable.Range(1, episodeCount).ToArray();
+        if (!covered.Order().SequenceEqual(expected))
+            throw new InvalidOperationException($"生成 AI 剧本大纲失败：分集剧情未无重复地完整覆盖第 1 集至第 {episodeCount} 集。");
+    }
+
+    internal static bool ContainsAiContentDisclosure(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var normalized = string.Concat(value.Where(char.IsLetterOrDigit));
+        return ForbiddenDisclosurePhrases.Any(phrase =>
+            normalized.Contains(string.Concat(phrase.Where(char.IsLetterOrDigit)), StringComparison.OrdinalIgnoreCase));
     }
 
     private static void ExtractTemplate(string outputDocx)
@@ -181,43 +251,62 @@ public static class TikTokAiScriptOutlineService
         var body = main.Document.Body ?? main.Document.AppendChild(new Body());
         var section = body.GetFirstChild<SectionProperties>()?.CloneNode(true);
         body.RemoveAllChildren();
+        var numbering = EnsureNumbering(main);
 
-        body.Append(Heading("项目信息", 32, true));
-        body.Append(Line($"项目名称：{title}"));
-        body.Append(Line($"类型：{outline.Genre}"));
-        body.Append(Line($"风格：{outline.Style}"));
+        body.Append(Title($"《{title}》AI剧本大纲"));
+
+        body.Append(Heading("一、剧本核心定位", 32));
+        body.Append(LabeledLine("题材类型：", outline.Genre));
+        body.Append(LabeledLine("核心卖点：", outline.CoreSellingPoint));
+        body.Append(LabeledLine("一句话梗概：", outline.Logline));
         var aspectRatio = FormatAspectRatio(videoVertical);
-        if (!string.IsNullOrWhiteSpace(aspectRatio))
-            body.Append(Line(aspectRatio));
-        body.Append(Line($"剧作基调：{outline.Tone}"));
+        if (!string.IsNullOrWhiteSpace(aspectRatio)) body.Append(Line(aspectRatio));
 
-        body.Append(Heading("产物一：剧情梗概", 30, true));
-        foreach (var paragraph in SplitParagraphs(outline.Synopsis)) body.Append(Line(paragraph, firstLineIndent: true));
+        body.Append(Heading("二、世界观核心设定（剧本核心规则）", 32));
+        foreach (var paragraph in SplitParagraphs(outline.WorldOverview)) body.Append(Line(paragraph));
+        var worldRuleList = CreateNumberingInstance(numbering.Part, numbering.DecimalAbstractId);
+        foreach (var rule in outline.WorldRules)
+            body.Append(NumberedLabeledLine(rule.Title, rule.Description, worldRuleList));
 
-        body.Append(Heading("产物二：人物小传", 30, true));
+        body.Append(Heading("三、核心人物设定", 32));
+        var characterList = CreateNumberingInstance(numbering.Part, numbering.DecimalAbstractId);
         foreach (var character in outline.Characters)
         {
-            body.Append(Heading(character.Name, 26, false));
-            body.Append(Line($"一句话定位：{character.Positioning}"));
-            body.Append(Line($"性格：{character.Personality}"));
-            body.Append(Line($"动机：{character.Motivation}"));
-            body.Append(Line($"成长弧线：{character.Arc}"));
-            body.Append(Line($"视觉方向：{character.Visual}"));
-            body.Append(Line($"关键道具 / 记忆点：{character.Props}"));
+            var role = string.IsNullOrWhiteSpace(character.Role) ? "" : $"（{character.Role}）";
+            body.Append(NumberedHeading($"{character.Name}{role}", characterList));
+            body.Append(LabeledLine("身份：", character.Identity));
+            body.Append(LabeledLine("性格：", character.Personality));
+            body.Append(LabeledLine("核心能力 / 资源：", character.Ability));
+            body.Append(LabeledLine("人物动机：", character.Motivation));
+            body.Append(LabeledLine("人物弧光：", character.Arc));
         }
 
-        body.Append(Heading("产物三：主要故事场景", 30, true));
-        body.Append(CreateTable(
-            ["场景编号", "场景名称", "场景类型 / 功能", "空间概念方向", "情绪氛围基调", "叙事性关键陈设", "常见时间 / 内外景"],
-            outline.Scenes.Select(s => new[] { s.Number, s.Name, s.Function, s.Space, s.Mood, s.Props, s.Time })));
+        body.Append(Heading("四、分集剧情大纲", 32));
+        foreach (var arc in outline.StoryArcs.OrderBy(arc => arc.StartEpisode))
+        {
+            body.Append(Heading(
+                $"{arc.Title}（{FormatEpisodeRange(arc.StartEpisode, arc.EndEpisode)}）",
+                28));
+            body.Append(LabeledLine("核心主线：", arc.Mainline));
+            body.Append(Heading("分集核心剧情", 24));
+            var episodeList = CreateNumberingInstance(numbering.Part, numbering.BulletAbstractId);
+            foreach (var group in arc.EpisodeGroups.OrderBy(group => group.StartEpisode))
+                body.Append(BulletLabeledLine(
+                    $"{FormatEpisodeRange(group.StartEpisode, group.EndEpisode)}：",
+                    group.Plot,
+                    episodeList));
+            body.Append(LabeledLine("阶段结尾钩子：", arc.EndingHook));
+        }
 
-        body.Append(Heading("产物四：分集大纲", 30, true));
-        body.Append(CreateTable(
-            ["集数", "单集标题", "核心事件", "钩子 / 爽点", "伏笔"],
-            outline.Episodes.OrderBy(e => e.Number)
-                .Select(e => new[] { $"第 {e.Number} 集", e.Title, e.Event, e.Hook, e.Foreshadow })));
+        body.Append(Heading("五、核心爽点与名场面设计", 32));
+        var highlightList = CreateNumberingInstance(numbering.Part, numbering.DecimalAbstractId);
+        foreach (var highlight in outline.Highlights)
+            body.Append(NumberedLabeledLine(highlight.Title, highlight.Description, highlightList));
 
-        if (section is not null) body.Append(section);
+        body.Append(Heading("六、剧本主题内核", 32));
+        foreach (var paragraph in SplitParagraphs(outline.Theme)) body.Append(Line(paragraph, firstLineIndent: true));
+
+        body.Append(ConfigureSection(section as SectionProperties));
         main.Document.Save();
     }
 
@@ -274,59 +363,157 @@ public static class TikTokAiScriptOutlineService
         }
     }
 
-    private static Paragraph Heading(string text, int halfPoints, bool pageBreakBefore)
+    private static Paragraph Title(string text)
     {
         var properties = new ParagraphProperties(
             new KeepNext(),
-            new SpacingBetweenLines { Before = "240", After = "120" });
-        if (pageBreakBefore) properties.Append(new PageBreakBefore());
+            new SpacingBetweenLines { Before = "0", After = "300" });
+        return new Paragraph(properties, Run(text, 44, true));
+    }
+
+    private static Paragraph Heading(string text, int halfPoints)
+    {
+        var properties = new ParagraphProperties(
+            new KeepNext(),
+            new KeepLines(),
+            new SpacingBetweenLines
+            {
+                Before = halfPoints >= 32 ? "360" : halfPoints >= 28 ? "280" : "200",
+                After = halfPoints >= 32 ? "160" : "120",
+            });
         return new Paragraph(properties, Run(text, halfPoints, true));
     }
 
     private static Paragraph Line(string text, bool firstLineIndent = false)
     {
         var properties = new ParagraphProperties(
-            new SpacingBetweenLines { After = "100", Line = "360", LineRule = LineSpacingRuleValues.Auto });
+            new WidowControl(),
+            new SpacingBetweenLines { After = "100", Line = "320", LineRule = LineSpacingRuleValues.Auto });
         if (firstLineIndent) properties.Append(new Indentation { FirstLine = "440" });
         return new Paragraph(properties, Run(text, 22, false));
+    }
+
+    private static Paragraph LabeledLine(string label, string value)
+    {
+        var paragraph = new Paragraph(new ParagraphProperties(
+            new WidowControl(),
+            new SpacingBetweenLines { After = "100", Line = "320", LineRule = LineSpacingRuleValues.Auto }));
+        paragraph.Append(Run(label, 22, true));
+        paragraph.Append(Run(value, 22, false));
+        return paragraph;
+    }
+
+    private static Paragraph NumberedHeading(string text, int numberingId) =>
+        new(ListProperties(numberingId, before: "220", after: "100", keepNext: true), Run(text, 26, true));
+
+    private static Paragraph NumberedLabeledLine(string label, string value, int numberingId)
+    {
+        var paragraph = new Paragraph(ListProperties(numberingId, before: "80", after: "100"));
+        paragraph.Append(Run($"{label}：", 22, true));
+        paragraph.Append(Run(value, 22, false));
+        return paragraph;
+    }
+
+    private static Paragraph BulletLabeledLine(string label, string value, int numberingId)
+    {
+        var paragraph = new Paragraph(ListProperties(numberingId, before: "0", after: "100"));
+        paragraph.Append(Run(label, 22, true));
+        paragraph.Append(Run(value, 22, false));
+        return paragraph;
+    }
+
+    private static ParagraphProperties ListProperties(int numberingId, string before, string after, bool keepNext = false)
+    {
+        var properties = new ParagraphProperties(
+            new WidowControl(),
+            new NumberingProperties(
+                new NumberingLevelReference { Val = 0 },
+                new NumberingId { Val = numberingId }),
+            new SpacingBetweenLines { Before = before, After = after, Line = "320", LineRule = LineSpacingRuleValues.Auto });
+        if (keepNext) properties.Append(new KeepNext());
+        return properties;
     }
 
     private static Run Run(string text, int halfPoints, bool bold)
     {
         var properties = new RunProperties(
-            new RunFonts { EastAsia = "宋体", Ascii = "Calibri", HighAnsi = "Calibri" },
+            new RunFonts { EastAsia = "微软雅黑", Ascii = "Arial", HighAnsi = "Arial" },
             new FontSize { Val = halfPoints.ToString() });
         if (bold) properties.Append(new Bold());
         return new Run(properties, new Text(text ?? "") { Space = SpaceProcessingModeValues.Preserve });
     }
 
-    private static Table CreateTable(IEnumerable<string> headers, IEnumerable<string[]> rows)
+    private static (NumberingDefinitionsPart Part, int BulletAbstractId, int DecimalAbstractId) EnsureNumbering(MainDocumentPart main)
     {
-        var table = new Table(new TableProperties(
-            new TableWidth { Type = TableWidthUnitValues.Pct, Width = "5000" },
-            new TableBorders(
-                new TopBorder { Val = BorderValues.Single, Size = 4 },
-                new BottomBorder { Val = BorderValues.Single, Size = 4 },
-                new LeftBorder { Val = BorderValues.Single, Size = 4 },
-                new RightBorder { Val = BorderValues.Single, Size = 4 },
-                new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4 },
-                new InsideVerticalBorder { Val = BorderValues.Single, Size = 4 })));
-        table.Append(CreateRow(headers, true));
-        foreach (var row in rows) table.Append(CreateRow(row, false));
-        return table;
+        var part = main.NumberingDefinitionsPart ?? main.AddNewPart<NumberingDefinitionsPart>();
+        part.Numbering ??= new Numbering();
+        var nextAbstractId = part.Numbering.Elements<AbstractNum>()
+            .Select(value => value.AbstractNumberId?.Value ?? -1)
+            .DefaultIfEmpty(-1)
+            .Max() + 1;
+        var bulletAbstractId = nextAbstractId;
+        var decimalAbstractId = nextAbstractId + 1;
+
+        part.Numbering.Append(CreateAbstractNumbering(bulletAbstractId, true));
+        part.Numbering.Append(CreateAbstractNumbering(decimalAbstractId, false));
+        part.Numbering.Save();
+        return (part, bulletAbstractId, decimalAbstractId);
     }
 
-    private static TableRow CreateRow(IEnumerable<string> values, bool header)
+    private static AbstractNum CreateAbstractNumbering(int abstractId, bool bullet)
     {
-        var row = new TableRow();
-        foreach (var value in values)
+        var level = new Level(
+            new StartNumberingValue { Val = 1 },
+            new NumberingFormat { Val = bullet ? NumberFormatValues.Bullet : NumberFormatValues.Decimal },
+            new LevelText { Val = bullet ? "•" : "%1、" },
+            new LevelJustification { Val = LevelJustificationValues.Left },
+            new PreviousParagraphProperties(new Indentation { Left = "540", Hanging = "270" }),
+            new NumberingSymbolRunProperties(
+                new RunFonts { EastAsia = "微软雅黑", Ascii = "Arial", HighAnsi = "Arial" },
+                new Color { Val = bullet ? "2563EB" : "1F2937" }))
         {
-            var cellProperties = new TableCellProperties(new TableCellWidth { Type = TableWidthUnitValues.Auto });
-            if (header) cellProperties.Append(new Shading { Val = ShadingPatternValues.Clear, Fill = "D9EAF7" });
-            row.Append(new TableCell(cellProperties, new Paragraph(Run(value, header ? 19 : 18, header))));
-        }
-        return row;
+            LevelIndex = 0,
+        };
+        return new AbstractNum(level) { AbstractNumberId = abstractId };
     }
+
+    private static int CreateNumberingInstance(NumberingDefinitionsPart part, int abstractId)
+    {
+        var nextNumberId = part.Numbering!.Elements<NumberingInstance>()
+            .Select(value => value.NumberID?.Value ?? 0)
+            .DefaultIfEmpty(0)
+            .Max() + 1;
+        part.Numbering.Append(new NumberingInstance(
+            new AbstractNumId { Val = abstractId },
+            new LevelOverride(new StartOverrideNumberingValue { Val = 1 }) { LevelIndex = 0 })
+        {
+            NumberID = nextNumberId,
+        });
+        part.Numbering.Save();
+        return nextNumberId;
+    }
+
+    private static SectionProperties ConfigureSection(SectionProperties? section)
+    {
+        section ??= new SectionProperties();
+        section.RemoveAllChildren<PageSize>();
+        section.RemoveAllChildren<PageMargin>();
+        section.PrependChild(new PageMargin
+        {
+            Top = 1134,
+            Right = 1134,
+            Bottom = 1134,
+            Left = 1134,
+            Header = 708,
+            Footer = 708,
+            Gutter = 0,
+        });
+        section.PrependChild(new PageSize { Width = 11906, Height = 16838, Orient = PageOrientationValues.Portrait });
+        return section;
+    }
+
+    private static string FormatEpisodeRange(int startEpisode, int endEpisode) =>
+        startEpisode == endEpisode ? $"第 {startEpisode} 集" : $"第 {startEpisode}-{endEpisode} 集";
 
     private static IEnumerable<string> SplitParagraphs(string value) =>
         value.Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -338,72 +525,52 @@ public static class TikTokAiScriptOutlineService
 internal sealed class AiScriptOutline
 {
     public string Genre { get; set; } = "";
-    public string Style { get; set; } = "";
-    public string Tone { get; set; } = "";
-    public string Synopsis { get; set; } = "";
+    public string CoreSellingPoint { get; set; } = "";
+    public string Logline { get; set; } = "";
+    public string WorldOverview { get; set; } = "";
+    public List<AiOutlineWorldRule> WorldRules { get; set; } = [];
     public List<AiOutlineCharacter> Characters { get; set; } = [];
-    public List<AiOutlineScene> Scenes { get; set; } = [];
-    public List<AiOutlineEpisode> Episodes { get; set; } = [];
+    public List<AiOutlineStoryArc> StoryArcs { get; set; } = [];
+    public List<AiOutlineHighlight> Highlights { get; set; } = [];
+    public string Theme { get; set; } = "";
+}
+
+internal sealed class AiOutlineWorldRule
+{
+    public string Title { get; set; } = "";
+    public string Description { get; set; } = "";
 }
 
 internal sealed class AiOutlineCharacter
 {
     public string Name { get; set; } = "";
-    public string Positioning { get; set; } = "";
+    public string Role { get; set; } = "";
+    public string Identity { get; set; } = "";
     public string Personality { get; set; } = "";
+    public string Ability { get; set; } = "";
     public string Motivation { get; set; } = "";
     public string Arc { get; set; } = "";
-    public string Visual { get; set; } = "";
-    [JsonConverter(typeof(FlexibleStringJsonConverter))]
-    public string Props { get; set; } = "";
 }
 
-internal sealed class AiOutlineScene
+internal sealed class AiOutlineStoryArc
 {
-    public string Number { get; set; } = "";
-    public string Name { get; set; } = "";
-    public string Function { get; set; } = "";
-    public string Space { get; set; } = "";
-    public string Mood { get; set; } = "";
-    [JsonConverter(typeof(FlexibleStringJsonConverter))]
-    public string Props { get; set; } = "";
-    public string Time { get; set; } = "";
-}
-
-internal sealed class AiOutlineEpisode
-{
-    public int Number { get; set; }
     public string Title { get; set; } = "";
-    public string Event { get; set; } = "";
-    public string Hook { get; set; } = "";
-    public string Foreshadow { get; set; } = "";
+    public int StartEpisode { get; set; }
+    public int EndEpisode { get; set; }
+    public string Mainline { get; set; } = "";
+    public List<AiOutlineEpisodeGroup> EpisodeGroups { get; set; } = [];
+    public string EndingHook { get; set; } = "";
 }
 
-internal sealed class FlexibleStringJsonConverter : JsonConverter<string>
+internal sealed class AiOutlineEpisodeGroup
 {
-    public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        if (reader.TokenType == JsonTokenType.String)
-            return reader.GetString() ?? "";
-        if (reader.TokenType == JsonTokenType.Null)
-            return "";
+    public int StartEpisode { get; set; }
+    public int EndEpisode { get; set; }
+    public string Plot { get; set; } = "";
+}
 
-        using var document = JsonDocument.ParseValue(ref reader);
-        return Format(document.RootElement);
-    }
-
-    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options) =>
-        writer.WriteStringValue(value);
-
-    private static string Format(JsonElement element) => element.ValueKind switch
-    {
-        JsonValueKind.String => element.GetString() ?? "",
-        JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => element.ToString(),
-        JsonValueKind.Array => string.Join("、", element.EnumerateArray()
-            .Select(Format)
-            .Where(value => !string.IsNullOrWhiteSpace(value))),
-        JsonValueKind.Object => string.Join("；", element.EnumerateObject()
-            .Select(property => $"{property.Name}：{Format(property.Value)}")),
-        _ => "",
-    };
+internal sealed class AiOutlineHighlight
+{
+    public string Title { get; set; } = "";
+    public string Description { get; set; } = "";
 }
