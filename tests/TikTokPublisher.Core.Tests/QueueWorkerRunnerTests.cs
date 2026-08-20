@@ -555,6 +555,52 @@ public sealed class QueueWorkerRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_force_rerun_regenerates_completed_proof()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-proof-force-rerun",
+            Name = "proof-force-rerun",
+            TiktokCopyrightMaterialTypes = ["production_agreement"],
+        };
+        var store = CreateAccountStore(account);
+        var item = CreateReadyToUploadItem(1, account);
+        var workflow = ProjectWorkspaceService.EnsureWorkflowProjectDir(item.ProjectDir);
+        var proofPath = TikTokProofMaterialService.GetPdfPath(workflow);
+        File.WriteAllBytes(proofPath, "%PDF-1.7\nold-proof"u8.ToArray());
+        var host = new ImmediatePublishHost();
+        var ensureCalls = 0;
+        QueueProofMaterialPrerequisite ensure = (_, _, _, _) =>
+        {
+            ensureCalls++;
+            File.WriteAllBytes(proofPath, "%PDF-1.7\nregenerated-proof"u8.ToArray());
+            return Task.FromResult(proofPath);
+        };
+
+        var summary = await new QueueWorkerRunner(ensure).RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-force-proof-test"),
+            [item],
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ForceRerunCompletedSteps = true,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.SuccessCount.Should().Be(1);
+        summary.FailedCount.Should().Be(0);
+        ensureCalls.Should().Be(1);
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
+        item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
+        host.BrowserReadyCalls.Should().Be(1);
+    }
+
+    [Fact]
     public async Task RunAsync_upload_only_fails_clearly_when_proof_preparation_fails()
     {
         var account = new TikTokAccountProfile

@@ -893,7 +893,8 @@ public sealed class QueueWorkerRunner
             var proofAlreadyCompleted =
                 item.StepStates.GetValueOrDefault(QueueStepRegistry.GenerateProofMaterial) ==
                 QueueStepStatus.Completed;
-            if (proofAlreadyCompleted)
+            var reuseExistingProof = proofAlreadyCompleted && !options.ForceRerunCompletedSteps;
+            if (reuseExistingProof)
             {
                 Report(
                     onProgress,
@@ -915,10 +916,12 @@ public sealed class QueueWorkerRunner
 
             try
             {
-                var proofPath = await ensureProofMaterial(item, account, uploadLog, ct).ConfigureAwait(false);
+                var proofPath = reuseExistingProof
+                    ? TikTokProofMaterialService.ValidateExistingForUpload(item)
+                    : await ensureProofMaterial(item, account, uploadLog, ct).ConfigureAwait(false);
                 if (!string.IsNullOrWhiteSpace(proofPath))
                     TikTokProofMaterialPdfRenderService.ValidatePdf(proofPath);
-                if (!proofAlreadyCompleted)
+                if (!reuseExistingProof)
                     mutate(() => MarkCompleted(item, QueueStepRegistry.GenerateProofMaterial));
                 Report(
                     onProgress,
