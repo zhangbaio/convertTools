@@ -67,6 +67,12 @@ public partial class AccountSettingsDialog : Window
                 : TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount,
             1,
             120);
+        RoleVectorCharacterCountBox.Value = Math.Clamp(
+            p.TiktokRoleVectorCharacterCount > 0
+                ? p.TiktokRoleVectorCharacterCount
+                : TikTokAccountProfile.DefaultRoleVectorCharacterCount,
+            3,
+            6);
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
@@ -140,6 +146,10 @@ public partial class AccountSettingsDialog : Window
             (int)(AiScriptOutlineEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount),
             1,
             120);
+        p.TiktokRoleVectorCharacterCount = Math.Clamp(
+            (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount),
+            3,
+            6);
         p.TiktokProofAccountConfigMigrated = true;
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;

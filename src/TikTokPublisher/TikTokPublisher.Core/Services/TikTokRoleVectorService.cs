@@ -21,6 +21,9 @@ public static class TikTokRoleVectorService
         Path.Combine(TikTokReferenceSourcePackageService.GetRoot(workflowProjectDirectory), StateFileName);
 
     public static bool HasCurrentOutput(string workflowProjectDirectory)
+        => HasCurrentOutput(workflowProjectDirectory, configuredCharacterCount: null);
+
+    public static bool HasCurrentOutput(string workflowProjectDirectory, int? configuredCharacterCount)
     {
         var path = GetOutputPath(workflowProjectDirectory);
         if (!File.Exists(path)) return false;
@@ -30,7 +33,7 @@ public static class TikTokRoleVectorService
             return info is not null &&
                    info.Width == RoleVectorTemplateRenderer.CanvasWidth &&
                    info.Height == RoleVectorTemplateRenderer.CanvasHeight &&
-                   ValidateState(workflowProjectDirectory, path);
+                   ValidateState(workflowProjectDirectory, path, configuredCharacterCount);
         }
         catch
         {
@@ -41,15 +44,18 @@ public static class TikTokRoleVectorService
     public static async Task<string> GenerateAsync(
         QueueProjectItem item,
         ClientSettings settings,
+        int configuredCharacterCount,
         bool forceRerun,
         Action<string>? log,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
+        configuredCharacterCount = TikTokReferenceSourcePackageService.NormalizeConfiguredCharacterCount(
+            configuredCharacterCount);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var output = GetOutputPath(context.WorkflowProjectDir);
-        if (!forceRerun && HasCurrentOutput(context.WorkflowProjectDir))
+        if (!forceRerun && HasCurrentOutput(context.WorkflowProjectDir, configuredCharacterCount))
         {
             log?.Invoke($"角色矢量图已存在且尺寸正确，跳过生成：{output}");
             return output;
@@ -62,9 +68,10 @@ public static class TikTokRoleVectorService
             settings,
             forceRerun: false,
             log,
-            ct).ConfigureAwait(false);
+            ct,
+            configuredCharacterCount).ConfigureAwait(false);
         var characters = await TikTokReferenceSourcePackageService.EnsureCharacterImagesAsync(
-            item, settings, log, ct).ConfigureAwait(false);
+            item, settings, configuredCharacterCount, log, ct).ConfigureAwait(false);
         var sceneSources = await TikTokReferenceSourcePackageService.ResolveSceneSourcesAsync(
             context, root, log, ct).ConfigureAwait(false);
         if (sceneSources.Count == 0)
@@ -85,8 +92,15 @@ public static class TikTokRoleVectorService
             6 => "左三右三模板",
             _ => throw new InvalidOperationException("角色矢量图模板人数无效。"),
         };
+        if (usedCharacters.Length < configuredCharacterCount)
+        {
+            log?.Invoke(
+                $"角色矢量图：有效人物未达到账号配置的 {configuredCharacterCount} 人，" +
+                $"回退到 {TikTokReferenceSourcePackageService.MinCharacterCount} 人模板。");
+        }
         log?.Invoke(
-            $"角色矢量图：检测到 {usedCharacters.Length} 个角色，使用{templateDescription}；" +
+            $"角色矢量图：账号配置 {configuredCharacterCount} 人，最终选择 {usedCharacters.Length} 人，" +
+            $"使用{templateDescription}；" +
             $"真实参考帧 {sceneSources.Count} 张。");
 
         var temporary = Path.Combine(root, $".{Path.GetFileNameWithoutExtension(OutputFileName)}.{Guid.NewGuid():N}.tmp.png");
@@ -106,7 +120,12 @@ public static class TikTokRoleVectorService
             if (File.Exists(output))
                 File.Copy(output, Path.Combine(root, BackupFileName), overwrite: true);
             File.Move(temporary, output, overwrite: true);
-            WriteState(context.WorkflowProjectDir, output, usedCharacters, sceneSources);
+            WriteState(
+                context.WorkflowProjectDir,
+                output,
+                configuredCharacterCount,
+                usedCharacters,
+                sceneSources);
             log?.Invoke($"角色矢量图生成完成：{info.Width}×{info.Height} → {output}");
             return output;
         }
@@ -119,6 +138,7 @@ public static class TikTokRoleVectorService
     private static void WriteState(
         string workflowProjectDirectory,
         string output,
+        int configuredCharacterCount,
         IReadOnlyList<string> characters,
         IReadOnlyList<string> references)
     {
@@ -128,6 +148,7 @@ public static class TikTokRoleVectorService
         var payload = new
         {
             version = StateVersion,
+            configuredCount = configuredCharacterCount,
             characterCount = characters.Count,
             templateResource = layout.ResourceName,
             outputSha256 = ComputeSha256(output),
@@ -151,7 +172,10 @@ public static class TikTokRoleVectorService
             new UTF8Encoding(false));
     }
 
-    private static bool ValidateState(string workflowProjectDirectory, string output)
+    private static bool ValidateState(
+        string workflowProjectDirectory,
+        string output,
+        int? expectedConfiguredCharacterCount)
     {
         var statePath = GetStatePath(workflowProjectDirectory);
         if (!File.Exists(statePath)) return false;
@@ -160,6 +184,10 @@ public static class TikTokRoleVectorService
             using var document = JsonDocument.Parse(File.ReadAllText(statePath));
             var rootElement = document.RootElement;
             if (rootElement.GetProperty("version").GetString() != StateVersion) return false;
+            var configuredCount = rootElement.GetProperty("configuredCount").GetInt32();
+            if (expectedConfiguredCharacterCount.HasValue &&
+                configuredCount != TikTokReferenceSourcePackageService.NormalizeConfiguredCharacterCount(
+                    expectedConfiguredCharacterCount.Value)) return false;
             var characterCount = rootElement.GetProperty("characterCount").GetInt32();
             if (characterCount is < TikTokReferenceSourcePackageService.MinCharacterCount or
                 > TikTokReferenceSourcePackageService.MaxCharacterCount) return false;

@@ -270,7 +270,9 @@ public sealed class TikTokProofMaterialService
                 settings,
                 forceRerun: false,
                 log,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                account?.TiktokRoleVectorCharacterCount ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount)
+                .ConfigureAwait(false);
             if (!TikTokRoleVectorService.HasCurrentOutput(context.WorkflowProjectDir))
             {
                 throw new InvalidOperationException(

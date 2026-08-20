@@ -41,10 +41,18 @@ public sealed class TikTokRoleVectorServiceTests
         try
         {
             var result = await TikTokRoleVectorService.GenerateAsync(
-                item, new ClientSettings(), forceRerun: true, logs.Add, CancellationToken.None);
+                item,
+                new ClientSettings(),
+                TikTokAccountProfile.DefaultRoleVectorCharacterCount,
+                forceRerun: true,
+                logs.Add,
+                CancellationToken.None);
 
             result.Should().Be(output);
             TikTokRoleVectorService.HasCurrentOutput(workflow).Should().BeTrue();
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 3).Should().BeTrue();
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 4)
+                .Should().BeFalse("账号配置人数变化后状态指纹应失效");
             File.Exists(Path.Combine(packageRoot, TikTokRoleVectorService.BackupFileName)).Should().BeTrue();
             File.Exists(TikTokRoleVectorService.GetStatePath(workflow)).Should().BeTrue();
             File.Exists(TikTokReferenceSourcePackageService.GetCharacterManifestPath(workflow)).Should().BeTrue();
@@ -98,6 +106,7 @@ public sealed class TikTokRoleVectorServiceTests
             var selected = await TikTokReferenceSourcePackageService.EnsureCharacterImagesAsync(
                 new QueueProjectItem { ProjectDir = source },
                 new ClientSettings(),
+                6,
                 logs.Add,
                 CancellationToken.None);
 
@@ -112,6 +121,23 @@ public sealed class TikTokRoleVectorServiceTests
         {
             if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData(6, 6, 6)]
+    [InlineData(5, 6, 3)]
+    [InlineData(5, 5, 5)]
+    [InlineData(4, 5, 3)]
+    [InlineData(4, 4, 4)]
+    [InlineData(3, 6, 3)]
+    [InlineData(8, 6, 6)]
+    public void ResolveSelectedCharacterCount_UsesConfiguredCountOrMinimumFallback(
+        int candidates,
+        int configured,
+        int expected)
+    {
+        TikTokReferenceSourcePackageService.ResolveSelectedCharacterCount(candidates, configured)
+            .Should().Be(expected);
     }
 
     private static void WriteMetadata(string directory, string source, string workflow)

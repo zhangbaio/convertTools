@@ -138,6 +138,12 @@ public partial class AccountProfileEditor : UserControl
                 : TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount,
             1,
             120);
+        RoleVectorCharacterCountBox.Value = Math.Clamp(
+            profile.TiktokRoleVectorCharacterCount > 0
+                ? profile.TiktokRoleVectorCharacterCount
+                : TikTokAccountProfile.DefaultRoleVectorCharacterCount,
+            3,
+            6);
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
@@ -244,6 +250,10 @@ public partial class AccountProfileEditor : UserControl
                 (int)(AiScriptOutlineEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount),
                 1,
                 120);
+            profile.TiktokRoleVectorCharacterCount = Math.Clamp(
+                (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount),
+                3,
+                6);
             profile.TiktokProofAccountConfigMigrated = true;
             profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
@@ -747,6 +757,7 @@ public partial class AccountProfileEditor : UserControl
         ProofSealPathBox.Text = "";
         ProofCopyrightCompanyNameBox.Text = "";
         AiScriptOutlineEpisodeCountBox.Value = TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount;
+        RoleVectorCharacterCountBox.Value = TikTokAccountProfile.DefaultRoleVectorCharacterCount;
         CopyrightMaterials.Clear();
         ZeroCostAdsBox.IsChecked = false;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;

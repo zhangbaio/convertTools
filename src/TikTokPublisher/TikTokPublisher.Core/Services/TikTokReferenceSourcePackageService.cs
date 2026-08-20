@@ -72,11 +72,13 @@ public static partial class TikTokReferenceSourcePackageService
         ClientSettings settings,
         bool forceRerun,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        int configuredCharacterCount = TikTokAccountProfile.DefaultRoleVectorCharacterCount)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
         var root = GetRoot(context.WorkflowProjectDir);
         var title = FirstNonEmpty(item.NewTitle, item.Title, item.OriginalTitle, Path.GetFileName(context.SourceProjectDir));
         var originalTitle = FirstNonEmpty(item.OriginalTitle, item.DisplayName, title);
@@ -93,7 +95,7 @@ public static partial class TikTokReferenceSourcePackageService
 
         var existingCharacterDir = Path.Combine(root, CharacterDirectoryName);
         var reusableCharacterPaths = !forceRerun && Directory.Exists(existingCharacterDir)
-            ? SelectExistingCharacterImages(existingCharacterDir, log).ToArray()
+            ? SelectExistingCharacterImages(existingCharacterDir, log, configuredCharacterCount).ToArray()
             : [];
         var reuseCharacters = reusableCharacterPaths.Length >= MinCharacterCount;
         if (!reuseCharacters) EnsureImageModelConfigured(settings);
@@ -115,7 +117,8 @@ public static partial class TikTokReferenceSourcePackageService
         }
         else
         {
-            var characters = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
+            var candidates = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
+            var characters = SelectCharacterProfiles(candidates, configuredCharacterCount);
 
             log?.Invoke($"参考格式素材包：识别 {characters.Length} 个主要角色，开始调用图片模型生成真人定妆图。");
             foreach (var (character, index) in characters.Select((value, index) => (value, index)))
@@ -128,8 +131,12 @@ public static partial class TikTokReferenceSourcePackageService
                 await SaveNormalizedPngAsync(bytes, output, 768, 1024, ct).ConfigureAwait(false);
                 generatedCharacters.Add(new GeneratedCharacter(character, output));
             }
+            WriteCharacterManifest(
+                characterDir,
+                generatedCharacters,
+                configuredCharacterCount,
+                candidates.Length);
         }
-        WriteCharacterManifest(characterDir, generatedCharacters);
 
         var videos = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).ToArray();
         LinkVideos(videos, videoDir, materialDir, title, ct);
@@ -190,15 +197,17 @@ public static partial class TikTokReferenceSourcePackageService
     internal static async Task<IReadOnlyList<string>> EnsureCharacterImagesAsync(
         QueueProjectItem item,
         ClientSettings settings,
+        int configuredCharacterCount,
         Action<string>? log,
         CancellationToken ct)
     {
+        configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var root = GetRoot(context.WorkflowProjectDir);
         var characterDir = Path.Combine(root, CharacterDirectoryName);
         Directory.CreateDirectory(characterDir);
 
-        var existing = SelectExistingCharacterImages(characterDir, log).ToList();
+        var existing = SelectExistingCharacterImages(characterDir, log, configuredCharacterCount).ToList();
         if (existing.Count >= MinCharacterCount)
         {
             log?.Invoke($"角色矢量图：复用现有角色定妆图 {existing.Count} 张，不调用图片模型。");
@@ -209,7 +218,8 @@ public static partial class TikTokReferenceSourcePackageService
         var title = FirstNonEmpty(item.NewTitle, item.Title, item.OriginalTitle, Path.GetFileName(context.SourceProjectDir));
         var intro = ResolveIntro(item, context);
         var script = ReadProjectScript(context, title, intro);
-        var profiles = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
+        var candidates = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
+        var profiles = SelectCharacterProfiles(candidates, configuredCharacterCount);
 
         foreach (var (profile, index) in profiles.Select((value, index) => (value, index)))
         {
@@ -232,7 +242,9 @@ public static partial class TikTokReferenceSourcePackageService
                 $"生成角色矢量图至少需要 {MinCharacterCount} 张角色定妆图，当前只有 {existing.Count} 张。");
         WriteCharacterManifest(
             characterDir,
-            existing.Select((path, index) => new GeneratedCharacter(profiles[index], path)).ToList());
+            existing.Select((path, index) => new GeneratedCharacter(profiles[index], path)).ToList(),
+            configuredCharacterCount,
+            candidates.Length);
         return existing;
     }
 
@@ -306,14 +318,43 @@ public static partial class TikTokReferenceSourcePackageService
         return indexed.ToArray();
     }
 
+    internal static int NormalizeConfiguredCharacterCount(int value) =>
+        Math.Clamp(
+            value > 0 ? value : TikTokAccountProfile.DefaultRoleVectorCharacterCount,
+            MinCharacterCount,
+            MaxCharacterCount);
+
+    internal static int ResolveSelectedCharacterCount(int candidateCount, int configuredCharacterCount)
+    {
+        configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
+        if (candidateCount < MinCharacterCount) return MinCharacterCount;
+        return candidateCount >= configuredCharacterCount
+            ? configuredCharacterCount
+            : MinCharacterCount;
+    }
+
+    private static CharacterProfile[] SelectCharacterProfiles(
+        IReadOnlyList<CharacterProfile> candidates,
+        int configuredCharacterCount)
+    {
+        var selectedCount = ResolveSelectedCharacterCount(candidates.Count, configuredCharacterCount);
+        if (candidates.Count < selectedCount)
+            throw new InvalidOperationException(
+                $"角色候选不足：配置 {configuredCharacterCount} 人，最低需要 {selectedCount} 人，当前只有 {candidates.Count} 人。");
+        return candidates.Take(selectedCount).ToArray();
+    }
+
     private static IReadOnlyList<string> SelectExistingCharacterImages(
         string characterDirectory,
-        Action<string>? log)
+        Action<string>? log,
+        int configuredCharacterCount)
     {
         if (!Directory.Exists(characterDirectory)) return [];
         var all = Directory.EnumerateFiles(characterDirectory)
             .Where(IsImage)
             .ToArray();
+        configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
+        var ordered = new List<string>();
         var manifestPath = Path.Combine(characterDirectory, CharacterManifestFileName);
         if (File.Exists(manifestPath))
         {
@@ -323,16 +364,13 @@ public static partial class TikTokReferenceSourcePackageService
                 if (document.RootElement.TryGetProperty("characters", out var entries) &&
                     entries.ValueKind == JsonValueKind.Array)
                 {
-                    var selected = entries.EnumerateArray()
+                    ordered.AddRange(entries.EnumerateArray()
                         .OrderBy(entry => entry.TryGetProperty("order", out var order) ? order.GetInt32() : int.MaxValue)
                         .Select(entry => entry.TryGetProperty("file", out var file) ? file.GetString() : null)
                         .Where(file => !string.IsNullOrWhiteSpace(file))
                         .Select(file => Path.Combine(characterDirectory, file!))
                         .Where(path => File.Exists(path) && IsImage(path))
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .Take(MaxCharacterCount)
-                        .ToArray();
-                    if (selected.Length >= MinCharacterCount) return selected;
+                        .Distinct(StringComparer.OrdinalIgnoreCase));
                 }
             }
             catch
@@ -341,27 +379,38 @@ public static partial class TikTokReferenceSourcePackageService
             }
         }
 
-        var fallback = all
+        ordered.AddRange(all
             .OrderBy(path => CharacterFilePriority(Path.GetFileNameWithoutExtension(path)))
             .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
-            .Take(MaxCharacterCount)
-            .ToArray();
+            .Where(path => !ordered.Contains(path, StringComparer.OrdinalIgnoreCase)));
         if (all.Length > MaxCharacterCount)
             log?.Invoke($"角色矢量图：角色目录共 {all.Length} 张图片，按重要度限制为 {MaxCharacterCount} 人。");
-        if (fallback.Length >= MinCharacterCount)
+        if (ordered.Count < MinCharacterCount) return ordered;
+
+        var selectedCount = ResolveSelectedCharacterCount(ordered.Count, configuredCharacterCount);
+        var selectedPaths = ordered.Take(selectedCount).ToArray();
+        var fallbackToMinimum = ordered.Count < configuredCharacterCount;
+        if (fallbackToMinimum)
         {
-            WriteCharacterManifest(
-                characterDirectory,
-                fallback.Select(path => new GeneratedCharacter(
-                    new CharacterProfile(Path.GetFileNameWithoutExtension(path), "从旧项目角色目录迁移"),
-                    path)).ToList());
+            log?.Invoke(
+                $"角色矢量图：配置 {configuredCharacterCount} 人，现有有效角色图 {ordered.Count} 张，" +
+                $"未达到配置数量，回退到 {MinCharacterCount} 人。");
         }
-        return fallback;
+        WriteCharacterManifest(
+            characterDirectory,
+            selectedPaths.Select(path => new GeneratedCharacter(
+                new CharacterProfile(Path.GetFileNameWithoutExtension(path), "从现有角色目录选择"),
+                path)).ToList(),
+            configuredCharacterCount,
+            ordered.Count);
+        return selectedPaths;
     }
 
     private static void WriteCharacterManifest(
         string characterDirectory,
-        IReadOnlyList<GeneratedCharacter> characters)
+        IReadOnlyList<GeneratedCharacter> characters,
+        int configuredCharacterCount,
+        int candidateCount)
     {
         var selected = characters
             .GroupBy(character => Path.GetFullPath(character.Path), StringComparer.OrdinalIgnoreCase)
@@ -374,7 +423,14 @@ public static partial class TikTokReferenceSourcePackageService
 
         var payload = new
         {
-            version = "v1",
+            version = "v2-configured-count",
+            configuredCount = NormalizeConfiguredCharacterCount(configuredCharacterCount),
+            candidateCount,
+            selectedCount = selected.Length,
+            fallbackToMinimum = candidateCount < NormalizeConfiguredCharacterCount(configuredCharacterCount),
+            fallbackReason = candidateCount < NormalizeConfiguredCharacterCount(configuredCharacterCount)
+                ? $"有效人物数 {candidateCount} 未达到配置人数 {NormalizeConfiguredCharacterCount(configuredCharacterCount)}，回退至 {MinCharacterCount} 人"
+                : string.Empty,
             characterCount = selected.Length,
             characters = selected.Select((character, index) => new
             {

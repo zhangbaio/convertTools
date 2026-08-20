@@ -1142,7 +1142,12 @@ public sealed class QueueWorkerRunner
                 break;
             case QueueStepRegistry.GenerateRoleVector:
                 await TikTokRoleVectorService.GenerateAsync(
-                    item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
+                    item,
+                    settings,
+                    account?.TiktokRoleVectorCharacterCount ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount,
+                    options.ForceRerunCompletedSteps,
+                    log,
+                    ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateProjectImages:
                 await TikTokProjectImageService.GenerateAsync(
@@ -1261,6 +1266,21 @@ public sealed class QueueWorkerRunner
             TikTokProjectImageService.NeedsGenerateProjectImages(item, ClientSettingsStore.Load()))
         {
             return true;
+        }
+        if (stepKey == QueueStepRegistry.GenerateRoleVector &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed)
+        {
+            try
+            {
+                var workflow = ProjectWorkspaceService.ResolveWorkflowProjectDir(item.ProjectDir);
+                var configuredCount = account?.TiktokRoleVectorCharacterCount ??
+                                      TikTokAccountProfile.DefaultRoleVectorCharacterCount;
+                if (!TikTokRoleVectorService.HasCurrentOutput(workflow, configuredCount)) return true;
+            }
+            catch
+            {
+                return true;
+            }
         }
         return item.StepStates.GetValueOrDefault(stepKey) is not
             (QueueStepStatus.Completed or QueueStepStatus.Skipped);

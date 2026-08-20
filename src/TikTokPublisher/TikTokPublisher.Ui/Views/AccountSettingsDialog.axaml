@@ -214,7 +214,7 @@
                         <TextBlock Text="这些公司与印章信息仅用于当前账号生成的权利声明。"
                                    Foreground="#6B7280" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="130,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="10"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本公司/声明人" VerticalAlignment="Center" />
@@ -234,6 +234,9 @@
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="AI大纲集数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="AiScriptOutlineEpisodeCountBox" Minimum="1" Maximum="120" Value="15" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="角色矢量图人数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="RoleVectorCharacterCountBox" Minimum="3" Maximum="6" Value="3" Width="160" HorizontalAlignment="Left" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>
