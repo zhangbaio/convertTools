@@ -9,6 +9,34 @@ namespace ShortDrama.Infrastructure.Tests.Desktop;
 public sealed class HongguoMemoryReaderServiceTests
 {
     [Fact]
+    public void LooksLikeHongguoProcessIdentity_Should_Ignore_Aria2_In_Hongguo_Directory()
+    {
+        var result = HongguoMemoryReaderService.LooksLikeHongguoProcessIdentity(
+            "aria2c",
+            string.Empty,
+            @"C:\Users\PC\AppData\Local\HongguoHighDownloader\tools\aria2c.exe");
+
+        result.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("红果下载器v1.4.9-alipay", "", @"C:\Downloads\红果下载器v1.4.9-alipay.exe")]
+    [InlineData("app", "聚合短剧盒子 1.4.9", @"C:\Downloads\app.exe")]
+    [InlineData("app", "", @"C:\Downloads\hongguo-client.exe")]
+    public void LooksLikeHongguoProcessIdentity_Should_Recognize_Main_Client(
+        string processName,
+        string mainWindowTitle,
+        string executablePath)
+    {
+        var result = HongguoMemoryReaderService.LooksLikeHongguoProcessIdentity(
+            processName,
+            mainWindowTitle,
+            executablePath);
+
+        result.Should().BeTrue();
+    }
+
+    [Fact]
     public void ExtractDeviceId_Should_Find_Hongguo_DeviceId()
     {
         var bytes = Encoding.Latin1.GetBytes("prefix HG0123456789ABCDEF suffix");
