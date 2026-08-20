@@ -138,7 +138,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     public IReadOnlyList<string> AsrEngineOptions { get; } = ["volcengine", "local", "hybrid"];
     public IReadOnlyList<string> SilenceRepairModeOptions { get; } = ["auto", "trim", "speedup"];
-    public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
+    public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["manga"];
     public IReadOnlyList<string> PosterModeOptions { get; } = [ClientSettingsDefaults.PosterMode];
     public IReadOnlyList<string> ImageProviderOptions { get; } = ["doubao", "ofox_image2"];
     public IReadOnlyList<string> PosterTitleVerifyModeOptions { get; } = ["fallback_repaint", "warn", "blocking"];
@@ -185,7 +185,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(HongguoLocalTranscodeEngine),
         PikachuServerUrl = PikachuServerUrl.Trim(),
         PikachuFanqieCookie = PikachuFanqieCookie.Trim(),
-        PikachuDramaType = PikachuDramaType,
+        PikachuDramaType = "manga",
         PikachuDeviceId = PikachuDeviceId.Trim(),
         PikachuClientVersion = string.IsNullOrWhiteSpace(PikachuClientVersion) ? "1.4.4" : PikachuClientVersion.Trim(),
         TiktokSilenceAsrEngine = TiktokSilenceAsrEngine,
@@ -633,7 +633,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine);
         PikachuServerUrl = settings.PikachuServerUrl;
         PikachuFanqieCookie = settings.PikachuFanqieCookie;
-        PikachuDramaType = settings.PikachuDramaType;
+        PikachuDramaType = "manga";
         PikachuDeviceId = settings.PikachuDeviceId;
         PikachuClientVersion = settings.PikachuClientVersion;
         TiktokSilenceAsrEngine = settings.TiktokSilenceAsrEngine;

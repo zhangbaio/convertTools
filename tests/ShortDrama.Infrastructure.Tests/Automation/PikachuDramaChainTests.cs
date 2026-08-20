@@ -29,49 +29,15 @@ public sealed class PikachuDramaChainTests
             cancellationToken: CancellationToken.None);
 
         result.DetailOk.Should().BeTrue();
+        result.SearchOk.Should().BeTrue(result.SearchMessage);
+        handler.SearchCookie.Should().BeNull();
+        handler.SearchForm["search_entrance"].Should().Contain("\"search_tab_id\":13");
         handler.Requests.Should().Contain(request =>
             request.RequestUri!.ToString() == "https://startvlog.cn/start-prod-api/api/drama/hongguo/detail");
         handler.Requests.Should().Contain(request =>
             request.RequestUri!.ToString() == "https://startvlog.cn/start-prod-api/api/drama/hongguo/decryptVideo");
         handler.Requests.Should().NotContain(request =>
             request.RequestUri!.AbsolutePath.EndsWith("/api/drama/hongguo/video", StringComparison.OrdinalIgnoreCase));
-    }
-
-    [Fact]
-    public async Task SearchAsync_Should_Repair_Cookie_And_Filter_Non_Drama_Results()
-    {
-        var cleanCookie = BuildFanqieCookie();
-        var settings = new DramaSourceSettings
-        {
-            DramaSourceChain = "pikachu",
-            PikachuFanqieCookie = $"{cleanCookie}\0\b\u0003metadata",
-            PikachuDramaType = "short"
-        };
-        var handler = new PikachuRecordingHandler();
-        using var httpClient = new HttpClient(handler);
-        var router = new DramaSourceRouter(
-            httpClient,
-            new TestDramaSettingsProvider(settings),
-            new HongguoLocalApiService(httpClient),
-            new HongguoNewApiService(httpClient),
-            new HongguoDramaSearchService(httpClient),
-            new HongguoDramaDownloader(httpClient),
-            new HongguoMemoryReaderService());
-
-        var results = await router.SearchAsync("  测试短剧  ", 1, CancellationToken.None);
-
-        results.Select(item => item.Title).Should().Equal("保留短剧", "兼容旧短剧");
-        results.Select(item => item.BookId).Should().Equal(
-            "pikachu:7599558182226119705",
-            "pikachu:7599558182226119708");
-        handler.SearchCookie.Should().Be(cleanCookie);
-        handler.SearchAccept.Should().Contain("*/*");
-        handler.SearchForm["limit"].Should().Be("20");
-        handler.SearchForm["offset"].Should().Be("0");
-        handler.SearchForm["query"].Should().Be("测试短剧");
-
-        using var searchContext = JsonDocument.Parse(handler.SearchForm["search_ctx_info"]);
-        searchContext.RootElement.GetProperty("search_tab_id").GetInt32().Should().Be(10);
     }
 
     [Fact]
@@ -112,25 +78,6 @@ public sealed class PikachuDramaChainTests
     }
 
     [Fact]
-    public async Task TestConnectivityAsync_Should_Use_Current_Manga_Mode_Without_Cookie()
-    {
-        var handler = new PikachuRecordingHandler(mangaSearchResponse: true);
-        using var httpClient = new HttpClient(handler);
-
-        var result = await PikachuDramaClient.TestConnectivityAsync(
-            httpClient,
-            serverUrl: null,
-            fanqieCookie: null,
-            dramaType: "manga",
-            deviceId: null,
-            cancellationToken: CancellationToken.None);
-
-        result.SearchOk.Should().BeTrue(result.SearchMessage);
-        result.SearchMessage.Should().Contain("红果漫剧搜索正常");
-        handler.SearchCookie.Should().BeNull();
-    }
-
-    [Fact]
     public async Task SearchAsync_Should_Not_Fallback_To_Pikachu_When_Hglocal_Returns_Empty()
     {
         var settings = new DramaSourceSettings
@@ -139,7 +86,7 @@ public sealed class PikachuDramaChainTests
             HongguoLocalBaseUrl = "https://local.example.com",
             HongguoLocalApiKey = "local-key",
             PikachuFanqieCookie = BuildFanqieCookie(),
-            PikachuDramaType = "short"
+            PikachuDramaType = "manga"
         };
         var handler = new HglocalEmptyRecordingHandler();
         using var httpClient = new HttpClient(handler);

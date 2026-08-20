@@ -80,7 +80,6 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } =
     [
-        "short",
         "manga"
     ];
 
@@ -547,7 +546,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
         HongguoLocalProbeStatus = string.Empty;
         PikachuServerUrl = _loadedGlobalConfig.PikachuServerUrl;
         PikachuFanqieCookie = _loadedGlobalConfig.PikachuFanqieCookie;
-        PikachuDramaType = _loadedGlobalConfig.PikachuDramaType;
+        PikachuDramaType = "manga";
         PikachuDeviceId = _loadedGlobalConfig.PikachuDeviceId;
         PikachuClientVersion = string.IsNullOrWhiteSpace(_loadedGlobalConfig.PikachuClientVersion) ? "1.4.4" : _loadedGlobalConfig.PikachuClientVersion;
         PikachuProbeStatus = string.Empty;
@@ -654,7 +653,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HongguoLocalApiKey = HongguoLocalApiKey.Trim(),
             PikachuServerUrl = PikachuServerUrl.Trim(),
             PikachuFanqieCookie = PikachuFanqieCookie.Trim(),
-            PikachuDramaType = PikachuDramaType.Trim(),
+            PikachuDramaType = "manga",
             PikachuDeviceId = PikachuDeviceId.Trim(),
             PikachuClientVersion = PikachuClientVersion.Trim(),
             AiTextEndpoint = AiTextEndpoint.Trim(),
@@ -764,7 +763,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HongguoLocalApiKey = HongguoLocalApiKey.Trim(),
             PikachuServerUrl = PikachuServerUrl.Trim(),
             PikachuFanqieCookie = PikachuFanqieCookie.Trim(),
-            PikachuDramaType = PikachuDramaType.Trim(),
+            PikachuDramaType = "manga",
             PikachuDeviceId = PikachuDeviceId.Trim(),
             PikachuClientVersion = PikachuClientVersion.Trim()
         };

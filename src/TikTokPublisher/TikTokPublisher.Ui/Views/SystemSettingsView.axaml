@@ -105,25 +105,16 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="皮卡丘链路（红果 v1.4.9）" FontWeight="Bold" />
-                        <TextBlock Text="短剧搜索依赖番茄 Cookie，漫剧使用免 Cookie 搜索；详情与视频解析走皮卡丘代理。" Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <TextBlock Text="固定使用红果漫剧类型13免 Cookie 搜索；详情与视频解析走皮卡丘代理。" Classes="pageSummary" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="搜索内容类型" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="0" Grid.Column="1" x:Name="PikachuTypeCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="皮卡丘服务地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PikachuServerUrl}" />
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="番茄 Cookie" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0" Text="{Binding PikachuFanqieCookie}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="88" />
-                                <Button Grid.Column="1" Content="从红果读取" Command="{Binding ReadPikachuCookieCommand}" MinWidth="110" VerticalAlignment="Top" />
-                            </Grid>
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="" />
-                            <TextBlock Grid.Row="3" Grid.Column="1" Text="Cookie 过期只影响短剧搜索；漫剧搜索及 detail/decryptVideo 下载不依赖该 Cookie。" Classes="pageSummary" TextWrapping="Wrap" />
-
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="链路测试" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <StackPanel Grid.Row="4" Grid.Column="1" Spacing="8">
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="链路测试" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="8">
                                 <Button Content="测试皮卡丘链路" Command="{Binding ProbePikachuConnectivityCommand}" MinWidth="140" HorizontalAlignment="Left" />
                                 <TextBlock Text="{Binding PikachuProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
                             </StackPanel>

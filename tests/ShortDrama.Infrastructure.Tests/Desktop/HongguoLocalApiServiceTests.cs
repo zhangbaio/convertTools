@@ -218,7 +218,7 @@ public sealed class HongguoLocalApiServiceTests
             HgnewClientVersion = "1.3.6",
             HongguoLocalBaseUrl = "https://local.example.com",
             HongguoLocalApiKey = "local-key",
-            PikachuDramaType = "short",
+            PikachuDramaType = "manga",
         };
     }
 

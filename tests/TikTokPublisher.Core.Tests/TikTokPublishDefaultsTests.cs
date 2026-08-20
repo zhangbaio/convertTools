@@ -905,6 +905,27 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Client_settings_store_migrates_legacy_pikachu_short_type_to_manga()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-pikachu-type-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                PikachuDramaType = "short",
+            }, databasePath);
+
+            ClientSettingsStore.Load(databasePath).PikachuDramaType.Should().Be("manga");
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
     public void Filing_license_material_supports_current_and_legacy_tiktok_labels()
     {
         TikTokPublishConstants.CopyrightMaterialLabels[

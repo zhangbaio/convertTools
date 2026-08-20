@@ -27,7 +27,7 @@ public sealed class GlobalDesktopSettings
     public string HongguoLocalTranscodeEngine { get; set; } = "auto";
     public string PikachuServerUrl { get; set; } = "https://startvlog.cn/start-prod-api";
     public string PikachuFanqieCookie { get; set; } = string.Empty;
-    public string PikachuDramaType { get; set; } = "short";
+    public string PikachuDramaType { get; set; } = "manga";
     public string PikachuDeviceId { get; set; } = string.Empty;
     public string PikachuClientVersion { get; set; } = "1.4.4";
     public string AiTextEndpoint { get; set; } = string.Empty;
