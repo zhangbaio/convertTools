@@ -181,7 +181,7 @@
                             </StackPanel>
                         </Grid>
                         <Grid Classes="profileForm" ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
                             <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
@@ -279,11 +279,6 @@
                                 <ComboBoxItem Tag="adapted">改编</ComboBoxItem>
                             </ComboBox>
 
-                            <TextBlock Classes="formLabel" Grid.Row="20" Grid.Column="0" Text="上传材料类型" VerticalAlignment="Top" Margin="0,5,0,0" />
-                            <views:CopyrightMaterialSelector Grid.Row="20"
-                                                             Grid.Column="1"
-                                                             x:Name="CopyrightMaterials" />
-
                         </Grid>
 
                         <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">
@@ -325,6 +320,23 @@
                             <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="MaxContinuousSilenceSecondsBox" Minimum="1" Maximum="300" Value="20" Width="160" HorizontalAlignment="Left" />
                         </Grid>
                     </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="上传材料">
+                <ScrollViewer>
+                    <Grid Classes="profileForm"
+                          ColumnDefinitions="140,*"
+                          ColumnSpacing="10"
+                          Margin="2,4,2,2">
+                        <TextBlock Grid.Column="0"
+                                   Classes="formLabel"
+                                   Text="上传材料类型"
+                                   VerticalAlignment="Top"
+                                   Margin="0,5,0,0" />
+                        <views:CopyrightMaterialSelector Grid.Column="1"
+                                                         x:Name="CopyrightMaterials" />
+                    </Grid>
                 </ScrollViewer>
             </TabItem>
 
