@@ -34,8 +34,8 @@ public static class TikTokSourceFileInfoScreenshotService
     public const string OutputDirectoryName = "原始文件信息截图";
     public const string EvidenceDirectoryName = "项目原始资料";
     private const string CaptureStagingDirectoryName = ".source-info-capture-staging";
-    public const int RequiredImageCount = 4;
-    public const string ScreenshotVersion = "v11-source-upload-mixed-files";
+    public const int RequiredImageCount = 2;
+    public const string ScreenshotVersion = "v13-source-upload-two-files";
 
     private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
     private const int ContactSheetFrameCount = 4;
@@ -44,8 +44,6 @@ public static class TikTokSourceFileInfoScreenshotService
     [
         "01_剧本与项目资料.png",
         "02_角色场景或项目素材.png",
-        "03_镜头首帧与项目素材.png",
-        "04_视频Raw或项目素材文件.png",
     ];
 
     public static string GetOutputDirectory(string workflowProjectDirectory) =>
@@ -95,7 +93,7 @@ public static class TikTokSourceFileInfoScreenshotService
             if (WindowsExplorerScreenshotService.TryCaptureAll(explorerRequests, log, cancellationToken))
             {
                 log?.Invoke(
-                    $"原始文件信息截图已生成：4 张真实资源管理器截图（保留左侧目录导航，隐藏地址栏）→ {outputDir}");
+                    $"原始文件信息截图已生成：2 张真实资源管理器截图（保留左侧目录导航，隐藏地址栏）→ {outputDir}");
                 return explorerOutputs;
             }
 
@@ -292,10 +290,6 @@ public static class TikTokSourceFileInfoScreenshotService
                 directories[0], outputs[0], LargeIcons: false),
             new WindowsExplorerScreenshotService.CaptureRequest(
                 directories[1], outputs[1], LargeIcons: true),
-            new WindowsExplorerScreenshotService.CaptureRequest(
-                directories[2], outputs[2], LargeIcons: true),
-            new WindowsExplorerScreenshotService.CaptureRequest(
-                directories[3], outputs[3], LargeIcons: false),
         ];
     }
 
@@ -310,27 +304,8 @@ public static class TikTokSourceFileInfoScreenshotService
             var characterDirectory = Path.Combine(
                 referencePackage,
                 TikTokReferenceSourcePackageService.CharacterDirectoryName);
-            var materialRoot = Path.Combine(
-                referencePackage,
-                TikTokReferenceSourcePackageService.MaterialDirectoryName);
-            var materialDirectory = Directory.EnumerateDirectories(materialRoot)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault() ?? materialRoot;
-            var titleDirectory = Directory.EnumerateDirectories(referencePackage)
-                .Where(path => !Path.GetFileName(path).Equals(
-                    TikTokReferenceSourcePackageService.CharacterDirectoryName,
-                    StringComparison.OrdinalIgnoreCase))
-                .Where(path => !Path.GetFileName(path).Equals(
-                    TikTokReferenceSourcePackageService.VideoDirectoryName,
-                    StringComparison.OrdinalIgnoreCase))
-                .Where(path => !Path.GetFileName(path).Equals(
-                    TikTokReferenceSourcePackageService.MaterialDirectoryName,
-                    StringComparison.OrdinalIgnoreCase))
-                .FirstOrDefault(path => File.Exists(Path.Combine(path, "shortdrama-project.json")))
-                ?? referencePackage;
-
-            log?.Invoke("原始文件信息/截图素材汇总：使用参考项目格式素材包（根目录、角色、视频素材、项目信息）。");
-            return [referencePackage, characterDirectory, materialDirectory, titleDirectory];
+            log?.Invoke("原始文件信息/截图素材汇总：使用参考项目格式素材包（根目录、角色与场景素材）。");
+            return [referencePackage, characterDirectory];
         }
 
         var evidenceDirectory = GetEvidenceDirectory(workflow);
@@ -395,27 +370,6 @@ public static class TikTokSourceFileInfoScreenshotService
                   path.Contains("可灵主体", StringComparison.OrdinalIgnoreCase) ||
                   path.Contains("场景参考", StringComparison.OrdinalIgnoreCase))));
         CopySelectedMaterials(SelectEvenly(roleAndScene, 16), directories[1], 16);
-
-        var keyframes = eligibleFiles.Where(path => imageExtensions.Contains(Path.GetExtension(path)))
-            .Where(path =>
-                path.StartsWith(Path.Combine(productionMaterialRoot, TikTokAiDramaProductionMaterialService.StoryboardDirectoryName), StringComparison.OrdinalIgnoreCase) ||
-                path.Contains("镜头首帧", StringComparison.OrdinalIgnoreCase) ||
-                path.Contains("首帧", StringComparison.OrdinalIgnoreCase) ||
-                path.Contains("分镜工作台", StringComparison.OrdinalIgnoreCase))
-            .Where(path => !path.Contains("抽帧原图", StringComparison.OrdinalIgnoreCase));
-        CopySelectedMaterials(SelectEvenly(keyframes.Reverse(), 16), directories[2], 16);
-
-        var videos = eligibleFiles.Where(path => videoExtensions.Contains(Path.GetExtension(path))).Take(12).ToArray();
-        if (videos.Length > 0)
-            CopySelectedMaterials(videos, directories[3], 12, preferHardLink: true);
-        else
-        {
-            var projectMaterials = eligibleFiles.Where(path =>
-                    imageExtensions.Contains(Path.GetExtension(path)) ||
-                    documentExtensions.Contains(Path.GetExtension(path)))
-                .OrderByDescending(path => path.StartsWith(package, StringComparison.OrdinalIgnoreCase));
-            CopySelectedMaterials(SelectEvenly(projectMaterials, 12), directories[3], 12);
-        }
 
         var fallbackFiles = eligibleFiles
             .OrderByDescending(path => path.StartsWith(package, StringComparison.OrdinalIgnoreCase))
@@ -564,7 +518,7 @@ public static class TikTokSourceFileInfoScreenshotService
 
         // The platform accepts project-material file information as well as video raw files.
         // When the source project has no downloaded video, show the real package manifests
-        // instead of blocking the entire four-image evidence set or fabricating video files.
+        // instead of blocking the entire evidence set or fabricating video files.
         if (Directory.EnumerateFiles(packageDirectory).Any())
             return packageDirectory;
 

@@ -17,14 +17,12 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
     }
 
     [Fact]
-    public void Explorer_capture_plan_uses_four_real_material_categories()
+    public void Explorer_capture_plan_uses_two_real_material_categories()
     {
         var outputs = new[]
         {
             @"C:\shots\01_真实项目文件目录.png",
             @"C:\shots\02_角色与场景素材.png",
-            @"C:\shots\03_剧本与分镜文件.png",
-            @"C:\shots\04_镜头生成源文件.png",
         };
 
         var workflow = Path.Combine(Path.GetTempPath(), $"capture-plan-{Guid.NewGuid():N}");
@@ -40,16 +38,16 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
 
         requests.Select(request => request.OutputPath).Should().Equal(outputs);
         requests.Select(request => Path.GetFileName(request.Directory))
-            .Should().Equal("01", "02", "03", "04");
+            .Should().Equal("01", "02");
         requests.Select(request => Directory.EnumerateFiles(request.Directory).Count())
             .Should().OnlyContain(count => count > 0);
         requests.Select(request => request.LargeIcons)
-            .Should().Equal(false, true, true, false);
+            .Should().Equal(false, true);
         Directory.Delete(workflow, recursive: true);
     }
 
     [Fact]
-    public void Explorer_capture_plan_falls_back_to_real_package_files_when_video_is_absent()
+    public void Explorer_capture_plan_omits_keyframe_and_raw_video_categories()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"capture-plan-no-video-{Guid.NewGuid():N}");
         var package = Path.Combine(workflow, TikTokSourceFileInfoScreenshotService.EvidenceDirectoryName, "EP01_源文件包");
@@ -61,13 +59,15 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
         File.WriteAllText(Path.Combine(package, "04_镜头首帧", "shot.png"), "image");
         File.WriteAllText(Path.Combine(package, "06_视频源片段", "视频源文件索引.txt"), "未发现视频");
 
-        var outputs = Enumerable.Range(1, 4).Select(index => Path.Combine(workflow, $"{index}.png")).ToArray();
+        var outputs = Enumerable.Range(1, TikTokSourceFileInfoScreenshotService.RequiredImageCount)
+            .Select(index => Path.Combine(workflow, $"{index}.png"))
+            .ToArray();
         var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(workflow, outputs);
 
-        requests[3].Directory.Should().Contain(".source-info-capture-staging");
-        Directory.EnumerateFiles(requests[3].Directory)
-            .Select(Path.GetFileName)
-            .Should().Contain(name => name!.Contains("素材清单", StringComparison.Ordinal));
+        requests.Should().HaveCount(2);
+        requests.Should().NotContain(request =>
+            Path.GetFileName(request.OutputPath).StartsWith("03_", StringComparison.Ordinal) ||
+            Path.GetFileName(request.OutputPath).StartsWith("04_", StringComparison.Ordinal));
         Directory.Delete(workflow, recursive: true);
     }
 
@@ -80,7 +80,7 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
         {
             File.WriteAllText(Path.Combine(workflow, "短剧第1集.mp4"), "test video 1");
             File.WriteAllText(Path.Combine(workflow, "短剧第2集.mp4"), "test video 2");
-            var outputs = Enumerable.Range(1, 4)
+            var outputs = Enumerable.Range(1, TikTokSourceFileInfoScreenshotService.RequiredImageCount)
                 .Select(index => Path.Combine(workflow, $"{index}.png"))
                 .ToArray();
             var logs = new List<string>();
@@ -88,7 +88,7 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
             var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(
                 workflow, outputs, logs.Add);
 
-            requests.Should().HaveCount(4);
+            requests.Should().HaveCount(2);
             requests.Select(request => Directory.EnumerateFiles(request.Directory).Count())
                 .Should().OnlyContain(count => count > 0);
             logs.Should().Contain(message =>
@@ -112,7 +112,7 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
         try
         {
             File.WriteAllText(Path.Combine(excluded, "AI过程图.png"), "not source evidence");
-            var outputs = Enumerable.Range(1, 4)
+            var outputs = Enumerable.Range(1, TikTokSourceFileInfoScreenshotService.RequiredImageCount)
                 .Select(index => Path.Combine(workflow, $"{index}.png"))
                 .ToArray();
 
@@ -167,7 +167,7 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
                 workflow, "多集短剧", "测试公司");
 
             action.Should().NotThrow();
-            TikTokSourceFileInfoScreenshotService.ListGeneratedImages(workflow).Should().HaveCount(4);
+            TikTokSourceFileInfoScreenshotService.ListGeneratedImages(workflow).Should().HaveCount(2);
         }
         finally
         {
@@ -210,12 +210,10 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
                 "测试公司",
                 logs.Add);
 
-            outputs.Should().HaveCount(4);
+            outputs.Should().HaveCount(2);
             outputs.Should().OnlyContain(path => File.Exists(path));
             logs.Should().Contain(message =>
                 message.Contains("第 2 类已选取", StringComparison.Ordinal));
-            logs.Should().Contain(message =>
-                message.Contains("第 3 类已选取", StringComparison.Ordinal));
             Directory.Exists(TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflow))
                 .Should().BeFalse("截图流程只能读取现有真实素材，不应合成额外证据文件");
             Directory.EnumerateFiles(workflow, "*.png", SearchOption.AllDirectories)
@@ -231,7 +229,7 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
     }
 
     [Fact]
-    public void Generate_creates_four_png_screenshots_with_drama_title()
+    public void Generate_creates_two_png_screenshots_with_drama_title()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-source-info-{Guid.NewGuid():N}");
         Directory.CreateDirectory(workflow);
@@ -250,7 +248,7 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
                 "测试公司",
                 logs.Add);
 
-            outputs.Should().HaveCount(4);
+            outputs.Should().HaveCount(2);
             outputs.Should().OnlyContain(path => File.Exists(path));
             TikTokSourceFileInfoScreenshotService.HasCurrentOutput(workflow).Should().BeTrue();
 
