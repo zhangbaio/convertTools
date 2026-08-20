@@ -179,6 +179,8 @@
                             <CheckBox Content="上传包（共4项，自动生成）" IsChecked="True" IsEnabled="False" />
                             <TextBlock Text="AI剧本大纲.pdf、剧本.pdf、01_剧本与项目资料.png、角色矢量图.png"
                                        Classes="materialHint" Margin="28,0,0,0" />
+                            <CheckBox x:Name="UploadSourceInfoRoleSceneScreenshotBox"
+                                      Content="同时上传 02_角色场景或项目素材.png（可选）" />
                         </StackPanel>
                     </StackPanel>
                 </Border>

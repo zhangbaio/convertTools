@@ -86,6 +86,8 @@ public sealed class TikTokAccountProfile
     ];
     /// <summary>选择 AI 生成截图材料时，是否同时上传项目的 AI 剧本大纲 PDF。</summary>
     public bool TiktokUploadAiScriptOutlineWithScreenshots { get; set; }
+    /// <summary>选择原始文件信息材料时，是否同时上传角色场景素材截图。</summary>
+    public bool TiktokUploadSourceInfoRoleSceneScreenshot { get; set; }
     public string TiktokCopyrightMaterialFilePath { get; set; } = "";
     /// <summary>证明材料抬头中的版权公司名称（“致【...】”）。</summary>
     public string TiktokProofCopyrightCompanyName { get; set; } = "";

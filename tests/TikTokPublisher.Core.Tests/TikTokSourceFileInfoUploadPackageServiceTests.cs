@@ -39,6 +39,45 @@ public sealed class TikTokSourceFileInfoUploadPackageServiceTests
     }
 
     [Fact]
+    public void Generate_optionally_includes_role_scene_screenshot()
+    {
+        var workflow = CreateWorkflow();
+        try
+        {
+            SaveImage(
+                Path.Combine(
+                    TikTokSourceFileInfoUploadPackageService.GetOutputDirectory(workflow),
+                    TikTokSourceFileInfoUploadPackageService.RoleSceneImageFileName),
+                1280,
+                720);
+
+            var files = TikTokSourceFileInfoUploadPackageService.Generate(
+                workflow,
+                includeRoleSceneScreenshot: true);
+
+            files.Select(Path.GetFileName).Should().ContainInOrder(
+                TikTokSourceFileInfoUploadPackageService.ProjectInfoImageFileName,
+                TikTokSourceFileInfoUploadPackageService.RoleVectorImageFileName,
+                TikTokSourceFileInfoUploadPackageService.RoleSceneImageFileName);
+            files.Should().HaveCount(5);
+            TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
+                workflow,
+                includeRoleSceneScreenshot: true).Should().BeTrue();
+            TikTokSourceFileInfoUploadPackageService.ListFiles(
+                workflow,
+                includeRoleSceneScreenshot: false)
+                .Should().NotContain(path =>
+                    Path.GetFileName(path).Equals(
+                        TikTokSourceFileInfoUploadPackageService.RoleSceneImageFileName,
+                        StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Generate_rejects_role_vector_with_wrong_dimensions()
     {
         var workflow = CreateWorkflow(roleVectorWidth: 800, roleVectorHeight: 600);

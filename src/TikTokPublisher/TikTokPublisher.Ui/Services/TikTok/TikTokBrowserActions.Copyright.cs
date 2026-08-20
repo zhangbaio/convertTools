@@ -477,12 +477,17 @@ public static partial class TikTokBrowserActions
         var sourceInfoFiles = includeSourceFileInformation && uploadSourceFileInformation
             ? ResolveSourceFileInformationFiles(options)
             : [];
+        var expectedSourceInfoFileCount = TikTokSourceFileInfoUploadPackageService.RequiredFileCount +
+                                          (options.UploadSourceInfoRoleSceneScreenshot ? 1 : 0);
         if (includeSourceFileInformation && uploadSourceFileInformation &&
-            sourceInfoFiles.Count != TikTokSourceFileInfoUploadPackageService.RequiredFileCount)
+            sourceInfoFiles.Count != expectedSourceInfoFileCount)
         {
             throw new FileNotFoundException(
-                $"「原始文件或素材文件信息」必须上传 {TikTokSourceFileInfoUploadPackageService.RequiredFileCount} 个文件：" +
+                $"「原始文件或素材文件信息」必须上传 {expectedSourceInfoFileCount} 个文件：" +
                 "AI剧本大纲.pdf、剧本.pdf、01_剧本与项目资料.png、角色矢量图.png；" +
+                (options.UploadSourceInfoRoleSceneScreenshot
+                    ? "另需上传02_角色场景或项目素材.png；"
+                    : string.Empty) +
                 $"当前找到 {sourceInfoFiles.Count} 个（目录：{TikTokSourceFileInfoUploadPackageService.OutputDirectoryName}）。" +
                 "请先执行“生成证明材料”。");
         }
@@ -831,7 +836,7 @@ public static partial class TikTokBrowserActions
     }
 
     /// <summary>
-    /// 仅从 workflow 下的「原始文件信息上传」目录读取固定四文件，不回落到旧版四张截图。
+    /// 仅从 workflow 下的「原始文件信息上传」目录读取配置的上传文件。
     /// </summary>
     private static IReadOnlyList<string> ResolveSourceFileInformationFiles(TikTokPublishOptions options)
     {
@@ -870,7 +875,9 @@ public static partial class TikTokBrowserActions
 
         return string.IsNullOrWhiteSpace(workflowDir)
             ? []
-            : TikTokSourceFileInfoUploadPackageService.ListFiles(workflowDir);
+            : TikTokSourceFileInfoUploadPackageService.ListFiles(
+                workflowDir,
+                options.UploadSourceInfoRoleSceneScreenshot);
     }
 
     /// <summary>

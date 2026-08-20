@@ -67,9 +67,13 @@ public static class TikTokPublishOptionsBuilder
             {
                 var sourceInfoDir = TikTokSourceFileInfoUploadPackageService.GetOutputDirectory(workflowProjectDir);
                 paths[TikTokPublishConstants.SourceFileInformationMaterialType] = sourceInfoDir;
-                var fileCount = TikTokSourceFileInfoUploadPackageService.ListFiles(workflowProjectDir).Count;
+                var fileCount = TikTokSourceFileInfoUploadPackageService.ListFiles(
+                    workflowProjectDir,
+                    options.UploadSourceInfoRoleSceneScreenshot).Count;
+                var expectedFileCount = TikTokSourceFileInfoUploadPackageService.RequiredFileCount +
+                                        (options.UploadSourceInfoRoleSceneScreenshot ? 1 : 0);
                 log?.Invoke(
-                    fileCount == TikTokSourceFileInfoUploadPackageService.RequiredFileCount
+                    fileCount == expectedFileCount
                         ? $"TikTok 原始文件信息上传包已就绪：{fileCount} 个文件 → {sourceInfoDir}"
                         : $"TikTok 原始文件信息上传包等待生成：{sourceInfoDir}");
             }

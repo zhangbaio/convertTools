@@ -31,13 +31,14 @@ namespace TikTokPublisher.Core.Services;
 /// </summary>
 public static class TikTokSourceFileInfoScreenshotService
 {
-    public const string OutputDirectoryName = "原始文件信息截图";
+    public const string OutputDirectoryName = TikTokSourceFileInfoUploadPackageService.OutputDirectoryName;
     public const string EvidenceDirectoryName = "项目原始资料";
     private const string CaptureStagingDirectoryName = ".source-info-capture-staging";
     public const int RequiredImageCount = 2;
-    public const string ScreenshotVersion = "v13-source-upload-two-files";
+    public const string ScreenshotVersion = "v14-source-upload-folder-two-files";
 
     private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
+    private const string PreviousOutputDirectoryName = "原始文件信息截图";
     private const int ContactSheetFrameCount = 4;
     private const int MaxCatalogFiles = 12;
     private static readonly string[] FileNames =
@@ -419,6 +420,7 @@ public static class TikTokSourceFileInfoScreenshotService
         string[] excludedDirectories =
         [
             OutputDirectoryName,
+            PreviousOutputDirectoryName,
             LegacyOutputDirectoryName,
             TikTokAiGenerationScreenshotService.OutputDirectoryName,
             TikTokProjectImageService.OutputDirectoryName,
@@ -584,6 +586,7 @@ public static class TikTokSourceFileInfoScreenshotService
     public static void TryDeleteOutput(string workflowProjectDirectory)
     {
         TryDeleteDirectory(GetOutputDirectory(workflowProjectDirectory));
+        TryDeleteDirectory(Path.Combine(Path.GetFullPath(workflowProjectDirectory), PreviousOutputDirectoryName));
         TryDeleteDirectory(Path.Combine(Path.GetFullPath(workflowProjectDirectory), LegacyOutputDirectoryName));
     }
 

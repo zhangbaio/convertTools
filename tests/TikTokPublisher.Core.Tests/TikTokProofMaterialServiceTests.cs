@@ -678,6 +678,7 @@ public sealed class TikTokProofMaterialServiceTests
             new DateOnly(2026, 7, 14));
 
         request.GenerateSourceFileScreenshots.Should().BeTrue();
+        request.IncludeSourceInfoRoleSceneScreenshot.Should().BeFalse();
         request.GenerateAiGenerationScreenshots.Should().BeFalse();
         request.GenerateEditingProjectFiles.Should().BeFalse();
 
@@ -699,6 +700,17 @@ public sealed class TikTokProofMaterialServiceTests
         both.GenerateEditingProjectFiles.Should().BeTrue();
 
         TikTokProofMaterialService.ComputeFingerprint(request)
+            .Should().NotBe(TikTokProofMaterialService.ComputeFingerprint(both));
+
+        account.TiktokUploadSourceInfoRoleSceneScreenshot = true;
+        var withOptionalSourceScreenshot = TikTokProofMaterialService.CreateQueueRequest(
+            item,
+            settings,
+            account,
+            Path.GetTempPath(),
+            new DateOnly(2026, 7, 14));
+        withOptionalSourceScreenshot.IncludeSourceInfoRoleSceneScreenshot.Should().BeTrue();
+        TikTokProofMaterialService.ComputeFingerprint(withOptionalSourceScreenshot)
             .Should().NotBe(TikTokProofMaterialService.ComputeFingerprint(both));
     }
 

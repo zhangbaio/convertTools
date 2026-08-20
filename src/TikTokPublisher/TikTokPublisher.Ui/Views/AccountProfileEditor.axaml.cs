@@ -126,7 +126,8 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(ContentOriginalityCombo, profile.TiktokContentOriginalityType, "original");
         CopyrightMaterials.Load(
             profile.TiktokCopyrightMaterialTypes,
-            profile.TiktokUploadAiScriptOutlineWithScreenshots);
+            profile.TiktokUploadAiScriptOutlineWithScreenshots,
+            profile.TiktokUploadSourceInfoRoleSceneScreenshot);
         ProofDeclarantCompanyNameBox.Text = profile.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = profile.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = profile.TiktokProofSealPath;
@@ -234,6 +235,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
             profile.TiktokCopyrightMaterialTypes = CopyrightMaterials.GetSelectedMaterialTypes();
             profile.TiktokUploadAiScriptOutlineWithScreenshots = CopyrightMaterials.UploadAiScriptOutlineWithScreenshots;
+            profile.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
             profile.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
             profile.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
             profile.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";

@@ -141,7 +141,9 @@ public sealed class TikTokProofMaterialService
                 log,
                 "原始文件或素材文件信息",
                 request.GenerateSourceFileScreenshots,
-                TikTokSourceFileInfoUploadPackageService.ListFiles(context.WorkflowProjectDir));
+                TikTokSourceFileInfoUploadPackageService.ListFiles(
+                    context.WorkflowProjectDir,
+                    request.IncludeSourceInfoRoleSceneScreenshot));
             LogExistingMaterial(
                 log,
                 "AI 生成过程截图",
@@ -233,13 +235,17 @@ public sealed class TikTokProofMaterialService
         cancellationToken.ThrowIfCancellationRequested();
         if (request.GenerateSourceFileScreenshots && sourceCompleted &&
             TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir) &&
-            TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(context.WorkflowProjectDir))
+            TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
+                context.WorkflowProjectDir,
+                request.IncludeSourceInfoRoleSceneScreenshot))
         {
             LogExistingMaterial(
                 log,
                 "原始文件或素材文件信息（断点复用）",
                 selected: true,
-                TikTokSourceFileInfoUploadPackageService.ListFiles(context.WorkflowProjectDir));
+                TikTokSourceFileInfoUploadPackageService.ListFiles(
+                    context.WorkflowProjectDir,
+                    request.IncludeSourceInfoRoleSceneScreenshot));
         }
         else if (request.GenerateSourceFileScreenshots)
         {
@@ -296,7 +302,8 @@ public sealed class TikTokProofMaterialService
                     context.WorkflowProjectDir,
                     outlinePdf,
                     scriptPdf,
-                    log);
+                    log,
+                    request.IncludeSourceInfoRoleSceneScreenshot);
                 sourceCompleted = true;
                 SaveState(
                     context, request, fingerprint, result,
@@ -673,6 +680,7 @@ public sealed class TikTokProofMaterialService
                 ? (request.WpsExecutablePath ?? string.Empty).Trim()
                 : "skipped",
             generate_source_file_screenshots = request.GenerateSourceFileScreenshots,
+            include_source_info_role_scene_screenshot = request.IncludeSourceInfoRoleSceneScreenshot,
             generate_ai_generation_screenshots = request.GenerateAiGenerationScreenshots,
             generate_editing_project_files = request.GenerateEditingProjectFiles,
             source_file_screenshots = request.GenerateSourceFileScreenshots
@@ -751,6 +759,7 @@ public sealed class TikTokProofMaterialService
             GenerateSourceFileScreenshots = materialTypes.Contains(
                 TikTokPublishConstants.SourceFileInformationMaterialType,
                 StringComparer.Ordinal),
+            IncludeSourceInfoRoleSceneScreenshot = account.TiktokUploadSourceInfoRoleSceneScreenshot,
             GenerateAiGenerationScreenshots = materialTypes.Contains(
                 TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
                 StringComparer.Ordinal),
@@ -910,7 +919,9 @@ public sealed class TikTokProofMaterialService
 
         if (request.GenerateSourceFileScreenshots &&
             (!TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir) ||
-             !TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(context.WorkflowProjectDir)))
+             !TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
+                 context.WorkflowProjectDir,
+                 request.IncludeSourceInfoRoleSceneScreenshot)))
         {
             return false;
         }

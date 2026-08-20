@@ -235,6 +235,9 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
         Directory.CreateDirectory(workflow);
         try
         {
+            var previousOutputDirectory = Path.Combine(workflow, "原始文件信息截图");
+            Directory.CreateDirectory(previousOutputDirectory);
+            File.WriteAllText(Path.Combine(previousOutputDirectory, "旧版截图.png"), "legacy");
             using (var poster = new Image<Rgba32>(240, 320))
             {
                 poster[20, 20] = new Rgba32(200, 80, 40);
@@ -255,6 +258,8 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
             var outputDir = TikTokSourceFileInfoScreenshotService.GetOutputDirectory(workflow);
             var evidenceDir = TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflow);
             Directory.Exists(outputDir).Should().BeTrue();
+            Directory.Exists(previousOutputDirectory)
+                .Should().BeFalse("旧版原始文件信息截图目录应在重新生成时清理");
             Directory.Exists(evidenceDir)
                 .Should().BeFalse("只有海报时应直接截图真实文件，不应生成剧本或清单冒充源文件");
             Path.GetFileName(outputDir).Should().Be(TikTokSourceFileInfoScreenshotService.OutputDirectoryName);

@@ -43,6 +43,9 @@ public sealed record TikTokProofMaterialRequest(
     /// <summary>是否生成「原始文件或素材文件信息」截图（由账号上传材料类型勾选决定）。</summary>
     public bool GenerateSourceFileScreenshots { get; init; }
 
+    /// <summary>原始文件信息上传包是否包含角色场景素材截图。</summary>
+    public bool IncludeSourceInfoRoleSceneScreenshot { get; init; }
+
     /// <summary>是否生成「AI 生成过程截图」（由账号上传材料类型勾选决定）。</summary>
     public bool GenerateAiGenerationScreenshots { get; init; }
 

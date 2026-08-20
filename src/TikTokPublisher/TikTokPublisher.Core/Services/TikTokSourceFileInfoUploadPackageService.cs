@@ -3,8 +3,8 @@ using SixLabors.ImageSharp;
 namespace TikTokPublisher.Core.Services;
 
 /// <summary>
-/// 为 TikTok「原始文件或素材文件信息」整理固定的四文件上传包：
-/// AI 大纲、剧本、项目资料截图和角色矢量图。
+/// 为 TikTok「原始文件或素材文件信息」整理上传包：四个必传文件，
+/// 以及账号可选的角色场景素材截图。
 /// </summary>
 public static class TikTokSourceFileInfoUploadPackageService
 {
@@ -13,6 +13,7 @@ public static class TikTokSourceFileInfoUploadPackageService
     public const string OutlineFileName = "AI剧本大纲.pdf";
     public const string ScriptFileName = "剧本.pdf";
     public const string ProjectInfoImageFileName = "01_剧本与项目资料.png";
+    public const string RoleSceneImageFileName = "02_角色场景或项目素材.png";
     public const string RoleVectorImageFileName = "角色矢量图.png";
 
     private static readonly string[] FileNames =
@@ -26,20 +27,31 @@ public static class TikTokSourceFileInfoUploadPackageService
     public static string GetOutputDirectory(string workflowProjectDirectory) =>
         Path.Combine(Path.GetFullPath(workflowProjectDirectory), OutputDirectoryName);
 
-    public static IReadOnlyList<string> GetExpectedOutputPaths(string workflowProjectDirectory)
+    public static IReadOnlyList<string> GetExpectedOutputPaths(
+        string workflowProjectDirectory,
+        bool includeRoleSceneScreenshot = false)
     {
         var outputDirectory = GetOutputDirectory(workflowProjectDirectory);
-        return FileNames.Select(name => Path.Combine(outputDirectory, name)).ToArray();
+        var names = includeRoleSceneScreenshot
+            ? FileNames.Append(RoleSceneImageFileName)
+            : FileNames;
+        return names.Select(name => Path.Combine(outputDirectory, name)).ToArray();
     }
 
-    public static IReadOnlyList<string> ListFiles(string workflowProjectDirectory) =>
-        GetExpectedOutputPaths(workflowProjectDirectory).Where(File.Exists).ToArray();
+    public static IReadOnlyList<string> ListFiles(
+        string workflowProjectDirectory,
+        bool includeRoleSceneScreenshot = false) =>
+        GetExpectedOutputPaths(workflowProjectDirectory, includeRoleSceneScreenshot)
+            .Where(File.Exists)
+            .ToArray();
 
-    public static bool HasCurrentOutput(string workflowProjectDirectory)
+    public static bool HasCurrentOutput(
+        string workflowProjectDirectory,
+        bool includeRoleSceneScreenshot = false)
     {
         try
         {
-            Validate(workflowProjectDirectory);
+            Validate(workflowProjectDirectory, includeRoleSceneScreenshot);
             return true;
         }
         catch
@@ -52,7 +64,8 @@ public static class TikTokSourceFileInfoUploadPackageService
         string workflowProjectDirectory,
         string? outlinePdfPath = null,
         string? scriptPdfPath = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        bool includeRoleSceneScreenshot = false)
     {
         var workflow = Path.GetFullPath(workflowProjectDirectory);
         var outline = ResolveRequiredFile(
@@ -65,13 +78,19 @@ public static class TikTokSourceFileInfoUploadPackageService
             FindScriptPdf(workflow),
             "剧本 PDF",
             "请先执行“生成剧本”步骤。");
+        var outputDirectory = GetOutputDirectory(workflow);
         var projectInfo = ResolveRequiredFile(
             null,
-            Path.Combine(
-                TikTokSourceFileInfoScreenshotService.GetOutputDirectory(workflow),
-                ProjectInfoImageFileName),
+            Path.Combine(outputDirectory, ProjectInfoImageFileName),
             "项目资料截图",
             "请先执行“生成证明材料”步骤。");
+        var roleScene = includeRoleSceneScreenshot
+            ? ResolveRequiredFile(
+                null,
+                Path.Combine(outputDirectory, RoleSceneImageFileName),
+                "角色场景素材截图",
+                "请先执行“生成证明材料”步骤。")
+            : string.Empty;
         var roleVector = ResolveRequiredFile(
             null,
             Path.Combine(
@@ -83,37 +102,48 @@ public static class TikTokSourceFileInfoUploadPackageService
         ValidatePdf(outline, "AI 大纲 PDF");
         ValidatePdf(script, "剧本 PDF");
         ValidatePng(projectInfo, "项目资料截图", requireRoleVectorSize: false);
+        if (includeRoleSceneScreenshot)
+            ValidatePng(roleScene, "角色场景素材截图", requireRoleVectorSize: false);
         ValidatePng(roleVector, "角色矢量图", requireRoleVectorSize: true);
 
-        var outputDirectory = GetOutputDirectory(workflow);
-        TryDeleteDirectory(outputDirectory);
         Directory.CreateDirectory(outputDirectory);
-        var outputs = GetExpectedOutputPaths(workflow);
+        var outputs = GetExpectedOutputPaths(workflow, includeRoleSceneScreenshot);
         Copy(outline, outputs[0]);
         Copy(script, outputs[1]);
         Copy(projectInfo, outputs[2]);
         Copy(roleVector, outputs[3]);
-        Validate(workflow);
+        if (includeRoleSceneScreenshot)
+            Copy(roleScene, outputs[4]);
+        Validate(workflow, includeRoleSceneScreenshot);
         log?.Invoke(
-            $"原始文件信息上传包已生成：AI 大纲、剧本、项目资料截图、角色矢量图 → {outputDirectory}");
+            $"原始文件信息上传包已生成：AI 大纲、剧本、项目资料截图、角色矢量图" +
+            $"{(includeRoleSceneScreenshot ? "、角色场景素材截图" : string.Empty)} → {outputDirectory}");
         return outputs;
     }
 
-    public static void Validate(string workflowProjectDirectory)
+    public static void Validate(
+        string workflowProjectDirectory,
+        bool includeRoleSceneScreenshot = false)
     {
-        var files = GetExpectedOutputPaths(workflowProjectDirectory);
+        var files = GetExpectedOutputPaths(workflowProjectDirectory, includeRoleSceneScreenshot);
         var outputDirectory = GetOutputDirectory(workflowProjectDirectory);
         var actualFiles = Directory.Exists(outputDirectory)
             ? Directory.EnumerateFiles(outputDirectory).ToArray()
             : [];
-        if (files.Count != RequiredFileCount || files.Any(path => !File.Exists(path)) ||
-            actualFiles.Length != RequiredFileCount)
+        var expectedCount = RequiredFileCount + (includeRoleSceneScreenshot ? 1 : 0);
+        var allowedNames = FileNames.Append(RoleSceneImageFileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (files.Count != expectedCount || files.Any(path => !File.Exists(path)) ||
+            actualFiles.Any(path => !allowedNames.Contains(Path.GetFileName(path))))
             throw new FileNotFoundException(
-                $"原始文件信息上传包必须包含 {RequiredFileCount} 个固定文件：{string.Join("、", FileNames)}。");
+                $"原始文件信息上传包必须包含 {expectedCount} 个上传文件：" +
+                $"{string.Join("、", GetExpectedOutputPaths(workflowProjectDirectory, includeRoleSceneScreenshot).Select(Path.GetFileName))}。");
         ValidatePdf(files[0], "AI 大纲 PDF");
         ValidatePdf(files[1], "剧本 PDF");
         ValidatePng(files[2], "项目资料截图", requireRoleVectorSize: false);
         ValidatePng(files[3], "角色矢量图", requireRoleVectorSize: true);
+        if (includeRoleSceneScreenshot)
+            ValidatePng(files[4], "角色场景素材截图", requireRoleVectorSize: false);
     }
 
     internal static string? FindScriptPdf(string workflowProjectDirectory)
@@ -178,12 +208,4 @@ public static class TikTokSourceFileInfoUploadPackageService
         File.Copy(source, destination, overwrite: true);
     }
 
-    private static void TryDeleteDirectory(string path)
-    {
-        try { if (Directory.Exists(path)) Directory.Delete(path, recursive: true); }
-        catch (Exception ex)
-        {
-            throw new IOException($"无法清理旧的原始文件信息上传目录：{path}", ex);
-        }
-    }
 }
