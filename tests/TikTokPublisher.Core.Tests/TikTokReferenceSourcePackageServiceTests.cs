@@ -95,9 +95,70 @@ public sealed class TikTokReferenceSourcePackageServiceTests
         }
     }
 
-    private static void SaveSolidImage(string path)
+    [Fact]
+    public void Role_vector_renderer_replaces_only_declared_template_slots()
     {
-        using var image = new Image<Rgba32>(64, 64, new Rgba32(80, 100, 120));
+        var root = Path.Combine(Path.GetTempPath(), $"role-vector-template-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var characters = new[]
+            {
+                Path.Combine(root, "角色1.png"),
+                Path.Combine(root, "角色2.png"),
+                Path.Combine(root, "角色3.png"),
+            };
+            SaveSolidImage(characters[0], new Rgba32(220, 30, 30));
+            SaveSolidImage(characters[1], new Rgba32(30, 220, 30));
+            SaveSolidImage(characters[2], new Rgba32(30, 30, 220));
+            var frame = Path.Combine(root, "成片参考.png");
+            SaveSolidImage(frame, new Rgba32(220, 180, 30));
+            var outputPath = Path.Combine(root, "角色矢量图.png");
+
+            RoleVectorTemplateRenderer.Render(outputPath, characters, [frame]);
+
+            using var output = Image.Load<Rgba32>(outputPath);
+            using var templateStream = typeof(TikTokReferenceSourcePackageService).Assembly
+                .GetManifestResourceStream("TikTokPublisher.Core.Resources.RoleVectorTemplate.png")!;
+            using var template = Image.Load<Rgba32>(templateStream);
+            output.Width.Should().Be(RoleVectorTemplateRenderer.CanvasWidth);
+            output.Height.Should().Be(RoleVectorTemplateRenderer.CanvasHeight);
+
+            var mask = new bool[output.Width * output.Height];
+            foreach (var slot in RoleVectorTemplateRenderer.Groups
+                         .SelectMany(group => group.CharacterSlots.Concat(group.ReferenceSlots)))
+            {
+                for (var y = slot.Top; y < slot.Bottom; y++)
+                for (var x = slot.Left; x < slot.Right; x++)
+                    mask[y * output.Width + x] = true;
+            }
+
+            var outsideMismatchCount = 0;
+            for (var y = 0; y < output.Height; y++)
+            for (var x = 0; x < output.Width; x++)
+            {
+                if (!mask[y * output.Width + x] && output[x, y] != template[x, y])
+                    outsideMismatchCount++;
+            }
+            outsideMismatchCount.Should().Be(0, "模板工具栏、节点连线和画布必须原样保留");
+
+            var active = RoleVectorTemplateRenderer.Groups[0].CharacterSlots[0];
+            output[active.X + active.Width / 2, active.Y + active.Height / 2].R.Should().BeGreaterThan(200);
+            var unused = RoleVectorTemplateRenderer.Groups[3].CharacterSlots[0];
+            var unusedPixel = output[unused.X + unused.Width / 2, unused.Y + unused.Height / 2];
+            unusedPixel.R.Should().BeLessThan(25);
+            unusedPixel.G.Should().BeLessThan(25);
+            unusedPixel.B.Should().BeLessThan(25);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void SaveSolidImage(string path, Rgba32? color = null)
+    {
+        using var image = new Image<Rgba32>(64, 64, color ?? new Rgba32(80, 100, 120));
         image.SaveAsPng(path);
     }
 }

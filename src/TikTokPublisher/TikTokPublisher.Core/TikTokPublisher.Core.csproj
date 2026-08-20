@@ -73,6 +73,8 @@
                       LogicalName="TikTokPublisher.Core.Resources.AiScriptOutlineTemplate.docx" />
     <EmbeddedResource Include="Resources\CaptureExplorerWindow.ps1"
                       LogicalName="TikTokPublisher.Core.Resources.CaptureExplorerWindow.ps1" />
+    <EmbeddedResource Include="Resources\RoleVectorTemplate\角色矢量图模板.png"
+                      LogicalName="TikTokPublisher.Core.Resources.RoleVectorTemplate.png" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="TikTokPublisher.Core.Tests" />

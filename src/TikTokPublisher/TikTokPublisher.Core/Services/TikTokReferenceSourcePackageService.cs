@@ -81,7 +81,8 @@ public static partial class TikTokReferenceSourcePackageService
         if (!forceRerun && HasCurrentOutput(context.WorkflowProjectDir) &&
             HasMatchingFingerprint(context.WorkflowProjectDir, sourceFingerprint))
         {
-            log?.Invoke($"参考格式原始素材包已存在，复用：{root}");
+            await RefreshDerivedImagesAsync(context.WorkflowProjectDir, log, ct).ConfigureAwait(false);
+            log?.Invoke($"参考格式原始素材包已存在，已按当前模板刷新并复用：{root}");
             return root;
         }
 
@@ -355,32 +356,10 @@ public static partial class TikTokReferenceSourcePackageService
         IReadOnlyList<GeneratedCharacter> characters,
         IReadOnlyList<string> sourceFrames)
     {
-        using var canvas = new Image<Rgba32>(2342, 1280, Color.ParseHex("0e0f11"));
-        var family = ResolveFont();
-        var titleFont = family.CreateFont(24, FontStyle.Bold);
-        var labelFont = family.CreateFont(15, FontStyle.Regular);
-        canvas.Mutate(ctx => ctx.DrawText("角色设计工作台", titleFont, Color.White, new PointF(34, 24)));
-
-        var columns = Math.Min(3, Math.Max(1, characters.Count));
-        for (var index = 0; index < characters.Count; index++)
-        {
-            var column = index % columns;
-            var row = index / columns;
-            var x = 120 + column * 735;
-            var y = 105 + row * 550;
-            DrawNode(canvas, characters[index].Path, x, y, 225, 355);
-            canvas.Mutate(ctx =>
-            {
-                ctx.DrawText(characters[index].Profile.Name, titleFont, Color.White, new PointF(x, y + 370));
-                ctx.DrawLine(Color.ParseHex("34383f"), 2, new PointF(x + 225, y + 177), new PointF(x + 330, y + 177));
-            });
-            var reference = sourceFrames.Count == 0 ? null : sourceFrames[index % sourceFrames.Count];
-            if (reference is not null)
-                DrawNode(canvas, reference, x + 330, y + 55, 170, 300);
-            else
-                canvas.Mutate(ctx => ctx.DrawText("暂无成片参考", labelFont, Color.ParseHex("79808b"), new PointF(x + 340, y + 175)));
-        }
-        canvas.SaveAsPng(output);
+        RoleVectorTemplateRenderer.Render(
+            output,
+            characters.Select(character => character.Path).ToArray(),
+            sourceFrames);
     }
 
     private static void DrawNode(Image<Rgba32> canvas, string path, int x, int y, int width, int height)
