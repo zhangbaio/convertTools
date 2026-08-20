@@ -479,7 +479,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             var tempPath = $"{finalPath}.part";
             var existingVideo = await FindExistingEpisodeVideoAsync(
                 outputDir,
-                task,
+                task.EpisodeNumber,
                 message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"),
                 validateVideoEncoding,
                 cancellationToken);
@@ -1976,7 +1976,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private static async Task<string?> FindExistingEpisodeVideoAsync(
         string outputDir,
-        EpisodeTask task,
+        int outputEpisodeNumber,
         Action<string>? report,
         bool validateVideoEncoding,
         CancellationToken cancellationToken)
@@ -1996,9 +1996,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     continue;
                 }
 
-                var stem = Path.GetFileNameWithoutExtension(path);
-                if (string.Equals(stem, Path.GetFileNameWithoutExtension(BuildEpisodeFileName(task)), StringComparison.OrdinalIgnoreCase) ||
-                    BuildEpisodeMarkers(task).Any(marker => stem.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+                if (IsEpisodeFileForOutput(path, outputEpisodeNumber))
                 {
                     if (!HasValidVideoFile(path))
                     {
@@ -2029,13 +2027,17 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return null;
     }
 
-    private static IEnumerable<string> BuildEpisodeMarkers(EpisodeTask task)
+    internal static bool IsEpisodeFileForOutput(string path, int outputEpisodeNumber)
     {
-        foreach (var number in new[] { task.EpisodeNumber, task.SourceEpisodeNumber, task.SequenceEpisodeNumber }.Where(value => value > 0).Distinct())
-        {
-            yield return $"第{number}集";
-            yield return $"第{number:00}集";
-        }
+        if (outputEpisodeNumber <= 0)
+            return false;
+
+        var stem = Path.GetFileNameWithoutExtension(path).Trim();
+        if (stem.Length < 3 || stem[0] != '第' || stem[^1] != '集')
+            return false;
+
+        return int.TryParse(stem[1..^1].Trim(), out var fileEpisodeNumber) &&
+               fileEpisodeNumber == outputEpisodeNumber;
     }
 
     private static void WriteDownloadState(

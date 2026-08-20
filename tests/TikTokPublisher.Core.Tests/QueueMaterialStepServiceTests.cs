@@ -1,4 +1,5 @@
 using FluentAssertions;
+using System.Text.Json;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
@@ -7,6 +8,59 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class QueueMaterialStepServiceTests
 {
+    [Fact]
+    public void Download_completeness_uses_source_episode_mapping_when_numbers_are_not_contiguous()
+    {
+        var sourceDir = Path.Combine(Path.GetTempPath(), $"download-mapping-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sourceDir);
+        var sourceNumbers = Enumerable.Range(1, 7).Concat(Enumerable.Range(9, 33)).ToArray();
+        var item = new QueueProjectItem
+        {
+            ProjectDir = sourceDir,
+            EpisodeCount = 40,
+        };
+
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(sourceDir, "shortdrama-project.json"),
+                JsonSerializer.Serialize(new { episodeCount = 40 }));
+            File.WriteAllText(
+                Path.Combine(sourceDir, ".weixin-channel-download-state.json"),
+                JsonSerializer.Serialize(new
+                {
+                    episodes = "all",
+                    episode_number_mode = "source",
+                    episode_mappings = sourceNumbers.Select((number, index) => new
+                    {
+                        source_episode_number = number,
+                        sequence_episode_number = index + 1,
+                    }),
+                }));
+            foreach (var number in sourceNumbers)
+                File.WriteAllBytes(Path.Combine(sourceDir, $"第{number}集.mp4"), [1, 2, 3]);
+
+            var expectedNumbers = QueueMaterialStepService.ResolveExpectedDownloadedEpisodeNumbers(sourceDir, item);
+            expectedNumbers.Should().Equal(sourceNumbers);
+
+            var complete = QueueMaterialStepService.InspectDownloadedEpisodes(sourceDir, item, expectedNumbers);
+            complete.IsComplete.Should().BeTrue();
+            complete.Expected.Should().Be(40);
+            complete.FoundCount.Should().Be(40);
+            complete.Missing.Should().BeEmpty();
+
+            File.Delete(Path.Combine(sourceDir, "第9集.mp4"));
+            var missing = QueueMaterialStepService.InspectDownloadedEpisodes(sourceDir, item, expectedNumbers);
+            missing.IsComplete.Should().BeFalse();
+            missing.FoundCount.Should().Be(39);
+            missing.Missing.Should().Equal(9);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
     [Fact]
     public void NeedsAiRewrite_requires_matching_persisted_synopsis_mode_and_content()
     {

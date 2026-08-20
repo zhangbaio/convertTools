@@ -51,12 +51,21 @@ public static class QueueMaterialStepService
 
         var progress = CreateDownloadProgress(log);
         var result = await ShortDramaDramaServices.Downloader.DownloadAsync(request, progress, ct);
+        var expectedEpisodeNumbers = ResolveExpectedDownloadedEpisodeNumbers(context.SourceProjectDir, item);
         if (!result.Ok)
         {
             if (ct.IsCancellationRequested)
                 throw new OperationCanceledException(ct);
 
-            if (await TryRepairMissingEpisodesAsync(context, item, metadata, settings, displayName, log, ct).ConfigureAwait(false))
+            if (await TryRepairMissingEpisodesAsync(
+                    context,
+                    item,
+                    metadata,
+                    settings,
+                    displayName,
+                    expectedEpisodeNumbers,
+                    log,
+                    ct).ConfigureAwait(false))
             {
                 ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
                 ProjectWorkspaceService.RefreshQueueItemMetadata(item);
@@ -67,8 +76,16 @@ public static class QueueMaterialStepService
         }
 
         log(result.Message ?? $"下载完成，共 {result.VideoCount} 集");
-        await RepairMissingEpisodesIfNeededAsync(context, item, metadata, settings, displayName, log, ct).ConfigureAwait(false);
-        EnsureDownloadedEpisodesComplete(context.SourceProjectDir, item, log);
+        await RepairMissingEpisodesIfNeededAsync(
+            context,
+            item,
+            metadata,
+            settings,
+            displayName,
+            expectedEpisodeNumbers,
+            log,
+            ct).ConfigureAwait(false);
+        EnsureDownloadedEpisodesComplete(context.SourceProjectDir, item, expectedEpisodeNumbers, log);
         ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
     }
@@ -275,10 +292,19 @@ public static class QueueMaterialStepService
         DownloadMetadata metadata,
         ClientSettings settings,
         string displayName,
+        IReadOnlyList<int> expectedEpisodeNumbers,
         Action<string> log,
         CancellationToken ct)
     {
-        if (await TryRepairMissingEpisodesAsync(context, item, metadata, settings, displayName, log, ct).ConfigureAwait(false))
+        if (await TryRepairMissingEpisodesAsync(
+                context,
+                item,
+                metadata,
+                settings,
+                displayName,
+                expectedEpisodeNumbers,
+                log,
+                ct).ConfigureAwait(false))
             return;
     }
 
@@ -288,10 +314,11 @@ public static class QueueMaterialStepService
         DownloadMetadata metadata,
         ClientSettings settings,
         string displayName,
+        IReadOnlyList<int> expectedEpisodeNumbers,
         Action<string> log,
         CancellationToken ct)
     {
-        var inspection = InspectDownloadedEpisodes(context.SourceProjectDir, item);
+        var inspection = InspectDownloadedEpisodes(context.SourceProjectDir, item, expectedEpisodeNumbers);
         if (inspection.IsUnknown || inspection.IsComplete)
             return inspection.IsComplete;
         if (inspection.FoundCount <= 0)
@@ -312,7 +339,7 @@ public static class QueueMaterialStepService
             if (!repairResult.Ok)
                 log($"缺集补下载未完成：{repairResult.Message ?? "下载失败"}");
 
-            inspection = InspectDownloadedEpisodes(context.SourceProjectDir, item);
+            inspection = InspectDownloadedEpisodes(context.SourceProjectDir, item, expectedEpisodeNumbers);
             if (inspection.IsComplete)
             {
                 log($"缺集补下载完成，集数完整性校验通过：{inspection.Expected}/{inspection.Expected} 集齐全。");
@@ -327,9 +354,10 @@ public static class QueueMaterialStepService
     private static void EnsureDownloadedEpisodesComplete(
         string sourceProjectDir,
         QueueProjectItem item,
+        IReadOnlyList<int> expectedEpisodeNumbers,
         Action<string> log)
     {
-        var inspection = InspectDownloadedEpisodes(sourceProjectDir, item);
+        var inspection = InspectDownloadedEpisodes(sourceProjectDir, item, expectedEpisodeNumbers);
         if (inspection.IsUnknown)
         {
             log(string.IsNullOrWhiteSpace(inspection.SkipReason)
@@ -350,15 +378,24 @@ public static class QueueMaterialStepService
             "请重新执行下载步骤或检查片源。");
     }
 
-    private static DownloadCompleteness InspectDownloadedEpisodes(
+    internal static DownloadCompleteness InspectDownloadedEpisodes(
         string sourceProjectDir,
-        QueueProjectItem item)
+        QueueProjectItem item,
+        IReadOnlyList<int>? expectedEpisodeNumbers = null)
     {
-        var expected = 0;
-        try { expected = ProjectWorkspaceService.ResolveSourceEpisodeCount(item.ProjectDir); }
+        var expectedCount = 0;
+        try { expectedCount = ProjectWorkspaceService.ResolveSourceEpisodeCount(item.ProjectDir); }
         catch { /* 信息文件缺失时回退 item.EpisodeCount */ }
-        if (expected <= 0) expected = item.EpisodeCount;
-        if (expected <= 1)
+        if (expectedCount <= 0) expectedCount = item.EpisodeCount;
+
+        var expectedNumbers = (expectedEpisodeNumbers ??
+                               TryReadExpectedEpisodeNumbersFromDownloadState(sourceProjectDir, expectedCount) ??
+                               (expectedCount > 0 ? Enumerable.Range(1, expectedCount).ToArray() : []))
+            .Where(number => number > 0)
+            .Distinct()
+            .Order()
+            .ToArray();
+        if (expectedNumbers.Length <= 1)
             return DownloadCompleteness.Unknown;
 
         var found = new HashSet<int>();
@@ -378,8 +415,67 @@ public static class QueueMaterialStepService
             return new DownloadCompleteness(0, found.Count, [], $"集数完整性校验读取目录失败，跳过：{ex.Message}");
         }
 
-        var missing = Enumerable.Range(1, expected).Where(i => !found.Contains(i)).ToList();
-        return new DownloadCompleteness(expected, found.Count, missing, "");
+        var missing = expectedNumbers.Where(number => !found.Contains(number)).ToList();
+        var foundExpectedCount = expectedNumbers.Count(found.Contains);
+        return new DownloadCompleteness(expectedNumbers.Length, foundExpectedCount, missing, "");
+    }
+
+    internal static IReadOnlyList<int> ResolveExpectedDownloadedEpisodeNumbers(
+        string sourceProjectDir,
+        QueueProjectItem item)
+    {
+        var expectedCount = 0;
+        try { expectedCount = ProjectWorkspaceService.ResolveSourceEpisodeCount(item.ProjectDir); }
+        catch { /* 信息文件缺失时回退 item.EpisodeCount */ }
+        if (expectedCount <= 0) expectedCount = item.EpisodeCount;
+
+        return TryReadExpectedEpisodeNumbersFromDownloadState(sourceProjectDir, expectedCount) ??
+               (expectedCount > 0 ? Enumerable.Range(1, expectedCount).ToArray() : []);
+    }
+
+    private static IReadOnlyList<int>? TryReadExpectedEpisodeNumbersFromDownloadState(
+        string sourceProjectDir,
+        int expectedCount)
+    {
+        var statePath = Path.Combine(sourceProjectDir, ".weixin-channel-download-state.json");
+        if (!File.Exists(statePath))
+            return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(statePath));
+            var root = document.RootElement;
+            if (!root.TryGetProperty("episode_mappings", out var mappings) ||
+                mappings.ValueKind != JsonValueKind.Array)
+                return null;
+
+            var mode = root.TryGetProperty("episode_number_mode", out var modeElement)
+                ? modeElement.GetString() ?? "source"
+                : "source";
+            var propertyName = string.Equals(mode, "continuous", StringComparison.OrdinalIgnoreCase)
+                ? "sequence_episode_number"
+                : "source_episode_number";
+            var numbers = mappings.EnumerateArray()
+                .Select(mapping => mapping.TryGetProperty(propertyName, out var numberElement) &&
+                                   numberElement.TryGetInt32(out var number)
+                    ? number
+                    : 0)
+                .Where(number => number > 0)
+                .Distinct()
+                .Order()
+                .ToArray();
+            var selection = root.TryGetProperty("episodes", out var episodesElement)
+                ? episodesElement.GetString() ?? ""
+                : "";
+            var representsFullDownload = string.Equals(selection.Trim(), "all", StringComparison.OrdinalIgnoreCase) ||
+                                         expectedCount <= 0 ||
+                                         numbers.Length == expectedCount;
+            return representsFullDownload && numbers.Length > 1 ? numbers : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string FormatEpisodeSelection(IReadOnlyList<int> episodes)
@@ -763,7 +859,8 @@ public static class QueueMaterialStepService
         Action<string> log,
         CancellationToken ct)
     {
-        var inspection = InspectDownloadedEpisodes(context.SourceProjectDir, item);
+        var expectedEpisodeNumbers = ResolveExpectedDownloadedEpisodeNumbers(context.SourceProjectDir, item);
+        var inspection = InspectDownloadedEpisodes(context.SourceProjectDir, item, expectedEpisodeNumbers);
         if (inspection.IsUnknown)
         {
             log(string.IsNullOrWhiteSpace(inspection.SkipReason)
@@ -784,7 +881,15 @@ public static class QueueMaterialStepService
             $"删除源视频前发现源视频不完整：短剧总集数 {inspection.Expected}，源视频 {inspection.FoundCount} 个，" +
             $"缺第 {FormatEpisodePreview(inspection.Missing)} 集。先自动补下载，补齐后再删除源视频。");
 
-        var repaired = await TryRepairMissingEpisodesAsync(context, item, metadata, settings, displayName, log, ct)
+        var repaired = await TryRepairMissingEpisodesAsync(
+                context,
+                item,
+                metadata,
+                settings,
+                displayName,
+                expectedEpisodeNumbers,
+                log,
+                ct)
             .ConfigureAwait(false);
 
         ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
@@ -793,7 +898,7 @@ public static class QueueMaterialStepService
         if (repaired)
             log("删源前缺集已补齐，继续执行删除源视频。");
 
-        EnsureDownloadedEpisodesComplete(context.SourceProjectDir, item, log);
+        EnsureDownloadedEpisodesComplete(context.SourceProjectDir, item, expectedEpisodeNumbers, log);
     }
 
     private static async Task WriteTikTokPublishFieldsAsync(
@@ -1521,7 +1626,7 @@ public static class QueueMaterialStepService
                && !string.IsNullOrWhiteSpace(settings.ImageModelApiKey);
     }
 
-    private sealed record DownloadCompleteness(
+    internal sealed record DownloadCompleteness(
         int Expected,
         int FoundCount,
         IReadOnlyList<int> Missing,
