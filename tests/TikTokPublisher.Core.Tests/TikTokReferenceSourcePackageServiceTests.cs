@@ -8,6 +8,33 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokReferenceSourcePackageServiceTests
 {
     [Fact]
+    public async Task Hidden_state_file_can_be_overwritten_during_force_rerun()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"hidden-reference-state-{Guid.NewGuid():N}");
+        var path = Path.Combine(root, TikTokReferenceSourcePackageService.StateFileName);
+        try
+        {
+            await TikTokReferenceSourcePackageService.WriteHiddenStateFileAsync(
+                path, "old", CancellationToken.None);
+            await TikTokReferenceSourcePackageService.WriteHiddenStateFileAsync(
+                path, "new", CancellationToken.None);
+
+            File.ReadAllText(path).Should().Be("new");
+            if (OperatingSystem.IsWindows())
+                File.GetAttributes(path).Should().HaveFlag(FileAttributes.Hidden);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.SetAttributes(path, FileAttributes.Normal);
+                File.Delete(path);
+            }
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Character_profiles_are_extracted_from_reference_style_script()
     {
         const string script = """

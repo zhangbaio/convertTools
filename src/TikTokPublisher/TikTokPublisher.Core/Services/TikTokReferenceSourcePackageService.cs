@@ -158,7 +158,7 @@ public static partial class TikTokReferenceSourcePackageService
         await RefreshDerivedImagesAsync(context.WorkflowProjectDir, log, ct).ConfigureAwait(false);
 
         var statePath = GetStatePath(context.WorkflowProjectDir);
-        await File.WriteAllTextAsync(
+        await WriteHiddenStateFileAsync(
             statePath,
             JsonSerializer.Serialize(new
             {
@@ -176,9 +176,7 @@ public static partial class TikTokReferenceSourcePackageService
                     source = x.Source,
                 }),
             }, new JsonSerializerOptions { WriteIndented = true }),
-            new UTF8Encoding(false),
             ct).ConfigureAwait(false);
-        TrySetHidden(statePath);
 
         log?.Invoke($"参考格式原始素材包生成完成：{root}");
         return root;
@@ -1330,6 +1328,37 @@ public static partial class TikTokReferenceSourcePackageService
                 File.SetAttributes(path, File.GetAttributes(path) | FileAttributes.Hidden);
         }
         catch { }
+    }
+
+    internal static async Task WriteHiddenStateFileAsync(
+        string path,
+        string content,
+        CancellationToken ct)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var temporary = Path.Combine(
+            Path.GetDirectoryName(path)!,
+            $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await File.WriteAllTextAsync(
+                temporary,
+                content,
+                new UTF8Encoding(false),
+                ct).ConfigureAwait(false);
+            if (File.Exists(path) && OperatingSystem.IsWindows())
+            {
+                var attributes = File.GetAttributes(path);
+                attributes &= ~(FileAttributes.Hidden | FileAttributes.ReadOnly | FileAttributes.System);
+                File.SetAttributes(path, attributes);
+            }
+            File.Move(temporary, path, overwrite: true);
+            TrySetHidden(path);
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+        }
     }
 
     [GeneratedRegex(@"^(?<name>[^\s（(：:]{2,12})\s*[（(][^）)]{0,80}[）)]\s*[：:]?.+$", RegexOptions.CultureInvariant)]
