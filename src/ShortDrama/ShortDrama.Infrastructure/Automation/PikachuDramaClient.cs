@@ -63,15 +63,18 @@ public static class PikachuDramaClient
 
         string searchMessage;
         var searchOk = false;
+        var normalizedDramaType = string.Equals(dramaType?.Trim(), "manga", StringComparison.OrdinalIgnoreCase)
+            ? "manga"
+            : "short";
         try
         {
-            var count = await SearchAsync(httpClient, cookie, "manga", "财神", 1, timeoutCts.Token);
+            var count = await SearchAsync(httpClient, cookie, normalizedDramaType, "财神", 1, timeoutCts.Token);
             searchOk = true;
-            searchMessage = $"皮卡丘搜索正常，返回 {count} 条结果";
+            searchMessage = $"{(normalizedDramaType == "manga" ? "红果漫剧" : "红果短剧")}搜索正常，返回 {count} 条结果";
         }
         catch (Exception ex)
         {
-            searchMessage = $"红果漫剧搜索失败：{ex.Message}";
+            searchMessage = $"{(normalizedDramaType == "manga" ? "红果漫剧" : "红果短剧")}搜索失败：{ex.Message}";
         }
 
         string detailMessage;
@@ -249,32 +252,51 @@ public static class PikachuDramaClient
         int page,
         CancellationToken cancellationToken)
     {
+        var mangaSearch = string.Equals(dramaType?.Trim(), "manga", StringComparison.OrdinalIgnoreCase);
+        var normalizedCookie = HongguoMemoryReaderService.NormalizeFanqieCookie(fanqieCookie);
+        if (!mangaSearch && string.IsNullOrWhiteSpace(normalizedCookie))
+        {
+            throw new InvalidOperationException(
+                "皮卡丘短剧搜索需要有效的番茄 Cookie，请在系统设置中点击「从红果读取」后保存设置。");
+        }
+
         var searchCtx = JsonSerializer.Serialize(new
         {
             type = 1,
             tab_type = 39,
             default_tab_type = 10,
             bottom_type = 1,
-            search_tab_id = 13
+            search_tab_id = mangaSearch ? 13 : 10
         });
 
         var pageIndex = Math.Max(0, page - 1);
-        var form = new Dictionary<string, string>
-        {
-            ["limit"] = "10",
-            ["offset"] = (pageIndex * 10).ToString(CultureInfo.InvariantCulture),
-            ["query"] = (keyword ?? string.Empty).Trim(),
-            ["search_ctx_info"] = "",
-            ["search_entrance"] = searchCtx,
-            ["search_id"] = "",
-            ["sub_tab_type"] = "31",
-            ["tab_type"] = "13"
-        };
+        var form = mangaSearch
+            ? new Dictionary<string, string>
+            {
+                ["limit"] = "10",
+                ["offset"] = (pageIndex * 10).ToString(CultureInfo.InvariantCulture),
+                ["query"] = (keyword ?? string.Empty).Trim(),
+                ["search_ctx_info"] = "",
+                ["search_entrance"] = searchCtx,
+                ["search_id"] = "",
+                ["sub_tab_type"] = "31",
+                ["tab_type"] = "13"
+            }
+            : new Dictionary<string, string>
+            {
+                ["limit"] = "20",
+                ["offset"] = (pageIndex * 20).ToString(CultureInfo.InvariantCulture),
+                ["query"] = (keyword ?? string.Empty).Trim(),
+                ["search_ctx_info"] = searchCtx
+            };
         using var content = new FormUrlEncodedContent(form);
-        content.Headers.ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded")
+        if (mangaSearch)
         {
-            CharSet = "utf-8"
-        };
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/x-www-form-urlencoded")
+            {
+                CharSet = "utf-8"
+            };
+        }
         using var request = new HttpRequestMessage(HttpMethod.Post, FanqieSearchUrl)
         {
             Content = content
@@ -282,13 +304,18 @@ public static class PikachuDramaClient
         request.Headers.TryAddWithoutValidation("Accept", "*/*");
         request.Headers.Host = "api5-sinfonlinea.novelfm.com";
         request.Headers.TryAddWithoutValidation("user-agent", FanqieUserAgent);
+        if (!mangaSearch)
+        {
+            request.Headers.TryAddWithoutValidation("cookie", normalizedCookie);
+        }
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
         var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
-                $"皮卡丘漫剧搜索请求失败: HTTP {(int)response.StatusCode} {response.ReasonPhrase}。");
+                $"皮卡丘搜索请求失败: HTTP {(int)response.StatusCode} {response.ReasonPhrase}。" +
+                (mangaSearch ? string.Empty : "请在系统设置中重新读取番茄 Cookie。"));
         }
 
         JsonDocument document;
@@ -310,7 +337,8 @@ public static class PikachuDramaClient
                           "unknown";
             document.Dispose();
             throw new InvalidOperationException(
-                $"皮卡丘漫剧搜索失败: code={code}, {message}。");
+                $"皮卡丘搜索失败: code={code}, {message}" +
+                (mangaSearch ? "。" : "（Cookie 可能已过期，请重新读取）。"));
         }
 
         return document;

@@ -25,7 +25,7 @@ public sealed class ClientSettings
 
     public string PikachuServerUrl { get; set; } = "https://startvlog.cn/start-prod-api";
     public string PikachuFanqieCookie { get; set; } = "";
-    public string PikachuDramaType { get; set; } = "manga";
+    public string PikachuDramaType { get; set; } = "short";
     public string PikachuDeviceId { get; set; } = "";
     public string PikachuClientVersion { get; set; } = "1.4.4";
 

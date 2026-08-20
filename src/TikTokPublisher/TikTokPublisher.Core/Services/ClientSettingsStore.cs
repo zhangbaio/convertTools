@@ -241,7 +241,7 @@ public static class ClientSettingsStore
         settings.HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine);
         settings.HgnewUdid = NormalizeUdid(settings.HgnewUdid);
         settings.HgnewClientVersion = HongguoClientVersion.Normalize(settings.HgnewClientVersion);
-        settings.PikachuDramaType = "manga";
+        settings.PikachuDramaType = NormalizePikachuDramaType(settings.PikachuDramaType);
         settings.PikachuFanqieCookie = NormalizePikachuFanqieCookie(settings.PikachuFanqieCookie);
         settings.TiktokSilenceAsrEngine = NormalizeAsrEngine(settings.TiktokSilenceAsrEngine);
         settings.TiktokSilenceRepairMode = NormalizeRepairMode(settings.TiktokSilenceRepairMode);
@@ -410,6 +410,11 @@ public static class ClientSettingsStore
         var trimmed = (value ?? string.Empty).Trim();
         return HongguoMemoryReaderService.NormalizeFanqieCookie(trimmed) ?? trimmed;
     }
+
+    private static string NormalizePikachuDramaType(string? value) =>
+        string.Equals(value?.Trim(), "manga", StringComparison.OrdinalIgnoreCase)
+            ? "manga"
+            : "short";
 
     private static string NormalizeHongguoLocalDownloadMode(string? value)
     {

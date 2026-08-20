@@ -21,7 +21,7 @@ public sealed class PikachuDramaChainTests
         var result = await PikachuDramaClient.TestConnectivityAsync(
             httpClient,
             serverUrl: null,
-            fanqieCookie: null,
+            fanqieCookie: BuildFanqieCookie(),
             dramaType: "short",
             deviceId: "HG0123456789ABCDEF",
             clientVersion: null,
@@ -30,8 +30,9 @@ public sealed class PikachuDramaChainTests
 
         result.DetailOk.Should().BeTrue();
         result.SearchOk.Should().BeTrue(result.SearchMessage);
-        handler.SearchCookie.Should().BeNull();
-        handler.SearchForm["search_entrance"].Should().Contain("\"search_tab_id\":13");
+        handler.SearchCookie.Should().Be(BuildFanqieCookie());
+        handler.SearchForm["search_ctx_info"].Should().Contain("\"search_tab_id\":10");
+        handler.SearchForm.Should().NotContainKey("search_entrance");
         handler.Requests.Should().Contain(request =>
             request.RequestUri!.ToString() == "https://startvlog.cn/start-prod-api/api/drama/hongguo/detail");
         handler.Requests.Should().Contain(request =>
@@ -75,6 +76,23 @@ public sealed class PikachuDramaChainTests
         handler.SearchForm["tab_type"].Should().Be("13");
         handler.SearchForm["search_entrance"].Should().Contain("\"search_tab_id\":13");
         handler.SearchContentType.Should().Be("application/x-www-form-urlencoded; charset=utf-8");
+    }
+
+    [Fact]
+    public async Task Short_Drama_Search_Should_Reject_Missing_Cookie_Before_Request()
+    {
+        var handler = new PikachuRecordingHandler();
+        using var httpClient = new HttpClient(handler);
+
+        var action = () => PikachuDramaClient.ProbeSearchCountAsync(
+            httpClient,
+            fanqieCookie: "",
+            dramaType: "short",
+            CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*需要有效的番茄 Cookie*");
+        handler.Requests.Should().BeEmpty();
     }
 
     [Fact]

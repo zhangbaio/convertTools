@@ -945,7 +945,7 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
-    public void Client_settings_store_migrates_legacy_pikachu_short_type_to_manga()
+    public void Client_settings_store_preserves_pikachu_short_type()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-pikachu-type-{Guid.NewGuid():N}");
         var databasePath = Path.Combine(tempDir, "app.db");
@@ -957,7 +957,7 @@ public sealed class TikTokPublishDefaultsTests
                 PikachuDramaType = "short",
             }, databasePath);
 
-            ClientSettingsStore.Load(databasePath).PikachuDramaType.Should().Be("manga");
+            ClientSettingsStore.Load(databasePath).PikachuDramaType.Should().Be("short");
         }
         finally
         {

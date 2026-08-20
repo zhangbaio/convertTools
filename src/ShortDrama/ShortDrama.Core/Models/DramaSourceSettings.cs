@@ -20,7 +20,7 @@ public sealed record DramaSourceSettings
 
     public string PikachuServerUrl { get; init; } = "https://startvlog.cn/start-prod-api";
     public string PikachuFanqieCookie { get; init; } = "";
-    public string PikachuDramaType { get; init; } = "manga";
+    public string PikachuDramaType { get; init; } = "short";
     public string PikachuDeviceId { get; init; } = "";
     public string PikachuClientVersion { get; init; } = "1.4.4";
 

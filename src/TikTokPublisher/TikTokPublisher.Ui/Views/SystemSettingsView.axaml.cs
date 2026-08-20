@@ -92,6 +92,7 @@ public partial class SystemSettingsView : UserControl
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
 
         PikachuTypeCombo.Items.Clear();
+        PikachuTypeCombo.Items.Add(CreateItem("红果短剧（需要番茄 Cookie）", "short"));
         PikachuTypeCombo.Items.Add(CreateItem("红果漫剧（类型编号 13，免 Cookie）", "manga"));
         PikachuTypeCombo.SelectionChanged += OnPikachuTypeChanged;
 
@@ -242,7 +243,7 @@ public partial class SystemSettingsView : UserControl
     private void OnPikachuTypeChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_vm is null || PikachuTypeCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.PikachuDramaType = item.Tag as string ?? "manga";
+        _vm.PikachuDramaType = item.Tag as string ?? "short";
     }
 
     private void OnHongguoLocalDownloadModeChanged(object? sender, SelectionChangedEventArgs e)
