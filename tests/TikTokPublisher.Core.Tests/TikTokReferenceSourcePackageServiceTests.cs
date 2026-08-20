@@ -348,13 +348,13 @@ public sealed class TikTokReferenceSourcePackageServiceTests
             File.WriteAllText(Path.Combine(material, "001-1.mp4.索引.txt"), "D:\\video.mp4");
             File.WriteAllText(Path.Combine(info, "shortdrama-project.json"), "{}");
 
-            var outputs = Enumerable.Range(1, 4)
+            var outputs = Enumerable.Range(1, TikTokSourceFileInfoScreenshotService.RequiredImageCount)
                 .Select(index => Path.Combine(workflow, $"{index}.png"))
                 .ToArray();
             var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(workflow, outputs);
 
-            requests.Select(x => x.Directory).Should().Equal(root, character, material, info);
-            requests.Select(x => x.LargeIcons).Should().Equal(false, true, true, false);
+            requests.Select(x => x.Directory).Should().Equal(root, character);
+            requests.Select(x => x.LargeIcons).Should().Equal(false, true);
         }
         finally
         {
@@ -373,11 +373,9 @@ public sealed class TikTokReferenceSourcePackageServiceTests
             {
                 Path.Combine(root, "角色1.png"),
                 Path.Combine(root, "角色2.png"),
-                Path.Combine(root, "角色3.png"),
             };
             SaveSolidImage(characters[0], new Rgba32(220, 30, 30));
             SaveSolidImage(characters[1], new Rgba32(30, 220, 30));
-            SaveSolidImage(characters[2], new Rgba32(30, 30, 220));
             var frame = Path.Combine(root, "成片参考.png");
             SaveSolidImage(frame, new Rgba32(220, 180, 30));
             var outputPath = Path.Combine(root, "角色矢量图.png");
@@ -412,7 +410,7 @@ public sealed class TikTokReferenceSourcePackageServiceTests
 
             var active = layout.Groups[0].CharacterSlots[0];
             output[active.X + active.Width / 2, active.Y + active.Height / 2].R.Should().BeGreaterThan(200);
-            layout.Groups.Should().HaveCount(3);
+            layout.Groups.Should().HaveCount(2);
         }
         finally
         {
@@ -421,12 +419,18 @@ public sealed class TikTokReferenceSourcePackageServiceTests
     }
 
     [Fact]
-    public void Role_vector_renderer_selects_dedicated_three_and_four_character_layouts()
+    public void Role_vector_renderer_selects_dedicated_two_through_six_character_layouts()
     {
+        var two = RoleVectorTemplateRenderer.ResolveLayout(2);
         var three = RoleVectorTemplateRenderer.ResolveLayout(3);
         var four = RoleVectorTemplateRenderer.ResolveLayout(4);
         var five = RoleVectorTemplateRenderer.ResolveLayout(5);
         var six = RoleVectorTemplateRenderer.ResolveLayout(6);
+
+        two.ResourceName.Should().EndWith("RoleVectorTemplate2.png");
+        two.Groups.Should().HaveCount(2);
+        two.Groups.SelectMany(group => group.CharacterSlots)
+            .Min(slot => slot.X).Should().BeGreaterThan(600, "双人布局应整体位于画布中部");
 
         three.ResourceName.Should().EndWith("RoleVectorTemplate3.png");
         three.Groups.Should().HaveCount(3);
@@ -449,14 +453,14 @@ public sealed class TikTokReferenceSourcePackageServiceTests
         six.ResourceName.Should().EndWith("RoleVectorTemplate.png");
         six.Groups.Should().HaveCount(6);
 
-        var tooFew = () => RoleVectorTemplateRenderer.ResolveLayout(2);
+        var tooFew = () => RoleVectorTemplateRenderer.ResolveLayout(1);
         var tooMany = () => RoleVectorTemplateRenderer.ResolveLayout(7);
         tooFew.Should().Throw<ArgumentOutOfRangeException>();
         tooMany.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [Fact]
-    public void Normalize_character_profiles_clamps_to_three_through_six_and_prioritizes_leads()
+    public void Normalize_character_profiles_clamps_to_two_through_six_and_prioritizes_leads()
     {
         var tooFew = new[]
         {
@@ -464,7 +468,7 @@ public sealed class TikTokReferenceSourcePackageServiceTests
             new TikTokReferenceSourcePackageService.CharacterProfile("乙", "普通人物"),
         };
         TikTokReferenceSourcePackageService.NormalizeCharacterProfiles(tooFew, "甲乙共同经历危机。")
-            .Should().HaveCount(3);
+            .Should().HaveCount(2);
 
         var tooMany = Enumerable.Range(1, 7)
             .Select(index => new TikTokReferenceSourcePackageService.CharacterProfile(

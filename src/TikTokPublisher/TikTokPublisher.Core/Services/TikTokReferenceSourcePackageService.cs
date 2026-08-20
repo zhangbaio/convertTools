@@ -29,7 +29,7 @@ public static partial class TikTokReferenceSourcePackageService
     public const string DirectoryName = "参考格式原始素材包";
     public const string CharacterDirectoryName = "角色";
     public const string CharacterManifestFileName = "角色清单.json";
-    public const int MinCharacterCount = 3;
+    public const int MinCharacterCount = 2;
     public const int MaxCharacterCount = 6;
     public const string VideoDirectoryName = "videos";
     public const string MaterialDirectoryName = "素材文件";

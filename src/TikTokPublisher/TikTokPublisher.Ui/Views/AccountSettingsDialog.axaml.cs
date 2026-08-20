@@ -78,7 +78,7 @@ public partial class AccountSettingsDialog : Window
             p.TiktokRoleVectorCharacterCount > 0
                 ? p.TiktokRoleVectorCharacterCount
                 : TikTokAccountProfile.DefaultRoleVectorCharacterCount,
-            3,
+            2,
             6);
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
@@ -160,7 +160,7 @@ public partial class AccountSettingsDialog : Window
             120);
         p.TiktokRoleVectorCharacterCount = Math.Clamp(
             (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount),
-            3,
+            2,
             6);
         p.TiktokProofAccountConfigMigrated = true;
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;

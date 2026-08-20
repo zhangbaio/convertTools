@@ -175,11 +175,13 @@ public sealed class TikTokRoleVectorServiceTests
 
     [Theory]
     [InlineData(6, 6, 6)]
-    [InlineData(5, 6, 3)]
+    [InlineData(5, 6, 2)]
     [InlineData(5, 5, 5)]
-    [InlineData(4, 5, 3)]
+    [InlineData(4, 5, 2)]
     [InlineData(4, 4, 4)]
-    [InlineData(3, 6, 3)]
+    [InlineData(3, 6, 2)]
+    [InlineData(2, 6, 2)]
+    [InlineData(2, 2, 2)]
     [InlineData(8, 6, 6)]
     public void ResolveSelectedCharacterCount_UsesConfiguredCountOrMinimumFallback(
         int candidates,

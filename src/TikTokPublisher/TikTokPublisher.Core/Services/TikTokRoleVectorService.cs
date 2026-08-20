@@ -81,7 +81,7 @@ public static class TikTokRoleVectorService
             > TikTokReferenceSourcePackageService.MaxCharacterCount)
         {
             throw new InvalidOperationException(
-                $"角色矢量图仅支持 3、4、5、6 人，当前采集到 {usedCharacters.Length} 人。");
+                $"角色矢量图仅支持 2、3、4、5、6 人，当前采集到 {usedCharacters.Length} 人。");
         }
         var pairedReferences = TikTokReferenceSourcePackageService.ResolvePairedCharacterReferences(
             context.WorkflowProjectDir,
@@ -93,6 +93,7 @@ public static class TikTokRoleVectorService
             throw new InvalidOperationException("生成角色矢量图失败：没有可用的角色参考图、真实场景图或视频抽帧。");
         var templateDescription = usedCharacters.Length switch
         {
+            2 => "双人上下居中模板",
             3 => "三人居中模板",
             4 => "左三右一模板",
             5 => "左三右二模板",
