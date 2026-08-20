@@ -105,13 +105,15 @@ public sealed class TikTokAiScriptOutlineServiceTests
         var script = Array.IndexOf(keys, QueueStepKeys.GenerateEpisodeScript);
         var aiMaterials = Array.IndexOf(keys, QueueStepKeys.GenerateAiDramaMaterials);
         var outline = Array.IndexOf(keys, QueueStepKeys.GenerateAiScriptOutline);
+        var roleVector = Array.IndexOf(keys, QueueStepKeys.GenerateRoleVector);
         var proof = Array.IndexOf(keys, QueueStepKeys.GenerateProofMaterial);
 
         Assert.True(rewrite < poster);
         Assert.True(poster < script);
         Assert.True(script < aiMaterials);
         Assert.True(aiMaterials < outline);
-        Assert.True(outline < proof);
+        Assert.True(outline < roleVector);
+        Assert.True(roleVector < proof);
         Assert.Contains(QueueStepRegistry.UserSelectable, step => step.Key == QueueStepKeys.GenerateAiScriptOutline);
     }
 

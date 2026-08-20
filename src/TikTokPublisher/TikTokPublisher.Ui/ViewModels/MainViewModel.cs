@@ -133,6 +133,7 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _queueGenerateEpisodeScriptEnabled;
     [ObservableProperty] private bool _queueGenerateAiScriptOutlineEnabled;
     [ObservableProperty] private bool _queueGenerateAiDramaMaterialsEnabled;
+    [ObservableProperty] private bool _queueGenerateRoleVectorEnabled;
     [ObservableProperty] private bool _queueGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _queueGenerateTimestampCertificateEnabled;
     [ObservableProperty] private bool _queueDeleteSourceVideosEnabled;
@@ -528,6 +529,7 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnQueueGenerateEpisodeScriptEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateAiDramaMaterialsEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateAiScriptOutlineEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnQueueGenerateRoleVectorEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateProofMaterialEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateTimestampCertificateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueDeleteSourceVideosEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -690,6 +692,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateEpisodeScriptEnabled = true;
             QueueGenerateAiScriptOutlineEnabled = true;
             QueueGenerateAiDramaMaterialsEnabled = true;
+            QueueGenerateRoleVectorEnabled = true;
             QueueGenerateProofMaterialEnabled = true;
             QueueGenerateTimestampCertificateEnabled = true;
             QueueDeleteSourceVideosEnabled = true;
@@ -724,6 +727,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateEpisodeScriptEnabled = false;
             QueueGenerateAiScriptOutlineEnabled = false;
             QueueGenerateAiDramaMaterialsEnabled = false;
+            QueueGenerateRoleVectorEnabled = false;
             QueueGenerateProofMaterialEnabled = false;
             QueueGenerateTimestampCertificateEnabled = false;
             QueueDeleteSourceVideosEnabled = false;
@@ -3281,6 +3285,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateEpisodeScriptEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateEpisodeScript);
             QueueGenerateAiScriptOutlineEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateAiScriptOutline);
             QueueGenerateAiDramaMaterialsEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateAiDramaMaterials);
+            QueueGenerateRoleVectorEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateRoleVector);
             QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
             QueueGenerateTimestampCertificateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateTimestampCertificate);
             QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
@@ -3306,6 +3311,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueGenerateEpisodeScriptEnabled) steps.Add(QueueStepRegistry.GenerateEpisodeScript);
         if (QueueGenerateAiScriptOutlineEnabled) steps.Add(QueueStepRegistry.GenerateAiScriptOutline);
         if (QueueGenerateAiDramaMaterialsEnabled) steps.Add(QueueStepRegistry.GenerateAiDramaMaterials);
+        if (QueueGenerateRoleVectorEnabled) steps.Add(QueueStepRegistry.GenerateRoleVector);
         if (QueueGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (QueueGenerateTimestampCertificateEnabled) steps.Add(QueueStepRegistry.GenerateTimestampCertificate);
         if (QueueDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);

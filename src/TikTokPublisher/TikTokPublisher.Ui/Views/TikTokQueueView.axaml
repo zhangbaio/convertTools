@@ -264,6 +264,7 @@
                                 <CheckBox Content="生成剧本" IsChecked="{Binding QueueGenerateEpisodeScriptEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成AI漫剧素材" IsChecked="{Binding QueueGenerateAiDramaMaterialsEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成AI大纲" IsChecked="{Binding QueueGenerateAiScriptOutlineEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="生成角色矢量图" IsChecked="{Binding QueueGenerateRoleVectorEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成证明材料" IsChecked="{Binding QueueGenerateProofMaterialEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="生成时间戳" IsChecked="{Binding QueueGenerateTimestampCertificateEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,2" />
@@ -359,8 +360,8 @@
                           HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
                           AllowAutoHide="False">
-                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1956">
-                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,76,68,68,0,68,68,68,68,68,180">
+                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="2024">
+                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,68,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
@@ -374,16 +375,17 @@
                         <TextBlock Grid.Column="10" Text="剧本" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="11" Text="AI素材" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="12" Text="AI大纲" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="13" Text="证明材料" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="14" Text="时间戳" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="15" Text="修复" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="16" Text="翻译" Classes="tableHeader stepTableHeader" IsVisible="False" />
-                        <TextBlock Grid.Column="17" Text="静音检测" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="18" Text="静音修复" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="19" Text="校验" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="20" Text="删源" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="21" Text="上传" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="22" Text="备注" Classes="tableHeader" />
+                        <TextBlock Grid.Column="13" Text="角色图" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="14" Text="证明材料" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="15" Text="时间戳" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="16" Text="修复" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="17" Text="翻译" Classes="tableHeader stepTableHeader" IsVisible="False" />
+                        <TextBlock Grid.Column="18" Text="静音检测" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="19" Text="静音修复" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="20" Text="校验" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="21" Text="删源" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="22" Text="上传" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="23" Text="备注" Classes="tableHeader" />
                         <Border Grid.Column="0" Classes="queueColumnResizer" Tag="0" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="1" Classes="queueColumnResizer" Tag="1" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="2" Classes="queueColumnResizer" Tag="2" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
@@ -400,12 +402,13 @@
                         <Border Grid.Column="13" Classes="queueColumnResizer" Tag="13" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="14" Classes="queueColumnResizer" Tag="14" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="15" Classes="queueColumnResizer" Tag="15" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                        <Border Grid.Column="16" Classes="queueColumnResizer" Tag="16" IsVisible="False" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                        <Border Grid.Column="17" Classes="queueColumnResizer" Tag="17" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="16" Classes="queueColumnResizer" Tag="16" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="17" Classes="queueColumnResizer" Tag="17" IsVisible="False" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="18" Classes="queueColumnResizer" Tag="18" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="19" Classes="queueColumnResizer" Tag="19" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="20" Classes="queueColumnResizer" Tag="20" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="21" Classes="queueColumnResizer" Tag="21" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="22" Classes="queueColumnResizer" Tag="22" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                     </Grid>
 
                     <ListBox x:Name="QueueProjectList"
@@ -417,8 +420,8 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Border Classes="queueTableRow" Width="1956" Height="42" Loaded="OnQueueTableRowLoaded">
-                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,76,68,68,0,68,68,68,68,68,180" ClipToBounds="True">
+                                <Border Classes="queueTableRow" Width="2024" Height="42" Loaded="OnQueueTableRowLoaded">
+                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,68,68,180" ClipToBounds="True">
                                         <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="4,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -472,31 +475,34 @@
                                         <Border Grid.Column="12" Classes="stepStatusBadge" Background="{Binding AiScriptOutlineStatusBackgroundBrush}" BorderBrush="{Binding AiScriptOutlineStatusBorderBrush}" ToolTip.Tip="{Binding AiScriptOutlineStatus}">
                                             <TextBlock Text="{Binding AiScriptOutlineStatus}" Foreground="{Binding AiScriptOutlineStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="13" Classes="stepStatusBadge" Background="{Binding ProofMaterialStatusBackgroundBrush}" BorderBrush="{Binding ProofMaterialStatusBorderBrush}" ToolTip.Tip="{Binding ProofMaterialStatus}">
+                                        <Border Grid.Column="13" Classes="stepStatusBadge" Background="{Binding RoleVectorStatusBackgroundBrush}" BorderBrush="{Binding RoleVectorStatusBorderBrush}" ToolTip.Tip="{Binding RoleVectorStatus}">
+                                            <TextBlock Text="{Binding RoleVectorStatus}" Foreground="{Binding RoleVectorStatusBrush}" Classes="stepStatusText" />
+                                        </Border>
+                                        <Border Grid.Column="14" Classes="stepStatusBadge" Background="{Binding ProofMaterialStatusBackgroundBrush}" BorderBrush="{Binding ProofMaterialStatusBorderBrush}" ToolTip.Tip="{Binding ProofMaterialStatus}">
                                             <TextBlock Text="{Binding ProofMaterialStatus}" Foreground="{Binding ProofMaterialStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="14" Classes="stepStatusBadge" Background="{Binding TimestampCertificateStatusBackgroundBrush}" BorderBrush="{Binding TimestampCertificateStatusBorderBrush}" ToolTip.Tip="{Binding TimestampCertificateStatus}">
+                                        <Border Grid.Column="15" Classes="stepStatusBadge" Background="{Binding TimestampCertificateStatusBackgroundBrush}" BorderBrush="{Binding TimestampCertificateStatusBorderBrush}" ToolTip.Tip="{Binding TimestampCertificateStatus}">
                                             <TextBlock Text="{Binding TimestampCertificateStatus}" Foreground="{Binding TimestampCertificateStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="15" Classes="stepStatusBadge" Background="{Binding RepairStatusBackgroundBrush}" BorderBrush="{Binding RepairStatusBorderBrush}" ToolTip.Tip="{Binding RepairStatus}">
+                                        <Border Grid.Column="16" Classes="stepStatusBadge" Background="{Binding RepairStatusBackgroundBrush}" BorderBrush="{Binding RepairStatusBorderBrush}" ToolTip.Tip="{Binding RepairStatus}">
                                             <TextBlock Text="{Binding RepairStatus}" Foreground="{Binding RepairStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="16" Classes="stepStatusBadge" Background="{Binding VideoTranslateStatusBackgroundBrush}" BorderBrush="{Binding VideoTranslateStatusBorderBrush}" ToolTip.Tip="{Binding VideoTranslateStatus}" IsVisible="False">
+                                        <Border Grid.Column="17" Classes="stepStatusBadge" Background="{Binding VideoTranslateStatusBackgroundBrush}" BorderBrush="{Binding VideoTranslateStatusBorderBrush}" ToolTip.Tip="{Binding VideoTranslateStatus}" IsVisible="False">
                                             <TextBlock Text="{Binding VideoTranslateStatus}" Foreground="{Binding VideoTranslateStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="17" Classes="stepStatusBadge" Background="{Binding SilenceDetectStatusBackgroundBrush}" BorderBrush="{Binding SilenceDetectStatusBorderBrush}" ToolTip.Tip="{Binding SilenceDetectStatus}">
+                                        <Border Grid.Column="18" Classes="stepStatusBadge" Background="{Binding SilenceDetectStatusBackgroundBrush}" BorderBrush="{Binding SilenceDetectStatusBorderBrush}" ToolTip.Tip="{Binding SilenceDetectStatus}">
                                             <TextBlock Text="{Binding SilenceDetectStatus}" Foreground="{Binding SilenceDetectStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="18" Classes="stepStatusBadge" Background="{Binding SilenceRepairStatusBackgroundBrush}" BorderBrush="{Binding SilenceRepairStatusBorderBrush}" ToolTip.Tip="{Binding SilenceRepairStatus}">
+                                        <Border Grid.Column="19" Classes="stepStatusBadge" Background="{Binding SilenceRepairStatusBackgroundBrush}" BorderBrush="{Binding SilenceRepairStatusBorderBrush}" ToolTip.Tip="{Binding SilenceRepairStatus}">
                                             <TextBlock Text="{Binding SilenceRepairStatus}" Foreground="{Binding SilenceRepairStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="19" Classes="stepStatusBadge" Background="{Binding ValidateStatusBackgroundBrush}" BorderBrush="{Binding ValidateStatusBorderBrush}" ToolTip.Tip="{Binding ValidateStatus}">
+                                        <Border Grid.Column="20" Classes="stepStatusBadge" Background="{Binding ValidateStatusBackgroundBrush}" BorderBrush="{Binding ValidateStatusBorderBrush}" ToolTip.Tip="{Binding ValidateStatus}">
                                             <TextBlock Text="{Binding ValidateStatus}" Foreground="{Binding ValidateStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="20" Classes="stepStatusBadge" Background="{Binding DeleteSourceStatusBackgroundBrush}" BorderBrush="{Binding DeleteSourceStatusBorderBrush}" ToolTip.Tip="{Binding DeleteSourceStatus}">
+                                        <Border Grid.Column="21" Classes="stepStatusBadge" Background="{Binding DeleteSourceStatusBackgroundBrush}" BorderBrush="{Binding DeleteSourceStatusBorderBrush}" ToolTip.Tip="{Binding DeleteSourceStatus}">
                                             <TextBlock Text="{Binding DeleteSourceStatus}" Foreground="{Binding DeleteSourceStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="21" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding DetailText}">
+                                        <Border Grid.Column="22" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding DetailText}">
                                             <Border.ContextMenu>
                                                 <ContextMenu>
                                                     <MenuItem Header="标记上传成功" Click="OnMarkUploadCompletedClick" />
@@ -505,7 +511,7 @@
                                             </Border.ContextMenu>
                                             <TextBlock Text="{Binding UploadStatus}" Foreground="{Binding UploadStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <TextBox Grid.Column="22"
+                                        <TextBox Grid.Column="23"
                                                  Classes="queueRemarkBox"
                                                  Text="{Binding Remark, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                                  Watermark="备注"

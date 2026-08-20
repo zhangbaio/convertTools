@@ -119,6 +119,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public string EpisodeScriptStatus => StepOf(QueueStepKeys.GenerateEpisodeScript);
     public string AiDramaMaterialsStatus => StepOf(QueueStepKeys.GenerateAiDramaMaterials);
     public string AiScriptOutlineStatus => StepOf(QueueStepKeys.GenerateAiScriptOutline);
+    public string RoleVectorStatus => StepOf(QueueStepKeys.GenerateRoleVector);
     public string ProjectImageStatus => StepOf(QueueStepKeys.GenerateProjectImages);
     public string ProofMaterialStatus => StepOf(QueueStepKeys.GenerateProofMaterial);
     public string TimestampCertificateStatus => StepOf(QueueStepKeys.GenerateTimestampCertificate);
@@ -137,6 +138,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush EpisodeScriptStatusBrush => BrushOf(EpisodeScriptStatus);
     public IBrush AiDramaMaterialsStatusBrush => BrushOf(AiDramaMaterialsStatus);
     public IBrush AiScriptOutlineStatusBrush => BrushOf(AiScriptOutlineStatus);
+    public IBrush RoleVectorStatusBrush => BrushOf(RoleVectorStatus);
     public IBrush ProjectImageStatusBrush => BrushOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBrush => BrushOf(ProofMaterialStatus);
     public IBrush TimestampCertificateStatusBrush => BrushOf(TimestampCertificateStatus);
@@ -161,6 +163,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush EpisodeScriptStatusBackgroundBrush => BackgroundOf(EpisodeScriptStatus);
     public IBrush AiDramaMaterialsStatusBackgroundBrush => BackgroundOf(AiDramaMaterialsStatus);
     public IBrush AiScriptOutlineStatusBackgroundBrush => BackgroundOf(AiScriptOutlineStatus);
+    public IBrush RoleVectorStatusBackgroundBrush => BackgroundOf(RoleVectorStatus);
     public IBrush ProjectImageStatusBackgroundBrush => BackgroundOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBackgroundBrush => BackgroundOf(ProofMaterialStatus);
     public IBrush TimestampCertificateStatusBackgroundBrush => BackgroundOf(TimestampCertificateStatus);
@@ -178,6 +181,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush EpisodeScriptStatusBorderBrush => BorderOf(EpisodeScriptStatus);
     public IBrush AiDramaMaterialsStatusBorderBrush => BorderOf(AiDramaMaterialsStatus);
     public IBrush AiScriptOutlineStatusBorderBrush => BorderOf(AiScriptOutlineStatus);
+    public IBrush RoleVectorStatusBorderBrush => BorderOf(RoleVectorStatus);
     public IBrush ProjectImageStatusBorderBrush => BorderOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBorderBrush => BorderOf(ProofMaterialStatus);
     public IBrush TimestampCertificateStatusBorderBrush => BorderOf(TimestampCertificateStatus);

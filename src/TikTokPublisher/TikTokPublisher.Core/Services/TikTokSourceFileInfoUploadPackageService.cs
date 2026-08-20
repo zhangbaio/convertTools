@@ -78,7 +78,7 @@ public static class TikTokSourceFileInfoUploadPackageService
                 TikTokReferenceSourcePackageService.GetRoot(workflow),
                 TikTokReferenceSourcePackageService.CharacterWorkbenchFileName),
             "角色矢量图",
-            "请先生成参考格式原始素材包。");
+            "请先执行“生成角色矢量图”步骤。");
 
         ValidatePdf(outline, "AI 大纲 PDF");
         ValidatePdf(script, "剧本 PDF");

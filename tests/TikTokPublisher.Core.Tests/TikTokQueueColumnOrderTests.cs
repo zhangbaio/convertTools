@@ -15,9 +15,9 @@ public sealed class TikTokQueueColumnOrderTests
         var headers = new[]
         {
             (7, "下载"), (8, "改写"), (9, "海报"), (10, "剧本"), (11, "AI素材"),
-            (12, "AI大纲"), (13, "证明材料"), (14, "时间戳"), (15, "修复"),
-            (16, "翻译"), (17, "静音检测"), (18, "静音修复"), (19, "校验"),
-            (20, "删源"), (21, "上传"),
+            (12, "AI大纲"), (13, "角色图"), (14, "证明材料"), (15, "时间戳"),
+            (16, "修复"), (17, "翻译"), (18, "静音检测"), (19, "静音修复"),
+            (20, "校验"), (21, "删源"), (22, "上传"),
         };
         foreach (var (column, title) in headers)
         {
@@ -28,17 +28,18 @@ public sealed class TikTokQueueColumnOrderTests
         {
             (7, "DownloadStatus"), (8, "RewriteStatus"), (9, "PosterStatus"),
             (10, "EpisodeScriptStatus"), (11, "AiDramaMaterialsStatus"), (12, "AiScriptOutlineStatus"),
-            (13, "ProofMaterialStatus"), (14, "TimestampCertificateStatus"), (15, "RepairStatus"),
-            (16, "VideoTranslateStatus"), (17, "SilenceDetectStatus"), (18, "SilenceRepairStatus"),
-            (19, "ValidateStatus"), (20, "DeleteSourceStatus"), (21, "UploadStatus"),
+            (13, "RoleVectorStatus"), (14, "ProofMaterialStatus"), (15, "TimestampCertificateStatus"),
+            (16, "RepairStatus"), (17, "VideoTranslateStatus"), (18, "SilenceDetectStatus"),
+            (19, "SilenceRepairStatus"), (20, "ValidateStatus"), (21, "DeleteSourceStatus"),
+            (22, "UploadStatus"),
         };
         foreach (var (column, binding) in bindings)
         {
             xaml.Should().Contain($"Grid.Column=\"{column}\" Classes=\"stepStatusBadge\" Background=\"{{Binding {binding}BackgroundBrush}}");
         }
 
-        xaml.Should().Contain("Grid.Column=\"22\"\n                                                 Classes=\"queueRemarkBox\"");
-        xaml.Should().Contain("ColumnDefinitions=\"48,56,104,210,210,60,128,68,68,68,68,68,68,76,68,68,0,68,68,68,68,68,180\"");
+        xaml.Should().Contain("Grid.Column=\"23\"\n                                                 Classes=\"queueRemarkBox\"");
+        xaml.Should().Contain("ColumnDefinitions=\"48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,68,68,180\"");
     }
 
     private static string FindRepositoryRoot()

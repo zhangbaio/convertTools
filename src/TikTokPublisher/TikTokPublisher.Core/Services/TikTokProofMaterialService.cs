@@ -262,9 +262,14 @@ public sealed class TikTokProofMaterialService
             await TikTokReferenceSourcePackageService.GenerateAsync(
                 item,
                 settings,
-                forceRerun,
+                forceRerun: false,
                 log,
                 cancellationToken).ConfigureAwait(false);
+            if (!TikTokRoleVectorService.HasCurrentOutput(context.WorkflowProjectDir))
+            {
+                throw new InvalidOperationException(
+                    "原始文件或素材文件信息缺少角色矢量图，请先执行“生成角色矢量图”步骤。");
+            }
             if (!TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir) &&
                 TikTokAiDramaProductionMaterialService.CanGenerate(context.WorkflowProjectDir))
             {

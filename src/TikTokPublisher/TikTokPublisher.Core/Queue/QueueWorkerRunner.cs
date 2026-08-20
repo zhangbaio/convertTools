@@ -1140,6 +1140,10 @@ public sealed class QueueWorkerRunner
                 await TikTokAiDramaProductionMaterialService.GenerateAsync(
                     item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
                 break;
+            case QueueStepRegistry.GenerateRoleVector:
+                await TikTokRoleVectorService.GenerateAsync(
+                    item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
+                break;
             case QueueStepRegistry.GenerateProjectImages:
                 await TikTokProjectImageService.GenerateAsync(
                     item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);

@@ -8,6 +8,7 @@ public static class QueueStepKeys
     public const string GenerateEpisodeScript = "generate_episode_script";
     public const string GenerateAiScriptOutline = "generate_ai_script_outline";
     public const string GenerateAiDramaMaterials = "generate_ai_drama_materials";
+    public const string GenerateRoleVector = "generate_role_vector";
     public const string GenerateProjectImages = "generate_project_images";
     public const string GenerateProofMaterial = "generate_proof_material";
     public const string GenerateTimestampCertificate = "generate_timestamp_certificate";
@@ -84,6 +85,7 @@ public sealed class QueueProjectItem
         var hadEpisodeScriptState = StepStates.ContainsKey(QueueStepKeys.GenerateEpisodeScript);
         var hadAiScriptOutlineState = StepStates.ContainsKey(QueueStepKeys.GenerateAiScriptOutline);
         var hadAiDramaMaterialsState = StepStates.ContainsKey(QueueStepKeys.GenerateAiDramaMaterials);
+        var hadRoleVectorState = StepStates.ContainsKey(QueueStepKeys.GenerateRoleVector);
         var hadTimestampState = StepStates.ContainsKey(QueueStepKeys.GenerateTimestampCertificate);
 
         foreach (var key in new[]
@@ -94,6 +96,7 @@ public sealed class QueueProjectItem
                      QueueStepKeys.GenerateEpisodeScript,
                      QueueStepKeys.GenerateAiScriptOutline,
                      QueueStepKeys.GenerateAiDramaMaterials,
+                     QueueStepKeys.GenerateRoleVector,
                      QueueStepKeys.GenerateProjectImages,
                      QueueStepKeys.GenerateProofMaterial,
                      QueueStepKeys.GenerateTimestampCertificate,
@@ -107,6 +110,9 @@ public sealed class QueueProjectItem
                  })
             StepStates.TryAdd(key, QueueStepStatus.Pending);
 
+        if (!hadRoleVectorState && HasCurrentRoleVector())
+            StepStates[QueueStepKeys.GenerateRoleVector] = QueueStepStatus.Completed;
+
         if (StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed)
         {
             if (!hadProofMaterialState)
@@ -117,6 +123,8 @@ public sealed class QueueProjectItem
                 StepStates[QueueStepKeys.GenerateAiScriptOutline] = QueueStepStatus.Completed;
             if (!hadAiDramaMaterialsState)
                 StepStates[QueueStepKeys.GenerateAiDramaMaterials] = QueueStepStatus.Completed;
+            if (!hadRoleVectorState && HasCurrentRoleVector())
+                StepStates[QueueStepKeys.GenerateRoleVector] = QueueStepStatus.Completed;
             if (!hadTimestampState)
                 StepStates[QueueStepKeys.GenerateTimestampCertificate] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.MaterialValidate) == QueueStepStatus.Pending)
@@ -131,6 +139,19 @@ public sealed class QueueProjectItem
                 StepStates[QueueStepKeys.SilenceDetect] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.SilenceRepair) == QueueStepStatus.Pending)
                 StepStates[QueueStepKeys.SilenceRepair] = QueueStepStatus.Completed;
+        }
+    }
+
+    private bool HasCurrentRoleVector()
+    {
+        try
+        {
+            var workflow = ProjectWorkspaceService.ResolveWorkflowProjectDir(ProjectDir);
+            return TikTokPublisher.Core.Services.TikTokRoleVectorService.HasCurrentOutput(workflow);
+        }
+        catch
+        {
+            return false;
         }
     }
 

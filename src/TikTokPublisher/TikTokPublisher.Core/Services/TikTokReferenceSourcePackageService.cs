@@ -55,7 +55,6 @@ public static partial class TikTokReferenceSourcePackageService
         var state = GetStatePath(workflowProjectDirectory);
         var characterDir = Path.Combine(root, CharacterDirectoryName);
         return File.Exists(state) &&
-               File.Exists(Path.Combine(root, CharacterWorkbenchFileName)) &&
                File.Exists(Path.Combine(root, SceneDesignFileName1)) &&
                File.Exists(Path.Combine(root, SceneDesignFileName2)) &&
                Directory.Exists(characterDir) &&
@@ -86,8 +85,17 @@ public static partial class TikTokReferenceSourcePackageService
             return root;
         }
 
-        EnsureImageModelConfigured(settings);
-        TryDeleteDirectory(root);
+        var existingCharacterDir = Path.Combine(root, CharacterDirectoryName);
+        var reusableCharacterPaths = !forceRerun && Directory.Exists(existingCharacterDir)
+            ? Directory.EnumerateFiles(existingCharacterDir)
+                .Where(IsImage)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .Take(6)
+                .ToArray()
+            : [];
+        var reuseCharacters = reusableCharacterPaths.Length >= 3;
+        if (!reuseCharacters) EnsureImageModelConfigured(settings);
+        ResetPackageRoot(root, preserveCharactersAndRoleVector: reuseCharacters);
         var characterDir = Path.Combine(root, CharacterDirectoryName);
         var videoDir = Path.Combine(root, VideoDirectoryName);
         var materialDir = Path.Combine(root, MaterialDirectoryName, "001");
@@ -95,25 +103,34 @@ public static partial class TikTokReferenceSourcePackageService
         Directory.CreateDirectory(videoDir);
         Directory.CreateDirectory(materialDir);
 
-        var characters = ExtractCharacterProfiles(script, intro).Take(6).ToArray();
-        if (characters.Length < 3 || characters.All(character => IsGenericCharacterName(character.Name)))
+        var generatedCharacters = new List<GeneratedCharacter>();
+        if (reuseCharacters)
         {
-            if (characters.All(character => IsGenericCharacterName(character.Name)))
-                characters = [];
-            characters = AddFallbackCharacters(characters, intro).Take(3).ToArray();
+            generatedCharacters.AddRange(reusableCharacterPaths.Select(path => new GeneratedCharacter(
+                new CharacterProfile(Path.GetFileNameWithoutExtension(path), "复用已有图片模型角色定妆图"),
+                path)));
+            log?.Invoke($"参考格式素材包：复用现有角色定妆图 {generatedCharacters.Count} 张，不调用图片模型。");
         }
-
-        log?.Invoke($"参考格式素材包：识别 {characters.Length} 个主要角色，开始调用图片模型生成真人定妆图。");
-        var generatedCharacters = new List<GeneratedCharacter>(characters.Length);
-        foreach (var (character, index) in characters.Select((value, index) => (value, index)))
+        else
         {
-            ct.ThrowIfCancellationRequested();
-            var output = Path.Combine(characterDir, $"{SanitizeFileName(character.Name)}.png");
-            log?.Invoke($"角色图片 {index + 1}/{characters.Length}：{character.Name}（图片模型）");
-            var bytes = await GenerateImageWithRetryAsync(
-                BuildCharacterPrompt(character), settings, character.Name, ct).ConfigureAwait(false);
-            await SaveNormalizedPngAsync(bytes, output, 768, 1024, ct).ConfigureAwait(false);
-            generatedCharacters.Add(new GeneratedCharacter(character, output));
+            var characters = ExtractCharacterProfiles(script, intro).Take(6).ToArray();
+            if (characters.Length < 3 || characters.All(character => IsGenericCharacterName(character.Name)))
+            {
+                if (characters.All(character => IsGenericCharacterName(character.Name))) characters = [];
+                characters = AddFallbackCharacters(characters, intro).Take(3).ToArray();
+            }
+
+            log?.Invoke($"参考格式素材包：识别 {characters.Length} 个主要角色，开始调用图片模型生成真人定妆图。");
+            foreach (var (character, index) in characters.Select((value, index) => (value, index)))
+            {
+                ct.ThrowIfCancellationRequested();
+                var output = Path.Combine(characterDir, $"{SanitizeFileName(character.Name)}.png");
+                log?.Invoke($"角色图片 {index + 1}/{characters.Length}：{character.Name}（图片模型）");
+                var bytes = await GenerateImageWithRetryAsync(
+                    BuildCharacterPrompt(character), settings, character.Name, ct).ConfigureAwait(false);
+                await SaveNormalizedPngAsync(bytes, output, 768, 1024, ct).ConfigureAwait(false);
+                generatedCharacters.Add(new GeneratedCharacter(character, output));
+            }
         }
 
         var videos = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).ToArray();
@@ -157,28 +174,7 @@ public static partial class TikTokReferenceSourcePackageService
     {
         var context = ProjectWorkspaceService.LoadContext(workflowProjectDirectory);
         var root = GetRoot(context.WorkflowProjectDir);
-        var characterDir = Path.Combine(root, CharacterDirectoryName);
-        if (!Directory.Exists(characterDir))
-            throw new DirectoryNotFoundException($"缺少角色图片目录：{characterDir}");
-        var characters = Directory.EnumerateFiles(characterDir)
-            .Where(IsImage)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-            .Select(path => new GeneratedCharacter(
-                new CharacterProfile(Path.GetFileNameWithoutExtension(path), "图片模型生成角色"),
-                path))
-            .ToArray();
-        if (characters.Length == 0)
-            throw new InvalidOperationException("角色图片目录为空，无法生成角色工作台。");
-
-        var sceneSources = FindSceneSources(context, root).Take(8).ToList();
-        if (sceneSources.Count < 4)
-        {
-            var videos = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).ToArray();
-            sceneSources = (await ExtractSceneFramesAsync(root, videos, log, ct).ConfigureAwait(false)).ToList();
-        }
-
-        RenderCharacterWorkbench(
-            Path.Combine(root, CharacterWorkbenchFileName), characters, sceneSources);
+        var sceneSources = await ResolveSceneSourcesAsync(context, root, log, ct).ConfigureAwait(false);
         RenderSceneDesignSheet(
             Path.Combine(root, SceneDesignFileName1),
             Path.GetFileName(context.WorkflowProjectDir).TrimStart('_'),
@@ -190,7 +186,74 @@ public static partial class TikTokReferenceSourcePackageService
             "补充场景与光线参考",
             sceneSources.Skip(4).Take(4).ToArray());
         TrySetHidden(GetStatePath(context.WorkflowProjectDir));
-        log?.Invoke($"参考格式素材包：已用 {sceneSources.Count} 张真实场景帧刷新角色工作台和场景设计图。");
+        log?.Invoke($"参考格式素材包：已用 {sceneSources.Count} 张真实场景帧刷新场景设计图。");
+    }
+
+    internal static async Task<IReadOnlyList<string>> EnsureCharacterImagesAsync(
+        QueueProjectItem item,
+        ClientSettings settings,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        var root = GetRoot(context.WorkflowProjectDir);
+        var characterDir = Path.Combine(root, CharacterDirectoryName);
+        Directory.CreateDirectory(characterDir);
+
+        var existing = Directory.EnumerateFiles(characterDir)
+            .Where(IsImage)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Take(6)
+            .ToList();
+        if (existing.Count >= 3)
+        {
+            log?.Invoke($"角色矢量图：复用现有角色定妆图 {existing.Count} 张，不调用图片模型。");
+            return existing;
+        }
+
+        EnsureImageModelConfigured(settings);
+        var title = FirstNonEmpty(item.NewTitle, item.Title, item.OriginalTitle, Path.GetFileName(context.SourceProjectDir));
+        var intro = ResolveIntro(item, context);
+        var script = ReadProjectScript(context, title, intro);
+        var profiles = ExtractCharacterProfiles(script, intro).Take(6).ToArray();
+        if (profiles.Length < 3 || profiles.All(profile => IsGenericCharacterName(profile.Name)))
+        {
+            if (profiles.All(profile => IsGenericCharacterName(profile.Name))) profiles = [];
+            profiles = AddFallbackCharacters(profiles, intro).Take(3).ToArray();
+        }
+
+        foreach (var (profile, index) in profiles.Select((value, index) => (value, index)))
+        {
+            ct.ThrowIfCancellationRequested();
+            var output = Path.Combine(characterDir, $"{SanitizeFileName(profile.Name)}.png");
+            if (File.Exists(output)) continue;
+            log?.Invoke($"角色矢量图：角色图片 {index + 1}/{profiles.Length}，生成 {profile.Name} 定妆图。");
+            var bytes = await GenerateImageWithRetryAsync(
+                BuildCharacterPrompt(profile), settings, profile.Name, ct).ConfigureAwait(false);
+            await SaveNormalizedPngAsync(bytes, output, 768, 1024, ct).ConfigureAwait(false);
+        }
+
+        existing = Directory.EnumerateFiles(characterDir)
+            .Where(IsImage)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Take(6)
+            .ToList();
+        if (existing.Count < 3)
+            throw new InvalidOperationException($"生成角色矢量图至少需要 3 张角色定妆图，当前只有 {existing.Count} 张。");
+        return existing;
+    }
+
+    internal static async Task<IReadOnlyList<string>> ResolveSceneSourcesAsync(
+        ProjectWorkspaceContext context,
+        string packageRoot,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var sceneSources = FindSceneSources(context, packageRoot).Take(8).ToList();
+        if (sceneSources.Count >= 4) return sceneSources;
+
+        var videos = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).ToArray();
+        return await ExtractSceneFramesAsync(packageRoot, videos, log, ct).ConfigureAwait(false);
     }
 
     internal static IReadOnlyList<CharacterProfile> ExtractCharacterProfiles(string script, string intro = "")
@@ -349,17 +412,6 @@ public static partial class TikTokReferenceSourcePackageService
             Position = AnchorPositionMode.Center,
         }));
         await image.SaveAsPngAsync(output, ct).ConfigureAwait(false);
-    }
-
-    private static void RenderCharacterWorkbench(
-        string output,
-        IReadOnlyList<GeneratedCharacter> characters,
-        IReadOnlyList<string> sourceFrames)
-    {
-        RoleVectorTemplateRenderer.Render(
-            output,
-            characters.Select(character => character.Path).ToArray(),
-            sourceFrames);
     }
 
     private static void DrawNode(Image<Rgba32> canvas, string path, int x, int y, int width, int height)
@@ -715,6 +767,37 @@ public static partial class TikTokReferenceSourcePackageService
     {
         try { if (Directory.Exists(path)) Directory.Delete(path, true); }
         catch { }
+    }
+
+    private static void ResetPackageRoot(string root, bool preserveCharactersAndRoleVector)
+    {
+        if (!preserveCharactersAndRoleVector)
+        {
+            TryDeleteDirectory(root);
+            return;
+        }
+
+        if (!Directory.Exists(root)) return;
+        foreach (var entry in Directory.EnumerateFileSystemEntries(root))
+        {
+            var name = Path.GetFileName(entry);
+            if (string.Equals(name, CharacterDirectoryName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, CharacterWorkbenchFileName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, TikTokRoleVectorService.BackupFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (Directory.Exists(entry)) Directory.Delete(entry, recursive: true);
+                else File.Delete(entry);
+            }
+            catch (Exception ex)
+            {
+                throw new IOException($"无法清理旧的参考格式素材：{entry}", ex);
+            }
+        }
     }
 
     private static void TrySetHidden(string path)

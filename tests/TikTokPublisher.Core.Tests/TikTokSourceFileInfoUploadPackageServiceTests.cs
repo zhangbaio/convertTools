@@ -56,6 +56,27 @@ public sealed class TikTokSourceFileInfoUploadPackageServiceTests
     }
 
     [Fact]
+    public void Generate_directs_missing_role_vector_to_independent_step()
+    {
+        var workflow = CreateWorkflow();
+        try
+        {
+            File.Delete(Path.Combine(
+                TikTokReferenceSourcePackageService.GetRoot(workflow),
+                TikTokReferenceSourcePackageService.CharacterWorkbenchFileName));
+
+            var action = () => TikTokSourceFileInfoUploadPackageService.Generate(workflow);
+
+            action.Should().Throw<FileNotFoundException>()
+                .WithMessage("*生成角色矢量图*步骤*");
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Find_script_pdf_prefers_standard_front_five_episode_file()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"source-upload-script-{Guid.NewGuid():N}");
