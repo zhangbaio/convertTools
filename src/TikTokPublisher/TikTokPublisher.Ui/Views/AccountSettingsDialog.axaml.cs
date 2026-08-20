@@ -53,8 +53,9 @@ public partial class AccountSettingsDialog : Window
         AiDramaBox.IsChecked = p.TiktokIsAiDrama;
         OriginalRightsHolderBox.IsChecked = p.TiktokIsOriginalRightsHolder;
         SelectByTag(ContentOriginalityCombo, p.TiktokContentOriginalityType, "original");
-        LoadCopyrightMaterialTypes(p.TiktokCopyrightMaterialTypes);
-        UploadAiScriptOutlineWithScreenshotsBox.IsChecked = p.TiktokUploadAiScriptOutlineWithScreenshots;
+        CopyrightMaterials.Load(
+            p.TiktokCopyrightMaterialTypes,
+            p.TiktokUploadAiScriptOutlineWithScreenshots);
         ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = p.TiktokProofSealPath;
@@ -127,8 +128,8 @@ public partial class AccountSettingsDialog : Window
         p.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
         p.TiktokIsOriginalRightsHolder = OriginalRightsHolderBox.IsChecked == true;
         p.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
-        p.TiktokCopyrightMaterialTypes = ReadCopyrightMaterialTypes();
-        p.TiktokUploadAiScriptOutlineWithScreenshots = UploadAiScriptOutlineWithScreenshotsBox.IsChecked == true;
+        p.TiktokCopyrightMaterialTypes = CopyrightMaterials.GetSelectedMaterialTypes();
+        p.TiktokUploadAiScriptOutlineWithScreenshots = CopyrightMaterials.UploadAiScriptOutlineWithScreenshots;
         p.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
         p.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
         p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
@@ -238,33 +239,6 @@ public partial class AccountSettingsDialog : Window
 
     private static string TagOf(ComboBox combo, string fallback)
         => (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? fallback;
-
-    private void LoadCopyrightMaterialTypes(IEnumerable<string>? values)
-    {
-        var selected = new HashSet<string>(
-            TikTokPublishConstants.NormalizeCopyrightMaterialTypes(values),
-            StringComparer.Ordinal);
-        ProductionAgreementMaterialBox.IsChecked = selected.Contains("production_agreement");
-        WorkRegistrationMaterialBox.IsChecked = selected.Contains("work_registration_certificate");
-        FilingLicenseMaterialBox.IsChecked = selected.Contains("filing_or_distribution_license");
-        RightsNoticeMaterialBox.IsChecked = selected.Contains("opening_ending_rights_notice");
-        AiScreenshotsMaterialBox.IsChecked = selected.Contains("ai_generation_screenshots");
-        EditingProjectMaterialBox.IsChecked = selected.Contains("editing_project_files");
-        SourceInfoMaterialBox.IsChecked = selected.Contains("source_file_information");
-    }
-
-    private List<string> ReadCopyrightMaterialTypes()
-    {
-        var result = new List<string>();
-        if (ProductionAgreementMaterialBox.IsChecked == true) result.Add("production_agreement");
-        if (WorkRegistrationMaterialBox.IsChecked == true) result.Add("work_registration_certificate");
-        if (FilingLicenseMaterialBox.IsChecked == true) result.Add("filing_or_distribution_license");
-        if (RightsNoticeMaterialBox.IsChecked == true) result.Add("opening_ending_rights_notice");
-        if (AiScreenshotsMaterialBox.IsChecked == true) result.Add("ai_generation_screenshots");
-        if (EditingProjectMaterialBox.IsChecked == true) result.Add("editing_project_files");
-        if (SourceInfoMaterialBox.IsChecked == true) result.Add("source_file_information");
-        return result;
-    }
 
     private static string NormalizeSubmitAction(string? value, bool? legacyEnabled = null)
     {

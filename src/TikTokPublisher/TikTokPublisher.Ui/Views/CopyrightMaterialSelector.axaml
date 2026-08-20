@@ -1,0 +1,205 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="TikTokPublisher.Ui.Views.CopyrightMaterialSelector">
+    <UserControl.Styles>
+        <Style Selector="Border.materialCard">
+            <Setter Property="BorderBrush" Value="#DCE3EC" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Background" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="Border.materialTag">
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="Background" Value="#EEF4FF" />
+        </Style>
+        <Style Selector="Border.materialTag TextBlock">
+            <Setter Property="Foreground" Value="#2563EB" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="TextBlock.materialHint">
+            <Setter Property="Foreground" Value="#6B7280" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="StackPanel.materialContents">
+            <Setter Property="Margin" Value="28,6,0,0" />
+            <Setter Property="Spacing" Value="5" />
+        </Style>
+    </UserControl.Styles>
+
+    <StackPanel Spacing="8">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel Spacing="2">
+                <TextBlock Text="平台要求：至少选择 1 项核心材料，或至少 2 项辅助材料"
+                           Classes="materialHint"
+                           TextWrapping="Wrap" />
+                <TextBlock x:Name="MinimumStatusText" FontSize="12" FontWeight="SemiBold" />
+            </StackPanel>
+            <Button Grid.Column="1"
+                    Content="仅选择最低标准"
+                    Padding="10,4"
+                    VerticalAlignment="Center"
+                    Click="OnSelectMinimumStandardClick" />
+        </Grid>
+
+        <Border Classes="materialCard">
+            <StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                    <CheckBox x:Name="ProductionAgreementMaterialBox"
+                              Content="合作协议"
+                              Checked="OnMaterialSelectionChanged"
+                              Unchecked="OnMaterialSelectionChanged" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Border Classes="materialTag"><TextBlock Text="核心" /></Border>
+                        <Border Classes="materialTag" Background="#EAF8EF"><TextBlock Text="最低标准推荐" Foreground="#16803C" /></Border>
+                    </StackPanel>
+                </Grid>
+                <StackPanel Classes="materialContents"
+                            IsVisible="{Binding IsChecked, ElementName=ProductionAgreementMaterialBox}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <CheckBox Content="证明材料.pdf" IsChecked="True" IsEnabled="False" />
+                        <TextBlock Grid.Column="1" Text="必传 · 自动生成" Classes="materialHint" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="materialCard">
+            <StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                    <CheckBox x:Name="WorkRegistrationMaterialBox"
+                              Content="作品登记证书"
+                              Checked="OnMaterialSelectionChanged"
+                              Unchecked="OnMaterialSelectionChanged" />
+                    <Border Grid.Column="1" Classes="materialTag"><TextBlock Text="核心" /></Border>
+                </Grid>
+                <StackPanel Classes="materialContents"
+                            IsVisible="{Binding IsChecked, ElementName=WorkRegistrationMaterialBox}">
+                    <TextBlock Text="作品登记证书文件（当前自动上传流程未支持）"
+                               Classes="materialHint" TextWrapping="Wrap" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="materialCard">
+            <StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                    <CheckBox x:Name="FilingLicenseMaterialBox"
+                              Content="备案/发行许可"
+                              Checked="OnMaterialSelectionChanged"
+                              Unchecked="OnMaterialSelectionChanged" />
+                    <Border Grid.Column="1" Classes="materialTag"><TextBlock Text="辅助" /></Border>
+                </Grid>
+                <StackPanel Classes="materialContents"
+                            IsVisible="{Binding IsChecked, ElementName=FilingLicenseMaterialBox}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <CheckBox Content="可信时间戳认证证书" IsChecked="True" IsEnabled="False" />
+                        <TextBlock Grid.Column="1" Text="必传 · 自动生成" Classes="materialHint" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="materialCard">
+            <StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                    <CheckBox x:Name="RightsNoticeMaterialBox"
+                              Content="片头片尾及权利标识"
+                              Checked="OnMaterialSelectionChanged"
+                              Unchecked="OnMaterialSelectionChanged" />
+                    <Border Grid.Column="1" Classes="materialTag"><TextBlock Text="辅助" /></Border>
+                </Grid>
+                <StackPanel Classes="materialContents"
+                            IsVisible="{Binding IsChecked, ElementName=RightsNoticeMaterialBox}">
+                    <TextBlock Text="片头片尾及权利标识文件（当前自动上传流程未支持）"
+                               Classes="materialHint" TextWrapping="Wrap" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="materialCard">
+            <StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                    <CheckBox x:Name="AiScreenshotsMaterialBox"
+                              Content="AI 生成过程截图"
+                              Checked="OnMaterialSelectionChanged"
+                              Unchecked="OnMaterialSelectionChanged" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Border Classes="materialTag"><TextBlock Text="辅助" /></Border>
+                        <TextBlock Text="1项必传 + 1项可选" Classes="materialHint" Margin="8,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+                <StackPanel Classes="materialContents"
+                            IsVisible="{Binding IsChecked, ElementName=AiScreenshotsMaterialBox}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <CheckBox Content="AI 生成截图（共4张）"
+                                  IsChecked="True"
+                                  IsEnabled="False"
+                                  ToolTip.Tip="01_分镜工作台.png、02_分镜工作台.png、03_分镜工作台.png、04_分镜工作台.png" />
+                        <TextBlock Grid.Column="1" Text="必传 · 自动生成" Classes="materialHint" VerticalAlignment="Center" />
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <CheckBox x:Name="UploadAiScriptOutlineWithScreenshotsBox"
+                                  Content="AI剧本大纲.pdf" />
+                        <TextBlock Grid.Column="1" Text="可选" Classes="materialHint" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="materialCard">
+            <StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                    <CheckBox x:Name="EditingProjectMaterialBox"
+                              Content="剪辑工程文件"
+                              Checked="OnMaterialSelectionChanged"
+                              Unchecked="OnMaterialSelectionChanged" />
+                    <Border Grid.Column="1" Classes="materialTag"><TextBlock Text="辅助" /></Border>
+                </Grid>
+                <StackPanel Classes="materialContents"
+                            IsVisible="{Binding IsChecked, ElementName=EditingProjectMaterialBox}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <CheckBox Content="工程图（至少4张）" IsChecked="True" IsEnabled="False" />
+                        <TextBlock Grid.Column="1" Text="必传 · 自动生成" Classes="materialHint" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="materialCard">
+            <StackPanel>
+                <Grid ColumnDefinitions="*,Auto">
+                    <CheckBox x:Name="SourceInfoMaterialBox"
+                              Content="原始文件或素材文件信息"
+                              Checked="OnMaterialSelectionChanged"
+                              Unchecked="OnMaterialSelectionChanged" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Border Classes="materialTag"><TextBlock Text="辅助" /></Border>
+                        <TextBlock Text="4项必传" Classes="materialHint" Margin="8,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+                <StackPanel Classes="materialContents"
+                            IsVisible="{Binding IsChecked, ElementName=SourceInfoMaterialBox}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <CheckBox Content="AI剧本大纲.pdf" IsChecked="True" IsEnabled="False" />
+                        <TextBlock Grid.Column="1" Text="必传" Classes="materialHint" VerticalAlignment="Center" />
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <CheckBox Content="剧本.pdf" IsChecked="True" IsEnabled="False" />
+                        <TextBlock Grid.Column="1" Text="必传" Classes="materialHint" VerticalAlignment="Center" />
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <CheckBox Content="01_剧本与项目资料.png" IsChecked="True" IsEnabled="False" />
+                        <TextBlock Grid.Column="1" Text="必传" Classes="materialHint" VerticalAlignment="Center" />
+                    </Grid>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <CheckBox Content="角色矢量图.png" IsChecked="True" IsEnabled="False" />
+                        <TextBlock Grid.Column="1" Text="必传" Classes="materialHint" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>
