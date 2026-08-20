@@ -122,6 +122,7 @@ public partial class AccountProfileEditor : UserControl
             ? profile.TiktokPaidRatioPercent
             : 20);
         AiDramaBox.IsChecked = profile.TiktokIsAiDrama;
+        SelectByTag(ContentCreationTypeCombo, profile.TiktokContentCreationType, "original");
         OriginalRightsHolderBox.IsChecked = profile.TiktokIsOriginalRightsHolder;
         SelectByTag(ContentOriginalityCombo, profile.TiktokContentOriginalityType, "original");
         CopyrightMaterials.Load(
@@ -237,6 +238,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
             profile.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
             profile.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
+            profile.TiktokContentCreationType = TagOf(ContentCreationTypeCombo, "original");
             profile.TiktokIsOriginalRightsHolder = OriginalRightsHolderBox.IsChecked == true;
             profile.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
             profile.TiktokCopyrightMaterialTypes = CopyrightMaterials.GetSelectedMaterialTypes();

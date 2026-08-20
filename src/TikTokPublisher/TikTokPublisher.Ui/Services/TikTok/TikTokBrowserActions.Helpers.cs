@@ -64,6 +64,93 @@ public static partial class TikTokBrowserActions
             $"TikTok 下拉选项不存在: {string.Join("/", labels)}；当前可见选项: {string.Join(" | ", visible.Take(20))}");
     }
 
+    private static async Task SelectContentCreationTypeAsync(
+        IPage page,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (!options.IsAiDrama)
+        {
+            Log(log, "TikTok 是否 AI 短剧为否，跳过内容创作类型。");
+            return;
+        }
+
+        var key = TikTokPublishConstants.NormalizeContentCreationType(options.ContentCreationType);
+        var value = TikTokPublishConstants.ContentCreationTypeValues[key].ToString();
+        var labels = TikTokPublishConstants.ContentCreationTypeLabels[key];
+        var field = page.Locator("[x-field-id='isRemakeV2']").First;
+        var appeared = await WaitUntilAsync(async () =>
+        {
+            try
+            {
+                return await field.CountAsync() > 0 &&
+                       await field.IsVisibleAsync(new() { Timeout = 500 });
+            }
+            catch
+            {
+                return false;
+            }
+        }, DefaultFieldVerifyTimeoutMs, 300, ct);
+
+        if (!appeared)
+        {
+            throw new InvalidOperationException(
+                "TikTok 已选择「是否 AI 短剧=是」，但动态字段「内容创作类型」(isRemakeV2) 未出现。");
+        }
+
+        await ClosePopupIfOpenAsync(page);
+        var combo = field.Locator("button[role='combobox']").First;
+        await OpenComboboxAsync(page, combo, ct);
+
+        ILocator? matched = null;
+        foreach (var selector in new[]
+                 {
+                     $"[role='dialog'] [role='option'][data-value='{value}']",
+                     $"[role='listbox'] [role='option'][data-value='{value}']",
+                     $"[role='option'][data-value='{value}']",
+                 })
+        {
+            var candidate = page.Locator(selector).First;
+            try
+            {
+                if (await candidate.CountAsync() > 0 && await candidate.IsVisibleAsync())
+                {
+                    matched = candidate;
+                    break;
+                }
+            }
+            catch { /* try next stable selector */ }
+        }
+
+        if (matched is null)
+        {
+            var visible = await CollectVisiblePopupTextsAsync(page);
+            throw new InvalidOperationException(
+                $"TikTok 内容创作类型选项值不存在: {value} ({key})；当前可见选项: {string.Join(" | ", visible.Take(20))}");
+        }
+
+        await ClickWithFallbackAsync(matched, ct);
+        await page.WaitForTimeoutAsync(400);
+
+        var confirmed = await WaitUntilAsync(async () =>
+        {
+            try
+            {
+                var text = NormalizeWhitespace(await combo.InnerTextAsync(new() { Timeout = 2000 }));
+                return labels.Any(label => text.Contains(label, StringComparison.Ordinal));
+            }
+            catch
+            {
+                return false;
+            }
+        }, DefaultFieldVerifyTimeoutMs, 300, ct);
+
+        if (!confirmed)
+            throw new InvalidOperationException($"TikTok 内容创作类型填写后校验失败，期望：{string.Join("/", labels)}");
+        Log(log, $"TikTok 内容创作类型已确认：{labels[0]} (isRemakeV2={value})");
+    }
+
     private static async Task SelectExpectedFullPriceAsync(
         IPage page,
         TikTokPublishOptions options,

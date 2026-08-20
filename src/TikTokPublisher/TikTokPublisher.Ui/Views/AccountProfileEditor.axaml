@@ -181,7 +181,7 @@
                             </StackPanel>
                         </Grid>
                         <Grid Classes="profileForm" ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
                             <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
@@ -277,6 +277,13 @@
                             <ComboBox Grid.Row="19" Grid.Column="1" x:Name="ContentOriginalityCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="original">原创</ComboBoxItem>
                                 <ComboBoxItem Tag="adapted">改编</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock Classes="formLabel" Grid.Row="20" Grid.Column="0" Text="内容创作类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="20" Grid.Column="1" x:Name="ContentCreationTypeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="original">原创</ComboBoxItem>
+                                <ComboBoxItem Tag="remake">成片重制</ComboBoxItem>
+                                <ComboBoxItem Tag="novel_adaptation">小说改编</ComboBoxItem>
                             </ComboBox>
 
                         </Grid>

@@ -79,6 +79,7 @@ public sealed class TikTokAccountProfile
     public int TiktokGenreCount { get; set; } = 3;
     public string TiktokSourceLanguage { get; set; } = "zh";
     public bool TiktokIsAiDrama { get; set; } = true;
+    public string TiktokContentCreationType { get; set; } = "original";
     public bool TiktokIsOriginalRightsHolder { get; set; } = true;
     public string TiktokContentOriginalityType { get; set; } = "original";
     public List<string> TiktokCopyrightMaterialTypes { get; set; } =

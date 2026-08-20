@@ -51,6 +51,7 @@ public partial class AccountSettingsDialog : Window
             ? p.TiktokPaidRatioPercent
             : 20);
         AiDramaBox.IsChecked = p.TiktokIsAiDrama;
+        SelectByTag(ContentCreationTypeCombo, p.TiktokContentCreationType, "original");
         OriginalRightsHolderBox.IsChecked = p.TiktokIsOriginalRightsHolder;
         SelectByTag(ContentOriginalityCombo, p.TiktokContentOriginalityType, "original");
         CopyrightMaterials.Load(
@@ -133,6 +134,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
         p.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
         p.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
+        p.TiktokContentCreationType = TagOf(ContentCreationTypeCombo, "original");
         p.TiktokIsOriginalRightsHolder = OriginalRightsHolderBox.IsChecked == true;
         p.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
         p.TiktokCopyrightMaterialTypes = CopyrightMaterials.GetSelectedMaterialTypes();

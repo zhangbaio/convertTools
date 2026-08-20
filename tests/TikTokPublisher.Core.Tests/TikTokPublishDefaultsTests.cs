@@ -614,6 +614,7 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokGenreCount.Should().Be(3);
         account.TiktokSourceLanguage.Should().Be("zh");
         account.TiktokIsAiDrama.Should().BeTrue();
+        account.TiktokContentCreationType.Should().Be("original");
         account.TiktokAiRewriteSynopsis.Should().BeTrue();
         account.TiktokIsOriginalRightsHolder.Should().BeTrue();
         account.TiktokContentOriginalityType.Should().Be("original");
@@ -773,6 +774,7 @@ public sealed class TikTokPublishDefaultsTests
         options.GenreCount.Should().Be(3);
         options.SourceLanguage.Should().Be("zh");
         options.SourceLanguageLabels.Should().ContainInOrder("中文", "Chinese");
+        options.ContentCreationType.Should().Be("original");
         options.IsOriginalRightsHolder.Should().BeTrue();
         options.ContentOriginalityType.Should().Be("original");
         options.CopyrightMaterialTypes.Should().Equal("production_agreement");

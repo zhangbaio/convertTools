@@ -39,7 +39,7 @@
                 <ScrollViewer>
                     <StackPanel Spacing="8" Margin="4">
                         <Grid ColumnDefinitions="130,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
@@ -202,6 +202,13 @@
                                                    HorizontalAlignment="Left" />
                                 </Grid>
                             </StackPanel>
+
+                            <TextBlock Grid.Row="35" Grid.Column="0" Text="内容创作类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="35" Grid.Column="1" x:Name="ContentCreationTypeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="original">原创</ComboBoxItem>
+                                <ComboBoxItem Tag="remake">成片重制</ComboBoxItem>
+                                <ComboBoxItem Tag="novel_adaptation">小说改编</ComboBoxItem>
+                            </ComboBox>
 
                         </Grid>
                     </StackPanel>

@@ -151,6 +151,40 @@ public static class TikTokPublishConstants
         ["hi"] = new[] { "印地语", "Hindi", "हिन्दी" },
     };
 
+    public static readonly IReadOnlyDictionary<string, int> ContentCreationTypeValues =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["original"] = 0,
+            ["remake"] = 1,
+            ["novel_adaptation"] = 3,
+        };
+
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> ContentCreationTypeLabels =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["original"] =
+            [
+                "原创",
+                "contentPartnerHub_seriesEditPage_contentCreationType_original",
+            ],
+            ["remake"] =
+            [
+                "成片重制",
+                "contentPartnerHub_seriesEditPage_contentCreationType_repainting",
+            ],
+            ["novel_adaptation"] =
+            [
+                "小说改编",
+                "contentPartnerHub_seriesEditPage_contentCreationType_novelAdaptation",
+            ],
+        };
+
+    public static string NormalizeContentCreationType(string? value)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        return ContentCreationTypeValues.ContainsKey(normalized) ? normalized : "original";
+    }
+
     /// <summary>对齐 Python <c>GENRE_OPTIONS</c>。</summary>
     public static readonly IReadOnlyList<string> GenreOptions =
     [
@@ -184,6 +218,7 @@ public sealed class TikTokPublishOptions
     public int GenreCount { get; set; } = DefaultGenreCount;
     public string SourceLanguage { get; set; } = "zh";
     public bool IsAiDrama { get; set; } = true;
+    public string ContentCreationType { get; set; } = "original";
     public bool IsOriginalRightsHolder { get; set; } = true;
     public string ContentOriginalityType { get; set; } = "original";
     public IReadOnlyList<string> CopyrightMaterialTypes { get; set; } = new[] { TikTokPublishConstants.ProductionAgreementMaterialType };
@@ -288,6 +323,8 @@ public sealed class TikTokPublishOptions
         GenreCount = NormalizeGenreCount(account.TiktokGenreCount),
         SourceLanguage = string.IsNullOrWhiteSpace(account.TiktokSourceLanguage) ? "zh" : account.TiktokSourceLanguage,
         IsAiDrama = account.TiktokIsAiDrama,
+        ContentCreationType = TikTokPublishConstants.NormalizeContentCreationType(
+            account.TiktokContentCreationType),
         IsOriginalRightsHolder = account.TiktokIsOriginalRightsHolder,
         ContentOriginalityType = string.IsNullOrWhiteSpace(account.TiktokContentOriginalityType)
             ? "original"
