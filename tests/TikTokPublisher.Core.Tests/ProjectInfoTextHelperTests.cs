@@ -90,6 +90,38 @@ public sealed class ProjectInfoTextHelperTests
         }
     }
 
+    [Fact]
+    public void WorkspaceProjectScanner_UsesStagingCount_InsteadOfRecursiveMaterialCopies()
+    {
+        var workspace = CreateTempDirectory();
+        var projectDir = Path.Combine(workspace, "原剧名");
+        var workflowDir = Path.Combine(workspace, "workflow", "原剧名");
+        var stagingDir = Path.Combine(workflowDir, TikTokUploadStagingService.StagingDirName);
+        var materialVideosDir = Path.Combine(workflowDir, "项目原始资料", "参考格式原始素材包", "videos");
+        Directory.CreateDirectory(projectDir);
+        Directory.CreateDirectory(stagingDir);
+        Directory.CreateDirectory(materialVideosDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(projectDir, "shortdrama-project.json"), """{"episodeCount":120}""");
+            for (var episode = 1; episode <= 40; episode++)
+            {
+                File.WriteAllBytes(Path.Combine(stagingDir, $"新剧名-第{episode}集.mp4"), [1]);
+                File.WriteAllBytes(Path.Combine(materialVideosDir, $"新剧名-第{episode}集.mp4"), [2]);
+            }
+
+            var project = WorkspaceProjectScanner.BuildProject(projectDir);
+
+            project.EpisodeCount.Should().Be(40);
+            project.PrimaryVideoPath.Should().StartWith(stagingDir);
+        }
+        finally
+        {
+            Directory.Delete(workspace, recursive: true);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"project-info-helper-{Guid.NewGuid():N}");

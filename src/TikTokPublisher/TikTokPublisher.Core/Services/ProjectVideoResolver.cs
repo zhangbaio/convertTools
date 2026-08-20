@@ -29,17 +29,16 @@ public static class ProjectVideoResolver
             workflow = source;
 
         var sourceVideos = ResolveSourceVideosFromRoots(source, workflow);
-        var stagedVideos = ResolveStagedUploadVideos(workflow);
+        var stagedVideos = ResolveStagedUploadVideosFromWorkflow(workflow);
 
-        var videoPaths = sourceVideos.Count > 0
-            ? sourceVideos
-            : allowStagedFallback ? stagedVideos : sourceVideos;
+        // Once the upload staging directory contains videos, it is the canonical
+        // upload set. Source/material copies must not override or inflate it.
+        var videoPaths = allowStagedFallback && stagedVideos.Count > 0
+            ? stagedVideos
+            : sourceVideos;
 
         if (videoPaths.Count == 0)
             return Array.Empty<string>();
-
-        if (stagedVideos.Count > 0 && stagedVideos.Count == videoPaths.Count)
-            return stagedVideos;
 
         return videoPaths;
     }
@@ -58,7 +57,20 @@ public static class ProjectVideoResolver
         if (sourceVideos.Count > 0)
             return sourceVideos;
 
-        return allowStagedFallback ? ResolveStagedUploadVideos(workflow) : Array.Empty<string>();
+        return allowStagedFallback ? ResolveStagedUploadVideosFromWorkflow(workflow) : Array.Empty<string>();
+    }
+
+    public static IReadOnlyList<string> ResolveStagedUploadVideos(string sourceProjectDir)
+    {
+        var source = Path.GetFullPath(sourceProjectDir);
+        if (!Directory.Exists(source))
+            return Array.Empty<string>();
+
+        var workflow = ProjectWorkspaceService.ResolveWorkflowProjectDir(source);
+        if (string.IsNullOrWhiteSpace(workflow))
+            workflow = source;
+
+        return ResolveStagedUploadVideosFromWorkflow(workflow);
     }
 
     private static List<string> ResolveSourceVideosFromRoots(string sourceProjectDir, string workflowProjectDir)
@@ -95,7 +107,7 @@ public static class ProjectVideoResolver
         }
     }
 
-    private static List<string> ResolveStagedUploadVideos(string workflowProjectDir)
+    private static List<string> ResolveStagedUploadVideosFromWorkflow(string workflowProjectDir)
     {
         var stagingRoot = Path.Combine(workflowProjectDir, UploadStagingDirName);
         if (!Directory.Exists(stagingRoot)) return new List<string>();
