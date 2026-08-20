@@ -25,6 +25,24 @@ public static class TikTokAiDramaProductionMaterialService
                 FindImagesInNamedDirectories(workflow, TikTokProjectImageService.OutputDirectoryName, recursiveFiles: false).Any());
     }
 
+    internal static bool NeedsSourceMaterialRefresh(string workflowProjectDirectory)
+    {
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        var frameCount = FindImagesInNamedDirectories(workflow, "抽帧原图", recursiveFiles: true)
+            .Take(12)
+            .Count();
+        var hasStoryboard = FindImagesInNamedDirectories(
+                workflow,
+                TikTokAiGenerationScreenshotService.OutputDirectoryName,
+                recursiveFiles: false)
+            .Concat(FindImagesInNamedDirectories(
+                workflow,
+                TikTokProjectImageService.OutputDirectoryName,
+                recursiveFiles: false))
+            .Any();
+        return frameCount < 12 || !hasStoryboard;
+    }
+
     public static bool HasCurrentOutput(string workflowProjectDirectory)
     {
         var root = Path.Combine(
@@ -42,8 +60,8 @@ public static class TikTokAiDramaProductionMaterialService
         Action<string>? log,
         CancellationToken ct)
     {
-        _ = settings;
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        var title = string.IsNullOrWhiteSpace(item.NewTitle) ? item.Title : item.NewTitle;
         var root = Path.Combine(
             TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(context.WorkflowProjectDir),
             OutputDirectoryName);
@@ -59,6 +77,18 @@ public static class TikTokAiDramaProductionMaterialService
             return;
         }
 
+        if (NeedsSourceMaterialRefresh(context.WorkflowProjectDir))
+        {
+            log?.Invoke(
+                "AI 漫剧制作素材：真实抽帧或分镜工作台不足，正在从原始视频自动补充前置素材。");
+            TikTokAiGenerationScreenshotService.Generate(
+                context.WorkflowProjectDir,
+                title,
+                settings,
+                log,
+                ct);
+        }
+
         TryDeleteDirectory(root);
         foreach (var dir in new[] { characterDir, sceneDir, storyboardDir, manifestDir })
             Directory.CreateDirectory(dir);
@@ -67,7 +97,9 @@ public static class TikTokAiDramaProductionMaterialService
             .Take(32)
             .ToArray();
         if (sourceFrames.Length < 12)
-            throw new InvalidOperationException("生成 AI 漫剧制作素材失败：至少需要 12 张真实画面参考图。");
+            throw new InvalidOperationException(
+                $"生成 AI 漫剧制作素材失败：自动补抽帧后只有 {sourceFrames.Length} 张真实画面参考图，" +
+                "请确认项目原始视频仍然存在且 FFmpeg 可用。");
 
         var selected = SelectEvenly(sourceFrames, 16).ToArray();
         for (var index = 0; index < selected.Length; index++)
@@ -113,7 +145,6 @@ public static class TikTokAiDramaProductionMaterialService
         foreach (var (source, index) in storyboards.Select((path, index) => (path, index)))
             File.Copy(source, Path.Combine(storyboardDir, $"分镜设计_{index + 1:D2}{Path.GetExtension(source)}"), true);
 
-        var title = string.IsNullOrWhiteSpace(item.NewTitle) ? item.Title : item.NewTitle;
         await File.WriteAllTextAsync(
             Path.Combine(manifestDir, "制作素材说明.txt"),
             $"项目：{title}\n" +
