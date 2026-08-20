@@ -19,6 +19,7 @@ public static class TikTokPublishOptionsBuilder
             };
         }
 
+        TikTokPublishConstants.ValidatePublishConfiguration(account);
         var options = TikTokPublishOptions.FromAccount(account);
         options.CopyrightMaterialTypes = TikTokPublishConstants.ValidateCopyrightMaterialTypes(
             options.CopyrightMaterialTypes);

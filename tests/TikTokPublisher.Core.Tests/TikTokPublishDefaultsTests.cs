@@ -793,6 +793,44 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Publish_options_builder_rejects_chinese_finished_content_remake_before_upload()
+    {
+        var account = new TikTokAccountProfile
+        {
+            TiktokSourceLanguage = "zh",
+            TiktokIsAiDrama = true,
+            TiktokContentCreationType = "remake",
+        };
+
+        var action = () => TikTokPublishOptionsBuilder.FromAccount(account);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*仅源语言为非中文的短剧可选择「成片重制」*");
+    }
+
+    [Theory]
+    [InlineData("en", true, "remake")]
+    [InlineData("zh", true, "original")]
+    [InlineData("zh", true, "novel_adaptation")]
+    [InlineData("zh", false, "remake")]
+    public void Publish_options_builder_accepts_valid_content_creation_combinations(
+        string sourceLanguage,
+        bool isAiDrama,
+        string contentCreationType)
+    {
+        var account = new TikTokAccountProfile
+        {
+            TiktokSourceLanguage = sourceLanguage,
+            TiktokIsAiDrama = isAiDrama,
+            TiktokContentCreationType = contentCreationType,
+        };
+
+        var options = TikTokPublishOptionsBuilder.FromAccount(account);
+
+        options.ContentCreationType.Should().Be(contentCreationType);
+    }
+
+    [Fact]
     public void Publish_options_builder_prefers_generated_proof_material_over_account_file()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-proof-publish-{Guid.NewGuid():N}");

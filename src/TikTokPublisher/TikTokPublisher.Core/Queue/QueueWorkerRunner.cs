@@ -795,6 +795,18 @@ public sealed class QueueWorkerRunner
                 "AI 大纲补全专用模式：跳过时间戳及其他证明材料准备，" +
                 "不会触发视频下载补源，仅追加 AI剧本大纲.pdf。");
         }
+
+        try
+        {
+            TikTokPublishConstants.ValidatePublishConfiguration(account);
+        }
+        catch (InvalidOperationException ex)
+        {
+            mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, ex.Message));
+            Report(onProgress, workspace, item, ex.Message, QueueStepRegistry.UploadSeries);
+            return false;
+        }
+
         if (!copyrightProofOnly)
         {
             var consistency = TikTokUploadEpisodeConsistencyService.ValidateBeforeUpload(item);

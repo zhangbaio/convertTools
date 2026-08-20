@@ -185,6 +185,24 @@ public static class TikTokPublishConstants
         return ContentCreationTypeValues.ContainsKey(normalized) ? normalized : "original";
     }
 
+    public static void ValidatePublishConfiguration(TikTokAccountProfile account)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+
+        var sourceLanguage = string.IsNullOrWhiteSpace(account.TiktokSourceLanguage)
+            ? "zh"
+            : account.TiktokSourceLanguage.Trim();
+        var contentCreationType = NormalizeContentCreationType(account.TiktokContentCreationType);
+        if (account.TiktokIsAiDrama &&
+            string.Equals(sourceLanguage, "zh", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(contentCreationType, "remake", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "TikTok 发布配置不合理：仅源语言为非中文的短剧可选择「成片重制」。" +
+                "请将源语言改为非中文，或将内容创作类型改为「原创/小说改编」。");
+        }
+    }
+
     /// <summary>对齐 Python <c>GENRE_OPTIONS</c>。</summary>
     public static readonly IReadOnlyList<string> GenreOptions =
     [
