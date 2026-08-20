@@ -95,6 +95,31 @@ public sealed class TikTokSourceFileInfoUploadPackageServiceTests
     }
 
     [Fact]
+    public void SyncRoleVectorCopy_overwrites_stale_upload_image()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"sync-role-vector-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var source = Path.Combine(root, "new.png");
+        var destination = Path.Combine(root, "upload", TikTokSourceFileInfoUploadPackageService.RoleVectorImageFileName);
+        using (var image = new Image<Rgba32>(32, 32, new Rgba32(220, 30, 30))) image.SaveAsPng(source);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        using (var image = new Image<Rgba32>(32, 32, new Rgba32(30, 30, 220))) image.SaveAsPng(destination);
+
+        try
+        {
+            TikTokSourceFileInfoUploadPackageService.SyncRoleVectorCopy(source, destination);
+
+            using var synchronized = Image.Load<Rgba32>(destination);
+            synchronized[16, 16].R.Should().BeGreaterThan(200);
+            synchronized[16, 16].B.Should().BeLessThan(50);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Generate_directs_missing_role_vector_to_independent_step()
     {
         var workflow = CreateWorkflow();

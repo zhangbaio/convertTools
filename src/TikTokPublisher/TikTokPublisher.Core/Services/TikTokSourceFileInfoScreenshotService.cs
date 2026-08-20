@@ -583,6 +583,43 @@ public static class TikTokSourceFileInfoScreenshotService
         }
     }
 
+    public static string RefreshRoleSceneScreenshot(
+        string workflowProjectDirectory,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        var outputDirectory = GetOutputDirectory(workflow);
+        Directory.CreateDirectory(outputDirectory);
+        var output = Path.Combine(outputDirectory, FileNames[1]);
+        var temporary = Path.Combine(
+            outputDirectory,
+            $".{Path.GetFileNameWithoutExtension(FileNames[1])}.{Guid.NewGuid():N}.tmp.png");
+        var stagingDirectory = Path.Combine(workflow, CaptureStagingDirectoryName);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var directories = PrepareDenseMaterialDirectories(workflow, log);
+            if (directories.Count < RequiredImageCount)
+                throw new InvalidOperationException("刷新角色场景截图失败：没有可用的角色素材目录。");
+            var request = new WindowsExplorerScreenshotService.CaptureRequest(
+                directories[1], temporary, LargeIcons: true);
+            if (!WindowsExplorerScreenshotService.TryCaptureAll([request], log, cancellationToken) ||
+                !File.Exists(temporary))
+                throw new InvalidOperationException("刷新角色场景截图失败：未能获取真实 Windows 资源管理器窗口截图。");
+            File.Move(temporary, output, overwrite: true);
+            log?.Invoke($"原始文件信息上传：已同步刷新 {RoleSceneImageFileNameForLog()}。");
+            return output;
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+            TryDeleteDirectory(stagingDirectory);
+        }
+    }
+
+    private static string RoleSceneImageFileNameForLog() => FileNames[1];
+
     public static void TryDeleteOutput(string workflowProjectDirectory)
     {
         TryDeleteDirectory(GetOutputDirectory(workflowProjectDirectory));

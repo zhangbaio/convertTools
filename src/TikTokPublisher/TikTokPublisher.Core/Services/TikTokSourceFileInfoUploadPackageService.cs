@@ -121,6 +121,46 @@ public static class TikTokSourceFileInfoUploadPackageService
         return outputs;
     }
 
+    public static void RefreshRoleDerivedImages(
+        string workflowProjectDirectory,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        var outputDirectory = GetOutputDirectory(workflow);
+        if (!Directory.Exists(outputDirectory)) return;
+
+        var roleVectorSource = Path.Combine(
+            TikTokReferenceSourcePackageService.GetRoot(workflow),
+            TikTokReferenceSourcePackageService.CharacterWorkbenchFileName);
+        ValidatePng(roleVectorSource, "角色矢量图", requireRoleVectorSize: true);
+        SyncRoleVectorCopy(roleVectorSource, Path.Combine(outputDirectory, RoleVectorImageFileName));
+        cancellationToken.ThrowIfCancellationRequested();
+        TikTokSourceFileInfoScreenshotService.RefreshRoleSceneScreenshot(
+            workflow, log, cancellationToken);
+        log?.Invoke("原始文件信息上传：角色矢量图与角色场景截图已同步更新。");
+    }
+
+    internal static void SyncRoleVectorCopy(string source, string destination)
+    {
+        var sourceFullPath = Path.GetFullPath(source);
+        var destinationFullPath = Path.GetFullPath(destination);
+        if (string.Equals(sourceFullPath, destinationFullPath, StringComparison.OrdinalIgnoreCase)) return;
+        Directory.CreateDirectory(Path.GetDirectoryName(destinationFullPath)!);
+        var temporary = Path.Combine(
+            Path.GetDirectoryName(destinationFullPath)!,
+            $".{Path.GetFileName(destinationFullPath)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            File.Copy(sourceFullPath, temporary, overwrite: true);
+            File.Move(temporary, destinationFullPath, overwrite: true);
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+        }
+    }
+
     public static void Validate(
         string workflowProjectDirectory,
         bool includeRoleSceneScreenshot = false)

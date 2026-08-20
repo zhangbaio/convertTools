@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -80,6 +81,137 @@ public sealed class TikTokReferenceSourcePackageServiceTests
         prompt.Should().Contain("不得重新选角");
         prompt.Should().Contain("完整显示头部、双手和双脚");
         prompt.Should().Contain("人物身份与参考图严格一致");
+        prompt.Should().Contain("必须是成年女性");
+        prompt.Should().Contain("款式、颜色、面料、纹样");
+        prompt.Should().Contain("不得换装");
+    }
+
+    [Fact]
+    public void Paired_character_references_follow_character_manifest_order()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"paired-character-references-{Guid.NewGuid():N}");
+        var characterDirectory = Path.Combine(
+            TikTokReferenceSourcePackageService.GetRoot(workflow),
+            TikTokReferenceSourcePackageService.CharacterDirectoryName);
+        var referencesDirectory = Path.Combine(workflow, "抽帧原图");
+        Directory.CreateDirectory(characterDirectory);
+        Directory.CreateDirectory(referencesDirectory);
+        var characters = Enumerable.Range(1, 3)
+            .Select(index => Path.Combine(characterDirectory, $"主角{index}.png"))
+            .ToArray();
+        var references = Enumerable.Range(1, 3)
+            .Select(index => Path.Combine(referencesDirectory, $"参考{index}.jpg"))
+            .ToArray();
+        foreach (var path in characters) SaveSolidImage(path);
+        foreach (var path in references) SaveSolidImage(path);
+        File.WriteAllText(
+            TikTokReferenceSourcePackageService.GetCharacterManifestPath(workflow),
+            JsonSerializer.Serialize(new
+            {
+                characters = characters.Select((path, index) => new
+                {
+                    order = index + 1,
+                    file = Path.GetFileName(path),
+                    referencePath = references[index],
+                }),
+            }));
+
+        try
+        {
+            TikTokReferenceSourcePackageService.ResolvePairedCharacterReferences(workflow, characters)
+                .Should().Equal(references.Select(Path.GetFullPath));
+        }
+        finally
+        {
+            if (Directory.Exists(workflow)) Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Role_reference_assignment_enforces_gender_and_distinct_people()
+    {
+        var profiles = new[]
+        {
+            new TikTokReferenceSourcePackageService.CharacterProfile("男主", "成年男性主角"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("女主", "成年女性主角"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("主要配角", "关键人物"),
+        };
+        var candidates = new[]
+        {
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(1, "female", "woman-a", true, 96),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(2, "male", "man-a", true, 90),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(3, "male", "man-a", true, 98),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(4, "female", "woman-b", true, 88),
+        };
+
+        TikTokReferenceSourcePackageService.AssignRoleReferenceCandidates(profiles, candidates)
+            .Should().Equal(3, 1, 4);
+    }
+
+    [Fact]
+    public void Generic_leads_prefer_mixed_gender_but_keep_all_people_distinct()
+    {
+        var profiles = TikTokReferenceSourcePackageService.AddFallbackCharacters([], "古装权谋短剧");
+        var candidates = new[]
+        {
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(1, "female", "woman-a", true, 99),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(2, "female", "woman-b", true, 98),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(3, "male", "man-a", true, 80),
+        };
+
+        profiles.Select(profile => profile.Name).Should().Equal("主角1", "主角2", "主要配角");
+        TikTokReferenceSourcePackageService.AssignRoleReferenceCandidates(profiles, candidates)
+            .Should().Equal(1, 3, 2);
+    }
+
+    [Fact]
+    public void Generic_leads_allow_same_gender_when_no_mixed_pair_exists()
+    {
+        var profiles = TikTokReferenceSourcePackageService.AddFallbackCharacters([], "男性群像短剧");
+        var candidates = new[]
+        {
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(1, "male", "man-a", true, 99),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(2, "male", "man-b", true, 96),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(3, "male", "man-c", true, 92),
+        };
+
+        TikTokReferenceSourcePackageService.AssignRoleReferenceCandidates(profiles, candidates)
+            .Should().Equal(1, 2, 3);
+    }
+
+    [Fact]
+    public void Role_reference_assignment_fails_when_supporting_actor_duplicates_the_leads()
+    {
+        var profiles = new[]
+        {
+            new TikTokReferenceSourcePackageService.CharacterProfile("男主", "成年男性主角"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("女主", "成年女性主角"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("主要配角", "关键人物"),
+        };
+        var candidates = new[]
+        {
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(1, "male", "lead-m", true, 95),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(2, "female", "lead-f", true, 95),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(3, "male", "lead-m", true, 85),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(4, "female", "lead-f", true, 85),
+        };
+
+        var action = () => TikTokReferenceSourcePackageService.AssignRoleReferenceCandidates(profiles, candidates);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*主要配角*不同的第三个人物*");
+    }
+
+    [Fact]
+    public void Vision_candidate_set_combines_best_and_distributed_frames()
+    {
+        var sources = Enumerable.Range(1, 30).Select(index => $"frame-{index:D2}.jpg").ToArray();
+
+        var selected = TikTokReferenceSourcePackageService.SelectVisionCandidatePaths(sources, 12);
+
+        selected.Should().HaveCount(12);
+        selected.Take(6).Should().Equal(sources.Take(6));
+        selected.Should().Contain(path => path == "frame-25.jpg" || path == "frame-26.jpg");
     }
 
     [Fact]

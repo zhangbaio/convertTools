@@ -12,7 +12,7 @@ public static class TikTokRoleVectorService
     public const string OutputFileName = TikTokReferenceSourcePackageService.CharacterWorkbenchFileName;
     public const string BackupFileName = "角色矢量图_旧版.png";
     public const string StateFileName = ".role-vector-state.json";
-    public const string StateVersion = "v4-clear-single-frame-selection";
+    public const string StateVersion = "v7-paired-reference-and-costume-lock";
 
     public static string GetOutputPath(string workflowProjectDirectory) =>
         Path.Combine(TikTokReferenceSourcePackageService.GetRoot(workflowProjectDirectory), OutputFileName);
@@ -57,6 +57,8 @@ public static class TikTokRoleVectorService
         var output = GetOutputPath(context.WorkflowProjectDir);
         if (!forceRerun && HasCurrentOutput(context.WorkflowProjectDir, configuredCharacterCount))
         {
+            TikTokSourceFileInfoUploadPackageService.RefreshRoleDerivedImages(
+                context.WorkflowProjectDir, log, ct);
             log?.Invoke($"角色矢量图已存在且尺寸正确，跳过生成：{output}");
             return output;
         }
@@ -74,9 +76,6 @@ public static class TikTokRoleVectorService
             item, settings, configuredCharacterCount, log, ct).ConfigureAwait(false);
         var sceneSources = await TikTokReferenceSourcePackageService.ResolveSceneSourcesAsync(
             context, root, log, ct).ConfigureAwait(false);
-        if (sceneSources.Count == 0)
-            throw new InvalidOperationException("生成角色矢量图失败：没有可用的真实场景图或视频抽帧。");
-
         var usedCharacters = characters.Take(6).ToArray();
         if (usedCharacters.Length is < TikTokReferenceSourcePackageService.MinCharacterCount or
             > TikTokReferenceSourcePackageService.MaxCharacterCount)
@@ -84,6 +83,14 @@ public static class TikTokRoleVectorService
             throw new InvalidOperationException(
                 $"角色矢量图仅支持 3、4、5、6 人，当前采集到 {usedCharacters.Length} 人。");
         }
+        var pairedReferences = TikTokReferenceSourcePackageService.ResolvePairedCharacterReferences(
+            context.WorkflowProjectDir,
+            usedCharacters);
+        var referenceSources = pairedReferences.Count == usedCharacters.Length
+            ? pairedReferences
+            : sceneSources.Take(usedCharacters.Length).ToArray();
+        if (referenceSources.Count == 0)
+            throw new InvalidOperationException("生成角色矢量图失败：没有可用的角色参考图、真实场景图或视频抽帧。");
         var templateDescription = usedCharacters.Length switch
         {
             3 => "三人居中模板",
@@ -101,12 +108,14 @@ public static class TikTokRoleVectorService
         log?.Invoke(
             $"角色矢量图：账号配置 {configuredCharacterCount} 人，最终选择 {usedCharacters.Length} 人，" +
             $"使用{templateDescription}；" +
-            $"真实参考帧 {sceneSources.Count} 张。");
+            (pairedReferences.Count == usedCharacters.Length
+                ? $"左右已按角色一一配对，服装参考帧 {referenceSources.Count} 张。"
+                : $"未找到完整角色配对清单，使用真实参考帧 {referenceSources.Count} 张兜底。"));
 
         var temporary = Path.Combine(root, $".{Path.GetFileNameWithoutExtension(OutputFileName)}.{Guid.NewGuid():N}.tmp.png");
         try
         {
-            RoleVectorTemplateRenderer.Render(temporary, usedCharacters, sceneSources);
+            RoleVectorTemplateRenderer.Render(temporary, usedCharacters, referenceSources);
             var info = Image.Identify(temporary)
                 ?? throw new InvalidDataException("生成的角色矢量图不是有效 PNG。");
             if (info.Width != RoleVectorTemplateRenderer.CanvasWidth ||
@@ -125,7 +134,9 @@ public static class TikTokRoleVectorService
                 output,
                 configuredCharacterCount,
                 usedCharacters,
-                sceneSources);
+                referenceSources);
+            TikTokSourceFileInfoUploadPackageService.RefreshRoleDerivedImages(
+                context.WorkflowProjectDir, log, ct);
             log?.Invoke($"角色矢量图生成完成：{info.Width}×{info.Height} → {output}");
             return output;
         }

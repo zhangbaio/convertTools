@@ -124,7 +124,7 @@ public sealed class TikTokRoleVectorServiceTests
     }
 
     [Fact]
-    public async Task EnsureCharacterImagesAsync_PrefersEpisodeCharacterSourcesOverOldGeneratedActors()
+    public async Task EnsureCharacterImagesAsync_RequiresVisionModelBeforeAssigningEpisodeActors()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"role-vector-episode-characters-{Guid.NewGuid():N}");
         var source = Path.Combine(workspace, "原剧名");
@@ -145,39 +145,27 @@ public sealed class TikTokRoleVectorServiceTests
             TikTokAiDramaProductionMaterialService.OutputDirectoryName,
             TikTokAiDramaProductionMaterialService.CharacterDirectoryName);
         Directory.CreateDirectory(episodeCharacterDir);
-        var expected = new[]
+        var colors = new[]
         {
             new Rgba32(20, 210, 40),
             new Rgba32(30, 50, 220),
             new Rgba32(220, 180, 30),
         };
-        for (var index = 0; index < expected.Length; index++)
-            SaveImage(Path.Combine(episodeCharacterDir, $"角色设定_{index + 1:D2}.jpg"), 128, 128, expected[index]);
+        for (var index = 0; index < colors.Length; index++)
+            SaveImage(Path.Combine(episodeCharacterDir, $"角色设定_{index + 1:D2}.jpg"), 128, 128, colors[index]);
 
         var logs = new List<string>();
         try
         {
-            var selected = await TikTokReferenceSourcePackageService.EnsureCharacterImagesAsync(
+            var action = () => TikTokReferenceSourcePackageService.EnsureCharacterImagesAsync(
                 new QueueProjectItem { ProjectDir = source },
                 new ClientSettings(),
                 3,
                 logs.Add,
                 CancellationToken.None);
 
-            selected.Should().HaveCount(3);
-            Directory.EnumerateFiles(characterDir, "*.png").Should().HaveCount(3);
-            logs.Should().Contain(message => message.Contains("剧集真实角色素材", StringComparison.Ordinal));
-            var actualPixels = new List<Rgba32>();
-            for (var index = 0; index < selected.Count; index++)
-            {
-                using var image = Image.Load<Rgba32>(selected[index]);
-                actualPixels.Add(image[image.Width / 2, image.Height / 2]);
-            }
-            foreach (var expectedPixel in expected)
-                actualPixels.Should().Contain(pixel =>
-                    Math.Abs(pixel.R - expectedPixel.R) <= 4 &&
-                    Math.Abs(pixel.G - expectedPixel.G) <= 4 &&
-                    Math.Abs(pixel.B - expectedPixel.B) <= 4);
+            await action.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*配置文本/视觉模型*");
         }
         finally
         {
