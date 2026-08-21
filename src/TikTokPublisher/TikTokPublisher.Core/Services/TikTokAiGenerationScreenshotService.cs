@@ -161,21 +161,7 @@ public static class TikTokAiGenerationScreenshotService
     }
 
     private static void TryDeleteDirectory(string dir)
-    {
-        if (!Directory.Exists(dir))
-        {
-            return;
-        }
-
-        try
-        {
-            Directory.Delete(dir, recursive: true);
-        }
-        catch
-        {
-            // best-effort
-        }
-    }
+        => ResilientFileSystem.TryDeleteDirectory(dir);
 
     public static IReadOnlyList<string> Generate(
         string workflowProjectDirectory,
@@ -493,18 +479,18 @@ public static class TikTokAiGenerationScreenshotService
         var hadExistingOutput = Directory.Exists(outputDirectory);
         var replacementSucceeded = false;
         if (hadExistingOutput)
-            Directory.Move(outputDirectory, backupDirectory);
+            ResilientFileSystem.MoveDirectory(outputDirectory, backupDirectory);
 
         try
         {
-            Directory.Move(stagingDirectory, outputDirectory);
+            ResilientFileSystem.MoveDirectory(stagingDirectory, outputDirectory);
             replacementSucceeded = true;
         }
         catch
         {
             TryDeleteDirectory(outputDirectory);
             if (hadExistingOutput && Directory.Exists(backupDirectory))
-                Directory.Move(backupDirectory, outputDirectory);
+                ResilientFileSystem.MoveDirectory(backupDirectory, outputDirectory);
             throw;
         }
         finally

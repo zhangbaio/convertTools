@@ -678,19 +678,22 @@ public static class TikTokProjectImageService
         IReadOnlyList<string> stagedOutputs)
     {
         var backupDirectory = Path.Combine(outputDirectory, BackupDirectoryPrefix + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(backupDirectory);
+        ResilientFileSystem.EnsureDirectory(backupDirectory);
         var committed = new List<string>(stagedOutputs.Count);
         var cleanupBackup = false;
         var cleanupDirectory = backupDirectory;
         try
         {
             foreach (var existing in Directory.EnumerateFiles(outputDirectory, FileNamePattern, SearchOption.TopDirectoryOnly))
-                File.Move(existing, Path.Combine(backupDirectory, Path.GetFileName(existing)), overwrite: true);
+                ResilientFileSystem.MoveFile(
+                    existing,
+                    Path.Combine(backupDirectory, Path.GetFileName(existing)),
+                    overwrite: true);
 
             for (var index = 0; index < stagedOutputs.Count; index++)
             {
                 var target = Path.Combine(outputDirectory, $"工程图_{index + 1}.png");
-                File.Move(stagedOutputs[index], target, overwrite: true);
+                ResilientFileSystem.MoveFile(stagedOutputs[index], target, overwrite: true);
                 committed.Add(Path.GetFullPath(target));
             }
 
@@ -700,7 +703,7 @@ public static class TikTokProjectImageService
             cleanupDirectory = Path.Combine(
                 outputDirectory,
                 ObsoleteBackupDirectoryPrefix + Guid.NewGuid().ToString("N"));
-            Directory.Move(backupDirectory, cleanupDirectory);
+            ResilientFileSystem.MoveDirectory(backupDirectory, cleanupDirectory);
             cleanupBackup = true;
             return committed;
         }
@@ -717,7 +720,10 @@ public static class TikTokProjectImageService
                     {
                         // Copy first so a later restore failure still leaves a complete
                         // recoverable backup set on disk.
-                        File.Copy(backup, Path.Combine(outputDirectory, Path.GetFileName(backup)), overwrite: true);
+                        ResilientFileSystem.CopyFile(
+                            backup,
+                            Path.Combine(outputDirectory, Path.GetFileName(backup)),
+                            overwrite: true);
                     }
                     catch (Exception restoreError)
                     {
@@ -771,12 +777,12 @@ public static class TikTokProjectImageService
                                  FileNamePattern,
                                  SearchOption.TopDirectoryOnly))
                     {
-                        File.Delete(current);
+                        ResilientFileSystem.DeleteFile(current);
                     }
 
                     foreach (var backup in backupFiles)
                     {
-                        File.Copy(
+                        ResilientFileSystem.CopyFile(
                             backup,
                             Path.Combine(outputDirectory, Path.GetFileName(backup)),
                             overwrite: true);
@@ -813,30 +819,10 @@ public static class TikTokProjectImageService
     }
 
     private static void TryDelete(string? path)
-    {
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
-                File.Delete(path);
-        }
-        catch
-        {
-            // Best-effort cleanup only.
-        }
-    }
+        => ResilientFileSystem.TryDeleteFile(path);
 
     private static void TryDeleteDirectory(string? path)
-    {
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
-                Directory.Delete(path, recursive: true);
-        }
-        catch
-        {
-            // Best-effort cleanup only.
-        }
-    }
+        => ResilientFileSystem.TryDeleteDirectory(path);
 
     private static bool TryDeleteLegacyInputDirectory(string workflowProjectDir)
     {

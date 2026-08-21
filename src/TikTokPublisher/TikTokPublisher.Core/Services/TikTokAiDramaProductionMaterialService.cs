@@ -89,9 +89,9 @@ public static class TikTokAiDramaProductionMaterialService
                 ct);
         }
 
-        TryDeleteDirectory(root);
+        ResilientFileSystem.DeleteDirectory(root);
         foreach (var dir in new[] { characterDir, sceneDir, storyboardDir, manifestDir })
-            Directory.CreateDirectory(dir);
+            ResilientFileSystem.EnsureDirectory(dir);
 
         var sourceFrames = FindImagesInNamedDirectories(context.WorkflowProjectDir, "抽帧原图", recursiveFiles: true)
             .Take(32)
@@ -187,15 +187,4 @@ public static class TikTokAiDramaProductionMaterialService
             .Select(index => files[(int)Math.Round(index * (files.Count - 1d) / (maximum - 1d))]);
     }
 
-    private static void TryDeleteDirectory(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path)) Directory.Delete(path, true);
-        }
-        catch
-        {
-            // A later file operation reports the actionable path/error.
-        }
-    }
 }

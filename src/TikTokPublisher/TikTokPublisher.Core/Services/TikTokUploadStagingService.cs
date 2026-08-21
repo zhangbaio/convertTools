@@ -69,9 +69,9 @@ public static class TikTokUploadStagingService
         if (Directory.Exists(stagingRoot))
         {
             log?.Invoke("检测到旧的 tiktok_upload_videos，已自动重建。");
-            Directory.Delete(stagingRoot, recursive: true);
+            ResilientFileSystem.DeleteDirectory(stagingRoot);
         }
-        Directory.CreateDirectory(stagingRoot);
+        ResilientFileSystem.EnsureDirectory(stagingRoot);
 
         var staged = new List<string>();
         for (var index = 0; index < videoPaths.Count; index++)

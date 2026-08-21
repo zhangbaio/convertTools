@@ -83,9 +83,13 @@ public static class TikTokSourceFileInfoScreenshotService
         var company = string.IsNullOrWhiteSpace(companyName) ? "制作方未填写" : companyName.Trim();
         cancellationToken.ThrowIfCancellationRequested();
 
-        TryDeleteOutput(workflow);
         var outputDir = GetOutputDirectory(workflow);
-        Directory.CreateDirectory(outputDir);
+        ResilientFileSystem.DeleteDirectory(outputDir);
+        ResilientFileSystem.EnsureDirectory(outputDir);
+        ResilientFileSystem.TryDeleteDirectory(
+            Path.Combine(workflow, PreviousOutputDirectoryName));
+        ResilientFileSystem.TryDeleteDirectory(
+            Path.Combine(workflow, LegacyOutputDirectoryName));
         var explorerOutputs = GetExpectedOutputPaths(workflow).ToArray();
         var stagingDirectory = Path.Combine(workflow, CaptureStagingDirectoryName);
         try
@@ -607,7 +611,7 @@ public static class TikTokSourceFileInfoScreenshotService
             if (!WindowsExplorerScreenshotService.TryCaptureAll([request], log, cancellationToken) ||
                 !File.Exists(temporary))
                 throw new InvalidOperationException("刷新角色场景截图失败：未能获取真实 Windows 资源管理器窗口截图。");
-            File.Move(temporary, output, overwrite: true);
+            ResilientFileSystem.MoveFile(temporary, output, overwrite: true);
             log?.Invoke($"原始文件信息上传：已同步刷新 {RoleSceneImageFileNameForLog()}。");
             return output;
         }
@@ -622,9 +626,11 @@ public static class TikTokSourceFileInfoScreenshotService
 
     public static void TryDeleteOutput(string workflowProjectDirectory)
     {
-        TryDeleteDirectory(GetOutputDirectory(workflowProjectDirectory));
-        TryDeleteDirectory(Path.Combine(Path.GetFullPath(workflowProjectDirectory), PreviousOutputDirectoryName));
-        TryDeleteDirectory(Path.Combine(Path.GetFullPath(workflowProjectDirectory), LegacyOutputDirectoryName));
+        ResilientFileSystem.TryDeleteDirectory(GetOutputDirectory(workflowProjectDirectory));
+        ResilientFileSystem.TryDeleteDirectory(
+            Path.Combine(Path.GetFullPath(workflowProjectDirectory), PreviousOutputDirectoryName));
+        ResilientFileSystem.TryDeleteDirectory(
+            Path.Combine(Path.GetFullPath(workflowProjectDirectory), LegacyOutputDirectoryName));
     }
 
     private static List<string> FindVideos(string workflow)
