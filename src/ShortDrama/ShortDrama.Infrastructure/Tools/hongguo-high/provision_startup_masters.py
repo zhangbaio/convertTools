@@ -62,8 +62,18 @@ def main() -> int:
 
     try:
         import frida  # type: ignore
-    except ImportError:
-        _eprint("内置 Python 未安装 frida。请重新安装本程序，或把 frida 放到 tools/win-x64/python。")
+    except ImportError as exc:
+        _eprint(f"当前 Python 无法 import frida：{exc}")
+        _eprint("需要 Frida 16.7.19。源码启动可用系统 Python（pip install frida==16.7.19）；安装包必须内置同一版本。")
+        return 2
+
+    frida_version = getattr(frida, "__version__", "")
+    _eprint(f"Frida {frida_version}")
+    if str(frida_version).startswith("17."):
+        _eprint(
+            "当前内置 Frida 为 17.x，无法抽出 HG 2.1.6 启动密钥。"
+            "安装包必须内置 Frida 16.7.19，请重新打包后再试。"
+        )
         return 2
 
     chunks: dict[str, list[bytes]] = {}

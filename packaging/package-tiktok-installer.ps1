@@ -10,6 +10,9 @@ param(
     [string]$InnoSetupCompiler,
     [string]$FfmpegDownloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
     [string]$PythonEmbedDownloadUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip",
+    # HG 2.1.6 启动密钥只在 Frida 16.x 上稳定；17.x 能 attach 但抽不到 enc/sign。
+    # 与本机源码环境 `pip show frida` 的 16.7.19 对齐，不要跟 PyPI latest。
+    [string]$FridaVersion = "16.7.19",
     # Offline Evergreen Standalone Installer (x64) permanent fwlink (~190MB, installs WebView2 with no
     # network needed on the target). This is the x64 "accept-and-download" link from the official
     # WebView2 download page. NOTE: do NOT use the bootstrapper link (fwlink 2124703) here - it is a
@@ -256,51 +259,66 @@ function Ensure-FfmpegDependency {
     }
 }
 
-function Ensure-FridaPythonDependency {
-    if (-not $BundleDependencies) {
-        return
+function Get-BundledFridaVersion {
+    param([Parameter(Mandatory = $true)][string]$PythonExe)
+
+    if (-not (Test-Path -LiteralPath $PythonExe)) {
+        return $null
     }
 
-    $targetDir = Join-Path $DependenciesDir "tools\$Runtime\python"
-    $pythonExe = Join-Path $targetDir "python.exe"
-    $fridaInit = Join-Path $targetDir "Lib\site-packages\frida\__init__.py"
-    if ((Test-Path -LiteralPath $pythonExe) -and (Test-Path -LiteralPath $fridaInit)) {
-        Write-Host "Using cached Frida Python runtime: $targetDir"
-        return
+    $previousError = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & $PythonExe -B -c "import frida; print(frida.__version__)" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            return $null
+        }
+
+        $lines = @($output)
+        return $lines[-1].ToString().Trim()
+    }
+    catch {
+        return $null
+    }
+    finally {
+        $ErrorActionPreference = $previousError
+    }
+}
+
+function Test-BundledFridaRuntime {
+    param(
+        [Parameter(Mandatory = $true)][string]$PythonExe,
+        [Parameter(Mandatory = $true)][string]$RequiredVersion
+    )
+
+    $root = Split-Path -Parent $PythonExe
+    $fridaInit = Join-Path $root "Lib\site-packages\frida\__init__.py"
+    $fridaPyd = Join-Path $root "Lib\site-packages\frida\_frida.pyd"
+    if (-not (Test-Path -LiteralPath $fridaInit) -or -not (Test-Path -LiteralPath $fridaPyd)) {
+        return $false
     }
 
-    Write-Host "Bundling embeddable Python + frida for high-bitrate master extraction"
-    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+    $actual = Get-BundledFridaVersion -PythonExe $PythonExe
+    return $actual -eq $RequiredVersion
+}
 
-    $embedZip = Join-Path $DependencyCacheDir "python-3.11.9-embed-amd64.zip"
-    if (-not (Test-Path -LiteralPath $embedZip)) {
-        Invoke-DownloadFile -Url $PythonEmbedDownloadUrl -Destination $embedZip
-    }
-    Expand-Archive -LiteralPath $embedZip -DestinationPath $targetDir -Force
+function Install-FridaWheel {
+    param(
+        [Parameter(Mandatory = $true)][string]$SitePackages,
+        [Parameter(Mandatory = $true)][string]$RequiredVersion
+    )
 
-    $pth = Get-ChildItem -LiteralPath $targetDir -File -Filter "python*._pth" |
-        Select-Object -First 1
-    if (-not $pth) {
-        throw "Python embeddable archive did not contain a python*._pth file: $embedZip"
-    }
+    New-Item -ItemType Directory -Force -Path $SitePackages | Out-Null
+    Get-ChildItem -LiteralPath $SitePackages -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like "frida*" } |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
 
-    @(
-        "python311.zip",
-        ".",
-        "",
-        "Lib\site-packages",
-        "import site"
-    ) | Set-Content -LiteralPath $pth.FullName -Encoding ascii
-
-    $sitePackages = Join-Path $targetDir "Lib\site-packages"
-    New-Item -ItemType Directory -Force -Path $sitePackages | Out-Null
-
-    $index = Invoke-RestMethod -Uri "https://pypi.org/pypi/frida/json"
+    $index = Invoke-RestMethod -Uri "https://pypi.org/pypi/frida/$RequiredVersion/json"
     $wheel = @($index.urls) |
         Where-Object { $_.filename -match 'cp37-abi3-win_amd64\.whl$' } |
         Select-Object -First 1
     if (-not $wheel) {
-        throw "PyPI frida package did not publish a cp37-abi3-win_amd64 wheel."
+        throw "PyPI frida $RequiredVersion did not publish a cp37-abi3-win_amd64 wheel."
     }
 
     $whlPath = Join-Path $DependencyCacheDir $wheel.filename
@@ -313,11 +331,56 @@ function Ensure-FridaPythonDependency {
     $whlZip = Join-Path $DependencyCacheDir "frida-wheel.zip"
     Copy-Item -LiteralPath $whlPath -Destination $whlZip -Force
     Expand-Archive -LiteralPath $whlZip -DestinationPath $extractDir -Force
-    Copy-Item -LiteralPath (Join-Path $extractDir "*") -Destination $sitePackages -Recurse -Force
+    # Do not use Copy-Item -LiteralPath "...\*" — LiteralPath does not expand wildcards.
+    Copy-DirectoryContents -Source $extractDir -Destination $SitePackages
+}
 
-    if (-not (Test-Path -LiteralPath $fridaInit)) {
-        throw "Frida wheel was extracted but Lib\site-packages\frida\__init__.py is missing."
+function Ensure-FridaPythonDependency {
+    if (-not $BundleDependencies) {
+        return
     }
+
+    $targetDir = Join-Path $DependenciesDir "tools\$Runtime\python"
+    $pythonExe = Join-Path $targetDir "python.exe"
+    $sitePackages = Join-Path $targetDir "Lib\site-packages"
+    if (Test-BundledFridaRuntime -PythonExe $pythonExe -RequiredVersion $FridaVersion) {
+        Write-Host "Using cached Frida $FridaVersion Python runtime: $targetDir"
+        return
+    }
+
+    Write-Host "Bundling embeddable Python + frida $FridaVersion for high-bitrate master extraction"
+    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+
+    if (-not (Test-Path -LiteralPath $pythonExe)) {
+        $embedZip = Join-Path $DependencyCacheDir "python-3.11.9-embed-amd64.zip"
+        if (-not (Test-Path -LiteralPath $embedZip)) {
+            Invoke-DownloadFile -Url $PythonEmbedDownloadUrl -Destination $embedZip
+        }
+        Expand-Archive -LiteralPath $embedZip -DestinationPath $targetDir -Force
+    }
+
+    $pth = Get-ChildItem -LiteralPath $targetDir -File -Filter "python*._pth" |
+        Select-Object -First 1
+    if (-not $pth) {
+        throw "Python embeddable archive did not contain a python*._pth file: $targetDir"
+    }
+
+    @(
+        "python311.zip",
+        ".",
+        "",
+        "Lib\site-packages",
+        "import site"
+    ) | Set-Content -LiteralPath $pth.FullName -Encoding ascii
+
+    Install-FridaWheel -SitePackages $sitePackages -RequiredVersion $FridaVersion
+
+    if (-not (Test-BundledFridaRuntime -PythonExe $pythonExe -RequiredVersion $FridaVersion)) {
+        $actual = Get-BundledFridaVersion -PythonExe $pythonExe
+        throw "Bundled Frida runtime is unusable. Expected $FridaVersion, got '$actual'."
+    }
+
+    Write-Host "Bundled Frida $(Get-BundledFridaVersion -PythonExe $pythonExe)"
 }
 
 function Resolve-DotNet {
@@ -717,13 +780,23 @@ $fridaCandidates = @(
     (Join-Path $PublishDir "tools\$Runtime\python\Lib\site-packages\frida\__init__.py"),
     (Join-Path $PublishDir "tools\python\Lib\site-packages\frida\__init__.py")
 )
+$fridaNativeCandidates = @(
+    (Join-Path $PublishDir "tools\$Runtime\python\Lib\site-packages\frida\_frida.pyd"),
+    (Join-Path $PublishDir "tools\python\Lib\site-packages\frida\_frida.pyd")
+)
 $provisionScriptCandidates = @(
     (Join-Path $PublishDir "tools\hongguo-high\provision_startup_masters.py")
 )
 if ($BundleDependencies) {
     Assert-AnyPath -Name "python.exe (Frida)" -Candidates $pythonCandidates
     Assert-AnyPath -Name "frida" -Candidates $fridaCandidates
+    Assert-AnyPath -Name "frida native extension" -Candidates $fridaNativeCandidates
     Assert-AnyPath -Name "provision_startup_masters.py" -Candidates $provisionScriptCandidates
+    $publishedPython = $pythonCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not (Test-BundledFridaRuntime -PythonExe $publishedPython -RequiredVersion $FridaVersion)) {
+        $actual = Get-BundledFridaVersion -PythonExe $publishedPython
+        throw "Published Frida runtime is $actual, expected $FridaVersion. HG 2.1.6 master extraction requires Frida 16.7.19."
+    }
 }
 elseif (-not (Test-AnyPath -Candidates $pythonCandidates)) {
     Write-Warning "Frida Python runtime is not bundled. High-bitrate master extraction will need packaging\dependencies\tools\$Runtime\python."

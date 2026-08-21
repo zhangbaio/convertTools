@@ -34,8 +34,8 @@ public static class HongguoHighMasterProvisioner
         if (string.IsNullOrWhiteSpace(python) || string.IsNullOrWhiteSpace(script))
         {
             throw new HongguoHighException(
-                "未找到内置 Frida 运行时。安装包会附带 Python + frida；" +
-                @"开发环境请把 embeddable Python 和 frida 放到 packaging\dependencies\tools\win-x64\python。");
+                "未找到可用的 Frida 16.x。安装包需内置 Frida 16.7.19；" +
+                "源码启动可用系统 Python（pip install frida==16.7.19）。");
         }
 
         var closed = CloseOfficialClient(exePath);
@@ -186,24 +186,102 @@ public static class HongguoHighMasterProvisioner
         }
     }
 
+    public static bool IsUsableFridaVersion(string? version)
+    {
+        var text = (version ?? "").Trim();
+        return text.Length > 0 && !text.StartsWith("17.", StringComparison.Ordinal);
+    }
+
     public static string? ResolvePython()
     {
-        var bundled = BundledToolResolver.TryResolvePython();
-        if (!string.IsNullOrWhiteSpace(bundled) && File.Exists(bundled))
+        foreach (var candidate in EnumeratePythonCandidates())
         {
-            return bundled;
+            if (TryReadFridaVersion(candidate, out _))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    public static bool TryReadFridaVersion(string pythonExe, out string version)
+    {
+        version = "";
+        if (string.IsNullOrWhiteSpace(pythonExe) || !File.Exists(pythonExe))
+        {
+            return false;
+        }
+
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = pythonExe,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetDirectoryName(pythonExe) ?? AppContext.BaseDirectory
+            };
+            startInfo.ArgumentList.Add("-B");
+            startInfo.ArgumentList.Add("-c");
+            startInfo.ArgumentList.Add("import frida; print(frida.__version__)");
+
+            using var process = DiagProcess.Start(startInfo);
+            if (process is null)
+            {
+                return false;
+            }
+
+            var stdout = process.StandardOutput.ReadToEnd();
+            if (!process.WaitForExit(8000))
+            {
+                TryKill(process);
+                return false;
+            }
+
+            if (process.ExitCode != 0)
+            {
+                return false;
+            }
+
+            var last = stdout.Replace("\r", "", StringComparison.Ordinal)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .LastOrDefault()
+                ?.Trim() ?? "";
+            version = last;
+            return IsUsableFridaVersion(version);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static IEnumerable<string> EnumeratePythonCandidates()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var bundled = BundledToolResolver.TryResolvePython();
+        if (!string.IsNullOrWhiteSpace(bundled) && File.Exists(bundled) && seen.Add(Path.GetFullPath(bundled)))
+        {
+            yield return bundled;
         }
 
         foreach (var name in new[] { "python", "python3", "py" })
         {
             var resolved = BundledToolResolver.TryResolveBinary(name);
-            if (!string.IsNullOrWhiteSpace(resolved) && File.Exists(resolved))
+            if (string.IsNullOrWhiteSpace(resolved) || !File.Exists(resolved))
             {
-                return resolved;
+                continue;
+            }
+
+            var full = Path.GetFullPath(resolved);
+            if (seen.Add(full))
+            {
+                yield return resolved;
             }
         }
-
-        return null;
     }
 
     public static string? ResolveProvisionScript()
