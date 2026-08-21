@@ -335,6 +335,46 @@ public sealed class TikTokReferenceSourcePackageServiceTests
         selected.Should().Contain(path => path == "frame-25.jpg" || path == "frame-26.jpg");
     }
 
+    [Theory]
+    [InlineData(3, 18)]
+    [InlineData(4, 20)]
+    [InlineData(5, 24)]
+    [InlineData(6, 24)]
+    public void Vision_candidate_limit_scales_with_configured_roles(int roleCount, int expected)
+    {
+        TikTokReferenceSourcePackageService.ResolveVisionCandidateMaximum(roleCount)
+            .Should().Be(expected);
+    }
+
+    [Fact]
+    public void Vision_prompt_requires_every_candidate_and_face_identity_comparison()
+    {
+        var prompt = TikTokReferenceSourcePackageService.BuildRoleReferenceSelectionPrompt(
+            [new TikTokReferenceSourcePackageService.CharacterProfile("角色", "成年人物")],
+            24);
+
+        prompt.Should().Contain("#1 到 #24");
+        prompt.Should().Contain("禁止遗漏");
+        prompt.Should().Contain("服装相似不等于同一人");
+        prompt.Should().Contain("面部身份不同");
+    }
+
+    [Fact]
+    public void Batch_identity_representatives_keep_best_face_per_discovered_person()
+    {
+        var candidates = new[] { "人物甲_模糊.jpg", "人物甲_清晰.jpg", "人物乙.jpg", "背影.jpg" };
+        var analyses = new[]
+        {
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(1, "male", "P1", true, 65),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(2, "male", "P1", true, 96),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(3, "female", "P2", true, 88),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(4, "unknown", "", true, 10, FaceVisible: false),
+        };
+
+        TikTokReferenceSourcePackageService.SelectBatchIdentityRepresentatives(candidates, analyses)
+            .Should().Equal("人物甲_清晰.jpg", "人物乙.jpg");
+    }
+
     [Fact]
     public void Doubao_reference_generation_payload_contains_image_input_and_disables_group_generation()
     {

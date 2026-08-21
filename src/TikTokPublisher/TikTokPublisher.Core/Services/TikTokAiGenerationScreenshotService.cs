@@ -31,6 +31,7 @@ public static class TikTokAiGenerationScreenshotService
     public const string ScreenshotVersion = "v5-retained-video-keyframes";
     public const string RetainedFramesVersion = "v1";
     public const int ShotsPerPage = 2;
+    internal const int SupplementalRoleReferenceFrameCount = 12;
 
     private const string LegacyOutputDirectoryName = "AI生成过程截图";
 
@@ -118,7 +119,7 @@ public static class TikTokAiGenerationScreenshotService
         var ffmpeg = FfmpegLocator.ResolveFfmpeg();
         var ffprobe = MediaBinaryResolver.ResolveFfprobe();
         var duration = ProbeDuration(ffprobe, videoPath, cancellationToken);
-        const int frameCount = 8;
+        const int frameCount = SupplementalRoleReferenceFrameCount;
         var outputs = new List<string>(frameCount);
         for (var index = 0; index < frameCount; index++)
         {
