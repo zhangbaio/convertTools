@@ -9,6 +9,35 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokReferenceSourcePackageServiceTests
 {
     [Fact]
+    public void Reset_package_root_clears_readonly_files_and_recreates_writable_root()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"reference-reset-{Guid.NewGuid():N}");
+        var characterDirectory = Path.Combine(root, TikTokReferenceSourcePackageService.CharacterDirectoryName);
+        var oldFile = Path.Combine(characterDirectory, "旧角色.png");
+        Directory.CreateDirectory(characterDirectory);
+        File.WriteAllBytes(oldFile, [1, 2, 3]);
+        File.SetAttributes(oldFile, File.GetAttributes(oldFile) | FileAttributes.ReadOnly);
+
+        try
+        {
+            TikTokReferenceSourcePackageService.ResetPackageRoot(
+                root,
+                preserveCharactersAndRoleVector: false);
+
+            Directory.Exists(root).Should().BeTrue();
+            Directory.Exists(characterDirectory).Should().BeFalse();
+            Directory.CreateDirectory(characterDirectory);
+            var probe = Path.Combine(characterDirectory, "probe.txt");
+            File.WriteAllText(probe, "ok");
+            File.ReadAllText(probe).Should().Be("ok");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Role_reference_recovery_downloads_only_episodes_not_already_represented()
     {
         var retainedFrames = Enumerable.Range(1, 8)
@@ -353,6 +382,16 @@ public sealed class TikTokReferenceSourcePackageServiceTests
     public void Vision_cross_batch_merge_is_bounded_to_avoid_timeout(int roleCount, int expected)
     {
         TikTokReferenceSourcePackageService.ResolveVisionMergeCandidateMaximum(roleCount)
+            .Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(1, 1)]
+    [InlineData(2, 2)]
+    [InlineData(4, 2)]
+    public void Vision_identity_discovery_uses_bounded_parallel_batches(int batchCount, int expected)
+    {
+        TikTokReferenceSourcePackageService.ResolveVisionIdentityBatchConcurrency(batchCount)
             .Should().Be(expected);
     }
 

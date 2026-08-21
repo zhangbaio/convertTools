@@ -45,6 +45,7 @@ public static partial class TikTokReferenceSourcePackageService
     private const string SceneDesignTemplateResourceName2 =
         "TikTokPublisher.Core.Resources.SceneDesignTemplate2.png";
     private const int VisionIdentityBatchSize = 24;
+    private const int VisionIdentityBatchConcurrency = 2;
     private const int MaxVisionDiscoveryCandidates = 96;
     private const int VisionMergeCandidateLimit = 16;
     private const int VisionTimeoutRetryCandidateLimit = 12;
@@ -265,9 +266,9 @@ public static partial class TikTokReferenceSourcePackageService
         var characterDir = Path.Combine(root, CharacterDirectoryName);
         var videoDir = Path.Combine(root, VideoDirectoryName);
         var materialDir = Path.Combine(root, MaterialDirectoryName, "001");
-        Directory.CreateDirectory(characterDir);
-        Directory.CreateDirectory(videoDir);
-        Directory.CreateDirectory(materialDir);
+        ResilientFileSystem.EnsureDirectory(characterDir);
+        ResilientFileSystem.EnsureDirectory(videoDir);
+        ResilientFileSystem.EnsureDirectory(materialDir);
 
         var generatedCharacters = new List<GeneratedCharacter>();
         if (useEpisodeCharacters)
@@ -405,7 +406,7 @@ public static partial class TikTokReferenceSourcePackageService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var root = GetRoot(context.WorkflowProjectDir);
         var characterDir = Path.Combine(root, CharacterDirectoryName);
-        Directory.CreateDirectory(characterDir);
+        ResilientFileSystem.EnsureDirectory(characterDir);
 
         var manualRoleConfiguration = ManualRoleVectorMaterialService.Load(context.WorkflowProjectDir);
         if (manualRoleConfiguration.Mode == ManualRoleVectorMode.ReferencesOnly)
@@ -1130,36 +1131,39 @@ public static partial class TikTokReferenceSourcePackageService
         var discoveryCount = Math.Min(orderedSources.Count, MaxVisionDiscoveryCandidates);
         var discoveryCandidates = SelectVisionCandidatePaths(orderedSources, discoveryCount);
         var batches = discoveryCandidates.Chunk(VisionIdentityBatchSize).ToArray();
-        var representatives = new List<string>();
+        var representativesByBatch = new string[batches.Length][];
+        var batchConcurrency = ResolveVisionIdentityBatchConcurrency(batches.Length);
         log?.Invoke(
             $"角色参考图：候选池 {orderedSources.Count} 张，将分 {batches.Length} 批审核 " +
-            $"{discoveryCandidates.Length} 张，再跨批次合并人物身份。");
-        for (var batchIndex = 0; batchIndex < batches.Length; batchIndex++)
+            $"{discoveryCandidates.Length} 张，并发 {batchConcurrency} 批，再跨批次合并人物身份。");
+        using (var gate = new SemaphoreSlim(batchConcurrency, batchConcurrency))
         {
-            ct.ThrowIfCancellationRequested();
-            var batch = batches[batchIndex];
-            log?.Invoke(
-                $"角色参考图：人物发现批次 {batchIndex + 1}/{batches.Length}，审核 {batch.Length} 张。");
-            try
+            var tasks = batches.Select(async (batch, batchIndex) =>
             {
-                var localAnalyses = await AnalyzeReferenceCandidatesAsync(
-                    profiles, batch, settings, ct).ConfigureAwait(false);
-                representatives.AddRange(SelectBatchIdentityRepresentatives(batch, localAnalyses));
-            }
-            catch (TimeoutException) when (batch.Length > VisionTimeoutRetryCandidateLimit)
-            {
-                var subBatches = batch.Chunk(VisionTimeoutRetryCandidateLimit).ToArray();
-                log?.Invoke(
-                    $"角色参考图：人物发现批次 {batchIndex + 1} 超时，" +
-                    $"自动拆为 {subBatches.Length} 个小批重试。");
-                foreach (var subBatch in subBatches)
+                await gate.WaitAsync(ct).ConfigureAwait(false);
+                try
                 {
-                    var subAnalyses = await AnalyzeReferenceCandidatesAsync(
-                        profiles, subBatch, settings, ct).ConfigureAwait(false);
-                    representatives.AddRange(SelectBatchIdentityRepresentatives(subBatch, subAnalyses));
+                    representativesByBatch[batchIndex] = await AnalyzeIdentityDiscoveryBatchAsync(
+                        profiles,
+                        batch,
+                        settings,
+                        batchIndex,
+                        batches.Length,
+                        log,
+                        ct).ConfigureAwait(false);
                 }
-            }
+                finally
+                {
+                    gate.Release();
+                }
+            });
+            await Task.WhenAll(tasks).ConfigureAwait(false);
         }
+
+        var representatives = representativesByBatch
+            .Where(batch => batch is not null)
+            .SelectMany(batch => batch)
+            .ToList();
 
         var distinctRepresentatives = representatives
             .Where(File.Exists)
@@ -1196,6 +1200,47 @@ public static partial class TikTokReferenceSourcePackageService
 
     internal static int ResolveVisionMergeCandidateMaximum(int profileCount) =>
         Math.Min(ResolveVisionCandidateMaximum(profileCount), VisionMergeCandidateLimit);
+
+    internal static int ResolveVisionIdentityBatchConcurrency(int batchCount) =>
+        Math.Clamp(batchCount, 1, VisionIdentityBatchConcurrency);
+
+    private static async Task<string[]> AnalyzeIdentityDiscoveryBatchAsync(
+        IReadOnlyList<CharacterProfile> profiles,
+        string[] batch,
+        ClientSettings settings,
+        int batchIndex,
+        int batchCount,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        log?.Invoke(
+            $"角色参考图：人物发现批次 {batchIndex + 1}/{batchCount}，审核 {batch.Length} 张。");
+        try
+        {
+            var localAnalyses = await AnalyzeReferenceCandidatesAsync(
+                profiles, batch, settings, ct).ConfigureAwait(false);
+            var representatives = SelectBatchIdentityRepresentatives(batch, localAnalyses);
+            log?.Invoke(
+                $"角色参考图：人物发现批次 {batchIndex + 1}/{batchCount} 完成，" +
+                $"保留 {representatives.Length} 张身份/服装代表图。");
+            return representatives;
+        }
+        catch (TimeoutException) when (batch.Length > VisionTimeoutRetryCandidateLimit)
+        {
+            var subBatches = batch.Chunk(VisionTimeoutRetryCandidateLimit).ToArray();
+            log?.Invoke(
+                $"角色参考图：人物发现批次 {batchIndex + 1} 超时，" +
+                $"自动拆为 {subBatches.Length} 个小批重试。");
+            var representatives = new List<string>();
+            foreach (var subBatch in subBatches)
+            {
+                var subAnalyses = await AnalyzeReferenceCandidatesAsync(
+                    profiles, subBatch, settings, ct).ConfigureAwait(false);
+                representatives.AddRange(SelectBatchIdentityRepresentatives(subBatch, subAnalyses));
+            }
+            return representatives.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        }
+    }
 
     internal static string[] SelectBatchIdentityRepresentatives(
         IReadOnlyList<string> batchCandidates,
@@ -1485,7 +1530,7 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
         Action<string>? log,
         CancellationToken ct)
     {
-        Directory.CreateDirectory(characterDirectory);
+        ResilientFileSystem.EnsureDirectory(characterDirectory);
         var count = Math.Min(profiles.Count, sources.Count);
         if (count < MinCharacterCount)
             return [];
@@ -1545,7 +1590,7 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
                              item.Temporary, path, StringComparison.OrdinalIgnoreCase))))
                 File.Delete(oldImage);
 
-            Directory.CreateDirectory(characterDirectory);
+            ResilientFileSystem.EnsureDirectory(characterDirectory);
             foreach (var item in staged)
                 File.Move(item.Temporary, item.Output, overwrite: true);
 
@@ -2182,17 +2227,12 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
     private static string Truncate(string value, int maximum) =>
         value.Length <= maximum ? value : value[..maximum] + "…";
 
-    private static void TryDeleteDirectory(string path)
-    {
-        try { if (Directory.Exists(path)) Directory.Delete(path, true); }
-        catch { }
-    }
-
-    private static void ResetPackageRoot(string root, bool preserveCharactersAndRoleVector)
+    internal static void ResetPackageRoot(string root, bool preserveCharactersAndRoleVector)
     {
         if (!preserveCharactersAndRoleVector)
         {
-            TryDeleteDirectory(root);
+            ResilientFileSystem.DeleteDirectory(root);
+            ResilientFileSystem.EnsureDirectory(root);
             return;
         }
 
@@ -2210,8 +2250,7 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
 
             try
             {
-                if (Directory.Exists(entry)) Directory.Delete(entry, recursive: true);
-                else File.Delete(entry);
+                ResilientFileSystem.DeleteEntry(entry);
             }
             catch (Exception ex)
             {
