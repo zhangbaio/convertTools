@@ -9,6 +9,33 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokReferenceSourcePackageServiceTests
 {
     [Fact]
+    public void Inaccessible_reference_package_uses_stable_recovery_directory()
+    {
+        var evidence = Path.Combine(Path.GetTempPath(), "reference-evidence");
+
+        var resolved = TikTokReferenceSourcePackageService.ResolveAccessiblePackageRoot(
+            evidence,
+            path => !path.EndsWith(
+                TikTokReferenceSourcePackageService.DirectoryName,
+                StringComparison.Ordinal));
+
+        resolved.Should().Be(Path.Combine(
+            Path.GetFullPath(evidence),
+            TikTokReferenceSourcePackageService.RecoveryDirectoryName));
+    }
+
+    [Fact]
+    public void Missing_or_accessible_reference_package_keeps_canonical_directory()
+    {
+        var evidence = Path.Combine(Path.GetTempPath(), "reference-evidence");
+
+        TikTokReferenceSourcePackageService.ResolveAccessiblePackageRoot(evidence, _ => true)
+            .Should().Be(Path.Combine(
+                Path.GetFullPath(evidence),
+                TikTokReferenceSourcePackageService.DirectoryName));
+    }
+
+    [Fact]
     public void Reset_package_root_clears_readonly_files_and_recreates_writable_root()
     {
         var root = Path.Combine(Path.GetTempPath(), $"reference-reset-{Guid.NewGuid():N}");
