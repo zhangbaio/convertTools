@@ -72,9 +72,20 @@ public static class TikTokRoleVectorService
             forceRerun: false,
             log,
             ct,
-            configuredCharacterCount).ConfigureAwait(false);
-        var characters = await TikTokReferenceSourcePackageService.EnsureCharacterImagesAsync(
-            item, settings, configuredCharacterCount, log, ct).ConfigureAwait(false);
+            configuredCharacterCount,
+            recoverMissingRoleReferences: true).ConfigureAwait(false);
+        var characters = TikTokReferenceSourcePackageService.ListCurrentCharacterImages(
+            context.WorkflowProjectDir,
+            configuredCharacterCount);
+        if (characters.Count < configuredCharacterCount)
+        {
+            characters = await TikTokReferenceSourcePackageService.EnsureCharacterImagesAsync(
+                item, settings, configuredCharacterCount, log, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            log?.Invoke($"角色矢量图：复用刚完成的 {characters.Count} 张角色定妆图和人物配对清单。");
+        }
         var sceneSources = await TikTokReferenceSourcePackageService.ResolveSceneSourcesAsync(
             context, root, log, ct).ConfigureAwait(false);
         var usedCharacters = characters.Take(6).ToArray();

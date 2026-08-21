@@ -233,6 +233,84 @@ public static class QueueMaterialStepService
         Completed,
     }
 
+    internal static async Task<string> EnsureRoleReferenceEpisodeVideoAsync(
+        QueueProjectItem item,
+        ClientSettings settings,
+        int episodeNumber,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(log);
+        if (episodeNumber <= 0) throw new ArgumentOutOfRangeException(nameof(episodeNumber));
+
+        var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        var existing = FindEpisodeVideo(context.SourceProjectDir, episodeNumber);
+        if (existing is not null)
+        {
+            log($"角色补源：复用已下载的第 {episodeNumber} 集。文件={Path.GetFileName(existing)}");
+            return existing;
+        }
+
+        var metadata = ReadDownloadMetadata(context.SourceProjectDir);
+        if (string.IsNullOrWhiteSpace(metadata.BookId))
+            throw new InvalidOperationException(
+                $"角色素材缺少第 {episodeNumber} 集视频，且项目缺少 bookId，无法自动补下载。");
+
+        ShortDramaDramaServices.RefreshSettings(settings);
+        var displayName = FirstNonEmpty(
+            item.Title,
+            item.OriginalTitle,
+            metadata.Title,
+            Path.GetFileName(context.SourceProjectDir));
+        var maxParallelProjects = Math.Clamp(
+            settings.DramaDownloadMaxParallelProjects <= 0 ? 1 : settings.DramaDownloadMaxParallelProjects,
+            1,
+            4);
+        log($"角色素材人物不足：仅补下载第 {episodeNumber} 集，不执行整剧下载。");
+        DramaDownloadResult result;
+        using (await QueueDownloadSlotCoordinator.WaitAsync(
+                   maxParallelProjects,
+                   $"{displayName}（角色素材补源）",
+                   log,
+                   ct).ConfigureAwait(false))
+        {
+            var request = BuildDownloadRequest(
+                context,
+                metadata,
+                settings,
+                displayName,
+                episodeNumber.ToString(),
+                concurrent: 1);
+            result = await ShortDramaDramaServices.Downloader
+                .DownloadAsync(request, CreateDownloadProgress(log), ct)
+                .ConfigureAwait(false);
+        }
+
+        var downloaded = FindEpisodeVideo(context.SourceProjectDir, episodeNumber);
+        if (downloaded is null)
+            throw new InvalidOperationException(
+                result.Ok
+                    ? $"第 {episodeNumber} 集补下载完成后未找到视频文件。"
+                    : result.Message ?? $"第 {episodeNumber} 集补下载失败。");
+        if (!result.Ok)
+            log($"角色补源下载未完整结束，但第 {episodeNumber} 集视频已可用：{result.Message}");
+        else
+            log($"角色补源：第 {episodeNumber} 集下载完成，将立即抽取人物候选帧。");
+        return downloaded;
+    }
+
+    private static string? FindEpisodeVideo(string sourceProjectDirectory, int episodeNumber) =>
+        ProjectVideoResolver.ResolveSourceVideos(sourceProjectDirectory)
+            .FirstOrDefault(path =>
+            {
+                var match = EpisodeNumberInFileName.Match(Path.GetFileName(path));
+                return match.Success &&
+                       int.TryParse(match.Groups[1].Value, out var parsed) &&
+                       parsed == episodeNumber;
+            });
+
     private static DramaDownloadRequest BuildDownloadRequest(
         ProjectWorkspaceContext context,
         DownloadMetadata metadata,

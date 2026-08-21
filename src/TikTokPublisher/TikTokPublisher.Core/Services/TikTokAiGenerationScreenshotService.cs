@@ -97,6 +97,56 @@ public static class TikTokAiGenerationScreenshotService
             : [];
     }
 
+    internal static IReadOnlyList<string> ExtractSupplementalRoleReferenceFrames(
+        string workflowProjectDirectory,
+        string videoPath,
+        int episodeNumber,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workflowProjectDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(videoPath);
+        if (!File.Exists(videoPath)) throw new FileNotFoundException("角色补源视频不存在。", videoPath);
+        if (episodeNumber <= 0) throw new ArgumentOutOfRangeException(nameof(episodeNumber));
+
+        var outputDirectory = GetRetainedFramesDirectory(workflowProjectDirectory);
+        Directory.CreateDirectory(outputDirectory);
+        var prefix = $"补充_第{episodeNumber:D2}集_";
+        foreach (var old in Directory.EnumerateFiles(outputDirectory, $"{prefix}*.jpg"))
+            try { File.Delete(old); } catch { }
+
+        var ffmpeg = FfmpegLocator.ResolveFfmpeg();
+        var ffprobe = MediaBinaryResolver.ResolveFfprobe();
+        var duration = ProbeDuration(ffprobe, videoPath, cancellationToken);
+        const int frameCount = 8;
+        var outputs = new List<string>(frameCount);
+        for (var index = 0; index < frameCount; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var preferredSeconds = Math.Clamp(
+                duration * (index + 1d) / (frameCount + 1d),
+                0.05,
+                Math.Max(0.05, duration - 0.05));
+            var extracted = TryExtractFacePreferredFrame(
+                ffmpeg,
+                videoPath,
+                preferredSeconds,
+                duration,
+                cancellationToken);
+            if (extracted is null) continue;
+            using (extracted.Image)
+            {
+                var output = Path.Combine(outputDirectory, $"{prefix}{index + 1:D2}.jpg");
+                extracted.Image.Save(output, new JpegEncoder { Quality = 90 });
+                outputs.Add(output);
+            }
+        }
+        log?.Invoke(
+            $"角色补源：第 {episodeNumber} 集已抽取 {outputs.Count} 张人物候选帧，" +
+            $"目录={outputDirectory}。");
+        return outputs;
+    }
+
     public static bool HasCurrentOutput(string workflowProjectDirectory) =>
         ListGeneratedImages(workflowProjectDirectory).Count >= RequiredImageCount &&
         File.Exists(GetRetainedFramesManifestPath(workflowProjectDirectory));

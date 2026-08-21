@@ -55,6 +55,45 @@ public static partial class TikTokReferenceSourcePackageService
     public static string GetCharacterManifestPath(string workflowProjectDirectory) =>
         Path.Combine(GetRoot(workflowProjectDirectory), CharacterDirectoryName, CharacterManifestFileName);
 
+    internal static IReadOnlyList<string> ListCurrentCharacterImages(
+        string workflowProjectDirectory,
+        int maximumCount)
+    {
+        var characterDirectory = Path.Combine(GetRoot(workflowProjectDirectory), CharacterDirectoryName);
+        if (!Directory.Exists(characterDirectory)) return [];
+        maximumCount = Math.Clamp(maximumCount, MinCharacterCount, MaxCharacterCount);
+        var ordered = new List<string>();
+        var manifestPath = Path.Combine(characterDirectory, CharacterManifestFileName);
+        try
+        {
+            if (File.Exists(manifestPath))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(manifestPath));
+                if (document.RootElement.TryGetProperty("characters", out var characters) &&
+                    characters.ValueKind == JsonValueKind.Array)
+                {
+                    ordered.AddRange(characters.EnumerateArray()
+                        .OrderBy(entry => entry.TryGetProperty("order", out var order) && order.TryGetInt32(out var value)
+                            ? value
+                            : int.MaxValue)
+                        .Select(entry => entry.TryGetProperty("file", out var file) ? file.GetString() : null)
+                        .Where(file => !string.IsNullOrWhiteSpace(file))
+                        .Select(file => Path.Combine(characterDirectory, file!))
+                        .Where(path => File.Exists(path) && IsImage(path)));
+                }
+            }
+        }
+        catch
+        {
+            // 清单损坏时回退目录枚举。
+        }
+        ordered.AddRange(Directory.EnumerateFiles(characterDirectory)
+            .Where(IsImage)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Where(path => !ordered.Contains(path, StringComparer.OrdinalIgnoreCase)));
+        return ordered.Take(maximumCount).ToArray();
+    }
+
     private static string GetStatePath(string workflowProjectDirectory) =>
         Path.Combine(
             TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflowProjectDirectory),
@@ -111,7 +150,8 @@ public static partial class TikTokReferenceSourcePackageService
         bool forceRerun,
         Action<string>? log,
         CancellationToken ct,
-        int configuredCharacterCount = TikTokAccountProfile.DefaultRoleVectorCharacterCount)
+        int configuredCharacterCount = TikTokAccountProfile.DefaultRoleVectorCharacterCount,
+        bool recoverMissingRoleReferences = false)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
@@ -173,12 +213,33 @@ public static partial class TikTokReferenceSourcePackageService
         var script = ReadProjectScript(context, title, intro);
         var candidates = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
         var characters = SelectCharacterProfiles(candidates, configuredCharacterCount);
-        var episodeCharacterSources = await SelectRoleMatchedCharacterSourcesAsync(
-            characters,
-            FindEpisodeCharacterSources(context, root),
-            settings,
-            log,
-            ct).ConfigureAwait(false);
+        string[] episodeCharacterSources;
+        try
+        {
+            episodeCharacterSources = await SelectRoleMatchedCharacterSourcesAsync(
+                characters,
+                FindEpisodeCharacterSources(context, root),
+                settings,
+                log,
+                ct).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException ex) when (recoverMissingRoleReferences)
+        {
+            log?.Invoke($"角色参考图现有素材不足，将尝试逐集补下载：{ex.Message}");
+            episodeCharacterSources = [];
+        }
+        if (recoverMissingRoleReferences && episodeCharacterSources.Length < characters.Length)
+        {
+            episodeCharacterSources = await RecoverMissingRoleReferencesAsync(
+                item,
+                context,
+                root,
+                characters,
+                episodeCharacterSources,
+                settings,
+                log,
+                ct).ConfigureAwait(false);
+        }
         var sourceFingerprint = ComputeSourceFingerprint(
             title, intro, script, settings, episodeCharacterSources);
         if (!forceRerun && HasCurrentOutput(context.WorkflowProjectDir) &&
@@ -838,6 +899,117 @@ public static partial class TikTokReferenceSourcePackageService
             _ => 5,
         };
 
+    private static async Task<string[]> RecoverMissingRoleReferencesAsync(
+        QueueProjectItem item,
+        ProjectWorkspaceContext context,
+        string packageRoot,
+        IReadOnlyList<CharacterProfile> profiles,
+        IReadOnlyList<string> initiallyMatched,
+        ClientSettings settings,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var totalEpisodes = 0;
+        try { totalEpisodes = ProjectWorkspaceService.ResolveSourceEpisodeCount(item.ProjectDir); }
+        catch { /* 回退队列记录 */ }
+        if (totalEpisodes <= 0) totalEpisodes = item.EpisodeCount;
+        if (totalEpisodes <= 0)
+        {
+            log?.Invoke("角色补源：无法确定剧集总数，跳过自动补下载。");
+            return initiallyMatched.ToArray();
+        }
+
+        var retainedFrames = TikTokAiGenerationScreenshotService
+            .ListRetainedFrameImages(context.WorkflowProjectDir);
+        var episodes = ResolveRoleReferenceRecoveryEpisodes(retainedFrames, totalEpisodes);
+        if (episodes.Count == 0)
+        {
+            log?.Invoke("角色补源：现有抽帧已覆盖全部剧集，仍未达到配置人数。");
+            return initiallyMatched.ToArray();
+        }
+
+        var best = initiallyMatched
+            .Where(File.Exists)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        log?.Invoke(
+            $"角色补源：当前匹配 {best.Length}/{profiles.Count} 人；" +
+            $"将从第 {episodes[0]} 集开始逐集下载、抽帧，达到配置人数后立即停止。");
+        foreach (var episode in episodes)
+        {
+            ct.ThrowIfCancellationRequested();
+            var video = await QueueMaterialStepService.EnsureRoleReferenceEpisodeVideoAsync(
+                item,
+                settings,
+                episode,
+                log ?? (_ => { }),
+                ct).ConfigureAwait(false);
+            var newFrames = TikTokAiGenerationScreenshotService.ExtractSupplementalRoleReferenceFrames(
+                context.WorkflowProjectDir,
+                video,
+                episode,
+                log,
+                ct);
+            if (newFrames.Count == 0)
+            {
+                log?.Invoke($"角色补源：第 {episode} 集没有抽取到有效候选帧，继续下一集。");
+                continue;
+            }
+
+            var focusedCandidates = best
+                .Concat(newFrames)
+                .Where(File.Exists)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            string[] selected;
+            try
+            {
+                selected = await SelectRoleMatchedCharacterSourcesAsync(
+                    profiles,
+                    focusedCandidates,
+                    settings,
+                    log,
+                    ct).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex)
+            {
+                log?.Invoke($"角色补源：第 {episode} 集仍未匹配到足够人物：{ex.Message}");
+                continue;
+            }
+            if (selected.Length > best.Length) best = selected;
+            log?.Invoke($"角色补源：检查至第 {episode} 集，已匹配 {best.Length}/{profiles.Count} 人。");
+            if (best.Length >= profiles.Count)
+            {
+                log?.Invoke($"角色补源完成：第 {episode} 集首次达到配置的 {profiles.Count} 人，停止继续下载。");
+                return best;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"角色补源已检查全部可用剧集，仍只有 {best.Length}/{profiles.Count} 个不同且清晰露脸的人物；" +
+            "请手动指定人物参考图后重试。");
+    }
+
+    internal static IReadOnlyList<int> ResolveRoleReferenceRecoveryEpisodes(
+        IEnumerable<string> retainedFramePaths,
+        int totalEpisodes)
+    {
+        if (totalEpisodes <= 0) return [];
+        var represented = new HashSet<int>();
+        foreach (var path in retainedFramePaths ?? [])
+        {
+            var fileName = Path.GetFileName(path);
+            if (fileName.StartsWith("补充_", StringComparison.OrdinalIgnoreCase))
+                continue; // 上次补源可能中断；本轮应复用视频并重新聚焦校验该集。
+            var match = Regex.Match(fileName, @"第\s*(\d+)\s*集");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var episode) && episode > 0)
+                represented.Add(episode);
+        }
+        return Enumerable.Range(1, totalEpisodes)
+            .Where(episode => !represented.Contains(episode))
+            .ToArray();
+    }
+
     private static async Task<string[]> SelectRoleMatchedCharacterSourcesAsync(
         IReadOnlyList<CharacterProfile> profiles,
         IReadOnlyList<string> orderedSources,
@@ -860,11 +1032,33 @@ public static partial class TikTokReferenceSourcePackageService
         log?.Invoke($"角色参考图：正在用视觉模型从 {candidates.Length} 张清晰候选帧中匹配性别并排除重复人物。");
         var analyses = await AnalyzeReferenceCandidatesAsync(
             profiles, candidates, settings, ct).ConfigureAwait(false);
-        var selectedIndices = AssignRoleReferenceCandidates(profiles, analyses);
+        IReadOnlyList<int>? selectedIndices = null;
+        var matchedProfileCount = profiles.Count;
+        InvalidOperationException? lastMatchError = null;
+        while (matchedProfileCount >= MinCharacterCount)
+        {
+            try
+            {
+                selectedIndices = AssignRoleReferenceCandidates(
+                    profiles.Take(matchedProfileCount).ToArray(), analyses);
+                break;
+            }
+            catch (InvalidOperationException ex)
+            {
+                lastMatchError = ex;
+                matchedProfileCount--;
+            }
+        }
+        if (selectedIndices is null)
+            throw lastMatchError ?? new InvalidOperationException("未找到足够的清晰角色参考帧。");
         var selected = selectedIndices.Select(index => candidates[index - 1]).ToArray();
         log?.Invoke(
-            "角色参考图匹配完成：" + string.Join("；", profiles.Select((profile, index) =>
+            "角色参考图匹配完成：" + string.Join("；", profiles.Take(matchedProfileCount).Select((profile, index) =>
                 $"{profile.Name}={Path.GetFileName(selected[index])}")));
+        if (matchedProfileCount < profiles.Count)
+            log?.Invoke(
+                $"角色参考图：账号配置 {profiles.Count} 人，真实画面只匹配到 {matchedProfileCount} 个不同人物；" +
+                $"其余 {profiles.Count - matchedProfileCount} 人将由图片模型按剧情设定补生成。");
         return selected;
     }
 

@@ -9,6 +9,58 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokReferenceSourcePackageServiceTests
 {
     [Fact]
+    public void Role_reference_recovery_downloads_only_episodes_not_already_represented()
+    {
+        var retainedFrames = Enumerable.Range(1, 8)
+            .Select(episode => $@"D:\frames\001_第{episode}集_0001.000秒_主体.jpg")
+            .Append(@"D:\frames\补充_第09集_01.jpg")
+            .ToArray();
+
+        TikTokReferenceSourcePackageService.ResolveRoleReferenceRecoveryEpisodes(retainedFrames, 12)
+            .Should().Equal(9, 10, 11, 12);
+    }
+
+    [Fact]
+    public void Current_character_images_follow_manifest_order_without_rewriting_it()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"current-character-images-{Guid.NewGuid():N}");
+        var characterDirectory = Path.Combine(
+            TikTokReferenceSourcePackageService.GetRoot(workflow),
+            TikTokReferenceSourcePackageService.CharacterDirectoryName);
+        Directory.CreateDirectory(characterDirectory);
+        var first = Path.Combine(characterDirectory, "甲.png");
+        var second = Path.Combine(characterDirectory, "乙.png");
+        var third = Path.Combine(characterDirectory, "丙.png");
+        SaveSolidImage(first);
+        SaveSolidImage(second);
+        SaveSolidImage(third);
+        var manifest = Path.Combine(
+            characterDirectory,
+            TikTokReferenceSourcePackageService.CharacterManifestFileName);
+        File.WriteAllText(manifest, JsonSerializer.Serialize(new
+        {
+            characters = new[]
+            {
+                new { order = 1, file = Path.GetFileName(second) },
+                new { order = 2, file = Path.GetFileName(first) },
+                new { order = 3, file = Path.GetFileName(third) },
+            },
+        }));
+        var before = File.ReadAllText(manifest);
+
+        try
+        {
+            TikTokReferenceSourcePackageService.ListCurrentCharacterImages(workflow, 3)
+                .Should().Equal(second, first, third);
+            File.ReadAllText(manifest).Should().Be(before);
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Default_scene_design_templates_are_installed_without_rendering()
     {
         var root = Path.Combine(Path.GetTempPath(), $"scene-design-templates-{Guid.NewGuid():N}");
