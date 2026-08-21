@@ -13,6 +13,70 @@ public sealed class QueueWorkerRunnerTests
     private static readonly Lazy<byte[]> TinyMp4Bytes = new(CreateTinyMp4Bytes);
 
     [Fact]
+    public void ValidateRunSelection_Reruns_Completed_Repair_When_Transferred_Upload_Is_Small()
+    {
+        var projectDir = Path.Combine(Path.GetTempPath(), $"tiktok-stale-repair-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectDir);
+        File.WriteAllBytes(Path.Combine(projectDir, "episode-1.avi"), [1]);
+
+        try
+        {
+            var item = new QueueProjectItem
+            {
+                ProjectDir = projectDir,
+                Enabled = true,
+                StepStates = new Dictionary<string, string>
+                {
+                    [QueueStepRegistry.SmallVideoRepair] = QueueStepStatus.Completed,
+                },
+            };
+            var options = new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.SmallVideoRepair],
+            };
+
+            QueueWorkerRunner.ValidateRunSelection([item], options, new AccountStore()).Should().Be(1);
+        }
+        finally
+        {
+            try { Directory.Delete(projectDir, recursive: true); }
+            catch (IOException) { }
+        }
+    }
+
+    [Fact]
+    public void ValidateRunSelection_Reruns_Completed_Validation_When_File_State_Is_Not_Current()
+    {
+        var projectDir = Path.Combine(Path.GetTempPath(), $"tiktok-stale-validation-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectDir);
+        File.WriteAllBytes(Path.Combine(projectDir, "episode-1.avi"), [1]);
+
+        try
+        {
+            var item = new QueueProjectItem
+            {
+                ProjectDir = projectDir,
+                Enabled = true,
+                StepStates = new Dictionary<string, string>
+                {
+                    [QueueStepRegistry.MaterialValidate] = QueueStepStatus.Completed,
+                },
+            };
+            var options = new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.MaterialValidate],
+            };
+
+            QueueWorkerRunner.ValidateRunSelection([item], options, new AccountStore()).Should().Be(1);
+        }
+        finally
+        {
+            try { Directory.Delete(projectDir, recursive: true); }
+            catch (IOException) { }
+        }
+    }
+
+    [Fact]
     public async Task RunAsync_uploads_all_projects_when_preupload_steps_complete_synchronously()
     {
         var account = new TikTokAccountProfile
