@@ -24,12 +24,14 @@ public partial class SystemSettingsView : UserControl
         {
             _vm.SettingsSaved -= OnSettingsSaved;
             _vm.HgnewLoginProbeSucceeded -= OnHgnewLoginProbeSucceeded;
+            _vm.CopyToClipboardAsync -= CopyTextToClipboardAsync;
         }
 
         _vm = vm;
         DataContext = vm;
         vm.SettingsSaved += OnSettingsSaved;
         vm.HgnewLoginProbeSucceeded += OnHgnewLoginProbeSucceeded;
+        vm.CopyToClipboardAsync += CopyTextToClipboardAsync;
         InitializeComboBoxes();
         SyncCombosFromVm();
         vm.PropertyChanged += (_, args) =>
@@ -53,6 +55,17 @@ public partial class SystemSettingsView : UserControl
                 SyncCombosFromVm();
             }
         };
+    }
+
+    private async Task CopyTextToClipboardAsync(string text)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null)
+        {
+            throw new InvalidOperationException("当前窗口无法访问剪贴板。");
+        }
+
+        await clipboard.SetTextAsync(text);
     }
 
     private async void OnSettingsSaved(ClientSettings settings)
@@ -88,6 +101,7 @@ public partial class SystemSettingsView : UserControl
     {
         DramaSourceCombo.Items.Clear();
         DramaSourceCombo.Items.Add(CreateItem("红果新接口", "hgnew"));
+        DramaSourceCombo.Items.Add(CreateItem("红果高码率", "hghigh"));
         DramaSourceCombo.Items.Add(CreateItem("本地直连", "hglocal"));
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
@@ -367,6 +381,13 @@ public partial class SystemSettingsView : UserControl
         var path = await PickFileAsync("选择 WPS 程序", "*.exe");
         if (_vm is not null && !string.IsNullOrWhiteSpace(path))
             _vm.TiktokProofWpsPath = path;
+    }
+
+    private async void OnBrowseHghighClientExeClick(object? sender, RoutedEventArgs e)
+    {
+        var path = await PickFileAsync("选择高码率客户端", "*.exe");
+        if (_vm is not null && !string.IsNullOrWhiteSpace(path))
+            _vm.HghighClientExe = path;
     }
 
     private async Task<string?> PickFileAsync(string title, params string[] patterns)

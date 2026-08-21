@@ -9,6 +9,7 @@ param(
     [switch]$SkipInstallerCompile,
     [string]$InnoSetupCompiler,
     [string]$FfmpegDownloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+    [string]$PythonEmbedDownloadUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip",
     # Offline Evergreen Standalone Installer (x64) permanent fwlink (~190MB, installs WebView2 with no
     # network needed on the target). This is the x64 "accept-and-download" link from the official
     # WebView2 download page. NOTE: do NOT use the bootstrapper link (fwlink 2124703) here - it is a
@@ -252,6 +253,70 @@ function Ensure-FfmpegDependency {
         Select-Object -First 1
     if ($license) {
         Copy-Item -LiteralPath $license.FullName -Destination (Join-Path $targetDir $license.Name) -Force
+    }
+}
+
+function Ensure-FridaPythonDependency {
+    if (-not $BundleDependencies) {
+        return
+    }
+
+    $targetDir = Join-Path $DependenciesDir "tools\$Runtime\python"
+    $pythonExe = Join-Path $targetDir "python.exe"
+    $fridaInit = Join-Path $targetDir "Lib\site-packages\frida\__init__.py"
+    if ((Test-Path -LiteralPath $pythonExe) -and (Test-Path -LiteralPath $fridaInit)) {
+        Write-Host "Using cached Frida Python runtime: $targetDir"
+        return
+    }
+
+    Write-Host "Bundling embeddable Python + frida for high-bitrate master extraction"
+    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+
+    $embedZip = Join-Path $DependencyCacheDir "python-3.11.9-embed-amd64.zip"
+    if (-not (Test-Path -LiteralPath $embedZip)) {
+        Invoke-DownloadFile -Url $PythonEmbedDownloadUrl -Destination $embedZip
+    }
+    Expand-Archive -LiteralPath $embedZip -DestinationPath $targetDir -Force
+
+    $pth = Get-ChildItem -LiteralPath $targetDir -File -Filter "python*._pth" |
+        Select-Object -First 1
+    if (-not $pth) {
+        throw "Python embeddable archive did not contain a python*._pth file: $embedZip"
+    }
+
+    @(
+        "python311.zip",
+        ".",
+        "",
+        "Lib\site-packages",
+        "import site"
+    ) | Set-Content -LiteralPath $pth.FullName -Encoding ascii
+
+    $sitePackages = Join-Path $targetDir "Lib\site-packages"
+    New-Item -ItemType Directory -Force -Path $sitePackages | Out-Null
+
+    $index = Invoke-RestMethod -Uri "https://pypi.org/pypi/frida/json"
+    $wheel = @($index.urls) |
+        Where-Object { $_.filename -match 'cp37-abi3-win_amd64\.whl$' } |
+        Select-Object -First 1
+    if (-not $wheel) {
+        throw "PyPI frida package did not publish a cp37-abi3-win_amd64 wheel."
+    }
+
+    $whlPath = Join-Path $DependencyCacheDir $wheel.filename
+    if (-not (Test-Path -LiteralPath $whlPath)) {
+        Invoke-DownloadFile -Url $wheel.url -Destination $whlPath
+    }
+
+    $extractDir = Join-Path $DependencyCacheDir "frida-wheel"
+    Remove-DependencyCacheDirectorySafe -Path $extractDir
+    $whlZip = Join-Path $DependencyCacheDir "frida-wheel.zip"
+    Copy-Item -LiteralPath $whlPath -Destination $whlZip -Force
+    Expand-Archive -LiteralPath $whlZip -DestinationPath $extractDir -Force
+    Copy-Item -LiteralPath (Join-Path $extractDir "*") -Destination $sitePackages -Recurse -Force
+
+    if (-not (Test-Path -LiteralPath $fridaInit)) {
+        throw "Frida wheel was extracted but Lib\site-packages\frida\__init__.py is missing."
     }
 }
 
@@ -535,7 +600,7 @@ function Ensure-PlaywrightChromiumCached {
 
 Write-Host "Packaging TikTokPublisher $Version ($Runtime, $Configuration)"
 if ($BundleDependencies) {
-    Write-Host "Bundling runtime dependencies: .NET self-contained, fonts/tools, ffmpeg, Playwright Chromium, WebView2 Runtime"
+    Write-Host "Bundling runtime dependencies: .NET self-contained, fonts/tools, ffmpeg, Frida Python, Playwright Chromium, WebView2 Runtime"
 }
 else {
     Write-Warning "Dependency bundling is disabled. The installer may require target machines to install dependencies separately."
@@ -552,6 +617,7 @@ New-Item -ItemType Directory -Force -Path $DependenciesDir | Out-Null
 New-Item -ItemType Directory -Force -Path $DependencyCacheDir | Out-Null
 Ensure-WebView2RuntimeInstaller
 Ensure-FfmpegDependency
+Ensure-FridaPythonDependency
 Remove-DirectorySafe -Path $PublishDir
 Remove-DirectorySafe -Path $InstallerDir
 New-Item -ItemType Directory -Force -Path $PublishDir | Out-Null
@@ -596,6 +662,11 @@ Copy-DirectoryContents -Source $repoFonts -Destination (Join-Path $publishTools 
 $extraTools = Join-Path $DependenciesDir "tools"
 Copy-DirectoryContents -Source $extraTools -Destination $publishTools
 
+$provisionScript = Join-Path $Root "src\ShortDrama\ShortDrama.Infrastructure\Tools\hongguo-high\provision_startup_masters.py"
+$publishProvisionDir = Join-Path $publishTools "hongguo-high"
+New-Item -ItemType Directory -Force -Path $publishProvisionDir | Out-Null
+Copy-Item -LiteralPath $provisionScript -Destination (Join-Path $publishProvisionDir "provision_startup_masters.py") -Force
+
 $publishModels = Join-Path $PublishDir "models"
 if ($BundleLocalAsrModels) {
     if (-not (Test-Path -LiteralPath $ModelsDir)) {
@@ -636,6 +707,26 @@ if ($BundleDependencies) {
 }
 elseif (-not (Test-AnyPath -Candidates $ffmpegCandidates)) {
     Write-Warning "ffmpeg.exe is not bundled. Put ffmpeg/ffprobe under packaging\dependencies\tools\$Runtime\ffmpeg before building a fully offline installer."
+}
+
+$pythonCandidates = @(
+    (Join-Path $PublishDir "tools\$Runtime\python\python.exe"),
+    (Join-Path $PublishDir "tools\python\python.exe")
+)
+$fridaCandidates = @(
+    (Join-Path $PublishDir "tools\$Runtime\python\Lib\site-packages\frida\__init__.py"),
+    (Join-Path $PublishDir "tools\python\Lib\site-packages\frida\__init__.py")
+)
+$provisionScriptCandidates = @(
+    (Join-Path $PublishDir "tools\hongguo-high\provision_startup_masters.py")
+)
+if ($BundleDependencies) {
+    Assert-AnyPath -Name "python.exe (Frida)" -Candidates $pythonCandidates
+    Assert-AnyPath -Name "frida" -Candidates $fridaCandidates
+    Assert-AnyPath -Name "provision_startup_masters.py" -Candidates $provisionScriptCandidates
+}
+elseif (-not (Test-AnyPath -Candidates $pythonCandidates)) {
+    Write-Warning "Frida Python runtime is not bundled. High-bitrate master extraction will need packaging\dependencies\tools\$Runtime\python."
 }
 
 $webView2LoaderCandidates = @(

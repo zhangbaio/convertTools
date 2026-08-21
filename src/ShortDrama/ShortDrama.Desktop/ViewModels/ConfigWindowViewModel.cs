@@ -226,6 +226,24 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string hgnewClientVersion = string.Empty;
 
     [ObservableProperty]
+    private string hghighAccount = string.Empty;
+
+    [ObservableProperty]
+    private string hghighPassword = string.Empty;
+
+    [ObservableProperty]
+    private string hghighDeviceId = string.Empty;
+
+    [ObservableProperty]
+    private string hghighClientExe = string.Empty;
+
+    [ObservableProperty]
+    private string hghighProbeStatus = string.Empty;
+
+    [ObservableProperty]
+    private string hghighMastersStatus = string.Empty;
+
+    [ObservableProperty]
     private string hongguoDownloadTimeoutSeconds = "60";
 
     [ObservableProperty]
@@ -440,6 +458,62 @@ public partial class ConfigWindowViewModel : ViewModelBase
         }
     }
 
+    public void ReadHghighDeviceId()
+    {
+        var deviceId = HongguoHighDeviceStore.TryReadDeviceId();
+        HghighProbeStatus = string.IsNullOrWhiteSpace(deviceId)
+            ? "未读到高码率 DeviceId。请先安装并登录一次官方高码率客户端。"
+            : "已从本机官方高码率客户端读取 DeviceId。";
+        if (!string.IsNullOrWhiteSpace(deviceId))
+        {
+            HghighDeviceId = deviceId;
+        }
+    }
+
+    public async Task ProbeHghighLoginAsync()
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            var service = new HongguoHighApiService(http);
+            await service.ProbeLoginAsync(GlobalDramaSettingsProvider.FromGlobal(BuildWorkingGlobalConfig()), CancellationToken.None);
+            HghighProbeStatus = $"测试登录成功：{DateTime.Now:HH:mm:ss}";
+        }
+        catch (Exception ex)
+        {
+            HghighProbeStatus = $"测试登录失败：{ex.Message}";
+        }
+    }
+
+    public async Task ProvisionHghighMastersAsync()
+    {
+        try
+        {
+            HghighMastersStatus = "正在提取启动密钥…请确保官方客户端已完全退出。";
+            var result = await HongguoHighMasterProvisioner.ExtractAsync(HghighClientExe, null, CancellationToken.None);
+            if (string.IsNullOrWhiteSpace(HghighDeviceId))
+            {
+                HghighDeviceId = result.DeviceId;
+            }
+
+            RefreshHghighMastersStatus();
+            HghighMastersStatus = "已提取并缓存 Enc/Sign Master。提取前会自动关闭官方高码率客户端。";
+            HghighProbeStatus = $"启动密钥已缓存（设备 {result.DeviceId}）。";
+        }
+        catch (Exception ex)
+        {
+            RefreshHghighMastersStatus();
+            HghighMastersStatus = $"提取失败：{ex.Message}";
+        }
+    }
+
+    private void RefreshHghighMastersStatus()
+    {
+        HghighMastersStatus = HongguoHighDeviceStore.IsReady()
+            ? "本机已缓存启动密钥，可正常登录。"
+            : "尚未缓存启动密钥。选择官方客户端后点「提取启动密钥」（安装包已内置 Frida）。";
+    }
+
     public async Task ProbeHongguoLocalAsync()
     {
         try
@@ -539,6 +613,13 @@ public partial class ConfigWindowViewModel : ViewModelBase
         HgnewPassword = _loadedGlobalConfig.HgnewPassword;
         HgnewUdid = _loadedGlobalConfig.HgnewUdid;
         HgnewClientVersion = _loadedGlobalConfig.HgnewClientVersion;
+        HghighAccount = _loadedGlobalConfig.HghighAccount;
+        HghighPassword = _loadedGlobalConfig.HghighPassword;
+        HghighDeviceId = string.IsNullOrWhiteSpace(_loadedGlobalConfig.HghighDeviceId)
+            ? HongguoHighDeviceStore.TryReadDeviceId()
+            : _loadedGlobalConfig.HghighDeviceId;
+        HghighClientExe = _loadedGlobalConfig.HghighClientExe;
+        RefreshHghighMastersStatus();
         HongguoDownloadTimeoutSeconds = string.IsNullOrWhiteSpace(_loadedGlobalConfig.HongguoDownloadTimeoutSeconds) ? "60" : _loadedGlobalConfig.HongguoDownloadTimeoutSeconds;
         HongguoEpisodeDownloadAttempts = string.IsNullOrWhiteSpace(_loadedGlobalConfig.HongguoEpisodeDownloadAttempts) ? "5" : _loadedGlobalConfig.HongguoEpisodeDownloadAttempts;
         HongguoLocalBaseUrl = _loadedGlobalConfig.HongguoLocalBaseUrl;
@@ -647,6 +728,10 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HgnewPassword = HgnewPassword,
             HgnewUdid = HongguoDeviceId.Normalize(HgnewUdid),
             HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion),
+            HghighAccount = HghighAccount.Trim(),
+            HghighPassword = HghighPassword,
+            HghighDeviceId = HghighDeviceId.Trim(),
+            HghighClientExe = HghighClientExe.Trim(),
             HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds.Trim(),
             HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts.Trim(),
             HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
@@ -757,6 +842,10 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HgnewPassword = HgnewPassword,
             HgnewUdid = HongguoDeviceId.Normalize(HgnewUdid),
             HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion),
+            HghighAccount = HghighAccount.Trim(),
+            HghighPassword = HghighPassword,
+            HghighDeviceId = HghighDeviceId.Trim(),
+            HghighClientExe = HghighClientExe.Trim(),
             HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds.Trim(),
             HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts.Trim(),
             HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),

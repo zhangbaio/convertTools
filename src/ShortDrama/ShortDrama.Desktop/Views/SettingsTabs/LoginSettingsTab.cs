@@ -12,12 +12,14 @@ namespace ShortDrama.Desktop.Views.SettingsTabs;
 public sealed class LoginSettingsTab : UserControl
 {
     private readonly RadioButton _hgnewButton;
+    private readonly RadioButton _hghighButton;
     private readonly RadioButton _hglocalButton;
     private readonly RadioButton _pikachuButton;
 
     public LoginSettingsTab()
     {
         _hgnewButton = BuildSourceButton("hgnew", "hgnew");
+        _hghighButton = BuildSourceButton("hghigh", "hghigh");
         _hglocalButton = BuildSourceButton("hglocal", "hglocal");
         _pikachuButton = BuildSourceButton("pikachu", "pikachu");
         DataContextChanged += (_, _) => SyncSourceButtons();
@@ -36,7 +38,7 @@ public sealed class LoginSettingsTab : UserControl
             Margin = new Thickness(16)
         };
 
-        panel.Children.Add(Hint("登录设置支持 hgnew / hglocal / pikachu 三条链路；短剧搜索、下载和上新只使用当前选择的数据源，不再自动降级。"));
+        panel.Children.Add(Hint("登录设置支持 hgnew / hghigh / hglocal / pikachu 四条链路；短剧搜索、下载和上新只使用当前选择的数据源，不再自动降级。"));
         panel.Children.Add(BuildSourceRow());
 
         panel.Children.Add(SectionTitle("hgnew"));
@@ -48,6 +50,15 @@ public sealed class LoginSettingsTab : UserControl
         panel.Children.Add(Row("单集重试次数", BindText(nameof(ConfigWindowViewModel.HongguoEpisodeDownloadAttempts))));
         panel.Children.Add(Row("客户端版本", BindText(nameof(ConfigWindowViewModel.HgnewClientVersion))));
         panel.Children.Add(Row("测试结果", ReadOnlyText(nameof(ConfigWindowViewModel.HgnewProbeStatus))));
+
+        panel.Children.Add(SectionTitle("hghigh"));
+        panel.Children.Add(Hint("独立账号与启动密钥。点「提取启动密钥」会先关闭官方高码率客户端，再用内置 Frida 抽出密钥；不依赖短剧助手。"));
+        panel.Children.Add(Row("账号", BindText(nameof(ConfigWindowViewModel.HghighAccount))));
+        panel.Children.Add(Row("密码", BindPassword(nameof(ConfigWindowViewModel.HghighPassword))));
+        panel.Children.Add(Row("DeviceId", BindText(nameof(ConfigWindowViewModel.HghighDeviceId))));
+        panel.Children.Add(Row("客户端 exe", BindText(nameof(ConfigWindowViewModel.HghighClientExe))));
+        panel.Children.Add(Row("密钥状态", ReadOnlyText(nameof(ConfigWindowViewModel.HghighMastersStatus))));
+        panel.Children.Add(Row("测试结果", BuildHghighProbeRow()));
 
         panel.Children.Add(SectionTitle("hglocal"));
         panel.Children.Add(Row("本地链路地址", BindText(nameof(ConfigWindowViewModel.HongguoLocalBaseUrl))));
@@ -73,6 +84,7 @@ public sealed class LoginSettingsTab : UserControl
             Spacing = 10
         };
         row.Children.Add(_hgnewButton);
+        row.Children.Add(_hghighButton);
         row.Children.Add(_hglocalButton);
         row.Children.Add(_pikachuButton);
         return row;
@@ -103,6 +115,7 @@ public sealed class LoginSettingsTab : UserControl
         }
 
         _hgnewButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "hgnew", StringComparison.OrdinalIgnoreCase);
+        _hghighButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "hghigh", StringComparison.OrdinalIgnoreCase);
         _hglocalButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "hglocal", StringComparison.OrdinalIgnoreCase);
         _pikachuButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "pikachu", StringComparison.OrdinalIgnoreCase);
     }
@@ -142,6 +155,36 @@ public sealed class LoginSettingsTab : UserControl
             MinWidth = 96
         };
         probeButton.Click += ProbeHgnewLogin_Click;
+        grid.Children.Add(probeButton);
+        Grid.SetColumn(probeButton, 3);
+
+        return grid;
+    }
+
+    private static Control BuildHghighProbeRow()
+    {
+        var grid = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"),
+            ColumnSpacing = 8
+        };
+
+        var status = ReadOnlyText(nameof(ConfigWindowViewModel.HghighProbeStatus));
+        grid.Children.Add(status);
+        Grid.SetColumn(status, 0);
+
+        var readButton = new Button { Content = "读取 DeviceId", MinWidth = 110 };
+        readButton.Click += ReadHghighDeviceId_Click;
+        grid.Children.Add(readButton);
+        Grid.SetColumn(readButton, 1);
+
+        var provisionButton = new Button { Content = "提取启动密钥", MinWidth = 120 };
+        provisionButton.Click += ProvisionHghigh_Click;
+        grid.Children.Add(provisionButton);
+        Grid.SetColumn(provisionButton, 2);
+
+        var probeButton = new Button { Content = "测试登录", MinWidth = 96 };
+        probeButton.Click += ProbeHghighLogin_Click;
         grid.Children.Add(probeButton);
         Grid.SetColumn(probeButton, 3);
 
@@ -237,6 +280,30 @@ public sealed class LoginSettingsTab : UserControl
         if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
         {
             await viewModel.ProbeHgnewLoginAsync();
+        }
+    }
+
+    private static void ReadHghighDeviceId_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
+        {
+            viewModel.ReadHghighDeviceId();
+        }
+    }
+
+    private static async void ProvisionHghigh_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
+        {
+            await viewModel.ProvisionHghighMastersAsync();
+        }
+    }
+
+    private static async void ProbeHghighLogin_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
+        {
+            await viewModel.ProbeHghighLoginAsync();
         }
     }
 

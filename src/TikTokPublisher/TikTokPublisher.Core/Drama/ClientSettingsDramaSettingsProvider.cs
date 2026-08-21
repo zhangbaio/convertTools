@@ -14,6 +14,10 @@ public static class DramaSourceSettingsMapping
         HgnewPassword = settings.HgnewPassword ?? "",
         HgnewUdid = settings.HgnewUdid ?? "",
         HgnewClientVersion = settings.HgnewClientVersion ?? ClientSettings.DefaultHongguoClientVersion,
+        HghighAccount = settings.HghighAccount ?? "",
+        HghighPassword = settings.HghighPassword ?? "",
+        HghighDeviceId = settings.HghighDeviceId ?? "",
+        HghighClientExe = settings.HghighClientExe ?? "",
         HongguoDownloadTimeoutSeconds = settings.HongguoDownloadTimeoutSeconds.ToString(),
         HongguoEpisodeDownloadAttempts = settings.HongguoEpisodeDownloadAttempts.ToString(),
         DownloadFileSegments = settings.DownloadFileSegments.ToString(),
@@ -33,7 +37,7 @@ public static class DramaSourceSettingsMapping
     private static string NormalizeChain(string? chain)
     {
         var normalized = (chain ?? "hgnew").Trim().ToLowerInvariant();
-        return normalized is "hgnew" or "pikachu" or "hglocal" ? normalized : "hgnew";
+        return normalized is "hgnew" or "pikachu" or "hglocal" or "hghigh" ? normalized : "hgnew";
     }
 
     private static string NormalizeHongguoLocalDownloadMode(string? mode)
