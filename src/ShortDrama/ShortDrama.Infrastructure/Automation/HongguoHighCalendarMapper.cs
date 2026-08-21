@@ -29,7 +29,7 @@ public static class HongguoHighCalendarMapper
         ["category", "tag_text", "type", "complete_category", "tags"];
 
     private static readonly string[] CoverKeys =
-        ["cover", "series_cover", "cover_url", "poster", "audio_thumb_uri", "thumb_uri"];
+        ["thumb_url", "cover", "series_cover", "cover_url", "poster", "audio_thumb_uri", "thumb_uri"];
 
     private static readonly string[] PublishKeys =
     [
