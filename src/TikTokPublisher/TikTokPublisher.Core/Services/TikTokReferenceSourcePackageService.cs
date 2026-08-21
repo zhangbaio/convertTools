@@ -46,6 +46,7 @@ public static partial class TikTokReferenceSourcePackageService
     private const string SceneDesignTemplateResourceName2 =
         "TikTokPublisher.Core.Resources.SceneDesignTemplate2.png";
     private const int VisionIdentityBatchSize = 24;
+    internal static int VisionIdentityBatchCapacityForTests => VisionIdentityBatchSize;
     private const int VisionIdentityBatchConcurrency = 2;
     private const int MaxVisionDiscoveryCandidates = 96;
     private const int VisionMergeCandidateLimit = 16;
@@ -1084,7 +1085,8 @@ public static partial class TikTokReferenceSourcePackageService
                     focusedCandidates,
                     settings,
                     log,
-                    ct).ConfigureAwait(false);
+                    ct,
+                    candidateMaximumOverride: VisionIdentityBatchSize).ConfigureAwait(false);
             }
             catch (Exception ex) when (
                 useAiFullReview &&
@@ -1107,7 +1109,8 @@ public static partial class TikTokReferenceSourcePackageService
                         fallbackCandidates,
                         settings,
                         log,
-                        ct).ConfigureAwait(false);
+                        ct,
+                        candidateMaximumOverride: VisionIdentityBatchSize).ConfigureAwait(false);
                 }
                 catch (InvalidOperationException fallbackEx)
                 {
@@ -1277,7 +1280,8 @@ public static partial class TikTokReferenceSourcePackageService
         IReadOnlyList<string> orderedSources,
         ClientSettings settings,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        int? candidateMaximumOverride = null)
     {
         if (orderedSources.Count < MinCharacterCount)
             return orderedSources.Take(profiles.Count).ToArray();
@@ -1289,10 +1293,25 @@ public static partial class TikTokReferenceSourcePackageService
                 "角色参考图需要视觉模型判断男女和人物是否重复；请先在系统设置中配置文本/视觉模型 Endpoint、API Key 和模型 ID。");
         }
 
-        var maximum = ResolveVisionCandidateMaximum(profiles.Count);
+        var selectionMode = ResolveRoleReferenceSelectionMode(settings);
+        var reviewSources = selectionMode == LocalRoleReferenceSelectionMode &&
+                            orderedSources.Count > VisionIdentityBatchSize
+            ? SelectVisionCandidatePaths(orderedSources, VisionIdentityBatchSize)
+            : orderedSources.ToArray();
+        if (reviewSources.Length < orderedSources.Count)
+        {
+            log?.Invoke(
+                $"角色参考图：本地链路将候选池从 {orderedSources.Count} 张预筛为 " +
+                $"{reviewSources.Length} 张清晰且时间分布不同的代表帧，执行一次视觉审核。");
+        }
+        var maximum = candidateMaximumOverride is > 0
+            ? Math.Clamp(candidateMaximumOverride.Value, 1, VisionIdentityBatchSize)
+            : selectionMode == LocalRoleReferenceSelectionMode
+                ? VisionIdentityBatchSize
+                : ResolveVisionCandidateMaximum(profiles.Count);
         var (candidates, analyses) = await AnalyzeRoleCandidatePoolAsync(
             profiles,
-            orderedSources,
+            reviewSources,
             settings,
             maximum,
             log,

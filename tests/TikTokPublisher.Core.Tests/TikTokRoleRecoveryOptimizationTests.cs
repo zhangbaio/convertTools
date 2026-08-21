@@ -120,6 +120,13 @@ public sealed class TikTokRoleRecoveryOptimizationTests
     }
 
     [Fact]
+    public void Local_review_capacity_matches_one_identity_batch()
+    {
+        TikTokReferenceSourcePackageService.VisionIdentityBatchCapacityForTests
+            .Should().Be(24);
+    }
+
+    [Fact]
     public void Ai_review_failure_fallback_does_not_swallow_user_cancellation()
     {
         TikTokReferenceSourcePackageService.IsRoleReferenceAiReviewFailure(

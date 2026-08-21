@@ -120,6 +120,22 @@ public static class TikTokAiGenerationScreenshotService
         var ffprobe = MediaBinaryResolver.ResolveFfprobe();
         var duration = ProbeDuration(ffprobe, videoPath, cancellationToken);
         const int frameCount = SupplementalRoleReferenceFrameCount;
+        var singlePassOutputs = TryExtractSupplementalFramesSinglePass(
+            ffmpeg,
+            videoPath,
+            duration,
+            frameCount,
+            outputDirectory,
+            prefix,
+            cancellationToken);
+        if (singlePassOutputs.Count > 0)
+        {
+            log?.Invoke(
+                $"角色补源：第 {episodeNumber} 集单进程抽取 {singlePassOutputs.Count} 张人物候选帧，" +
+                $"目录={outputDirectory}。");
+            return singlePassOutputs;
+        }
+
         var outputs = new List<string>(frameCount);
         for (var index = 0; index < frameCount; index++)
         {
@@ -146,6 +162,92 @@ public static class TikTokAiGenerationScreenshotService
             $"角色补源：第 {episodeNumber} 集已抽取 {outputs.Count} 张人物候选帧，" +
             $"目录={outputDirectory}。");
         return outputs;
+    }
+
+    internal static double ResolveSupplementalFrameRate(int frameCount, double durationSeconds)
+    {
+        frameCount = Math.Max(1, frameCount);
+        durationSeconds = Math.Max(0.1, durationSeconds);
+        return frameCount / durationSeconds;
+    }
+
+    private static IReadOnlyList<string> TryExtractSupplementalFramesSinglePass(
+        string ffmpeg,
+        string videoPath,
+        double duration,
+        int frameCount,
+        string outputDirectory,
+        string prefix,
+        CancellationToken cancellationToken)
+    {
+        var temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"tiktok-role-frames-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            var pattern = Path.Combine(temporaryDirectory, "frame_%03d.jpg");
+            var frameRate = ResolveSupplementalFrameRate(frameCount, duration);
+            var psi = new ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            foreach (var argument in new[]
+                     {
+                         "-hide_banner",
+                         "-loglevel", "error",
+                         "-i", videoPath,
+                         "-vf", $"fps={frameRate.ToString("0.########", System.Globalization.CultureInfo.InvariantCulture)}",
+                         "-frames:v", frameCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                         "-q:v", "3",
+                         "-y", pattern,
+                     })
+            {
+                psi.ArgumentList.Add(argument);
+            }
+
+            using var process = Process.Start(psi);
+            if (process is null) return [];
+            var timeoutMilliseconds = (int)Math.Clamp(duration * 2000d, 30_000d, 180_000d);
+            if (!process.WaitForExit(timeoutMilliseconds))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                return [];
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (process.ExitCode != 0) return [];
+
+            var extracted = Directory.EnumerateFiles(temporaryDirectory, "frame_*.jpg")
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .Take(frameCount)
+                .ToArray();
+            if (extracted.Length == 0) return [];
+            var outputs = new List<string>(extracted.Length);
+            for (var index = 0; index < extracted.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var output = Path.Combine(outputDirectory, $"{prefix}{index + 1:D2}.jpg");
+                File.Move(extracted[index], output, overwrite: true);
+                outputs.Add(output);
+            }
+            return outputs;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return [];
+        }
+        finally
+        {
+            ResilientFileSystem.TryDeleteDirectory(temporaryDirectory);
+        }
     }
 
     public static bool HasCurrentOutput(string workflowProjectDirectory) =>

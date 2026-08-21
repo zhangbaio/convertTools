@@ -11,6 +11,19 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokAiGenerationScreenshotServiceTests
 {
+    [Theory]
+    [InlineData(12, 60, 0.2)]
+    [InlineData(12, 120, 0.1)]
+    [InlineData(6, 30, 0.2)]
+    public void Supplemental_single_pass_frame_rate_targets_requested_count(
+        int frameCount,
+        double duration,
+        double expected)
+    {
+        TikTokAiGenerationScreenshotService.ResolveSupplementalFrameRate(frameCount, duration)
+            .Should().BeApproximately(expected, 0.000001);
+    }
+
     [Fact]
     public void Workbench_uses_portrait_layout_when_most_frames_are_vertical()
     {
