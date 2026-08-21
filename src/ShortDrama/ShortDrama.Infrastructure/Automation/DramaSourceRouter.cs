@@ -132,17 +132,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     public async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(int days, CancellationToken cancellationToken)
     {
         var settings = _settingsProvider.Get();
-        var source = ResolveSelectedService(settings.DramaSourceChain, NewReleaseServices);
-        if (string.Equals(source, "hghigh", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("红果高码率暂不支持 AI 短剧上新，请使用漫剧上新或关键词搜索。");
-        }
-
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewAiTodayAsync(settings, days, ct),
             hglocalLoader: ct => GetLatestByGenreAsync(settings, "ai_series", days, ct),
-            cancellationToken);
+            cancellationToken: cancellationToken,
+            hghighLoader: ct => _hghighApiService.GetAiNewAsync(settings, days, ct));
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)

@@ -136,16 +136,7 @@ public sealed class HongguoHighApiService
             return [];
         }
 
-        var uri = new UriBuilder(FanqieDirectoryUrl)
-        {
-            Query = $"book_id={Uri.EscapeDataString(rawBookId)}&aid={HongguoHighCrypto.FanqieDirectoryAid}"
-        }.Uri;
-        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-        request.Headers.TryAddWithoutValidation("User-Agent", FanqieWeChatUa);
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        var payload = await ReadJsonAsync(response, cancellationToken);
-        EnsureBusinessOk(payload, "剧集目录失败");
-        var data = payload["data"] as JsonObject ?? payload;
+        var data = await FetchFanqieDirectoryDataAsync(rawBookId, cancellationToken);
         var itemList = data["item_list"] as JsonArray;
         if (itemList is null)
         {
@@ -257,7 +248,7 @@ public sealed class HongguoHighApiService
                 },
                 timeout,
                 cancellationToken);
-            var mapped = MapCalendarItems(inner);
+            var mapped = HongguoHighCalendarMapper.MapPayload(inner);
             if (mapped.Count == 0)
             {
                 break;
@@ -281,8 +272,274 @@ public sealed class HongguoHighApiService
             }
         }
 
-        _ = days;
-        return results;
+        var enriched = await EnrichCalendarItemsAsync(results, timeout, cancellationToken);
+        return HongguoHighCalendarMapper.FilterByRecentDays(enriched, days);
+    }
+
+    public async Task<IReadOnlyList<DramaSearchItem>> GetAiNewAsync(
+        DramaSourceSettings settings,
+        int days,
+        CancellationToken cancellationToken)
+    {
+        var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
+        var results = new List<DramaSearchItem>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var page = 1; page <= 8; page++)
+        {
+            var inner = await FetchAiLandpagePageAsync(settings, page, timeout, cancellationToken);
+            var mapped = HongguoHighCalendarMapper.MapPayload(inner);
+            if (mapped.Count == 0)
+            {
+                mapped = HongguoHighCalendarMapper.ExtractLandpageItems(inner)
+                    .Select(HongguoHighCalendarMapper.TryMapItem)
+                    .Where(item => item is not null)
+                    .Select(item => item!)
+                    .ToArray();
+            }
+
+            if (mapped.Count == 0)
+            {
+                break;
+            }
+
+            var added = 0;
+            foreach (var item in mapped)
+            {
+                if (!seen.Add(item.BookId))
+                {
+                    continue;
+                }
+
+                results.Add(item);
+                added++;
+            }
+
+            if (added == 0)
+            {
+                break;
+            }
+        }
+
+        var enriched = await EnrichCalendarItemsAsync(results, timeout, cancellationToken);
+        return HongguoHighCalendarMapper.FilterByRecentDays(enriched, days);
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> EnrichCalendarItemsAsync(
+        IReadOnlyList<DramaSearchItem> items,
+        int timeoutSeconds,
+        CancellationToken cancellationToken)
+    {
+        if (items.Count == 0)
+        {
+            return items;
+        }
+
+        var gate = new SemaphoreSlim(8);
+        var enriched = await Task.WhenAll(items.Select(async item =>
+        {
+            if (!string.IsNullOrWhiteSpace(item.Author) &&
+                item.EpisodeTotal > 0 &&
+                !string.IsNullOrWhiteSpace(item.PublishTime))
+            {
+                return item;
+            }
+
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                var info = await FetchFanqieBookInfoAsync(item.BookId, timeoutSeconds, cancellationToken);
+                return info is null ? item : HongguoHighCalendarMapper.ApplyBookInfo(item, info);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+        return enriched;
+    }
+
+    private async Task<JsonObject?> FetchFanqieBookInfoAsync(
+        string bookId,
+        int timeoutSeconds,
+        CancellationToken cancellationToken)
+    {
+        var rawBookId = HongguoHighCrypto.StripBookPrefix(bookId);
+        if (string.IsNullOrWhiteSpace(rawBookId))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 10, 120)));
+            var data = await FetchFanqieDirectoryDataAsync(rawBookId, timeoutCts.Token);
+            return data["book_info"] as JsonObject ?? data;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<JsonObject> FetchFanqieDirectoryDataAsync(string rawBookId, CancellationToken cancellationToken)
+    {
+        var uri = new UriBuilder(FanqieDirectoryUrl)
+        {
+            Query = $"book_id={Uri.EscapeDataString(rawBookId)}&aid={HongguoHighCrypto.FanqieDirectoryAid}"
+        }.Uri;
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        request.Headers.TryAddWithoutValidation("User-Agent", FanqieWeChatUa);
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var payload = await ReadJsonAsync(response, cancellationToken);
+        EnsureBusinessOk(payload, "剧集目录失败");
+        return payload["data"] as JsonObject ?? payload;
+    }
+
+    private async Task<JsonNode?> FetchAiLandpagePageAsync(
+        DramaSourceSettings settings,
+        int page,
+        int timeoutSeconds,
+        CancellationToken cancellationToken)
+    {
+        var body = BuildAiLandpageBody(page);
+        var packed = HongguoHighCrypto.GzipStoreJson(body);
+        var digest = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(packed));
+        var spec = new JsonObject
+        {
+            ["host"] = "api5-normal-sinfonlinea.fqnovel.com",
+            ["path"] = "/reading/distribution/category/landpage/v:version/",
+            ["method"] = "POST",
+            ["purpose"] = "discovery",
+            ["requestId"] = $"redguo.discovery:ai:{page}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
+            ["device_profile_version"] = "hbr-account-tt-encrypt-v1",
+            ["deviceProfileVersion"] = "hbr-account-tt-encrypt-v1",
+            ["content_encoding"] = "gzip",
+            ["contentEncoding"] = "gzip",
+            ["params"] = new JsonObject
+            {
+                ["bdhm_bid"] = "novelread_lynx",
+                ["bdhm_pid"] = "filter-page"
+            },
+            ["json"] = body.DeepClone(),
+            ["body_md5"] = digest,
+            ["bodyMd5"] = digest,
+            ["manual"] = page == 1,
+            ["charge"] = page == 1
+        };
+        var descriptor = await AuthedRequestAsync(settings, "/redguo/sign", spec, timeoutSeconds, cancellationToken);
+        return await ExecuteSignedFanqieRequestAsync(descriptor, packed, timeoutSeconds, cancellationToken);
+    }
+
+    private async Task<JsonNode?> ExecuteSignedFanqieRequestAsync(
+        JsonNode? descriptor,
+        byte[] gzipBody,
+        int timeoutSeconds,
+        CancellationToken cancellationToken)
+    {
+        if (descriptor is not JsonObject obj)
+        {
+            return descriptor;
+        }
+
+        if (obj["data"] is JsonObject nested &&
+            (nested["headers"] is not null || nested["host"] is not null || nested["path"] is not null || nested["url"] is not null))
+        {
+            obj = nested;
+        }
+
+        var executable = obj["headers"] is not null || obj["host"] is not null || obj["path"] is not null || obj["url"] is not null;
+        if (!executable)
+        {
+            return obj;
+        }
+
+        var host = GetString(obj, "host") ?? "";
+        var path = GetString(obj, "path") ?? "";
+        var url = GetString(obj, "url") ?? GetString(obj, "href") ?? "";
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            if (string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(path))
+            {
+                throw new HongguoHighException("红果签名未返回可执行的番茄请求");
+            }
+
+            url = "https://" + host.TrimEnd('/') + "/" + path.TrimStart('/');
+        }
+
+        var method = (GetString(obj, "method") ?? "POST").ToUpperInvariant();
+        using var request = new HttpRequestMessage(new HttpMethod(method), url);
+        if (obj["headers"] is JsonObject headers)
+        {
+            foreach (var header in headers)
+            {
+                var name = header.Key;
+                if (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals("Connection", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var value = NodeToText(header.Value);
+                if (!request.Headers.TryAddWithoutValidation(name, value))
+                {
+                    request.Content ??= new ByteArrayContent(gzipBody);
+                    request.Content.Headers.TryAddWithoutValidation(name, value);
+                }
+            }
+        }
+
+        if (obj["params"] is JsonObject queryParams && request.RequestUri is not null)
+        {
+            var pairs = queryParams.Select(pair =>
+            {
+                var text = NodeToText(pair.Value);
+                return $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(text)}";
+            });
+            var builder = new UriBuilder(request.RequestUri) { Query = string.Join("&", pairs) };
+            request.RequestUri = builder.Uri;
+        }
+
+        request.Content ??= new ByteArrayContent(gzipBody);
+        request.Content.Headers.ContentType ??= new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 10, 120)));
+        using var response = await _httpClient.SendAsync(request, timeoutCts.Token);
+        var payload = await ReadJsonAsync(response, timeoutCts.Token);
+        if (response.StatusCode >= System.Net.HttpStatusCode.BadRequest && payload["code"] is null)
+        {
+            throw new HongguoHighException($"番茄 landpage HTTP {(int)response.StatusCode}", (int)response.StatusCode);
+        }
+
+        EnsureBusinessOk(payload, "番茄 landpage 失败");
+        return payload["data"] ?? payload;
+    }
+
+    private static JsonObject BuildAiLandpageBody(int page)
+    {
+        var offset = Math.Max(0, (Math.Max(1, page) - 1) * 20);
+        return new JsonObject
+        {
+            ["client_req_type"] = 3,
+            ["filter_ids"] = "",
+            ["limit"] = 20,
+            ["need_selector_panel"] = false,
+            ["offset"] = offset,
+            ["req_scene"] = "comic_series",
+            ["req_type"] = "only_content",
+            ["select_items"] = new JsonObject
+            {
+                ["category_dim_epoch"] = new JsonArray(),
+                ["category_dim_role"] = new JsonArray(),
+                ["category_dim_theme"] = new JsonArray(),
+                ["gender"] = new JsonArray(),
+                ["genre"] = new JsonArray { "ai_series" },
+                ["online_time"] = new JsonArray { "days_7" },
+                ["sort"] = new JsonArray { "online_time" }
+            },
+            ["session_id"] = ""
+        };
     }
 
     private async Task<JsonObject> LoginAsync(DramaSourceSettings settings, CancellationToken cancellationToken)
@@ -439,63 +696,6 @@ public sealed class HongguoHighApiService
         }
     }
 
-    private static IReadOnlyList<DramaSearchItem> MapCalendarItems(JsonNode? payload)
-    {
-        var results = new List<DramaSearchItem>();
-        foreach (var obj in EnumerateObjects(payload))
-        {
-            var bookId = FirstString(obj, "book_id", "bookId", "series_id", "seriesId");
-            if (string.IsNullOrWhiteSpace(bookId))
-            {
-                continue;
-            }
-
-            results.Add(new DramaSearchItem(
-                BookId: HongguoHighCrypto.EnsureBookPrefix(bookId),
-                Title: FirstString(obj, "title", "series_title", "book_name", "bookName", "name") ?? bookId,
-                Category: FirstString(obj, "category", "tag_text", "type") ?? "",
-                EpisodeTotal: GetInt(obj, "episode_cnt") ?? GetInt(obj, "chapter_number") ?? 0,
-                Intro: FirstString(obj, "intro", "series_intro", "abstract", "description") ?? "",
-                PosterUrl: FirstString(obj, "cover", "series_cover", "audio_thumb_uri", "thumb_uri", "poster") ?? "",
-                Author: FirstString(obj, "author", "anchor") ?? "",
-                PublishTime: FirstString(obj, "publish_time", "create_time", "online_time") ?? "",
-                FavoriteCount: GetInt(obj, "favorite_count") ?? 0));
-        }
-
-        return results
-            .GroupBy(item => item.BookId, StringComparer.Ordinal)
-            .Select(group => group.First())
-            .ToArray();
-    }
-
-    private static IEnumerable<JsonObject> EnumerateObjects(JsonNode? node)
-    {
-        switch (node)
-        {
-            case JsonObject obj:
-                yield return obj;
-                foreach (var property in obj)
-                {
-                    foreach (var nested in EnumerateObjects(property.Value))
-                    {
-                        yield return nested;
-                    }
-                }
-
-                break;
-            case JsonArray array:
-                foreach (var item in array)
-                {
-                    foreach (var nested in EnumerateObjects(item))
-                    {
-                        yield return nested;
-                    }
-                }
-
-                break;
-        }
-    }
-
     private static JsonNode Unwrap(JsonObject payload)
     {
         var code = payload["code"]?.GetValue<int>() ?? 0;
@@ -598,20 +798,6 @@ public sealed class HongguoHighApiService
             JsonValueKind.Number => node.ToJsonString(),
             _ => null
         };
-    }
-
-    private static string? FirstString(JsonObject obj, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            var value = GetString(obj, name);
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-        }
-
-        return null;
     }
 
     private static int? GetInt(JsonObject? obj, string name)

@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -45,6 +46,25 @@ public static class HongguoHighCrypto
     };
 
     public static readonly byte[] DpapiEntropy = Encoding.ASCII.GetBytes(AppId);
+
+    public static byte[] GzipStoreJson(JsonNode node)
+    {
+        var raw = Encoding.UTF8.GetBytes(node.ToJsonString(CompactJson));
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionLevel.NoCompression, leaveOpen: true))
+        {
+            gzip.Write(raw, 0, raw.Length);
+        }
+
+        var packed = output.ToArray();
+        if (packed.Length >= 10)
+        {
+            packed[8] = 0;
+            packed[9] = 255;
+        }
+
+        return packed;
+    }
 
     public static string ToBase64Url(ReadOnlySpan<byte> data) =>
         Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');

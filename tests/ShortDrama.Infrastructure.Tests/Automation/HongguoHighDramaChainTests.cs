@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -184,6 +185,89 @@ public sealed class HongguoHighCryptoTests
                 File.Delete(temp);
             }
         }
+    }
+}
+
+public sealed class HongguoHighCalendarMapperTests
+{
+    [Fact]
+    public void MapPayload_Reads_Nested_Book_Info_And_Skips_Zero_Online_Time()
+    {
+        var payload = JsonNode.Parse("""
+            {
+              "type": "calendarResults",
+              "items": [
+                {
+                  "online_time": "0",
+                  "cache_date": "20260818",
+                  "book_info": {
+                    "book_id": "nested-1",
+                    "book_name": "嵌套漫剧",
+                    "author": "作者甲",
+                    "chapter_number": 24,
+                    "first_online_time": "2026-08-18 09:00:00",
+                    "abstract": "简介"
+                  }
+                }
+              ]
+            }
+            """)!;
+
+        var items = HongguoHighCalendarMapper.MapPayload(payload);
+        items.Should().ContainSingle();
+        items[0].BookId.Should().Be("hghigh:nested-1");
+        items[0].Title.Should().Be("嵌套漫剧");
+        items[0].Author.Should().Be("作者甲");
+        items[0].EpisodeTotal.Should().Be(24);
+        items[0].PublishTime.Should().Be("2026-08-18 09:00:00");
+        items[0].Intro.Should().Be("简介");
+    }
+
+    [Fact]
+    public void ApplyBookInfo_Fills_Author_Episodes_And_Clock()
+    {
+        var item = new DramaSearchItem("hghigh:1", "剧名", "", 0, "", "", "", "2026-08-18 00:00:00");
+        var info = JsonNode.Parse("""
+            {
+              "author": "tollgela3429",
+              "chapter_number": 36,
+              "create_time": "2026-08-18T11:05:01+08:00"
+            }
+            """)!.AsObject();
+
+        var applied = HongguoHighCalendarMapper.ApplyBookInfo(item, info);
+        applied.Author.Should().Be("tollgela3429");
+        applied.EpisodeTotal.Should().Be(36);
+        var expected = DateTimeOffset.Parse("2026-08-18T11:05:01+08:00").LocalDateTime
+            .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        applied.PublishTime.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ExtractLandpageItems_Reads_Video_Data_Series()
+    {
+        var payload = JsonNode.Parse("""
+            {
+              "cell_view": [
+                {
+                  "video_data": {
+                    "series_id": "ai-1",
+                    "series_title": "AI剧",
+                    "author": "作者乙",
+                    "first_online_time": "2026-08-18 12:00:00"
+                  }
+                }
+              ]
+            }
+            """)!;
+
+        var raw = HongguoHighCalendarMapper.ExtractLandpageItems(payload);
+        var mapped = HongguoHighCalendarMapper.TryMapItem(raw[0]);
+        mapped.Should().NotBeNull();
+        mapped!.BookId.Should().Be("hghigh:ai-1");
+        mapped.Title.Should().Be("AI剧");
+        mapped.Author.Should().Be("作者乙");
+        mapped.PublishTime.Should().Be("2026-08-18 12:00:00");
     }
 }
 
