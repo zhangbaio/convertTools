@@ -99,12 +99,7 @@ def main() -> int:
 
     deadline = time.time() + max(5, int(args.wait))
     while time.time() < deadline and not ("enc" in found and "sign" in found):
-        time.sleep(0.3)
-
-    try:
-        session.detach()
-    except Exception:
-        pass
+        time.sleep(0.15)
 
     if "enc" not in found or "sign" not in found:
         _eprint(
@@ -113,13 +108,22 @@ def main() -> int:
         )
         return 1
 
-    output_dir = os.path.dirname(os.path.abspath(args.output))
+    payload = {"ok": True, "enc": found["enc"], "sign": found["sign"]}
+    output_path = os.path.abspath(args.output)
+    output_dir = os.path.dirname(output_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-    with open(args.output, "w", encoding="utf-8") as handle:
-        json.dump({"ok": True, "enc": found["enc"], "sign": found["sign"]}, handle)
+    temp_path = output_path + ".tmp"
+    with open(temp_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temp_path, output_path)
+    print("MASTERS_JSON:" + json.dumps(payload, ensure_ascii=False), flush=True)
     _eprint("已提取启动密钥。")
-    return 0
+    # Frida detach/shutdown can hang while the official client stays open.
+    # Host reads the JSON file and fills Enc/Sign without waiting for this process.
+    os._exit(0)
 
 
 if __name__ == "__main__":

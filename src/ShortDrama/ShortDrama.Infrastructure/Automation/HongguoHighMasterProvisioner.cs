@@ -72,21 +72,35 @@ public static class HongguoHighMasterProvisioner
             using var process = new DiagProcess { StartInfo = startInfo };
             var stdout = new StringBuilder();
             var stderr = new StringBuilder();
+            var logGate = new object();
+            var completed = new int[1];
             process.OutputDataReceived += (_, args) =>
             {
-                if (!string.IsNullOrWhiteSpace(args.Data))
+                if (string.IsNullOrWhiteSpace(args.Data) || Volatile.Read(ref completed[0]) != 0)
+                {
+                    return;
+                }
+
+                lock (logGate)
                 {
                     stdout.AppendLine(args.Data);
-                    progress?.Report(args.Data);
                 }
+
+                progress?.Report(args.Data);
             };
             process.ErrorDataReceived += (_, args) =>
             {
-                if (!string.IsNullOrWhiteSpace(args.Data))
+                if (string.IsNullOrWhiteSpace(args.Data) || Volatile.Read(ref completed[0]) != 0)
+                {
+                    return;
+                }
+
+                lock (logGate)
                 {
                     stderr.AppendLine(args.Data);
-                    progress?.Report(args.Data);
                 }
+
+                progress?.Report(args.Data);
             };
 
             if (!process.Start())
@@ -98,47 +112,63 @@ public static class HongguoHighMasterProvisioner
             process.BeginErrorReadLine();
             try
             {
-                await process.WaitForExitAsync(cancellationToken);
+                var deadline = DateTime.UtcNow.AddSeconds(DefaultWaitSeconds + 10);
+                while (true)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (TryReadMastersFile(outputPath, out var enc, out var sign) ||
+                        TryParseMastersJson(Snapshot(stdout, logGate), out enc, out sign))
+                    {
+                        var deviceId = HongguoHighDeviceStore.TryReadDeviceId();
+                        var cachePath = HongguoHighDeviceStore.CacheStartupMasters(enc, sign, deviceId);
+                        Interlocked.Exchange(ref completed[0], 1);
+                        progress?.Report("已提取 Enc Master 和 Sign Master，正在填入表单…");
+                        TryKill(process, entireProcessTree: false);
+                        return new HongguoHighProvisionResult(cachePath, deviceId, enc, sign);
+                    }
+
+                    if (process.HasExited)
+                    {
+                        if (TryReadMastersFile(outputPath, out enc, out sign) ||
+                            TryParseMastersJson(Snapshot(stdout, logGate), out enc, out sign))
+                        {
+                            var deviceId = HongguoHighDeviceStore.TryReadDeviceId();
+                            var cachePath = HongguoHighDeviceStore.CacheStartupMasters(enc, sign, deviceId);
+                            Interlocked.Exchange(ref completed[0], 1);
+                            return new HongguoHighProvisionResult(cachePath, deviceId, enc, sign);
+                        }
+
+                        var detail = Snapshot(stderr, logGate).Trim();
+                        if (string.IsNullOrWhiteSpace(detail))
+                        {
+                            detail = Snapshot(stdout, logGate).Trim();
+                        }
+
+                        throw new HongguoHighException(
+                            string.IsNullOrWhiteSpace(detail)
+                                ? "提取启动密钥失败。请完全退出官方客户端后重试。"
+                                : detail);
+                    }
+
+                    if (DateTime.UtcNow >= deadline)
+                    {
+                        TryKill(process);
+                        throw new HongguoHighException("提取启动密钥超时。密钥已抽出时会立即填入表单，无需关闭官方客户端。");
+                    }
+
+                    await Task.Delay(150, cancellationToken);
+                }
             }
-            catch
+            catch (HongguoHighException)
             {
                 TryKill(process);
                 throw;
             }
-
-            if (process.ExitCode != 0)
+            catch (OperationCanceledException)
             {
-                var detail = stderr.ToString().Trim();
-                if (string.IsNullOrWhiteSpace(detail))
-                {
-                    detail = stdout.ToString().Trim();
-                }
-
-                throw new HongguoHighException(
-                    string.IsNullOrWhiteSpace(detail)
-                        ? "提取启动密钥失败。请完全退出官方客户端后重试。"
-                        : detail);
+                TryKill(process);
+                throw;
             }
-
-            if (!File.Exists(outputPath))
-            {
-                throw new HongguoHighException("Frida 提取完成但未写出启动密钥。请完全退出官方客户端后重试。");
-            }
-
-            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(outputPath, cancellationToken));
-            var root = document.RootElement;
-            var enc = root.TryGetProperty("enc", out var encNode) ? encNode.GetString() ?? "" : "";
-            var sign = root.TryGetProperty("sign", out var signNode) ? signNode.GetString() ?? "" : "";
-            if (string.IsNullOrWhiteSpace(enc) || string.IsNullOrWhiteSpace(sign))
-            {
-                throw new HongguoHighException("提取结果缺少 enc/sign master。请完全退出官方客户端后重试。");
-            }
-
-            var deviceId = HongguoHighDeviceStore.TryReadDeviceId();
-            var cachePath = HongguoHighDeviceStore.CacheStartupMasters(enc, sign, deviceId);
-            CloseOfficialClient(exePath);
-            progress?.Report("已提取 Enc Master 和 Sign Master，可点「保存密钥」再次写入本机缓存。");
-            return new HongguoHighProvisionResult(cachePath, deviceId, enc, sign);
         }
         finally
         {
@@ -194,6 +224,87 @@ public static class HongguoHighMasterProvisioner
         }
 
         return null;
+    }
+
+    public static bool TryReadMastersFile(string path, out string enc, out string sign)
+    {
+        enc = "";
+        sign = "";
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            return TryParseMastersJson(File.ReadAllText(path), out enc, out sign);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    public static bool TryParseMastersJson(string text, out string enc, out string sign)
+    {
+        enc = "";
+        sign = "";
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        foreach (var rawLine in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = rawLine.Trim();
+            const string prefix = "MASTERS_JSON:";
+            if (line.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                line = line[prefix.Length..].Trim();
+            }
+
+            if (TryReadEncSign(line, out enc, out sign))
+            {
+                return true;
+            }
+        }
+
+        return TryReadEncSign(text, out enc, out sign);
+    }
+
+    private static bool TryReadEncSign(string json, out string enc, out string sign)
+    {
+        enc = "";
+        sign = "";
+        if (string.IsNullOrWhiteSpace(json) || json.IndexOf("enc", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            enc = root.TryGetProperty("enc", out var encNode) ? encNode.GetString()?.Trim() ?? "" : "";
+            sign = root.TryGetProperty("sign", out var signNode) ? signNode.GetString()?.Trim() ?? "" : "";
+            return !string.IsNullOrWhiteSpace(enc) && !string.IsNullOrWhiteSpace(sign);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string Snapshot(StringBuilder builder, object gate)
+    {
+        lock (gate)
+        {
+            return builder.ToString();
+        }
     }
 
     public static bool IsOfficialClientPath(string? processPath, string? configuredExePath)
@@ -264,9 +375,14 @@ public static class HongguoHighMasterProvisioner
                 }
 
                 var name = process.ProcessName ?? "";
+                var exeName = string.IsNullOrWhiteSpace(exePath)
+                    ? ""
+                    : Path.GetFileNameWithoutExtension(exePath);
                 var looksOfficial = IsOfficialClientPath(path, exePath) ||
                                     name.Contains("HongguoHigh", StringComparison.OrdinalIgnoreCase) ||
-                                    name.Contains("HongGuoHigh", StringComparison.OrdinalIgnoreCase);
+                                    name.Contains("HongGuoHigh", StringComparison.OrdinalIgnoreCase) ||
+                                    (!string.IsNullOrWhiteSpace(exeName) &&
+                                     name.Equals(exeName, StringComparison.OrdinalIgnoreCase));
                 if (!looksOfficial)
                 {
                     continue;
@@ -288,13 +404,13 @@ public static class HongguoHighMasterProvisioner
         return closed;
     }
 
-    private static void TryKill(DiagProcess process)
+    private static void TryKill(DiagProcess process, bool entireProcessTree = true)
     {
         try
         {
             if (!process.HasExited)
             {
-                process.Kill(entireProcessTree: true);
+                process.Kill(entireProcessTree: entireProcessTree);
             }
         }
         catch

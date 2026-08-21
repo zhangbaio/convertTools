@@ -151,6 +151,40 @@ public sealed class HongguoHighCryptoTests
         HongguoHighMasterProvisioner.IsOfficialClientPath(folder, configuredExePath: null).Should().BeTrue();
         HongguoHighMasterProvisioner.IsOfficialClientPath(null, exe).Should().BeFalse();
     }
+
+    [Fact]
+    public void TryParseMastersJson_Reads_File_Payload_And_Stdout_Prefix()
+    {
+        var enc = HongguoHighCrypto.ToBase64Url(Enumerable.Repeat((byte)0x41, 48).ToArray());
+        var sign = HongguoHighCrypto.ToBase64Url(Enumerable.Repeat((byte)0x42, 48).ToArray());
+        var json = $$"""{"ok":true,"enc":"{{enc}}","sign":"{{sign}}"}""";
+
+        HongguoHighMasterProvisioner.TryParseMastersJson(json, out var parsedEnc, out var parsedSign)
+            .Should().BeTrue();
+        parsedEnc.Should().Be(enc);
+        parsedSign.Should().Be(sign);
+
+        HongguoHighMasterProvisioner.TryParseMastersJson("启动中...\nMASTERS_JSON:" + json + "\n", out parsedEnc, out parsedSign)
+            .Should().BeTrue();
+        parsedEnc.Should().Be(enc);
+        parsedSign.Should().Be(sign);
+
+        var temp = Path.Combine(Path.GetTempPath(), "hghigh-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            File.WriteAllText(temp, json);
+            HongguoHighMasterProvisioner.TryReadMastersFile(temp, out parsedEnc, out parsedSign).Should().BeTrue();
+            parsedEnc.Should().Be(enc);
+            parsedSign.Should().Be(sign);
+        }
+        finally
+        {
+            if (File.Exists(temp))
+            {
+                File.Delete(temp);
+            }
+        }
+    }
 }
 
 public sealed class HongguoHighDramaChainTests

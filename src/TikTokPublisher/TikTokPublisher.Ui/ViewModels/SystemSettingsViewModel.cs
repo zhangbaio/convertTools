@@ -389,6 +389,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         try
         {
             var settings = ToSettings();
+            PersistHghighMastersIfPresent();
             ClientSettingsStore.Save(settings);
             ApplyFromSettings(settings);
             SaveMessage = "系统设置已保存。";
@@ -533,8 +534,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             }
 
             ShowExtractedMasters(result.EncMaster, result.SignMaster);
-            RefreshHghighMastersStatus();
-            HghighMastersStatus = "已提取 Enc Master 和 Sign Master，可直接查看，也可点「保存密钥」。";
+            HghighMastersStatus = "已提取 Enc Master 和 Sign Master，已填入上方输入框。请点「保存设置」写入本机。";
             HghighProbeStatus = string.IsNullOrWhiteSpace(result.DeviceId)
                 ? "启动密钥已填入上方输入框。"
                 : $"启动密钥已填入上方输入框（设备 {result.DeviceId}）。";
@@ -547,33 +547,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         finally
         {
             IsHghighBusy = false;
-        }
-    }
-
-    [RelayCommand]
-    private void SaveHghighMasters()
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(HghighEncMaster) || string.IsNullOrWhiteSpace(HghighSignMaster))
-            {
-                HghighMastersStatus = "请先填写 Enc Master 和 Sign Master，或点「提取启动密钥」。";
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(HghighDeviceId))
-            {
-                HghighDeviceId = HongguoHighDeviceStore.TryReadDeviceId();
-            }
-
-            var path = HongguoHighDeviceStore.CacheStartupMasters(HghighEncMaster, HghighSignMaster, HghighDeviceId);
-            RefreshHghighMastersStatus();
-            HghighMastersStatus = "Enc Master 和 Sign Master 已保存到本机缓存。";
-            HghighProbeStatus = $"启动密钥已保存：{path}";
-        }
-        catch (Exception ex)
-        {
-            HghighMastersStatus = $"保存失败：{ex.Message}";
         }
     }
 
@@ -626,6 +599,21 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HghighRevealSign = true;
         HghighEncMaster = enc;
         HghighSignMaster = sign;
+    }
+
+    private void PersistHghighMastersIfPresent()
+    {
+        if (string.IsNullOrWhiteSpace(HghighEncMaster) || string.IsNullOrWhiteSpace(HghighSignMaster))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(HghighDeviceId))
+        {
+            HghighDeviceId = HongguoHighDeviceStore.TryReadDeviceId();
+        }
+
+        HongguoHighDeviceStore.CacheStartupMasters(HghighEncMaster, HghighSignMaster, HghighDeviceId);
     }
 
     private void RefreshHghighMastersStatus()
