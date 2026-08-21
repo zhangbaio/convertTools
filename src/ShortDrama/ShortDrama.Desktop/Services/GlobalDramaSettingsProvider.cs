@@ -38,7 +38,7 @@ public sealed class GlobalDramaSettingsProvider : IDramaSettingsProvider
         HongguoLocalTranscodeEngine = settings.HongguoLocalTranscodeEngine,
         PikachuServerUrl = settings.PikachuServerUrl,
         PikachuFanqieCookie = settings.PikachuFanqieCookie,
-        PikachuDramaType = settings.PikachuDramaType,
+        PikachuDramaType = "manga",
         PikachuDeviceId = settings.PikachuDeviceId,
         PikachuClientVersion = settings.PikachuClientVersion,
     };

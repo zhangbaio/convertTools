@@ -44,11 +44,11 @@ public partial class TikTokQueueView : UserControl
     private static readonly TimeSpan QueueAutoLoginTimeout = TimeSpan.FromMinutes(10);
     private static readonly double[] QueueTableDefaultColumnWidths =
     {
-        48, 56, 104, 210, 210, 60, 128, 68, 68, 68, 68, 76, 68, 0, 68, 68, 68, 68, 68, 68, 68, 180,
+        48, 56, 104, 210, 210, 60, 128, 68, 68, 68, 68, 68, 68, 68, 76, 68, 68, 0, 68, 68, 68, 68, 68, 180,
     };
     private static readonly double[] QueueTableMinColumnWidths =
     {
-        42, 48, 72, 120, 120, 48, 92, 56, 56, 56, 56, 62, 62, 0, 62, 62, 62, 62, 56, 56, 56, 120,
+        42, 48, 72, 120, 120, 48, 92, 56, 56, 56, 56, 56, 56, 56, 62, 56, 62, 0, 62, 62, 62, 56, 56, 120,
     };
     private readonly double[] _queueTableColumnWidths = QueueTableDefaultColumnWidths.ToArray();
     private readonly List<WeakReference<Grid>> _queueTableRowGrids = new();
@@ -645,6 +645,66 @@ public partial class TikTokQueueView : UserControl
     }
 
     private void OnOpenLogsClick(object? sender, RoutedEventArgs e) => OpenLogsRequested?.Invoke(this, EventArgs.Empty);
+
+    private async void OnConfigureRoleMaterialClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (vm is null || owner is null) return;
+
+        var selectedRows = GetSelectedQueueRows().ToArray();
+        var rows = selectedRows.Length == 1 ? selectedRows : GetCheckedOrSelectedQueueRows();
+        if (rows.Count != 1)
+        {
+            vm.StatusMessage = "请只勾选或选择一个项目，再配置角色素材";
+            await ShowMessageAsync(owner, "角色素材", "请只勾选或选择一个项目。", warning: true);
+            return;
+        }
+
+        var row = rows[0];
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(row.Item.ProjectDir);
+            var existing = ManualRoleVectorMaterialService.Load(context.WorkflowProjectDir);
+            var result = await ManualRoleVectorDialog.ShowAsync(owner, row.NewTitle, existing);
+            if (result is null) return;
+
+            var saved = result.Mode switch
+            {
+                ManualRoleVectorMode.ReferencesOnly => ManualRoleVectorMaterialService.SaveReferences(
+                    context.WorkflowProjectDir,
+                    result.Characters,
+                    result.Locked),
+                ManualRoleVectorMode.Paired => ManualRoleVectorMaterialService.SavePaired(
+                    context.WorkflowProjectDir,
+                    result.Characters,
+                    result.Locked),
+                _ => SaveAutomaticRoleMode(context.WorkflowProjectDir),
+            };
+            vm.MarkManualRoleMaterialChanged(row.Item);
+            var modeLabel = saved.Mode switch
+            {
+                ManualRoleVectorMode.ReferencesOnly => $"已保存 {saved.Characters.Count} 张人物参考图，角色定妆图将在队列中自动生成",
+                ManualRoleVectorMode.Paired => $"已保存 {saved.Characters.Count} 组人工角色配对",
+                _ => "已恢复自动选择/生成角色素材",
+            };
+            vm.StatusMessage = $"{row.NewTitle}：{modeLabel}";
+            vm.AppendLog(vm.StatusMessage);
+            await InfoDialog.ShowAsync(owner, modeLabel + "。下次执行“生成角色矢量图”时生效。", "角色素材已保存");
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"保存角色素材失败：{ex.Message}";
+            vm.AppendLog(vm.StatusMessage);
+            await ShowMessageAsync(owner, "保存角色素材失败", ex.Message, warning: true);
+        }
+    }
+
+    private static ManualRoleVectorConfiguration SaveAutomaticRoleMode(string workflowProjectDirectory)
+    {
+        ManualRoleVectorMaterialService.UseAutomaticMode(workflowProjectDirectory);
+        return ManualRoleVectorMaterialService.Load(workflowProjectDirectory);
+    }
 
     private void OnOpenOriginalProjectFolderClick(object? sender, RoutedEventArgs e)
     {

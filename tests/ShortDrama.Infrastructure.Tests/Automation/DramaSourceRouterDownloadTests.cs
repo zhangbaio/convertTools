@@ -12,6 +12,19 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 
 public sealed class DramaSourceRouterDownloadTests
 {
+    [Theory]
+    [InlineData("第10集.mp4", 10, true)]
+    [InlineData("第010集.mp4", 10, true)]
+    [InlineData("第9集.mp4", 10, false)]
+    [InlineData("片段_第10集.mp4", 10, false)]
+    public void Existing_episode_match_only_accepts_the_current_output_number(
+        string fileName,
+        int outputEpisodeNumber,
+        bool expected)
+    {
+        DramaSourceRouter.IsEpisodeFileForOutput(fileName, outputEpisodeNumber).Should().Be(expected);
+    }
+
     [Fact]
     public async Task TryBuildSuccessfulResultWhenVideosExist_Should_Return_Null_When_OutputDir_Has_No_Videos()
     {

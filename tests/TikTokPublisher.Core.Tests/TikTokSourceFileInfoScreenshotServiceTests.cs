@@ -1,5 +1,4 @@
 using FluentAssertions;
-using DocumentFormat.OpenXml.Packaging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using TikTokPublisher.Core.Publishing;
@@ -18,26 +17,117 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
     }
 
     [Fact]
-    public void Explorer_capture_plan_uses_real_source_and_workflow_views()
+    public void Explorer_capture_plan_uses_two_real_material_categories()
     {
         var outputs = new[]
         {
             @"C:\shots\01_真实项目文件目录.png",
             @"C:\shots\02_角色与场景素材.png",
-            @"C:\shots\03_剧本与分镜文件.png",
-            @"C:\shots\04_镜头生成源文件.png",
         };
 
-        var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(
-            @"C:\source",
-            @"C:\workflow",
-            outputs);
+        var workflow = Path.Combine(Path.GetTempPath(), $"capture-plan-{Guid.NewGuid():N}");
+        var package = Path.Combine(workflow, TikTokSourceFileInfoScreenshotService.EvidenceDirectoryName, "EP01_源文件包");
+        foreach (var name in new[] { "01_剧本与分镜", "02_角色素材", "04_镜头首帧", "06_视频源片段" })
+        {
+            var directory = Path.Combine(package, name);
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(Path.Combine(directory, "material.txt"), "real material");
+        }
+
+        var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(workflow, outputs);
 
         requests.Select(request => request.OutputPath).Should().Equal(outputs);
-        requests.Select(request => request.Directory)
-            .Should().Equal(@"C:\source", @"C:\source", @"C:\workflow", @"C:\workflow");
+        requests.Select(request => Path.GetFileName(request.Directory))
+            .Should().Equal("01", "02");
+        requests.Select(request => Directory.EnumerateFiles(request.Directory).Count())
+            .Should().OnlyContain(count => count > 0);
         requests.Select(request => request.LargeIcons)
-            .Should().Equal(false, true, false, true);
+            .Should().Equal(false, true);
+        Directory.Delete(workflow, recursive: true);
+    }
+
+    [Fact]
+    public void Explorer_capture_plan_omits_keyframe_and_raw_video_categories()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"capture-plan-no-video-{Guid.NewGuid():N}");
+        var package = Path.Combine(workflow, TikTokSourceFileInfoScreenshotService.EvidenceDirectoryName, "EP01_源文件包");
+        foreach (var name in new[] { "01_剧本与分镜", "02_角色素材", "04_镜头首帧", "06_视频源片段" })
+            Directory.CreateDirectory(Path.Combine(package, name));
+        File.WriteAllText(Path.Combine(package, "EP01_素材清单.csv"), "name,type");
+        File.WriteAllText(Path.Combine(package, "01_剧本与分镜", "script.docx"), "script");
+        File.WriteAllText(Path.Combine(package, "02_角色素材", "character.jpg"), "image");
+        File.WriteAllText(Path.Combine(package, "04_镜头首帧", "shot.png"), "image");
+        File.WriteAllText(Path.Combine(package, "06_视频源片段", "视频源文件索引.txt"), "未发现视频");
+
+        var outputs = Enumerable.Range(1, TikTokSourceFileInfoScreenshotService.RequiredImageCount)
+            .Select(index => Path.Combine(workflow, $"{index}.png"))
+            .ToArray();
+        var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(workflow, outputs);
+
+        requests.Should().HaveCount(2);
+        requests.Should().NotContain(request =>
+            Path.GetFileName(request.OutputPath).StartsWith("03_", StringComparison.Ordinal) ||
+            Path.GetFileName(request.OutputPath).StartsWith("04_", StringComparison.Ordinal));
+        Directory.Delete(workflow, recursive: true);
+    }
+
+    [Fact]
+    public void Explorer_capture_plan_uses_other_real_project_files_when_categories_are_missing()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"capture-plan-partial-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            File.WriteAllText(Path.Combine(workflow, "短剧第1集.mp4"), "test video 1");
+            File.WriteAllText(Path.Combine(workflow, "短剧第2集.mp4"), "test video 2");
+            var outputs = Enumerable.Range(1, TikTokSourceFileInfoScreenshotService.RequiredImageCount)
+                .Select(index => Path.Combine(workflow, $"{index}.png"))
+                .ToArray();
+            var logs = new List<string>();
+
+            var requests = TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(
+                workflow, outputs, logs.Add);
+
+            requests.Should().HaveCount(2);
+            requests.Select(request => Directory.EnumerateFiles(request.Directory).Count())
+                .Should().OnlyContain(count => count > 0);
+            logs.Should().Contain(message =>
+                message.Contains("缺少专属素材", StringComparison.Ordinal) &&
+                message.Contains("其他真实项目文件补位", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Explorer_capture_plan_rejects_project_without_real_source_evidence()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"capture-plan-empty-{Guid.NewGuid():N}");
+        var excluded = Path.Combine(
+            workflow,
+            TikTokAiGenerationScreenshotService.OutputDirectoryName);
+        Directory.CreateDirectory(excluded);
+        try
+        {
+            File.WriteAllText(Path.Combine(excluded, "AI过程图.png"), "not source evidence");
+            var outputs = Enumerable.Range(1, TikTokSourceFileInfoScreenshotService.RequiredImageCount)
+                .Select(index => Path.Combine(workflow, $"{index}.png"))
+                .ToArray();
+
+            var action = () => TikTokSourceFileInfoScreenshotService.BuildExplorerCaptureRequests(
+                workflow, outputs);
+
+            action.Should().Throw<InvalidOperationException>()
+                .WithMessage("*没有可用于“原始文件或素材文件信息”的真实图片、文档或视频文件*");
+            Directory.Exists(Path.Combine(workflow, ".source-info-capture-staging"))
+                .Should().BeFalse("失败时不应保留截图暂存目录");
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
     }
 
     [Fact]
@@ -77,7 +167,7 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
                 workflow, "多集短剧", "测试公司");
 
             action.Should().NotThrow();
-            TikTokSourceFileInfoScreenshotService.ListGeneratedImages(workflow).Should().HaveCount(4);
+            TikTokSourceFileInfoScreenshotService.ListGeneratedImages(workflow).Should().HaveCount(2);
         }
         finally
         {
@@ -120,26 +210,17 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
                 "测试公司",
                 logs.Add);
 
-            outputs.Should().HaveCount(4);
-            logs.Should().Contain(message => message.Contains("复用真实主体/定妆文件 1 张", StringComparison.Ordinal));
-            logs.Should().Contain(message => message.Contains("复用真实场景参考文件 1 张", StringComparison.Ordinal));
-
-            var evidenceDir = TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflow);
-            Directory.EnumerateFiles(Path.Combine(evidenceDir, "03_角色参考"))
-                .Should().BeEmpty("直接角色素材应只读复用，不应产生额外抽帧图片");
-            Directory.EnumerateFiles(Path.Combine(evidenceDir, "04_场景参考"))
-                .Should().BeEmpty("直接场景素材应只读复用，不应产生额外抽帧图片");
-            var episodePackage = Path.Combine(evidenceDir, "EP01_源文件包");
-            Directory.Exists(episodePackage).Should().BeTrue();
-            File.Exists(Path.Combine(episodePackage, "EP01_素材清单.csv")).Should().BeTrue();
-            File.Exists(Path.Combine(episodePackage, "EP01_镜头清单.json")).Should().BeTrue();
-            File.Exists(Path.Combine(
-                    episodePackage, "01_剧本与分镜", "EP01_30秒片段正式制作剧本.docx"))
-                .Should().BeTrue();
-            File.Exists(Path.Combine(episodePackage, "06_视频源片段", "视频源文件索引.txt"))
-                .Should().BeTrue();
-            Directory.EnumerateFiles(episodePackage, "*.mp4", SearchOption.AllDirectories)
-                .Should().BeEmpty("视频只登记真实路径和元数据，不应复制或转码");
+            outputs.Should().HaveCount(2);
+            outputs.Should().OnlyContain(path => File.Exists(path));
+            logs.Should().Contain(message =>
+                message.Contains("第 2 类已选取", StringComparison.Ordinal));
+            Directory.Exists(TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflow))
+                .Should().BeFalse("截图流程只能读取现有真实素材，不应合成额外证据文件");
+            Directory.EnumerateFiles(workflow, "*.png", SearchOption.AllDirectories)
+                .Where(path => !path.Contains(
+                    TikTokSourceFileInfoScreenshotService.OutputDirectoryName,
+                    StringComparison.OrdinalIgnoreCase))
+                .Should().HaveCount(7, "原有的主体、场景和首帧素材不应被修改或扩增");
         }
         finally
         {
@@ -148,12 +229,15 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
     }
 
     [Fact]
-    public void Generate_creates_four_png_screenshots_with_drama_title()
+    public void Generate_creates_two_png_screenshots_with_drama_title()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-source-info-{Guid.NewGuid():N}");
         Directory.CreateDirectory(workflow);
         try
         {
+            var previousOutputDirectory = Path.Combine(workflow, "原始文件信息截图");
+            Directory.CreateDirectory(previousOutputDirectory);
+            File.WriteAllText(Path.Combine(previousOutputDirectory, "旧版截图.png"), "legacy");
             using (var poster = new Image<Rgba32>(240, 320))
             {
                 poster[20, 20] = new Rgba32(200, 80, 40);
@@ -167,50 +251,28 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
                 "测试公司",
                 logs.Add);
 
-            outputs.Should().HaveCount(4);
+            outputs.Should().HaveCount(2);
             outputs.Should().OnlyContain(path => File.Exists(path));
             TikTokSourceFileInfoScreenshotService.HasCurrentOutput(workflow).Should().BeTrue();
 
             var outputDir = TikTokSourceFileInfoScreenshotService.GetOutputDirectory(workflow);
             var evidenceDir = TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflow);
             Directory.Exists(outputDir).Should().BeTrue();
-            Directory.Exists(evidenceDir).Should().BeTrue();
+            Directory.Exists(previousOutputDirectory)
+                .Should().BeFalse("旧版原始文件信息截图目录应在重新生成时清理");
+            Directory.Exists(evidenceDir)
+                .Should().BeFalse("只有海报时应直接截图真实文件，不应生成剧本或清单冒充源文件");
             Path.GetFileName(outputDir).Should().Be(TikTokSourceFileInfoScreenshotService.OutputDirectoryName);
-            File.Exists(Path.Combine(evidenceDir, "视频文件清单.csv")).Should().BeTrue();
-            File.Exists(Path.Combine(evidenceDir, "项目说明.txt")).Should().BeTrue();
-            var scriptDocx = Directory.EnumerateFiles(
-                    evidenceDir, "*_30秒片段正式制作剧本.docx", SearchOption.AllDirectories)
-                .Should().ContainSingle().Subject;
-            using (var document = WordprocessingDocument.Open(scriptDocx, false))
-            {
-                var documentText = document.MainDocumentPart!.Document.Body!.InnerText;
-                documentText.Should().Contain("片段时间码");
-                documentText.Should().NotContain("character_main.ai");
-                if (File.Exists(@"D:\code\短剧制作\《福生小店》20集AI真人漫剧完整剧本.docx"))
-                {
-                    documentText.Should().Contain("集体辞职");
-                    documentText.Should().Contain("赵强");
-                    documentText.Should().Contain("福生");
-                }
-            }
-
-            var manifest = File.ReadAllText(Path.Combine(evidenceDir, "视频文件清单.csv"));
-            manifest.Should().Contain("SHA-256");
-            manifest.Should().NotContain("character_main.ai");
-            manifest.Should().NotContain("scene_palace.psd");
-            manifest.Should().NotContain("raw/A001_C001.mov");
-            logs.Should().Contain(message => message.Contains("原始文件信息/初始化", StringComparison.Ordinal));
-            logs.Should().Contain(message => message.Contains("原始文件信息/扫描", StringComparison.Ordinal));
-            logs.Should().Contain(message => message.Contains("原始文件信息/清单", StringComparison.Ordinal));
-            logs.Should().Contain(message => message.Contains("原始文件信息/文档", StringComparison.Ordinal));
+            File.Exists(Path.Combine(workflow, "海报图片.png")).Should().BeTrue();
+            logs.Should().Contain(message => message.Contains("其他真实项目文件补位", StringComparison.Ordinal));
             logs.Should().Contain(message => message.Contains("原始文件信息截图已生成", StringComparison.Ordinal));
 
             foreach (var path in outputs)
             {
                 Path.GetDirectoryName(path).Should().Be(outputDir);
                 using var image = Image.Load(path);
-                image.Width.Should().BeGreaterThan(1000);
-                image.Height.Should().BeGreaterThan(700);
+                image.Width.Should().BeGreaterThanOrEqualTo(800);
+                image.Height.Should().BeGreaterThanOrEqualTo(500);
             }
         }
         finally
@@ -245,17 +307,11 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
                 TikTokPublishConstants.ProductionAgreementMaterialType,
                 TikTokPublishConstants.SourceFileInformationMaterialType);
             options.CopyrightMaterialFilePaths[TikTokPublishConstants.SourceFileInformationMaterialType]
-                .Should().Be(TikTokSourceFileInfoScreenshotService.GetOutputDirectory(workflow));
+                .Should().Be(TikTokSourceFileInfoUploadPackageService.GetOutputDirectory(workflow));
 
-            var images = options.ResolveCopyrightMaterialFilePaths(
+            var files = options.ResolveCopyrightMaterialFilePaths(
                 TikTokPublishConstants.SourceFileInformationMaterialType);
-            images.Should().HaveCount(4);
-            images.Should().OnlyContain(path =>
-                path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
-                && path.Contains(
-                    Path.DirectorySeparatorChar + TikTokSourceFileInfoScreenshotService.OutputDirectoryName
-                    + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase));
+            files.Should().BeEmpty("新的混合上传包尚未整理时不应回落到旧版四张截图");
         }
         finally
         {

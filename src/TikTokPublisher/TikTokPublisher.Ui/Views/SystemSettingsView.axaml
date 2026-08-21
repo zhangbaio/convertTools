@@ -104,8 +104,8 @@
 
                         <Separator Margin="0,4" />
 
-                        <TextBlock Text="皮卡丘链路（红果 v1.3.9 逆向接口）" FontWeight="Bold" />
-                        <TextBlock Text="搜索依赖番茄 Cookie，详情/视频拉取走皮卡丘代理，可直接在此测试链路连通性。" Classes="pageSummary" TextWrapping="Wrap" />
+                        <TextBlock Text="皮卡丘链路（红果 v1.4.9）" FontWeight="Bold" />
+                        <TextBlock Text="红果短剧搜索需要番茄 Cookie；红果漫剧类型13免 Cookie。详情与视频解析走皮卡丘代理。" Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="搜索内容类型" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="0" Grid.Column="1" x:Name="PikachuTypeCombo" HorizontalAlignment="Stretch" />
@@ -115,12 +115,25 @@
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="番茄 Cookie" VerticalAlignment="Top" Margin="0,4,0,0" />
                             <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0" Text="{Binding PikachuFanqieCookie}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="88" />
-                                <Button Grid.Column="1" Content="从红果读取" Command="{Binding ReadPikachuCookieCommand}" MinWidth="110" VerticalAlignment="Top" />
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding PikachuFanqieCookie}"
+                                         AcceptsReturn="True"
+                                         TextWrapping="Wrap"
+                                         MinHeight="88"
+                                         Watermark="install_id=...; ttreq=...; odin_tt=..." />
+                                <Button Grid.Column="1"
+                                        Content="从红果读取"
+                                        Command="{Binding ReadPikachuCookieCommand}"
+                                        IsEnabled="{Binding !IsPikachuBusy}"
+                                        MinWidth="110"
+                                        VerticalAlignment="Top" />
                             </Grid>
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="" />
-                            <TextBlock Grid.Row="3" Grid.Column="1" Text="Cookie 过期通常只影响搜索；detail/video 下载仍可通过皮卡丘代理继续执行。" Classes="pageSummary" TextWrapping="Wrap" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" />
+                            <TextBlock Grid.Row="3" Grid.Column="1"
+                                       Text="Cookie 约数周过期；短剧搜索失败时请启动红果客户端、执行一次搜索后重新读取。"
+                                       Classes="pageSummary"
+                                       TextWrapping="Wrap" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="链路测试" VerticalAlignment="Top" Margin="0,4,0,0" />
                             <StackPanel Grid.Row="4" Grid.Column="1" Spacing="8">
@@ -209,6 +222,18 @@
                             <Button Content="测试 AI 文本" Command="{Binding ProbeAiTextCommand}" MinWidth="110" />
                             <TextBlock Text="{Binding AiTextProbeStatus}" VerticalAlignment="Center" Classes="pageSummary" TextWrapping="Wrap" />
                         </StackPanel>
+                        <TextBlock Text="角色参考图筛选" FontWeight="Bold" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="筛选方式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="RoleReferenceSelectionModeCombo" HorizontalAlignment="Stretch" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="失败处理" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="1" Grid.Column="1"
+                                      Content="AI全量优选失败时回退本地链路"
+                                      IsChecked="{Binding TiktokRoleReferenceAiFallbackEnabled}" />
+                        </Grid>
+                        <TextBlock Text="本地链路会先本地预筛再由视觉模型匹配；AI全量优选会审核全部有效抽帧，准确率更高但调用量更大。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="接口地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" />

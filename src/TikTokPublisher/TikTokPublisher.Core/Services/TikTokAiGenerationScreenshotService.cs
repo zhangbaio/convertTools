@@ -31,6 +31,7 @@ public static class TikTokAiGenerationScreenshotService
     public const string ScreenshotVersion = "v5-retained-video-keyframes";
     public const string RetainedFramesVersion = "v1";
     public const int ShotsPerPage = 2;
+    internal const int SupplementalRoleReferenceFrameCount = 12;
 
     private const string LegacyOutputDirectoryName = "AI生成过程截图";
 
@@ -97,6 +98,56 @@ public static class TikTokAiGenerationScreenshotService
             : [];
     }
 
+    internal static IReadOnlyList<string> ExtractSupplementalRoleReferenceFrames(
+        string workflowProjectDirectory,
+        string videoPath,
+        int episodeNumber,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workflowProjectDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(videoPath);
+        if (!File.Exists(videoPath)) throw new FileNotFoundException("角色补源视频不存在。", videoPath);
+        if (episodeNumber <= 0) throw new ArgumentOutOfRangeException(nameof(episodeNumber));
+
+        var outputDirectory = GetRetainedFramesDirectory(workflowProjectDirectory);
+        Directory.CreateDirectory(outputDirectory);
+        var prefix = $"补充_第{episodeNumber:D2}集_";
+        foreach (var old in Directory.EnumerateFiles(outputDirectory, $"{prefix}*.jpg"))
+            try { File.Delete(old); } catch { }
+
+        var ffmpeg = FfmpegLocator.ResolveFfmpeg();
+        var ffprobe = MediaBinaryResolver.ResolveFfprobe();
+        var duration = ProbeDuration(ffprobe, videoPath, cancellationToken);
+        const int frameCount = SupplementalRoleReferenceFrameCount;
+        var outputs = new List<string>(frameCount);
+        for (var index = 0; index < frameCount; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var preferredSeconds = Math.Clamp(
+                duration * (index + 1d) / (frameCount + 1d),
+                0.05,
+                Math.Max(0.05, duration - 0.05));
+            var extracted = TryExtractFacePreferredFrame(
+                ffmpeg,
+                videoPath,
+                preferredSeconds,
+                duration,
+                cancellationToken);
+            if (extracted is null) continue;
+            using (extracted.Image)
+            {
+                var output = Path.Combine(outputDirectory, $"{prefix}{index + 1:D2}.jpg");
+                extracted.Image.Save(output, new JpegEncoder { Quality = 90 });
+                outputs.Add(output);
+            }
+        }
+        log?.Invoke(
+            $"角色补源：第 {episodeNumber} 集已抽取 {outputs.Count} 张人物候选帧，" +
+            $"目录={outputDirectory}。");
+        return outputs;
+    }
+
     public static bool HasCurrentOutput(string workflowProjectDirectory) =>
         ListGeneratedImages(workflowProjectDirectory).Count >= RequiredImageCount &&
         File.Exists(GetRetainedFramesManifestPath(workflowProjectDirectory));
@@ -110,21 +161,7 @@ public static class TikTokAiGenerationScreenshotService
     }
 
     private static void TryDeleteDirectory(string dir)
-    {
-        if (!Directory.Exists(dir))
-        {
-            return;
-        }
-
-        try
-        {
-            Directory.Delete(dir, recursive: true);
-        }
-        catch
-        {
-            // best-effort
-        }
-    }
+        => ResilientFileSystem.TryDeleteDirectory(dir);
 
     public static IReadOnlyList<string> Generate(
         string workflowProjectDirectory,
@@ -442,18 +479,18 @@ public static class TikTokAiGenerationScreenshotService
         var hadExistingOutput = Directory.Exists(outputDirectory);
         var replacementSucceeded = false;
         if (hadExistingOutput)
-            Directory.Move(outputDirectory, backupDirectory);
+            ResilientFileSystem.MoveDirectory(outputDirectory, backupDirectory);
 
         try
         {
-            Directory.Move(stagingDirectory, outputDirectory);
+            ResilientFileSystem.MoveDirectory(stagingDirectory, outputDirectory);
             replacementSucceeded = true;
         }
         catch
         {
             TryDeleteDirectory(outputDirectory);
             if (hadExistingOutput && Directory.Exists(backupDirectory))
-                Directory.Move(backupDirectory, outputDirectory);
+                ResilientFileSystem.MoveDirectory(backupDirectory, outputDirectory);
             throw;
         }
         finally
@@ -1516,6 +1553,76 @@ public static class TikTokAiGenerationScreenshotService
         var exposure = 1.0 - Math.Min(1.0, Math.Abs(mean - 0.5) / 0.5);
         var sharpness = edgeCount > 0 ? edgeSum / edgeCount : 0;
         return (faceScore * 8.0) + (sharpness * 1.5) + (exposure * 0.15);
+    }
+
+    internal static int CountLikelyFaces(Image<Rgba32> source)
+    {
+        using var image = source.Clone(ctx => ctx.Resize(new ResizeOptions
+        {
+            Mode = ResizeMode.Max,
+            Size = new Size(160, 160),
+        }));
+        var width = image.Width;
+        var height = image.Height;
+        if (width <= 0 || height <= 0) return 0;
+
+        var skin = new bool[width * height];
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+            skin[y * width + x] = IsLikelySkin(image[x, y]);
+
+        var visited = new bool[skin.Length];
+        var queue = new Queue<int>();
+        var faces = 0;
+        for (var start = 0; start < skin.Length; start++)
+        {
+            if (!skin[start] || visited[start]) continue;
+            visited[start] = true;
+            queue.Enqueue(start);
+            var count = 0;
+            var minX = width;
+            var maxX = 0;
+            var minY = height;
+            var maxY = 0;
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                var x = current % width;
+                var y = current / width;
+                count++;
+                minX = Math.Min(minX, x);
+                maxX = Math.Max(maxX, x);
+                minY = Math.Min(minY, y);
+                maxY = Math.Max(maxY, y);
+                Visit(x - 1, y);
+                Visit(x + 1, y);
+                Visit(x, y - 1);
+                Visit(x, y + 1);
+            }
+
+            var componentWidth = maxX - minX + 1;
+            var componentHeight = maxY - minY + 1;
+            var areaRatio = count / (double)(width * height);
+            var aspect = componentWidth / (double)Math.Max(1, componentHeight);
+            var centerX = (minX + maxX) / 2d / width;
+            var centerY = (minY + maxY) / 2d / height;
+            if (areaRatio is >= 0.004 and <= 0.12
+                && aspect is >= 0.45 and <= 1.75
+                && centerX is >= 0.05 and <= 0.95
+                && centerY is >= 0.04 and <= 0.55)
+                faces++;
+
+            void Visit(int x, int y)
+            {
+                if (x < 0 || x >= width || y < 0 || y >= height) return;
+                var index = y * width + x;
+                if (!skin[index] || visited[index]) return;
+                visited[index] = true;
+                queue.Enqueue(index);
+            }
+        }
+
+        return faces;
     }
 
     private static bool IsLikelySkin(Rgba32 pixel)

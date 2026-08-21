@@ -56,4 +56,32 @@ public sealed class ProjectVideoResolverTests
             catch (IOException) { }
         }
     }
+
+    [Fact]
+    public void ResolveUploadVideos_UsesStagingAsCanonicalSet_WhenSourceCountDiffers()
+    {
+        var workspaceDir = Path.Combine(Path.GetTempPath(), $"project-video-resolver-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(workspaceDir, "source");
+        var stagingDir = Path.Combine(workspaceDir, "workflow", "source", TikTokUploadStagingService.StagingDirName);
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(stagingDir);
+
+        try
+        {
+            File.WriteAllBytes(Path.Combine(sourceDir, "show-第1集.mp4"), [1]);
+            File.WriteAllBytes(Path.Combine(sourceDir, "show-第2集.mp4"), [1]);
+            File.WriteAllBytes(Path.Combine(stagingDir, "renamed-第1集.mp4"), [2]);
+
+            var names = ProjectVideoResolver.ResolveUploadVideos(sourceDir, allowStagedFallback: true)
+                .Select(Path.GetFileName)
+                .ToList();
+
+            names.Should().Equal("renamed-第1集.mp4");
+        }
+        finally
+        {
+            try { Directory.Delete(workspaceDir, recursive: true); }
+            catch (IOException) { }
+        }
+    }
 }

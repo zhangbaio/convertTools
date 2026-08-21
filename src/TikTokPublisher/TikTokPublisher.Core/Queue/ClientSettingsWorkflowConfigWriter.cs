@@ -26,6 +26,8 @@ public static class ClientSettingsWorkflowConfigWriter
             ["AiTextRetryPrompt"] = settings.AiFullInfoRetryPrompt,
             ["AiRewriteSynopsis"] = account?.TiktokAiRewriteSynopsis == true,
             ["AiTextTimeoutSeconds"] = settings.AiTextTimeoutSeconds,
+            ["TiktokRoleReferenceSelectionMode"] = settings.TiktokRoleReferenceSelectionMode,
+            ["TiktokRoleReferenceAiFallbackEnabled"] = settings.TiktokRoleReferenceAiFallbackEnabled,
             ["ImageModelId"] = settings.ImageModelId,
             ["ImageModelApiKey"] = settings.ImageModelApiKey,
             ["ImageModelEndpoint"] = settings.ImageModelEndpoint,

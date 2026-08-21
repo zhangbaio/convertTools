@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:TikTokPublisher.Ui.Views"
              x:Class="TikTokPublisher.Ui.Views.AccountProfileEditor"
              Background="{StaticResource PythonPageBgBrush}">
 
@@ -226,24 +227,12 @@
                                 <ComboBoxItem Tag="adapted">改编</ComboBoxItem>
                             </ComboBox>
 
-                            <TextBlock Classes="formLabel" Grid.Row="20" Grid.Column="0" Text="上传材料类型" VerticalAlignment="Top" Margin="0,5,0,0" />
-                            <StackPanel Grid.Row="20" Grid.Column="1" Spacing="6">
-                                <CheckBox x:Name="ProductionAgreementMaterialBox" Content="合作协议（核心）" />
-                                <TextBlock Text="自动上传当前项目生成的“证明材料.pdf”。勾选“备案/发行许可”后会自动生成可信时间戳认证证书，并上传到 TikTok 的“网络剧片备案、发行许可、监管审批文件”材料栏："
-                                           Classes="pageSummary"
-                                           TextWrapping="Wrap" />
-                                <WrapPanel Orientation="Horizontal">
-                                    <CheckBox x:Name="WorkRegistrationMaterialBox" Content="作品登记证书" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="FilingLicenseMaterialBox" Content="备案/发行许可（上传可信时间戳）" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="RightsNoticeMaterialBox" Content="片头片尾权利标识" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="AiScreenshotsMaterialBox" Content="AI 生成截图" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="EditingProjectMaterialBox" Content="剪辑工程文件" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="SourceInfoMaterialBox" Content="原始文件信息" Margin="0,0,12,6" />
-                                </WrapPanel>
-                                <CheckBox x:Name="UploadAiScriptOutlineWithScreenshotsBox"
-                                          Content="同时上传 AI剧本大纲.pdf 到 AI 生成过程截图"
-                                          IsEnabled="{Binding IsChecked, ElementName=AiScreenshotsMaterialBox}" />
-                            </StackPanel>
+                            <TextBlock Classes="formLabel" Grid.Row="20" Grid.Column="0" Text="内容创作类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="20" Grid.Column="1" x:Name="ContentCreationTypeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="original">原创</ComboBoxItem>
+                                <ComboBoxItem Tag="remake">成片重制</ComboBoxItem>
+                                <ComboBoxItem Tag="novel_adaptation">小说改编</ComboBoxItem>
+                            </ComboBox>
 
                         </Grid>
 
@@ -289,7 +278,14 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="授权资料">
+            <TabItem Header="上传材料">
+                <ScrollViewer>
+                    <views:CopyrightMaterialSelector x:Name="CopyrightMaterials"
+                                                     Margin="2,4,2,2" />
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="证明材料">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="2,4,2,2">
                         <TextBlock Text="证明材料账号配置" FontWeight="SemiBold" />
@@ -297,7 +293,7 @@
                                    Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid Classes="profileForm"
                               ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="10"
                               ColumnSpacing="10">
                             <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="本公司/声明人" VerticalAlignment="Center" />
@@ -315,8 +311,14 @@
                             <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="致贵方名称" VerticalAlignment="Center" />
                             <TextBox Grid.Row="3" Grid.Column="1" x:Name="ProofCopyrightCompanyNameBox" Watermark="用于“致【…】（下称贵方）”" />
 
-                            <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="AI大纲集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="AiScriptOutlineEpisodeCountBox" Minimum="1" Maximum="120" Value="15" Width="160" HorizontalAlignment="Left" />
+                            <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="剧本集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="EpisodeScriptEpisodeCountBox" Minimum="1" Maximum="120" Value="5" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="AI大纲集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="AiScriptOutlineEpisodeCountBox" Minimum="1" Maximum="120" Value="15" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="角色矢量图人数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="RoleVectorCharacterCountBox" Minimum="2" Maximum="6" Value="3" Width="160" HorizontalAlignment="Left" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

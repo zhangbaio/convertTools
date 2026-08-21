@@ -234,6 +234,72 @@ public sealed class ProjectWorkspaceServiceTests
         }
     }
 
+    [Fact]
+    public void ResolveSourceEpisodeCount_PrefersDeclaredMetadataOverDuplicateVideoCopies()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"project-workspace-count-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(workspace, "七年归墟报深恩");
+        var workflowDir = Path.Combine(workspace, "workflow", "_功成名就回乡报答恩人");
+        var workflowVideos = Path.Combine(workflowDir, "videos");
+        var materialVideos = Path.Combine(workflowDir, "项目原始资料", "视频副本");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(workflowVideos);
+        Directory.CreateDirectory(materialVideos);
+        File.WriteAllText(
+            Path.Combine(sourceDir, "shortdrama-project.json"),
+            JsonSerializer.Serialize(new
+            {
+                episodeCount = 31,
+                sourceProjectDir = sourceDir,
+                workflowProjectDir = workflowDir,
+                workflowDirName = Path.GetFileName(workflowDir),
+            }));
+        WriteMetadata(workflowDir, sourceDir, workflowDir);
+
+        for (var episode = 1; episode <= 31; episode++)
+        {
+            File.WriteAllText(Path.Combine(sourceDir, $"第{episode}集.mp4"), "source");
+            File.WriteAllText(Path.Combine(workflowVideos, $"第{episode}集.mp4"), "workflow");
+            File.WriteAllText(Path.Combine(materialVideos, $"第{episode}集.mp4"), "material");
+        }
+
+        try
+        {
+            ProjectWorkspaceService.ResolveSourceEpisodeCount(workflowDir).Should().Be(31);
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ResolveSourceEpisodeCount_DeduplicatesEpisodeNumbersWhenMetadataIsMissing()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"project-workspace-fallback-count-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(workspace, "source");
+        var workflowDir = Path.Combine(workspace, "workflow", "_renamed");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(workflowDir);
+        WriteMetadata(sourceDir, sourceDir, workflowDir);
+        WriteMetadata(workflowDir, sourceDir, workflowDir);
+
+        for (var episode = 1; episode <= 3; episode++)
+        {
+            File.WriteAllText(Path.Combine(sourceDir, $"第{episode}集.mp4"), "source");
+            File.WriteAllText(Path.Combine(workflowDir, $"第{episode}集.mp4"), "workflow");
+        }
+
+        try
+        {
+            ProjectWorkspaceService.ResolveSourceEpisodeCount(workflowDir).Should().Be(3);
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
     private static void WriteMetadata(string directory, string sourceProjectDir, string workflowProjectDir)
     {
         File.WriteAllText(

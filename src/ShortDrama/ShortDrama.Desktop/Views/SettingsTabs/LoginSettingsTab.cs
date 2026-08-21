@@ -58,8 +58,6 @@ public sealed class LoginSettingsTab : UserControl
         panel.Children.Add(SectionTitle("pikachu"));
         panel.Children.Add(Row("内容类型", BuildPikachuTypeCombo()));
         panel.Children.Add(Row("代理服务地址", BindText(nameof(ConfigWindowViewModel.PikachuServerUrl))));
-        panel.Children.Add(Row("番茄 Cookie", MultiLineText(nameof(ConfigWindowViewModel.PikachuFanqieCookie), 110)));
-
         panel.Children.Add(Row("DeviceId", BindText(nameof(ConfigWindowViewModel.PikachuDeviceId))));
         panel.Children.Add(Row("客户端版本", BindText(nameof(ConfigWindowViewModel.PikachuClientVersion))));
         panel.Children.Add(Row("测试结果", BuildPikachuProbeRow()));
@@ -188,7 +186,7 @@ public sealed class LoginSettingsTab : UserControl
 
         var readButton = new Button
         {
-            Content = "从红果读取",
+            Content = "读取 DeviceId",
             MinWidth = 110
         };
         readButton.Click += ReadPikachuRuntime_Click;
@@ -211,7 +209,7 @@ public sealed class LoginSettingsTab : UserControl
     {
         var combo = new ComboBox
         {
-            ItemsSource = new[] { "short", "manga" }
+            ItemsSource = new[] { "manga" }
         };
         combo[!SelectingItemsControl.SelectedItemProperty] = new Binding(nameof(ConfigWindowViewModel.PikachuDramaType));
         return combo;

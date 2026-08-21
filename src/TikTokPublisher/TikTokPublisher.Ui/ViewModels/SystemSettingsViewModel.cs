@@ -76,6 +76,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _aiTextModel = ClientSettingsDefaults.AiTextModel;
     [ObservableProperty] private int _aiTextTimeoutSeconds = ClientSettingsDefaults.AiTextTimeoutSeconds;
     [ObservableProperty] private int _aiTextMaxBatchSize = ClientSettingsDefaults.AiTextMaxBatchSize;
+    [ObservableProperty] private string _tiktokRoleReferenceSelectionMode =
+        ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
+    [ObservableProperty] private bool _tiktokRoleReferenceAiFallbackEnabled =
+        ClientSettingsDefaults.TiktokRoleReferenceAiFallbackEnabled;
     [ObservableProperty] private string _aiTagSystemPrompt = "";
     [ObservableProperty] private string _aiTagBatchPrompt = "";
     [ObservableProperty] private string _aiFullInfoSystemPrompt = "";
@@ -185,7 +189,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(HongguoLocalTranscodeEngine),
         PikachuServerUrl = PikachuServerUrl.Trim(),
         PikachuFanqieCookie = PikachuFanqieCookie.Trim(),
-        PikachuDramaType = PikachuDramaType,
+        PikachuDramaType = NormalizePikachuDramaType(PikachuDramaType),
         PikachuDeviceId = PikachuDeviceId.Trim(),
         PikachuClientVersion = string.IsNullOrWhiteSpace(PikachuClientVersion) ? "1.4.4" : PikachuClientVersion.Trim(),
         TiktokSilenceAsrEngine = TiktokSilenceAsrEngine,
@@ -209,6 +213,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiTextModel = AiTextModel.Trim(),
         AiTextTimeoutSeconds = AiTextTimeoutSeconds,
         AiTextMaxBatchSize = AiTextMaxBatchSize,
+        TiktokRoleReferenceSelectionMode = TiktokRoleReferenceSelectionMode,
+        TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled,
         AiTagSystemPrompt = AiTagSystemPrompt,
         AiTagBatchPrompt = AiTagBatchPrompt,
         AiFullInfoSystemPrompt = AiFullInfoSystemPrompt,
@@ -633,7 +639,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine);
         PikachuServerUrl = settings.PikachuServerUrl;
         PikachuFanqieCookie = settings.PikachuFanqieCookie;
-        PikachuDramaType = settings.PikachuDramaType;
+        PikachuDramaType = NormalizePikachuDramaType(settings.PikachuDramaType);
         PikachuDeviceId = settings.PikachuDeviceId;
         PikachuClientVersion = settings.PikachuClientVersion;
         TiktokSilenceAsrEngine = settings.TiktokSilenceAsrEngine;
@@ -657,6 +663,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiTextModel = settings.AiTextModel;
         AiTextTimeoutSeconds = settings.AiTextTimeoutSeconds;
         AiTextMaxBatchSize = settings.AiTextMaxBatchSize;
+        TiktokRoleReferenceSelectionMode = settings.TiktokRoleReferenceSelectionMode;
+        TiktokRoleReferenceAiFallbackEnabled = settings.TiktokRoleReferenceAiFallbackEnabled;
         AiTagSystemPrompt = settings.AiTagSystemPrompt;
         AiTagBatchPrompt = settings.AiTagBatchPrompt;
         AiFullInfoSystemPrompt = settings.AiFullInfoSystemPrompt;
@@ -742,6 +750,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         var normalized = (value ?? "auto").Trim().ToLowerInvariant();
         return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
     }
+
+    private static string NormalizePikachuDramaType(string? value) =>
+        string.Equals(value?.Trim(), "manga", StringComparison.OrdinalIgnoreCase)
+            ? "manga"
+            : "short";
 
     private static void OpenParentFolder(string path)
     {

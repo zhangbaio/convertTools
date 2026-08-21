@@ -23,7 +23,9 @@ public static class DramaSourceSettingsMapping
         HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine),
         PikachuServerUrl = settings.PikachuServerUrl ?? "",
         PikachuFanqieCookie = settings.PikachuFanqieCookie ?? "",
-        PikachuDramaType = settings.PikachuDramaType ?? "short",
+        PikachuDramaType = string.Equals(settings.PikachuDramaType, "manga", StringComparison.OrdinalIgnoreCase)
+            ? "manga"
+            : "short",
         PikachuDeviceId = settings.PikachuDeviceId ?? "",
         PikachuClientVersion = settings.PikachuClientVersion ?? "1.4.4",
     };

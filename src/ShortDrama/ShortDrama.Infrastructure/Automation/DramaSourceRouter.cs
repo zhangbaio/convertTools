@@ -293,13 +293,15 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 downloadAttempts: downloadAttempts);
         }
 
-        if (bookId.StartsWith(PikachuBookPrefix, StringComparison.OrdinalIgnoreCase))
+        if (bookId.StartsWith(PikachuBookPrefix, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(settings.DramaSourceChain?.Trim(), "pikachu", StringComparison.OrdinalIgnoreCase))
         {
+            var pikachuBookId = EnsurePrefixed(bookId, PikachuBookPrefix);
             return await DownloadWithProviderAsync(
                 request,
                 progress,
                 cancellationToken,
-                resolveEpisodes: ct => GetPikachuEpisodesAsync(bookId, settings, ct),
+                resolveEpisodes: ct => GetPikachuEpisodesAsync(pikachuBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetPikachuVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: PikachuBookPrefix,
                 validateVideoEncoding: false,
@@ -477,7 +479,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             var tempPath = $"{finalPath}.part";
             var existingVideo = await FindExistingEpisodeVideoAsync(
                 outputDir,
-                task,
+                task.EpisodeNumber,
                 message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"),
                 validateVideoEncoding,
                 cancellationToken);
@@ -1450,24 +1452,32 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         var results = new List<DramaSearchItem>();
+        var seenBookIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in searchData.EnumerateArray())
         {
-            if (!item.TryGetProperty("cell_slices", out var cells) || cells.ValueKind != JsonValueKind.Array)
+            var bookInfos = new List<JsonElement>();
+            if (item.TryGetProperty("books", out var books) && books.ValueKind == JsonValueKind.Array)
             {
-                continue;
+                bookInfos.AddRange(books.EnumerateArray().Where(book => book.ValueKind == JsonValueKind.Object));
             }
 
-            foreach (var cell in cells.EnumerateArray())
+            if (item.TryGetProperty("cell_slices", out var cells) && cells.ValueKind == JsonValueKind.Array)
             {
-                if (!cell.TryGetProperty("book_slice", out var bookSlice) ||
-                    !bookSlice.TryGetProperty("book_info", out var info) ||
-                    info.ValueKind != JsonValueKind.Object)
+                foreach (var cell in cells.EnumerateArray())
                 {
-                    continue;
+                    if (cell.TryGetProperty("book_slice", out var bookSlice) &&
+                        bookSlice.TryGetProperty("book_info", out var info) &&
+                        info.ValueKind == JsonValueKind.Object)
+                    {
+                        bookInfos.Add(info);
+                    }
                 }
+            }
 
+            foreach (var info in bookInfos)
+            {
                 var bookId = GetString(info, "book_id");
-                if (string.IsNullOrWhiteSpace(bookId))
+                if (string.IsNullOrWhiteSpace(bookId) || !seenBookIds.Add(bookId))
                 {
                     continue;
                 }
@@ -1656,9 +1666,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if ((GetString(document.RootElement, "code") ?? string.Empty) != "200")
+        var code = GetString(document.RootElement, "code") ?? string.Empty;
+        if (code != "200")
         {
-            throw new InvalidOperationException($"皮卡丘 detail 失败: {GetString(document.RootElement, "msg") ?? "unknown"}");
+            throw new InvalidOperationException(
+                $"皮卡丘 detail 失败 (code={NonEmpty(code, "unknown")}): {DescribePikachuFailure(document.RootElement)}");
         }
 
         if (!document.RootElement.TryGetProperty("data", out var data) ||
@@ -1719,40 +1731,83 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var clientVersion = string.IsNullOrWhiteSpace(settings.PikachuClientVersion)
             ? "1.4.4"
             : settings.PikachuClientVersion.Trim();
-        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+        var qualityCodes = BuildPikachuQualityFallbackCodes(quality);
+        string? lastCode = null;
+        string? lastMessage = null;
+        foreach (var qualityCode in qualityCodes)
         {
-            ["videoId"] = PikachuEncrypt(videoId),
-            ["quality"] = PikachuEncrypt(MapPikachuQuality(quality)),
-            ["deviceId"] = PikachuEncrypt(deviceId),
-            ["version"] = PikachuEncrypt(clientVersion)
-        });
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{serverUrl}/api/drama/hongguo/decryptVideo")
-        {
-            Content = content
-        };
-        ApplyPikachuHeaders(request);
+            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["videoId"] = PikachuEncrypt(videoId),
+                ["quality"] = PikachuEncrypt(qualityCode),
+                ["deviceId"] = PikachuEncrypt(deviceId),
+                ["version"] = PikachuEncrypt(clientVersion)
+            });
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{serverUrl}/api/drama/hongguo/decryptVideo")
+            {
+                Content = content
+            };
+            ApplyPikachuHeaders(request);
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if ((GetString(document.RootElement, "code") ?? string.Empty) != "200")
-        {
-            throw new InvalidOperationException($"皮卡丘 video 失败: {GetString(document.RootElement, "msg") ?? "unknown"}");
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            var code = GetString(document.RootElement, "code") ?? string.Empty;
+            if (code != "200")
+            {
+                lastCode = code;
+                lastMessage = DescribePikachuFailure(document.RootElement);
+                if (code == "500" && qualityCode != qualityCodes[^1])
+                    continue;
+                throw new InvalidOperationException(
+                    $"皮卡丘 video 失败 (code={NonEmpty(code, "unknown")}): {lastMessage}；" +
+                    $"已尝试清晰度 {string.Join(" -> ", qualityCodes.TakeWhile(value => value != qualityCode).Append(qualityCode))}");
+            }
+
+            var url = document.RootElement.TryGetProperty("data", out var data)
+                ? GetString(data, "url")
+                : null;
+            var decryptKey = document.RootElement.TryGetProperty("data", out data)
+                ? GetString(data, "key")
+                : null;
+            if (!string.IsNullOrWhiteSpace(url))
+                return new SourceVideoDetail(url, decryptKey);
+            lastCode = "200";
+            lastMessage = "未返回可用播放链接";
         }
-
-        var url = document.RootElement.TryGetProperty("data", out var data)
-            ? GetString(data, "url")
-            : null;
-        var decryptKey = document.RootElement.TryGetProperty("data", out data)
-            ? GetString(data, "key")
-            : null;
-        if (string.IsNullOrWhiteSpace(url))
-        {
-            throw new InvalidOperationException("皮卡丘未返回可用播放链接。");
-        }
-
-        return new SourceVideoDetail(url, decryptKey);
+        throw new InvalidOperationException(
+            $"皮卡丘 video 失败 (code={NonEmpty(lastCode, "unknown")}): {NonEmpty(lastMessage, "未知错误")}；" +
+            $"已尝试清晰度 {string.Join(" -> ", qualityCodes)}");
     }
+
+    internal static IReadOnlyList<string> BuildPikachuQualityFallbackCodes(string quality)
+    {
+        var requested = MapPikachuQuality(quality);
+        var ordered = new[] { "1080", "720", "2", "1", "0" };
+        var start = Array.IndexOf(ordered, requested);
+        return start < 0 ? ["0"] : ordered[start..];
+    }
+
+    internal static string DescribePikachuFailure(JsonElement root)
+    {
+        foreach (var key in new[] { "msg", "message", "error", "reason" })
+        {
+            var value = GetString(root, key);
+            if (!string.IsNullOrWhiteSpace(value)) return value;
+        }
+        if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var key in new[] { "msg", "message", "error", "reason" })
+            {
+                var value = GetString(data, key);
+                if (!string.IsNullOrWhiteSpace(value)) return value;
+            }
+        }
+        return "未知错误";
+    }
+
+    private static string NonEmpty(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 
     private async Task<string> ResolvePikachuDeviceIdAsync(DramaSourceSettings settings, CancellationToken cancellationToken)
     {
@@ -1966,7 +2021,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private static async Task<string?> FindExistingEpisodeVideoAsync(
         string outputDir,
-        EpisodeTask task,
+        int outputEpisodeNumber,
         Action<string>? report,
         bool validateVideoEncoding,
         CancellationToken cancellationToken)
@@ -1986,9 +2041,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     continue;
                 }
 
-                var stem = Path.GetFileNameWithoutExtension(path);
-                if (string.Equals(stem, Path.GetFileNameWithoutExtension(BuildEpisodeFileName(task)), StringComparison.OrdinalIgnoreCase) ||
-                    BuildEpisodeMarkers(task).Any(marker => stem.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+                if (IsEpisodeFileForOutput(path, outputEpisodeNumber))
                 {
                     if (!HasValidVideoFile(path))
                     {
@@ -2019,13 +2072,17 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return null;
     }
 
-    private static IEnumerable<string> BuildEpisodeMarkers(EpisodeTask task)
+    internal static bool IsEpisodeFileForOutput(string path, int outputEpisodeNumber)
     {
-        foreach (var number in new[] { task.EpisodeNumber, task.SourceEpisodeNumber, task.SequenceEpisodeNumber }.Where(value => value > 0).Distinct())
-        {
-            yield return $"第{number}集";
-            yield return $"第{number:00}集";
-        }
+        if (outputEpisodeNumber <= 0)
+            return false;
+
+        var stem = Path.GetFileNameWithoutExtension(path).Trim();
+        if (stem.Length < 3 || stem[0] != '第' || stem[^1] != '集')
+            return false;
+
+        return int.TryParse(stem[1..^1].Trim(), out var fileEpisodeNumber) &&
+               fileEpisodeNumber == outputEpisodeNumber;
     }
 
     private static void WriteDownloadState(

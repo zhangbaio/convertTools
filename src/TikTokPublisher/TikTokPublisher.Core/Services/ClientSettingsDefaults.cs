@@ -6,6 +6,8 @@ public static class ClientSettingsDefaults
     public const string AiTextModel = "doubao-seed-2-0-lite-260215";
     public const int AiTextTimeoutSeconds = 120;
     public const int AiTextMaxBatchSize = 10;
+    public const string TiktokRoleReferenceSelectionMode = "local";
+    public const bool TiktokRoleReferenceAiFallbackEnabled = true;
     public const string PosterMode = "original";
     public const string ImageProvider = "doubao";
     public const string ImageModelEndpoint = "https://ark.cn-beijing.volces.com/api/v3";

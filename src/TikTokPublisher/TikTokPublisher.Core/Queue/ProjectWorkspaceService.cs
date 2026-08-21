@@ -22,6 +22,9 @@ public static class ProjectWorkspaceService
         ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm",
     };
 
+    private static readonly System.Text.RegularExpressions.Regex EpisodeNumberInFileName =
+        new(@"第\s*(\d+)\s*集", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private static readonly HashSet<string> IgnoredVideoDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "workflow", "archive", TikTokUploadStagingService.StagingDirName,
@@ -319,12 +322,14 @@ public static class ProjectWorkspaceService
             int.TryParse(new string(episodeRaw.Where(char.IsDigit).ToArray()), out var metaCount) &&
             metaCount > 0)
         {
-            candidates.Add(metaCount);
+            return metaCount;
         }
 
-        var videoCount = CountVideoFiles(context.SourceProjectDir, context.WorkflowProjectDir);
-        if (videoCount > 0) candidates.Add(videoCount);
-        return candidates.Count > 0 ? candidates.Max() : 1;
+        if (candidates.Count > 0)
+            return candidates.Max();
+
+        var videoCount = CountDistinctVideoEpisodes(context.SourceProjectDir, context.WorkflowProjectDir);
+        return videoCount > 0 ? videoCount : 1;
     }
 
     private static bool TryReadPositiveInt(
@@ -617,9 +622,10 @@ public static class ProjectWorkspaceService
         }
     }
 
-    private static int CountVideoFiles(params string[] roots)
+    private static int CountDistinctVideoEpisodes(params string[] roots)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var episodeNumbers = new HashSet<int>();
+        var unnumberedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var root in roots)
         {
             if (!Directory.Exists(root)) continue;
@@ -627,11 +633,17 @@ public static class ProjectWorkspaceService
             {
                 if (!Directory.Exists(sub)) continue;
                 foreach (var path in EnumerateVideoFiles(sub))
-                    seen.Add(Path.GetFullPath(path));
+                {
+                    var match = EpisodeNumberInFileName.Match(Path.GetFileName(path));
+                    if (match.Success && int.TryParse(match.Groups[1].Value, out var episode) && episode > 0)
+                        episodeNumbers.Add(episode);
+                    else
+                        unnumberedNames.Add(Path.GetFileName(path));
+                }
             }
         }
 
-        return seen.Count;
+        return episodeNumbers.Count + unnumberedNames.Count;
     }
 
     private static IEnumerable<string> EnumerateVideoFiles(string root)

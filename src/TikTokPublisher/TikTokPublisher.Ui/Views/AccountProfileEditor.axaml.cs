@@ -122,20 +122,35 @@ public partial class AccountProfileEditor : UserControl
             ? profile.TiktokPaidRatioPercent
             : 20);
         AiDramaBox.IsChecked = profile.TiktokIsAiDrama;
+        SelectByTag(ContentCreationTypeCombo, profile.TiktokContentCreationType, "original");
         OriginalRightsHolderBox.IsChecked = profile.TiktokIsOriginalRightsHolder;
         SelectByTag(ContentOriginalityCombo, profile.TiktokContentOriginalityType, "original");
-        LoadCopyrightMaterialTypes(profile.TiktokCopyrightMaterialTypes);
-        UploadAiScriptOutlineWithScreenshotsBox.IsChecked = profile.TiktokUploadAiScriptOutlineWithScreenshots;
+        CopyrightMaterials.Load(
+            profile.TiktokCopyrightMaterialTypes,
+            profile.TiktokUploadAiScriptOutlineWithScreenshots,
+            profile.TiktokUploadSourceInfoRoleSceneScreenshot);
         ProofDeclarantCompanyNameBox.Text = profile.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = profile.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = profile.TiktokProofSealPath;
         ProofCopyrightCompanyNameBox.Text = profile.TiktokProofCopyrightCompanyName;
+        EpisodeScriptEpisodeCountBox.Value = Math.Clamp(
+            profile.TiktokEpisodeScriptEpisodeCount > 0
+                ? profile.TiktokEpisodeScriptEpisodeCount
+                : TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount,
+            1,
+            120);
         AiScriptOutlineEpisodeCountBox.Value = Math.Clamp(
             profile.TiktokAiScriptOutlineEpisodeCount > 0
                 ? profile.TiktokAiScriptOutlineEpisodeCount
                 : TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount,
             1,
             120);
+        RoleVectorCharacterCountBox.Value = Math.Clamp(
+            profile.TiktokRoleVectorCharacterCount > 0
+                ? profile.TiktokRoleVectorCharacterCount
+                : TikTokAccountProfile.DefaultRoleVectorCharacterCount,
+            2,
+            6);
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
@@ -229,18 +244,28 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
             profile.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
             profile.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
+            profile.TiktokContentCreationType = TagOf(ContentCreationTypeCombo, "original");
             profile.TiktokIsOriginalRightsHolder = OriginalRightsHolderBox.IsChecked == true;
             profile.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
-            profile.TiktokCopyrightMaterialTypes = ReadCopyrightMaterialTypes();
-            profile.TiktokUploadAiScriptOutlineWithScreenshots = UploadAiScriptOutlineWithScreenshotsBox.IsChecked == true;
+            profile.TiktokCopyrightMaterialTypes = CopyrightMaterials.GetSelectedMaterialTypes();
+            profile.TiktokUploadAiScriptOutlineWithScreenshots = CopyrightMaterials.UploadAiScriptOutlineWithScreenshots;
+            profile.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
             profile.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
             profile.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
             profile.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
             profile.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
+            profile.TiktokEpisodeScriptEpisodeCount = Math.Clamp(
+                (int)(EpisodeScriptEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount),
+                1,
+                120);
             profile.TiktokAiScriptOutlineEpisodeCount = Math.Clamp(
                 (int)(AiScriptOutlineEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount),
                 1,
                 120);
+            profile.TiktokRoleVectorCharacterCount = Math.Clamp(
+                (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount),
+                2,
+                6);
             profile.TiktokProofAccountConfigMigrated = true;
             profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
@@ -454,33 +479,6 @@ public partial class AccountProfileEditor : UserControl
             || normalized.Contains("chinamobile")
             || normalized.Contains("cmcc")
             || normalized.Contains("cmi");
-    }
-
-    private void LoadCopyrightMaterialTypes(IEnumerable<string>? values)
-    {
-        var selected = new HashSet<string>(
-            TikTokPublishConstants.NormalizeCopyrightMaterialTypes(values),
-            StringComparer.Ordinal);
-        ProductionAgreementMaterialBox.IsChecked = selected.Contains("production_agreement");
-        WorkRegistrationMaterialBox.IsChecked = selected.Contains("work_registration_certificate");
-        FilingLicenseMaterialBox.IsChecked = selected.Contains("filing_or_distribution_license");
-        RightsNoticeMaterialBox.IsChecked = selected.Contains("opening_ending_rights_notice");
-        AiScreenshotsMaterialBox.IsChecked = selected.Contains("ai_generation_screenshots");
-        EditingProjectMaterialBox.IsChecked = selected.Contains("editing_project_files");
-        SourceInfoMaterialBox.IsChecked = selected.Contains("source_file_information");
-    }
-
-    private List<string> ReadCopyrightMaterialTypes()
-    {
-        var result = new List<string>();
-        if (ProductionAgreementMaterialBox.IsChecked == true) result.Add("production_agreement");
-        if (WorkRegistrationMaterialBox.IsChecked == true) result.Add("work_registration_certificate");
-        if (FilingLicenseMaterialBox.IsChecked == true) result.Add("filing_or_distribution_license");
-        if (RightsNoticeMaterialBox.IsChecked == true) result.Add("opening_ending_rights_notice");
-        if (AiScreenshotsMaterialBox.IsChecked == true) result.Add("ai_generation_screenshots");
-        if (EditingProjectMaterialBox.IsChecked == true) result.Add("editing_project_files");
-        if (SourceInfoMaterialBox.IsChecked == true) result.Add("source_file_information");
-        return result;
     }
 
     private static IpLookupResult ParseIp9(JsonElement root)
@@ -770,8 +768,10 @@ public partial class AccountProfileEditor : UserControl
         ProofDeclarantCompanyNameBox.Text = "";
         ProofSealPathBox.Text = "";
         ProofCopyrightCompanyNameBox.Text = "";
+        EpisodeScriptEpisodeCountBox.Value = TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount;
         AiScriptOutlineEpisodeCountBox.Value = TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount;
-        UploadAiScriptOutlineWithScreenshotsBox.IsChecked = false;
+        RoleVectorCharacterCountBox.Value = TikTokAccountProfile.DefaultRoleVectorCharacterCount;
+        CopyrightMaterials.Clear();
         ZeroCostAdsBox.IsChecked = false;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
         SubmitEnabledBox.IsChecked = true;

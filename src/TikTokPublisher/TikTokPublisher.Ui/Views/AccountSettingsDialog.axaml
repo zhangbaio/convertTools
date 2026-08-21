@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:TikTokPublisher.Ui.Views"
         x:Class="TikTokPublisher.Ui.Views.AccountSettingsDialog"
         Width="640" Height="620"
         WindowStartupLocation="CenterOwner"
@@ -38,7 +39,7 @@
                 <ScrollViewer>
                     <StackPanel Spacing="8" Margin="4">
                         <Grid ColumnDefinitions="130,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
@@ -179,23 +180,9 @@
                             </ComboBox>
 
                             <TextBlock Grid.Row="33" Grid.Column="0" Text="上传材料类型" VerticalAlignment="Top" Margin="0,5,0,0" />
-                            <StackPanel Grid.Row="33" Grid.Column="1" Spacing="6">
-                                <CheckBox x:Name="ProductionAgreementMaterialBox" Content="合作协议（核心）" />
-                                <TextBlock Text="自动上传当前项目生成的“证明材料.pdf”。勾选“备案/发行许可”后会自动生成可信时间戳认证证书，并上传到 TikTok 的“网络剧片备案、发行许可、监管审批文件”材料栏："
-                                           Foreground="#B8C8D8"
-                                           TextWrapping="Wrap" />
-                                <WrapPanel>
-                                    <CheckBox x:Name="WorkRegistrationMaterialBox" Content="作品登记证书" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="FilingLicenseMaterialBox" Content="备案/发行许可（上传可信时间戳）" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="RightsNoticeMaterialBox" Content="片头片尾权利标识" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="AiScreenshotsMaterialBox" Content="AI 生成截图" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="EditingProjectMaterialBox" Content="剪辑工程文件" Margin="0,0,12,6" />
-                                    <CheckBox x:Name="SourceInfoMaterialBox" Content="原始文件信息" Margin="0,0,12,6" />
-                                </WrapPanel>
-                                <CheckBox x:Name="UploadAiScriptOutlineWithScreenshotsBox"
-                                          Content="同时上传 AI剧本大纲.pdf 到 AI 生成过程截图"
-                                          IsEnabled="{Binding IsChecked, ElementName=AiScreenshotsMaterialBox}" />
-                            </StackPanel>
+                            <views:CopyrightMaterialSelector Grid.Row="33"
+                                                             Grid.Column="1"
+                                                             x:Name="CopyrightMaterials" />
 
                             <TextBlock Grid.Row="34" Grid.Column="0" Text="0 元投放" VerticalAlignment="Top" Margin="0,5,0,0" />
                             <StackPanel Grid.Row="34" Grid.Column="1" Spacing="8">
@@ -216,6 +203,13 @@
                                 </Grid>
                             </StackPanel>
 
+                            <TextBlock Grid.Row="35" Grid.Column="0" Text="内容创作类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="35" Grid.Column="1" x:Name="ContentCreationTypeCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="original">原创</ComboBoxItem>
+                                <ComboBoxItem Tag="remake">成片重制</ComboBoxItem>
+                                <ComboBoxItem Tag="novel_adaptation">小说改编</ComboBoxItem>
+                            </ComboBox>
+
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>
@@ -227,7 +221,7 @@
                         <TextBlock Text="这些公司与印章信息仅用于当前账号生成的权利声明。"
                                    Foreground="#B8C8D8" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="130,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="10"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本公司/声明人" VerticalAlignment="Center" />
@@ -245,8 +239,14 @@
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="致贵方名称" VerticalAlignment="Center" />
                             <TextBox Grid.Row="3" Grid.Column="1" x:Name="ProofCopyrightCompanyNameBox" Watermark="用于“致【…】（下称贵方）”" />
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="AI大纲集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="AiScriptOutlineEpisodeCountBox" Minimum="1" Maximum="120" Value="15" Width="160" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="剧本集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="EpisodeScriptEpisodeCountBox" Minimum="1" Maximum="120" Value="5" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="AI大纲集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="AiScriptOutlineEpisodeCountBox" Minimum="1" Maximum="120" Value="15" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="角色矢量图人数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="RoleVectorCharacterCountBox" Minimum="2" Maximum="6" Value="3" Width="160" HorizontalAlignment="Left" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

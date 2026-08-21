@@ -244,20 +244,10 @@ public sealed class HongguoMemoryReaderService
     {
         try
         {
-            var name = (process.ProcessName ?? string.Empty).ToLowerInvariant();
-            if (IsHongguoName(name))
-            {
-                return true;
-            }
-
-            var title = (process.MainWindowTitle ?? string.Empty).ToLowerInvariant();
-            if (IsHongguoName(title))
-            {
-                return true;
-            }
-
-            var path = TryGetProcessPath(process)?.ToLowerInvariant() ?? string.Empty;
-            return IsHongguoName(path);
+            return LooksLikeHongguoProcessIdentity(
+                process.ProcessName,
+                process.MainWindowTitle,
+                TryGetProcessPath(process));
         }
         catch
         {
@@ -265,12 +255,33 @@ public sealed class HongguoMemoryReaderService
         }
     }
 
+    internal static bool LooksLikeHongguoProcessIdentity(
+        string? processName,
+        string? mainWindowTitle,
+        string? executablePath)
+    {
+        if (IsHongguoName(processName ?? string.Empty) ||
+            IsHongguoName(mainWindowTitle ?? string.Empty))
+        {
+            return true;
+        }
+
+        // 只检查可执行文件名，不能检查完整路径。红果会启动
+        // HongguoHighDownloader/tools/aria2c.exe；匹配父目录会误选下载辅助进程，
+        // 随后扫描不到 Cookie，却被误报为“Cookie 还未进入内存”。
+        var executableName = string.IsNullOrWhiteSpace(executablePath)
+            ? string.Empty
+            : Path.GetFileNameWithoutExtension(executablePath);
+        return IsHongguoName(executableName);
+    }
+
     private static bool IsHongguoName(string value)
     {
         return value.Contains("hongguo", StringComparison.OrdinalIgnoreCase) ||
                value.Contains("hgdownload", StringComparison.OrdinalIgnoreCase) ||
                value.Contains("hglocal", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("红果", StringComparison.OrdinalIgnoreCase);
+               value.Contains("红果", StringComparison.OrdinalIgnoreCase) ||
+               value.Contains("聚合短剧盒子", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? TryGetProcessPath(System.Diagnostics.Process process)

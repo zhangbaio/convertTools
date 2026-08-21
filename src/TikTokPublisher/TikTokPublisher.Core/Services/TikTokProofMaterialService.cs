@@ -141,7 +141,9 @@ public sealed class TikTokProofMaterialService
                 log,
                 "原始文件或素材文件信息",
                 request.GenerateSourceFileScreenshots,
-                TikTokSourceFileInfoScreenshotService.ListGeneratedImages(context.WorkflowProjectDir));
+                TikTokSourceFileInfoUploadPackageService.ListFiles(
+                    context.WorkflowProjectDir,
+                    request.IncludeSourceInfoRoleSceneScreenshot));
             LogExistingMaterial(
                 log,
                 "AI 生成过程截图",
@@ -232,17 +234,62 @@ public sealed class TikTokProofMaterialService
 
         cancellationToken.ThrowIfCancellationRequested();
         if (request.GenerateSourceFileScreenshots && sourceCompleted &&
-            TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
+            TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir) &&
+            TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
+                context.WorkflowProjectDir,
+                request.IncludeSourceInfoRoleSceneScreenshot))
         {
             LogExistingMaterial(
                 log,
                 "原始文件或素材文件信息（断点复用）",
                 selected: true,
-                TikTokSourceFileInfoScreenshotService.ListGeneratedImages(context.WorkflowProjectDir));
+                TikTokSourceFileInfoUploadPackageService.ListFiles(
+                    context.WorkflowProjectDir,
+                    request.IncludeSourceInfoRoleSceneScreenshot));
         }
         else if (request.GenerateSourceFileScreenshots)
         {
             var timer = Stopwatch.StartNew();
+            log?.Invoke("[原始文件或素材文件信息] 正在确认 AI 大纲和剧本 PDF。");
+            var outlinePdf = await TikTokAiScriptOutlineService.GenerateAsync(
+                item,
+                settings,
+                account,
+                forceRerun: false,
+                log,
+                cancellationToken).ConfigureAwait(false);
+            var scriptPdf = await TikTokEpisodeScriptService.GenerateAsync(
+                item,
+                settings,
+                account,
+                forceRerun: false,
+                log,
+                cancellationToken).ConfigureAwait(false);
+            log?.Invoke("[原始文件或素材文件信息] 正在生成参考格式素材包；角色定妆图将由已配置的图片模型生成。");
+            await TikTokReferenceSourcePackageService.GenerateAsync(
+                item,
+                settings,
+                forceRerun: false,
+                log,
+                cancellationToken,
+                account?.TiktokRoleVectorCharacterCount ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount)
+                .ConfigureAwait(false);
+            if (!TikTokRoleVectorService.HasCurrentOutput(context.WorkflowProjectDir))
+            {
+                throw new InvalidOperationException(
+                    "原始文件或素材文件信息缺少角色矢量图，请先执行“生成角色矢量图”步骤。");
+            }
+            if (!TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir) &&
+                TikTokAiDramaProductionMaterialService.CanGenerate(context.WorkflowProjectDir))
+            {
+                log?.Invoke("[原始文件或素材文件信息] 检测到真实抽帧和工作台素材，自动整理 AI 漫剧制作素材。");
+                await TikTokAiDramaProductionMaterialService.GenerateAsync(
+                    item,
+                    settings,
+                    forceRerun: false,
+                    log,
+                    cancellationToken).ConfigureAwait(false);
+            }
             log?.Invoke(
                 $"[原始文件或素材文件信息] 开始：来源={context.WorkflowProjectDir}；" +
                 $"输出目录={TikTokSourceFileInfoScreenshotService.GetOutputDirectory(context.WorkflowProjectDir)}。");
@@ -254,11 +301,18 @@ public sealed class TikTokProofMaterialService
                     request.CopyrightCompanyName,
                     log,
                     cancellationToken);
+                var uploadFiles = TikTokSourceFileInfoUploadPackageService.Generate(
+                    context.WorkflowProjectDir,
+                    outlinePdf,
+                    scriptPdf,
+                    log,
+                    request.IncludeSourceInfoRoleSceneScreenshot);
                 sourceCompleted = true;
                 SaveState(
                     context, request, fingerprint, result,
                     coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
                 LogGeneratedMaterial(log, "原始文件或素材文件信息", outputs, timer.Elapsed);
+                LogGeneratedMaterial(log, "原始文件信息上传包", uploadFiles, timer.Elapsed);
             }
             catch (Exception ex)
             {
@@ -629,6 +683,7 @@ public sealed class TikTokProofMaterialService
                 ? (request.WpsExecutablePath ?? string.Empty).Trim()
                 : "skipped",
             generate_source_file_screenshots = request.GenerateSourceFileScreenshots,
+            include_source_info_role_scene_screenshot = request.IncludeSourceInfoRoleSceneScreenshot,
             generate_ai_generation_screenshots = request.GenerateAiGenerationScreenshots,
             generate_editing_project_files = request.GenerateEditingProjectFiles,
             source_file_screenshots = request.GenerateSourceFileScreenshots
@@ -707,6 +762,7 @@ public sealed class TikTokProofMaterialService
             GenerateSourceFileScreenshots = materialTypes.Contains(
                 TikTokPublishConstants.SourceFileInformationMaterialType,
                 StringComparer.Ordinal),
+            IncludeSourceInfoRoleSceneScreenshot = account.TiktokUploadSourceInfoRoleSceneScreenshot,
             GenerateAiGenerationScreenshots = materialTypes.Contains(
                 TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
                 StringComparer.Ordinal),
@@ -865,7 +921,10 @@ public sealed class TikTokProofMaterialService
         }
 
         if (request.GenerateSourceFileScreenshots &&
-            !TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
+            (!TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir) ||
+             !TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
+                 context.WorkflowProjectDir,
+                 request.IncludeSourceInfoRoleSceneScreenshot)))
         {
             return false;
         }

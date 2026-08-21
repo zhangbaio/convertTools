@@ -151,6 +151,58 @@ public static class TikTokPublishConstants
         ["hi"] = new[] { "印地语", "Hindi", "हिन्दी" },
     };
 
+    public static readonly IReadOnlyDictionary<string, int> ContentCreationTypeValues =
+        new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["original"] = 0,
+            ["remake"] = 1,
+            ["novel_adaptation"] = 3,
+        };
+
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> ContentCreationTypeLabels =
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["original"] =
+            [
+                "原创",
+                "contentPartnerHub_seriesEditPage_contentCreationType_original",
+            ],
+            ["remake"] =
+            [
+                "成片重制",
+                "contentPartnerHub_seriesEditPage_contentCreationType_repainting",
+            ],
+            ["novel_adaptation"] =
+            [
+                "小说改编",
+                "contentPartnerHub_seriesEditPage_contentCreationType_novelAdaptation",
+            ],
+        };
+
+    public static string NormalizeContentCreationType(string? value)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        return ContentCreationTypeValues.ContainsKey(normalized) ? normalized : "original";
+    }
+
+    public static void ValidatePublishConfiguration(TikTokAccountProfile account)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+
+        var sourceLanguage = string.IsNullOrWhiteSpace(account.TiktokSourceLanguage)
+            ? "zh"
+            : account.TiktokSourceLanguage.Trim();
+        var contentCreationType = NormalizeContentCreationType(account.TiktokContentCreationType);
+        if (account.TiktokIsAiDrama &&
+            string.Equals(sourceLanguage, "zh", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(contentCreationType, "remake", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "TikTok 发布配置不合理：仅源语言为非中文的短剧可选择「成片重制」。" +
+                "请将源语言改为非中文，或将内容创作类型改为「原创/小说改编」。");
+        }
+    }
+
     /// <summary>对齐 Python <c>GENRE_OPTIONS</c>。</summary>
     public static readonly IReadOnlyList<string> GenreOptions =
     [
@@ -184,12 +236,14 @@ public sealed class TikTokPublishOptions
     public int GenreCount { get; set; } = DefaultGenreCount;
     public string SourceLanguage { get; set; } = "zh";
     public bool IsAiDrama { get; set; } = true;
+    public string ContentCreationType { get; set; } = "original";
     public bool IsOriginalRightsHolder { get; set; } = true;
     public string ContentOriginalityType { get; set; } = "original";
     public IReadOnlyList<string> CopyrightMaterialTypes { get; set; } = new[] { TikTokPublishConstants.ProductionAgreementMaterialType };
     public IReadOnlyDictionary<string, string> CopyrightMaterialFilePaths { get; set; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
     public bool UploadAiScriptOutlineWithScreenshots { get; set; }
+    public bool UploadSourceInfoRoleSceneScreenshot { get; set; }
     public string AiScriptOutlineFilePath { get; set; } = "";
     /// <summary>旧版单文件字段，仅兼容合作协议；其他材料不得复用此路径。</summary>
     public string CopyrightMaterialFilePath { get; set; } = "";
@@ -287,6 +341,8 @@ public sealed class TikTokPublishOptions
         GenreCount = NormalizeGenreCount(account.TiktokGenreCount),
         SourceLanguage = string.IsNullOrWhiteSpace(account.TiktokSourceLanguage) ? "zh" : account.TiktokSourceLanguage,
         IsAiDrama = account.TiktokIsAiDrama,
+        ContentCreationType = TikTokPublishConstants.NormalizeContentCreationType(
+            account.TiktokContentCreationType),
         IsOriginalRightsHolder = account.TiktokIsOriginalRightsHolder,
         ContentOriginalityType = string.IsNullOrWhiteSpace(account.TiktokContentOriginalityType)
             ? "original"
@@ -294,6 +350,7 @@ public sealed class TikTokPublishOptions
         CopyrightMaterialTypes = TikTokPublishConstants.NormalizeCopyrightMaterialTypes(
             account.TiktokCopyrightMaterialTypes),
         UploadAiScriptOutlineWithScreenshots = account.TiktokUploadAiScriptOutlineWithScreenshots,
+        UploadSourceInfoRoleSceneScreenshot = account.TiktokUploadSourceInfoRoleSceneScreenshot,
         // 账号级测试文件不再参与正式上传。合作协议只能由当前项目生成的证明材料提供。
         CopyrightMaterialFilePath = "",
         PublishMode = string.IsNullOrWhiteSpace(account.TiktokPublishMode) ? "auto_after_review" : account.TiktokPublishMode,

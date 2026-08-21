@@ -149,6 +149,26 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
     }
 
     [Fact]
+    public void Likely_face_count_distinguishes_single_and_multi_person_frames()
+    {
+        using var single = new Image<Rgba32>(160, 160, new Rgba32(35, 45, 60));
+        using var multiple = new Image<Rgba32>(160, 160, new Rgba32(35, 45, 60));
+        FillSkinRegion(single, 60, 22, 100, 62);
+        FillSkinRegion(multiple, 25, 24, 55, 58);
+        FillSkinRegion(multiple, 105, 24, 135, 58);
+
+        TikTokAiGenerationScreenshotService.CountLikelyFaces(single).Should().Be(1);
+        TikTokAiGenerationScreenshotService.CountLikelyFaces(multiple).Should().Be(2);
+
+        static void FillSkinRegion(Image<Rgba32> image, int left, int top, int right, int bottom)
+        {
+            for (var y = top; y < bottom; y++)
+            for (var x = left; x < right; x++)
+                image[x, y] = new Rgba32(210, 155, 125);
+        }
+    }
+
+    [Fact]
     public void Asset_fallback_excludes_project_images()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-ai-assets-{Guid.NewGuid():N}");

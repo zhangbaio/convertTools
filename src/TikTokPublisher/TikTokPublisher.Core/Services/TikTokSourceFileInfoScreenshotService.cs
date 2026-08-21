@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using DocumentFormat.OpenXml;
@@ -30,20 +31,20 @@ namespace TikTokPublisher.Core.Services;
 /// </summary>
 public static class TikTokSourceFileInfoScreenshotService
 {
-    public const string OutputDirectoryName = "原始文件信息截图";
+    public const string OutputDirectoryName = TikTokSourceFileInfoUploadPackageService.OutputDirectoryName;
     public const string EvidenceDirectoryName = "项目原始资料";
-    public const int RequiredImageCount = 4;
-    public const string ScreenshotVersion = "v7-real-explorer-only";
+    private const string CaptureStagingDirectoryName = ".source-info-capture-staging";
+    public const int RequiredImageCount = 2;
+    public const string ScreenshotVersion = "v14-source-upload-folder-two-files";
 
     private const string LegacyOutputDirectoryName = "原始文件或素材文件信息";
+    private const string PreviousOutputDirectoryName = "原始文件信息截图";
     private const int ContactSheetFrameCount = 4;
     private const int MaxCatalogFiles = 12;
     private static readonly string[] FileNames =
     [
-        "01_源项目文件目录_详细信息.png",
-        "02_源项目文件目录_大图标.png",
-        "03_工作流文件目录_详细信息.png",
-        "04_工作流文件目录_大图标.png",
+        "01_剧本与项目资料.png",
+        "02_角色场景或项目素材.png",
     ];
 
     public static string GetOutputDirectory(string workflowProjectDirectory) =>
@@ -78,30 +79,38 @@ public static class TikTokSourceFileInfoScreenshotService
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workflowProjectDirectory);
         var workflow = Path.GetFullPath(workflowProjectDirectory);
-        var sourceProjectDirectory = ResolveSourceProjectDirectory(workflow);
         var title = string.IsNullOrWhiteSpace(dramaTitle) ? "未命名短剧" : dramaTitle.Trim();
         var company = string.IsNullOrWhiteSpace(companyName) ? "制作方未填写" : companyName.Trim();
         cancellationToken.ThrowIfCancellationRequested();
 
-        TryDeleteOutput(workflow);
         var outputDir = GetOutputDirectory(workflow);
-        Directory.CreateDirectory(outputDir);
+        ResilientFileSystem.DeleteDirectory(outputDir);
+        ResilientFileSystem.EnsureDirectory(outputDir);
+        ResilientFileSystem.TryDeleteDirectory(
+            Path.Combine(workflow, PreviousOutputDirectoryName));
+        ResilientFileSystem.TryDeleteDirectory(
+            Path.Combine(workflow, LegacyOutputDirectoryName));
         var explorerOutputs = GetExpectedOutputPaths(workflow).ToArray();
-        var explorerRequests = BuildExplorerCaptureRequests(
-            sourceProjectDirectory,
-            workflow,
-            explorerOutputs);
-        if (WindowsExplorerScreenshotService.TryCaptureAll(explorerRequests, log, cancellationToken))
+        var stagingDirectory = Path.Combine(workflow, CaptureStagingDirectoryName);
+        try
         {
-            log?.Invoke(
-                $"原始文件信息截图已生成：4 张真实 Windows 资源管理器完整窗口截图（源项目与工作流目录）→ {outputDir}");
-            return explorerOutputs;
-        }
+            var explorerRequests = BuildExplorerCaptureRequests(workflow, explorerOutputs, log);
+            if (WindowsExplorerScreenshotService.TryCaptureAll(explorerRequests, log, cancellationToken))
+            {
+                log?.Invoke(
+                    $"原始文件信息截图已生成：2 张真实资源管理器截图（保留左侧目录导航，隐藏地址栏）→ {outputDir}");
+                return explorerOutputs;
+            }
 
-        TryDeleteOutput(workflow);
-        throw new InvalidOperationException(
-            "原始文件信息截图生成失败：未能获取真实 Windows 资源管理器窗口截图；" +
-            "已停止生成，不会使用 AI 过程图、成片抽帧或程序合成页面替代。");
+            TryDeleteOutput(workflow);
+            throw new InvalidOperationException(
+                "原始文件信息截图生成失败：未能获取真实 Windows 资源管理器窗口截图；" +
+                "已停止生成，不会使用 AI 过程图、成片抽帧或程序合成页面替代。");
+        }
+        finally
+        {
+            TryDeleteDirectory(stagingDirectory);
+        }
 
 #if false // Legacy synthetic evidence renderer retained temporarily for migration reference only.
         var evidenceDir = GetEvidenceDirectory(workflow);
@@ -267,9 +276,9 @@ public static class TikTokSourceFileInfoScreenshotService
 
     internal static IReadOnlyList<WindowsExplorerScreenshotService.CaptureRequest>
         BuildExplorerCaptureRequests(
-            string sourceProjectDirectory,
             string workflow,
-            IReadOnlyList<string> outputs)
+            IReadOnlyList<string> outputs,
+            Action<string>? log = null)
     {
         if (outputs.Count < RequiredImageCount)
         {
@@ -278,17 +287,248 @@ public static class TikTokSourceFileInfoScreenshotService
                 nameof(outputs));
         }
 
+        var directories = PrepareDenseMaterialDirectories(workflow, log);
+
         return
         [
             new WindowsExplorerScreenshotService.CaptureRequest(
-                sourceProjectDirectory, outputs[0], LargeIcons: false),
+                directories[0], outputs[0], LargeIcons: false),
             new WindowsExplorerScreenshotService.CaptureRequest(
-                sourceProjectDirectory, outputs[1], LargeIcons: true),
-            new WindowsExplorerScreenshotService.CaptureRequest(
-                workflow, outputs[2], LargeIcons: false),
-            new WindowsExplorerScreenshotService.CaptureRequest(
-                workflow, outputs[3], LargeIcons: true),
+                directories[1], outputs[1], LargeIcons: true),
         ];
+    }
+
+    internal static IReadOnlyList<string> PrepareDenseMaterialDirectories(
+        string workflowProjectDirectory,
+        Action<string>? log = null)
+    {
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        var referencePackage = TikTokReferenceSourcePackageService.GetRoot(workflow);
+        if (TikTokReferenceSourcePackageService.HasCurrentOutput(workflow))
+        {
+            var characterDirectory = Path.Combine(
+                referencePackage,
+                TikTokReferenceSourcePackageService.CharacterDirectoryName);
+            log?.Invoke("原始文件信息/截图素材汇总：使用参考项目格式素材包（根目录、角色与场景素材）。");
+            return [referencePackage, characterDirectory];
+        }
+
+        var evidenceDirectory = GetEvidenceDirectory(workflow);
+        var package = Directory.Exists(evidenceDirectory)
+            ? Directory.EnumerateDirectories(evidenceDirectory, "EP*_源文件包")
+                .OrderByDescending(Directory.GetLastWriteTimeUtc)
+                .FirstOrDefault() ?? evidenceDirectory
+            : workflow;
+        var staging = Path.Combine(workflow, CaptureStagingDirectoryName);
+        TryDeleteDirectory(staging);
+        var directories = Enumerable.Range(1, RequiredImageCount)
+            .Select(index => Path.Combine(staging, $"{index:D2}"))
+            .ToArray();
+        foreach (var directory in directories) Directory.CreateDirectory(directory);
+
+        var imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".heic", ".heif" };
+        var documentExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { ".doc", ".docx", ".txt", ".csv", ".json", ".pdf", ".xlsx" };
+        var videoExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { ".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v" };
+
+        var allFiles = Directory.EnumerateFiles(workflow, "*", SearchOption.AllDirectories)
+            .Where(path => !path.StartsWith(staging, StringComparison.OrdinalIgnoreCase))
+            .Where(path => !path.StartsWith(GetOutputDirectory(workflow), StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var source = ResolveSourceProjectDirectory(workflow);
+        if (!source.Equals(workflow, StringComparison.OrdinalIgnoreCase) && Directory.Exists(source))
+            allFiles = allFiles.Concat(Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+
+        var eligibleFiles = allFiles
+            .Where(path => imageExtensions.Contains(Path.GetExtension(path)) ||
+                           documentExtensions.Contains(Path.GetExtension(path)) ||
+                           videoExtensions.Contains(Path.GetExtension(path)))
+            .Where(IsEligibleSourceEvidenceFile)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (eligibleFiles.Length == 0)
+        {
+            TryDeleteDirectory(staging);
+            throw new InvalidOperationException(
+                "当前项目没有可用于“原始文件或素材文件信息”的真实图片、文档或视频文件。");
+        }
+
+        var documents = eligibleFiles.Where(path => documentExtensions.Contains(Path.GetExtension(path)))
+            .OrderByDescending(path => path.StartsWith(package, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase);
+        CopySelectedMaterials(documents, directories[0], 12);
+
+        var productionMaterialRoot = Path.Combine(
+            GetEvidenceDirectory(workflow),
+            TikTokAiDramaProductionMaterialService.OutputDirectoryName);
+        var roleAndScene = eligibleFiles.Where(path => imageExtensions.Contains(Path.GetExtension(path)))
+            .Where(path =>
+                path.StartsWith(Path.Combine(productionMaterialRoot, TikTokAiDramaProductionMaterialService.CharacterDirectoryName), StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith(Path.Combine(productionMaterialRoot, TikTokAiDramaProductionMaterialService.SceneDirectoryName), StringComparison.OrdinalIgnoreCase) ||
+                (!path.Contains("抽帧原图", StringComparison.OrdinalIgnoreCase) &&
+                 (path.Contains("角色设定", StringComparison.OrdinalIgnoreCase) ||
+                  path.Contains("场景设定", StringComparison.OrdinalIgnoreCase) ||
+                  path.Contains("角色素材", StringComparison.OrdinalIgnoreCase) ||
+                  path.Contains("场景素材", StringComparison.OrdinalIgnoreCase) ||
+                  path.Contains("可灵主体", StringComparison.OrdinalIgnoreCase) ||
+                  path.Contains("场景参考", StringComparison.OrdinalIgnoreCase))));
+        CopySelectedMaterials(SelectEvenly(roleAndScene, 16), directories[1], 16);
+
+        var fallbackFiles = eligibleFiles
+            .OrderByDescending(path => path.StartsWith(package, StringComparison.OrdinalIgnoreCase))
+            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        for (var index = 0; index < directories.Length; index++)
+        {
+            var count = Directory.EnumerateFiles(directories[index]).Count();
+            if (count == 0)
+            {
+                var rotatedFallback = fallbackFiles
+                    .Skip(index % fallbackFiles.Length)
+                    .Concat(fallbackFiles.Take(index % fallbackFiles.Length));
+                count = CopySelectedMaterials(
+                    SelectEvenly(rotatedFallback, 12),
+                    directories[index],
+                    12,
+                    preferHardLink: true,
+                    displayIndexOffset: index);
+                log?.Invoke(
+                    $"原始文件信息/截图素材汇总：第 {index + 1} 类缺少专属素材，" +
+                    $"已使用 {count} 个其他真实项目文件补位。");
+            }
+
+            if (count == 0)
+            {
+                TryDeleteDirectory(staging);
+                throw new InvalidOperationException(
+                    $"第 {index + 1} 张截图无法复制任何真实项目文件；请检查文件权限或文件是否仍然存在。");
+            }
+            log?.Invoke($"原始文件信息/截图素材汇总：第 {index + 1} 类已选取 {count} 个真实文件。");
+        }
+
+        return directories;
+    }
+
+    private static IEnumerable<string> SelectEvenly(IEnumerable<string> files, int maximum)
+    {
+        var items = files.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+        if (items.Length <= maximum) return items;
+        return Enumerable.Range(0, maximum)
+            .Select(index => items[(int)Math.Round(index * (items.Length - 1d) / (maximum - 1d))]);
+    }
+
+    private static bool IsEligibleSourceEvidenceFile(string path)
+    {
+        string[] excludedDirectories =
+        [
+            OutputDirectoryName,
+            PreviousOutputDirectoryName,
+            LegacyOutputDirectoryName,
+            TikTokAiGenerationScreenshotService.OutputDirectoryName,
+            TikTokProjectImageService.OutputDirectoryName,
+        ];
+        return !excludedDirectories.Any(name =>
+            path.Contains(
+                $"{Path.DirectorySeparatorChar}{name}{Path.DirectorySeparatorChar}",
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static int CopySelectedMaterials(
+        IEnumerable<string> files,
+        string destination,
+        int maximum,
+        bool preferHardLink = false,
+        int displayIndexOffset = 0)
+    {
+        var index = 0;
+        var copied = 0;
+        foreach (var source in files.Take(maximum))
+        {
+            var target = Path.Combine(
+                destination,
+                $"{displayIndexOffset + ++index:D2}_{Path.GetFileName(source)}");
+            try
+            {
+                if (preferHardLink && OperatingSystem.IsWindows())
+                {
+                    if (!CreateHardLink(target, source, IntPtr.Zero))
+                        throw new IOException($"无法创建视频材料硬链接：{source}");
+                }
+                else File.Copy(source, target, overwrite: false);
+                copied++;
+            }
+            catch
+            {
+                if (!preferHardLink || new FileInfo(source).Length > 64L * 1024 * 1024) continue;
+                try
+                {
+                    File.Copy(source, target, overwrite: false);
+                    copied++;
+                }
+                catch { }
+            }
+        }
+
+        return copied;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateHardLink(
+        string fileName,
+        string existingFileName,
+        IntPtr securityAttributes);
+
+    internal static string ResolveEvidencePackageDirectory(string workflowProjectDirectory)
+    {
+        var evidenceDirectory = GetEvidenceDirectory(workflowProjectDirectory);
+        if (!Directory.Exists(evidenceDirectory))
+            throw new DirectoryNotFoundException($"缺少项目原始资料目录：{EvidenceDirectoryName}");
+
+        var package = Directory.EnumerateDirectories(evidenceDirectory, "EP*_源文件包")
+            .OrderByDescending(Directory.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+        return package ?? throw new DirectoryNotFoundException("缺少 EPxx_源文件包，无法生成真实材料截图。");
+    }
+
+    private static string RequireMaterialDirectory(string packageDirectory, string name)
+    {
+        var directory = Path.Combine(packageDirectory, name);
+        if (!Directory.Exists(directory) || !Directory.EnumerateFiles(directory).Any())
+            throw new InvalidOperationException($"真实材料目录为空或不存在：{name}");
+        return directory;
+    }
+
+    private static string ResolveFirstMaterialDirectory(string packageDirectory, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var directory = Path.Combine(packageDirectory, name);
+            if (Directory.Exists(directory) && Directory.EnumerateFiles(directory).Any())
+                return directory;
+        }
+
+        throw new InvalidOperationException($"真实角色/场景材料目录为空：{string.Join("、", names)}");
+    }
+
+    private static string ResolveVideoOrProjectMaterialDirectory(string packageDirectory, string name)
+    {
+        var directory = Path.Combine(packageDirectory, name);
+        string[] videoExtensions = [".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"];
+        var hasVideo = Directory.Exists(directory) && Directory.EnumerateFiles(directory)
+            .Any(path => videoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase));
+        if (hasVideo)
+            return directory;
+
+        // The platform accepts project-material file information as well as video raw files.
+        // When the source project has no downloaded video, show the real package manifests
+        // instead of blocking the entire evidence set or fabricating video files.
+        if (Directory.EnumerateFiles(packageDirectory).Any())
+            return packageDirectory;
+
+        throw new InvalidOperationException("缺少真实视频文件和项目素材清单，无法生成第 4 张材料截图。");
     }
 
     internal static string ResolveSourceProjectDirectory(string workflowProjectDirectory)
@@ -347,10 +587,50 @@ public static class TikTokSourceFileInfoScreenshotService
         }
     }
 
+    public static string RefreshRoleSceneScreenshot(
+        string workflowProjectDirectory,
+        Action<string>? log = null,
+        CancellationToken cancellationToken = default)
+    {
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        var outputDirectory = GetOutputDirectory(workflow);
+        Directory.CreateDirectory(outputDirectory);
+        var output = Path.Combine(outputDirectory, FileNames[1]);
+        var temporary = Path.Combine(
+            outputDirectory,
+            $".{Path.GetFileNameWithoutExtension(FileNames[1])}.{Guid.NewGuid():N}.tmp.png");
+        var stagingDirectory = Path.Combine(workflow, CaptureStagingDirectoryName);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var directories = PrepareDenseMaterialDirectories(workflow, log);
+            if (directories.Count < RequiredImageCount)
+                throw new InvalidOperationException("刷新角色场景截图失败：没有可用的角色素材目录。");
+            var request = new WindowsExplorerScreenshotService.CaptureRequest(
+                directories[1], temporary, LargeIcons: true);
+            if (!WindowsExplorerScreenshotService.TryCaptureAll([request], log, cancellationToken) ||
+                !File.Exists(temporary))
+                throw new InvalidOperationException("刷新角色场景截图失败：未能获取真实 Windows 资源管理器窗口截图。");
+            ResilientFileSystem.MoveFile(temporary, output, overwrite: true);
+            log?.Invoke($"原始文件信息上传：已同步刷新 {RoleSceneImageFileNameForLog()}。");
+            return output;
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+            TryDeleteDirectory(stagingDirectory);
+        }
+    }
+
+    private static string RoleSceneImageFileNameForLog() => FileNames[1];
+
     public static void TryDeleteOutput(string workflowProjectDirectory)
     {
-        TryDeleteDirectory(GetOutputDirectory(workflowProjectDirectory));
-        TryDeleteDirectory(Path.Combine(Path.GetFullPath(workflowProjectDirectory), LegacyOutputDirectoryName));
+        ResilientFileSystem.TryDeleteDirectory(GetOutputDirectory(workflowProjectDirectory));
+        ResilientFileSystem.TryDeleteDirectory(
+            Path.Combine(Path.GetFullPath(workflowProjectDirectory), PreviousOutputDirectoryName));
+        ResilientFileSystem.TryDeleteDirectory(
+            Path.Combine(Path.GetFullPath(workflowProjectDirectory), LegacyOutputDirectoryName));
     }
 
     private static List<string> FindVideos(string workflow)

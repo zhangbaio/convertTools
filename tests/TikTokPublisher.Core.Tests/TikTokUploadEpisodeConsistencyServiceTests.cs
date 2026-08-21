@@ -7,7 +7,7 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokUploadEpisodeConsistencyServiceTests
 {
     [Fact]
-    public void ValidateBeforeUpload_Fails_When_Source_Is_Missing_Declared_Episode()
+    public void ValidateBeforeUpload_Passes_When_Staging_IsComplete_AndSourceIsMissingEpisode()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"episode-consistency-{Guid.NewGuid():N}");
         var sourceDir = Path.Combine(workspace, "source");
@@ -30,11 +30,40 @@ public sealed class TikTokUploadEpisodeConsistencyServiceTests
                 EpisodeCount = 100,
             });
 
-            result.Ok.Should().BeFalse();
+            result.Ok.Should().BeTrue(result.Message);
             result.ExpectedCount.Should().Be(100);
-            result.SourceVideoCount.Should().Be(99);
-            result.MissingEpisodes.Should().Equal(100);
-            result.Message.Should().Contain("第 100 集");
+            result.SourceVideoCount.Should().Be(100);
+            result.MissingEpisodes.Should().BeEmpty();
+        }
+        finally
+        {
+            TryDelete(workspace);
+        }
+    }
+
+    [Fact]
+    public void ValidateBeforeUpload_UsesStagingCount_InsteadOfStaleDeclaredCount()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"episode-consistency-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(workspace, "source");
+        var stagingDir = Path.Combine(workspace, "workflow", "source", TikTokUploadStagingService.StagingDirName);
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(stagingDir);
+
+        try
+        {
+            for (var episode = 1; episode <= 40; episode++)
+                File.WriteAllBytes(Path.Combine(stagingDir, $"renamed-第{episode}集.mp4"), [1]);
+
+            var result = TikTokUploadEpisodeConsistencyService.ValidateBeforeUpload(new PublishItem
+            {
+                ProjectDir = sourceDir,
+                EpisodeCount = 120,
+            });
+
+            result.Ok.Should().BeTrue(result.Message);
+            result.ExpectedCount.Should().Be(40);
+            result.SourceVideoCount.Should().Be(40);
         }
         finally
         {

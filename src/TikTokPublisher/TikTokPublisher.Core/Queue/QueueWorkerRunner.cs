@@ -795,6 +795,18 @@ public sealed class QueueWorkerRunner
                 "AI 大纲补全专用模式：跳过时间戳及其他证明材料准备，" +
                 "不会触发视频下载补源，仅追加 AI剧本大纲.pdf。");
         }
+
+        try
+        {
+            TikTokPublishConstants.ValidatePublishConfiguration(account);
+        }
+        catch (InvalidOperationException ex)
+        {
+            mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, ex.Message));
+            Report(onProgress, workspace, item, ex.Message, QueueStepRegistry.UploadSeries);
+            return false;
+        }
+
         if (!copyrightProofOnly)
         {
             var consistency = TikTokUploadEpisodeConsistencyService.ValidateBeforeUpload(item);
@@ -893,7 +905,8 @@ public sealed class QueueWorkerRunner
             var proofAlreadyCompleted =
                 item.StepStates.GetValueOrDefault(QueueStepRegistry.GenerateProofMaterial) ==
                 QueueStepStatus.Completed;
-            if (proofAlreadyCompleted)
+            var reuseExistingProof = proofAlreadyCompleted && !options.ForceRerunCompletedSteps;
+            if (reuseExistingProof)
             {
                 Report(
                     onProgress,
@@ -909,16 +922,18 @@ public sealed class QueueWorkerRunner
                     onProgress,
                     workspace,
                     item,
-                    "合作协议已选中，上传前检查当前项目证明材料…",
+                    "已勾选版权证明材料，上传前检查当前项目证明材料…",
                     QueueStepRegistry.GenerateProofMaterial);
             }
 
             try
             {
-                var proofPath = await ensureProofMaterial(item, account, uploadLog, ct).ConfigureAwait(false);
+                var proofPath = reuseExistingProof
+                    ? TikTokProofMaterialService.ValidateExistingForUpload(item)
+                    : await ensureProofMaterial(item, account, uploadLog, ct).ConfigureAwait(false);
                 if (!string.IsNullOrWhiteSpace(proofPath))
                     TikTokProofMaterialPdfRenderService.ValidatePdf(proofPath);
-                if (!proofAlreadyCompleted)
+                if (!reuseExistingProof)
                     mutate(() => MarkCompleted(item, QueueStepRegistry.GenerateProofMaterial));
                 Report(
                     onProgress,
@@ -1130,11 +1145,24 @@ public sealed class QueueWorkerRunner
                 break;
             case QueueStepRegistry.GenerateEpisodeScript:
                 await TikTokEpisodeScriptService.GenerateAsync(
-                    item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
+                    item, settings, account, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateAiScriptOutline:
                 await TikTokAiScriptOutlineService.GenerateAsync(
                     item, settings, account, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
+                break;
+            case QueueStepRegistry.GenerateAiDramaMaterials:
+                await TikTokAiDramaProductionMaterialService.GenerateAsync(
+                    item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
+                break;
+            case QueueStepRegistry.GenerateRoleVector:
+                await TikTokRoleVectorService.GenerateAsync(
+                    item,
+                    settings,
+                    account?.TiktokRoleVectorCharacterCount ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount,
+                    options.ForceRerunCompletedSteps,
+                    log,
+                    ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateProjectImages:
                 await TikTokProjectImageService.GenerateAsync(
@@ -1253,6 +1281,21 @@ public sealed class QueueWorkerRunner
             TikTokProjectImageService.NeedsGenerateProjectImages(item, ClientSettingsStore.Load()))
         {
             return true;
+        }
+        if (stepKey == QueueStepRegistry.GenerateRoleVector &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed)
+        {
+            try
+            {
+                var workflow = ProjectWorkspaceService.ResolveWorkflowProjectDir(item.ProjectDir);
+                var configuredCount = account?.TiktokRoleVectorCharacterCount ??
+                                      TikTokAccountProfile.DefaultRoleVectorCharacterCount;
+                if (!TikTokRoleVectorService.HasCurrentOutput(workflow, configuredCount)) return true;
+            }
+            catch
+            {
+                return true;
+            }
         }
         return item.StepStates.GetValueOrDefault(stepKey) is not
             (QueueStepStatus.Completed or QueueStepStatus.Skipped);

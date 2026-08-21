@@ -83,6 +83,7 @@ public static class TikTokUploadManifestService
             ["genre_count"] = options.GenreCount,
             ["source_language"] = options.SourceLanguage,
             ["is_ai_drama"] = options.IsAiDrama,
+            ["content_creation_type"] = options.ContentCreationType,
             ["publish_mode"] = options.PublishMode,
             ["consignment_enabled"] = options.ConsignmentEnabled,
             ["silence_validation_enabled"] = account?.TiktokSilenceValidationEnabled ?? true,

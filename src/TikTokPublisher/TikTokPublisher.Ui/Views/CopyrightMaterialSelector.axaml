@@ -1,0 +1,190 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="TikTokPublisher.Ui.Views.CopyrightMaterialSelector">
+    <UserControl.Styles>
+        <Style Selector="Border.materialGroup">
+            <Setter Property="BorderBrush" Value="#DCE3EC" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Padding" Value="14,10" />
+        </Style>
+        <Style Selector="Border.materialRow">
+            <Setter Property="Padding" Value="4,8" />
+        </Style>
+        <Style Selector="TextBlock.materialHint">
+            <Setter Property="Foreground" Value="#6B7280" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="StackPanel.materialContents">
+            <Setter Property="Margin" Value="28,5,0,0" />
+            <Setter Property="Spacing" Value="4" />
+        </Style>
+        <Style Selector="CheckBox.materialOption">
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+    </UserControl.Styles>
+
+    <StackPanel Spacing="10">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <StackPanel Spacing="2">
+                <TextBlock Text="材料上传类型" FontSize="14" FontWeight="SemiBold" />
+                <TextBlock Text="平台要求：至少选择 1 项核心材料；若无法提供，则至少选择 2 项辅助材料"
+                           Classes="materialHint" />
+                <TextBlock x:Name="MinimumStatusText" FontSize="12" FontWeight="SemiBold" />
+            </StackPanel>
+            <Button Grid.Column="1"
+                    Content="仅选择最低标准"
+                    Padding="10,4"
+                    VerticalAlignment="Center"
+                    Click="OnSelectMinimumStandardClick" />
+        </Grid>
+
+        <Border Classes="materialGroup">
+            <StackPanel Spacing="2">
+                <TextBlock Text="核心材料" FontWeight="SemiBold" FontSize="14" />
+                <TextBlock Text="选择任意 1 项即可满足平台最低标准" Classes="materialHint" Margin="0,0,0,4" />
+
+                <Border Classes="materialRow">
+                    <StackPanel>
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <CheckBox x:Name="ProductionAgreementMaterialBox"
+                                      Classes="materialOption"
+                                      Content="合作协议"
+                                      Checked="OnMaterialSelectionChanged"
+                                      Unchecked="OnMaterialSelectionChanged" />
+                            <TextBlock Grid.Column="1" Text="最低标准推荐" Foreground="#16803C"
+                                       FontSize="12" VerticalAlignment="Center" />
+                        </Grid>
+                        <TextBlock Text="制作协议、联合出品协议等合作协议；系统自动生成当前项目的证明材料。"
+                                   Classes="materialHint" Margin="28,2,0,0" />
+                        <StackPanel Classes="materialContents"
+                                    IsVisible="{Binding IsChecked, ElementName=ProductionAgreementMaterialBox}">
+                            <CheckBox Content="上传：证明材料.pdf（自动生成）" IsChecked="True" IsEnabled="False" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Height="1" Background="#EEF1F5" />
+
+                <Border Classes="materialRow">
+                    <StackPanel>
+                        <CheckBox x:Name="WorkRegistrationMaterialBox"
+                                  Classes="materialOption"
+                                  Content="作品登记证书"
+                                  Checked="OnMaterialSelectionChanged"
+                                  Unchecked="OnMaterialSelectionChanged" />
+                        <TextBlock Text="登记的作品类别需为影视作品，并与当前短剧作品及合同签约主体一致。"
+                                   Classes="materialHint" Margin="28,2,0,0" />
+                        <TextBlock Text="当前自动上传流程未支持，请仅在已另行配置独立文件时选择。"
+                                   Classes="materialHint" Foreground="#C2410C" Margin="28,3,0,0"
+                                   IsVisible="{Binding IsChecked, ElementName=WorkRegistrationMaterialBox}" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="materialGroup">
+            <StackPanel Spacing="2">
+                <TextBlock Text="辅助材料" FontWeight="SemiBold" FontSize="14" />
+                <TextBlock Text="未选择核心材料时，至少选择 2 项辅助材料" Classes="materialHint" Margin="0,0,0,4" />
+
+                <Border Classes="materialRow">
+                    <StackPanel>
+                        <CheckBox x:Name="FilingLicenseMaterialBox"
+                                  Classes="materialOption"
+                                  Content="网络剧片备案、发行许可、监管审批文件"
+                                  Checked="OnMaterialSelectionChanged"
+                                  Unchecked="OnMaterialSelectionChanged" />
+                        <TextBlock Text="用于识别短剧备案主体、制片方、申报主体或许可主体。"
+                                   Classes="materialHint" Margin="28,2,0,0" />
+                        <StackPanel Classes="materialContents"
+                                    IsVisible="{Binding IsChecked, ElementName=FilingLicenseMaterialBox}">
+                            <CheckBox Content="上传：可信时间戳认证证书（自动生成）" IsChecked="True" IsEnabled="False" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Height="1" Background="#EEF1F5" />
+
+                <Border Classes="materialRow">
+                    <StackPanel>
+                        <CheckBox x:Name="RightsNoticeMaterialBox"
+                                  Classes="materialOption"
+                                  Content="片头片尾及权利标识"
+                                  Checked="OnMaterialSelectionChanged"
+                                  Unchecked="OnMaterialSelectionChanged" />
+                        <TextBlock Text="包含片头片尾署名、标识等，可识别的制片方、出品方、发行方应与合同主体一致。"
+                                   Classes="materialHint" Margin="28,2,0,0" />
+                        <TextBlock Text="当前自动上传流程未支持，请仅在已另行配置独立文件时选择。"
+                                   Classes="materialHint" Foreground="#C2410C" Margin="28,3,0,0"
+                                   IsVisible="{Binding IsChecked, ElementName=RightsNoticeMaterialBox}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Height="1" Background="#EEF1F5" />
+
+                <Border Classes="materialRow">
+                    <StackPanel>
+                        <CheckBox x:Name="AiScreenshotsMaterialBox"
+                                  Classes="materialOption"
+                                  Content="AI 生成过程截图"
+                                  Checked="OnMaterialSelectionChanged"
+                                  Unchecked="OnMaterialSelectionChanged" />
+                        <TextBlock Text="提供生成过程、提示词、操作步骤及对应生成结果的截图。"
+                                   Classes="materialHint" Margin="28,2,0,0" />
+                        <StackPanel Classes="materialContents"
+                                    IsVisible="{Binding IsChecked, ElementName=AiScreenshotsMaterialBox}">
+                            <CheckBox Content="上传：AI 生成截图（共4张，自动生成）"
+                                      IsChecked="True" IsEnabled="False"
+                                      ToolTip.Tip="01_分镜工作台.png、02_分镜工作台.png、03_分镜工作台.png、04_分镜工作台.png" />
+                            <CheckBox x:Name="UploadAiScriptOutlineWithScreenshotsBox"
+                                      Content="同时上传 AI剧本大纲.pdf（可选）" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Height="1" Background="#EEF1F5" />
+
+                <Border Classes="materialRow">
+                    <StackPanel>
+                        <CheckBox x:Name="EditingProjectMaterialBox"
+                                  Classes="materialOption"
+                                  Content="剪辑工程文件"
+                                  Checked="OnMaterialSelectionChanged"
+                                  Unchecked="OnMaterialSelectionChanged" />
+                        <TextBlock Text="工程图应包含短剧或漫画画面及清晰的分轨、剪辑或后期编辑过程。"
+                                   Classes="materialHint" Margin="28,2,0,0" />
+                        <StackPanel Classes="materialContents"
+                                    IsVisible="{Binding IsChecked, ElementName=EditingProjectMaterialBox}">
+                            <CheckBox Content="上传：工程图（至少4张，自动生成）" IsChecked="True" IsEnabled="False" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Height="1" Background="#EEF1F5" />
+
+                <Border Classes="materialRow">
+                    <StackPanel>
+                        <CheckBox x:Name="SourceInfoMaterialBox"
+                                  Classes="materialOption"
+                                  Content="原始文件或素材文件信息"
+                                  Checked="OnMaterialSelectionChanged"
+                                  Unchecked="OnMaterialSelectionChanged" />
+                        <TextBlock Text="用于证明项目原始文件、角色及素材信息。"
+                                   Classes="materialHint" Margin="28,2,0,0" />
+                        <StackPanel Classes="materialContents"
+                                    IsVisible="{Binding IsChecked, ElementName=SourceInfoMaterialBox}">
+                            <CheckBox Content="上传包（共4项，自动生成）" IsChecked="True" IsEnabled="False" />
+                            <TextBlock Text="AI剧本大纲.pdf、剧本.pdf、01_剧本与项目资料.png、角色矢量图.png"
+                                       Classes="materialHint" Margin="28,0,0,0" />
+                            <CheckBox x:Name="UploadSourceInfoRoleSceneScreenshotBox"
+                                      Content="同时上传 02_角色场景或项目素材.png（可选）" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

@@ -145,6 +145,8 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _queueGeneratePosterEnabled;
     [ObservableProperty] private bool _queueGenerateEpisodeScriptEnabled;
     [ObservableProperty] private bool _queueGenerateAiScriptOutlineEnabled;
+    [ObservableProperty] private bool _queueGenerateAiDramaMaterialsEnabled;
+    [ObservableProperty] private bool _queueGenerateRoleVectorEnabled;
     [ObservableProperty] private bool _queueGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _queueGenerateTimestampCertificateEnabled;
     [ObservableProperty] private bool _queueDeleteSourceVideosEnabled;
@@ -538,7 +540,9 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnQueueRewriteEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGeneratePosterEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateEpisodeScriptEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnQueueGenerateAiDramaMaterialsEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateAiScriptOutlineEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnQueueGenerateRoleVectorEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateProofMaterialEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateTimestampCertificateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueDeleteSourceVideosEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -700,6 +704,8 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGeneratePosterEnabled = true;
             QueueGenerateEpisodeScriptEnabled = true;
             QueueGenerateAiScriptOutlineEnabled = true;
+            QueueGenerateAiDramaMaterialsEnabled = true;
+            QueueGenerateRoleVectorEnabled = true;
             QueueGenerateProofMaterialEnabled = true;
             QueueGenerateTimestampCertificateEnabled = true;
             QueueDeleteSourceVideosEnabled = true;
@@ -733,6 +739,8 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGeneratePosterEnabled = false;
             QueueGenerateEpisodeScriptEnabled = false;
             QueueGenerateAiScriptOutlineEnabled = false;
+            QueueGenerateAiDramaMaterialsEnabled = false;
+            QueueGenerateRoleVectorEnabled = false;
             QueueGenerateProofMaterialEnabled = false;
             QueueGenerateTimestampCertificateEnabled = false;
             QueueDeleteSourceVideosEnabled = false;
@@ -1271,8 +1279,11 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokProofCopyrightCompanyName = account.TiktokProofCopyrightCompanyName,
         TiktokProofDeclarantCompanyName = account.TiktokProofDeclarantCompanyName,
         TiktokTimestampApplicantName = account.TiktokTimestampApplicantName,
+        TiktokEpisodeScriptEpisodeCount = account.TiktokEpisodeScriptEpisodeCount,
         TiktokAiScriptOutlineEpisodeCount = account.TiktokAiScriptOutlineEpisodeCount,
+        TiktokRoleVectorCharacterCount = account.TiktokRoleVectorCharacterCount,
         TiktokUploadAiScriptOutlineWithScreenshots = account.TiktokUploadAiScriptOutlineWithScreenshots,
+        TiktokUploadSourceInfoRoleSceneScreenshot = account.TiktokUploadSourceInfoRoleSceneScreenshot,
         TiktokProofSealPath = account.TiktokProofSealPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
         TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,
@@ -3221,6 +3232,18 @@ public sealed partial class MainViewModel : ViewModelBase
             : $"已保存「{row.NewTitle}」备注";
     }
 
+    public void MarkManualRoleMaterialChanged(QueueProjectItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        item.StepStates[QueueStepRegistry.GenerateRoleVector] = QueueStepStatus.Pending;
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial] = QueueStepStatus.Pending;
+        item.StepStates[QueueStepRegistry.GenerateTimestampCertificate] = QueueStepStatus.Pending;
+        item.LastError = string.Empty;
+        if (string.Equals(item.CurrentStep, QueueStepRegistry.GenerateRoleVector, StringComparison.Ordinal))
+            item.CurrentStep = string.Empty;
+        PersistQueueItems();
+    }
+
     public async Task<QueueProjectTitleRenameResult> RenameQueueProjectNewTitleAsync(
         QueueProjectRowViewModel row,
         string newTitle)
@@ -3300,6 +3323,8 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGeneratePosterEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GeneratePoster);
             QueueGenerateEpisodeScriptEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateEpisodeScript);
             QueueGenerateAiScriptOutlineEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateAiScriptOutline);
+            QueueGenerateAiDramaMaterialsEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateAiDramaMaterials);
+            QueueGenerateRoleVectorEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateRoleVector);
             QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
             QueueGenerateTimestampCertificateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateTimestampCertificate);
             QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
@@ -3324,6 +3349,8 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
         if (QueueGenerateEpisodeScriptEnabled) steps.Add(QueueStepRegistry.GenerateEpisodeScript);
         if (QueueGenerateAiScriptOutlineEnabled) steps.Add(QueueStepRegistry.GenerateAiScriptOutline);
+        if (QueueGenerateAiDramaMaterialsEnabled) steps.Add(QueueStepRegistry.GenerateAiDramaMaterials);
+        if (QueueGenerateRoleVectorEnabled) steps.Add(QueueStepRegistry.GenerateRoleVector);
         if (QueueGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (QueueGenerateTimestampCertificateEnabled) steps.Add(QueueStepRegistry.GenerateTimestampCertificate);
         if (QueueDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);

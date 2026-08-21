@@ -75,14 +75,21 @@ public static class TikTokUploadEpisodeConsistencyService
                 Path.GetFullPath(projectDir));
         }
 
-        var uploadVideos = ProjectVideoResolver
-            .ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
+        var stagedVideos = ProjectVideoResolver
+            .ResolveStagedUploadVideos(context.SourceProjectDir)
             .ToList();
+        var uploadVideos = stagedVideos.Count > 0
+            ? stagedVideos
+            : ProjectVideoResolver
+                .ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
+                .ToList();
 
         var declaredCounts = ResolveDeclaredEpisodeCounts(context, itemEpisodeCount).ToList();
-        var expectedCount = declaredCounts.Count > 0
-            ? declaredCounts.Max()
-            : uploadVideos.Count;
+        var expectedCount = stagedVideos.Count > 0
+            ? stagedVideos.Count
+            : declaredCounts.Count > 0
+                ? declaredCounts.Max()
+                : uploadVideos.Count;
 
         if (expectedCount <= 0)
             return Pass();

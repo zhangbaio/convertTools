@@ -241,9 +241,7 @@ public static class ClientSettingsStore
         settings.HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine);
         settings.HgnewUdid = NormalizeUdid(settings.HgnewUdid);
         settings.HgnewClientVersion = HongguoClientVersion.Normalize(settings.HgnewClientVersion);
-        settings.PikachuDramaType = string.Equals(settings.PikachuDramaType, "manga", StringComparison.OrdinalIgnoreCase)
-            ? "manga"
-            : "short";
+        settings.PikachuDramaType = NormalizePikachuDramaType(settings.PikachuDramaType);
         settings.PikachuFanqieCookie = NormalizePikachuFanqieCookie(settings.PikachuFanqieCookie);
         settings.TiktokSilenceAsrEngine = NormalizeAsrEngine(settings.TiktokSilenceAsrEngine);
         settings.TiktokSilenceRepairMode = NormalizeRepairMode(settings.TiktokSilenceRepairMode);
@@ -277,6 +275,8 @@ public static class ClientSettingsStore
                 : settings.AiTextMaxBatchSize,
             1,
             50);
+        settings.TiktokRoleReferenceSelectionMode = NormalizeRoleReferenceSelectionMode(
+            settings.TiktokRoleReferenceSelectionMode);
         settings.AiTagSystemPrompt = DefaultIfBlank(settings.AiTagSystemPrompt, ClientSettingsDefaults.AiTagSystemPrompt);
         settings.AiTagBatchPrompt = DefaultIfBlank(settings.AiTagBatchPrompt, ClientSettingsDefaults.AiTagBatchPrompt);
         settings.AiFullInfoSystemPrompt = DefaultIfBlank(settings.AiFullInfoSystemPrompt, ClientSettingsDefaults.AiFullInfoSystemPrompt);
@@ -413,6 +413,11 @@ public static class ClientSettingsStore
         return HongguoMemoryReaderService.NormalizeFanqieCookie(trimmed) ?? trimmed;
     }
 
+    private static string NormalizePikachuDramaType(string? value) =>
+        string.Equals(value?.Trim(), "manga", StringComparison.OrdinalIgnoreCase)
+            ? "manga"
+            : "short";
+
     private static string NormalizeHongguoLocalDownloadMode(string? value)
     {
         var normalized = (value ?? "fast").Trim().ToLowerInvariant();
@@ -463,6 +468,11 @@ public static class ClientSettingsStore
                 (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant(),
             _ => ClientSettingsDefaults.PosterMode
         };
+
+    internal static string NormalizeRoleReferenceSelectionMode(string? value) =>
+        string.Equals(value?.Trim(), "ai_full_review", StringComparison.OrdinalIgnoreCase)
+            ? "ai_full_review"
+            : ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
 
     private static string NormalizeImageProvider(string? value) =>
         (value ?? ClientSettingsDefaults.ImageProvider).Trim().ToLowerInvariant() switch

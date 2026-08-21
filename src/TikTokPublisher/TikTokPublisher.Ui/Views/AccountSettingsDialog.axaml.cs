@@ -51,20 +51,35 @@ public partial class AccountSettingsDialog : Window
             ? p.TiktokPaidRatioPercent
             : 20);
         AiDramaBox.IsChecked = p.TiktokIsAiDrama;
+        SelectByTag(ContentCreationTypeCombo, p.TiktokContentCreationType, "original");
         OriginalRightsHolderBox.IsChecked = p.TiktokIsOriginalRightsHolder;
         SelectByTag(ContentOriginalityCombo, p.TiktokContentOriginalityType, "original");
-        LoadCopyrightMaterialTypes(p.TiktokCopyrightMaterialTypes);
-        UploadAiScriptOutlineWithScreenshotsBox.IsChecked = p.TiktokUploadAiScriptOutlineWithScreenshots;
+        CopyrightMaterials.Load(
+            p.TiktokCopyrightMaterialTypes,
+            p.TiktokUploadAiScriptOutlineWithScreenshots,
+            p.TiktokUploadSourceInfoRoleSceneScreenshot);
         ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = p.TiktokProofSealPath;
         ProofCopyrightCompanyNameBox.Text = p.TiktokProofCopyrightCompanyName;
+        EpisodeScriptEpisodeCountBox.Value = Math.Clamp(
+            p.TiktokEpisodeScriptEpisodeCount > 0
+                ? p.TiktokEpisodeScriptEpisodeCount
+                : TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount,
+            1,
+            120);
         AiScriptOutlineEpisodeCountBox.Value = Math.Clamp(
             p.TiktokAiScriptOutlineEpisodeCount > 0
                 ? p.TiktokAiScriptOutlineEpisodeCount
                 : TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount,
             1,
             120);
+        RoleVectorCharacterCountBox.Value = Math.Clamp(
+            p.TiktokRoleVectorCharacterCount > 0
+                ? p.TiktokRoleVectorCharacterCount
+                : TikTokAccountProfile.DefaultRoleVectorCharacterCount,
+            2,
+            6);
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
@@ -125,18 +140,28 @@ public partial class AccountSettingsDialog : Window
         p.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
         p.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
         p.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
+        p.TiktokContentCreationType = TagOf(ContentCreationTypeCombo, "original");
         p.TiktokIsOriginalRightsHolder = OriginalRightsHolderBox.IsChecked == true;
         p.TiktokContentOriginalityType = TagOf(ContentOriginalityCombo, "original");
-        p.TiktokCopyrightMaterialTypes = ReadCopyrightMaterialTypes();
-        p.TiktokUploadAiScriptOutlineWithScreenshots = UploadAiScriptOutlineWithScreenshotsBox.IsChecked == true;
+        p.TiktokCopyrightMaterialTypes = CopyrightMaterials.GetSelectedMaterialTypes();
+        p.TiktokUploadAiScriptOutlineWithScreenshots = CopyrightMaterials.UploadAiScriptOutlineWithScreenshots;
+        p.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
         p.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
         p.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
         p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
         p.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
+        p.TiktokEpisodeScriptEpisodeCount = Math.Clamp(
+            (int)(EpisodeScriptEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount),
+            1,
+            120);
         p.TiktokAiScriptOutlineEpisodeCount = Math.Clamp(
             (int)(AiScriptOutlineEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount),
             1,
             120);
+        p.TiktokRoleVectorCharacterCount = Math.Clamp(
+            (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount),
+            2,
+            6);
         p.TiktokProofAccountConfigMigrated = true;
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
@@ -238,33 +263,6 @@ public partial class AccountSettingsDialog : Window
 
     private static string TagOf(ComboBox combo, string fallback)
         => (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? fallback;
-
-    private void LoadCopyrightMaterialTypes(IEnumerable<string>? values)
-    {
-        var selected = new HashSet<string>(
-            TikTokPublishConstants.NormalizeCopyrightMaterialTypes(values),
-            StringComparer.Ordinal);
-        ProductionAgreementMaterialBox.IsChecked = selected.Contains("production_agreement");
-        WorkRegistrationMaterialBox.IsChecked = selected.Contains("work_registration_certificate");
-        FilingLicenseMaterialBox.IsChecked = selected.Contains("filing_or_distribution_license");
-        RightsNoticeMaterialBox.IsChecked = selected.Contains("opening_ending_rights_notice");
-        AiScreenshotsMaterialBox.IsChecked = selected.Contains("ai_generation_screenshots");
-        EditingProjectMaterialBox.IsChecked = selected.Contains("editing_project_files");
-        SourceInfoMaterialBox.IsChecked = selected.Contains("source_file_information");
-    }
-
-    private List<string> ReadCopyrightMaterialTypes()
-    {
-        var result = new List<string>();
-        if (ProductionAgreementMaterialBox.IsChecked == true) result.Add("production_agreement");
-        if (WorkRegistrationMaterialBox.IsChecked == true) result.Add("work_registration_certificate");
-        if (FilingLicenseMaterialBox.IsChecked == true) result.Add("filing_or_distribution_license");
-        if (RightsNoticeMaterialBox.IsChecked == true) result.Add("opening_ending_rights_notice");
-        if (AiScreenshotsMaterialBox.IsChecked == true) result.Add("ai_generation_screenshots");
-        if (EditingProjectMaterialBox.IsChecked == true) result.Add("editing_project_files");
-        if (SourceInfoMaterialBox.IsChecked == true) result.Add("source_file_information");
-        return result;
-    }
 
     private static string NormalizeSubmitAction(string? value, bool? legacyEnabled = null)
     {

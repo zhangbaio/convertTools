@@ -10,6 +10,8 @@ namespace TikTokPublisher.Core.Models;
 public sealed class TikTokAccountProfile
 {
     public const int DefaultAiScriptOutlineEpisodeCount = 15;
+    public const int DefaultEpisodeScriptEpisodeCount = 5;
+    public const int DefaultRoleVectorCharacterCount = 3;
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string CreatedAt { get; set; } = "";
@@ -78,6 +80,7 @@ public sealed class TikTokAccountProfile
     public int TiktokGenreCount { get; set; } = 3;
     public string TiktokSourceLanguage { get; set; } = "zh";
     public bool TiktokIsAiDrama { get; set; } = true;
+    public string TiktokContentCreationType { get; set; } = "original";
     public bool TiktokIsOriginalRightsHolder { get; set; } = true;
     public string TiktokContentOriginalityType { get; set; } = "original";
     public List<string> TiktokCopyrightMaterialTypes { get; set; } =
@@ -86,6 +89,8 @@ public sealed class TikTokAccountProfile
     ];
     /// <summary>选择 AI 生成截图材料时，是否同时上传项目的 AI 剧本大纲 PDF。</summary>
     public bool TiktokUploadAiScriptOutlineWithScreenshots { get; set; }
+    /// <summary>选择原始文件信息材料时，是否同时上传角色场景素材截图。</summary>
+    public bool TiktokUploadSourceInfoRoleSceneScreenshot { get; set; }
     public string TiktokCopyrightMaterialFilePath { get; set; } = "";
     /// <summary>证明材料抬头中的版权公司名称（“致【...】”）。</summary>
     public string TiktokProofCopyrightCompanyName { get; set; } = "";
@@ -95,6 +100,10 @@ public sealed class TikTokAccountProfile
     public string TiktokTimestampApplicantName { get; set; } = "";
     /// <summary>AI 剧本大纲生成集数；旧账号未配置时默认 15 集。</summary>
     public int TiktokAiScriptOutlineEpisodeCount { get; set; } = DefaultAiScriptOutlineEpisodeCount;
+    /// <summary>分集剧本 PDF 生成集数；旧账号未配置时默认 5 集。</summary>
+    public int TiktokEpisodeScriptEpisodeCount { get; set; } = DefaultEpisodeScriptEpisodeCount;
+    /// <summary>角色矢量图目标人物数；支持 3–6，候选不足时回退到 3 人。</summary>
+    public int TiktokRoleVectorCharacterCount { get; set; } = DefaultRoleVectorCharacterCount;
     /// <summary>与本公司名称匹配的印章图片；留空时仅允许保留模板固定公司的印章。</summary>
     public string TiktokProofSealPath { get; set; } = "";
     /// <summary>旧全局证明材料配置是否已迁移为账号级配置。</summary>

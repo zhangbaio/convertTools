@@ -16,6 +16,7 @@ public static class DeletedCopyrightProofWorkflowRecoveryService
     private static readonly HashSet<string> AllowedRootDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
         TikTokSourceFileInfoScreenshotService.OutputDirectoryName,
+        TikTokSourceFileInfoUploadPackageService.OutputDirectoryName,
         "原始文件或素材文件信息",
         TikTokAiGenerationScreenshotService.OutputDirectoryName,
         "AI生成过程截图",

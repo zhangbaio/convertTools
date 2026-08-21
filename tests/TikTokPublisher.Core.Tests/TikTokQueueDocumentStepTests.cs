@@ -10,6 +10,43 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokQueueDocumentStepTests
 {
+    [Theory]
+    [InlineData(5, 40, 40, 5)]
+    [InlineData(10, 40, 40, 10)]
+    [InlineData(10, 3, 40, 3)]
+    [InlineData(8, 0, 6, 6)]
+    [InlineData(8, 0, 0, 8)]
+    public void Episode_script_count_respects_account_configuration_and_available_episodes(
+        int configured,
+        int availableVideos,
+        int declaredEpisodes,
+        int expected)
+    {
+        var account = new TikTokPublisher.Core.Models.TikTokAccountProfile
+        {
+            TiktokEpisodeScriptEpisodeCount = configured,
+        };
+
+        TikTokEpisodeScriptService.ResolveTargetEpisodeCount(
+                account,
+                availableVideos,
+                declaredEpisodes)
+            .Should().Be(expected);
+    }
+
+    [Fact]
+    public void Synopsis_script_prompt_does_not_claim_video_or_total_episode_count()
+    {
+        var prompt = TikTokEpisodeScriptService.BuildSynopsisEpisodePrompt(
+            "新剧名", 2, 5, "旧简介中的人物关系与主线冲突。");
+
+        prompt.Should().Contain("新剧名");
+        prompt.Should().Contain("旧简介中的人物关系与主线冲突");
+        prompt.Should().Contain("第 2 集");
+        prompt.Should().Contain("不能声称内容来自视频或字幕");
+        prompt.Should().NotContain("总集数：");
+    }
+
     [Fact]
     public void Document_steps_are_registered_in_expected_order()
     {

@@ -17,6 +17,8 @@ public sealed class TikTokPublishDefaultsTests
         settings.AiTextModel.Should().Be(ClientSettingsDefaults.AiTextModel);
         settings.AiTextTimeoutSeconds.Should().Be(ClientSettingsDefaults.AiTextTimeoutSeconds);
         settings.AiTextMaxBatchSize.Should().Be(ClientSettingsDefaults.AiTextMaxBatchSize);
+        settings.TiktokRoleReferenceSelectionMode.Should().Be("local");
+        settings.TiktokRoleReferenceAiFallbackEnabled.Should().BeTrue();
         settings.AiTextApiKey.Should().BeEmpty();
 
         settings.ImageProvider.Should().Be(ClientSettingsDefaults.ImageProvider);
@@ -137,6 +139,7 @@ public sealed class TikTokPublishDefaultsTests
                 AiTextModel = "",
                 AiTextTimeoutSeconds = 0,
                 AiTextMaxBatchSize = 0,
+                TiktokRoleReferenceSelectionMode = "invalid",
                 PosterMode = "",
                 ImageProvider = "",
                 ImageModelId = "",
@@ -169,6 +172,7 @@ public sealed class TikTokPublishDefaultsTests
             loaded.AiTextModel.Should().Be(ClientSettingsDefaults.AiTextModel);
             loaded.AiTextTimeoutSeconds.Should().Be(ClientSettingsDefaults.AiTextTimeoutSeconds);
             loaded.AiTextMaxBatchSize.Should().Be(ClientSettingsDefaults.AiTextMaxBatchSize);
+            loaded.TiktokRoleReferenceSelectionMode.Should().Be("local");
             loaded.PosterMode.Should().Be(ClientSettingsDefaults.PosterMode);
             loaded.ImageProvider.Should().Be(ClientSettingsDefaults.ImageProvider);
             loaded.ImageModelId.Should().Be(ClientSettingsDefaults.ImageModelId);
@@ -614,6 +618,7 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokGenreCount.Should().Be(3);
         account.TiktokSourceLanguage.Should().Be("zh");
         account.TiktokIsAiDrama.Should().BeTrue();
+        account.TiktokContentCreationType.Should().Be("original");
         account.TiktokAiRewriteSynopsis.Should().BeTrue();
         account.TiktokIsOriginalRightsHolder.Should().BeTrue();
         account.TiktokContentOriginalityType.Should().Be("original");
@@ -773,6 +778,7 @@ public sealed class TikTokPublishDefaultsTests
         options.GenreCount.Should().Be(3);
         options.SourceLanguage.Should().Be("zh");
         options.SourceLanguageLabels.Should().ContainInOrder("中文", "Chinese");
+        options.ContentCreationType.Should().Be("original");
         options.IsOriginalRightsHolder.Should().BeTrue();
         options.ContentOriginalityType.Should().Be("original");
         options.CopyrightMaterialTypes.Should().Equal("production_agreement");
@@ -788,6 +794,68 @@ public sealed class TikTokPublishDefaultsTests
         options.UploadBatchSize.Should().Be(3);
         options.UploadBatchStallSeconds.Should().Be(75);
         options.UploadBatchMaxRetries.Should().Be(3);
+    }
+
+    [Fact]
+    public void Client_settings_store_preserves_ai_full_role_reference_mode_and_fallback_choice()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-role-reference-{Guid.NewGuid():N}.db");
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                TiktokRoleReferenceSelectionMode = " AI_FULL_REVIEW ",
+                TiktokRoleReferenceAiFallbackEnabled = false,
+            }, databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+
+            loaded.TiktokRoleReferenceSelectionMode.Should().Be("ai_full_review");
+            loaded.TiktokRoleReferenceAiFallbackEnabled.Should().BeFalse();
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (File.Exists(databasePath)) File.Delete(databasePath);
+        }
+    }
+
+    [Fact]
+    public void Publish_options_builder_rejects_chinese_finished_content_remake_before_upload()
+    {
+        var account = new TikTokAccountProfile
+        {
+            TiktokSourceLanguage = "zh",
+            TiktokIsAiDrama = true,
+            TiktokContentCreationType = "remake",
+        };
+
+        var action = () => TikTokPublishOptionsBuilder.FromAccount(account);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*仅源语言为非中文的短剧可选择「成片重制」*");
+    }
+
+    [Theory]
+    [InlineData("en", true, "remake")]
+    [InlineData("zh", true, "original")]
+    [InlineData("zh", true, "novel_adaptation")]
+    [InlineData("zh", false, "remake")]
+    public void Publish_options_builder_accepts_valid_content_creation_combinations(
+        string sourceLanguage,
+        bool isAiDrama,
+        string contentCreationType)
+    {
+        var account = new TikTokAccountProfile
+        {
+            TiktokSourceLanguage = sourceLanguage,
+            TiktokIsAiDrama = isAiDrama,
+            TiktokContentCreationType = contentCreationType,
+        };
+
+        var options = TikTokPublishOptionsBuilder.FromAccount(account);
+
+        options.ContentCreationType.Should().Be(contentCreationType);
     }
 
     [Fact]
@@ -902,6 +970,27 @@ public sealed class TikTokPublishDefaultsTests
                 value.StartsWith(
                     "contentPartnerHub_seriesEditPage_copyrightProof_material_",
                     StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Client_settings_store_preserves_pikachu_short_type()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-pikachu-type-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                PikachuDramaType = "short",
+            }, databasePath);
+
+            ClientSettingsStore.Load(databasePath).PikachuDramaType.Should().Be("short");
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
     }
 
     [Fact]
