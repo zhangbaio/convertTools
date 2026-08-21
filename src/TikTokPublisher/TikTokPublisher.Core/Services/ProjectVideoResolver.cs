@@ -18,6 +18,11 @@ public static class ProjectVideoResolver
         "workflow", "archive", UploadStagingDirName,
     };
 
+    private static readonly string[] IncompleteDownloadSuffixes =
+    [
+        ".aria2", ".part", ".partial", ".download", ".crdownload",
+    ];
+
     public static IReadOnlyList<string> ResolveUploadVideos(string sourceProjectDir, bool allowStagedFallback = false)
     {
         var source = Path.GetFullPath(sourceProjectDir);
@@ -124,12 +129,15 @@ public static class ProjectVideoResolver
         });
     }
 
-    private static bool IsCandidateVideoFile(string path)
+    internal static bool IsCompleteVideoFile(string path)
     {
         var name = Path.GetFileName(path);
         return VideoExtensions.Contains(Path.GetExtension(path))
-            && !name.EndsWith(".silencefix.mp4", StringComparison.OrdinalIgnoreCase);
+            && !name.EndsWith(".silencefix.mp4", StringComparison.OrdinalIgnoreCase)
+            && !IncompleteDownloadSuffixes.Any(suffix => File.Exists(path + suffix));
     }
+
+    private static bool IsCandidateVideoFile(string path) => IsCompleteVideoFile(path);
 
     private static List<string> DedupeAndSort(List<string> paths, Func<string, IComparable[]>? keyFn = null)
     {

@@ -7,11 +7,6 @@ namespace TikTokPublisher.Core.Queue;
 /// <summary>工作目录队列扫描 + 持久化合并（对齐 Python <c>scan_workspace_projects</c>）。</summary>
 public static class WorkspaceQueueService
 {
-    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".flv", ".wmv",
-    };
-
     public static IReadOnlyList<QueueProjectItem> ScanProjects(string workspaceRoot)
     {
         var root = Path.GetFullPath(workspaceRoot);
@@ -42,6 +37,11 @@ public static class WorkspaceQueueService
         {
             if (!discovered.TryGetValue(normalized, out var item))
             {
+                if (string.IsNullOrWhiteSpace(persisted.QueueEntryDramaType) &&
+                    !WorkspaceProjectScanner.HasExplicitProjectSignal(normalized))
+                {
+                    continue;
+                }
                 if (!WorkspaceProjectScanner.IsValidProjectDirectory(normalized)) continue;
                 item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), persisted, binding);
             }
@@ -688,7 +688,7 @@ public static class WorkspaceQueueService
     {
         foreach (var path in Directory.EnumerateFiles(root, "*.*", SearchOption.TopDirectoryOnly))
         {
-            if (VideoExtensions.Contains(Path.GetExtension(path)))
+            if (ProjectVideoResolver.IsCompleteVideoFile(path))
                 yield return path;
         }
 

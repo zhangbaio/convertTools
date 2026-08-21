@@ -12,11 +12,6 @@ public static class WorkspaceProjectScanner
     private static readonly Dictionary<string, CachedProjectScan> ProjectCache =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm",
-    };
-
     private static readonly HashSet<string> ReservedDirNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "archive", "config", "material-clip-output", "workflow", TikTokUploadStagingService.StagingDirName,
@@ -48,6 +43,8 @@ public static class WorkspaceProjectScanner
         var results = new List<WorkspaceProject>();
         foreach (var dir in Directory.EnumerateDirectories(root).OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
         {
+            if (!HasExplicitProjectSignal(dir))
+                continue;
             var project = TryBuildProject(dir, requireProjectLike: true);
             if (project is not null)
                 results.Add(project);
@@ -61,6 +58,13 @@ public static class WorkspaceProjectScanner
         var name = Path.GetFileName(projectDir);
         if (ReservedDirNames.Contains(name)) return false;
         return TryBuildProject(projectDir, requireProjectLike: true) is not null;
+    }
+
+    public static bool HasExplicitProjectSignal(string projectDir)
+    {
+        if (!Directory.Exists(projectDir)) return false;
+        return File.Exists(Path.Combine(projectDir, ProjectMetadataFile)) ||
+               File.Exists(Path.Combine(projectDir, DramaInfoFile));
     }
 
     public static WorkspaceProject BuildProject(string projectDir) =>
@@ -326,7 +330,7 @@ public static class WorkspaceProjectScanner
         if (!Directory.Exists(dir)) return results;
         foreach (var path in Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories))
         {
-            if (VideoExtensions.Contains(Path.GetExtension(path)))
+            if (ProjectVideoResolver.IsCompleteVideoFile(path))
                 results.Add(path);
         }
         return results.OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
@@ -338,7 +342,7 @@ public static class WorkspaceProjectScanner
             return 0;
 
         return Directory.EnumerateFiles(dir, "*.*", SearchOption.TopDirectoryOnly)
-            .Count(path => VideoExtensions.Contains(Path.GetExtension(path)));
+            .Count(ProjectVideoResolver.IsCompleteVideoFile);
     }
 
     private static bool LooksLikeEpisodeFolderName(string? name)

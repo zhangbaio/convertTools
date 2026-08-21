@@ -32,11 +32,6 @@ public static class LocalManualDramaImportService
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".flv", ".wmv",
-    };
-
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic", ".heif",
@@ -259,7 +254,7 @@ public static class LocalManualDramaImportService
     private static bool IsCandidateVideoFile(string path)
     {
         var name = Path.GetFileName(path);
-        return VideoExtensions.Contains(Path.GetExtension(path)) &&
+        return ProjectVideoResolver.IsCompleteVideoFile(path) &&
                !name.StartsWith(".", StringComparison.Ordinal) &&
                !name.EndsWith(".silencefix.mp4", StringComparison.OrdinalIgnoreCase);
     }

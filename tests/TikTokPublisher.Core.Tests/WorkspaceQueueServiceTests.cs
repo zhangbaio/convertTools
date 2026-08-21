@@ -8,6 +8,78 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class WorkspaceQueueServiceTests
 {
+    [Fact]
+    public void Workspace_scan_does_not_auto_add_bare_video_directory_before_manual_import()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-bare-video-{Guid.NewGuid():N}");
+        var bareProject = Path.Combine(workspace, "未导入短剧");
+        try
+        {
+            Directory.CreateDirectory(bareProject);
+            File.WriteAllBytes(Path.Combine(bareProject, "第1集.mp4"), [1, 2, 3]);
+
+            WorkspaceProjectScanner.Scan(workspace).Should().BeEmpty();
+            WorkspaceQueueService.ScanProjects(workspace).Should().BeEmpty();
+            LocalManualDramaImportService.ListCandidates(workspace)
+                .Should().ContainSingle(candidate => candidate.ProjectDir == bareProject);
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
+    [Fact]
+    public void Workspace_scan_filters_previously_persisted_bare_video_directory_without_import_marker()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-persisted-bare-{Guid.NewGuid():N}");
+        var bareProject = Path.Combine(workspace, "误识别短剧");
+        try
+        {
+            Directory.CreateDirectory(bareProject);
+            File.WriteAllBytes(Path.Combine(bareProject, "第1集.mp4"), [1, 2, 3]);
+            WorkspaceQueueService.SaveProjects(
+                workspace,
+                [new QueueProjectItem { ProjectDir = bareProject, DisplayName = "误识别短剧" }]);
+
+            WorkspaceQueueDatabase.Load(workspace).Items.Should().ContainSingle();
+            WorkspaceQueueService.ScanProjects(workspace).Should().BeEmpty();
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
+    [Fact]
+    public void Aria2_companion_keeps_video_incomplete_until_download_finishes()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-aria2-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "下载中短剧");
+        var video = Path.Combine(project, "第1集.mp4");
+        var marker = video + ".aria2";
+        try
+        {
+            CreateProject(project);
+            File.WriteAllBytes(video, [1, 2, 3]);
+            File.WriteAllBytes(marker, [4, 5, 6]);
+
+            LocalManualDramaImportService.ListCandidates(workspace).Should().BeEmpty();
+            var downloading = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+            downloading.PrimaryVideoPath.Should().BeNull();
+            downloading.StepStates[QueueStepKeys.Download].Should().Be(QueueStepStatus.Pending);
+
+            File.Delete(marker);
+            var completed = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+            completed.PrimaryVideoPath.Should().Be(video);
+            completed.StepStates[QueueStepKeys.Download].Should().Be(QueueStepStatus.Completed);
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
