@@ -1325,6 +1325,18 @@ public sealed class QueueWorkerRunner
                 return true;
             }
         }
+        if (stepKey == QueueStepRegistry.SmallVideoRepair &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            TikTokSmallVideoRepairService.NeedsRepair(item.ProjectDir))
+        {
+            return true;
+        }
+        if (stepKey == QueueStepRegistry.MaterialValidate &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            !TikTokMaterialValidationService.HasCurrentValidationState(item.ProjectDir))
+        {
+            return true;
+        }
         return item.StepStates.GetValueOrDefault(stepKey) is not
             (QueueStepStatus.Completed or QueueStepStatus.Skipped);
     }

@@ -2,6 +2,23 @@ namespace TikTokPublisher.Core.Services;
 
 public static class TikTokSmallVideoRepairService
 {
+    public static bool NeedsRepair(string sourceProjectDir)
+    {
+        try
+        {
+            var uploadPaths = ProjectVideoResolver.ResolveUploadVideos(
+                sourceProjectDir,
+                allowStagedFallback: true);
+            return uploadPaths.Count == 0 || uploadPaths.Any(TikTokSmallVideoPaddingService.NeedsPadding);
+        }
+        catch
+        {
+            // A completed queue flag must not suppress repair when the files cannot be
+            // resolved on this computer. Let the step run and report the concrete error.
+            return true;
+        }
+    }
+
     public static void Repair(
         string sourceProjectDir,
         string title,
@@ -16,13 +33,13 @@ public static class TikTokSmallVideoRepairService
         var sourceVideos = ProjectVideoResolver.ResolveSourceVideos(
             sourceProjectDir,
             allowStagedFallback: false).ToList();
-        var repairPaths = sourceVideos.Count > 0
-            ? sourceVideos
-            : preview.UploadPaths.Count > 0 ? preview.UploadPaths : preview.SourcePaths;
-        var smallRepairPaths = repairPaths.Where(TikTokSmallVideoPaddingService.NeedsPadding).ToList();
-        if (smallRepairPaths.Count == 0)
+        var uploadPaths = preview.UploadPaths.Count > 0 ? preview.UploadPaths : preview.SourcePaths;
+        var smallSourcePaths = sourceVideos.Where(TikTokSmallVideoPaddingService.NeedsPadding).ToList();
+        var smallUploadPaths = uploadPaths.Where(TikTokSmallVideoPaddingService.NeedsPadding).ToList();
+        var checkedCount = Math.Max(sourceVideos.Count, uploadPaths.Count);
+        if (smallSourcePaths.Count == 0 && smallUploadPaths.Count == 0)
         {
-            log?.Invoke($"跳过：未发现小于 5MB 的视频，共检查 {repairPaths.Count} 个待上传视频。");
+            log?.Invoke($"跳过：未发现小于 5MB 的视频，共检查 {checkedCount} 个待上传视频。");
             return;
         }
 
@@ -30,7 +47,8 @@ public static class TikTokSmallVideoRepairService
         IReadOnlyList<string> labelPaths;
         if (sourceVideos.Count > 0)
         {
-            log?.Invoke($"开始：检测到 {smallRepairPaths.Count} 个小于 5MB 的源视频，重建上传副本…");
+            var smallCount = Math.Max(smallSourcePaths.Count, smallUploadPaths.Count);
+            log?.Invoke($"开始：检测到 {smallCount} 个小于 5MB 的源视频或上传副本，重建上传副本…");
             var rebuilt = TikTokUploadStagingService.BuildPayload(
                 sourceProjectDir, title, originalTitle,
                 rebuildStaging: true, repairSmallVideos: true, log, ct);
@@ -45,17 +63,17 @@ public static class TikTokSmallVideoRepairService
         }
         else
         {
-            if (repairPaths.Count == 0)
+            if (uploadPaths.Count == 0)
             {
                 throw new InvalidOperationException(
                     "TikTok 小文件修复失败：检测到小文件，但源视频已不存在，且未找到可修复的上传副本。");
             }
 
             log?.Invoke(
-                $"开始：源视频已不存在，直接修复现有上传副本中的 {smallRepairPaths.Count} 个小于 5MB 的视频…");
-            RepairExistingUploadCopies(smallRepairPaths, log, ct);
-            repairedUploadPaths = repairPaths;
-            labelPaths = repairPaths;
+                $"开始：源视频已不存在，直接修复现有上传副本中的 {smallUploadPaths.Count} 个小于 5MB 的视频…");
+            RepairExistingUploadCopies(smallUploadPaths, log, ct);
+            repairedUploadPaths = uploadPaths;
+            labelPaths = uploadPaths;
         }
 
         var issues = ValidateRepairedUploadPaths(repairedUploadPaths, labelPaths, ct);

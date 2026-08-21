@@ -57,6 +57,35 @@ public sealed class TikTokSmallVideoRepairServiceTests
         }
     }
 
+    [Fact]
+    public void Repair_Rebuilds_When_Staging_Is_Small_Even_If_Source_Is_Large()
+    {
+        var workspace = CreateWorkspace(out var sourceDir, out var stagingDir);
+        var sourcePath = Path.Combine(sourceDir, "episode-1.avi");
+        var stagingPath = Path.Combine(stagingDir, "Current-第1集.avi");
+        WriteLargeFile(sourcePath);
+        File.WriteAllBytes(stagingPath, [1]);
+
+        try
+        {
+            TikTokSmallVideoRepairService.NeedsRepair(sourceDir).Should().BeTrue();
+
+            TikTokSmallVideoRepairService.Repair(
+                sourceDir,
+                "Current",
+                "Original",
+                log: null,
+                CancellationToken.None);
+
+            new FileInfo(stagingPath).Length.Should().BeGreaterThanOrEqualTo(TikTokVideoConstraints.MinSizeBytes);
+            TikTokSmallVideoRepairService.NeedsRepair(sourceDir).Should().BeFalse();
+        }
+        finally
+        {
+            TryDelete(workspace);
+        }
+    }
+
     private static string CreateWorkspace(out string sourceDir, out string stagingDir)
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"small-video-repair-{Guid.NewGuid():N}");
