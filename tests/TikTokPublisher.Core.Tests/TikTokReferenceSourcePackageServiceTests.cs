@@ -346,6 +346,16 @@ public sealed class TikTokReferenceSourcePackageServiceTests
             .Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData(3, 16)]
+    [InlineData(5, 16)]
+    [InlineData(6, 16)]
+    public void Vision_cross_batch_merge_is_bounded_to_avoid_timeout(int roleCount, int expected)
+    {
+        TikTokReferenceSourcePackageService.ResolveVisionMergeCandidateMaximum(roleCount)
+            .Should().Be(expected);
+    }
+
     [Fact]
     public void Vision_prompt_requires_every_candidate_and_face_identity_comparison()
     {

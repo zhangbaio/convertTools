@@ -46,6 +46,8 @@ public static partial class TikTokReferenceSourcePackageService
         "TikTokPublisher.Core.Resources.SceneDesignTemplate2.png";
     private const int VisionIdentityBatchSize = 24;
     private const int MaxVisionDiscoveryCandidates = 96;
+    private const int VisionMergeCandidateLimit = 16;
+    private const int VisionTimeoutRetryCandidateLimit = 12;
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".png", ".jpg", ".jpeg", ".webp", ".bmp" };
 
@@ -1107,8 +1109,21 @@ public static partial class TikTokReferenceSourcePackageService
             var candidates = orderedSources.ToArray();
             log?.Invoke(
                 $"角色参考图：正在用视觉模型从 {candidates.Length} 张清晰候选帧中匹配性别并排除重复人物。");
-            var analyses = await AnalyzeReferenceCandidatesAsync(
-                profiles, candidates, settings, ct).ConfigureAwait(false);
+            IReadOnlyList<ReferenceCandidateAnalysis> analyses;
+            try
+            {
+                analyses = await AnalyzeReferenceCandidatesAsync(
+                    profiles, candidates, settings, ct).ConfigureAwait(false);
+            }
+            catch (TimeoutException) when (candidates.Length > VisionTimeoutRetryCandidateLimit)
+            {
+                candidates = SelectVisionCandidatePaths(candidates, VisionTimeoutRetryCandidateLimit);
+                log?.Invoke(
+                    $"角色参考图：{orderedSources.Count} 张候选审核超时，自动缩减为 " +
+                    $"{candidates.Length} 张代表图重试。");
+                analyses = await AnalyzeReferenceCandidatesAsync(
+                    profiles, candidates, settings, ct).ConfigureAwait(false);
+            }
             return (candidates, analyses);
         }
 
@@ -1125,9 +1140,25 @@ public static partial class TikTokReferenceSourcePackageService
             var batch = batches[batchIndex];
             log?.Invoke(
                 $"角色参考图：人物发现批次 {batchIndex + 1}/{batches.Length}，审核 {batch.Length} 张。");
-            var localAnalyses = await AnalyzeReferenceCandidatesAsync(
-                profiles, batch, settings, ct).ConfigureAwait(false);
-            representatives.AddRange(SelectBatchIdentityRepresentatives(batch, localAnalyses));
+            try
+            {
+                var localAnalyses = await AnalyzeReferenceCandidatesAsync(
+                    profiles, batch, settings, ct).ConfigureAwait(false);
+                representatives.AddRange(SelectBatchIdentityRepresentatives(batch, localAnalyses));
+            }
+            catch (TimeoutException) when (batch.Length > VisionTimeoutRetryCandidateLimit)
+            {
+                var subBatches = batch.Chunk(VisionTimeoutRetryCandidateLimit).ToArray();
+                log?.Invoke(
+                    $"角色参考图：人物发现批次 {batchIndex + 1} 超时，" +
+                    $"自动拆为 {subBatches.Length} 个小批重试。");
+                foreach (var subBatch in subBatches)
+                {
+                    var subAnalyses = await AnalyzeReferenceCandidatesAsync(
+                        profiles, subBatch, settings, ct).ConfigureAwait(false);
+                    representatives.AddRange(SelectBatchIdentityRepresentatives(subBatch, subAnalyses));
+                }
+            }
         }
 
         var distinctRepresentatives = representatives
@@ -1139,14 +1170,32 @@ public static partial class TikTokReferenceSourcePackageService
             log?.Invoke("角色参考图：分批人物发现结果不足，回退到单轮高质量候选审核。");
             distinctRepresentatives = SelectVisionCandidatePaths(orderedSources, finalMaximum);
         }
-        var finalCandidates = SelectVisionCandidatePaths(distinctRepresentatives, finalMaximum);
+        var mergeMaximum = ResolveVisionMergeCandidateMaximum(profiles.Count);
+        var finalCandidates = SelectVisionCandidatePaths(distinctRepresentatives, mergeMaximum);
         log?.Invoke(
             $"角色参考图：各批次发现 {distinctRepresentatives.Length} 个人物代表候选，" +
             $"正在用 {finalCandidates.Length} 张代表图执行跨批次身份合并和角色匹配。");
-        var finalAnalyses = await AnalyzeReferenceCandidatesAsync(
-            profiles, finalCandidates, settings, ct).ConfigureAwait(false);
+        IReadOnlyList<ReferenceCandidateAnalysis> finalAnalyses;
+        try
+        {
+            finalAnalyses = await AnalyzeReferenceCandidatesAsync(
+                profiles, finalCandidates, settings, ct).ConfigureAwait(false);
+        }
+        catch (TimeoutException) when (finalCandidates.Length > VisionTimeoutRetryCandidateLimit)
+        {
+            finalCandidates = SelectVisionCandidatePaths(
+                finalCandidates,
+                VisionTimeoutRetryCandidateLimit);
+            log?.Invoke(
+                $"角色参考图：跨批次身份合并超时，自动缩减为 {finalCandidates.Length} 张代表图重试。");
+            finalAnalyses = await AnalyzeReferenceCandidatesAsync(
+                profiles, finalCandidates, settings, ct).ConfigureAwait(false);
+        }
         return (finalCandidates, finalAnalyses);
     }
+
+    internal static int ResolveVisionMergeCandidateMaximum(int profileCount) =>
+        Math.Min(ResolveVisionCandidateMaximum(profileCount), VisionMergeCandidateLimit);
 
     internal static string[] SelectBatchIdentityRepresentatives(
         IReadOnlyList<string> batchCandidates,
@@ -1228,56 +1277,82 @@ public static partial class TikTokReferenceSourcePackageService
         request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(settings.AiTextTimeoutSeconds, 30, 300)));
-        using var response = await Http.SendAsync(request, timeout.Token).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException(
-                $"角色参考图视觉匹配失败：HTTP {(int)response.StatusCode} {response.ReasonPhrase}；{Truncate(body, 800)}");
-
-        using var responseJson = JsonDocument.Parse(body);
-        var responseText = responseJson.RootElement
-            .GetProperty("choices")[0]
-            .GetProperty("message")
-            .GetProperty("content")
-            .GetString() ?? string.Empty;
-        var start = responseText.IndexOf('{');
-        var end = responseText.LastIndexOf('}');
-        if (start < 0 || end <= start)
-            throw new InvalidOperationException("角色参考图视觉匹配返回内容中没有 JSON。");
-        using var result = JsonDocument.Parse(responseText[start..(end + 1)]);
-        if (!result.RootElement.TryGetProperty("candidates", out var entries) ||
-            entries.ValueKind != JsonValueKind.Array)
-            throw new InvalidOperationException("角色参考图视觉匹配返回内容缺少 candidates 数组。");
-
-        var analyses = new List<ReferenceCandidateAnalysis>();
-        foreach (var entry in entries.EnumerateArray())
+        HttpResponseMessage response;
+        try
         {
-            if (!entry.TryGetProperty("index", out var indexElement) || !indexElement.TryGetInt32(out var index) ||
-                index < 1 || index > candidates.Count)
-                continue;
-            analyses.Add(new ReferenceCandidateAnalysis(
-                index,
-                NormalizeGender(entry.TryGetProperty("gender", out var gender) ? gender.GetString() : null),
-                entry.TryGetProperty("person_id", out var personId)
-                    ? FirstNonEmpty(personId.GetString(), $"candidate-{index}")
-                    : $"candidate-{index}",
-                entry.TryGetProperty("single", out var single) && single.ValueKind is JsonValueKind.True,
-                entry.TryGetProperty("clarity", out var clarity) && clarity.TryGetInt32(out var clarityValue)
-                    ? Math.Clamp(clarityValue, 0, 100)
-                    : 0,
-                entry.TryGetProperty("face_visible", out var faceVisible) &&
-                faceVisible.ValueKind is JsonValueKind.True,
-                entry.TryGetProperty("clothing_visible", out var clothingVisible) &&
-                clothingVisible.ValueKind is JsonValueKind.True,
-                entry.TryGetProperty("clothing_clarity", out var clothingClarity) &&
-                clothingClarity.TryGetInt32(out var clothingClarityValue)
-                    ? Math.Clamp(clothingClarityValue, 0, 100)
-                    : 0,
-                entry.TryGetProperty("framing", out var framing)
-                    ? NormalizeFraming(framing.GetString())
-                    : "unknown"));
+            response = await Http.SendAsync(request, timeout.Token).ConfigureAwait(false);
         }
-        return analyses;
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"角色参考图视觉匹配超时：候选图 {candidates.Count} 张，" +
+                $"等待 {Math.Clamp(settings.AiTextTimeoutSeconds, 30, 300)} 秒未完成。",
+                ex);
+        }
+
+        using (response)
+        {
+            string body;
+            try
+            {
+                body = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"角色参考图视觉匹配超时：候选图 {candidates.Count} 张，" +
+                    $"等待 {Math.Clamp(settings.AiTextTimeoutSeconds, 30, 300)} 秒未完成。",
+                    ex);
+            }
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(
+                    $"角色参考图视觉匹配失败：HTTP {(int)response.StatusCode} {response.ReasonPhrase}；{Truncate(body, 800)}");
+
+            using var responseJson = JsonDocument.Parse(body);
+            var responseText = responseJson.RootElement
+                .GetProperty("choices")[0]
+                .GetProperty("message")
+                .GetProperty("content")
+                .GetString() ?? string.Empty;
+            var start = responseText.IndexOf('{');
+            var end = responseText.LastIndexOf('}');
+            if (start < 0 || end <= start)
+                throw new InvalidOperationException("角色参考图视觉匹配返回内容中没有 JSON。");
+            using var result = JsonDocument.Parse(responseText[start..(end + 1)]);
+            if (!result.RootElement.TryGetProperty("candidates", out var entries) ||
+                entries.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException("角色参考图视觉匹配返回内容缺少 candidates 数组。");
+
+            var analyses = new List<ReferenceCandidateAnalysis>();
+            foreach (var entry in entries.EnumerateArray())
+            {
+                if (!entry.TryGetProperty("index", out var indexElement) || !indexElement.TryGetInt32(out var index) ||
+                    index < 1 || index > candidates.Count)
+                    continue;
+                analyses.Add(new ReferenceCandidateAnalysis(
+                    index,
+                    NormalizeGender(entry.TryGetProperty("gender", out var gender) ? gender.GetString() : null),
+                    entry.TryGetProperty("person_id", out var personId)
+                        ? FirstNonEmpty(personId.GetString(), $"candidate-{index}")
+                        : $"candidate-{index}",
+                    entry.TryGetProperty("single", out var single) && single.ValueKind is JsonValueKind.True,
+                    entry.TryGetProperty("clarity", out var clarity) && clarity.TryGetInt32(out var clarityValue)
+                        ? Math.Clamp(clarityValue, 0, 100)
+                        : 0,
+                    entry.TryGetProperty("face_visible", out var faceVisible) &&
+                    faceVisible.ValueKind is JsonValueKind.True,
+                    entry.TryGetProperty("clothing_visible", out var clothingVisible) &&
+                    clothingVisible.ValueKind is JsonValueKind.True,
+                    entry.TryGetProperty("clothing_clarity", out var clothingClarity) &&
+                    clothingClarity.TryGetInt32(out var clothingClarityValue)
+                        ? Math.Clamp(clothingClarityValue, 0, 100)
+                        : 0,
+                    entry.TryGetProperty("framing", out var framing)
+                        ? NormalizeFraming(framing.GetString())
+                        : "unknown"));
+            }
+            return analyses;
+        }
     }
 
     internal static string BuildRoleReferenceSelectionPrompt(
