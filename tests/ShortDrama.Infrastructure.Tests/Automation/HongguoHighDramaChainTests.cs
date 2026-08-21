@@ -356,6 +356,45 @@ public sealed class HongguoHighDramaChainTests
             .WithMessage("*暂不支持短剧今日上新*");
     }
 
+    [Theory]
+    [InlineData("16.7.19", true)]
+    [InlineData("16.0.0", true)]
+    [InlineData("17.17.0", false)]
+    [InlineData("17.0.0", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void Frida_16_Is_Usable_And_17_Is_Not(string? version, bool usable)
+    {
+        HongguoHighMasterProvisioner.IsUsableFridaVersion(version).Should().Be(usable);
+    }
+
+    [Fact]
+    public void Provision_Script_Rejects_Frida_17()
+    {
+        var script = FindRepoFile("src", "ShortDrama", "ShortDrama.Infrastructure", "Tools", "hongguo-high", "provision_startup_masters.py");
+        var text = File.ReadAllText(script);
+        text.Should().Contain("startswith(\"17.\")");
+        text.Should().Contain("16.7.19");
+        text.Should().Contain("无法 import frida");
+    }
+
+    private static string FindRepoFile(params string[] relativeParts)
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            var candidate = Path.Combine(new[] { current.FullName }.Concat(relativeParts).ToArray());
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            current = current.Parent;
+        }
+
+        throw new FileNotFoundException(string.Join(Path.DirectorySeparatorChar, relativeParts));
+    }
+
     private sealed class StaticSettings : IDramaSettingsProvider
     {
         private readonly DramaSourceSettings _settings;

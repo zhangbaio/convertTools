@@ -1,4 +1,5 @@
 using System.Net;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Net.Http.Json;
@@ -593,12 +594,32 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     private void ShowExtractedMasters(string enc, string sign)
     {
-        HghighEncMaster = "";
-        HghighSignMaster = "";
         HghighRevealEnc = true;
         HghighRevealSign = true;
-        HghighEncMaster = enc;
-        HghighSignMaster = sign;
+        ApplyMastersToForm(enc, sign);
+        var capturedEnc = enc ?? "";
+        var capturedSign = sign ?? "";
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                HghighRevealEnc = true;
+                HghighRevealSign = true;
+                ApplyMastersToForm(capturedEnc, capturedSign);
+            },
+            DispatcherPriority.Background);
+    }
+
+    private void ApplyMastersToForm(string enc, string sign)
+    {
+        foreach (var step in BoundPasswordAssigner.AssignmentSteps(HghighEncMaster, enc))
+        {
+            HghighEncMaster = step;
+        }
+
+        foreach (var step in BoundPasswordAssigner.AssignmentSteps(HghighSignMaster, sign))
+        {
+            HghighSignMaster = step;
+        }
     }
 
     private void PersistHghighMastersFromForm()

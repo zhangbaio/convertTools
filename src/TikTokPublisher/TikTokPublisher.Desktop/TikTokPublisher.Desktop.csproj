@@ -51,4 +51,15 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
+  <!-- PreserveNewest keeps leftover Frida 17 files when the cache is pinned back to 16.7.19. -->
+  <Target Name="ResetStaleBundledFrida17" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <_BundledPythonOut>$(OutputPath)tools\win-x64\python</_BundledPythonOut>
+    </PropertyGroup>
+    <ItemGroup>
+      <_StaleFrida17 Include="$(_BundledPythonOut)\Lib\site-packages\frida-17.*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(_BundledPythonOut)"
+               Condition="'@(_StaleFrida17)' != '' or Exists('$(_BundledPythonOut)\Lib\site-packages\frida-17.17.0.dist-info')" />
+  </Target>
 </Project>
