@@ -12,7 +12,7 @@ public static class TikTokRoleVectorService
     public const string OutputFileName = TikTokReferenceSourcePackageService.CharacterWorkbenchFileName;
     public const string BackupFileName = "角色矢量图_旧版.png";
     public const string StateFileName = ".role-vector-state.json";
-    public const string StateVersion = "v7-paired-reference-and-costume-lock";
+    public const string StateVersion = "v8-manual-role-material";
 
     public static string GetOutputPath(string workflowProjectDirectory) =>
         Path.Combine(TikTokReferenceSourcePackageService.GetRoot(workflowProjectDirectory), OutputFileName);
@@ -55,11 +55,46 @@ public static class TikTokRoleVectorService
             configuredCharacterCount);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var output = GetOutputPath(context.WorkflowProjectDir);
+        var manualConfiguration = ManualRoleVectorMaterialService.Load(context.WorkflowProjectDir);
         if (!forceRerun && HasCurrentOutput(context.WorkflowProjectDir, configuredCharacterCount))
         {
             TikTokSourceFileInfoUploadPackageService.RefreshRoleDerivedImages(
                 context.WorkflowProjectDir, log, ct);
             log?.Invoke($"角色矢量图已存在且尺寸正确，跳过生成：{output}");
+            return output;
+        }
+
+        if (manualConfiguration.Mode == ManualRoleVectorMode.FinalImage)
+        {
+            if (string.IsNullOrWhiteSpace(manualConfiguration.FinalImagePath) ||
+                !File.Exists(manualConfiguration.FinalImagePath))
+            {
+                throw new InvalidOperationException("人工指定的成品角色矢量图已丢失，请重新选择。");
+            }
+
+            var info = Image.Identify(manualConfiguration.FinalImagePath)
+                ?? throw new InvalidDataException("人工指定的成品角色矢量图不是有效图片。");
+            if (info.Width != RoleVectorTemplateRenderer.CanvasWidth ||
+                info.Height != RoleVectorTemplateRenderer.CanvasHeight)
+            {
+                throw new InvalidDataException(
+                    $"角色矢量图尺寸必须为 {RoleVectorTemplateRenderer.CanvasWidth}×" +
+                    $"{RoleVectorTemplateRenderer.CanvasHeight}，当前为 {info.Width}×{info.Height}。");
+            }
+
+            var manualRoot = TikTokReferenceSourcePackageService.GetRoot(context.WorkflowProjectDir);
+            Directory.CreateDirectory(manualRoot);
+            if (File.Exists(output))
+                File.Copy(output, Path.Combine(manualRoot, BackupFileName), overwrite: true);
+            File.Copy(manualConfiguration.FinalImagePath, output, overwrite: true);
+            WriteManualFinalState(
+                context.WorkflowProjectDir,
+                output,
+                configuredCharacterCount,
+                manualConfiguration);
+            TikTokSourceFileInfoUploadPackageService.RefreshRoleDerivedImages(
+                context.WorkflowProjectDir, log, ct);
+            log?.Invoke($"角色矢量图：已使用人工指定成品并锁定，不调用图片模型：{output}");
             return output;
         }
 
@@ -160,6 +195,13 @@ public static class TikTokRoleVectorService
         var payload = new
         {
             version = StateVersion,
+            sourceMode = ManualRoleVectorMaterialService.Load(workflowProjectDirectory).Mode switch
+            {
+                ManualRoleVectorMode.ReferencesOnly => "manual-references",
+                ManualRoleVectorMode.Paired => "manual-paired",
+                _ => "auto",
+            },
+            manualFingerprint = ManualRoleVectorMaterialService.Load(workflowProjectDirectory).Fingerprint,
             configuredCount = configuredCharacterCount,
             characterCount = characters.Count,
             templateResource = layout.ResourceName,
@@ -184,6 +226,31 @@ public static class TikTokRoleVectorService
             new UTF8Encoding(false));
     }
 
+    private static void WriteManualFinalState(
+        string workflowProjectDirectory,
+        string output,
+        int configuredCharacterCount,
+        ManualRoleVectorConfiguration configuration)
+    {
+        var payload = new
+        {
+            version = StateVersion,
+            sourceMode = "manual-final",
+            manualFingerprint = configuration.Fingerprint,
+            configuredCount = configuredCharacterCount,
+            characterCount = 0,
+            templateResource = "manual-final",
+            outputSha256 = ComputeSha256(output),
+            finalImagePath = configuration.FinalImagePath,
+            finalImageSha256 = ManualRoleVectorMaterialService.ComputeSha256(configuration.FinalImagePath!),
+            generatedAt = DateTimeOffset.Now,
+        };
+        File.WriteAllText(
+            GetStatePath(workflowProjectDirectory),
+            JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }),
+            new UTF8Encoding(false));
+    }
+
     private static bool ValidateState(
         string workflowProjectDirectory,
         string output,
@@ -196,6 +263,45 @@ public static class TikTokRoleVectorService
             using var document = JsonDocument.Parse(File.ReadAllText(statePath));
             var rootElement = document.RootElement;
             if (rootElement.GetProperty("version").GetString() != StateVersion) return false;
+            var sourceMode = rootElement.TryGetProperty("sourceMode", out var sourceModeValue)
+                ? sourceModeValue.GetString() ?? "auto"
+                : "auto";
+            var manualConfiguration = ManualRoleVectorMaterialService.Load(workflowProjectDirectory);
+            if (sourceMode == "manual-final")
+            {
+                if (manualConfiguration.Mode != ManualRoleVectorMode.FinalImage ||
+                    !string.Equals(
+                        rootElement.GetProperty("manualFingerprint").GetString(),
+                        manualConfiguration.Fingerprint,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    !MatchesHash(output, rootElement.GetProperty("outputSha256").GetString()) ||
+                    string.IsNullOrWhiteSpace(manualConfiguration.FinalImagePath) ||
+                    !MatchesHash(
+                        manualConfiguration.FinalImagePath,
+                        rootElement.GetProperty("finalImageSha256").GetString()))
+                {
+                    return false;
+                }
+                var finalConfiguredCount = rootElement.GetProperty("configuredCount").GetInt32();
+                return !expectedConfiguredCharacterCount.HasValue ||
+                       finalConfiguredCount == TikTokReferenceSourcePackageService.NormalizeConfiguredCharacterCount(
+                           expectedConfiguredCharacterCount.Value);
+            }
+            if (sourceMode == "manual-paired" &&
+                (manualConfiguration.Mode != ManualRoleVectorMode.Paired ||
+                 !rootElement.TryGetProperty("manualFingerprint", out var fingerprintValue) ||
+                 !string.Equals(
+                     fingerprintValue.GetString(),
+                     manualConfiguration.Fingerprint,
+                     StringComparison.OrdinalIgnoreCase))) return false;
+            if (sourceMode == "manual-references" &&
+                (manualConfiguration.Mode != ManualRoleVectorMode.ReferencesOnly ||
+                 !rootElement.TryGetProperty("manualFingerprint", out var referenceFingerprintValue) ||
+                 !string.Equals(
+                     referenceFingerprintValue.GetString(),
+                     manualConfiguration.Fingerprint,
+                     StringComparison.OrdinalIgnoreCase))) return false;
+            if (sourceMode == "auto" && manualConfiguration.Mode != ManualRoleVectorMode.Auto) return false;
             var configuredCount = rootElement.GetProperty("configuredCount").GetInt32();
             if (expectedConfiguredCharacterCount.HasValue &&
                 configuredCount != TikTokReferenceSourcePackageService.NormalizeConfiguredCharacterCount(

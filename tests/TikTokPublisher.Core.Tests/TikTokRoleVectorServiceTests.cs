@@ -11,6 +11,220 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokRoleVectorServiceTests
 {
     [Fact]
+    public async Task GenerateAsync_UsesManualReferencesAndCachedGeneratedCharacters()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"manual-role-references-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "原剧名");
+        var workflow = Path.Combine(workspace, "workflow", "_新剧名");
+        var input = Path.Combine(workspace, "用户截图");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        Directory.CreateDirectory(input);
+        WriteMetadata(source, source, workflow);
+        WriteMetadata(workflow, source, workflow);
+        var references = Enumerable.Range(1, 3).Select(index =>
+        {
+            var reference = Path.Combine(input, $"参考{index}.png");
+            SaveImage(reference, 360, 640, new Rgba32((byte)(index * 60), 70, 120));
+            return new ManualRoleCharacter(index, $"人物{index}", string.Empty, reference);
+        }).ToArray();
+
+        try
+        {
+            var saved = ManualRoleVectorMaterialService.SaveReferences(workflow, references);
+            saved.Mode.Should().Be(ManualRoleVectorMode.ReferencesOnly);
+            saved.Characters.Should().HaveCount(3);
+            foreach (var (character, index) in saved.Characters.Select((value, index) => (value, index)))
+            {
+                SaveImage(character.CharacterPath, 768, 1024,
+                    new Rgba32(40, (byte)((index + 1) * 55), 150));
+                ManualRoleVectorMaterialService.MarkGeneratedCharacterCurrent(
+                    character.CharacterPath,
+                    ManualRoleVectorMaterialService.ComputeSha256(character.ReferencePath));
+            }
+            saved = ManualRoleVectorMaterialService.SaveReferences(workflow, saved.Characters);
+            saved.Characters.Should().OnlyContain(character =>
+                ManualRoleVectorMaterialService.IsGeneratedCharacterCurrent(
+                    character.CharacterPath,
+                    ManualRoleVectorMaterialService.ComputeSha256(character.ReferencePath)),
+                "重复保存未变化的参考图应保留已生成定妆图");
+
+            var logs = new List<string>();
+            var output = await TikTokRoleVectorService.GenerateAsync(
+                new QueueProjectItem { ProjectDir = source, NewTitle = "新剧名" },
+                new ClientSettings(),
+                3,
+                forceRerun: true,
+                logs.Add,
+                CancellationToken.None);
+
+            File.Exists(output).Should().BeTrue();
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 3).Should().BeTrue();
+            logs.Should().Contain(message => message.Contains("参考图未变化", StringComparison.Ordinal));
+            using var manifest = JsonDocument.Parse(File.ReadAllText(
+                TikTokReferenceSourcePackageService.GetCharacterManifestPath(workflow)));
+            manifest.RootElement.GetProperty("sourceMode").GetString().Should().Be("manual-references");
+
+            SaveImage(saved.Characters[0].ReferencePath, 720, 1280, new Rgba32(250, 20, 20));
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 3)
+                .Should().BeFalse("人工参考图变化后矢量图哈希应失效");
+            var regenerate = () => TikTokRoleVectorService.GenerateAsync(
+                new QueueProjectItem { ProjectDir = source },
+                new ClientSettings(),
+                3,
+                forceRerun: true,
+                logs.Add,
+                CancellationToken.None);
+            await regenerate.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*配置豆包或 Ofox Image2*");
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveReferences_RejectsDuplicatePeopleImages()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"duplicate-role-references-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        var reference = Path.Combine(workflow, "同一人物.png");
+        SaveImage(reference, 360, 640, new Rgba32(40, 70, 120));
+        var characters = Enumerable.Range(1, 3)
+            .Select(index => new ManualRoleCharacter(index, $"人物{index}", string.Empty, reference))
+            .ToArray();
+        try
+        {
+            var action = () => ManualRoleVectorMaterialService.SaveReferences(workflow, characters);
+            action.Should().Throw<InvalidOperationException>().WithMessage("*重复*");
+        }
+        finally
+        {
+            if (Directory.Exists(workflow)) Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task GenerateAsync_UsesLockedManualPairsWithoutImageModel()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"manual-role-pairs-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "原剧名");
+        var workflow = Path.Combine(workspace, "workflow", "_新剧名");
+        var input = Path.Combine(workspace, "用户截图");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        Directory.CreateDirectory(input);
+        WriteMetadata(source, source, workflow);
+        WriteMetadata(workflow, source, workflow);
+        var pairs = Enumerable.Range(1, 3).Select(index =>
+        {
+            var character = Path.Combine(input, $"角色{index}.png");
+            var reference = Path.Combine(input, $"参考{index}.jpg");
+            SaveImage(character, 300, 500, new Rgba32((byte)(index * 60), 80, 100));
+            SaveImage(reference, 360, 640, new Rgba32(40, (byte)(index * 60), 120));
+            return new ManualRoleCharacter(index, $"人物{index}", character, reference);
+        }).ToArray();
+
+        try
+        {
+            var saved = ManualRoleVectorMaterialService.SavePaired(workflow, pairs);
+            saved.Mode.Should().Be(ManualRoleVectorMode.Paired);
+            saved.Characters.Should().HaveCount(3);
+            saved.Characters.Should().OnlyContain(character =>
+                character.CharacterPath.StartsWith(
+                    ManualRoleVectorMaterialService.GetRoot(workflow),
+                    StringComparison.OrdinalIgnoreCase));
+            saved = ManualRoleVectorMaterialService.SavePaired(workflow, saved.Characters);
+            saved.Characters.Should().HaveCount(3, "已受管的素材应允许再次保存");
+
+            var logs = new List<string>();
+            var output = await TikTokRoleVectorService.GenerateAsync(
+                new QueueProjectItem { ProjectDir = source, NewTitle = "新剧名" },
+                new ClientSettings(),
+                3,
+                forceRerun: true,
+                logs.Add,
+                CancellationToken.None);
+
+            File.Exists(output).Should().BeTrue();
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 3).Should().BeTrue();
+            logs.Should().Contain(message => message.Contains("人工", StringComparison.Ordinal));
+            using var manifest = JsonDocument.Parse(File.ReadAllText(
+                TikTokReferenceSourcePackageService.GetCharacterManifestPath(workflow)));
+            manifest.RootElement.GetProperty("sourceMode").GetString().Should().Be("manual-paired");
+            manifest.RootElement.GetProperty("characters")[1]
+                .GetProperty("name").GetString().Should().Be("人物2");
+
+            SaveImage(saved.Characters[0].ReferencePath, 360, 640, new Rgba32(250, 20, 20));
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 3)
+                .Should().BeFalse("人工参考图变化后角色矢量图状态必须失效");
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task GenerateAsync_InstallsManualFinalImageAndTracksItsHash()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"manual-final-role-vector-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "原剧名");
+        var workflow = Path.Combine(workspace, "workflow", "_新剧名");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        WriteMetadata(source, source, workflow);
+        WriteMetadata(workflow, source, workflow);
+        var finalSource = Path.Combine(workspace, "用户成品.png");
+        SaveImage(
+            finalSource,
+            RoleVectorTemplateRenderer.CanvasWidth,
+            RoleVectorTemplateRenderer.CanvasHeight,
+            new Rgba32(30, 80, 130));
+
+        try
+        {
+            var saved = ManualRoleVectorMaterialService.SaveFinalImage(workflow, finalSource);
+            var logs = new List<string>();
+            var output = await TikTokRoleVectorService.GenerateAsync(
+                new QueueProjectItem { ProjectDir = source },
+                new ClientSettings(),
+                3,
+                forceRerun: true,
+                logs.Add,
+                CancellationToken.None);
+
+            File.Exists(output).Should().BeTrue();
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 3).Should().BeTrue();
+            logs.Should().Contain(message => message.Contains("人工指定成品", StringComparison.Ordinal));
+
+            await TikTokReferenceSourcePackageService.GenerateAsync(
+                new QueueProjectItem { ProjectDir = source },
+                new ClientSettings(),
+                forceRerun: false,
+                logs.Add,
+                CancellationToken.None,
+                3);
+            File.Exists(output).Should().BeTrue("刷新证明素材包不能删除人工成品");
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 3).Should().BeTrue();
+            TikTokReferenceSourcePackageService.HasCurrentOutput(workflow).Should().BeTrue();
+
+            SaveImage(
+                saved.FinalImagePath!,
+                RoleVectorTemplateRenderer.CanvasWidth,
+                RoleVectorTemplateRenderer.CanvasHeight,
+                new Rgba32(180, 20, 20));
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 3)
+                .Should().BeFalse("人工成品变化后状态必须失效");
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task GenerateAsync_ReusesCharactersCreatesBackupAndMigratesLegacyState()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"role-vector-step-{Guid.NewGuid():N}");

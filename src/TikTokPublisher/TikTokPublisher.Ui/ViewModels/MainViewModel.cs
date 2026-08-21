@@ -3208,6 +3208,18 @@ public sealed partial class MainViewModel : ViewModelBase
             : $"已保存「{row.NewTitle}」备注";
     }
 
+    public void MarkManualRoleMaterialChanged(QueueProjectItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        item.StepStates[QueueStepRegistry.GenerateRoleVector] = QueueStepStatus.Pending;
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial] = QueueStepStatus.Pending;
+        item.StepStates[QueueStepRegistry.GenerateTimestampCertificate] = QueueStepStatus.Pending;
+        item.LastError = string.Empty;
+        if (string.Equals(item.CurrentStep, QueueStepRegistry.GenerateRoleVector, StringComparison.Ordinal))
+            item.CurrentStep = string.Empty;
+        PersistQueueItems();
+    }
+
     public async Task<QueueProjectTitleRenameResult> RenameQueueProjectNewTitleAsync(
         QueueProjectRowViewModel row,
         string newTitle)

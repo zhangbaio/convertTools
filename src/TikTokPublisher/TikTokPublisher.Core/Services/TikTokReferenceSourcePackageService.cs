@@ -40,6 +40,10 @@ public static partial class TikTokReferenceSourcePackageService
     public const string Version = "v8-paired-reference-and-costume-lock";
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
+    private const string SceneDesignTemplateResourceName1 =
+        "TikTokPublisher.Core.Resources.SceneDesignTemplate1.png";
+    private const string SceneDesignTemplateResourceName2 =
+        "TikTokPublisher.Core.Resources.SceneDesignTemplate2.png";
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".png", ".jpg", ".jpeg", ".webp", ".bmp" };
 
@@ -62,7 +66,23 @@ public static partial class TikTokReferenceSourcePackageService
         {
             var root = GetRoot(workflowProjectDirectory);
             var state = GetStatePath(workflowProjectDirectory);
+            var manualConfiguration = ManualRoleVectorMaterialService.Load(workflowProjectDirectory);
+            if (manualConfiguration.Mode == ManualRoleVectorMode.FinalImage)
+            {
+                return HasManualStateFingerprint(state, "manual-final", manualConfiguration.Fingerprint) &&
+                       File.Exists(Path.Combine(root, SceneDesignFileName1)) &&
+                       File.Exists(Path.Combine(root, SceneDesignFileName2)) &&
+                       File.Exists(Path.Combine(root, CharacterWorkbenchFileName));
+            }
             var characterDir = Path.Combine(root, CharacterDirectoryName);
+            if (manualConfiguration.Mode == ManualRoleVectorMode.ReferencesOnly)
+            {
+                return HasManualStateFingerprint(state, "manual-references", manualConfiguration.Fingerprint) &&
+                       File.Exists(Path.Combine(root, SceneDesignFileName1)) &&
+                       File.Exists(Path.Combine(root, SceneDesignFileName2)) &&
+                       Directory.Exists(characterDir) &&
+                       Directory.EnumerateFiles(characterDir).Count(IsImage) == manualConfiguration.Characters.Count;
+            }
             return File.Exists(state) &&
                    File.Exists(Path.Combine(root, SceneDesignFileName1)) &&
                    File.Exists(Path.Combine(root, SceneDesignFileName2)) &&
@@ -70,6 +90,23 @@ public static partial class TikTokReferenceSourcePackageService
                    Directory.EnumerateFiles(characterDir).Count(IsImage) >= 3;
         }
         catch (DirectoryNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    private static bool HasManualStateFingerprint(string statePath, string sourceMode, string fingerprint)
+    {
+        if (!File.Exists(statePath) || string.IsNullOrWhiteSpace(fingerprint)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(statePath));
+            return document.RootElement.TryGetProperty("sourceMode", out var modeValue) &&
+                   string.Equals(modeValue.GetString(), sourceMode, StringComparison.Ordinal) &&
+                   document.RootElement.TryGetProperty("sourceFingerprint", out var fingerprintValue) &&
+                   string.Equals(fingerprintValue.GetString(), fingerprint, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
         {
             return false;
         }
@@ -88,6 +125,78 @@ public static partial class TikTokReferenceSourcePackageService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
         var root = GetRoot(context.WorkflowProjectDir);
+        var manualRoleConfiguration = ManualRoleVectorMaterialService.Load(context.WorkflowProjectDir);
+        if (manualRoleConfiguration.Mode == ManualRoleVectorMode.FinalImage)
+        {
+            var roleVector = Path.Combine(root, CharacterWorkbenchFileName);
+            if (!File.Exists(roleVector))
+                throw new InvalidOperationException("人工成品角色矢量图尚未安装，请先执行“生成角色矢量图”步骤。");
+            ResetPackageRoot(root, preserveCharactersAndRoleVector: true);
+            Directory.CreateDirectory(Path.Combine(root, CharacterDirectoryName));
+            Directory.CreateDirectory(Path.Combine(root, VideoDirectoryName));
+            Directory.CreateDirectory(Path.Combine(root, MaterialDirectoryName, "001"));
+            await RefreshDerivedImagesAsync(context.WorkflowProjectDir, log, ct).ConfigureAwait(false);
+            await WriteHiddenStateFileAsync(
+                GetStatePath(context.WorkflowProjectDir),
+                JsonSerializer.Serialize(new
+                {
+                    version = Version,
+                    sourceMode = "manual-final",
+                    sourceFingerprint = manualRoleConfiguration.Fingerprint,
+                    generatedAt = DateTimeOffset.Now,
+                }, new JsonSerializerOptions { WriteIndented = true }),
+                ct).ConfigureAwait(false);
+            log?.Invoke("参考格式素材包：保留人工成品角色矢量图，并刷新场景设计材料。");
+            return root;
+        }
+        if (manualRoleConfiguration.Mode == ManualRoleVectorMode.ReferencesOnly)
+        {
+            ManualRoleVectorMaterialService.ValidateReferences(manualRoleConfiguration);
+            await EnsureManualReferenceCharactersAsync(
+                context.WorkflowProjectDir, settings, log, ct).ConfigureAwait(false);
+            ResetPackageRoot(root, preserveCharactersAndRoleVector: false);
+            Directory.CreateDirectory(Path.Combine(root, VideoDirectoryName));
+            Directory.CreateDirectory(Path.Combine(root, MaterialDirectoryName, "001"));
+            var manualCharacters = ManualRoleVectorMaterialService.MaterializeReferenceGeneratedCharacters(
+                context.WorkflowProjectDir);
+            await RefreshDerivedImagesAsync(context.WorkflowProjectDir, log, ct).ConfigureAwait(false);
+            await WriteHiddenStateFileAsync(
+                GetStatePath(context.WorkflowProjectDir),
+                JsonSerializer.Serialize(new
+                {
+                    version = Version,
+                    sourceMode = "manual-references",
+                    sourceFingerprint = manualRoleConfiguration.Fingerprint,
+                    characterCount = manualCharacters.Count,
+                    generatedAt = DateTimeOffset.Now,
+                }, new JsonSerializerOptions { WriteIndented = true }),
+                ct).ConfigureAwait(false);
+            log?.Invoke($"参考格式素材包：已按 {manualCharacters.Count} 张人工参考图自动生成并锁定角色定妆图。");
+            return root;
+        }
+        if (manualRoleConfiguration.Mode == ManualRoleVectorMode.Paired)
+        {
+            ManualRoleVectorMaterialService.ValidatePaired(manualRoleConfiguration);
+            ResetPackageRoot(root, preserveCharactersAndRoleVector: false);
+            Directory.CreateDirectory(Path.Combine(root, VideoDirectoryName));
+            Directory.CreateDirectory(Path.Combine(root, MaterialDirectoryName, "001"));
+            var manualCharacters = ManualRoleVectorMaterialService.MaterializePairedCharacters(
+                context.WorkflowProjectDir);
+            await RefreshDerivedImagesAsync(context.WorkflowProjectDir, log, ct).ConfigureAwait(false);
+            await WriteHiddenStateFileAsync(
+                GetStatePath(context.WorkflowProjectDir),
+                JsonSerializer.Serialize(new
+                {
+                    version = Version,
+                    sourceMode = "manual-paired",
+                    sourceFingerprint = manualRoleConfiguration.Fingerprint,
+                    characterCount = manualCharacters.Count,
+                    generatedAt = DateTimeOffset.Now,
+                }, new JsonSerializerOptions { WriteIndented = true }),
+                ct).ConfigureAwait(false);
+            log?.Invoke($"参考格式素材包：已锁定并使用 {manualCharacters.Count} 组人工角色定妆图和人物参考图。");
+            return root;
+        }
         var title = FirstNonEmpty(item.NewTitle, item.Title, item.OriginalTitle, Path.GetFileName(context.SourceProjectDir));
         var originalTitle = FirstNonEmpty(item.OriginalTitle, item.DisplayName, title);
         var intro = ResolveIntro(item, context);
@@ -200,19 +309,54 @@ public static partial class TikTokReferenceSourcePackageService
     {
         var context = ProjectWorkspaceService.LoadContext(workflowProjectDirectory);
         var root = GetRoot(context.WorkflowProjectDir);
-        var sceneSources = await ResolveSceneSourcesAsync(context, root, log, ct).ConfigureAwait(false);
-        RenderSceneDesignSheet(
-            Path.Combine(root, SceneDesignFileName1),
-            Path.GetFileName(context.WorkflowProjectDir).TrimStart('_'),
-            "主要场景设计参考",
-            sceneSources.Take(4).ToArray());
-        RenderSceneDesignSheet(
-            Path.Combine(root, SceneDesignFileName2),
-            Path.GetFileName(context.WorkflowProjectDir).TrimStart('_'),
-            "补充场景与光线参考",
-            sceneSources.Skip(4).Take(4).ToArray());
+        await InstallDefaultSceneDesignTemplatesAsync(root, ct).ConfigureAwait(false);
         TrySetHidden(GetStatePath(context.WorkflowProjectDir));
-        log?.Invoke($"参考格式素材包：已用 {sceneSources.Count} 张真实场景帧刷新场景设计图。");
+        log?.Invoke("参考格式素材包：已安装内置场景设计图1/2模板，不重新生成场景设计图。");
+    }
+
+    internal static async Task InstallDefaultSceneDesignTemplatesAsync(
+        string packageRoot,
+        CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageRoot);
+        Directory.CreateDirectory(packageRoot);
+        await CopyEmbeddedTemplateAsync(
+            SceneDesignTemplateResourceName1,
+            Path.Combine(packageRoot, SceneDesignFileName1),
+            ct).ConfigureAwait(false);
+        await CopyEmbeddedTemplateAsync(
+            SceneDesignTemplateResourceName2,
+            Path.Combine(packageRoot, SceneDesignFileName2),
+            ct).ConfigureAwait(false);
+    }
+
+    private static async Task CopyEmbeddedTemplateAsync(
+        string resourceName,
+        string destination,
+        CancellationToken ct)
+    {
+        var temporary = destination + $".{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await using var source = typeof(TikTokReferenceSourcePackageService).Assembly
+                .GetManifestResourceStream(resourceName)
+                ?? throw new InvalidOperationException($"未找到内置场景设计图模板：{resourceName}");
+            await using (var output = new FileStream(
+                             temporary,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             81920,
+                             useAsync: true))
+            {
+                await source.CopyToAsync(output, ct).ConfigureAwait(false);
+            }
+            File.Move(temporary, destination, overwrite: true);
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+        }
     }
 
     internal static async Task<IReadOnlyList<string>> EnsureCharacterImagesAsync(
@@ -227,6 +371,24 @@ public static partial class TikTokReferenceSourcePackageService
         var root = GetRoot(context.WorkflowProjectDir);
         var characterDir = Path.Combine(root, CharacterDirectoryName);
         Directory.CreateDirectory(characterDir);
+
+        var manualRoleConfiguration = ManualRoleVectorMaterialService.Load(context.WorkflowProjectDir);
+        if (manualRoleConfiguration.Mode == ManualRoleVectorMode.ReferencesOnly)
+        {
+            await EnsureManualReferenceCharactersAsync(
+                context.WorkflowProjectDir, settings, log, ct).ConfigureAwait(false);
+            var manualCharacters = ManualRoleVectorMaterialService.MaterializeReferenceGeneratedCharacters(
+                context.WorkflowProjectDir);
+            log?.Invoke($"角色矢量图：按人工参考图顺序使用 {manualCharacters.Count} 张自动生成的角色定妆图。");
+            return manualCharacters;
+        }
+        if (manualRoleConfiguration.Mode == ManualRoleVectorMode.Paired)
+        {
+            var manualCharacters = ManualRoleVectorMaterialService.MaterializePairedCharacters(
+                context.WorkflowProjectDir);
+            log?.Invoke($"角色矢量图：按人工锁定顺序使用 {manualCharacters.Count} 张角色定妆图。");
+            return manualCharacters;
+        }
 
         var title = FirstNonEmpty(item.NewTitle, item.Title, item.OriginalTitle, Path.GetFileName(context.SourceProjectDir));
         var intro = ResolveIntro(item, context);
@@ -289,6 +451,60 @@ public static partial class TikTokReferenceSourcePackageService
             configuredCharacterCount,
             candidates.Length);
         return existing;
+    }
+
+    private static async Task EnsureManualReferenceCharactersAsync(
+        string workflowProjectDirectory,
+        ClientSettings settings,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var configuration = ManualRoleVectorMaterialService.Load(workflowProjectDirectory);
+        ManualRoleVectorMaterialService.ValidateReferences(configuration);
+        var imageModelChecked = false;
+        foreach (var (character, index) in configuration.Characters
+                     .OrderBy(value => value.Order)
+                     .Select((value, index) => (value, index)))
+        {
+            ct.ThrowIfCancellationRequested();
+            var referenceHash = ManualRoleVectorMaterialService.ComputeSha256(character.ReferencePath);
+            if (ManualRoleVectorMaterialService.IsGeneratedCharacterCurrent(
+                    character.CharacterPath, referenceHash))
+            {
+                log?.Invoke($"角色图片 {index + 1}/{configuration.Characters.Count}：参考图未变化，复用 {character.Name} 定妆图。");
+                continue;
+            }
+
+            if (!imageModelChecked)
+            {
+                EnsureImageModelConfigured(settings);
+                imageModelChecked = true;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(character.CharacterPath)!);
+            log?.Invoke(
+                $"角色图片 {index + 1}/{configuration.Characters.Count}：以人工参考图中的 {character.Name} 为唯一人物生成全身定妆图。");
+            var profile = new CharacterProfile(
+                character.Name,
+                "用户手动指定人物参考图；必须保持人物身份、五官、脸型、年龄、性别、发型及服装特征一致。");
+            var bytes = await GenerateReferenceImageWithRetryAsync(
+                BuildReferenceCharacterPrompt(profile),
+                character.ReferencePath,
+                settings,
+                character.Name,
+                ct).ConfigureAwait(false);
+            var temporary = character.CharacterPath + $".{Guid.NewGuid():N}.tmp.png";
+            try
+            {
+                await SaveNormalizedPngAsync(bytes, temporary, 768, 1024, ct).ConfigureAwait(false);
+                File.Move(temporary, character.CharacterPath, overwrite: true);
+                ManualRoleVectorMaterialService.MarkGeneratedCharacterCurrent(
+                    character.CharacterPath, referenceHash);
+            }
+            finally
+            {
+                try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+            }
+        }
     }
 
     internal static async Task<IReadOnlyList<string>> ResolveSceneSourcesAsync(
@@ -1624,7 +1840,8 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
             var name = Path.GetFileName(entry);
             if (string.Equals(name, CharacterDirectoryName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, CharacterWorkbenchFileName, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(name, TikTokRoleVectorService.BackupFileName, StringComparison.OrdinalIgnoreCase))
+                string.Equals(name, TikTokRoleVectorService.BackupFileName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, TikTokRoleVectorService.StateFileName, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }

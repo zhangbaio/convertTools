@@ -233,6 +233,7 @@
                 <WrapPanel Orientation="Horizontal">
                     <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
+                    <Button Content="角色素材" Click="OnConfigureRoleMaterialClick" Classes="contentAction compactAction" Margin="0,0,8,0" />
                     <Button Content="打开外部浏览器" Click="OnOpenBrowserClick" Classes="browserAction compactAction" Margin="0,0,8,0" />
                     <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Classes="repairAction compactAction" Margin="0,0,8,0" />
                     <Button Content="标记上传成功" Click="OnMarkSelectedUploadCompletedClick" Classes="contentAction compactAction" Margin="0,0,8,0" />

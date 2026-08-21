@@ -9,6 +9,42 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokReferenceSourcePackageServiceTests
 {
     [Fact]
+    public async Task Default_scene_design_templates_are_installed_without_rendering()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"scene-design-templates-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var first = Path.Combine(root, TikTokReferenceSourcePackageService.SceneDesignFileName1);
+        var second = Path.Combine(root, TikTokReferenceSourcePackageService.SceneDesignFileName2);
+        await File.WriteAllTextAsync(first, "stale");
+        await File.WriteAllTextAsync(second, "stale");
+
+        try
+        {
+            await TikTokReferenceSourcePackageService.InstallDefaultSceneDesignTemplatesAsync(
+                root,
+                CancellationToken.None);
+
+            using var firstImage = Image.Load<Rgba32>(first);
+            using var secondImage = Image.Load<Rgba32>(second);
+            firstImage.Size.Should().Be(new Size(2435, 1011));
+            secondImage.Size.Should().Be(new Size(2477, 1254));
+            new FileInfo(first).Length.Should().BeGreaterThan(2_000_000);
+            new FileInfo(second).Length.Should().BeGreaterThan(2_000_000);
+            File.ReadAllBytes(first).Should().NotEqual(File.ReadAllBytes(second));
+
+            await File.WriteAllTextAsync(first, "stale-again");
+            await TikTokReferenceSourcePackageService.InstallDefaultSceneDesignTemplatesAsync(
+                root,
+                CancellationToken.None);
+            Image.Identify(first)!.Width.Should().Be(2435);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Hidden_state_file_can_be_overwritten_during_force_rerun()
     {
         var root = Path.Combine(Path.GetTempPath(), $"hidden-reference-state-{Guid.NewGuid():N}");

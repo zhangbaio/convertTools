@@ -646,6 +646,71 @@ public partial class TikTokQueueView : UserControl
 
     private void OnOpenLogsClick(object? sender, RoutedEventArgs e) => OpenLogsRequested?.Invoke(this, EventArgs.Empty);
 
+    private async void OnConfigureRoleMaterialClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (vm is null || owner is null) return;
+
+        var selectedRows = GetSelectedQueueRows().ToArray();
+        var rows = selectedRows.Length == 1 ? selectedRows : GetCheckedOrSelectedQueueRows();
+        if (rows.Count != 1)
+        {
+            vm.StatusMessage = "请只勾选或选择一个项目，再配置角色素材";
+            await ShowMessageAsync(owner, "角色素材", "请只勾选或选择一个项目。", warning: true);
+            return;
+        }
+
+        var row = rows[0];
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(row.Item.ProjectDir);
+            var existing = ManualRoleVectorMaterialService.Load(context.WorkflowProjectDir);
+            var result = await ManualRoleVectorDialog.ShowAsync(owner, row.NewTitle, existing);
+            if (result is null) return;
+
+            var saved = result.Mode switch
+            {
+                ManualRoleVectorMode.ReferencesOnly => ManualRoleVectorMaterialService.SaveReferences(
+                    context.WorkflowProjectDir,
+                    result.Characters,
+                    result.Locked),
+                ManualRoleVectorMode.Paired => ManualRoleVectorMaterialService.SavePaired(
+                    context.WorkflowProjectDir,
+                    result.Characters,
+                    result.Locked),
+                ManualRoleVectorMode.FinalImage => ManualRoleVectorMaterialService.SaveFinalImage(
+                    context.WorkflowProjectDir,
+                    result.FinalImagePath ?? string.Empty,
+                    result.Locked),
+                _ => SaveAutomaticRoleMode(context.WorkflowProjectDir),
+            };
+            vm.MarkManualRoleMaterialChanged(row.Item);
+            var modeLabel = saved.Mode switch
+            {
+                ManualRoleVectorMode.ReferencesOnly => $"已保存 {saved.Characters.Count} 张人物参考图，角色定妆图将在队列中自动生成",
+                ManualRoleVectorMode.Paired => $"已保存 {saved.Characters.Count} 组人工角色配对",
+                ManualRoleVectorMode.FinalImage => "已保存人工成品角色矢量图",
+                _ => "已恢复自动选择/生成角色素材",
+            };
+            vm.StatusMessage = $"{row.NewTitle}：{modeLabel}";
+            vm.AppendLog(vm.StatusMessage);
+            await InfoDialog.ShowAsync(owner, modeLabel + "。下次执行“生成角色矢量图”时生效。", "角色素材已保存");
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"保存角色素材失败：{ex.Message}";
+            vm.AppendLog(vm.StatusMessage);
+            await ShowMessageAsync(owner, "保存角色素材失败", ex.Message, warning: true);
+        }
+    }
+
+    private static ManualRoleVectorConfiguration SaveAutomaticRoleMode(string workflowProjectDirectory)
+    {
+        ManualRoleVectorMaterialService.UseAutomaticMode(workflowProjectDirectory);
+        return ManualRoleVectorMaterialService.Load(workflowProjectDirectory);
+    }
+
     private void OnOpenOriginalProjectFolderClick(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
