@@ -116,7 +116,14 @@ public sealed class HongguoHighApiService
                 Category: GetString(book, "category") ?? "",
                 EpisodeTotal: GetInt(book, "chapter_number") ?? GetInt(book, "serial_count") ?? 0,
                 Intro: GetString(book, "abstract") ?? "",
-                PosterUrl: GetString(book, "audio_thumb_uri") ?? GetString(book, "thumb_uri") ?? "",
+                PosterUrl: FirstHttpUrl(
+                    GetString(book, "thumb_url"),
+                    GetString(book, "cover"),
+                    GetString(book, "series_cover"),
+                    GetString(book, "cover_url"),
+                    GetString(book, "poster"),
+                    GetString(book, "audio_thumb_uri"),
+                    GetString(book, "thumb_uri")) ?? "",
                 Author: GetString(book, "author") ?? GetString(book, "anchor") ?? "",
                 PublishTime: "",
                 FavoriteCount: GetInt(book, "favorite_count") ?? 0));
@@ -783,6 +790,26 @@ public sealed class HongguoHighApiService
         var bytes = new byte[length];
         System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
         return bytes;
+    }
+
+    private static string? FirstHttpUrl(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            var trimmed = value?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                continue;
+            }
+
+            if (trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmed;
+            }
+        }
+
+        return null;
     }
 
     private static string? GetString(JsonObject? obj, string name)

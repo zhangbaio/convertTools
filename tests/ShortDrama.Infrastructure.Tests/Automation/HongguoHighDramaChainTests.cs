@@ -211,7 +211,8 @@ public sealed class HongguoHighCalendarMapperTests
                     "author": "作者甲",
                     "chapter_number": 24,
                     "first_online_time": "2026-08-18 09:00:00",
-                    "abstract": "简介"
+                    "abstract": "简介",
+                    "thumb_url": "https://cdn.example.com/nested.jpg"
                   }
                 }
               ]
@@ -226,6 +227,7 @@ public sealed class HongguoHighCalendarMapperTests
         items[0].EpisodeTotal.Should().Be(24);
         items[0].PublishTime.Should().Be("2026-08-18 09:00:00");
         items[0].Intro.Should().Be("简介");
+        items[0].PosterUrl.Should().Be("https://cdn.example.com/nested.jpg");
     }
 
     [Fact]
@@ -303,6 +305,7 @@ public sealed class HongguoHighDramaChainTests
         results.Should().ContainSingle();
         results[0].Title.Should().Be("高码率剧");
         results[0].BookId.Should().Be("hghigh:123456");
+        results[0].PosterUrl.Should().Be("https://cover");
         handler.Hosts.Should().Contain("api5-sinfonlinea.novelfm.com");
         handler.Hosts.Should().NotContain("au.s1o.cc");
         handler.Hosts.Should().NotContain("m.iusc.cc");

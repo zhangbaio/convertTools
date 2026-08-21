@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using TikTokPublisher.Core.Drama;
@@ -19,6 +21,19 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
     public event Action? SelectionChanged;
 
     public int RowIndex { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPosterImage))]
+    [NotifyPropertyChangedFor(nameof(ShowPosterPlaceholder))]
+    private Bitmap? _posterImage;
+
+    [ObservableProperty] private string _posterStatus = "封面加载中";
+
+    public bool HasPosterImage => PosterImage is not null;
+    public bool ShowPosterPlaceholder => PosterImage is null;
+
+    private CancellationTokenSource? _posterCts;
+    private string? _loadedPosterUrl;
 
     public bool Selected
     {
@@ -40,6 +55,93 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
     public string PublishTime => string.IsNullOrWhiteSpace(Item.PublishTime) ? "-" : Item.PublishTime;
     public string Intro => Item.Intro;
     public string PosterUrl => Item.PosterUrl;
+
+    public void RequestPosterLoad()
+    {
+        var url = (Item.PosterUrl ?? string.Empty).Trim();
+        if (HasPosterImage && string.Equals(_loadedPosterUrl, url, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _posterCts?.Cancel();
+        _posterCts?.Dispose();
+        _posterCts = new CancellationTokenSource();
+        var token = _posterCts.Token;
+        _ = LoadPosterAsync(url, token);
+    }
+
+    public void DisposePoster()
+    {
+        _posterCts?.Cancel();
+        _posterCts?.Dispose();
+        _posterCts = null;
+        _loadedPosterUrl = null;
+        PosterImage?.Dispose();
+        PosterImage = null;
+        PosterStatus = "封面加载中";
+    }
+
+    private async Task LoadPosterAsync(string url, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            await SetPosterStatusAsync("暂无封面", cancellationToken);
+            return;
+        }
+
+        await SetPosterStatusAsync("封面加载中", cancellationToken);
+        try
+        {
+            var path = await DramaPosterCache.TryGetLocalPathAsync(url, cancellationToken);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                await SetPosterStatusAsync("暂无封面", cancellationToken);
+                return;
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                PosterImage?.Dispose();
+                PosterImage = new Bitmap(path);
+                _loadedPosterUrl = url;
+                PosterStatus = "";
+            });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            await SetPosterStatusAsync("暂无封面", cancellationToken);
+        }
+    }
+
+    private async Task SetPosterStatusAsync(string status, CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                PosterStatus = status;
+            }
+        });
+    }
 }
 
 public sealed partial class DramaQueueRowViewModel : ViewModelBase
@@ -184,6 +286,10 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(IsListView));
         OnPropertyChanged(nameof(IsPosterView));
+        if (IsPosterView)
+        {
+            RequestPosterLoads();
+        }
     }
 
     [RelayCommand]
@@ -510,6 +616,12 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private void ApplyFilteredSearchResults(string? label = null)
     {
         var items = ApplySearchFilters(_allSearchResults);
+        foreach (var existing in SearchResults)
+        {
+            existing.SelectionChanged -= UpdateSelectedCount;
+            existing.DisposePoster();
+        }
+
         SearchResults.Clear();
         var index = 1;
         foreach (var item in items)
@@ -521,6 +633,18 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
         SearchPageText = $"{(string.IsNullOrWhiteSpace(label) ? $"第 {SearchPage} 页" : label)} · 共 {SearchResults.Count} 条";
         UpdateSelectedCount();
+        if (IsPosterView)
+        {
+            RequestPosterLoads();
+        }
+    }
+
+    private void RequestPosterLoads()
+    {
+        foreach (var row in SearchResults)
+        {
+            row.RequestPosterLoad();
+        }
     }
 
     private IReadOnlyList<DramaSearchItem> ApplySearchFilters(IEnumerable<DramaSearchItem> source)

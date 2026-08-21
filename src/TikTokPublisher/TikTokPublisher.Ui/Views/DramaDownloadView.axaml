@@ -129,8 +129,30 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:DramaSearchRowViewModel">
-                                    <Border Width="220" MinHeight="154" BorderBrush="{StaticResource PythonBorderBrush}" BorderThickness="1" CornerRadius="6" Background="{StaticResource PythonInputBg}" Padding="10" Margin="0,0,10,10">
+                                    <Border Width="220" MinHeight="360" BorderBrush="{StaticResource PythonBorderBrush}" BorderThickness="1" CornerRadius="6" Background="{StaticResource PythonInputBg}" Padding="10" Margin="0,0,10,10">
                                         <StackPanel Spacing="6">
+                                            <Border Width="178"
+                                                    Height="210"
+                                                    HorizontalAlignment="Center"
+                                                    Background="{StaticResource PythonPanelSubtleBgBrush}"
+                                                    CornerRadius="4"
+                                                    ClipToBounds="True">
+                                                <Panel>
+                                                    <TextBlock Text="{Binding PosterStatus}"
+                                                               IsVisible="{Binding ShowPosterPlaceholder}"
+                                                               HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"
+                                                               TextAlignment="Center"
+                                                               TextWrapping="Wrap"
+                                                               Margin="12"
+                                                               Classes="pageSummary" />
+                                                    <Image Source="{Binding PosterImage}"
+                                                           Width="178"
+                                                           Height="210"
+                                                           Stretch="UniformToFill"
+                                                           IsVisible="{Binding HasPosterImage}" />
+                                                </Panel>
+                                            </Border>
                                             <CheckBox IsChecked="{Binding Selected}" Content="{Binding Title}" FontWeight="SemiBold" />
                                             <TextBlock Text="{Binding Author}" FontSize="12" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding Category}" FontSize="12" TextTrimming="CharacterEllipsis" />
