@@ -74,7 +74,7 @@
 
         <Border Classes="accountConfigPanel">
             <TabControl Classes="accountTabs">
-                <TabItem Header="账号资料">
+                <TabItem Header="登录设置">
                     <ScrollViewer>
                         <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
                         <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="登录状态" VerticalAlignment="Top" Margin="0,4,0,0" />
@@ -98,7 +98,59 @@
                     </ScrollViewer>
                 </TabItem>
 
-            <TabItem Header="发布策略">
+            <TabItem Header="网络 / IP">
+                <ScrollViewer>
+                    <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
+                        <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="登录浏览器" VerticalAlignment="Center" />
+                        <TextBlock Grid.Row="0" Grid.Column="1"
+                                   Text="跟随「发布配置 → 上传浏览器」"
+                                   VerticalAlignment="Center" />
+                        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="LoginBrowserModeCombo" HorizontalAlignment="Stretch" IsVisible="False">
+                            <ComboBoxItem Tag="embedded">内置浏览器</ComboBoxItem>
+                            <ComboBoxItem Tag="cdp">外部浏览器 / CDP</ComboBoxItem>
+                        </ComboBox>
+
+                        <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="CDP 地址" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="CdpEndpointBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="启用代理" VerticalAlignment="Center" />
+                        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="ProxyEnabledBox" Content="启用账号代理" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="代理类型" VerticalAlignment="Center" />
+                        <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ProxyTypeCombo" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="http">HTTP/HTTPS</ComboBoxItem>
+                            <ComboBoxItem Tag="socks5">SOCKS5</ComboBoxItem>
+                            <ComboBoxItem Tag="socks4">SOCKS4</ComboBoxItem>
+                        </ComboBox>
+
+                        <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="代理主机" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="4" Grid.Column="1" x:Name="ProxyHostBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="代理端口" VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="ProxyPortBox" Minimum="0" Maximum="65535" Value="0" Width="160" HorizontalAlignment="Left" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="代理用户名" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="6" Grid.Column="1" x:Name="ProxyUsernameBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="代理密码" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="7" Grid.Column="1" x:Name="ProxyPasswordBox" PasswordChar="●" RevealPassword="False" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="8" Grid.Column="0" Text="代理备注" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="8" Grid.Column="1" x:Name="ProxyLabelBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="9" Grid.Column="0" Text="静态IP备注" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="9" Grid.Column="1" x:Name="StaticIpNoteBox" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="10" Grid.Column="0" Text="IP 检测" VerticalAlignment="Top" Margin="0,6,0,0" />
+                        <StackPanel Grid.Row="10" Grid.Column="1" Orientation="Vertical" Spacing="6">
+                            <Button x:Name="TestProxyButton" Content="测试IP" Click="OnTestProxyClick" HorizontalAlignment="Left" />
+                            <TextBlock x:Name="ProxyTestResultText" TextWrapping="Wrap" Foreground="#B8C8D8" Text="点击「测试IP」检测当前代理的实际出口 IP 与归属地。" />
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="发布配置">
                 <ScrollViewer>
                     <StackPanel Spacing="10" Margin="2,4,2,2">
                         <Grid Classes="profileForm" ColumnDefinitions="140,*" ColumnSpacing="10">
@@ -324,59 +376,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="网络环境">
-                <ScrollViewer>
-                    <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
-                        <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="登录浏览器" VerticalAlignment="Center" />
-                        <TextBlock Grid.Row="0" Grid.Column="1"
-                                   Text="跟随「发布策略 → 上传浏览器」"
-                                   VerticalAlignment="Center" />
-                        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="LoginBrowserModeCombo" HorizontalAlignment="Stretch" IsVisible="False">
-                            <ComboBoxItem Tag="embedded">内置浏览器</ComboBoxItem>
-                            <ComboBoxItem Tag="cdp">外部浏览器 / CDP</ComboBoxItem>
-                        </ComboBox>
-
-                        <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="CDP 地址" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="CdpEndpointBox" />
-
-                        <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="启用代理" VerticalAlignment="Center" />
-                        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="ProxyEnabledBox" Content="启用账号代理" />
-
-                        <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="代理类型" VerticalAlignment="Center" />
-                        <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ProxyTypeCombo" HorizontalAlignment="Stretch">
-                            <ComboBoxItem Tag="http">HTTP/HTTPS</ComboBoxItem>
-                            <ComboBoxItem Tag="socks5">SOCKS5</ComboBoxItem>
-                            <ComboBoxItem Tag="socks4">SOCKS4</ComboBoxItem>
-                        </ComboBox>
-
-                        <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="代理主机" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="4" Grid.Column="1" x:Name="ProxyHostBox" />
-
-                        <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="代理端口" VerticalAlignment="Center" />
-                        <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="ProxyPortBox" Minimum="0" Maximum="65535" Value="0" Width="160" HorizontalAlignment="Left" />
-
-                        <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="代理用户名" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="6" Grid.Column="1" x:Name="ProxyUsernameBox" />
-
-                        <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="代理密码" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="7" Grid.Column="1" x:Name="ProxyPasswordBox" PasswordChar="●" RevealPassword="False" />
-
-                        <TextBlock Classes="formLabel" Grid.Row="8" Grid.Column="0" Text="代理备注" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="8" Grid.Column="1" x:Name="ProxyLabelBox" />
-
-                        <TextBlock Classes="formLabel" Grid.Row="9" Grid.Column="0" Text="静态 IP 备注" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="9" Grid.Column="1" x:Name="StaticIpNoteBox" />
-
-                        <TextBlock Classes="formLabel" Grid.Row="10" Grid.Column="0" Text="IP 检测" VerticalAlignment="Top" Margin="0,6,0,0" />
-                        <StackPanel Grid.Row="10" Grid.Column="1" Orientation="Vertical" Spacing="6">
-                            <Button x:Name="TestProxyButton" Content="测试 IP" Click="OnTestProxyClick" HorizontalAlignment="Left" />
-                            <TextBlock x:Name="ProxyTestResultText" TextWrapping="Wrap" Foreground="#B8C8D8" Text="点击「测试 IP」检测当前代理的实际出口 IP 与归属地。" />
-                        </StackPanel>
-                    </Grid>
-                </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="运行参数">
+            <TabItem Header="基础设置">
                 <ScrollViewer>
                     <Grid Classes="profileForm"
                           Margin="2,4,2,2"

@@ -3,26 +3,63 @@
              x:Class="TikTokPublisher.Ui.Views.CopyrightMaterialSelector">
     <UserControl.Styles>
         <Style Selector="Border.materialGroup">
-            <Setter Property="BorderBrush" Value="#DCE3EC" />
+            <Setter Property="BorderBrush" Value="{StaticResource PythonPanelBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Background" Value="{StaticResource PythonPanelSubtleBgBrush}" />
             <Setter Property="Padding" Value="14,10" />
         </Style>
         <Style Selector="Border.materialRow">
             <Setter Property="Padding" Value="4,8" />
         </Style>
+        <Style Selector="Border.materialDivider">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Background" Value="{StaticResource PythonPanelBorderBrush}" />
+            <Setter Property="Opacity" Value="0.72" />
+        </Style>
         <Style Selector="TextBlock.materialHint">
-            <Setter Property="Foreground" Value="#6B7280" />
+            <Setter Property="Foreground" Value="{StaticResource PythonMutedBrush}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.materialRecommendation">
+            <Setter Property="Foreground" Value="#4BD69A" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.materialWarning">
+            <Setter Property="Foreground" Value="#F5C66B" />
         </Style>
         <Style Selector="StackPanel.materialContents">
             <Setter Property="Margin" Value="28,5,0,0" />
             <Setter Property="Spacing" Value="4" />
         </Style>
+        <Style Selector="StackPanel.materialContents CheckBox:disabled">
+            <Setter Property="Foreground" Value="{StaticResource PythonMutedBrush}" />
+            <Setter Property="Opacity" Value="0.82" />
+        </Style>
+        <Style Selector="StackPanel.materialContents CheckBox:disabled /template/ ContentPresenter">
+            <Setter Property="TextBlock.Foreground" Value="{StaticResource PythonMutedBrush}" />
+        </Style>
         <Style Selector="CheckBox.materialOption">
             <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.materialMinimumAction">
+            <Setter Property="Background" Value="{StaticResource PythonInputBg}" />
+            <Setter Property="BorderBrush" Value="{StaticResource PythonInputBorder}" />
+            <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.materialMinimumAction:pointerover">
+            <Setter Property="Background" Value="#204F72" />
+            <Setter Property="BorderBrush" Value="{StaticResource PythonInputFocusBrush}" />
+            <Setter Property="Foreground" Value="#F7FBFF" />
+        </Style>
+        <Style Selector="Button.materialMinimumAction:pressed">
+            <Setter Property="Background" Value="#245D8C" />
+            <Setter Property="BorderBrush" Value="{StaticResource PythonPrimaryBrush}" />
+            <Setter Property="Foreground" Value="#F7FBFF" />
         </Style>
     </UserControl.Styles>
 
@@ -36,6 +73,7 @@
             </StackPanel>
             <Button Grid.Column="1"
                     Content="仅选择最低标准"
+                    Classes="materialMinimumAction"
                     Padding="10,4"
                     VerticalAlignment="Center"
                     Click="OnSelectMinimumStandardClick" />
@@ -54,8 +92,8 @@
                                       Content="合作协议"
                                       Checked="OnMaterialSelectionChanged"
                                       Unchecked="OnMaterialSelectionChanged" />
-                            <TextBlock Grid.Column="1" Text="最低标准推荐" Foreground="#16803C"
-                                       FontSize="12" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Text="最低标准推荐"
+                                       Classes="materialRecommendation" />
                         </Grid>
                         <TextBlock Text="制作协议、联合出品协议等合作协议；系统自动生成当前项目的证明材料。"
                                    Classes="materialHint" Margin="28,2,0,0" />
@@ -66,7 +104,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border Height="1" Background="#EEF1F5" />
+                <Border Classes="materialDivider" />
 
                 <Border Classes="materialRow">
                     <StackPanel>
@@ -78,7 +116,7 @@
                         <TextBlock Text="登记的作品类别需为影视作品，并与当前短剧作品及合同签约主体一致。"
                                    Classes="materialHint" Margin="28,2,0,0" />
                         <TextBlock Text="当前自动上传流程未支持，请仅在已另行配置独立文件时选择。"
-                                   Classes="materialHint" Foreground="#C2410C" Margin="28,3,0,0"
+                                   Classes="materialHint materialWarning" Margin="28,3,0,0"
                                    IsVisible="{Binding IsChecked, ElementName=WorkRegistrationMaterialBox}" />
                     </StackPanel>
                 </Border>
@@ -106,7 +144,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border Height="1" Background="#EEF1F5" />
+                <Border Classes="materialDivider" />
 
                 <Border Classes="materialRow">
                     <StackPanel>
@@ -118,12 +156,12 @@
                         <TextBlock Text="包含片头片尾署名、标识等，可识别的制片方、出品方、发行方应与合同主体一致。"
                                    Classes="materialHint" Margin="28,2,0,0" />
                         <TextBlock Text="当前自动上传流程未支持，请仅在已另行配置独立文件时选择。"
-                                   Classes="materialHint" Foreground="#C2410C" Margin="28,3,0,0"
+                                   Classes="materialHint materialWarning" Margin="28,3,0,0"
                                    IsVisible="{Binding IsChecked, ElementName=RightsNoticeMaterialBox}" />
                     </StackPanel>
                 </Border>
 
-                <Border Height="1" Background="#EEF1F5" />
+                <Border Classes="materialDivider" />
 
                 <Border Classes="materialRow">
                     <StackPanel>
@@ -145,7 +183,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border Height="1" Background="#EEF1F5" />
+                <Border Classes="materialDivider" />
 
                 <Border Classes="materialRow">
                     <StackPanel>
@@ -163,7 +201,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border Height="1" Background="#EEF1F5" />
+                <Border Classes="materialDivider" />
 
                 <Border Classes="materialRow">
                     <StackPanel>

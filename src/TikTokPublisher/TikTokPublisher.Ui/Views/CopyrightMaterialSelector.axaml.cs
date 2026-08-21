@@ -137,20 +137,20 @@ public partial class CopyrightMaterialSelector : UserControl
         if (coreCount > 0)
         {
             MinimumStatusText.Text = $"✓ 已满足最低标准：已选择 {coreCount} 项核心材料";
-            MinimumStatusText.Foreground = Brush.Parse("#16803C");
+            MinimumStatusText.Foreground = Brush.Parse("#4BD69A");
             return;
         }
 
         if (auxiliaryCount >= 2)
         {
             MinimumStatusText.Text = $"✓ 已满足最低标准：已选择 {auxiliaryCount} 项辅助材料";
-            MinimumStatusText.Foreground = Brush.Parse("#16803C");
+            MinimumStatusText.Foreground = Brush.Parse("#4BD69A");
             return;
         }
 
         MinimumStatusText.Text = auxiliaryCount == 1
             ? "尚未满足最低标准：还需选择 1 项辅助材料"
             : "尚未满足最低标准：请选择 1 项核心材料或 2 项辅助材料";
-        MinimumStatusText.Foreground = Brush.Parse("#C2410C");
+        MinimumStatusText.Foreground = Brush.Parse("#F5C66B");
     }
 }
