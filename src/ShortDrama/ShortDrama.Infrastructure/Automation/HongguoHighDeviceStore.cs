@@ -83,6 +83,21 @@ public static class HongguoHighDeviceStore
         return MastersCachePath;
     }
 
+    public static void ClearStartupMasters()
+    {
+        try
+        {
+            if (File.Exists(MastersCachePath))
+            {
+                File.Delete(MastersCachePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new HongguoHighException($"清除启动密钥缓存失败：{ex.Message}", inner: ex);
+        }
+    }
+
     public static (string Enc, string Sign) LoadStartupMastersRaw()
     {
         try

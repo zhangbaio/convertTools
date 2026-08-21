@@ -389,7 +389,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         try
         {
             var settings = ToSettings();
-            PersistHghighMastersIfPresent();
+            PersistHghighMastersFromForm();
             ClientSettingsStore.Save(settings);
             ApplyFromSettings(settings);
             SaveMessage = "系统设置已保存。";
@@ -601,10 +601,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HghighSignMaster = sign;
     }
 
-    private void PersistHghighMastersIfPresent()
+    private void PersistHghighMastersFromForm()
     {
         if (string.IsNullOrWhiteSpace(HghighEncMaster) || string.IsNullOrWhiteSpace(HghighSignMaster))
         {
+            HongguoHighDeviceStore.ClearStartupMasters();
             return;
         }
 

@@ -77,7 +77,7 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="红果高码率链路（HG 2.1.6 独立接口）" FontWeight="Bold" />
-                        <TextBlock Text="账号、密码、设备 ID 与「红果新接口」完全独立。点「提取启动密钥」会抽出 Enc/Sign Master 并直接填入表单；点右下角「保存设置」一并写入本机 DPAPI 缓存。"
+                        <TextBlock Text="账号、密码、设备 ID 与「红果新接口」完全独立。点「提取启动密钥」会抽出 Enc/Sign Master 并填入表单；点「保存设置」写入本机缓存。若清空 Enc/Sign 后再保存，会删除本机已缓存的启动密钥。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="高码率账号" VerticalAlignment="Center" />

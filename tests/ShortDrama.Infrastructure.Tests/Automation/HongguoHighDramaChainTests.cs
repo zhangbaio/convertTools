@@ -124,6 +124,11 @@ public sealed class HongguoHighCryptoTests
             var loaded = HongguoHighDeviceStore.LoadStartupMastersRaw();
             loaded.Enc.Should().Be(enc);
             loaded.Sign.Should().Be(sign);
+            HongguoHighDeviceStore.ClearStartupMasters();
+            File.Exists(path).Should().BeFalse();
+            var cleared = HongguoHighDeviceStore.LoadStartupMastersRaw();
+            cleared.Enc.Should().BeEmpty();
+            cleared.Sign.Should().BeEmpty();
         }
         finally
         {
