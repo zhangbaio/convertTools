@@ -17,6 +17,8 @@ public static partial class LogMessageLevelClassifier
         }
 
         var warningScanMessage = SafeDuplicateHandlingRegex().Replace(message, "");
+        warningScanMessage = RetryConfigurationRegex().Replace(warningScanMessage, "");
+        warningScanMessage = TimeoutConfigurationRegex().Replace(warningScanMessage, "");
         if (ContainsAny(
                 warningScanMessage,
                 "警告", "重试", "兜底", "重复", "相似", "不合格", "未发现", "未找到", "缺少",
@@ -52,4 +54,10 @@ public static partial class LogMessageLevelClassifier
 
     [GeneratedRegex(@"(?:正在|开始|继续|已)?(?:排除|避免|防止|去除)重复(?:人物|角色|文件|项目|记录)?")]
     private static partial Regex SafeDuplicateHandlingRegex();
+
+    [GeneratedRegex(@"(?i)(?:单集)?重试(?:次数|上限|配置)\s*[：:=]?\s*\d+")]
+    private static partial Regex RetryConfigurationRegex();
+
+    [GeneratedRegex(@"(?i)(?:单集)?超时(?:时间|配置)?\s*[：:=]?\s*\d+(?:\.\d+)?\s*(?:ms|s|秒|分钟)?")]
+    private static partial Regex TimeoutConfigurationRegex();
 }

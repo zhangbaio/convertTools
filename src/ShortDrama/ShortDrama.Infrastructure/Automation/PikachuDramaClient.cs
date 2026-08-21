@@ -190,9 +190,13 @@ public static class PikachuDramaClient
         using var response = await httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if (!string.Equals(GetString(document.RootElement, "code"), "200", StringComparison.Ordinal))
+        var code = GetString(document.RootElement, "code") ?? string.Empty;
+        if (!string.Equals(code, "200", StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"皮卡丘 video 失败: {GetString(document.RootElement, "msg") ?? "unknown"}");
+            var message = GetString(document.RootElement, "msg");
+            throw new InvalidOperationException(
+                $"皮卡丘 video 失败 (code={(string.IsNullOrWhiteSpace(code) ? "unknown" : code)}): " +
+                $"{(string.IsNullOrWhiteSpace(message) ? "未知错误" : message)}");
         }
 
         var url = document.RootElement.TryGetProperty("data", out var data)

@@ -31,9 +31,26 @@ public sealed class LogMessageLevelClassifierTests
     }
 
     [Theory]
+    [InlineData("分集下载并发: 3，单集分块连接数: 4，同时下载剧数: 1，单集超时: 60s，重试次数: 5")]
+    [InlineData("下载配置：单集重试上限=5")]
+    [InlineData("下载配置：单集超时时间：90 秒")]
+    public void Retry_configuration_is_info(string message)
+    {
+        LogMessageLevelClassifier.InferLevel(message).Should().Be("info");
+    }
+
+    [Theory]
     [InlineData("发现重复人物，请检查抽帧")]
     [InlineData("候选角色存在重复")]
     public void Actual_duplicate_findings_are_warnings(string message)
+    {
+        LogMessageLevelClassifier.InferLevel(message).Should().Be("warn");
+    }
+
+    [Theory]
+    [InlineData("第 3 集下载超时，准备重试")]
+    [InlineData("接口请求超时")]
+    public void Actual_timeout_or_retry_events_are_warnings(string message)
     {
         LogMessageLevelClassifier.InferLevel(message).Should().Be("warn");
     }

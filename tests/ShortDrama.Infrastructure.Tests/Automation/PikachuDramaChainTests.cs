@@ -12,6 +12,19 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 
 public sealed class PikachuDramaChainTests
 {
+    [Theory]
+    [InlineData("1080P", "1080", "720", "2", "1", "0")]
+    [InlineData("720P", "720", "2", "1", "0")]
+    [InlineData("高清", "2", "1", "0")]
+    [InlineData("标清", "1", "0")]
+    public void Pikachu_quality_fallback_order_downgrades_only_after_requested_level(
+        string quality,
+        params string[] expected)
+    {
+        DramaSourceRouter.BuildPikachuQualityFallbackCodes(quality)
+            .Should().Equal(expected);
+    }
+
     [Fact]
     public async Task TestConnectivityAsync_Should_Probe_Default_Startvlog_DecryptVideo_Endpoint()
     {
@@ -188,6 +201,55 @@ public sealed class PikachuDramaChainTests
     }
 
     [Fact]
+    public async Task DownloadAsync_Should_Retry_Transient_Pikachu_Code500_Video_Failure()
+    {
+        var outputDir = Path.Combine(Path.GetTempPath(), $"pikachu-retry-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+        var handler = new PikachuRecordingHandler(videoFailuresBeforeSuccess: 1);
+        using var httpClient = new HttpClient(handler);
+        var settings = new DramaSourceSettings
+        {
+            DramaSourceChain = "pikachu",
+            HongguoDownloadTimeoutSeconds = "10",
+            HongguoEpisodeDownloadAttempts = "2",
+            PikachuDeviceId = "HG0123456789ABCDEF",
+            PikachuClientVersion = "1.4.4",
+        };
+        var router = new DramaSourceRouter(
+            httpClient,
+            new TestDramaSettingsProvider(settings),
+            new HongguoLocalApiService(httpClient),
+            new HongguoNewApiService(httpClient),
+            new HongguoDramaSearchService(httpClient),
+            new HongguoDramaDownloader(httpClient),
+            new HongguoMemoryReaderService());
+
+        try
+        {
+            var result = await router.DownloadAsync(
+                new DramaDownloadRequest(
+                    ProjectDir: outputDir,
+                    OutputDir: outputDir,
+                    DisplayName: "retry-drama",
+                    BookId: "pikachu:book-1",
+                    Episodes: "1",
+                    Quality: "1080P",
+                    Concurrent: 1,
+                    EpisodeNumberMode: "source"),
+                progress: null,
+                CancellationToken.None);
+
+            result.Ok.Should().BeTrue(result.Message);
+            handler.VideoRequestCount.Should().Be(2);
+            Directory.GetFiles(outputDir, "*.mp4").Should().ContainSingle();
+        }
+        finally
+        {
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task DownloadAsync_Should_Decrypt_Pikachu_Cenc_Video_When_Key_Returned()
     {
         var outputDir = Path.Combine(Path.GetTempPath(), $"pikachu-download-{Guid.NewGuid():N}");
@@ -273,7 +335,8 @@ public sealed class PikachuDramaChainTests
     private sealed class PikachuRecordingHandler(
         string? decryptKey = null,
         byte[]? cdnContent = null,
-        bool mangaSearchResponse = false) : HttpMessageHandler
+        bool mangaSearchResponse = false,
+        int videoFailuresBeforeSuccess = 0) : HttpMessageHandler
     {
         public List<HttpRequestMessage> Requests { get; } = [];
         public string? SearchCookie { get; private set; }
@@ -281,6 +344,7 @@ public sealed class PikachuDramaChainTests
         public string? SearchContentType { get; private set; }
         public IReadOnlyDictionary<string, string> SearchForm { get; private set; } =
             new Dictionary<string, string>(StringComparer.Ordinal);
+        public int VideoRequestCount { get; private set; }
         private readonly byte[] _cdnContent = cdnContent ?? [0, 0, 0, 24, 102, 116, 121, 112];
 
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -393,6 +457,11 @@ public sealed class PikachuDramaChainTests
 
             if (path.EndsWith("/api/drama/hongguo/decryptVideo", StringComparison.OrdinalIgnoreCase))
             {
+                VideoRequestCount++;
+                if (VideoRequestCount <= videoFailuresBeforeSuccess)
+                {
+                    return JsonResponse("""{"code":500,"msg":""}""");
+                }
                 return JsonResponse(JsonSerializer.Serialize(new
                 {
                     code = 200,

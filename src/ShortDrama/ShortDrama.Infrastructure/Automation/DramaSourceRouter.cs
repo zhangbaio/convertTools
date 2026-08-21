@@ -1666,9 +1666,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if ((GetString(document.RootElement, "code") ?? string.Empty) != "200")
+        var code = GetString(document.RootElement, "code") ?? string.Empty;
+        if (code != "200")
         {
-            throw new InvalidOperationException($"皮卡丘 detail 失败: {GetString(document.RootElement, "msg") ?? "unknown"}");
+            throw new InvalidOperationException(
+                $"皮卡丘 detail 失败 (code={NonEmpty(code, "unknown")}): {DescribePikachuFailure(document.RootElement)}");
         }
 
         if (!document.RootElement.TryGetProperty("data", out var data) ||
@@ -1729,40 +1731,83 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var clientVersion = string.IsNullOrWhiteSpace(settings.PikachuClientVersion)
             ? "1.4.4"
             : settings.PikachuClientVersion.Trim();
-        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+        var qualityCodes = BuildPikachuQualityFallbackCodes(quality);
+        string? lastCode = null;
+        string? lastMessage = null;
+        foreach (var qualityCode in qualityCodes)
         {
-            ["videoId"] = PikachuEncrypt(videoId),
-            ["quality"] = PikachuEncrypt(MapPikachuQuality(quality)),
-            ["deviceId"] = PikachuEncrypt(deviceId),
-            ["version"] = PikachuEncrypt(clientVersion)
-        });
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{serverUrl}/api/drama/hongguo/decryptVideo")
-        {
-            Content = content
-        };
-        ApplyPikachuHeaders(request);
+            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["videoId"] = PikachuEncrypt(videoId),
+                ["quality"] = PikachuEncrypt(qualityCode),
+                ["deviceId"] = PikachuEncrypt(deviceId),
+                ["version"] = PikachuEncrypt(clientVersion)
+            });
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{serverUrl}/api/drama/hongguo/decryptVideo")
+            {
+                Content = content
+            };
+            ApplyPikachuHeaders(request);
 
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-        if ((GetString(document.RootElement, "code") ?? string.Empty) != "200")
-        {
-            throw new InvalidOperationException($"皮卡丘 video 失败: {GetString(document.RootElement, "msg") ?? "unknown"}");
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+            var code = GetString(document.RootElement, "code") ?? string.Empty;
+            if (code != "200")
+            {
+                lastCode = code;
+                lastMessage = DescribePikachuFailure(document.RootElement);
+                if (code == "500" && qualityCode != qualityCodes[^1])
+                    continue;
+                throw new InvalidOperationException(
+                    $"皮卡丘 video 失败 (code={NonEmpty(code, "unknown")}): {lastMessage}；" +
+                    $"已尝试清晰度 {string.Join(" -> ", qualityCodes.TakeWhile(value => value != qualityCode).Append(qualityCode))}");
+            }
+
+            var url = document.RootElement.TryGetProperty("data", out var data)
+                ? GetString(data, "url")
+                : null;
+            var decryptKey = document.RootElement.TryGetProperty("data", out data)
+                ? GetString(data, "key")
+                : null;
+            if (!string.IsNullOrWhiteSpace(url))
+                return new SourceVideoDetail(url, decryptKey);
+            lastCode = "200";
+            lastMessage = "未返回可用播放链接";
         }
-
-        var url = document.RootElement.TryGetProperty("data", out var data)
-            ? GetString(data, "url")
-            : null;
-        var decryptKey = document.RootElement.TryGetProperty("data", out data)
-            ? GetString(data, "key")
-            : null;
-        if (string.IsNullOrWhiteSpace(url))
-        {
-            throw new InvalidOperationException("皮卡丘未返回可用播放链接。");
-        }
-
-        return new SourceVideoDetail(url, decryptKey);
+        throw new InvalidOperationException(
+            $"皮卡丘 video 失败 (code={NonEmpty(lastCode, "unknown")}): {NonEmpty(lastMessage, "未知错误")}；" +
+            $"已尝试清晰度 {string.Join(" -> ", qualityCodes)}");
     }
+
+    internal static IReadOnlyList<string> BuildPikachuQualityFallbackCodes(string quality)
+    {
+        var requested = MapPikachuQuality(quality);
+        var ordered = new[] { "1080", "720", "2", "1", "0" };
+        var start = Array.IndexOf(ordered, requested);
+        return start < 0 ? ["0"] : ordered[start..];
+    }
+
+    internal static string DescribePikachuFailure(JsonElement root)
+    {
+        foreach (var key in new[] { "msg", "message", "error", "reason" })
+        {
+            var value = GetString(root, key);
+            if (!string.IsNullOrWhiteSpace(value)) return value;
+        }
+        if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var key in new[] { "msg", "message", "error", "reason" })
+            {
+                var value = GetString(data, key);
+                if (!string.IsNullOrWhiteSpace(value)) return value;
+            }
+        }
+        return "未知错误";
+    }
+
+    private static string NonEmpty(string? value, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 
     private async Task<string> ResolvePikachuDeviceIdAsync(DramaSourceSettings settings, CancellationToken cancellationToken)
     {
