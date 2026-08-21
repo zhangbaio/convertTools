@@ -14,8 +14,8 @@ namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 {
-    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu"];
-    private static readonly string[] NewReleaseServices = ["hgnew", "hglocal"];
+    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "hghigh"];
+    private static readonly string[] NewReleaseServices = ["hgnew", "hglocal", "hghigh"];
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
     private const string EpisodeNumberModeContinuous = "continuous";
     private const int DownloadBufferSize = 128 * 1024;
@@ -37,6 +37,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private readonly HongguoDramaSearchService _hgnewSearchService;
     private readonly HongguoDramaDownloader _hgnewDownloader;
     private readonly HongguoMemoryReaderService _hongguoMemoryReaderService;
+    private readonly HongguoHighApiService _hghighApiService;
 
     public DramaSourceRouter(
         HttpClient httpClient,
@@ -46,6 +47,27 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         HongguoDramaSearchService hgnewSearchService,
         HongguoDramaDownloader hgnewDownloader,
         HongguoMemoryReaderService hongguoMemoryReaderService)
+        : this(
+            httpClient,
+            settingsProvider,
+            hglocalApiService,
+            hgnewApiService,
+            hgnewSearchService,
+            hgnewDownloader,
+            hongguoMemoryReaderService,
+            new HongguoHighApiService(httpClient))
+    {
+    }
+
+    public DramaSourceRouter(
+        HttpClient httpClient,
+        IDramaSettingsProvider settingsProvider,
+        HongguoLocalApiService hglocalApiService,
+        HongguoNewApiService hgnewApiService,
+        HongguoDramaSearchService hgnewSearchService,
+        HongguoDramaDownloader hgnewDownloader,
+        HongguoMemoryReaderService hongguoMemoryReaderService,
+        HongguoHighApiService hghighApiService)
     {
         _httpClient = httpClient;
         _settingsProvider = settingsProvider;
@@ -54,6 +76,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         _hgnewSearchService = hgnewSearchService;
         _hgnewDownloader = hgnewDownloader;
         _hongguoMemoryReaderService = hongguoMemoryReaderService;
+        _hghighApiService = hghighApiService;
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
@@ -68,6 +91,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             "hgnew" => await SearchHgnewAsync(keyword, page, settings, cancellationToken),
             "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
             "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken),
+            "hghigh" => await _hghighApiService.SearchAsync(settings, keyword, page, cancellationToken),
             _ => []
         };
     }
@@ -81,6 +105,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     public async Task<IReadOnlyList<DramaSearchItem>> GetTodayAsync(CancellationToken cancellationToken)
     {
         var settings = _settingsProvider.Get();
+        var source = ResolveSelectedService(settings.DramaSourceChain, NewReleaseServices);
+        if (string.Equals(source, "hghigh", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("红果高码率暂不支持短剧今日上新，请使用漫剧上新或关键词搜索。");
+        }
+
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => _hgnewApiService.GetTodayNewAsync(settings, "djnew", ct),
@@ -95,7 +125,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             settings,
             hgnewLoader: ct => LoadHgnewMangaTodayAsync(settings, days, ct),
             hglocalLoader: ct => GetLatestByGenreAsync(settings, "comic_series", days, ct),
-            cancellationToken);
+            cancellationToken: cancellationToken,
+            hghighLoader: ct => _hghighApiService.GetManjuNewAsync(settings, days, ct));
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(int days, CancellationToken cancellationToken)
@@ -105,12 +136,19 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             settings,
             hgnewLoader: ct => LoadHgnewAiTodayAsync(settings, days, ct),
             hglocalLoader: ct => GetLatestByGenreAsync(settings, "ai_series", days, ct),
-            cancellationToken);
+            cancellationToken: cancellationToken,
+            hghighLoader: ct => _hghighApiService.GetAiNewAsync(settings, days, ct));
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)
     {
         var settings = _settingsProvider.Get();
+        var source = ResolveSelectedService(settings.DramaSourceChain, NewReleaseServices);
+        if (string.Equals(source, "hghigh", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("红果高码率暂不支持短剧历史上新，请使用漫剧上新或关键词搜索。");
+        }
+
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewHistoryAsync(settings, days, ct),
@@ -139,13 +177,15 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         DramaSourceSettings settings,
         Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> hgnewLoader,
         Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> hglocalLoader,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>>? hghighLoader = null)
     {
         var source = ResolveSelectedService(settings.DramaSourceChain, NewReleaseServices);
         return source switch
         {
             "hgnew" => await hgnewLoader(cancellationToken),
             "hglocal" => await hglocalLoader(cancellationToken),
+            "hghigh" => hghighLoader is null ? [] : await hghighLoader(cancellationToken),
             _ => []
         };
     }
@@ -288,6 +328,24 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveVideo: (videoId, quality, ct) => GetLocalVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: HongguoLocalBookPrefix,
                 validateVideoEncoding: true,
+                downloadFileSegments: downloadFileSegments,
+                downloadTimeoutSeconds: downloadTimeoutSeconds,
+                downloadAttempts: downloadAttempts);
+        }
+
+        if (bookId.StartsWith(HongguoHighCrypto.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
+            bookId.StartsWith(HongguoHighCrypto.EpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(settings.DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase))
+        {
+            var highBookId = HongguoHighCrypto.EnsureBookPrefix(bookId);
+            return await DownloadWithProviderAsync(
+                request,
+                progress,
+                cancellationToken,
+                resolveEpisodes: ct => GetHghighEpisodesAsync(highBookId, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetHghighVideoUrlAsync(videoId, quality, settings, ct),
+                posterPrefix: HongguoHighCrypto.BookPrefix,
+                validateVideoEncoding: false,
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
@@ -1720,6 +1778,24 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private async Task<SourceVideoDetail> GetHgnewVideoUrlAsync(string videoId, string quality, DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         var detail = await _hgnewApiService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
+        return new SourceVideoDetail(detail.Url);
+    }
+
+    private async Task<IReadOnlyList<SourceEpisode>> GetHghighEpisodesAsync(string bookId, DramaSourceSettings settings, CancellationToken cancellationToken)
+    {
+        var items = await _hghighApiService.GetEpisodesAsync(settings, bookId, cancellationToken);
+        return items
+            .Select(item => new SourceEpisode(
+                item.EpisodeNumber,
+                item.Title,
+                item.VideoId,
+                item.PosterUrl))
+            .ToArray();
+    }
+
+    private async Task<SourceVideoDetail> GetHghighVideoUrlAsync(string videoId, string quality, DramaSourceSettings settings, CancellationToken cancellationToken)
+    {
+        var detail = await _hghighApiService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
         return new SourceVideoDetail(detail.Url);
     }
 

@@ -18,6 +18,11 @@ public sealed class ClientSettings
     public string HgnewUdid { get; set; } = "";
     public string HgnewClientVersion { get; set; } = DefaultHongguoClientVersion;
 
+    public string HghighAccount { get; set; } = "";
+    public string HghighPassword { get; set; } = "";
+    public string HghighDeviceId { get; set; } = "";
+    public string HghighClientExe { get; set; } = "";
+
     public string HongguoLocalBaseUrl { get; set; } = "";
     public string HongguoLocalApiKey { get; set; } = "";
     public string HongguoLocalDownloadMode { get; set; } = "fast";
@@ -170,6 +175,10 @@ public sealed class ClientSettings
         HgnewPassword = HgnewPassword,
         HgnewUdid = HgnewUdid,
         HgnewClientVersion = HgnewClientVersion,
+        HghighAccount = HghighAccount,
+        HghighPassword = HghighPassword,
+        HghighDeviceId = HghighDeviceId,
+        HghighClientExe = HghighClientExe,
         HongguoLocalBaseUrl = HongguoLocalBaseUrl,
         HongguoLocalApiKey = HongguoLocalApiKey,
         HongguoLocalDownloadMode = HongguoLocalDownloadMode,

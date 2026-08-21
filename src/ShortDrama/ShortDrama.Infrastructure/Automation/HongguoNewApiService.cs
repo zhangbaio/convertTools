@@ -943,12 +943,16 @@ public sealed partial class HongguoNewApiService
             GetStringValue(item, "desc"));
         var author = FirstNonEmpty(
             GetStringValue(item, "author"),
+            GetStringValue(item, "author_name"),
             GetStringValue(item, "producer"),
             GetStringValue(item, "company"));
         var publishTime = FirstNonEmpty(
-            GetStringValue(item, "publish_time"),
-            GetStringValue(item, "create_time"),
-            GetStringValue(item, "created_at"));
+            MeaningfulTime(GetStringValue(item, "publish_time")),
+            MeaningfulTime(GetStringValue(item, "first_online_time")),
+            MeaningfulTime(GetStringValue(item, "online_time")),
+            MeaningfulTime(GetStringValue(item, "create_time")),
+            MeaningfulTime(GetStringValue(item, "created_at")),
+            MeaningfulTime(GetStringValue(item, "cache_date")));
 
         return new DramaSearchItem(
             BookId: bookId,
@@ -967,7 +971,7 @@ public sealed partial class HongguoNewApiService
 
     private static int ResolveEpisodeTotal(Dictionary<string, object?> item, string category)
     {
-        foreach (var key in new[] { "episode", "episode_total", "episode_cnt", "ji" })
+        foreach (var key in new[] { "episode", "episode_total", "episode_cnt", "ji", "chapter_number", "serial_count" })
         {
             var value = GetIntValue(item, key);
             if (value is > 0)
@@ -1146,6 +1150,12 @@ public sealed partial class HongguoNewApiService
     private static string FirstNonEmpty(params string?[] values)
     {
         return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
+    }
+
+    private static string? MeaningfulTime(string? value)
+    {
+        var text = (value ?? "").Trim();
+        return text is "" or "0" or "0.0" or "-" ? null : text;
     }
 
     private sealed record HongguoCredentials(string Account, string Password, string Udid, string ClientVersion);

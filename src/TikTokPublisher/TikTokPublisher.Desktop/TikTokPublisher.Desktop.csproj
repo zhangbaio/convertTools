@@ -25,6 +25,13 @@
     <!-- 素材发布视图/控件/VM/自动化已抽到 TikTokPublisher.Ui 库 -->
     <ProjectReference Include="..\TikTokPublisher.Ui\TikTokPublisher.Ui.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)..\..\ShortDrama\ShortDrama.Infrastructure\Tools\hongguo-high\provision_startup_masters.py">
+      <Link>tools\hongguo-high\provision_startup_masters.py</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
   <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\..\packaging\dependencies\tools\win-x64\ffmpeg')">
     <Content Include="$(MSBuildThisFileDirectory)..\..\..\packaging\dependencies\tools\win-x64\ffmpeg\ffmpeg.exe">
       <Link>tools\win-x64\ffmpeg\ffmpeg.exe</Link>
@@ -33,6 +40,13 @@
     </Content>
     <Content Include="$(MSBuildThisFileDirectory)..\..\..\packaging\dependencies\tools\win-x64\ffmpeg\ffprobe.exe">
       <Link>tools\win-x64\ffmpeg\ffprobe.exe</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\..\packaging\dependencies\tools\win-x64\python\python.exe')">
+    <Content Include="$(MSBuildThisFileDirectory)..\..\..\packaging\dependencies\tools\win-x64\python\**\*">
+      <Link>tools\win-x64\python\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

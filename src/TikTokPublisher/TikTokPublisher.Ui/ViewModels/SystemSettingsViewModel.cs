@@ -18,6 +18,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public event Action<ClientSettings>? SettingsSaved;
     public event Action<string>? StatusRequested;
     public event Action<HongguoLoginProbeResult>? HgnewLoginProbeSucceeded;
+    public event Func<string, Task>? CopyToClipboardAsync;
 
     [ObservableProperty] private string _saveMessage = "";
     [ObservableProperty] private string _hgnewProbeStatus = "";
@@ -37,6 +38,21 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _hgnewPassword = "";
     [ObservableProperty] private string _hgnewUdid = "";
     [ObservableProperty] private string _hgnewClientVersion = ClientSettings.DefaultHongguoClientVersion;
+
+    [ObservableProperty] private string _hghighAccount = "";
+    [ObservableProperty] private string _hghighPassword = "";
+    [ObservableProperty] private string _hghighDeviceId = "";
+    [ObservableProperty] private string _hghighClientExe = "";
+    [ObservableProperty] private string _hghighEncMaster = "";
+    [ObservableProperty] private string _hghighSignMaster = "";
+    [ObservableProperty] private string _hghighProbeStatus = "";
+    [ObservableProperty] private string _hghighMastersStatus = "";
+    [ObservableProperty] private bool _isHghighBusy;
+    [ObservableProperty] private bool _hghighRevealEnc;
+    [ObservableProperty] private bool _hghighRevealSign;
+
+    public string HghighRevealEncButtonText => HghighRevealEnc ? "隐藏密钥" : "显示密钥";
+    public string HghighRevealSignButtonText => HghighRevealSign ? "隐藏密钥" : "显示密钥";
 
     [ObservableProperty] private string _hongguoLocalBaseUrl = "";
     [ObservableProperty] private string _hongguoLocalApiKey = "";
@@ -136,6 +152,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> DramaSourceOptions { get; } =
     [
         "hgnew",
+        "hghigh",
         "hglocal",
         "pikachu"
     ];
@@ -183,6 +200,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewPassword = HgnewPassword,
         HgnewUdid = ClientSettingsStore.NormalizeUdid(HgnewUdid),
         HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion),
+        HghighAccount = HghighAccount.Trim(),
+        HghighPassword = HghighPassword,
+        HghighDeviceId = HghighDeviceId.Trim(),
+        HghighClientExe = HghighClientExe.Trim(),
         HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
         HongguoLocalApiKey = HongguoLocalApiKey.Trim(),
         HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(HongguoLocalDownloadMode),
@@ -368,6 +389,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         try
         {
             var settings = ToSettings();
+            PersistHghighMastersFromForm();
             ClientSettingsStore.Save(settings);
             ApplyFromSettings(settings);
             SaveMessage = "系统设置已保存。";
@@ -437,6 +459,180 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         {
             HgnewProbeStatus = $"测试登录异常：{ex.GetType().Name}: {ex.Message}";
         }
+    }
+
+    [RelayCommand]
+    private void ReadHghighDeviceId()
+    {
+        var deviceId = HongguoHighDeviceStore.TryReadDeviceId();
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            HghighProbeStatus = "未读到高码率 DeviceId。请先安装并登录一次官方 HG 高码率版客户端。";
+            return;
+        }
+
+        HghighDeviceId = deviceId;
+        HghighProbeStatus = "已从本机官方高码率客户端读取 DeviceId。";
+    }
+
+    [RelayCommand]
+    private async Task ProbeHghighLoginAsync()
+    {
+        if (string.IsNullOrWhiteSpace(HghighAccount) || string.IsNullOrWhiteSpace(HghighPassword))
+        {
+            HghighProbeStatus = "请先填写红果高码率账号和密码。";
+            return;
+        }
+
+        if (!HongguoHighDeviceStore.IsReady())
+        {
+            HghighProbeStatus = "本机还没有启动密钥。请先选择官方客户端 exe，再点「提取启动密钥」。";
+            return;
+        }
+
+        HghighProbeStatus = "测试中...";
+        try
+        {
+            var settings = DramaSourceSettingsMapping.FromClientSettings(ToSettings());
+            var service = new HongguoHighApiService(ProbeHttp);
+            var result = await service.ProbeLoginAsync(settings, CancellationToken.None);
+            var preview = result.Token.Length > 12 ? $"{result.Token[..6]}…{result.Token[^4..]}" : result.Token;
+            HghighProbeStatus = $"测试登录成功：{DateTime.Now:HH:mm:ss} token={preview}";
+        }
+        catch (Exception ex)
+        {
+            HghighProbeStatus = $"测试登录失败：{ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task ProvisionHghighMastersAsync()
+    {
+        if (IsHghighBusy)
+        {
+            HghighMastersStatus = "正在提取启动密钥，请稍候。";
+            return;
+        }
+
+        IsHghighBusy = true;
+        HghighMastersStatus = "正在关闭已运行的官方高码率客户端并提取密钥…";
+        try
+        {
+            var progress = new Progress<string>(message => HghighMastersStatus = message);
+            var result = await HongguoHighMasterProvisioner.ExtractAsync(
+                HghighClientExe,
+                progress,
+                CancellationToken.None);
+            if (string.IsNullOrWhiteSpace(HghighClientExe))
+            {
+                HghighClientExe = HongguoHighDeviceStore.FindOfficialClientExe(null) ?? "";
+            }
+
+            if (string.IsNullOrWhiteSpace(HghighDeviceId))
+            {
+                HghighDeviceId = result.DeviceId;
+            }
+
+            ShowExtractedMasters(result.EncMaster, result.SignMaster);
+            HghighMastersStatus = "已提取 Enc Master 和 Sign Master，已填入上方输入框。请点「保存设置」写入本机。";
+            HghighProbeStatus = string.IsNullOrWhiteSpace(result.DeviceId)
+                ? "启动密钥已填入上方输入框。"
+                : $"启动密钥已填入上方输入框（设备 {result.DeviceId}）。";
+        }
+        catch (Exception ex)
+        {
+            RefreshHghighMastersStatus();
+            HghighMastersStatus = $"提取失败：{ex.Message}";
+        }
+        finally
+        {
+            IsHghighBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleHghighRevealEnc() => HghighRevealEnc = !HghighRevealEnc;
+
+    [RelayCommand]
+    private void ToggleHghighRevealSign() => HghighRevealSign = !HghighRevealSign;
+
+    [RelayCommand]
+    private Task CopyHghighEncMasterAsync() => CopyMasterAsync(HghighEncMaster, "Enc Master");
+
+    [RelayCommand]
+    private Task CopyHghighSignMasterAsync() => CopyMasterAsync(HghighSignMaster, "Sign Master");
+
+    private async Task CopyMasterAsync(string value, string label)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            HghighMastersStatus = $"{label} 为空，无法复制。";
+            return;
+        }
+
+        if (CopyToClipboardAsync is null)
+        {
+            HghighMastersStatus = "当前窗口无法访问剪贴板。";
+            return;
+        }
+
+        try
+        {
+            await CopyToClipboardAsync(value);
+            HghighMastersStatus = $"{label} 已复制到剪贴板。";
+        }
+        catch (Exception ex)
+        {
+            HghighMastersStatus = $"复制失败：{ex.Message}";
+        }
+    }
+
+    partial void OnHghighRevealEncChanged(bool value) => OnPropertyChanged(nameof(HghighRevealEncButtonText));
+
+    partial void OnHghighRevealSignChanged(bool value) => OnPropertyChanged(nameof(HghighRevealSignButtonText));
+
+    private void ShowExtractedMasters(string enc, string sign)
+    {
+        HghighEncMaster = "";
+        HghighSignMaster = "";
+        HghighRevealEnc = true;
+        HghighRevealSign = true;
+        HghighEncMaster = enc;
+        HghighSignMaster = sign;
+    }
+
+    private void PersistHghighMastersFromForm()
+    {
+        if (string.IsNullOrWhiteSpace(HghighEncMaster) || string.IsNullOrWhiteSpace(HghighSignMaster))
+        {
+            HongguoHighDeviceStore.ClearStartupMasters();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(HghighDeviceId))
+        {
+            HghighDeviceId = HongguoHighDeviceStore.TryReadDeviceId();
+        }
+
+        HongguoHighDeviceStore.CacheStartupMasters(HghighEncMaster, HghighSignMaster, HghighDeviceId);
+    }
+
+    private void RefreshHghighMastersStatus()
+    {
+        if (HongguoHighDeviceStore.IsReady())
+        {
+            HghighMastersStatus = "本机已缓存启动密钥，可正常登录。";
+            return;
+        }
+
+        var (enc, sign) = HongguoHighDeviceStore.LoadStartupMastersRaw();
+        if (!string.IsNullOrWhiteSpace(enc) && !string.IsNullOrWhiteSpace(sign))
+        {
+            HghighMastersStatus = "已有启动密钥缓存，但尚未读取到本机高码率设备身份。请先运行官方客户端一次。";
+            return;
+        }
+
+        HghighMastersStatus = "尚未缓存启动密钥。安装包已内置 Frida，选择官方客户端后点「提取启动密钥」。";
     }
 
     [RelayCommand]
@@ -633,6 +829,16 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewPassword = settings.HgnewPassword;
         HgnewUdid = HongguoDeviceId.ResolveV14(settings.HgnewUdid);
         HgnewClientVersion = settings.HgnewClientVersion;
+        HghighAccount = settings.HghighAccount;
+        HghighPassword = settings.HghighPassword;
+        HghighDeviceId = string.IsNullOrWhiteSpace(settings.HghighDeviceId)
+            ? HongguoHighDeviceStore.TryReadDeviceId()
+            : settings.HghighDeviceId;
+        HghighClientExe = settings.HghighClientExe;
+        var masters = HongguoHighDeviceStore.LoadStartupMastersRaw();
+        HghighEncMaster = masters.Enc;
+        HghighSignMaster = masters.Sign;
+        RefreshHghighMastersStatus();
         HongguoLocalBaseUrl = settings.HongguoLocalBaseUrl;
         HongguoLocalApiKey = settings.HongguoLocalApiKey;
         HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(settings.HongguoLocalDownloadMode);
