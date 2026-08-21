@@ -357,22 +357,51 @@ public sealed class TikTokReferenceSourcePackageServiceTests
         prompt.Should().Contain("禁止遗漏");
         prompt.Should().Contain("服装相似不等于同一人");
         prompt.Should().Contain("面部身份不同");
+        prompt.Should().Contain("clothing_visible");
+        prompt.Should().Contain("clothing_clarity");
+        prompt.Should().Contain("half_body");
     }
 
     [Fact]
     public void Batch_identity_representatives_keep_best_face_per_discovered_person()
     {
-        var candidates = new[] { "人物甲_模糊.jpg", "人物甲_清晰.jpg", "人物乙.jpg", "背影.jpg" };
+        var candidates = new[]
+        {
+            "人物甲_模糊.jpg", "人物甲_清晰脸.jpg", "人物乙.jpg", "人物甲_清晰服装.jpg", "背影.jpg",
+        };
         var analyses = new[]
         {
             new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(1, "male", "P1", true, 65),
             new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(2, "male", "P1", true, 96),
             new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(3, "female", "P2", true, 88),
-            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(4, "unknown", "", true, 10, FaceVisible: false),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(
+                4, "male", "P1", true, 84, ClothingVisible: true, ClothingClarity: 95, Framing: "half_body"),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(5, "unknown", "", true, 10, FaceVisible: false),
         };
 
-        TikTokReferenceSourcePackageService.SelectBatchIdentityRepresentatives(candidates, analyses)
-            .Should().Equal("人物甲_清晰.jpg", "人物乙.jpg");
+        var selected = TikTokReferenceSourcePackageService.SelectBatchIdentityRepresentatives(candidates, analyses);
+
+        selected.Should().HaveCount(3);
+        selected.Should().Contain(["人物甲_清晰脸.jpg", "人物甲_清晰服装.jpg", "人物乙.jpg"]);
+    }
+
+    [Fact]
+    public void Role_assignment_prefers_visible_clothing_over_face_closeup_for_same_person()
+    {
+        var profiles = new[]
+        {
+            new TikTokReferenceSourcePackageService.CharacterProfile("男主", "成年男性主角"),
+        };
+        var candidates = new[]
+        {
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(
+                1, "male", "P1", true, 99, ClothingVisible: false, ClothingClarity: 5, Framing: "close_up"),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(
+                2, "male", "P1", true, 88, ClothingVisible: true, ClothingClarity: 92, Framing: "half_body"),
+        };
+
+        TikTokReferenceSourcePackageService.AssignRoleReferenceCandidates(profiles, candidates)
+            .Should().Equal(2);
     }
 
     [Fact]

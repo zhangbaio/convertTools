@@ -1152,19 +1152,37 @@ public static partial class TikTokReferenceSourcePackageService
         IReadOnlyList<string> batchCandidates,
         IReadOnlyList<ReferenceCandidateAnalysis> analyses)
     {
-        return analyses
+        var representatives = analyses
             .Where(candidate => candidate.Index >= 1 && candidate.Index <= batchCandidates.Count)
             .Where(candidate => candidate.FaceVisible && candidate.Single)
             .GroupBy(candidate => string.IsNullOrWhiteSpace(candidate.PersonId)
                 ? $"candidate-{candidate.Index}"
                 : candidate.PersonId,
                 StringComparer.OrdinalIgnoreCase)
-            .Select(group => group
-                .OrderByDescending(candidate => candidate.Clarity)
-                .ThenBy(candidate => candidate.Index)
-                .First())
-            .OrderByDescending(candidate => candidate.Clarity)
+            .SelectMany(group =>
+            {
+                var identity = group
+                    .OrderByDescending(candidate => candidate.Clarity)
+                    .ThenBy(candidate => candidate.Index)
+                    .First();
+                var clothing = group
+                    .Where(candidate => candidate.ClothingVisible)
+                    .OrderByDescending(candidate => candidate.ClothingClarity)
+                    .ThenByDescending(candidate => candidate.Clarity)
+                    .ThenBy(candidate => candidate.Index)
+                    .FirstOrDefault();
+                return clothing is null || clothing.Index == identity.Index
+                    ? [identity]
+                    : new[] { identity, clothing };
+            })
+            .GroupBy(candidate => candidate.Index)
+            .Select(group => group.First())
+            .OrderByDescending(candidate => candidate.ClothingVisible)
+            .ThenByDescending(candidate => candidate.ClothingClarity)
+            .ThenByDescending(candidate => candidate.Clarity)
             .ThenBy(candidate => candidate.Index)
+            .ToArray();
+        return representatives
             .Select(candidate => batchCandidates[candidate.Index - 1])
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -1248,7 +1266,16 @@ public static partial class TikTokReferenceSourcePackageService
                     ? Math.Clamp(clarityValue, 0, 100)
                     : 0,
                 entry.TryGetProperty("face_visible", out var faceVisible) &&
-                faceVisible.ValueKind is JsonValueKind.True));
+                faceVisible.ValueKind is JsonValueKind.True,
+                entry.TryGetProperty("clothing_visible", out var clothingVisible) &&
+                clothingVisible.ValueKind is JsonValueKind.True,
+                entry.TryGetProperty("clothing_clarity", out var clothingClarity) &&
+                clothingClarity.TryGetInt32(out var clothingClarityValue)
+                    ? Math.Clamp(clothingClarityValue, 0, 100)
+                    : 0,
+                entry.TryGetProperty("framing", out var framing)
+                    ? NormalizeFraming(framing.GetString())
+                    : "unknown"));
         }
         return analyses;
     }
@@ -1265,11 +1292,12 @@ public static partial class TikTokReferenceSourcePackageService
 请识别每张候选图主要人物的性别、是否为单人清晰画面、是否能看见清晰完整的正脸或四分之三侧脸，并给同一个人物分配完全相同的 person_id；不同人物必须使用不同 person_id。
 跨镜头判断人物时以脸型、五官比例、眉眼、鼻形、嘴形、年龄特征和发型综合判断；服装相似不等于同一人，服装变化也不等于不同人。年轻人、老人、不同女性或不同男性只要面部身份不同，必须分配不同 person_id。
 face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才为 true。胸口、脖子、手脚、服装局部、背影、脸被遮挡、脸太小或严重模糊必须为 false；此时 person_id 使用空字符串，clarity 不得超过 20。
+同时判断服装参考价值。framing 只能为 close_up、upper_body、half_body、full_body、unknown；clothing_visible 只有在至少能清楚看到肩部、领口和上身主要服装时才为 true；clothing_clarity 为 0 到 100，服装覆盖面积越大、款式颜色纹理越清楚则越高。只有脸部特写、看不到领口和上身服装时，clothing_visible 必须为 false。
 性别只能输出 male、female、unknown。clarity 为 0 到 100，脸越清晰、无遮挡、主体越明确则越高。
 待匹配角色：
 {{roles}}
 只返回 JSON，不要解释：
-{"candidates":[{"index":1,"gender":"male","person_id":"P1","single":true,"clarity":95,"face_visible":true}]}
+{"candidates":[{"index":1,"gender":"male","person_id":"P1","single":true,"clarity":95,"face_visible":true,"framing":"half_body","clothing_visible":true,"clothing_clarity":90}]}
 """;
     }
 
@@ -1303,6 +1331,8 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
                     candidate.Gender is "male" or "female" &&
                     previousPrimary.Gender is "male" or "female" &&
                     candidate.Gender != previousPrimary.Gender)
+                .ThenByDescending(candidate => candidate.ClothingVisible)
+                .ThenByDescending(candidate => candidate.ClothingClarity)
                 .ThenByDescending(candidate => candidate.Clarity)
                 .ThenBy(candidate => candidate.Index)
                 .ToArray();
@@ -1350,6 +1380,12 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
     {
         "male" or "男" or "男性" => "male",
         "female" or "女" or "女性" => "female",
+        _ => "unknown",
+    };
+
+    private static string NormalizeFraming(string? value) => (value ?? string.Empty).Trim().ToLowerInvariant() switch
+    {
+        "close_up" or "upper_body" or "half_body" or "full_body" => value!.Trim().ToLowerInvariant(),
         _ => "unknown",
     };
 
@@ -2173,7 +2209,10 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
         string PersonId,
         bool Single,
         int Clarity,
-        bool FaceVisible = true);
+        bool FaceVisible = true,
+        bool ClothingVisible = false,
+        int ClothingClarity = 0,
+        string Framing = "unknown");
     private sealed record CharacterSourcePath(string Path, bool IsExtractedFrame);
     private sealed record CharacterSourceCandidate(
         string Path,
