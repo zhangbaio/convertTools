@@ -679,10 +679,6 @@ public partial class TikTokQueueView : UserControl
                     context.WorkflowProjectDir,
                     result.Characters,
                     result.Locked),
-                ManualRoleVectorMode.FinalImage => ManualRoleVectorMaterialService.SaveFinalImage(
-                    context.WorkflowProjectDir,
-                    result.FinalImagePath ?? string.Empty,
-                    result.Locked),
                 _ => SaveAutomaticRoleMode(context.WorkflowProjectDir),
             };
             vm.MarkManualRoleMaterialChanged(row.Item);
@@ -690,7 +686,6 @@ public partial class TikTokQueueView : UserControl
             {
                 ManualRoleVectorMode.ReferencesOnly => $"已保存 {saved.Characters.Count} 张人物参考图，角色定妆图将在队列中自动生成",
                 ManualRoleVectorMode.Paired => $"已保存 {saved.Characters.Count} 组人工角色配对",
-                ManualRoleVectorMode.FinalImage => "已保存人工成品角色矢量图",
                 _ => "已恢复自动选择/生成角色素材",
             };
             vm.StatusMessage = $"{row.NewTitle}：{modeLabel}";

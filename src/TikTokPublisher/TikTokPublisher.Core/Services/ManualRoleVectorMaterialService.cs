@@ -12,7 +12,6 @@ public enum ManualRoleVectorMode
     Auto,
     ReferencesOnly,
     Paired,
-    FinalImage,
 }
 
 public sealed record ManualRoleCharacter(
@@ -26,7 +25,6 @@ public sealed record ManualRoleVectorConfiguration(
     ManualRoleVectorMode Mode,
     bool Locked,
     IReadOnlyList<ManualRoleCharacter> Characters,
-    string? FinalImagePath,
     string Fingerprint);
 
 /// <summary>
@@ -40,7 +38,6 @@ public static class ManualRoleVectorMaterialService
     public const string GeneratedCharacterDirectoryName = "自动角色定妆图";
     public const string ReferenceDirectoryName = "人物参考图";
     public const string ConfigurationFileName = "角色配置.json";
-    public const string FinalImageFileName = "手动角色矢量图.png";
     private const string ConfigurationVersion = "v1";
 
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -89,17 +86,14 @@ public static class ManualRoleVectorMaterialService
                 }
             }
 
-            var finalImage = ResolveManagedPath(root,
-                element.TryGetProperty("finalImagePath", out var finalValue) ? finalValue.GetString() : null);
             var fingerprint = element.TryGetProperty("fingerprint", out var fingerprintValue)
                 ? fingerprintValue.GetString() ?? string.Empty
                 : string.Empty;
-            fingerprint = TryComputeCurrentFingerprint(mode, characters, finalImage, fingerprint);
+            fingerprint = TryComputeCurrentFingerprint(mode, characters, fingerprint);
             return new ManualRoleVectorConfiguration(
                 mode,
                 locked,
                 characters.OrderBy(character => character.Order).ToArray(),
-                string.IsNullOrWhiteSpace(finalImage) ? null : finalImage,
                 fingerprint);
         }
         catch (Exception ex)
@@ -147,8 +141,8 @@ public static class ManualRoleVectorMaterialService
 
         DeleteUnlistedImages(characterDirectory, managed.Select(character => character.CharacterPath));
         DeleteUnlistedImages(referenceDirectory, managed.Select(character => character.ReferencePath));
-        var fingerprint = ComputeFingerprint(ManualRoleVectorMode.Paired, managed, null);
-        WriteConfiguration(workflowProjectDirectory, ManualRoleVectorMode.Paired, locked, managed, null, fingerprint);
+        var fingerprint = ComputeFingerprint(ManualRoleVectorMode.Paired, managed);
+        WriteConfiguration(workflowProjectDirectory, ManualRoleVectorMode.Paired, locked, managed, fingerprint);
         return Load(workflowProjectDirectory);
     }
 
@@ -210,40 +204,13 @@ public static class ManualRoleVectorMaterialService
         DeleteUnlistedImages(referenceDirectory, managed.Select(character => character.ReferencePath));
         DeleteUnlistedImages(generatedDirectory, managed.Select(character => character.CharacterPath));
         DeleteUnlistedStateFiles(generatedDirectory, managed.Select(character => GetGeneratedStatePath(character.CharacterPath)));
-        var fingerprint = ComputeFingerprint(ManualRoleVectorMode.ReferencesOnly, managed, null);
+        var fingerprint = ComputeFingerprint(ManualRoleVectorMode.ReferencesOnly, managed);
         WriteConfiguration(
             workflowProjectDirectory,
             ManualRoleVectorMode.ReferencesOnly,
             locked,
             managed,
-            null,
             fingerprint);
-        return Load(workflowProjectDirectory);
-    }
-
-    public static ManualRoleVectorConfiguration SaveFinalImage(
-        string workflowProjectDirectory,
-        string sourcePath,
-        bool locked = true)
-    {
-        if (!IsReadableImage(sourcePath))
-            throw new InvalidOperationException("请选择有效的角色矢量图文件。");
-        var info = Image.Identify(sourcePath)
-            ?? throw new InvalidDataException("无法读取角色矢量图。");
-        if (info.Width != RoleVectorTemplateRenderer.CanvasWidth ||
-            info.Height != RoleVectorTemplateRenderer.CanvasHeight)
-        {
-            throw new InvalidDataException(
-                $"角色矢量图尺寸必须为 {RoleVectorTemplateRenderer.CanvasWidth}×" +
-                $"{RoleVectorTemplateRenderer.CanvasHeight}，当前为 {info.Width}×{info.Height}。");
-        }
-
-        var root = GetRoot(workflowProjectDirectory);
-        Directory.CreateDirectory(root);
-        var output = Path.Combine(root, FinalImageFileName);
-        SaveNormalizedPng(sourcePath, output, info.Width, info.Height, contain: true);
-        var fingerprint = ComputeFingerprint(ManualRoleVectorMode.FinalImage, [], output);
-        WriteConfiguration(workflowProjectDirectory, ManualRoleVectorMode.FinalImage, locked, [], output, fingerprint);
         return Load(workflowProjectDirectory);
     }
 
@@ -251,7 +218,7 @@ public static class ManualRoleVectorMaterialService
     {
         var root = GetRoot(workflowProjectDirectory);
         Directory.CreateDirectory(root);
-        WriteConfiguration(workflowProjectDirectory, ManualRoleVectorMode.Auto, false, [], null, string.Empty);
+        WriteConfiguration(workflowProjectDirectory, ManualRoleVectorMode.Auto, false, [], string.Empty);
     }
 
     internal static IReadOnlyList<string> MaterializePairedCharacters(string workflowProjectDirectory)
@@ -376,13 +343,12 @@ public static class ManualRoleVectorMaterialService
     }
 
     private static ManualRoleVectorConfiguration AutoConfiguration() =>
-        new(ManualRoleVectorMode.Auto, false, [], null, string.Empty);
+        new(ManualRoleVectorMode.Auto, false, [], string.Empty);
 
     private static ManualRoleVectorMode ParseMode(string? value) => value?.Trim().ToLowerInvariant() switch
     {
         "references" or "manual-references" => ManualRoleVectorMode.ReferencesOnly,
         "paired" or "manual-paired" => ManualRoleVectorMode.Paired,
-        "final-image" or "manual-final" => ManualRoleVectorMode.FinalImage,
         _ => ManualRoleVectorMode.Auto,
     };
 
@@ -390,7 +356,6 @@ public static class ManualRoleVectorMaterialService
     {
         ManualRoleVectorMode.ReferencesOnly => "manual-references",
         ManualRoleVectorMode.Paired => "manual-paired",
-        ManualRoleVectorMode.FinalImage => "manual-final",
         _ => "auto",
     };
 
@@ -399,7 +364,6 @@ public static class ManualRoleVectorMaterialService
         ManualRoleVectorMode mode,
         bool locked,
         IReadOnlyList<ManualRoleCharacter> characters,
-        string? finalImagePath,
         string fingerprint)
     {
         var root = GetRoot(workflowProjectDirectory);
@@ -410,7 +374,6 @@ public static class ManualRoleVectorMaterialService
             mode = ModeName(mode),
             locked,
             fingerprint,
-            finalImagePath = ToRelativePath(root, finalImagePath),
             characters = characters.Select(character => new
             {
                 order = character.Order,
@@ -429,8 +392,7 @@ public static class ManualRoleVectorMaterialService
 
     private static string ComputeFingerprint(
         ManualRoleVectorMode mode,
-        IReadOnlyList<ManualRoleCharacter> characters,
-        string? finalImagePath)
+        IReadOnlyList<ManualRoleCharacter> characters)
     {
         var values = new List<string> { ConfigurationVersion, ModeName(mode) };
         values.AddRange(characters.OrderBy(character => character.Order).SelectMany(character => new[]
@@ -442,29 +404,24 @@ public static class ManualRoleVectorMaterialService
                 : ComputeSha256(character.CharacterPath),
             ComputeSha256(character.ReferencePath),
         }));
-        if (!string.IsNullOrWhiteSpace(finalImagePath)) values.Add(ComputeSha256(finalImagePath));
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', values))));
     }
 
     private static string TryComputeCurrentFingerprint(
         ManualRoleVectorMode mode,
         IReadOnlyList<ManualRoleCharacter> characters,
-        string? finalImagePath,
         string fallback)
     {
         try
         {
             if (mode == ManualRoleVectorMode.Auto) return string.Empty;
-            if (mode == ManualRoleVectorMode.FinalImage &&
-                !string.IsNullOrWhiteSpace(finalImagePath) && File.Exists(finalImagePath))
-                return ComputeFingerprint(mode, characters, finalImagePath);
             if (mode == ManualRoleVectorMode.ReferencesOnly &&
                 characters.Count > 0 && characters.All(character => File.Exists(character.ReferencePath)))
-                return ComputeFingerprint(mode, characters, null);
+                return ComputeFingerprint(mode, characters);
             if (mode == ManualRoleVectorMode.Paired &&
                 characters.Count > 0 && characters.All(character =>
                     File.Exists(character.CharacterPath) && File.Exists(character.ReferencePath)))
-                return ComputeFingerprint(mode, characters, null);
+                return ComputeFingerprint(mode, characters);
         }
         catch
         {

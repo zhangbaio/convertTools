@@ -11,6 +11,40 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokRoleVectorServiceTests
 {
     [Fact]
+    public void Load_treats_removed_manual_final_mode_as_automatic()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"removed-manual-final-{Guid.NewGuid():N}");
+        var configurationPath = ManualRoleVectorMaterialService.GetConfigurationPath(workflow);
+        Directory.CreateDirectory(Path.GetDirectoryName(configurationPath)!);
+        File.WriteAllText(
+            configurationPath,
+            """
+            {
+              "version": "v1",
+              "mode": "manual-final",
+              "locked": true,
+              "fingerprint": "legacy",
+              "finalImagePath": "手动角色矢量图.png",
+              "characters": []
+            }
+            """);
+
+        try
+        {
+            var configuration = ManualRoleVectorMaterialService.Load(workflow);
+
+            configuration.Mode.Should().Be(ManualRoleVectorMode.Auto);
+            configuration.Locked.Should().BeTrue();
+            configuration.Characters.Should().BeEmpty();
+            configuration.Fingerprint.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task GenerateAsync_UsesManualReferencesAndCachedGeneratedCharacters()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"manual-role-references-{Guid.NewGuid():N}");
@@ -159,64 +193,6 @@ public sealed class TikTokRoleVectorServiceTests
             SaveImage(saved.Characters[0].ReferencePath, 360, 640, new Rgba32(250, 20, 20));
             TikTokRoleVectorService.HasCurrentOutput(workflow, 3)
                 .Should().BeFalse("人工参考图变化后角色矢量图状态必须失效");
-        }
-        finally
-        {
-            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task GenerateAsync_InstallsManualFinalImageAndTracksItsHash()
-    {
-        var workspace = Path.Combine(Path.GetTempPath(), $"manual-final-role-vector-{Guid.NewGuid():N}");
-        var source = Path.Combine(workspace, "原剧名");
-        var workflow = Path.Combine(workspace, "workflow", "_新剧名");
-        Directory.CreateDirectory(source);
-        Directory.CreateDirectory(workflow);
-        WriteMetadata(source, source, workflow);
-        WriteMetadata(workflow, source, workflow);
-        var finalSource = Path.Combine(workspace, "用户成品.png");
-        SaveImage(
-            finalSource,
-            RoleVectorTemplateRenderer.CanvasWidth,
-            RoleVectorTemplateRenderer.CanvasHeight,
-            new Rgba32(30, 80, 130));
-
-        try
-        {
-            var saved = ManualRoleVectorMaterialService.SaveFinalImage(workflow, finalSource);
-            var logs = new List<string>();
-            var output = await TikTokRoleVectorService.GenerateAsync(
-                new QueueProjectItem { ProjectDir = source },
-                new ClientSettings(),
-                3,
-                forceRerun: true,
-                logs.Add,
-                CancellationToken.None);
-
-            File.Exists(output).Should().BeTrue();
-            TikTokRoleVectorService.HasCurrentOutput(workflow, 3).Should().BeTrue();
-            logs.Should().Contain(message => message.Contains("人工指定成品", StringComparison.Ordinal));
-
-            await TikTokReferenceSourcePackageService.GenerateAsync(
-                new QueueProjectItem { ProjectDir = source },
-                new ClientSettings(),
-                forceRerun: false,
-                logs.Add,
-                CancellationToken.None,
-                3);
-            File.Exists(output).Should().BeTrue("刷新证明素材包不能删除人工成品");
-            TikTokRoleVectorService.HasCurrentOutput(workflow, 3).Should().BeTrue();
-            TikTokReferenceSourcePackageService.HasCurrentOutput(workflow).Should().BeTrue();
-
-            SaveImage(
-                saved.FinalImagePath!,
-                RoleVectorTemplateRenderer.CanvasWidth,
-                RoleVectorTemplateRenderer.CanvasHeight,
-                new Rgba32(180, 20, 20));
-            TikTokRoleVectorService.HasCurrentOutput(workflow, 3)
-                .Should().BeFalse("人工成品变化后状态必须失效");
         }
         finally
         {

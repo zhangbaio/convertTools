@@ -67,13 +67,6 @@ public static partial class TikTokReferenceSourcePackageService
             var root = GetRoot(workflowProjectDirectory);
             var state = GetStatePath(workflowProjectDirectory);
             var manualConfiguration = ManualRoleVectorMaterialService.Load(workflowProjectDirectory);
-            if (manualConfiguration.Mode == ManualRoleVectorMode.FinalImage)
-            {
-                return HasManualStateFingerprint(state, "manual-final", manualConfiguration.Fingerprint) &&
-                       File.Exists(Path.Combine(root, SceneDesignFileName1)) &&
-                       File.Exists(Path.Combine(root, SceneDesignFileName2)) &&
-                       File.Exists(Path.Combine(root, CharacterWorkbenchFileName));
-            }
             var characterDir = Path.Combine(root, CharacterDirectoryName);
             if (manualConfiguration.Mode == ManualRoleVectorMode.ReferencesOnly)
             {
@@ -126,29 +119,6 @@ public static partial class TikTokReferenceSourcePackageService
         configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
         var root = GetRoot(context.WorkflowProjectDir);
         var manualRoleConfiguration = ManualRoleVectorMaterialService.Load(context.WorkflowProjectDir);
-        if (manualRoleConfiguration.Mode == ManualRoleVectorMode.FinalImage)
-        {
-            var roleVector = Path.Combine(root, CharacterWorkbenchFileName);
-            if (!File.Exists(roleVector))
-                throw new InvalidOperationException("人工成品角色矢量图尚未安装，请先执行“生成角色矢量图”步骤。");
-            ResetPackageRoot(root, preserveCharactersAndRoleVector: true);
-            Directory.CreateDirectory(Path.Combine(root, CharacterDirectoryName));
-            Directory.CreateDirectory(Path.Combine(root, VideoDirectoryName));
-            Directory.CreateDirectory(Path.Combine(root, MaterialDirectoryName, "001"));
-            await RefreshDerivedImagesAsync(context.WorkflowProjectDir, log, ct).ConfigureAwait(false);
-            await WriteHiddenStateFileAsync(
-                GetStatePath(context.WorkflowProjectDir),
-                JsonSerializer.Serialize(new
-                {
-                    version = Version,
-                    sourceMode = "manual-final",
-                    sourceFingerprint = manualRoleConfiguration.Fingerprint,
-                    generatedAt = DateTimeOffset.Now,
-                }, new JsonSerializerOptions { WriteIndented = true }),
-                ct).ConfigureAwait(false);
-            log?.Invoke("参考格式素材包：保留人工成品角色矢量图，并刷新场景设计材料。");
-            return root;
-        }
         if (manualRoleConfiguration.Mode == ManualRoleVectorMode.ReferencesOnly)
         {
             ManualRoleVectorMaterialService.ValidateReferences(manualRoleConfiguration);

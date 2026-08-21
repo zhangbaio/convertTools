@@ -11,7 +11,6 @@ namespace TikTokPublisher.Ui.Views;
 public sealed record ManualRoleVectorDialogResult(
     ManualRoleVectorMode Mode,
     IReadOnlyList<ManualRoleCharacter> Characters,
-    string? FinalImagePath,
     bool Locked);
 
 public sealed class ManualRoleVectorDialog : Window
@@ -20,12 +19,8 @@ public sealed class ManualRoleVectorDialog : Window
     private readonly NumericUpDown _count;
     private readonly CheckBox _locked;
     private readonly StackPanel _referencePanel;
-    private readonly StackPanel _finalPanel;
-    private readonly TextBlock _finalPath;
-    private readonly Image _finalPreview;
     private readonly TextBlock _message;
     private readonly List<ReferenceRow> _rows = [];
-    private string? _selectedFinalPath;
 
     private ManualRoleVectorDialog(string projectName, ManualRoleVectorConfiguration existing)
     {
@@ -61,12 +56,10 @@ public sealed class ManualRoleVectorDialog : Window
             {
                 new ModeOption("自动选择参考图", ManualRoleVectorMode.Auto),
                 new ModeOption("手动指定人物参考图", ManualRoleVectorMode.ReferencesOnly),
-                new ModeOption("直接使用成品角色矢量图", ManualRoleVectorMode.FinalImage),
             },
             SelectedIndex = existing.Mode switch
             {
                 ManualRoleVectorMode.ReferencesOnly or ManualRoleVectorMode.Paired => 1,
-                ManualRoleVectorMode.FinalImage => 2,
                 _ => 0,
             },
         };
@@ -112,25 +105,6 @@ public sealed class ManualRoleVectorDialog : Window
             VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
         });
 
-        _selectedFinalPath = existing.FinalImagePath;
-        _finalPath = new TextBlock
-        {
-            Text = FormatPath(_selectedFinalPath, "尚未选择成品图片"),
-            TextWrapping = TextWrapping.Wrap,
-        };
-        _finalPreview = CreatePreview(_selectedFinalPath, 260, 142);
-        var pickFinal = new Button { Content = "选择 2342×1280 成品图片", MinWidth = 220 };
-        pickFinal.Click += async (_, _) => await PickFinalImageAsync();
-        _finalPanel = new StackPanel { Spacing = 12 };
-        _finalPanel.Children.Add(new TextBlock
-        {
-            Text = "成品必须是 2342×1280 的有效图片。保存后将转换为标准 PNG，并直接作为角色矢量图使用。",
-            TextWrapping = TextWrapping.Wrap,
-        });
-        _finalPanel.Children.Add(pickFinal);
-        _finalPanel.Children.Add(_finalPreview);
-        _finalPanel.Children.Add(_finalPath);
-        content.Children.Add(_finalPanel);
         Grid.SetRow(content, 2);
         root.Children.Add(content);
 
@@ -204,38 +178,12 @@ public sealed class ManualRoleVectorDialog : Window
         SetMessage(string.Empty, false);
     }
 
-    private async Task PickFinalImageAsync()
-    {
-        if (StorageProvider is null) return;
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "选择成品角色矢量图（2342×1280）",
-            AllowMultiple = false,
-            FileTypeFilter = [FilePickerFileTypes.ImageAll],
-        });
-        var path = files.FirstOrDefault()?.Path.LocalPath;
-        if (string.IsNullOrWhiteSpace(path)) return;
-        _selectedFinalPath = path;
-        _finalPath.Text = path;
-        SetPreview(_finalPreview, path);
-    }
-
     private void Save()
     {
         var mode = SelectedMode;
         if (mode == ManualRoleVectorMode.Auto)
         {
-            Close(new ManualRoleVectorDialogResult(mode, [], null, false));
-            return;
-        }
-        if (mode == ManualRoleVectorMode.FinalImage)
-        {
-            if (string.IsNullOrWhiteSpace(_selectedFinalPath) || !File.Exists(_selectedFinalPath))
-            {
-                SetMessage("请先选择有效的成品角色矢量图。", true);
-                return;
-            }
-            Close(new ManualRoleVectorDialogResult(mode, [], _selectedFinalPath, _locked.IsChecked == true));
+            Close(new ManualRoleVectorDialogResult(mode, [], false));
             return;
         }
 
@@ -255,7 +203,6 @@ public sealed class ManualRoleVectorDialog : Window
         Close(new ManualRoleVectorDialogResult(
             ManualRoleVectorMode.ReferencesOnly,
             characters,
-            null,
             _locked.IsChecked == true));
     }
 
@@ -265,7 +212,6 @@ public sealed class ManualRoleVectorDialog : Window
     private void RefreshModeVisibility()
     {
         _referencePanel.IsVisible = SelectedMode == ManualRoleVectorMode.ReferencesOnly;
-        _finalPanel.IsVisible = SelectedMode == ManualRoleVectorMode.FinalImage;
         _count.IsEnabled = SelectedMode == ManualRoleVectorMode.ReferencesOnly;
         _locked.IsEnabled = SelectedMode != ManualRoleVectorMode.Auto;
     }
