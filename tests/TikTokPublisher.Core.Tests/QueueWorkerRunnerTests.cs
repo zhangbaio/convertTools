@@ -555,6 +555,106 @@ public sealed class QueueWorkerRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_regenerates_completed_proof_when_local_pdf_is_missing()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-proof-missing-local-file",
+            Name = "proof-missing-local-file",
+            TiktokCopyrightMaterialTypes = ["production_agreement"],
+        };
+        var store = CreateAccountStore(account);
+        var item = CreateReadyToUploadItem(1, account);
+        var workflow = ProjectWorkspaceService.EnsureWorkflowProjectDir(item.ProjectDir);
+        var proofPath = TikTokProofMaterialService.GetPdfPath(workflow);
+        if (File.Exists(proofPath)) File.Delete(proofPath);
+        var host = new ImmediatePublishHost();
+        var ensureCalls = 0;
+        QueueProofMaterialPrerequisite ensure = (_, _, _, _) =>
+        {
+            ensureCalls++;
+            File.WriteAllBytes(proofPath, "%PDF-1.7\nregenerated-on-this-computer"u8.ToArray());
+            return Task.FromResult(proofPath);
+        };
+        var progress = new List<string>();
+
+        var summary = await new QueueWorkerRunner(ensure).RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-missing-local-proof-test"),
+            [item],
+            new QueueRunOptions
+            {
+                EnabledSteps =
+                [
+                    QueueStepRegistry.GenerateProofMaterial,
+                    QueueStepRegistry.UploadSeries,
+                ],
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: update => progress.Add(update.Message),
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.SuccessCount.Should().Be(1, string.Join(Environment.NewLine, progress));
+        summary.FailedCount.Should().Be(0);
+        ensureCalls.Should().Be(1);
+        File.Exists(proofPath).Should().BeTrue();
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
+        item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
+        host.BrowserReadyCalls.Should().Be(1);
+        progress.Should().Contain(message =>
+            message.Contains("本机文件缺失或无效，已自动转为重新生成", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task RunAsync_does_not_require_agreement_pdf_for_auxiliary_material_only_account()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-auxiliary-proof-only",
+            Name = "auxiliary-proof-only",
+            TiktokCopyrightMaterialTypes =
+            [
+                "ai_generation_screenshots",
+                "editing_project_files",
+            ],
+        };
+        var store = CreateAccountStore(account);
+        var item = CreateReadyToUploadItem(1, account);
+        var workflow = ProjectWorkspaceService.EnsureWorkflowProjectDir(item.ProjectDir);
+        var proofPath = TikTokProofMaterialService.GetPdfPath(workflow);
+        if (File.Exists(proofPath)) File.Delete(proofPath);
+        var host = new ImmediatePublishHost();
+        var ensureCalls = 0;
+        QueueProofMaterialPrerequisite ensure = (_, _, _, _) =>
+        {
+            ensureCalls++;
+            return Task.FromResult(string.Empty);
+        };
+        var progress = new List<string>();
+
+        var summary = await new QueueWorkerRunner(ensure).RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-auxiliary-proof-only-test"),
+            [item],
+            new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: update => progress.Add(update.Message),
+            onPersist: null,
+            CancellationToken.None);
+
+        summary.SuccessCount.Should().Be(1, string.Join(Environment.NewLine, progress));
+        summary.FailedCount.Should().Be(0);
+        ensureCalls.Should().Be(1, "另一台电脑缺少辅助材料时应自动重新生成");
+        File.Exists(proofPath).Should().BeFalse("未选择合作协议时不应强制生成证明材料.pdf");
+        host.BrowserReadyCalls.Should().Be(1);
+        progress.Should().Contain(message =>
+            message.Contains("本机文件缺失或无效，已自动转为重新生成", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RunAsync_force_rerun_regenerates_completed_proof()
     {
         var account = new TikTokAccountProfile
