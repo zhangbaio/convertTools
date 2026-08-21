@@ -265,27 +265,123 @@
                                 <CheckBox Content="生成剧本"
                                           IsChecked="{Binding QueueGenerateEpisodeScriptEnabled}"
                                           Margin="0,0,12,2"
-                                          ToolTip.Tip="操作：提取前 N 集字幕与台词，由 AI 整理成分场剧本和角色表。&#10;产物：工作项目目录中的“新剧名前N集剧本.pdf”；启用保留源文档时还会保留 DOCX。" />
+                                          ToolTip.Placement="Bottom"
+                                          ToolTip.VerticalOffset="6"
+                                          ToolTip.ShowDelay="350">
+                                    <ToolTip.Tip>
+                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                            <Border Background="#17324D" BorderBrush="#2F6F9F" BorderThickness="1"
+                                                    CornerRadius="6" Padding="12,10" BoxShadow="0 4 12 0 #40000000">
+                                                <StackPanel MaxWidth="380" Spacing="3">
+                                                    <TextBlock Text="操作" Foreground="#7CC4FF" FontWeight="SemiBold" />
+                                                    <TextBlock Text="提取前 N 集字幕与台词，由 AI 整理成分场剧本和角色表。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                    <TextBlock Text="产物" Foreground="#7CC4FF" FontWeight="SemiBold" Margin="0,5,0,0" />
+                                                    <TextBlock Text="工作项目目录中的“新剧名前N集剧本.pdf”；启用保留源文档时还会保留 DOCX。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                        </ToolTip>
+                                    </ToolTip.Tip>
+                                </CheckBox>
                                 <CheckBox Content="生成AI漫剧素材"
                                           IsChecked="{Binding QueueGenerateAiDramaMaterialsEnabled}"
                                           Margin="0,0,12,2"
-                                          ToolTip.Tip="操作：从真实抽帧、AI 过程截图和剪辑工程图中分类整理漫剧制作素材。&#10;产物：“项目原始资料\AI漫剧制作素材”，包含角色设定、场景设定、分镜设计及来源清单。" />
+                                          ToolTip.Placement="Bottom"
+                                          ToolTip.VerticalOffset="6"
+                                          ToolTip.ShowDelay="350">
+                                    <ToolTip.Tip>
+                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                            <Border Background="#17324D" BorderBrush="#2F6F9F" BorderThickness="1"
+                                                    CornerRadius="6" Padding="12,10" BoxShadow="0 4 12 0 #40000000">
+                                                <StackPanel MaxWidth="380" Spacing="3">
+                                                    <TextBlock Text="操作" Foreground="#7CC4FF" FontWeight="SemiBold" />
+                                                    <TextBlock Text="从真实抽帧、AI 过程截图和剪辑工程图中分类整理漫剧制作素材。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                    <TextBlock Text="产物" Foreground="#7CC4FF" FontWeight="SemiBold" Margin="0,5,0,0" />
+                                                    <TextBlock Text="“项目原始资料\AI漫剧制作素材”，包含角色设定、场景设定、分镜设计及来源清单。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                        </ToolTip>
+                                    </ToolTip.Tip>
+                                </CheckBox>
                                 <CheckBox Content="生成AI大纲"
                                           IsChecked="{Binding QueueGenerateAiScriptOutlineEnabled}"
                                           Margin="0,0,12,2"
-                                          ToolTip.Tip="操作：根据剧名、简介和剧本生成 AI 剧本大纲。&#10;产物：工作项目目录中的“AI剧本大纲.pdf”。" />
+                                          ToolTip.Placement="Bottom"
+                                          ToolTip.VerticalOffset="6"
+                                          ToolTip.ShowDelay="350">
+                                    <ToolTip.Tip>
+                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                            <Border Background="#17324D" BorderBrush="#2F6F9F" BorderThickness="1"
+                                                    CornerRadius="6" Padding="12,10" BoxShadow="0 4 12 0 #40000000">
+                                                <StackPanel MaxWidth="380" Spacing="3">
+                                                    <TextBlock Text="操作" Foreground="#7CC4FF" FontWeight="SemiBold" />
+                                                    <TextBlock Text="根据剧名、简介和剧本生成 AI 剧本大纲。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                    <TextBlock Text="产物" Foreground="#7CC4FF" FontWeight="SemiBold" Margin="0,5,0,0" />
+                                                    <TextBlock Text="工作项目目录中的“AI剧本大纲.pdf”。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                        </ToolTip>
+                                    </ToolTip.Tip>
+                                </CheckBox>
                                 <CheckBox Content="生成角色矢量图"
                                           IsChecked="{Binding QueueGenerateRoleVectorEnabled}"
                                           Margin="0,0,12,2"
-                                          ToolTip.Tip="操作：匹配主要角色参考图，生成或复用角色定妆图并合成角色展示图。&#10;产物：“项目原始资料\参考格式原始素材包\角色矢量图.png”。" />
+                                          ToolTip.Placement="Bottom"
+                                          ToolTip.VerticalOffset="6"
+                                          ToolTip.ShowDelay="350">
+                                    <ToolTip.Tip>
+                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                            <Border Background="#17324D" BorderBrush="#2F6F9F" BorderThickness="1"
+                                                    CornerRadius="6" Padding="12,10" BoxShadow="0 4 12 0 #40000000">
+                                                <StackPanel MaxWidth="380" Spacing="3">
+                                                    <TextBlock Text="操作" Foreground="#7CC4FF" FontWeight="SemiBold" />
+                                                    <TextBlock Text="匹配主要角色参考图，生成或复用角色定妆图并合成角色展示图。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                    <TextBlock Text="产物" Foreground="#7CC4FF" FontWeight="SemiBold" Margin="0,5,0,0" />
+                                                    <TextBlock Text="“项目原始资料\参考格式原始素材包\角色矢量图.png”。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                        </ToolTip>
+                                    </ToolTip.Tip>
+                                </CheckBox>
                                 <CheckBox Content="生成证明材料"
                                           IsChecked="{Binding QueueGenerateProofMaterialEnabled}"
                                           Margin="0,0,12,2"
-                                          ToolTip.Tip="操作：按照账号选择的版权材料类型生成并登记证明文件。&#10;产物：可能包括“证明材料.pdf/.docx”、AI 过程截图、剪辑工程文件和原始文件信息材料。" />
+                                          ToolTip.Placement="Bottom"
+                                          ToolTip.VerticalOffset="6"
+                                          ToolTip.ShowDelay="350">
+                                    <ToolTip.Tip>
+                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                            <Border Background="#17324D" BorderBrush="#2F6F9F" BorderThickness="1"
+                                                    CornerRadius="6" Padding="12,10" BoxShadow="0 4 12 0 #40000000">
+                                                <StackPanel MaxWidth="380" Spacing="3">
+                                                    <TextBlock Text="操作" Foreground="#7CC4FF" FontWeight="SemiBold" />
+                                                    <TextBlock Text="按照账号选择的版权材料类型生成并登记证明文件。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                    <TextBlock Text="产物" Foreground="#7CC4FF" FontWeight="SemiBold" Margin="0,5,0,0" />
+                                                    <TextBlock Text="可能包括“证明材料.pdf/.docx”、AI 过程截图、剪辑工程文件和原始文件信息材料。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                        </ToolTip>
+                                    </ToolTip.Tip>
+                                </CheckBox>
                                 <CheckBox Content="生成时间戳"
                                           IsChecked="{Binding QueueGenerateTimestampCertificateEnabled}"
                                           Margin="0,0,12,2"
-                                          ToolTip.Tip="操作：根据项目、申请人和认证信息制作中英双页时间戳证书。&#10;产物：工作项目目录中的“可信时间戳认证证书.pdf”。" />
+                                          ToolTip.Placement="Bottom"
+                                          ToolTip.VerticalOffset="6"
+                                          ToolTip.ShowDelay="350">
+                                    <ToolTip.Tip>
+                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                            <Border Background="#17324D" BorderBrush="#2F6F9F" BorderThickness="1"
+                                                    CornerRadius="6" Padding="12,10" BoxShadow="0 4 12 0 #40000000">
+                                                <StackPanel MaxWidth="380" Spacing="3">
+                                                    <TextBlock Text="操作" Foreground="#7CC4FF" FontWeight="SemiBold" />
+                                                    <TextBlock Text="根据项目、申请人和认证信息制作中英双页时间戳证书。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                    <TextBlock Text="产物" Foreground="#7CC4FF" FontWeight="SemiBold" Margin="0,5,0,0" />
+                                                    <TextBlock Text="工作项目目录中的“可信时间戳认证证书.pdf”。" Foreground="#F8FAFC" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
+                                        </ToolTip>
+                                    </ToolTip.Tip>
+                                </CheckBox>
                                 <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="视频翻译" IsChecked="{Binding QueueVideoTranslateEnabled}" Margin="0,0,12,2" IsVisible="False" />
                                 <CheckBox Content="静音检测" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,2" />
