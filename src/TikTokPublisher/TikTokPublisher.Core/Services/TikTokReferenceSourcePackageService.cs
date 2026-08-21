@@ -49,6 +49,8 @@ public static partial class TikTokReferenceSourcePackageService
     private const int MaxVisionDiscoveryCandidates = 96;
     private const int VisionMergeCandidateLimit = 16;
     private const int VisionTimeoutRetryCandidateLimit = 12;
+    internal const int RoleRecoveryEpisodeBatchSize = 3;
+    internal const int RoleRecoveryModelFramesPerEpisode = 6;
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".png", ".jpg", ".jpeg", ".webp", ".bmp" };
 
@@ -939,34 +941,86 @@ public static partial class TikTokReferenceSourcePackageService
             .ToArray();
         log?.Invoke(
             $"角色补源：当前匹配 {best.Length}/{profiles.Count} 人；" +
-            $"将从第 {episodes[0]} 集开始逐集下载、抽帧，达到配置人数后立即停止。");
-        foreach (var episode in episodes)
+            $"将从第 {episodes[0]} 集开始按每批 {RoleRecoveryEpisodeBatchSize} 集并行下载、抽帧，" +
+            "达到配置人数后立即停止后续批次。");
+        var batches = ResolveRoleReferenceRecoveryBatches(episodes);
+        for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
             ct.ThrowIfCancellationRequested();
-            var video = await QueueMaterialStepService.EnsureRoleReferenceEpisodeVideoAsync(
+            var batch = batches[batchIndex];
+            var batchTimer = Stopwatch.StartNew();
+            log?.Invoke(
+                $"角色补源批次 {batchIndex + 1}/{batches.Count}：并行准备第 " +
+                $"{FormatEpisodeRange(batch)} 集，目标每集抽帧 " +
+                $"{TikTokAiGenerationScreenshotService.SupplementalRoleReferenceFrameCount} 张、" +
+                $"预筛 {RoleRecoveryModelFramesPerEpisode} 张。");
+            var videos = await QueueMaterialStepService.EnsureRoleReferenceEpisodeVideosAsync(
                 item,
                 settings,
-                episode,
+                batch,
                 log ?? (_ => { }),
                 ct).ConfigureAwait(false);
-            var newFrames = TikTokAiGenerationScreenshotService.ExtractSupplementalRoleReferenceFrames(
-                context.WorkflowProjectDir,
-                video,
-                episode,
-                log,
-                ct);
-            if (newFrames.Count == 0)
+
+            var extractionTasks = batch
+                .Where(videos.ContainsKey)
+                .Select(async episode =>
+                {
+                    try
+                    {
+                        var frames = await Task.Run(
+                            () => TikTokAiGenerationScreenshotService.ExtractSupplementalRoleReferenceFrames(
+                                context.WorkflowProjectDir,
+                                videos[episode],
+                                episode,
+                                log: null,
+                                ct),
+                            ct).ConfigureAwait(false);
+                        return (Episode: episode, Frames: frames, Error: string.Empty);
+                    }
+                    catch (Exception ex) when (!ct.IsCancellationRequested)
+                    {
+                        return (Episode: episode, Frames: (IReadOnlyList<string>)[], Error: ex.Message);
+                    }
+                })
+                .ToArray();
+            var extracted = await Task.WhenAll(extractionTasks).ConfigureAwait(false);
+            var modelCandidates = new List<string>();
+            foreach (var result in extracted.OrderBy(result => result.Episode))
             {
-                log?.Invoke($"角色补源：第 {episode} 集没有抽取到有效候选帧，继续下一集。");
+                if (!string.IsNullOrWhiteSpace(result.Error))
+                {
+                    log?.Invoke($"角色补源：第 {result.Episode} 集抽帧失败，跳过该集：{result.Error}");
+                    continue;
+                }
+                var selectedFrames = SelectSupplementalRoleRecoveryFrames(
+                    result.Frames,
+                    RoleRecoveryModelFramesPerEpisode);
+                modelCandidates.AddRange(selectedFrames);
+                log?.Invoke(
+                    $"角色补源：第 {result.Episode} 集抽取 {result.Frames.Count} 张，" +
+                    $"本地预筛保留 {selectedFrames.Length} 张清晰且分布不同的候选帧。");
+            }
+            if (modelCandidates.Count == 0)
+            {
+                log?.Invoke(
+                    $"角色补源批次 {batchIndex + 1}/{batches.Count}：没有取得有效候选帧，" +
+                    $"耗时 {batchTimer.Elapsed.TotalSeconds:F1} 秒，继续下一批。");
                 continue;
             }
 
+            var preparationElapsed = batchTimer.Elapsed;
+            log?.Invoke(
+                $"角色补源批次 {batchIndex + 1}/{batches.Count}：视频准备、并行抽帧和本地预筛完成，" +
+                $"耗时 {preparationElapsed.TotalSeconds:F1} 秒；合并 {modelCandidates.Count} 张新候选，" +
+                "开始一次视觉人物审核。");
+
             var focusedCandidates = best
-                .Concat(newFrames)
+                .Concat(modelCandidates)
                 .Where(File.Exists)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             string[] selected;
+            var visionTimer = Stopwatch.StartNew();
             try
             {
                 selected = await SelectRoleMatchedCharacterSourcesAsync(
@@ -978,14 +1032,23 @@ public static partial class TikTokReferenceSourcePackageService
             }
             catch (InvalidOperationException ex)
             {
-                log?.Invoke($"角色补源：第 {episode} 集仍未匹配到足够人物：{ex.Message}");
+                log?.Invoke(
+                    $"角色补源批次 {batchIndex + 1}/{batches.Count}：第 {FormatEpisodeRange(batch)} 集" +
+                    $"仍未匹配到足够人物；视觉审核 {visionTimer.Elapsed.TotalSeconds:F1} 秒，" +
+                    $"批次总耗时 {batchTimer.Elapsed.TotalSeconds:F1} 秒。{ex.Message}");
                 continue;
             }
-            if (selected.Length > best.Length) best = selected;
-            log?.Invoke($"角色补源：检查至第 {episode} 集，已匹配 {best.Length}/{profiles.Count} 人。");
+            if (selected.Length >= best.Length) best = selected;
+            log?.Invoke(
+                $"角色补源批次 {batchIndex + 1}/{batches.Count} 完成：第 {FormatEpisodeRange(batch)} 集" +
+                $"共抽取 {extracted.Sum(result => result.Frames.Count)} 张，预筛后送审 {modelCandidates.Count} 张；" +
+                $"已匹配 {best.Length}/{profiles.Count} 人；视觉审核 {visionTimer.Elapsed.TotalSeconds:F1} 秒，" +
+                $"批次总耗时 {batchTimer.Elapsed.TotalSeconds:F1} 秒。");
             if (best.Length >= profiles.Count)
             {
-                log?.Invoke($"角色补源完成：第 {episode} 集首次达到配置的 {profiles.Count} 人，停止继续下载。");
+                log?.Invoke(
+                    $"角色补源完成：第 {FormatEpisodeRange(batch)} 集所在批次首次达到配置的 " +
+                    $"{profiles.Count} 人，停止后续批次下载。");
                 return best;
             }
         }
@@ -1014,6 +1077,68 @@ public static partial class TikTokReferenceSourcePackageService
             .Where(episode => !represented.Contains(episode))
             .ToArray();
     }
+
+    internal static IReadOnlyList<int[]> ResolveRoleReferenceRecoveryBatches(
+        IReadOnlyList<int> episodes,
+        int batchSize = RoleRecoveryEpisodeBatchSize)
+    {
+        ArgumentNullException.ThrowIfNull(episodes);
+        batchSize = Math.Clamp(batchSize, 1, 10);
+        return episodes
+            .Where(episode => episode > 0)
+            .Distinct()
+            .OrderBy(episode => episode)
+            .Chunk(batchSize)
+            .Select(batch => batch.ToArray())
+            .ToArray();
+    }
+
+    internal static string[] SelectSupplementalRoleRecoveryFrames(
+        IReadOnlyList<string> frames,
+        int maximum)
+    {
+        ArgumentNullException.ThrowIfNull(frames);
+        maximum = Math.Max(1, maximum);
+        var valid = frames
+            .Where(File.Exists)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (valid.Length <= maximum) return valid;
+
+        var ranked = valid
+            .Select(path => AnalyzeCharacterSource(new CharacterSourcePath(path, IsExtractedFrame: true)))
+            .Where(candidate => candidate is not null)
+            .Select(candidate => candidate!)
+            .OrderBy(CharacterSourceCategory)
+            .ThenByDescending(candidate => candidate.QualityScore)
+            .ThenBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(candidate => candidate.Path)
+            .ToArray();
+        if (ranked.Length == 0) return valid.Take(maximum).ToArray();
+
+        var selected = ranked.Take(Math.Max(1, maximum / 2)).ToList();
+        var spreadSlots = maximum - selected.Count;
+        for (var slot = 0; slot < spreadSlots; slot++)
+        {
+            var index = (int)Math.Round(
+                (slot + 1d) * (valid.Length - 1d) / (spreadSlots + 1d));
+            var path = valid[Math.Clamp(index, 0, valid.Length - 1)];
+            if (!selected.Contains(path, StringComparer.OrdinalIgnoreCase)) selected.Add(path);
+        }
+        foreach (var path in ranked)
+        {
+            if (selected.Count >= maximum) break;
+            if (!selected.Contains(path, StringComparer.OrdinalIgnoreCase)) selected.Add(path);
+        }
+        return selected.Take(maximum).ToArray();
+    }
+
+    private static string FormatEpisodeRange(IReadOnlyList<int> episodes) =>
+        episodes.Count == 0
+            ? "-"
+            : episodes.Count == 1
+                ? episodes[0].ToString()
+                : $"{episodes[0]}–{episodes[^1]}";
 
     private static async Task<string[]> SelectRoleMatchedCharacterSourcesAsync(
         IReadOnlyList<CharacterProfile> profiles,

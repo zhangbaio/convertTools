@@ -240,23 +240,52 @@ public static class QueueMaterialStepService
         Action<string> log,
         CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(item);
-        ArgumentNullException.ThrowIfNull(settings);
-        ArgumentNullException.ThrowIfNull(log);
         if (episodeNumber <= 0) throw new ArgumentOutOfRangeException(nameof(episodeNumber));
 
+        var videos = await EnsureRoleReferenceEpisodeVideosAsync(
+            item,
+            settings,
+            [episodeNumber],
+            log,
+            ct).ConfigureAwait(false);
+        if (videos.TryGetValue(episodeNumber, out var video)) return video;
+        throw new InvalidOperationException($"第 {episodeNumber} 集补下载完成后未找到视频文件。");
+    }
+
+    internal static async Task<IReadOnlyDictionary<int, string>> EnsureRoleReferenceEpisodeVideosAsync(
+        QueueProjectItem item,
+        ClientSettings settings,
+        IReadOnlyList<int> episodeNumbers,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(episodeNumbers);
+        ArgumentNullException.ThrowIfNull(log);
+        var requested = episodeNumbers
+            .Where(episode => episode > 0)
+            .Distinct()
+            .OrderBy(episode => episode)
+            .ToArray();
+        if (requested.Length == 0) return new Dictionary<int, string>();
+
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
-        var existing = FindEpisodeVideo(context.SourceProjectDir, episodeNumber);
-        if (existing is not null)
+        var resolved = requested
+            .Select(episode => (Episode: episode, Path: FindEpisodeVideo(context.SourceProjectDir, episode)))
+            .Where(item => item.Path is not null)
+            .ToDictionary(item => item.Episode, item => item.Path!);
+        var missing = requested.Where(episode => !resolved.ContainsKey(episode)).ToArray();
+        if (missing.Length == 0)
         {
-            log($"角色补源：复用已下载的第 {episodeNumber} 集。文件={Path.GetFileName(existing)}");
-            return existing;
+            log($"角色补源：复用已下载的第 {FormatEpisodeSelection(requested)} 集视频。");
+            return resolved;
         }
 
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
         if (string.IsNullOrWhiteSpace(metadata.BookId))
             throw new InvalidOperationException(
-                $"角色素材缺少第 {episodeNumber} 集视频，且项目缺少 bookId，无法自动补下载。");
+                $"角色素材缺少第 {FormatEpisodeSelection(missing)} 集视频，且项目缺少 bookId，无法自动补下载。");
 
         ShortDramaDramaServices.RefreshSettings(settings);
         var displayName = FirstNonEmpty(
@@ -268,7 +297,12 @@ public static class QueueMaterialStepService
             settings.DramaDownloadMaxParallelProjects <= 0 ? 1 : settings.DramaDownloadMaxParallelProjects,
             1,
             4);
-        log($"角色素材人物不足：仅补下载第 {episodeNumber} 集，不执行整剧下载。");
+        var selection = FormatEpisodeSelection(missing);
+        var concurrent = Math.Clamp(
+            Math.Min(missing.Length, settings.DramaDownloadConcurrent <= 0 ? 1 : settings.DramaDownloadConcurrent),
+            1,
+            10);
+        log($"角色素材人物不足：批量补下载第 {selection} 集，并发 {concurrent}，不执行整剧下载。");
         DramaDownloadResult result;
         using (await QueueDownloadSlotCoordinator.WaitAsync(
                    maxParallelProjects,
@@ -281,24 +315,27 @@ public static class QueueMaterialStepService
                 metadata,
                 settings,
                 displayName,
-                episodeNumber.ToString(),
-                concurrent: 1);
+                selection,
+                concurrent);
             result = await ShortDramaDramaServices.Downloader
                 .DownloadAsync(request, CreateDownloadProgress(log), ct)
                 .ConfigureAwait(false);
         }
 
-        var downloaded = FindEpisodeVideo(context.SourceProjectDir, episodeNumber);
-        if (downloaded is null)
-            throw new InvalidOperationException(
-                result.Ok
-                    ? $"第 {episodeNumber} 集补下载完成后未找到视频文件。"
-                    : result.Message ?? $"第 {episodeNumber} 集补下载失败。");
-        if (!result.Ok)
-            log($"角色补源下载未完整结束，但第 {episodeNumber} 集视频已可用：{result.Message}");
-        else
-            log($"角色补源：第 {episodeNumber} 集下载完成，将立即抽取人物候选帧。");
-        return downloaded;
+        foreach (var episode in requested)
+        {
+            var downloaded = FindEpisodeVideo(context.SourceProjectDir, episode);
+            if (downloaded is not null) resolved[episode] = downloaded;
+        }
+        var unresolved = requested.Where(episode => !resolved.ContainsKey(episode)).ToArray();
+        if (unresolved.Length > 0)
+            log($"角色补源：第 {FormatEpisodeSelection(unresolved)} 集未取得视频，将跳过并继续后续批次。" +
+                (result.Ok ? string.Empty : $" 下载结果：{result.Message}"));
+        if (!result.Ok && resolved.Count > 0)
+            log($"角色补源批量下载未完整结束，但已有 {resolved.Count}/{requested.Length} 集视频可用于抽帧：{result.Message}");
+        else if (resolved.Count > 0)
+            log($"角色补源：批次视频已准备 {resolved.Count}/{requested.Length} 集，将并行抽取人物候选帧。");
+        return resolved;
     }
 
     private static string? FindEpisodeVideo(string sourceProjectDirectory, int episodeNumber) =>
