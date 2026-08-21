@@ -906,30 +906,58 @@ public sealed class QueueWorkerRunner
                 item.StepStates.GetValueOrDefault(QueueStepRegistry.GenerateProofMaterial) ==
                 QueueStepStatus.Completed;
             var reuseExistingProof = proofAlreadyCompleted && !options.ForceRerunCompletedSteps;
+            string? reusableProofPath = null;
+            string? automaticRepairMessage = null;
             if (reuseExistingProof)
             {
-                Report(
-                    onProgress,
-                    workspace,
-                    item,
-                    "生成证明材料已完成，上传前仅校验现有文件，不重新生成…",
-                    QueueStepRegistry.GenerateProofMaterial);
+                try
+                {
+                    if (TikTokPublishConstants.RequiresGeneratedProofMaterial(materialTypes))
+                    {
+                        reusableProofPath = TikTokProofMaterialService.ValidateExistingForUpload(item);
+                    }
+                    else
+                    {
+                        var proofSettings = ClientSettingsStore.Load();
+                        if (!TikTokProofMaterialService.HasReusableProofMaterialForCopyrightCompletion(
+                                item,
+                                proofSettings,
+                                account))
+                        {
+                            throw new InvalidOperationException(
+                                "生成证明材料步骤已完成，但本机缺少当前账号勾选的辅助证明材料。");
+                        }
+                        reusableProofPath = string.Empty;
+                    }
+                    Report(
+                        onProgress,
+                        workspace,
+                        item,
+                        "生成证明材料已完成，上传前仅校验现有文件，不重新生成…",
+                        QueueStepRegistry.GenerateProofMaterial);
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+                {
+                    reuseExistingProof = false;
+                    automaticRepairMessage =
+                        "生成证明材料状态为已完成，但本机文件缺失或无效，已自动转为重新生成：" + ex.Message;
+                }
             }
-            else
+            if (!reuseExistingProof)
             {
                 mutate(() => MarkRunning(item, QueueStepRegistry.GenerateProofMaterial));
                 Report(
                     onProgress,
                     workspace,
                     item,
-                    "已勾选版权证明材料，上传前检查当前项目证明材料…",
+                    automaticRepairMessage ?? "已勾选版权证明材料，上传前检查当前项目证明材料…",
                     QueueStepRegistry.GenerateProofMaterial);
             }
 
             try
             {
                 var proofPath = reuseExistingProof
-                    ? TikTokProofMaterialService.ValidateExistingForUpload(item)
+                    ? reusableProofPath!
                     : await ensureProofMaterial(item, account, uploadLog, ct).ConfigureAwait(false);
                 if (!string.IsNullOrWhiteSpace(proofPath))
                     TikTokProofMaterialPdfRenderService.ValidatePdf(proofPath);
