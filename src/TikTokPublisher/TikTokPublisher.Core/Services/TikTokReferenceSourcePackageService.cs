@@ -27,6 +27,7 @@ namespace TikTokPublisher.Core.Services;
 public static partial class TikTokReferenceSourcePackageService
 {
     public const string DirectoryName = "参考格式原始素材包";
+    public const string RecoveryDirectoryName = "参考格式原始素材包_恢复";
     public const string CharacterDirectoryName = "角色";
     public const string CharacterManifestFileName = "角色清单.json";
     public const int MinCharacterCount = 2;
@@ -45,6 +46,7 @@ public static partial class TikTokReferenceSourcePackageService
     private const string SceneDesignTemplateResourceName2 =
         "TikTokPublisher.Core.Resources.SceneDesignTemplate2.png";
     private const int VisionIdentityBatchSize = 24;
+    internal static int VisionIdentityBatchCapacityForTests => VisionIdentityBatchSize;
     private const int VisionIdentityBatchConcurrency = 2;
     private const int MaxVisionDiscoveryCandidates = 96;
     private const int VisionMergeCandidateLimit = 16;
@@ -56,10 +58,46 @@ public static partial class TikTokReferenceSourcePackageService
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".png", ".jpg", ".jpeg", ".webp", ".bmp" };
 
-    public static string GetRoot(string workflowProjectDirectory) =>
-        Path.Combine(
-            TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflowProjectDirectory),
-            DirectoryName);
+    public static string GetRoot(string workflowProjectDirectory)
+    {
+        var evidenceDirectory = TikTokSourceFileInfoScreenshotService.GetEvidenceDirectory(workflowProjectDirectory);
+        return ResolveAccessiblePackageRoot(evidenceDirectory, IsDirectoryAccessible);
+    }
+
+    internal static string ResolveAccessiblePackageRoot(
+        string evidenceDirectory,
+        Func<string, bool> isAccessible)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(evidenceDirectory);
+        ArgumentNullException.ThrowIfNull(isAccessible);
+        var canonical = Path.Combine(Path.GetFullPath(evidenceDirectory), DirectoryName);
+        return isAccessible(canonical)
+            ? canonical
+            : Path.Combine(Path.GetFullPath(evidenceDirectory), RecoveryDirectoryName);
+    }
+
+    private static bool IsDirectoryAccessible(string path)
+    {
+        if (!Directory.Exists(path)) return true;
+        try
+        {
+            using var enumerator = Directory.EnumerateFileSystemEntries(path).GetEnumerator();
+            _ = enumerator.MoveNext();
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static void LogRecoveryPackageRoot(string root, Action<string>? log)
+    {
+        if (!string.Equals(Path.GetFileName(root), RecoveryDirectoryName, StringComparison.OrdinalIgnoreCase)) return;
+        log?.Invoke(
+            $"参考格式素材包：标准目录不可访问，已自动切换到恢复目录：{root}。" +
+            "旧目录已保留，建议稍后检查磁盘文件系统。");
+    }
 
     public static string GetCharacterManifestPath(string workflowProjectDirectory) =>
         Path.Combine(GetRoot(workflowProjectDirectory), CharacterDirectoryName, CharacterManifestFileName);
@@ -167,6 +205,7 @@ public static partial class TikTokReferenceSourcePackageService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
         var root = GetRoot(context.WorkflowProjectDir);
+        LogRecoveryPackageRoot(root, log);
         var manualRoleConfiguration = ManualRoleVectorMaterialService.Load(context.WorkflowProjectDir);
         if (manualRoleConfiguration.Mode == ManualRoleVectorMode.ReferencesOnly)
         {
@@ -350,6 +389,7 @@ public static partial class TikTokReferenceSourcePackageService
     {
         var context = ProjectWorkspaceService.LoadContext(workflowProjectDirectory);
         var root = GetRoot(context.WorkflowProjectDir);
+        LogRecoveryPackageRoot(root, log);
         await InstallDefaultSceneDesignTemplatesAsync(root, ct).ConfigureAwait(false);
         TrySetHidden(GetStatePath(context.WorkflowProjectDir));
         log?.Invoke("参考格式素材包：已安装内置场景设计图1/2模板，不重新生成场景设计图。");
@@ -410,6 +450,7 @@ public static partial class TikTokReferenceSourcePackageService
         configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var root = GetRoot(context.WorkflowProjectDir);
+        LogRecoveryPackageRoot(root, log);
         var characterDir = Path.Combine(root, CharacterDirectoryName);
         ResilientFileSystem.EnsureDirectory(characterDir);
 
@@ -1044,7 +1085,8 @@ public static partial class TikTokReferenceSourcePackageService
                     focusedCandidates,
                     settings,
                     log,
-                    ct).ConfigureAwait(false);
+                    ct,
+                    candidateMaximumOverride: VisionIdentityBatchSize).ConfigureAwait(false);
             }
             catch (Exception ex) when (
                 useAiFullReview &&
@@ -1067,7 +1109,8 @@ public static partial class TikTokReferenceSourcePackageService
                         fallbackCandidates,
                         settings,
                         log,
-                        ct).ConfigureAwait(false);
+                        ct,
+                        candidateMaximumOverride: VisionIdentityBatchSize).ConfigureAwait(false);
                 }
                 catch (InvalidOperationException fallbackEx)
                 {
@@ -1237,7 +1280,8 @@ public static partial class TikTokReferenceSourcePackageService
         IReadOnlyList<string> orderedSources,
         ClientSettings settings,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        int? candidateMaximumOverride = null)
     {
         if (orderedSources.Count < MinCharacterCount)
             return orderedSources.Take(profiles.Count).ToArray();
@@ -1249,10 +1293,25 @@ public static partial class TikTokReferenceSourcePackageService
                 "角色参考图需要视觉模型判断男女和人物是否重复；请先在系统设置中配置文本/视觉模型 Endpoint、API Key 和模型 ID。");
         }
 
-        var maximum = ResolveVisionCandidateMaximum(profiles.Count);
+        var selectionMode = ResolveRoleReferenceSelectionMode(settings);
+        var reviewSources = selectionMode == LocalRoleReferenceSelectionMode &&
+                            orderedSources.Count > VisionIdentityBatchSize
+            ? SelectVisionCandidatePaths(orderedSources, VisionIdentityBatchSize)
+            : orderedSources.ToArray();
+        if (reviewSources.Length < orderedSources.Count)
+        {
+            log?.Invoke(
+                $"角色参考图：本地链路将候选池从 {orderedSources.Count} 张预筛为 " +
+                $"{reviewSources.Length} 张清晰且时间分布不同的代表帧，执行一次视觉审核。");
+        }
+        var maximum = candidateMaximumOverride is > 0
+            ? Math.Clamp(candidateMaximumOverride.Value, 1, VisionIdentityBatchSize)
+            : selectionMode == LocalRoleReferenceSelectionMode
+                ? VisionIdentityBatchSize
+                : ResolveVisionCandidateMaximum(profiles.Count);
         var (candidates, analyses) = await AnalyzeRoleCandidatePoolAsync(
             profiles,
-            orderedSources,
+            reviewSources,
             settings,
             maximum,
             log,

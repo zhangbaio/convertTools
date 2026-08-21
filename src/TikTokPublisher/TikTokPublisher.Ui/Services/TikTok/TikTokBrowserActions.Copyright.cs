@@ -39,7 +39,7 @@ public static partial class TikTokBrowserActions
             TikTokPublishConstants.ProductionAgreementMaterialType =>
                 "[x-field-id='copyrightProof.materialFiles.2']",
             TikTokPublishConstants.FilingOrDistributionLicenseMaterialType =>
-                "[x-field-id='copyrightProof.materialFiles.3']",
+                "[x-field-id='copyrightProof.materialFiles.4']",
             "opening_ending_rights_notice" =>
                 "[x-field-id='copyrightProof.materialFiles.5']",
             TikTokPublishConstants.AiGenerationScreenshotsMaterialType =>
@@ -1138,7 +1138,13 @@ public static partial class TikTokBrowserActions
                     if (!await exactLabel.IsVisibleAsync()) continue;
 
                     var field = exactLabel.Locator(
-                        "xpath=ancestor::*[starts-with(@x-field-id, 'copyrightProof.materialFiles.')][1]");
+                        "xpath=ancestor::*[contains(@class,'materialBlock')][1]" +
+                        "//*[starts-with(@x-field-id, 'copyrightProof.materialFiles.')][1]");
+                    if (await field.CountAsync() == 0)
+                    {
+                        field = exactLabel.Locator(
+                            "xpath=ancestor::*[starts-with(@x-field-id, 'copyrightProof.materialFiles.')][1]");
+                    }
                     if (await field.CountAsync() > 0 && await field.IsVisibleAsync())
                         return field;
                 }
@@ -1360,7 +1366,13 @@ public static partial class TikTokBrowserActions
                     if (!await exactLabel.IsVisibleAsync()) continue;
 
                     var field = exactLabel.Locator(
-                        "xpath=ancestor::*[starts-with(@x-field-id, 'copyrightProof.materialFiles.')][1]");
+                        "xpath=ancestor::*[contains(@class,'materialBlock')][1]" +
+                        "//*[starts-with(@x-field-id, 'copyrightProof.materialFiles.')][1]");
+                    if (await field.CountAsync() == 0)
+                    {
+                        field = exactLabel.Locator(
+                            "xpath=ancestor::*[starts-with(@x-field-id, 'copyrightProof.materialFiles.')][1]");
+                    }
                     if (await field.CountAsync() == 0 || !await field.IsVisibleAsync()) continue;
 
                     var input = field.Locator("input[type='file']").First;

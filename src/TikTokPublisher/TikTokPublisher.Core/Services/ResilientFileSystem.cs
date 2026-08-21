@@ -101,7 +101,10 @@ internal static class ResilientFileSystem
                     Thread.Sleep(80 * (attempt + 1));
             }
         }
-        throw new IOException(message, lastError);
+        var detail = string.IsNullOrWhiteSpace(lastError?.Message)
+            ? string.Empty
+            : $"。底层原因：{lastError.Message}";
+        throw new IOException(message + detail, lastError);
     }
 
     private static void ClearReadOnlyAttributes(string path)
