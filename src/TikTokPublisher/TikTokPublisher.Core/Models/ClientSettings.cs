@@ -64,6 +64,10 @@ public sealed class ClientSettings
     public string AiTextModel { get; set; } = ClientSettingsDefaults.AiTextModel;
     public int AiTextTimeoutSeconds { get; set; } = ClientSettingsDefaults.AiTextTimeoutSeconds;
     public int AiTextMaxBatchSize { get; set; } = ClientSettingsDefaults.AiTextMaxBatchSize;
+    public string TiktokRoleReferenceSelectionMode { get; set; } =
+        ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
+    public bool TiktokRoleReferenceAiFallbackEnabled { get; set; } =
+        ClientSettingsDefaults.TiktokRoleReferenceAiFallbackEnabled;
     public string AiTagSystemPrompt { get; set; } = ClientSettingsDefaults.AiTagSystemPrompt;
     public string AiTagBatchPrompt { get; set; } = ClientSettingsDefaults.AiTagBatchPrompt;
     public string AiFullInfoSystemPrompt { get; set; } = ClientSettingsDefaults.AiFullInfoSystemPrompt;
@@ -208,6 +212,8 @@ public sealed class ClientSettings
         AiTextModel = AiTextModel,
         AiTextTimeoutSeconds = AiTextTimeoutSeconds,
         AiTextMaxBatchSize = AiTextMaxBatchSize,
+        TiktokRoleReferenceSelectionMode = TiktokRoleReferenceSelectionMode,
+        TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled,
         AiTagSystemPrompt = AiTagSystemPrompt,
         AiTagBatchPrompt = AiTagBatchPrompt,
         AiFullInfoSystemPrompt = AiFullInfoSystemPrompt,

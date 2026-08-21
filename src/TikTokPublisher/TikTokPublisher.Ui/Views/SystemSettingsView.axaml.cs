@@ -40,6 +40,7 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.HongguoLocalTranscodeEngine)
                 or nameof(SystemSettingsViewModel.TiktokSilenceAsrEngine)
                 or nameof(SystemSettingsViewModel.TiktokSilenceRepairMode)
+                or nameof(SystemSettingsViewModel.TiktokRoleReferenceSelectionMode)
                 or nameof(SystemSettingsViewModel.PosterMode)
                 or nameof(SystemSettingsViewModel.ImageProvider)
                 or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
@@ -119,6 +120,11 @@ public partial class SystemSettingsView : UserControl
         SilenceRepairModeCombo.Items.Add(CreateItem("一律变速", "speedup"));
         SilenceRepairModeCombo.SelectionChanged += OnSilenceRepairModeChanged;
 
+        RoleReferenceSelectionModeCombo.Items.Clear();
+        RoleReferenceSelectionModeCombo.Items.Add(CreateItem("本地链路（默认）", "local"));
+        RoleReferenceSelectionModeCombo.Items.Add(CreateItem("AI全量优选（推荐）", "ai_full_review"));
+        RoleReferenceSelectionModeCombo.SelectionChanged += OnRoleReferenceSelectionModeChanged;
+
         PosterModeCombo.Items.Clear();
         PosterModeCombo.Items.Add(CreateItem("原始海报AI改标题并校验", "original"));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;
@@ -172,6 +178,7 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(HongguoLocalTranscodeEngineCombo, _vm.HongguoLocalTranscodeEngine);
         SelectComboItem(AsrEngineCombo, _vm.TiktokSilenceAsrEngine);
         SelectComboItem(SilenceRepairModeCombo, _vm.TiktokSilenceRepairMode);
+        SelectComboItem(RoleReferenceSelectionModeCombo, _vm.TiktokRoleReferenceSelectionMode);
         _vm.PosterMode = ClientSettingsDefaults.PosterMode;
         SelectComboItem(PosterModeCombo, ClientSettingsDefaults.PosterMode);
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
@@ -268,6 +275,13 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || SilenceRepairModeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.TiktokSilenceRepairMode = item.Tag as string ?? "auto";
+    }
+
+    private void OnRoleReferenceSelectionModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || RoleReferenceSelectionModeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.TiktokRoleReferenceSelectionMode = item.Tag as string
+            ?? ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
     }
 
     private void OnPosterModeChanged(object? sender, SelectionChangedEventArgs e)

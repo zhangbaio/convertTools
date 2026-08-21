@@ -51,6 +51,8 @@ public static partial class TikTokReferenceSourcePackageService
     private const int VisionTimeoutRetryCandidateLimit = 12;
     internal const int RoleRecoveryEpisodeBatchSize = 3;
     internal const int RoleRecoveryModelFramesPerEpisode = 6;
+    internal const string LocalRoleReferenceSelectionMode = "local";
+    internal const string AiFullReviewRoleReferenceSelectionMode = "ai_full_review";
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".png", ".jpg", ".jpeg", ".webp", ".bmp" };
 
@@ -220,6 +222,7 @@ public static partial class TikTokReferenceSourcePackageService
         var script = ReadProjectScript(context, title, intro);
         var candidates = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
         var characters = SelectCharacterProfiles(candidates, configuredCharacterCount);
+        LogRoleReferenceSelectionMode(settings, log);
         string[] episodeCharacterSources;
         try
         {
@@ -434,6 +437,7 @@ public static partial class TikTokReferenceSourcePackageService
         var candidates = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
         var profiles = SelectCharacterProfiles(candidates, configuredCharacterCount);
 
+        LogRoleReferenceSelectionMode(settings, log);
         var episodeCharacterSources = await SelectRoleMatchedCharacterSourcesAsync(
             profiles,
             FindEpisodeCharacterSources(context, root),
@@ -939,8 +943,11 @@ public static partial class TikTokReferenceSourcePackageService
             .Where(File.Exists)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        var selectionMode = ResolveRoleReferenceSelectionMode(settings);
+        var useAiFullReview = selectionMode == AiFullReviewRoleReferenceSelectionMode;
         log?.Invoke(
-            $"角色补源：当前匹配 {best.Length}/{profiles.Count} 人；" +
+            $"角色补源：筛选模式={DescribeRoleReferenceSelectionMode(selectionMode)}；" +
+            $"当前匹配 {best.Length}/{profiles.Count} 人；" +
             $"将从第 {episodes[0]} 集开始按每批 {RoleRecoveryEpisodeBatchSize} 集并行下载、抽帧，" +
             "达到配置人数后立即停止后续批次。");
         var batches = ResolveRoleReferenceRecoveryBatches(episodes);
@@ -984,7 +991,8 @@ public static partial class TikTokReferenceSourcePackageService
                 })
                 .ToArray();
             var extracted = await Task.WhenAll(extractionTasks).ConfigureAwait(false);
-            var modelCandidates = new List<string>();
+            var allCandidates = new List<string>();
+            var legacyCandidates = new List<string>();
             foreach (var result in extracted.OrderBy(result => result.Episode))
             {
                 if (!string.IsNullOrWhiteSpace(result.Error))
@@ -995,11 +1003,19 @@ public static partial class TikTokReferenceSourcePackageService
                 var selectedFrames = SelectSupplementalRoleRecoveryFrames(
                     result.Frames,
                     RoleRecoveryModelFramesPerEpisode);
-                modelCandidates.AddRange(selectedFrames);
+                allCandidates.AddRange(result.Frames.Where(File.Exists));
+                legacyCandidates.AddRange(selectedFrames);
                 log?.Invoke(
                     $"角色补源：第 {result.Episode} 集抽取 {result.Frames.Count} 张，" +
-                    $"本地预筛保留 {selectedFrames.Length} 张清晰且分布不同的候选帧。");
+                    (useAiFullReview
+                        ? $"AI全量优选保留 {result.Frames.Count} 张进入审核。"
+                        : $"本地预筛保留 {selectedFrames.Length} 张清晰且分布不同的候选帧。"));
             }
+            var modelCandidates = ResolveRoleRecoveryModelCandidates(
+                    allCandidates,
+                    legacyCandidates,
+                    selectionMode)
+                .ToList();
             if (modelCandidates.Count == 0)
             {
                 log?.Invoke(
@@ -1012,7 +1028,7 @@ public static partial class TikTokReferenceSourcePackageService
             log?.Invoke(
                 $"角色补源批次 {batchIndex + 1}/{batches.Count}：视频准备、并行抽帧和本地预筛完成，" +
                 $"耗时 {preparationElapsed.TotalSeconds:F1} 秒；合并 {modelCandidates.Count} 张新候选，" +
-                "开始一次视觉人物审核。");
+                $"开始{DescribeRoleReferenceSelectionMode(selectionMode)}视觉人物审核。");
 
             var focusedCandidates = best
                 .Concat(modelCandidates)
@@ -1029,6 +1045,37 @@ public static partial class TikTokReferenceSourcePackageService
                     settings,
                     log,
                     ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (
+                useAiFullReview &&
+                settings.TiktokRoleReferenceAiFallbackEnabled &&
+                IsRoleReferenceAiReviewFailure(ex, ct))
+            {
+                var fallbackCandidates = best
+                    .Concat(legacyCandidates)
+                    .Where(File.Exists)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                log?.Invoke(
+                    $"角色参考图：AI全量优选失败，自动回退本地链路；" +
+                    $"全量候选 {focusedCandidates.Length} 张 → 预筛候选 {fallbackCandidates.Length} 张。" +
+                    $"原因：{ex.Message}");
+                try
+                {
+                    selected = await SelectRoleMatchedCharacterSourcesAsync(
+                        profiles,
+                        fallbackCandidates,
+                        settings,
+                        log,
+                        ct).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException fallbackEx)
+                {
+                    log?.Invoke(
+                        $"角色补源批次 {batchIndex + 1}/{batches.Count}：回退本地链路后仍未匹配到足够人物；" +
+                        $"批次总耗时 {batchTimer.Elapsed.TotalSeconds:F1} 秒。{fallbackEx.Message}");
+                    continue;
+                }
             }
             catch (InvalidOperationException ex)
             {
@@ -1092,6 +1139,51 @@ public static partial class TikTokReferenceSourcePackageService
             .Select(batch => batch.ToArray())
             .ToArray();
     }
+
+    internal static string ResolveRoleReferenceSelectionMode(ClientSettings settings) =>
+        string.Equals(
+            settings.TiktokRoleReferenceSelectionMode?.Trim(),
+            AiFullReviewRoleReferenceSelectionMode,
+            StringComparison.OrdinalIgnoreCase)
+            ? AiFullReviewRoleReferenceSelectionMode
+            : LocalRoleReferenceSelectionMode;
+
+    internal static string DescribeRoleReferenceSelectionMode(string mode) =>
+        string.Equals(mode, AiFullReviewRoleReferenceSelectionMode, StringComparison.OrdinalIgnoreCase)
+            ? "AI全量优选"
+            : "本地链路（本地预筛+AI匹配）";
+
+    private static void LogRoleReferenceSelectionMode(ClientSettings settings, Action<string>? log)
+    {
+        var mode = ResolveRoleReferenceSelectionMode(settings);
+        log?.Invoke(
+            $"角色参考图：筛选模式={DescribeRoleReferenceSelectionMode(mode)}；" +
+            $"视觉模型={FirstNonEmpty(settings.AiTextModel, "未配置")}" +
+            (mode == AiFullReviewRoleReferenceSelectionMode
+                ? $"；失败回退本地链路={(settings.TiktokRoleReferenceAiFallbackEnabled ? "开启" : "关闭")}。"
+                : "。"));
+    }
+
+    internal static bool IsRoleReferenceAiReviewFailure(Exception exception, CancellationToken ct) =>
+        !ct.IsCancellationRequested && exception is
+            InvalidOperationException or
+            TimeoutException or
+            HttpRequestException or
+            TaskCanceledException;
+
+    internal static string[] ResolveRoleRecoveryModelCandidates(
+        IReadOnlyList<string> allCandidates,
+        IReadOnlyList<string> legacyCandidates,
+        string selectionMode) =>
+        (string.Equals(
+                selectionMode,
+                AiFullReviewRoleReferenceSelectionMode,
+                StringComparison.OrdinalIgnoreCase)
+            ? allCandidates
+            : legacyCandidates)
+        .Where(File.Exists)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
     internal static string[] SelectSupplementalRoleRecoveryFrames(
         IReadOnlyList<string> frames,
@@ -1253,13 +1345,15 @@ public static partial class TikTokReferenceSourcePackageService
             return (candidates, analyses);
         }
 
-        var discoveryCount = Math.Min(orderedSources.Count, MaxVisionDiscoveryCandidates);
+        var selectionMode = ResolveRoleReferenceSelectionMode(settings);
+        var discoveryCount = ResolveVisionDiscoveryCandidateCount(orderedSources.Count, selectionMode);
         var discoveryCandidates = SelectVisionCandidatePaths(orderedSources, discoveryCount);
         var batches = discoveryCandidates.Chunk(VisionIdentityBatchSize).ToArray();
         var representativesByBatch = new string[batches.Length][];
         var batchConcurrency = ResolveVisionIdentityBatchConcurrency(batches.Length);
         log?.Invoke(
-            $"角色参考图：候选池 {orderedSources.Count} 张，将分 {batches.Length} 批审核 " +
+            $"角色参考图：筛选模式={DescribeRoleReferenceSelectionMode(selectionMode)}；" +
+            $"候选池 {orderedSources.Count} 张，将分 {batches.Length} 批审核 " +
             $"{discoveryCandidates.Length} 张，并发 {batchConcurrency} 批，再跨批次合并人物身份。");
         using (var gate = new SemaphoreSlim(batchConcurrency, batchConcurrency))
         {
@@ -1325,6 +1419,17 @@ public static partial class TikTokReferenceSourcePackageService
 
     internal static int ResolveVisionMergeCandidateMaximum(int profileCount) =>
         Math.Min(ResolveVisionCandidateMaximum(profileCount), VisionMergeCandidateLimit);
+
+    internal static int ResolveVisionDiscoveryCandidateCount(int sourceCount, string selectionMode)
+    {
+        sourceCount = Math.Max(0, sourceCount);
+        return string.Equals(
+            selectionMode,
+            AiFullReviewRoleReferenceSelectionMode,
+            StringComparison.OrdinalIgnoreCase)
+            ? sourceCount
+            : Math.Min(sourceCount, MaxVisionDiscoveryCandidates);
+    }
 
     internal static int ResolveVisionIdentityBatchConcurrency(int batchCount) =>
         Math.Clamp(batchCount, 1, VisionIdentityBatchConcurrency);
@@ -2301,14 +2406,24 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
             using var stream = File.OpenRead(path);
             return $"{Path.GetFullPath(path)}:{Convert.ToHexString(SHA256.HashData(stream))}";
         }));
-        var value = string.Join('\n',
+        var fingerprintParts = new List<string>
+        {
             Version,
             title,
             intro,
             script,
             PosterImageConfigHelper.NormalizeImageProvider(settings.ImageProvider),
             ResolveModelId(settings),
-            characterSourceFingerprint);
+            characterSourceFingerprint,
+        };
+        var selectionMode = ResolveRoleReferenceSelectionMode(settings);
+        if (selectionMode == AiFullReviewRoleReferenceSelectionMode)
+        {
+            fingerprintParts.Add($"role-reference-selection:{selectionMode}:v1");
+            fingerprintParts.Add($"fallback:{settings.TiktokRoleReferenceAiFallbackEnabled}");
+            fingerprintParts.Add($"vision-model:{settings.AiTextModel.Trim()}");
+        }
+        var value = string.Join('\n', fingerprintParts);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     }
 

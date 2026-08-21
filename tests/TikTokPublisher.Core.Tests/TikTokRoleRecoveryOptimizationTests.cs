@@ -1,6 +1,7 @@
 using FluentAssertions;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
@@ -63,5 +64,73 @@ public sealed class TikTokRoleRecoveryOptimizationTests
 
         submitted.Should().BeLessThanOrEqualTo(
             TikTokReferenceSourcePackageService.ResolveVisionCandidateMaximum(5));
+    }
+
+    [Theory]
+    [InlineData(null, TikTokReferenceSourcePackageService.LocalRoleReferenceSelectionMode)]
+    [InlineData("unknown", TikTokReferenceSourcePackageService.LocalRoleReferenceSelectionMode)]
+    [InlineData("legacy", TikTokReferenceSourcePackageService.LocalRoleReferenceSelectionMode)]
+    [InlineData(" AI_FULL_REVIEW ", TikTokReferenceSourcePackageService.AiFullReviewRoleReferenceSelectionMode)]
+    public void Role_reference_selection_mode_is_normalized_safely(string? configured, string expected)
+    {
+        TikTokReferenceSourcePackageService.ResolveRoleReferenceSelectionMode(new ClientSettings
+            {
+                TiktokRoleReferenceSelectionMode = configured!,
+            })
+            .Should().Be(expected);
+    }
+
+    [Fact]
+    public void Ai_full_review_keeps_all_valid_frames_while_legacy_uses_prefiltered_frames()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"role-review-mode-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var all = Enumerable.Range(1, 12)
+                .Select(index => Path.Combine(root, $"frame-{index:D2}.jpg"))
+                .ToArray();
+            foreach (var path in all) File.WriteAllBytes(path, [1]);
+            var legacy = all.Take(6).ToArray();
+
+            TikTokReferenceSourcePackageService.ResolveRoleRecoveryModelCandidates(
+                    all, legacy, TikTokReferenceSourcePackageService.LocalRoleReferenceSelectionMode)
+                .Should().Equal(legacy);
+            TikTokReferenceSourcePackageService.ResolveRoleRecoveryModelCandidates(
+                    all, legacy, TikTokReferenceSourcePackageService.AiFullReviewRoleReferenceSelectionMode)
+                .Should().Equal(all);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Ai_full_review_does_not_truncate_large_initial_candidate_pool()
+    {
+        TikTokReferenceSourcePackageService.ResolveVisionDiscoveryCandidateCount(
+                128,
+                TikTokReferenceSourcePackageService.LocalRoleReferenceSelectionMode)
+            .Should().Be(96);
+        TikTokReferenceSourcePackageService.ResolveVisionDiscoveryCandidateCount(
+                128,
+                TikTokReferenceSourcePackageService.AiFullReviewRoleReferenceSelectionMode)
+            .Should().Be(128);
+    }
+
+    [Fact]
+    public void Ai_review_failure_fallback_does_not_swallow_user_cancellation()
+    {
+        TikTokReferenceSourcePackageService.IsRoleReferenceAiReviewFailure(
+                new TimeoutException("timeout"),
+                CancellationToken.None)
+            .Should().BeTrue();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        TikTokReferenceSourcePackageService.IsRoleReferenceAiReviewFailure(
+                new TaskCanceledException(),
+                cancellation.Token)
+            .Should().BeFalse();
     }
 }

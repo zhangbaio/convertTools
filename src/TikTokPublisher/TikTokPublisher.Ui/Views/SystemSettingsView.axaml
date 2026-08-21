@@ -222,6 +222,18 @@
                             <Button Content="测试 AI 文本" Command="{Binding ProbeAiTextCommand}" MinWidth="110" />
                             <TextBlock Text="{Binding AiTextProbeStatus}" VerticalAlignment="Center" Classes="pageSummary" TextWrapping="Wrap" />
                         </StackPanel>
+                        <TextBlock Text="角色参考图筛选" FontWeight="Bold" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="筛选方式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="RoleReferenceSelectionModeCombo" HorizontalAlignment="Stretch" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="失败处理" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="1" Grid.Column="1"
+                                      Content="AI全量优选失败时回退本地链路"
+                                      IsChecked="{Binding TiktokRoleReferenceAiFallbackEnabled}" />
+                        </Grid>
+                        <TextBlock Text="本地链路会先本地预筛再由视觉模型匹配；AI全量优选会审核全部有效抽帧，准确率更高但调用量更大。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="接口地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" />

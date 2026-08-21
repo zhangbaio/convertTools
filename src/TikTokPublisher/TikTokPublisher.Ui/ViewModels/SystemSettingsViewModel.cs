@@ -76,6 +76,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _aiTextModel = ClientSettingsDefaults.AiTextModel;
     [ObservableProperty] private int _aiTextTimeoutSeconds = ClientSettingsDefaults.AiTextTimeoutSeconds;
     [ObservableProperty] private int _aiTextMaxBatchSize = ClientSettingsDefaults.AiTextMaxBatchSize;
+    [ObservableProperty] private string _tiktokRoleReferenceSelectionMode =
+        ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
+    [ObservableProperty] private bool _tiktokRoleReferenceAiFallbackEnabled =
+        ClientSettingsDefaults.TiktokRoleReferenceAiFallbackEnabled;
     [ObservableProperty] private string _aiTagSystemPrompt = "";
     [ObservableProperty] private string _aiTagBatchPrompt = "";
     [ObservableProperty] private string _aiFullInfoSystemPrompt = "";
@@ -209,6 +213,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiTextModel = AiTextModel.Trim(),
         AiTextTimeoutSeconds = AiTextTimeoutSeconds,
         AiTextMaxBatchSize = AiTextMaxBatchSize,
+        TiktokRoleReferenceSelectionMode = TiktokRoleReferenceSelectionMode,
+        TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled,
         AiTagSystemPrompt = AiTagSystemPrompt,
         AiTagBatchPrompt = AiTagBatchPrompt,
         AiFullInfoSystemPrompt = AiFullInfoSystemPrompt,
@@ -657,6 +663,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiTextModel = settings.AiTextModel;
         AiTextTimeoutSeconds = settings.AiTextTimeoutSeconds;
         AiTextMaxBatchSize = settings.AiTextMaxBatchSize;
+        TiktokRoleReferenceSelectionMode = settings.TiktokRoleReferenceSelectionMode;
+        TiktokRoleReferenceAiFallbackEnabled = settings.TiktokRoleReferenceAiFallbackEnabled;
         AiTagSystemPrompt = settings.AiTagSystemPrompt;
         AiTagBatchPrompt = settings.AiTagBatchPrompt;
         AiFullInfoSystemPrompt = settings.AiFullInfoSystemPrompt;
