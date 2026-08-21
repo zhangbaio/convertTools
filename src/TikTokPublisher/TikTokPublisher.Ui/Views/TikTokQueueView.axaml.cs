@@ -2315,35 +2315,6 @@ public partial class TikTokQueueView : UserControl
                 };
             }
 
-            async Task RefreshRecoveredProjectsAsync(string newTitle)
-            {
-                try
-                {
-                    ct.ThrowIfCancellationRequested();
-                    var projects = await Task.Run(
-                        () => WorkspaceQueueService.ScanProjects(workspace),
-                        ct);
-                    var options = WorkspaceQueueService.LoadRunOptions(workspace);
-                    await vm.ApplyPreparedWorkspaceQueueSnapshotAsync(
-                        workspace,
-                        projects,
-                        options);
-                    vm.AppendLog($"已将恢复项目显示到剧集列表：{newTitle}");
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    // 项目已经恢复并持久化成功；界面增量刷新失败不应把项目从本次执行中移除。
-                    // 全部项目恢复结束后仍会执行一次完整扫描并更新列表。
-                    vm.AppendLog(
-                        $"已恢复「{newTitle}」，但暂时无法刷新剧集列表：{ex.Message}；" +
-                        "稍后将自动重新扫描。");
-                }
-            }
-
             foreach (var match in selectedMatches
                          .Where(match => match.Location == CopyrightProofProjectLocation.Archived))
             {
@@ -2473,10 +2444,6 @@ public partial class TikTokQueueView : UserControl
                             $"已重建「{match.NewTitle}」，但保存恢复历史失败：{historyEx.Message}；" +
                             "不影响本次继续补全版权证明。");
                     }
-
-                    // 批量恢复可能持续较长时间。每成功恢复一部就立即更新列表，
-                    // 避免必须等全部项目完成后才能看到已经创建的版权恢复文件夹。
-                    await RefreshRecoveredProjectsAsync(match.NewTitle);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {

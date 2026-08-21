@@ -484,43 +484,24 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         if (_controller is null || !_nativeHandleAlive)
             return;
 
-        try
+        if (!_renderedVisible)
         {
-            if (!_renderedVisible)
-            {
-                _controller.Bounds = HiddenViewportBounds;
-                return;
-            }
+            _controller.Bounds = HiddenViewportBounds;
+            return;
+        }
 
-            var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-            var w = Math.Max(0, (int)(Bounds.Width * scaling));
-            var h = Math.Max(0, (int)(Bounds.Height * scaling));
-            if (w <= 1 || h <= 1)
-            {
-                // 挂载层折叠成 1×1 时保持虚拟视口，避免布局塌缩破坏后台自动化。
-                _controller.Bounds = HiddenViewportBounds;
-                return;
-            }
+        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+        var w = Math.Max(0, (int)(Bounds.Width * scaling));
+        var h = Math.Max(0, (int)(Bounds.Height * scaling));
+        if (w <= 1 || h <= 1)
+        {
+            // 挂载层折叠成 1×1 时保持虚拟视口，避免布局塌缩破坏后台自动化。
+            _controller.Bounds = HiddenViewportBounds;
+            return;
+        }
 
-            _controller.Bounds = new Rectangle(0, 0, w, h);
-            NotifyParentWindowPositionChanged();
-        }
-        catch (InvalidOperationException ex)
-        {
-            // WebView2 controller may be disposed asynchronously while Avalonia is still
-            // completing a layout pass. A stale bounds update must not terminate the app.
-            _lastProcessFailure = $"WebView2 控制器已失效：{ex.Message}";
-            Log($"bounds-update-skipped udf={UserDataFolder} port={RemoteDebuggingPort} :: {_lastProcessFailure}");
-            try { _controller?.Close(); } catch { /* ignore */ }
-            _controller = null;
-        }
-        catch (System.Runtime.InteropServices.COMException ex)
-        {
-            _lastProcessFailure = $"WebView2 控制器状态异常：0x{ex.HResult:X8}";
-            Log($"bounds-update-skipped udf={UserDataFolder} port={RemoteDebuggingPort} :: {_lastProcessFailure}");
-            try { _controller?.Close(); } catch { /* ignore */ }
-            _controller = null;
-        }
+        _controller.Bounds = new Rectangle(0, 0, w, h);
+        NotifyParentWindowPositionChanged();
     }
 
     private void NotifyParentWindowPositionChanged()
