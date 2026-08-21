@@ -47,16 +47,6 @@ public static class LocalManualDramaImportService
         "workflow", "archive", "config", "material-clip-output", TikTokUploadStagingService.StagingDirName,
     };
 
-    private static readonly string[] IntroFileCandidates =
-    {
-        "简介.txt", "剧情简介.txt", "剧情.txt", "介绍.txt", "信息.txt", "详细简介.txt",
-    };
-
-    private static readonly string[] MetadataIntroKeys =
-    {
-        "intro", "description", "desc", "简介", "剧情简介", "介绍",
-    };
-
     public static bool IsLocalManualImportProject(string projectDir)
     {
         try
@@ -100,12 +90,13 @@ public static class LocalManualDramaImportService
 
             var metadataPath = Path.Combine(child, MetadataFile);
             var metadata = ReadMetadata(metadataPath);
+            var externalInfo = ExternalDramaInfoReader.Read(child, metadata);
             results.Add(new LocalManualDramaImportPreview(
                 ProjectDir: Path.GetFullPath(child),
-                DisplayName: ResolveDisplayName(child, metadata),
+                DisplayName: ResolveDisplayName(child, metadata, externalInfo.Title),
                 EpisodeCount: videos.Count,
                 PosterPath: FindLocalPoster(child),
-                IntroPath: FindLocalIntroPath(child),
+                IntroPath: externalInfo.IntroPath,
                 MetadataExists: File.Exists(metadataPath)));
         }
 
@@ -190,7 +181,8 @@ public static class LocalManualDramaImportService
 
         var metadataPath = Path.Combine(source, MetadataFile);
         var metadata = ReadMetadata(metadataPath);
-        var displayName = ResolveDisplayName(source, metadata);
+        var externalInfo = ExternalDramaInfoReader.Read(source, metadata);
+        var displayName = ResolveDisplayName(source, metadata, externalInfo.Title);
         var workflowDir = ResolveWorkflowProjectDir(workspace, source, displayName, metadata);
         Directory.CreateDirectory(workflowDir);
 
@@ -202,9 +194,11 @@ public static class LocalManualDramaImportService
         metadata["bookId"] = FirstNonEmpty(ReadString(metadata, "bookId"), BuildLocalBookId(source));
         metadata["title"] = FirstNonEmpty(ReadString(metadata, "title"), displayName);
         metadata["originalTitle"] = FirstNonEmpty(ReadString(metadata, "originalTitle"), displayName);
-        metadata["intro"] = FirstNonEmpty(ReadString(metadata, "intro"), ReadIntro(source));
-        metadata["category"] = FirstNonEmpty(ReadString(metadata, "category"), "本地导入");
-        metadata["episodeCount"] = videos.Count;
+        metadata["intro"] = externalInfo.Intro;
+        metadata["category"] = FirstNonEmpty(ReadString(metadata, "category"), externalInfo.Category, "本地导入");
+        var declaredEpisodeCount = Math.Max(videos.Count, externalInfo.DeclaredEpisodeCount);
+        metadata["episodeCount"] = declaredEpisodeCount;
+        metadata["declaredEpisodeCount"] = declaredEpisodeCount;
         metadata["effectiveEpisodeCount"] = videos.Count;
         metadata["episodes"] = FirstNonEmpty(ReadString(metadata, "episodes"), "all");
         metadata["quality"] = FirstNonEmpty(ReadString(metadata, "quality"), "local");
@@ -329,86 +323,8 @@ public static class LocalManualDramaImportService
         return !Directory.EnumerateFileSystemEntries(workflowDir).Any();
     }
 
-    private static string ReadIntro(string sourceProjectDir)
-    {
-        var metadata = ReadMetadata(Path.Combine(sourceProjectDir, MetadataFile));
-        var metadataIntro = ReadMetadataIntro(metadata);
-        if (!string.IsNullOrWhiteSpace(metadataIntro))
-            return metadataIntro;
-
-        var introPath = FindLocalIntroPath(sourceProjectDir);
-        if (string.IsNullOrWhiteSpace(introPath))
-            return "";
-
-        foreach (var encoding in EnumerateIntroEncodings())
-        {
-            try
-            {
-                var text = File.ReadAllText(introPath, encoding).Trim();
-                if (text.Length > 0)
-                    return text.Length <= 4000 ? text : text[..4000];
-            }
-            catch
-            {
-                // Try next encoding.
-            }
-        }
-
-        return "";
-    }
-
-    private static IEnumerable<Encoding> EnumerateIntroEncodings()
-    {
-        yield return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-
-        foreach (var name in new[] { "gb18030", "gbk" })
-        {
-            Encoding encoding;
-            try
-            {
-                encoding = Encoding.GetEncoding(name);
-            }
-            catch
-            {
-                continue;
-            }
-
-            yield return encoding;
-        }
-    }
-
-    private static string ReadMetadataIntro(JsonObject metadata)
-    {
-        foreach (var key in MetadataIntroKeys)
-        {
-            var value = ReadString(metadata, key);
-            if (!string.IsNullOrWhiteSpace(value))
-                return value.Length <= 4000 ? value : value[..4000];
-        }
-
-        return "";
-    }
-
     private static string? FindLocalIntroPath(string sourceProjectDir)
-    {
-        foreach (var name in IntroFileCandidates)
-        {
-            var path = Path.Combine(sourceProjectDir, name);
-            if (File.Exists(path))
-                return path;
-        }
-
-        var txtFiles = Directory.EnumerateFiles(sourceProjectDir, "*.txt", SearchOption.TopDirectoryOnly)
-            .Where(path =>
-            {
-                var fileName = Path.GetFileName(path);
-                return !fileName.StartsWith(".", StringComparison.Ordinal) &&
-                       !string.Equals(fileName, "短剧信息.txt", StringComparison.Ordinal) &&
-                       !fileName.StartsWith(".weixin-channel", StringComparison.OrdinalIgnoreCase);
-            })
-            .ToList();
-        return txtFiles.Count == 1 ? txtFiles[0] : null;
-    }
+        => ExternalDramaInfoReader.FindIntroPath(sourceProjectDir);
 
     private static string? FindLocalPoster(string sourceProjectDir)
     {
@@ -491,7 +407,10 @@ public static class LocalManualDramaImportService
         }
     }
 
-    private static string ResolveDisplayName(string sourceProjectDir, JsonObject metadata)
+    private static string ResolveDisplayName(
+        string sourceProjectDir,
+        JsonObject metadata,
+        string? externalTitle = null)
     {
         var fallback = Path.GetFileName(sourceProjectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         return FirstNonEmpty(
@@ -499,6 +418,7 @@ public static class LocalManualDramaImportService
             ReadString(metadata, "sourceName"),
             ReadString(metadata, "title"),
             ReadString(metadata, "originalTitle"),
+            externalTitle,
             fallback,
             "本地导入剧集");
     }
