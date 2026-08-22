@@ -1006,11 +1006,13 @@ public sealed class QueueWorkerRunner
             {
                 try
                 {
-                    if (TikTokPublishConstants.RequiresGeneratedProofMaterial(materialTypes))
-                    {
-                        reusableProofPath = TikTokProofMaterialService.ValidateExistingForUpload(item);
-                    }
-                    else
+                    var requiresAgreement =
+                        TikTokPublishConstants.RequiresGeneratedProofMaterial(materialTypes);
+                    var requiresAuxiliaryGeneratedMaterial = materialTypes.Any(type =>
+                        type is TikTokPublishConstants.SourceFileInformationMaterialType or
+                            TikTokPublishConstants.AiGenerationScreenshotsMaterialType or
+                            TikTokPublishConstants.EditingProjectFilesMaterialType);
+                    if (requiresAuxiliaryGeneratedMaterial)
                     {
                         var proofSettings = ClientSettingsStore.Load();
                         if (!TikTokProofMaterialService.HasReusableProofMaterialForCopyrightCompletion(
@@ -1021,8 +1023,11 @@ public sealed class QueueWorkerRunner
                             throw new InvalidOperationException(
                                 "生成证明材料步骤已完成，但本机缺少当前账号勾选的辅助证明材料。");
                         }
-                        reusableProofPath = string.Empty;
                     }
+
+                    reusableProofPath = requiresAgreement
+                        ? TikTokProofMaterialService.ValidateExistingForUpload(item)
+                        : string.Empty;
                     Report(
                         onProgress,
                         workspace,
