@@ -243,6 +243,14 @@ public sealed class TikTokRoleVectorServiceTests
             TikTokRoleVectorService.HasCurrentOutput(workflow, 3).Should().BeTrue();
             TikTokRoleVectorService.HasCurrentOutput(workflow, 4)
                 .Should().BeFalse("账号配置人数变化后状态指纹应失效");
+            var statePath = TikTokRoleVectorService.GetStatePath(workflow);
+            var originalState = File.ReadAllText(statePath);
+            File.WriteAllText(
+                statePath,
+                originalState.Replace("\"characterCount\": 3", "\"characterCount\": 2", StringComparison.Ordinal));
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 3)
+                .Should().BeFalse("三人配置不能继续复用双人回退产物");
+            File.WriteAllText(statePath, originalState);
             File.Exists(Path.Combine(packageRoot, TikTokRoleVectorService.BackupFileName)).Should().BeTrue();
             File.Exists(TikTokRoleVectorService.GetStatePath(workflow)).Should().BeTrue();
             File.Exists(TikTokReferenceSourcePackageService.GetCharacterManifestPath(workflow)).Should().BeTrue();

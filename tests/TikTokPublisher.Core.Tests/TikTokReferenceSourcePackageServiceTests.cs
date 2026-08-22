@@ -309,6 +309,25 @@ public sealed class TikTokReferenceSourcePackageServiceTests
     }
 
     [Fact]
+    public void NormalizeCharacterProfiles_Fills_Generic_Roles_To_Configured_Count()
+    {
+        var generic = new[]
+        {
+            new TikTokReferenceSourcePackageService.CharacterProfile("女主", "现代都市短剧女主角"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("男主", "现代都市短剧男主角"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("主要配角", "推动剧情发展的成年配角"),
+        };
+
+        var profiles = TikTokReferenceSourcePackageService.NormalizeCharacterProfiles(
+            generic,
+            "陆运程回乡报答恩人。",
+            requiredCount: 3);
+
+        profiles.Should().HaveCount(3);
+        profiles.Select(profile => profile.Name).Should().Equal("主角1", "主角2", "主要配角");
+    }
+
+    [Fact]
     public void Generic_leads_allow_same_gender_when_no_mixed_pair_exists()
     {
         var profiles = TikTokReferenceSourcePackageService.AddFallbackCharacters([], "男性群像短剧");
