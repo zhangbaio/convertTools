@@ -484,6 +484,70 @@ public static class WorkspaceQueueService
         {
             item.StepStates[QueueStepKeys.DeleteSourceVideos] = QueueStepStatus.Completed;
         }
+
+        ReconcileCompletedArtifactStates(item, context, hasDownloadArtifacts);
+    }
+
+    private static void ReconcileCompletedArtifactStates(
+        QueueProjectItem item,
+        ProjectWorkspaceContext context,
+        bool hasDownloadArtifacts)
+    {
+        ResetCompletedWhenMissing(
+            item,
+            QueueStepKeys.Download,
+            hasDownloadArtifacts ||
+            item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed ||
+            item.StepStates.GetValueOrDefault(QueueStepKeys.DeleteSourceVideos) == QueueStepStatus.Completed);
+        ResetCompletedWhenMissing(
+            item,
+            QueueStepKeys.RewriteInfo,
+            !QueueMaterialStepService.NeedsAiRewrite(item));
+        ResetCompletedWhenMissing(
+            item,
+            QueueStepKeys.GeneratePoster,
+            !TikTokPosterGenerationStateService.NeedsGeneratePoster(item, ClientSettingsStore.Load()));
+        ResetCompletedWhenMissing(
+            item,
+            QueueStepKeys.GenerateEpisodeScript,
+            TikTokEpisodeScriptService.HasCurrentOutput(item, account: null));
+        ResetCompletedWhenMissing(
+            item,
+            QueueStepKeys.GenerateAiScriptOutline,
+            TikTokAiScriptOutlineService.HasCurrentOutput(item));
+        ResetCompletedWhenMissing(
+            item,
+            QueueStepKeys.GenerateAiDramaMaterials,
+            TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir));
+        ResetCompletedWhenMissing(
+            item,
+            QueueStepKeys.GenerateRoleVector,
+            TikTokRoleVectorService.HasCurrentOutput(context.WorkflowProjectDir));
+        ResetCompletedWhenMissing(
+            item,
+            QueueStepKeys.GenerateProjectImages,
+            TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir));
+        ResetCompletedWhenMissing(
+            item,
+            QueueStepKeys.GenerateTimestampCertificate,
+            TikTokTimestampCertificateService.HasCurrentOutput(item));
+        ResetCompletedWhenMissing(
+            item,
+            QueueStepKeys.MaterialValidate,
+            TikTokMaterialValidationService.HasCurrentValidationState(context.SourceProjectDir));
+        ResetCompletedWhenMissing(
+            item,
+            QueueStepKeys.SilenceDetect,
+            HasSilenceAsrReport(context));
+    }
+
+    private static void ResetCompletedWhenMissing(
+        QueueProjectItem item,
+        string stepKey,
+        bool hasCurrentArtifact)
+    {
+        if (item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed && !hasCurrentArtifact)
+            item.StepStates[stepKey] = QueueStepStatus.Pending;
     }
 
     private static void RecoverQueueItemExecutionState(QueueProjectItem item)

@@ -115,6 +115,30 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         syncItem.AccountProfileName.Should().Be("账号3");
     }
 
+    [Fact]
+    public async Task ArchiveQueueProjectAsync_honors_cancellation_before_any_directory_move()
+    {
+        var (sourceDir, workflowDir) = CreateProjectDirs("cancel-before-archive");
+        WriteSmallFile(Path.Combine(sourceDir, "source.txt"));
+        WriteSmallFile(Path.Combine(workflowDir, "workflow.txt"));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Func<Task> action = () => TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+            _workspaceRoot,
+            sourceDir,
+            _archiveRoot,
+            ct: cancellation.Token);
+
+        await action.Should().ThrowAsync<OperationCanceledException>();
+        Directory.Exists(sourceDir).Should().BeTrue();
+        Directory.Exists(workflowDir).Should().BeTrue();
+        Directory.Exists(Path.Combine(_archiveRoot, "source", "cancel-before-archive"))
+            .Should().BeFalse();
+        Directory.Exists(Path.Combine(_archiveRoot, "workflow", "_cancel-before-archive"))
+            .Should().BeFalse();
+    }
+
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]

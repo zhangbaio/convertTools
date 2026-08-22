@@ -118,6 +118,8 @@ public static partial class TikTokArchivedProjectService
         if (string.IsNullOrWhiteSpace(projectDir) || !Directory.Exists(projectDir))
             throw new DirectoryNotFoundException($"项目目录不存在：{projectDir}");
 
+        ct.ThrowIfCancellationRequested();
+
         var context = ProjectWorkspaceService.LoadContext(projectDir);
         var sourceProjectDir = Path.GetFullPath(context.SourceProjectDir);
         var workflowProjectDir = Path.GetFullPath(context.WorkflowProjectDir);
@@ -232,7 +234,9 @@ public static partial class TikTokArchivedProjectService
             deletedMaterialClipVideoCount += DeleteMaterialClipVideoFiles(archivedSourceDir);
         }
 
-        ct.ThrowIfCancellationRequested();
+        // Once directory moves have started, archive finalization is non-cancellable:
+        // cancelling between the move and metadata write would leave real files in the
+        // archive tree with no discoverable index entry.
         var sourceInfo = ReadInfo(archivedSourceDir);
         var workflowInfo = ReadInfo(archivedWorkflowDir);
         var originalTitle = FirstNonEmpty(
@@ -285,7 +289,7 @@ public static partial class TikTokArchivedProjectService
             metadataPath,
             JsonSerializer.Serialize(metadata, JsonOptions),
             Encoding.UTF8,
-            ct).ConfigureAwait(false);
+            CancellationToken.None).ConfigureAwait(false);
 
         SaveArchiveProjectsToDatabase(workspaceRoot, List(workspaceRoot, archiveRootDir));
     }

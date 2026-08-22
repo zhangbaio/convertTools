@@ -19,6 +19,28 @@ public static class TikTokTimestampCertificateService
     private static readonly object FontLock = new();
     private static bool _fontResolverInstalled;
 
+    public static string GetOutputPath(QueueProjectItem item) =>
+        Path.Combine(
+            ProjectWorkspaceService.LoadContext(item.ProjectDir).WorkflowProjectDir,
+            OutputFileName);
+
+    public static bool HasCurrentOutput(QueueProjectItem item)
+    {
+        try
+        {
+            var path = GetOutputPath(item);
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length <= 100) return false;
+            Span<byte> header = stackalloc byte[5];
+            using var stream = File.OpenRead(path);
+            return stream.Read(header) == header.Length && header.SequenceEqual("%PDF-"u8);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static Task<string> GenerateAsync(
         QueueProjectItem item,
         ClientSettings settings,
@@ -30,7 +52,7 @@ public static class TikTokTimestampCertificateService
         ct.ThrowIfCancellationRequested();
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var output = Path.Combine(context.WorkflowProjectDir, OutputFileName);
-        if (!forceRerun && File.Exists(output) && new FileInfo(output).Length > 100)
+        if (!forceRerun && HasCurrentOutput(item))
         {
             log?.Invoke($"已跳过可信时间戳：本地已存在 {OutputFileName}。");
             return Task.FromResult(output);

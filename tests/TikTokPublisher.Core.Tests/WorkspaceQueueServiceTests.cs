@@ -629,7 +629,9 @@ public sealed class WorkspaceQueueServiceTests
             moved.ProjectDir.Should().Be(targetProject);
             moved.AccountProfileId.Should().Be("acct-b");
             moved.AccountProfileName.Should().Be("Account B");
-            moved.StepStates[QueueStepKeys.MaterialValidate].Should().Be(QueueStepStatus.Completed);
+            moved.StepStates[QueueStepKeys.MaterialValidate].Should().Be(
+                QueueStepStatus.Pending,
+                "移动后没有迁移素材校验状态文档，不能保留虚假的已完成状态");
             moved.StepStates[QueueStepKeys.UploadSeries].Should().Be(QueueStepStatus.Pending);
             moved.UploadCompletedAt.Should().BeEmpty();
             moved.StatusText.Should().Be(QueueStepStatus.Pending);
