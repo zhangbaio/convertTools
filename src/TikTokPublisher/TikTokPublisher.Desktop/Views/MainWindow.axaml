@@ -70,7 +70,7 @@
                         ToolTip.Tip="展开左侧面板"
                         Click="OnSidebarToggleClick" />
             </Border>
-            <Panel x:Name="ContentHostPanel" Grid.Column="1">
+            <Panel x:Name="ContentHostPanel" Grid.Column="1" ClipToBounds="True">
                 <Panel x:Name="BrowserHostMount"
                        IsHitTestVisible="False"
                        ClipToBounds="True"

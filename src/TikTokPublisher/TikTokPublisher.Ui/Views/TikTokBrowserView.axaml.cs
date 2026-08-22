@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
@@ -12,9 +13,13 @@ namespace TikTokPublisher.Ui.Views;
 
 public partial class TikTokBrowserView : UserControl
 {
+    private const double MinimumBrowserContentWidth = 1600;
     private BrowserSessionHost? _browserHost;
     private MainViewModel? _vm;
     private bool _manualAuthSavePromptPending;
+    private double _lastBrowserViewportWidth;
+
+    public event Action? BrowserViewportChanged;
 
     public TikTokBrowserView()
     {
@@ -24,6 +29,7 @@ public partial class TikTokBrowserView : UserControl
         AnalyticsEndDatePicker.SelectedDate = today;
         DataContextChanged += (_, _) => BindViewModel();
         Loaded += OnLoaded;
+        LayoutUpdated += (_, _) => UpdateHorizontalScrollBar();
     }
 
     public void Initialize(BrowserSessionHost browserHost, MainViewModel vm)
@@ -60,13 +66,44 @@ public partial class TikTokBrowserView : UserControl
             if (bottomRight is null)
                 return null;
 
-            return new Rect(topLeft.Value, bottomRight.Value);
+            var viewportWidth = Math.Max(0, bottomRight.Value.X - topLeft.Value.X);
+            var contentWidth = Math.Max(viewportWidth, MinimumBrowserContentWidth);
+            var maximumOffset = Math.Max(0, contentWidth - viewportWidth);
+            var horizontalOffset = Math.Clamp(BrowserHorizontalScroll.Value, 0, maximumOffset);
+            return new Rect(
+                topLeft.Value.X - horizontalOffset,
+                topLeft.Value.Y,
+                contentWidth,
+                Math.Max(0, bottomRight.Value.Y - topLeft.Value.Y));
         }
         catch
         {
             return null;
         }
     }
+
+    private void UpdateHorizontalScrollBar()
+    {
+        if (BrowserArea is null || BrowserHorizontalScroll is null || BrowserHorizontalScrollFrame is null)
+            return;
+
+        var viewportWidth = Math.Max(0, BrowserArea.Bounds.Width);
+        if (viewportWidth <= 1) return;
+        var maximum = Math.Max(0, MinimumBrowserContentWidth - viewportWidth);
+        BrowserHorizontalScroll.Maximum = maximum;
+        BrowserHorizontalScroll.ViewportSize = viewportWidth;
+        BrowserHorizontalScroll.LargeChange = Math.Max(120, viewportWidth * 0.8);
+        BrowserHorizontalScrollFrame.IsVisible = maximum > 0.5;
+        if (BrowserHorizontalScroll.Value > maximum)
+            BrowserHorizontalScroll.Value = maximum;
+
+        if (Math.Abs(_lastBrowserViewportWidth - viewportWidth) < 0.5) return;
+        _lastBrowserViewportWidth = viewportWidth;
+        BrowserViewportChanged?.Invoke();
+    }
+
+    private void OnBrowserHorizontalScroll(object? sender, ScrollEventArgs e) =>
+        BrowserViewportChanged?.Invoke();
 
     private void OnLoaded(object? sender, RoutedEventArgs e) =>
         _browserHost?.ShowAccount(_vm?.SelectedAccount);
