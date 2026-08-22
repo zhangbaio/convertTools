@@ -1385,7 +1385,7 @@ public sealed class QueueWorkerRunner
                 : QueueStepRegistry.LabelOf(step)));
     }
 
-    private static bool ShouldRunStep(
+    internal static bool ShouldRunStep(
         QueueProjectItem item,
         string stepKey,
         QueueRunOptions options,
@@ -1409,6 +1409,18 @@ public sealed class QueueWorkerRunner
         if (stepKey == QueueStepRegistry.GenerateProjectImages &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             TikTokProjectImageService.NeedsGenerateProjectImages(item, ClientSettingsStore.Load()))
+        {
+            return true;
+        }
+        if (stepKey == QueueStepRegistry.GenerateEpisodeScript &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            !TikTokEpisodeScriptService.HasCurrentOutput(item, account))
+        {
+            return true;
+        }
+        if (stepKey == QueueStepRegistry.GenerateAiScriptOutline &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            !TikTokAiScriptOutlineService.HasCurrentOutput(item))
         {
             return true;
         }

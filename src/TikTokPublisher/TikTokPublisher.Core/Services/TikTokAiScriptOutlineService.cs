@@ -26,6 +26,23 @@ public static class TikTokAiScriptOutlineService
         "人工智能辅助生成",
     ];
 
+    internal static string GetOutputPath(QueueProjectItem item) =>
+        Path.Combine(
+            ProjectWorkspaceService.LoadContext(item.ProjectDir).WorkflowProjectDir,
+            OutputFileName);
+
+    internal static bool HasCurrentOutput(QueueProjectItem item)
+    {
+        try
+        {
+            return IsReusablePdf(GetOutputPath(item));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static async Task<string> GenerateAsync(
         QueueProjectItem item,
         ClientSettings settings,
@@ -45,7 +62,7 @@ public static class TikTokAiScriptOutlineService
 
         var outputPdf = Path.Combine(context.WorkflowProjectDir, OutputFileName);
         var outputDocx = Path.ChangeExtension(outputPdf, ".docx");
-        if (!forceRerun && File.Exists(outputPdf) && new FileInfo(outputPdf).Length > 100)
+        if (!forceRerun && IsReusablePdf(outputPdf))
         {
             log?.Invoke($"已跳过生成 AI 剧本大纲：本地已存在 {Path.GetFileName(outputPdf)}。");
             return outputPdf;
@@ -377,6 +394,15 @@ public static class TikTokAiScriptOutlineService
             log?.Invoke($"AI 剧本大纲：视频方向检测失败，画面比例标记为未知：{ex.Message}");
             return -1;
         }
+    }
+
+    private static bool IsReusablePdf(string path)
+    {
+        var info = new FileInfo(path);
+        if (!info.Exists || info.Length <= 100) return false;
+        Span<byte> header = stackalloc byte[5];
+        using var stream = File.OpenRead(path);
+        return stream.Read(header) == header.Length && header.SequenceEqual("%PDF-"u8);
     }
 
     private static Paragraph Title(string text)
