@@ -101,4 +101,33 @@ public sealed class QueueStepExecutionGraphTests
             QueueWorkloadResourceScheduler.Configure(new ClientSettings());
         }
     }
+
+    [Fact]
+    public async Task GenericResourceScheduler_DelegatesToNonGenericGateWithoutRecursion()
+    {
+        var settings = new ClientSettings { TiktokAiTextConcurrency = 2 };
+        QueueWorkloadResourceScheduler.Configure(settings);
+        try
+        {
+            var tasks = Enumerable.Range(1, 8)
+                .Select(value => QueueWorkloadResourceScheduler.RunAsync(
+                    QueueWorkloadResource.AiText,
+                    async () =>
+                    {
+                        await Task.Delay(5);
+                        return value * 10;
+                    },
+                    log: null,
+                    CancellationToken.None))
+                .ToArray();
+
+            var results = await Task.WhenAll(tasks);
+
+            results.Should().Equal(10, 20, 30, 40, 50, 60, 70, 80);
+        }
+        finally
+        {
+            QueueWorkloadResourceScheduler.Configure(new ClientSettings());
+        }
+    }
 }

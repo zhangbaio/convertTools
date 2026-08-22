@@ -165,7 +165,10 @@ internal static class QueueWorkloadResourceScheduler
         T? result = default;
         await RunAsync(
             resource,
-            async () => result = await action().ConfigureAwait(false),
+            async () =>
+            {
+                result = await action().ConfigureAwait(false);
+            },
             log,
             ct).ConfigureAwait(false);
         return result!;
