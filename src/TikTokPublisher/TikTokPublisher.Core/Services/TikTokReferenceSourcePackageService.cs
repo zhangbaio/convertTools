@@ -1989,6 +1989,16 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
         string prompt,
         ClientSettings settings,
         string roleName,
+        CancellationToken ct) => await QueueWorkloadResourceScheduler.RunAsync(
+        QueueWorkloadResource.ImageGeneration,
+        () => GenerateImageWithRetryCoreAsync(prompt, settings, roleName, ct),
+        log: null,
+        ct).ConfigureAwait(false);
+
+    private static async Task<byte[]> GenerateImageWithRetryCoreAsync(
+        string prompt,
+        ClientSettings settings,
+        string roleName,
         CancellationToken ct)
     {
         Exception? last = null;
@@ -2007,6 +2017,18 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
     }
 
     private static async Task<byte[]> GenerateReferenceImageWithRetryAsync(
+        string prompt,
+        string referenceImagePath,
+        ClientSettings settings,
+        string roleName,
+        CancellationToken ct) => await QueueWorkloadResourceScheduler.RunAsync(
+        QueueWorkloadResource.ImageGeneration,
+        () => GenerateReferenceImageWithRetryCoreAsync(
+            prompt, referenceImagePath, settings, roleName, ct),
+        log: null,
+        ct).ConfigureAwait(false);
+
+    private static async Task<byte[]> GenerateReferenceImageWithRetryCoreAsync(
         string prompt,
         string referenceImagePath,
         ClientSettings settings,

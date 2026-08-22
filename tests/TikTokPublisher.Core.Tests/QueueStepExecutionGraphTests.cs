@@ -1,4 +1,5 @@
 using FluentAssertions;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Tests;
@@ -36,11 +37,9 @@ public sealed class QueueStepExecutionGraphTests
     {
         var running = 0;
         var maximum = 0;
-        var tasks = Enumerable.Range(0, 9).Select(index =>
-            QueueStepResourceScheduler.RunAsync(
-                index % 2 == 0
-                    ? QueueStepRegistry.GenerateEpisodeScript
-                    : QueueStepRegistry.GenerateAiScriptOutline,
+        var tasks = Enumerable.Range(0, 9).Select(_ =>
+            QueueWorkloadResourceScheduler.RunAsync(
+                QueueWorkloadResource.AiText,
                 async () =>
                 {
                     var current = Interlocked.Increment(ref running);
@@ -70,6 +69,36 @@ public sealed class QueueStepExecutionGraphTests
                 if (previous == observed) return;
                 observed = previous;
             }
+        }
+    }
+
+    [Fact]
+    public async Task ResourceScheduler_Applies_Configured_Global_Limit()
+    {
+        var settings = new ClientSettings { TiktokAiTextConcurrency = 1 };
+        QueueWorkloadResourceScheduler.Configure(settings);
+        var running = 0;
+        var maximum = 0;
+        try
+        {
+            var tasks = Enumerable.Range(0, 4).Select(_ =>
+                QueueWorkloadResourceScheduler.RunAsync(
+                    QueueWorkloadResource.AiText,
+                    async () =>
+                    {
+                        var current = Interlocked.Increment(ref running);
+                        maximum = Math.Max(maximum, current);
+                        try { await Task.Delay(25); }
+                        finally { Interlocked.Decrement(ref running); }
+                    },
+                    log: null,
+                    CancellationToken.None));
+            await Task.WhenAll(tasks);
+            maximum.Should().Be(1);
+        }
+        finally
+        {
+            QueueWorkloadResourceScheduler.Configure(new ClientSettings());
         }
     }
 }

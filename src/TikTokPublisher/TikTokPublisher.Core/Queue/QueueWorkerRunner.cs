@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
@@ -746,7 +747,14 @@ public sealed class QueueWorkerRunner
         var parallelDependencies = QueueStepExecutionGraph.BuildDependencies(preUploadSteps);
         var parallelSteps = parallelDependencies.Keys.ToHashSet(StringComparer.Ordinal);
         var parallelGroupStarted = false;
-        using var projectGenerationSlots = new SemaphoreSlim(2, 2);
+        var generationSettings = ClientSettingsStore.Load();
+        var perProjectGenerationConcurrency = Math.Clamp(
+            generationSettings.TiktokGenerationPerProjectConcurrency,
+            1,
+            4);
+        using var projectGenerationSlots = new SemaphoreSlim(
+            perProjectGenerationConcurrency,
+            perProjectGenerationConcurrency);
 
         foreach (var stepKey in preUploadSteps)
         {
@@ -803,6 +811,7 @@ public sealed class QueueWorkerRunner
 
             mutate(() => MarkRunning(item, stepKey));
             Report(onProgress, workspace, item, $"开始 {QueueStepRegistry.LabelOf(stepKey)}…", stepKey);
+            var stepTimer = Stopwatch.StartNew();
 
             var useSummaryLog = wasCompletedBeforeRun && options.ForceRerunCompletedSteps;
             Action<string> stepLog = useSummaryLog
@@ -843,7 +852,12 @@ public sealed class QueueWorkerRunner
             }
 
             mutate(() => MarkParallelStepCompleted(item, stepKey, activeSteps));
-            Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 完成", stepKey);
+            Report(
+                onProgress,
+                workspace,
+                item,
+                $"{QueueStepRegistry.LabelOf(stepKey)} 完成（耗时 {FormatStepElapsed(stepTimer.Elapsed)}）",
+                stepKey);
         }
     }
 
@@ -1238,6 +1252,7 @@ public sealed class QueueWorkerRunner
         CancellationToken ct)
     {
         var settings = ClientSettingsStore.Load();
+        QueueWorkloadResourceScheduler.Configure(settings);
         var materialOptions = TikTokMaterialValidationService.Options.FromAccount(account, settings);
         switch (stepKey)
         {
@@ -1416,6 +1431,11 @@ public sealed class QueueWorkerRunner
             ? $"{stepLabel} 被取消或超时。"
             : $"{stepLabel} 被取消或超时：{detail}";
     }
+
+    private static string FormatStepElapsed(TimeSpan elapsed) =>
+        elapsed.TotalMinutes >= 1
+            ? $"{(int)elapsed.TotalMinutes}分{elapsed.Seconds:D2}秒"
+            : $"{Math.Max(0.01, elapsed.TotalSeconds):0.00}秒";
 
     private static string ResolveFailedStep(
         Exception exception,

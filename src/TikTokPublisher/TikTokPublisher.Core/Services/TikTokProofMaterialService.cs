@@ -348,19 +348,31 @@ public sealed class TikTokProofMaterialService
                 .ConfigureAwait(false);
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        if (request.GenerateAiGenerationScreenshots && aiCompleted &&
-            TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
+        var branchStateLock = new object();
+        await Task.WhenAll(
+            RunAiScreenshotBranchAsync(),
+            RunEditingProjectBranchAsync()).ConfigureAwait(false);
+
+        async Task RunAiScreenshotBranchAsync()
         {
-            LogExistingMaterial(
-                log,
-                "AI 生成过程截图（断点复用）",
-                selected: true,
-                TikTokAiGenerationScreenshotService.ListGeneratedImages(context.WorkflowProjectDir));
-            LogRetainedAiFrames(log, context.WorkflowProjectDir, selected: true);
-        }
-        else if (request.GenerateAiGenerationScreenshots)
-        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (request.GenerateAiGenerationScreenshots && aiCompleted &&
+                TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
+            {
+                LogExistingMaterial(
+                    log,
+                    "AI 生成过程截图（断点复用）",
+                    selected: true,
+                    TikTokAiGenerationScreenshotService.ListGeneratedImages(context.WorkflowProjectDir));
+                LogRetainedAiFrames(log, context.WorkflowProjectDir, selected: true);
+                return;
+            }
+            if (!request.GenerateAiGenerationScreenshots)
+            {
+                log?.Invoke("[AI 生成过程截图] 跳过：当前账号未勾选此材料类型。");
+                return;
+            }
+
             var timer = Stopwatch.StartNew();
             log?.Invoke(
                 $"[AI 生成过程截图] 开始：来源={context.WorkflowProjectDir}；" +
@@ -368,16 +380,19 @@ public sealed class TikTokProofMaterialService
                 $"视觉模型={DescribeVisionConfiguration(settings)}。");
             try
             {
-                var outputs = TikTokAiGenerationScreenshotService.Generate(
+                var outputs = await TikTokVisualEvidencePreparationService.EnsureCurrentAsync(
                     context.WorkflowProjectDir,
                     request.DramaTitle,
                     settings,
                     log,
-                    cancellationToken);
-                aiCompleted = true;
-                SaveState(
-                    context, request, fingerprint, result,
-                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
+                    cancellationToken).ConfigureAwait(false);
+                lock (branchStateLock)
+                {
+                    aiCompleted = true;
+                    SaveState(
+                        context, request, fingerprint, result,
+                        coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
+                }
                 LogGeneratedMaterial(log, "AI 生成过程截图", outputs, timer.Elapsed);
             }
             catch (Exception ex)
@@ -386,23 +401,26 @@ public sealed class TikTokProofMaterialService
                 throw;
             }
         }
-        else
-        {
-            log?.Invoke("[AI 生成过程截图] 跳过：当前账号未勾选此材料类型。");
-        }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        if (request.GenerateEditingProjectFiles && editingCompleted &&
-            TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings))
+        async Task RunEditingProjectBranchAsync()
         {
-            LogExistingMaterial(
-                log,
-                "剪辑工程文件（断点复用）",
-                selected: true,
-                TikTokProjectImageService.ListGeneratedImages(context.WorkflowProjectDir));
-        }
-        else if (request.GenerateEditingProjectFiles)
-        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (request.GenerateEditingProjectFiles && editingCompleted &&
+                TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings))
+            {
+                LogExistingMaterial(
+                    log,
+                    "剪辑工程文件（断点复用）",
+                    selected: true,
+                    TikTokProjectImageService.ListGeneratedImages(context.WorkflowProjectDir));
+                return;
+            }
+            if (!request.GenerateEditingProjectFiles)
+            {
+                log?.Invoke("[剪辑工程文件] 跳过：当前账号未勾选此材料类型。");
+                return;
+            }
+
             var timer = Stopwatch.StartNew();
             log?.Invoke(
                 $"[剪辑工程文件] 开始：输出目录=" +
@@ -416,10 +434,13 @@ public sealed class TikTokProofMaterialService
                     forceRerun,
                     log,
                     cancellationToken).ConfigureAwait(false);
-                editingCompleted = true;
-                SaveState(
-                    context, request, fingerprint, result,
-                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
+                lock (branchStateLock)
+                {
+                    editingCompleted = true;
+                    SaveState(
+                        context, request, fingerprint, result,
+                        coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
+                }
                 LogGeneratedMaterial(
                     log,
                     "剪辑工程文件",
@@ -431,10 +452,6 @@ public sealed class TikTokProofMaterialService
                 log?.Invoke($"[剪辑工程文件] 失败：耗时={FormatElapsed(timer.Elapsed)}；原因={ex.Message}");
                 throw;
             }
-        }
-        else
-        {
-            log?.Invoke("[剪辑工程文件] 跳过：当前账号未勾选此材料类型。");
         }
 
         SaveState(

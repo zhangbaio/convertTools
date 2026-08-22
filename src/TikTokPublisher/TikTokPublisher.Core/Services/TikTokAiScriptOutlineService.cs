@@ -61,8 +61,12 @@ public static class TikTokAiScriptOutlineService
             120);
         log?.Invoke($"AI 剧本大纲：正在根据新剧名和旧简介生成 {episodeCount} 集大纲…");
         var prompt = BuildPrompt(title, synopsis, episodeCount);
-        var response = await TikTokEpisodeScriptService.RequestTextAsync(
-            prompt, settings, ct, maxOutputTokens: 16384).ConfigureAwait(false);
+        var response = await QueueWorkloadResourceScheduler.RunAsync(
+            QueueWorkloadResource.AiText,
+            () => TikTokEpisodeScriptService.RequestTextAsync(
+                prompt, settings, ct, maxOutputTokens: 16384),
+            log,
+            ct).ConfigureAwait(false);
         AiScriptOutline outline;
         try
         {
@@ -71,17 +75,29 @@ public static class TikTokAiScriptOutlineService
         catch (InvalidOperationException ex) when (!ct.IsCancellationRequested)
         {
             log?.Invoke($"AI 剧本大纲首次返回不完整，正在自动重试：{ex.Message}");
-            response = await TikTokEpisodeScriptService.RequestTextAsync(
-                prompt + "\n上一次输出被截断或不是完整 JSON。本次必须从头重新输出完整 JSON，并确保最后一个字符为 }。",
-                settings,
-                ct,
-                maxOutputTokens: 24576).ConfigureAwait(false);
+            response = await QueueWorkloadResourceScheduler.RunAsync(
+                QueueWorkloadResource.AiText,
+                () => TikTokEpisodeScriptService.RequestTextAsync(
+                    prompt + "\n上一次输出被截断或不是完整 JSON。本次必须从头重新输出完整 JSON，并确保最后一个字符为 }。",
+                    settings,
+                    ct,
+                    maxOutputTokens: 24576),
+                log,
+                ct).ConfigureAwait(false);
             outline = ParseOutline(response, episodeCount);
         }
 
-        var videoVertical = await ResolveVideoVerticalAsync(item, context, log, ct).ConfigureAwait(false);
+        var videoVertical = await QueueWorkloadResourceScheduler.RunAsync(
+            QueueWorkloadResource.Ffmpeg,
+            () => ResolveVideoVerticalAsync(item, context, log, ct),
+            log,
+            ct).ConfigureAwait(false);
         CreateDocument(outputDocx, title, episodeCount, outline, videoVertical);
-        await TikTokQueueDocumentWriter.RenderPdfAsync(outputDocx, outputPdf, settings, ct).ConfigureAwait(false);
+        await QueueWorkloadResourceScheduler.RunAsync(
+            QueueWorkloadResource.Document,
+            () => TikTokQueueDocumentWriter.RenderPdfAsync(outputDocx, outputPdf, settings, ct),
+            log,
+            ct).ConfigureAwait(false);
         if (!settings.TiktokProofKeepDocx) TikTokProofMaterialPdfRenderService.TryDelete(outputDocx);
         log?.Invoke($"AI 剧本大纲已生成：{outputPdf}");
         return outputPdf;

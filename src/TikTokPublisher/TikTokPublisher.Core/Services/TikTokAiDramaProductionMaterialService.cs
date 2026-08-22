@@ -81,12 +81,12 @@ public static class TikTokAiDramaProductionMaterialService
         {
             log?.Invoke(
                 "AI 漫剧制作素材：真实抽帧或分镜工作台不足，正在从原始视频自动补充前置素材。");
-            TikTokAiGenerationScreenshotService.Generate(
+            await TikTokVisualEvidencePreparationService.EnsureCurrentAsync(
                 context.WorkflowProjectDir,
                 title,
                 settings,
                 log,
-                ct);
+                ct).ConfigureAwait(false);
         }
 
         ResilientFileSystem.DeleteDirectory(root);

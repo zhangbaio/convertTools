@@ -1,3 +1,5 @@
+using TikTokPublisher.Core.Models;
+
 namespace TikTokPublisher.Core.Queue;
 
 internal static class QueueStepExecutionGraph
@@ -50,34 +52,103 @@ internal static class QueueStepExecutionGraph
 
 internal static class QueueStepResourceScheduler
 {
-    private static readonly SemaphoreSlim AiTextSlots = new(3, 3);
-    private static readonly SemaphoreSlim VisualSlots = new(2, 2);
-    private static readonly SemaphoreSlim DocumentSlots = new(2, 2);
-
     public static async Task RunAsync(
         string stepKey,
         Func<Task> action,
         Action<string>? log,
         CancellationToken ct)
     {
-        var (gate, label) = ResolveGate(stepKey);
-        if (gate is null)
+        var resource = ResolveResource(stepKey);
+        if (resource is null)
         {
             await action().ConfigureAwait(false);
             return;
         }
+        await QueueWorkloadResourceScheduler.RunAsync(resource.Value, action, log, ct)
+            .ConfigureAwait(false);
+    }
 
+    private static QueueWorkloadResource? ResolveResource(string stepKey) => stepKey switch
+    {
+        QueueStepRegistry.GenerateRoleVector or
+            QueueStepRegistry.GenerateProjectImages =>
+            QueueWorkloadResource.Visual,
+        QueueStepRegistry.GenerateProofMaterial or QueueStepRegistry.GenerateTimestampCertificate =>
+            QueueWorkloadResource.Document,
+        _ => null,
+    };
+}
+
+internal enum QueueWorkloadResource
+{
+    AiText,
+    Asr,
+    Ffmpeg,
+    ImageGeneration,
+    Visual,
+    Document,
+}
+
+internal static class QueueWorkloadResourceScheduler
+{
+    private static readonly object ConfigurationLock = new();
+    private static readonly object ThrottleLock = new();
+    private static IReadOnlyDictionary<QueueWorkloadResource, SemaphoreSlim> _gates = CreateGates(
+        aiText: 3, asr: 2, ffmpeg: 2, image: 2, visual: 2, document: 2);
+    private static string _configurationSignature = "3|2|2|2|2|2";
+    private static readonly Dictionary<QueueWorkloadResource, (int Failures, DateTimeOffset BlockedUntil)>
+        ThrottleStates = new();
+
+    public static void Configure(ClientSettings settings)
+    {
+        var limits = new[]
+        {
+            Math.Clamp(settings.TiktokAiTextConcurrency, 1, 12),
+            Math.Clamp(settings.TiktokAsrConcurrency, 1, 8),
+            Math.Clamp(settings.TiktokFfmpegConcurrency, 1, 8),
+            Math.Clamp(settings.TiktokImageGenerationConcurrency, 1, 8),
+            Math.Clamp(settings.TiktokVisualConcurrency, 1, 8),
+            Math.Clamp(settings.TiktokDocumentConcurrency, 1, 8),
+        };
+        var signature = string.Join('|', limits);
+        lock (ConfigurationLock)
+        {
+            if (string.Equals(signature, _configurationSignature, StringComparison.Ordinal)) return;
+            _gates = CreateGates(limits[0], limits[1], limits[2], limits[3], limits[4], limits[5]);
+            _configurationSignature = signature;
+        }
+    }
+
+    public static async Task RunAsync(
+        QueueWorkloadResource resource,
+        Func<Task> action,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        await WaitForThrottleBackoffAsync(resource, log, ct).ConfigureAwait(false);
+        SemaphoreSlim gate;
+        lock (ConfigurationLock)
+            gate = _gates[resource];
         var acquired = gate.Wait(0);
         if (!acquired)
         {
-            log?.Invoke($"等待全局{label}并发槽…");
+            log?.Invoke($"等待全局{LabelOf(resource)}并发槽…");
+            var waitStarted = DateTimeOffset.UtcNow;
             await gate.WaitAsync(ct).ConfigureAwait(false);
             acquired = true;
+            var waited = DateTimeOffset.UtcNow - waitStarted;
+            log?.Invoke($"已获得全局{LabelOf(resource)}并发槽，等待 {waited.TotalSeconds:0.00} 秒。");
         }
 
         try
         {
             await action().ConfigureAwait(false);
+            RegisterSuccess(resource);
+        }
+        catch (Exception ex) when (IsThrottleFailure(ex))
+        {
+            RegisterThrottleFailure(resource, log);
+            throw;
         }
         finally
         {
@@ -85,15 +156,104 @@ internal static class QueueStepResourceScheduler
         }
     }
 
-    private static (SemaphoreSlim? Gate, string Label) ResolveGate(string stepKey) => stepKey switch
+    public static async Task<T> RunAsync<T>(
+        QueueWorkloadResource resource,
+        Func<Task<T>> action,
+        Action<string>? log,
+        CancellationToken ct)
     {
-        QueueStepRegistry.GenerateEpisodeScript or QueueStepRegistry.GenerateAiScriptOutline =>
-            (AiTextSlots, "AI 文本"),
-        QueueStepRegistry.GenerateAiDramaMaterials or QueueStepRegistry.GenerateRoleVector or
-            QueueStepRegistry.GenerateProjectImages =>
-            (VisualSlots, "视觉处理"),
-        QueueStepRegistry.GenerateProofMaterial or QueueStepRegistry.GenerateTimestampCertificate =>
-            (DocumentSlots, "文档处理"),
-        _ => (null, ""),
+        T? result = default;
+        await RunAsync(
+            resource,
+            async () => result = await action().ConfigureAwait(false),
+            log,
+            ct).ConfigureAwait(false);
+        return result!;
+    }
+
+    private static string LabelOf(QueueWorkloadResource resource) => resource switch
+    {
+        QueueWorkloadResource.AiText => "AI 文本",
+        QueueWorkloadResource.Asr => "ASR",
+        QueueWorkloadResource.Ffmpeg => "FFmpeg",
+        QueueWorkloadResource.ImageGeneration => "AI 图片",
+        QueueWorkloadResource.Visual => "视觉处理",
+        QueueWorkloadResource.Document => "文档处理",
+        _ => resource.ToString(),
     };
+
+    private static IReadOnlyDictionary<QueueWorkloadResource, SemaphoreSlim> CreateGates(
+        int aiText,
+        int asr,
+        int ffmpeg,
+        int image,
+        int visual,
+        int document) => new Dictionary<QueueWorkloadResource, SemaphoreSlim>
+    {
+        [QueueWorkloadResource.AiText] = new(aiText, aiText),
+        [QueueWorkloadResource.Asr] = new(asr, asr),
+        [QueueWorkloadResource.Ffmpeg] = new(ffmpeg, ffmpeg),
+        [QueueWorkloadResource.ImageGeneration] = new(image, image),
+        [QueueWorkloadResource.Visual] = new(visual, visual),
+        [QueueWorkloadResource.Document] = new(document, document),
+    };
+
+    private static async Task WaitForThrottleBackoffAsync(
+        QueueWorkloadResource resource,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        TimeSpan delay;
+        lock (ThrottleLock)
+        {
+            delay = ThrottleStates.TryGetValue(resource, out var state)
+                ? state.BlockedUntil - DateTimeOffset.UtcNow
+                : TimeSpan.Zero;
+        }
+        if (delay <= TimeSpan.Zero) return;
+        log?.Invoke($"全局{LabelOf(resource)}检测到限流，退避 {Math.Ceiling(delay.TotalSeconds)} 秒…");
+        await Task.Delay(delay, ct).ConfigureAwait(false);
+    }
+
+    private static void RegisterThrottleFailure(QueueWorkloadResource resource, Action<string>? log)
+    {
+        lock (ThrottleLock)
+        {
+            var failures = ThrottleStates.TryGetValue(resource, out var state)
+                ? Math.Min(state.Failures + 1, 5)
+                : 1;
+            var seconds = Math.Min(30, 1 << failures);
+            ThrottleStates[resource] = (failures, DateTimeOffset.UtcNow.AddSeconds(seconds));
+            log?.Invoke($"全局{LabelOf(resource)}触发限流，后续任务退避 {seconds} 秒。");
+        }
+    }
+
+    private static void RegisterSuccess(QueueWorkloadResource resource)
+    {
+        lock (ThrottleLock)
+        {
+            if (!ThrottleStates.TryGetValue(resource, out var state)) return;
+            var failures = Math.Max(0, state.Failures - 1);
+            if (failures == 0)
+                ThrottleStates.Remove(resource);
+            else
+                ThrottleStates[resource] = (failures, state.BlockedUntil);
+        }
+    }
+
+    private static bool IsThrottleFailure(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            var message = current.Message ?? "";
+            if (message.Contains("429", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("限流", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("too many requests", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 }
