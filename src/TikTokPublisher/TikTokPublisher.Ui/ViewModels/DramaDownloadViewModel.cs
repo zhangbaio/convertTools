@@ -12,6 +12,15 @@ using TikTokPublisher.Ui.Services;
 
 namespace TikTokPublisher.Ui.ViewModels;
 
+public sealed record TikTokQueueImportTarget(
+    string AccountProfileId,
+    string AccountProfileName,
+    string WorkspaceRoot);
+
+public sealed record TikTokQueueImportRequest(
+    TikTokQueueImportTarget Target,
+    IReadOnlyList<string> ProjectDirs);
+
 public sealed partial class DramaSearchRowViewModel : ViewModelBase
 {
     public DramaSearchItem Item { get; }
@@ -203,13 +212,21 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     [ObservableProperty] private string _selectedCountText = "已选 0 项";
     [ObservableProperty] private string _searchPageText = "第 1 页";
     [ObservableProperty] private string _queueStatsText = "待下载：0 | 下载中：0 | 完成：0 | 失败：0";
+    [ObservableProperty] private string _tikTokQueueTargetText = "目标账号：未选择";
 
     public bool IsListView => !string.Equals(SearchViewMode, "封面视图", StringComparison.Ordinal);
     public bool IsPosterView => !IsListView;
 
     public event Action<string>? LogRequested;
-    public event Action<IReadOnlyList<string>>? ImportToQueueRequested;
-    public event Func<string>? UploadWorkspaceRequested;
+    public event Action<TikTokQueueImportRequest>? ImportToQueueRequested;
+    public event Func<TikTokQueueImportTarget?>? TikTokQueueTargetRequested;
+
+    public void UpdateTikTokQueueTarget(TikTokQueueImportTarget? target)
+    {
+        TikTokQueueTargetText = target is null
+            ? "目标账号：未配置上传工作目录"
+            : $"目标账号：{target.AccountProfileName} · {target.WorkspaceRoot}";
+    }
 
     public void LoadState()
     {
@@ -417,12 +434,12 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         selected = FilterAuthorExcludedItems(selected, "TikTok 队列");
         if (selected.Count == 0) return;
 
-        var uploadWorkspace = UploadWorkspaceRequested?.Invoke()?.Trim() ?? "";
-        if (string.IsNullOrWhiteSpace(uploadWorkspace))
+        var target = CaptureTikTokQueueTarget();
+        if (target is null)
         {
-            LogRequested?.Invoke("请先在 TikTok 上传页面选择工作目录");
             return;
         }
+        var uploadWorkspace = target.WorkspaceRoot;
 
         if (!Directory.Exists(uploadWorkspace))
         {
@@ -456,8 +473,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         }
 
         UpdateSelectedCount();
-        ImportToQueueRequested?.Invoke(dirs);
-        LogRequested?.Invoke($"已加入 {dirs.Count} 个剧目到 TikTok 队列");
+        ImportToQueueRequested?.Invoke(new TikTokQueueImportRequest(target, dirs));
+        LogRequested?.Invoke($"已加入 {dirs.Count} 个剧目到「{target.AccountProfileName}」TikTok 队列");
     }
 
     [RelayCommand]
@@ -513,7 +530,9 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             return;
         }
 
-        ImportToQueueRequested?.Invoke(dirs);
+        var target = CaptureTikTokQueueTarget();
+        if (target is null) return;
+        ImportToQueueRequested?.Invoke(new TikTokQueueImportRequest(target, dirs));
     }
 
     [RelayCommand]
@@ -766,6 +785,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     private List<DramaSearchItem> SelectedSearchItems() =>
         SearchResults.Where(r => r.Selected).Select(r => r.Item).ToList();
+
+    private TikTokQueueImportTarget? CaptureTikTokQueueTarget()
+    {
+        var target = TikTokQueueTargetRequested?.Invoke();
+        UpdateTikTokQueueTarget(target);
+        if (target is not null) return target;
+        LogRequested?.Invoke("请先为左侧选择账号配置有效的 TikTok 上传工作目录");
+        return null;
+    }
 
     private List<DramaSearchItem> FilterAuthorExcludedItems(List<DramaSearchItem> selectedItems, string queueLabel)
     {

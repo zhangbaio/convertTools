@@ -230,6 +230,67 @@ public sealed class WorkspaceQueueServiceTests
     }
 
     [Fact]
+    public void AddProjectsToQueue_ExplicitTarget_Refreshes_Existing_Project_Account()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-target-account-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "first");
+        try
+        {
+            CreateProject(project);
+            WorkspaceBindingService.Bind(workspace, "acct-target", "Target Account");
+            WorkspaceQueueService.SaveProjects(
+                workspace,
+                [
+                    new QueueProjectItem
+                    {
+                        ProjectDir = project,
+                        AccountProfileId = "acct-stale",
+                        AccountProfileName = "Stale Account",
+                    },
+                ]);
+
+            WorkspaceQueueService.AddProjectsToQueue(
+                workspace,
+                [project],
+                "acct-target",
+                "Target Account");
+
+            var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+            item.AccountProfileId.Should().Be("acct-target");
+            item.AccountProfileName.Should().Be("Target Account");
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
+    [Fact]
+    public void AddProjectsToQueue_Rejects_Explicit_Target_When_Workspace_Belongs_To_Another_Account()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-target-conflict-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "first");
+        try
+        {
+            CreateProject(project);
+            WorkspaceBindingService.Bind(workspace, "acct-a", "Account A");
+
+            var action = () => WorkspaceQueueService.AddProjectsToQueue(
+                workspace,
+                [project],
+                "acct-b",
+                "Account B");
+
+            action.Should().Throw<InvalidOperationException>()
+                .WithMessage("*Account A*acct-a*");
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
+    [Fact]
     public void ScanProjects_Keeps_Queued_Project_Outside_Workspace()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");

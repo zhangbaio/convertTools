@@ -226,7 +226,8 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
-        DramaDownload.UploadWorkspaceRequested += ResolveSelectedAccountWorkspacePath;
+        DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
+        UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
     }
 
@@ -267,7 +268,8 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
-        DramaDownload.UploadWorkspaceRequested += ResolveSelectedAccountWorkspacePath;
+        DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
+        UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
     }
 
@@ -482,6 +484,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     partial void OnSelectedAccountChanged(AccountItemViewModel? value)
     {
+        UpdateDramaDownloadQueueTarget();
         if (value is null)
         {
             RestoreQueueSearchTextForSelectedAccount();
@@ -3484,6 +3487,82 @@ public sealed partial class MainViewModel : ViewModelBase
         return NormalizeWorkspacePath(WorkspacePath);
     }
 
+    private TikTokQueueImportTarget? CaptureSelectedAccountQueueImportTarget()
+    {
+        var target = ResolveSelectedAccountQueueImportTarget();
+        if (target is null)
+        {
+            StatusMessage = "请先为左侧选择账号配置有效的 TikTok 上传工作目录";
+            return null;
+        }
+
+        if (!ValidateTikTokQueueImportTarget(target, out var error))
+        {
+            StatusMessage = error;
+            AppendLog(error);
+            return null;
+        }
+        return target;
+    }
+
+    private TikTokQueueImportTarget? ResolveSelectedAccountQueueImportTarget()
+    {
+        var account = SelectedAccount?.Model;
+        if (account is null) return null;
+        var workspace = NormalizeWorkspacePath(account.ResolveWorkspacePath());
+        return string.IsNullOrWhiteSpace(workspace)
+            ? null
+            : new TikTokQueueImportTarget(account.Id, account.DisplayName, workspace);
+    }
+
+    private void UpdateDramaDownloadQueueTarget() =>
+        DramaDownload.UpdateTikTokQueueTarget(ResolveSelectedAccountQueueImportTarget());
+
+    private bool ValidateTikTokQueueImportTarget(
+        TikTokQueueImportTarget target,
+        out string error)
+    {
+        error = "";
+        var account = FindAccountById(target.AccountProfileId)?.Model;
+        if (account is null)
+        {
+            error = $"目标账号已不存在：{target.AccountProfileName} ({target.AccountProfileId})";
+            return false;
+        }
+
+        var root = NormalizeWorkspacePath(target.WorkspaceRoot);
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+        {
+            error = $"账号「{target.AccountProfileName}」的 TikTok 上传工作目录不存在：{target.WorkspaceRoot}";
+            return false;
+        }
+
+        var duplicate = Accounts
+            .Select(item => item.Model)
+            .FirstOrDefault(other =>
+                !string.Equals(other.Id, target.AccountProfileId, StringComparison.Ordinal) &&
+                string.Equals(
+                    NormalizeWorkspacePath(other.ResolveWorkspacePath()),
+                    root,
+                    StringComparison.OrdinalIgnoreCase));
+        if (duplicate is not null)
+        {
+            error = $"工作目录已同时配置给账号「{target.AccountProfileName}」和「{duplicate.DisplayName}」，" +
+                    "为避免串队列，请为每个账号配置独立目录。";
+            return false;
+        }
+
+        var binding = WorkspaceBindingService.Load(root);
+        if (!string.IsNullOrWhiteSpace(binding?.AccountProfileId) &&
+            !string.Equals(binding.AccountProfileId, target.AccountProfileId, StringComparison.Ordinal))
+        {
+            error = $"工作目录已绑定其他账号：{binding.AccountProfileName} ({binding.AccountProfileId})，" +
+                    $"不能加入「{target.AccountProfileName}」队列。";
+            return false;
+        }
+        return true;
+    }
+
     private void BindWorkspaceToSelectedAccountIfMissing(string workspace)
     {
         var account = SelectedAccount?.Model;
@@ -3516,34 +3595,50 @@ public sealed partial class MainViewModel : ViewModelBase
         var vm = Accounts.FirstOrDefault(a => a.Id == profile.Id);
         vm?.RefreshFromModel();
         if (SelectedAccount?.Id == profile.Id)
+        {
             RefreshWorkspaceFromActiveAccount();
+            UpdateDramaDownloadQueueTarget();
+        }
         AccountProfileNetworkChanged?.Invoke(profile);
     }
 
-    public void ImportDramaProjectsToQueue(IReadOnlyList<string> projectDirs)
+    public void ImportDramaProjectsToQueue(TikTokQueueImportRequest request)
     {
-        var root = ResolveSelectedAccountWorkspacePath();
-        if (string.IsNullOrEmpty(root))
+        ArgumentNullException.ThrowIfNull(request);
+        var target = request.Target;
+        if (!ValidateTikTokQueueImportTarget(target, out var error))
         {
-            StatusMessage = "请先为左侧选择账号配置上传工作目录";
+            StatusMessage = error;
+            AppendLog(error);
             return;
         }
 
-        var account = SelectedAccount?.Model;
-        if (account is not null)
-            WorkspaceBindingService.Bind(root, account.Id, account.DisplayName);
+        var root = NormalizeWorkspacePath(target.WorkspaceRoot);
+        WorkspaceBindingService.Bind(root, target.AccountProfileId, target.AccountProfileName);
+        var added = WorkspaceQueueService.AddProjectsToQueue(
+            root,
+            request.ProjectDirs,
+            target.AccountProfileId,
+            target.AccountProfileName);
 
-        if (!string.Equals(NormalizeWorkspacePath(WorkspacePath), root, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(SelectedAccount?.Id, target.AccountProfileId, StringComparison.Ordinal))
         {
             WorkspacePath = root;
             SystemSettings.UpdateWorkspacePath(root);
             ArchivedProjects.SetWorkspace(root, refresh: false);
+            RefreshWorkspaceProjects(root, force: true);
+        }
+        else
+        {
+            CacheWorkspaceQueueSnapshot(
+                root,
+                WorkspaceQueueService.ScanProjects(root).ToList(),
+                WorkspaceQueueService.LoadRunOptions(root));
         }
 
-        var added = WorkspaceQueueService.AddProjectsToQueue(root, projectDirs);
-        RefreshWorkspaceProjects(root, force: true);
-        var accountName = account?.DisplayName ?? "当前账号";
-        StatusMessage = added.Count > 0 ? $"已导入 {added.Count} 个项目到「{accountName}」上传队列" : "没有可导入的项目";
+        StatusMessage = added.Count > 0
+            ? $"已导入 {added.Count} 个项目到「{target.AccountProfileName}」上传队列"
+            : $"没有可导入「{target.AccountProfileName}」队列的新项目";
         AppendLog(StatusMessage);
     }
 
