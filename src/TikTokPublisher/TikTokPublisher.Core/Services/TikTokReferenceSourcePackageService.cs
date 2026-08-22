@@ -51,6 +51,7 @@ public static partial class TikTokReferenceSourcePackageService
     private const int MaxVisionDiscoveryCandidates = 96;
     private const int VisionMergeCandidateLimit = 16;
     private const int VisionTimeoutRetryCandidateLimit = 12;
+    internal const int RoleRecoveryNoGrowthBatchLimit = 3;
     internal const int RoleRecoveryEpisodeBatchSize = 3;
     internal const int RoleRecoveryModelFramesPerEpisode = 6;
     internal const string LocalRoleReferenceSelectionMode = "local";
@@ -198,12 +199,14 @@ public static partial class TikTokReferenceSourcePackageService
         Action<string>? log,
         CancellationToken ct,
         int configuredCharacterCount = TikTokAccountProfile.DefaultRoleVectorCharacterCount,
-        bool recoverMissingRoleReferences = false)
+        bool recoverMissingRoleReferences = false,
+        int minimumCharacterCount = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
+        minimumCharacterCount = NormalizeMinimumCharacterCount(minimumCharacterCount, configuredCharacterCount);
         var root = GetRoot(context.WorkflowProjectDir);
         LogRecoveryPackageRoot(root, log);
         var manualRoleConfiguration = ManualRoleVectorMaterialService.Load(context.WorkflowProjectDir);
@@ -273,7 +276,8 @@ public static partial class TikTokReferenceSourcePackageService
                 FindEpisodeCharacterSources(context, root),
                 settings,
                 log,
-                ct).ConfigureAwait(false);
+                ct,
+                minimumCharacterCount).ConfigureAwait(false);
         }
         catch (InvalidOperationException ex) when (recoverMissingRoleReferences)
         {
@@ -283,9 +287,15 @@ public static partial class TikTokReferenceSourcePackageService
         // This is only a preflight decision. Do not rewrite the manifest or emit the
         // old minimum-count fallback message before recovery has had a chance to fill
         // the configured character count.
+        var existingCharacterCount =
+            ListCurrentCharacterImages(context.WorkflowProjectDir, configuredCharacterCount).Count;
         var hasEnoughExistingCharacters =
-            ListCurrentCharacterImages(context.WorkflowProjectDir, configuredCharacterCount).Count >=
-            configuredCharacterCount;
+            existingCharacterCount >= configuredCharacterCount ||
+            (existingCharacterCount >= minimumCharacterCount &&
+             HasCharacterManifestForCounts(
+                 context.WorkflowProjectDir,
+                 configuredCharacterCount,
+                 minimumCharacterCount));
         if (recoverMissingRoleReferences &&
             episodeCharacterSources.Length < characters.Length &&
             !hasEnoughExistingCharacters)
@@ -298,10 +308,17 @@ public static partial class TikTokReferenceSourcePackageService
                 episodeCharacterSources,
                 settings,
                 log,
-                ct).ConfigureAwait(false);
+                ct,
+                minimumCharacterCount).ConfigureAwait(false);
         }
         var sourceFingerprint = ComputeSourceFingerprint(
-            title, intro, script, settings, episodeCharacterSources);
+            title,
+            intro,
+            script,
+            settings,
+            episodeCharacterSources,
+            configuredCharacterCount,
+            minimumCharacterCount);
         if (!forceRerun && HasCurrentOutput(context.WorkflowProjectDir) &&
             HasMatchingFingerprint(context.WorkflowProjectDir, sourceFingerprint))
         {
@@ -310,12 +327,13 @@ public static partial class TikTokReferenceSourcePackageService
             return root;
         }
 
-        var useEpisodeCharacters = episodeCharacterSources.Length >= configuredCharacterCount;
+        var useEpisodeCharacters = episodeCharacterSources.Length >= minimumCharacterCount;
         var existingCharacterDir = Path.Combine(root, CharacterDirectoryName);
         var reusableCharacterPaths = !forceRerun && !useEpisodeCharacters && Directory.Exists(existingCharacterDir)
-            ? SelectExistingCharacterImages(existingCharacterDir, log, configuredCharacterCount).ToArray()
+            ? SelectExistingCharacterImages(
+                existingCharacterDir, log, configuredCharacterCount, minimumCharacterCount).ToArray()
             : [];
-        var reuseCharacters = reusableCharacterPaths.Length >= configuredCharacterCount;
+        var reuseCharacters = reusableCharacterPaths.Length >= minimumCharacterCount;
         if (!useEpisodeCharacters && !reuseCharacters) EnsureImageModelConfigured(settings);
         ResetPackageRoot(root, preserveCharactersAndRoleVector: reuseCharacters);
         var characterDir = Path.Combine(root, CharacterDirectoryName);
@@ -359,7 +377,12 @@ public static partial class TikTokReferenceSourcePackageService
                 generatedCharacters.Add(new GeneratedCharacter(character, output));
             }
         }
-        WriteCharacterManifest(characterDir, generatedCharacters, configuredCharacterCount, candidates.Length);
+        WriteCharacterManifest(
+            characterDir,
+            generatedCharacters,
+            configuredCharacterCount,
+            candidates.Length,
+            minimumCharacterCount);
 
         var videos = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).ToArray();
         LinkVideos(videos, videoDir, materialDir, title, ct);
@@ -456,9 +479,11 @@ public static partial class TikTokReferenceSourcePackageService
         ClientSettings settings,
         int configuredCharacterCount,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        int minimumCharacterCount = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount)
     {
         configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
+        minimumCharacterCount = NormalizeMinimumCharacterCount(minimumCharacterCount, configuredCharacterCount);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var root = GetRoot(context.WorkflowProjectDir);
         LogRecoveryPackageRoot(root, log);
@@ -499,7 +524,7 @@ public static partial class TikTokReferenceSourcePackageService
             settings,
             log,
             ct).ConfigureAwait(false);
-        if (episodeCharacterSources.Length >= configuredCharacterCount)
+        if (episodeCharacterSources.Length >= minimumCharacterCount)
         {
             var imported = await ImportEpisodeCharacterImagesAsync(
                 characterDir,
@@ -508,14 +533,20 @@ public static partial class TikTokReferenceSourcePackageService
                 settings,
                 log,
                 ct).ConfigureAwait(false);
-            WriteCharacterManifest(characterDir, imported, configuredCharacterCount, episodeCharacterSources.Length);
+            WriteCharacterManifest(
+                characterDir,
+                imported,
+                configuredCharacterCount,
+                episodeCharacterSources.Length,
+                minimumCharacterCount);
             log?.Invoke(
                 $"角色矢量图：已使用 {imported.Count} 张剧集真实角色素材，不再重新生成其他演员形象。");
             return imported.Select(character => character.Path).ToArray();
         }
 
-        var existing = SelectExistingCharacterImages(characterDir, log, configuredCharacterCount).ToList();
-        if (existing.Count >= configuredCharacterCount)
+        var existing = SelectExistingCharacterImages(
+            characterDir, log, configuredCharacterCount, minimumCharacterCount).ToList();
+        if (existing.Count >= minimumCharacterCount)
         {
             log?.Invoke($"角色矢量图：复用现有角色定妆图 {existing.Count} 张，不调用图片模型。");
             return existing;
@@ -546,7 +577,8 @@ public static partial class TikTokReferenceSourcePackageService
             characterDir,
             existing.Select((path, index) => new GeneratedCharacter(profiles[index], path)).ToList(),
             configuredCharacterCount,
-            candidates.Length);
+            candidates.Length,
+            minimumCharacterCount);
         return existing;
     }
 
@@ -682,13 +714,30 @@ public static partial class TikTokReferenceSourcePackageService
             MinCharacterCount,
             MaxCharacterCount);
 
-    internal static int ResolveSelectedCharacterCount(int candidateCount, int configuredCharacterCount)
+    internal static int NormalizeMinimumCharacterCount(int value, int configuredCharacterCount)
     {
         configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
-        if (candidateCount < MinCharacterCount) return MinCharacterCount;
-        return candidateCount >= configuredCharacterCount
-            ? configuredCharacterCount
-            : MinCharacterCount;
+        var fallback = Math.Min(
+            TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount,
+            configuredCharacterCount);
+        return Math.Clamp(value > 0 ? value : fallback, MinCharacterCount, configuredCharacterCount);
+    }
+
+    internal static int ResolveSelectedCharacterCount(int candidateCount, int configuredCharacterCount)
+        => ResolveSelectedCharacterCount(
+            candidateCount,
+            configuredCharacterCount,
+            TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount);
+
+    internal static int ResolveSelectedCharacterCount(
+        int candidateCount,
+        int configuredCharacterCount,
+        int minimumCharacterCount)
+    {
+        configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
+        minimumCharacterCount = NormalizeMinimumCharacterCount(minimumCharacterCount, configuredCharacterCount);
+        if (candidateCount < minimumCharacterCount) return minimumCharacterCount;
+        return Math.Min(candidateCount, configuredCharacterCount);
     }
 
     private static CharacterProfile[] SelectCharacterProfiles(
@@ -705,13 +754,15 @@ public static partial class TikTokReferenceSourcePackageService
     private static IReadOnlyList<string> SelectExistingCharacterImages(
         string characterDirectory,
         Action<string>? log,
-        int configuredCharacterCount)
+        int configuredCharacterCount,
+        int minimumCharacterCount)
     {
         if (!Directory.Exists(characterDirectory)) return [];
         var all = Directory.EnumerateFiles(characterDirectory)
             .Where(IsImage)
             .ToArray();
         configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
+        minimumCharacterCount = NormalizeMinimumCharacterCount(minimumCharacterCount, configuredCharacterCount);
         var ordered = new List<string>();
         var manifestPath = Path.Combine(characterDirectory, CharacterManifestFileName);
         if (File.Exists(manifestPath))
@@ -743,16 +794,17 @@ public static partial class TikTokReferenceSourcePackageService
             .Where(path => !ordered.Contains(path, StringComparer.OrdinalIgnoreCase)));
         if (all.Length > MaxCharacterCount)
             log?.Invoke($"角色矢量图：角色目录共 {all.Length} 张图片，按重要度限制为 {MaxCharacterCount} 人。");
-        if (ordered.Count < MinCharacterCount) return ordered;
+        if (ordered.Count < minimumCharacterCount) return ordered;
 
-        var selectedCount = ResolveSelectedCharacterCount(ordered.Count, configuredCharacterCount);
+        var selectedCount = ResolveSelectedCharacterCount(
+            ordered.Count, configuredCharacterCount, minimumCharacterCount);
         var selectedPaths = ordered.Take(selectedCount).ToArray();
         var fallbackToMinimum = ordered.Count < configuredCharacterCount;
         if (fallbackToMinimum)
         {
             log?.Invoke(
                 $"角色矢量图：配置 {configuredCharacterCount} 人，现有有效角色图 {ordered.Count} 张，" +
-                $"未达到配置数量，回退到 {MinCharacterCount} 人。");
+                $"未达到目标数量，按实际 {selectedPaths.Length} 人兜底（最低 {minimumCharacterCount} 人）。");
         }
         WriteCharacterManifest(
             characterDirectory,
@@ -760,7 +812,8 @@ public static partial class TikTokReferenceSourcePackageService
                 new CharacterProfile(Path.GetFileNameWithoutExtension(path), "从现有角色目录选择"),
                 path)).ToList(),
             configuredCharacterCount,
-            ordered.Count);
+            ordered.Count,
+            minimumCharacterCount);
         return selectedPaths;
     }
 
@@ -768,7 +821,8 @@ public static partial class TikTokReferenceSourcePackageService
         string characterDirectory,
         IReadOnlyList<GeneratedCharacter> characters,
         int configuredCharacterCount,
-        int candidateCount)
+        int candidateCount,
+        int minimumCharacterCount = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount)
     {
         var selected = characters
             .GroupBy(character => Path.GetFullPath(character.Path), StringComparer.OrdinalIgnoreCase)
@@ -779,15 +833,19 @@ public static partial class TikTokReferenceSourcePackageService
             throw new InvalidOperationException(
                 $"角色清单必须包含 {MinCharacterCount}–{MaxCharacterCount} 人，当前为 {selected.Length} 人。");
 
+        var normalizedConfiguredCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
+        var normalizedMinimumCount = NormalizeMinimumCharacterCount(
+            minimumCharacterCount, normalizedConfiguredCount);
         var payload = new
         {
             version = "v3-paired-character-references",
-            configuredCount = NormalizeConfiguredCharacterCount(configuredCharacterCount),
+            configuredCount = normalizedConfiguredCount,
+            minimumCount = normalizedMinimumCount,
             candidateCount,
             selectedCount = selected.Length,
-            fallbackToMinimum = candidateCount < NormalizeConfiguredCharacterCount(configuredCharacterCount),
-            fallbackReason = candidateCount < NormalizeConfiguredCharacterCount(configuredCharacterCount)
-                ? $"有效人物数 {candidateCount} 未达到配置人数 {NormalizeConfiguredCharacterCount(configuredCharacterCount)}，回退至 {MinCharacterCount} 人"
+            fallbackToMinimum = selected.Length < normalizedConfiguredCount,
+            fallbackReason = selected.Length < normalizedConfiguredCount
+                ? $"目标 {normalizedConfiguredCount} 人，最低 {normalizedMinimumCount} 人，实际使用 {selected.Length} 人"
                 : string.Empty,
             characterCount = selected.Length,
             characters = selected.Select((character, index) => new
@@ -808,6 +866,41 @@ public static partial class TikTokReferenceSourcePackageService
             Path.Combine(characterDirectory, CharacterManifestFileName),
             JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }),
             new UTF8Encoding(false));
+    }
+
+    internal static bool HasCharacterManifestForCounts(
+        string workflowProjectDirectory,
+        int configuredCharacterCount,
+        int minimumCharacterCount)
+    {
+        try
+        {
+            configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
+            minimumCharacterCount = NormalizeMinimumCharacterCount(
+                minimumCharacterCount,
+                configuredCharacterCount);
+            var path = GetCharacterManifestPath(workflowProjectDirectory);
+            if (!File.Exists(path)) return false;
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            var storedConfigured = root.TryGetProperty("configuredCount", out var configuredValue)
+                ? configuredValue.GetInt32()
+                : 0;
+            var storedMinimum = root.TryGetProperty("minimumCount", out var minimumValue)
+                ? minimumValue.GetInt32()
+                : Math.Min(TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount, storedConfigured);
+            var selected = root.TryGetProperty("selectedCount", out var selectedValue)
+                ? selectedValue.GetInt32()
+                : 0;
+            return storedConfigured == configuredCharacterCount &&
+                   storedMinimum == minimumCharacterCount &&
+                   selected >= minimumCharacterCount &&
+                   selected <= configuredCharacterCount;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     internal static IReadOnlyList<string> ResolvePairedCharacterReferences(
@@ -975,8 +1068,10 @@ public static partial class TikTokReferenceSourcePackageService
         IReadOnlyList<string> initiallyMatched,
         ClientSettings settings,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        int minimumCharacterCount)
     {
+        minimumCharacterCount = NormalizeMinimumCharacterCount(minimumCharacterCount, profiles.Count);
         var totalEpisodes = 0;
         try { totalEpisodes = ProjectWorkspaceService.ResolveSourceEpisodeCount(item.ProjectDir); }
         catch { /* 回退队列记录 */ }
@@ -1002,9 +1097,10 @@ public static partial class TikTokReferenceSourcePackageService
             .ToArray();
         var selectionMode = ResolveRoleReferenceSelectionMode(settings);
         var useAiFullReview = selectionMode == AiFullReviewRoleReferenceSelectionMode;
+        var consecutiveNoGrowthBatches = 0;
         log?.Invoke(
             $"角色补源：筛选模式={DescribeRoleReferenceSelectionMode(selectionMode)}；" +
-            $"当前匹配 {best.Length}/{profiles.Count} 人；" +
+            $"目标 {profiles.Count} 人，最低 {minimumCharacterCount} 人，当前匹配 {best.Length} 人；" +
             $"将从第 {episodes[0]} 集开始按每批 {RoleRecoveryEpisodeBatchSize} 集并行下载、抽帧，" +
             "达到配置人数后立即停止后续批次。");
         var batches = ResolveRoleReferenceRecoveryBatches(episodes);
@@ -1130,6 +1226,22 @@ public static partial class TikTokReferenceSourcePackageService
                 }
                 catch (InvalidOperationException fallbackEx)
                 {
+                    if (best.Length >= minimumCharacterCount)
+                    {
+                        consecutiveNoGrowthBatches++;
+                        if (ShouldUseMinimumRoleFallback(
+                                best.Length,
+                                profiles.Count,
+                                minimumCharacterCount,
+                                consecutiveNoGrowthBatches,
+                                allEpisodesChecked: false))
+                        {
+                            log?.Invoke(
+                                $"角色补源：连续 {consecutiveNoGrowthBatches} 个批次没有新增人物，" +
+                                $"已满足最低 {minimumCharacterCount} 人，按实际 {best.Length} 人兜底完成。");
+                            return best;
+                        }
+                    }
                     log?.Invoke(
                         $"角色补源批次 {batchIndex + 1}/{batches.Count}：回退本地链路后仍未匹配到足够人物；" +
                         $"批次总耗时 {batchTimer.Elapsed.TotalSeconds:F1} 秒。{fallbackEx.Message}");
@@ -1138,13 +1250,33 @@ public static partial class TikTokReferenceSourcePackageService
             }
             catch (InvalidOperationException ex)
             {
+                if (best.Length >= minimumCharacterCount)
+                {
+                    consecutiveNoGrowthBatches++;
+                    if (ShouldUseMinimumRoleFallback(
+                            best.Length,
+                            profiles.Count,
+                            minimumCharacterCount,
+                            consecutiveNoGrowthBatches,
+                            allEpisodesChecked: false))
+                    {
+                        log?.Invoke(
+                            $"角色补源：连续 {consecutiveNoGrowthBatches} 个批次没有新增人物，" +
+                            $"已满足最低 {minimumCharacterCount} 人，按实际 {best.Length} 人兜底完成。");
+                        return best;
+                    }
+                }
                 log?.Invoke(
                     $"角色补源批次 {batchIndex + 1}/{batches.Count}：第 {FormatEpisodeRange(batch)} 集" +
                     $"仍未匹配到足够人物；视觉审核 {visionTimer.Elapsed.TotalSeconds:F1} 秒，" +
                     $"批次总耗时 {batchTimer.Elapsed.TotalSeconds:F1} 秒。{ex.Message}");
                 continue;
             }
+            var previousBestLength = best.Length;
             if (selected.Length >= best.Length) best = selected;
+            consecutiveNoGrowthBatches = best.Length > previousBestLength
+                ? 0
+                : consecutiveNoGrowthBatches + 1;
             log?.Invoke(
                 $"角色补源批次 {batchIndex + 1}/{batches.Count} 完成：第 {FormatEpisodeRange(batch)} 集" +
                 $"共抽取 {extracted.Sum(result => result.Frames.Count)} 张，预筛后送审 {modelCandidates.Count} 张；" +
@@ -1157,10 +1289,36 @@ public static partial class TikTokReferenceSourcePackageService
                     $"{profiles.Count} 人，停止后续批次下载。");
                 return best;
             }
+            if (ShouldUseMinimumRoleFallback(
+                    best.Length,
+                    profiles.Count,
+                    minimumCharacterCount,
+                    consecutiveNoGrowthBatches,
+                    allEpisodesChecked: false))
+            {
+                log?.Invoke(
+                    $"角色补源：连续 {consecutiveNoGrowthBatches} 个批次没有新增人物，" +
+                    $"目标 {profiles.Count} 人未达成，但已满足最低 {minimumCharacterCount} 人，" +
+                    $"按实际 {best.Length} 人兜底完成。");
+                return best;
+            }
         }
 
+        if (ShouldUseMinimumRoleFallback(
+                best.Length,
+                profiles.Count,
+                minimumCharacterCount,
+                consecutiveNoGrowthBatches,
+                allEpisodesChecked: true))
+        {
+            log?.Invoke(
+                $"角色补源已检查全部可用剧集：目标 {profiles.Count} 人，最低 {minimumCharacterCount} 人，" +
+                $"实际匹配 {best.Length} 人，按最低人数策略兜底完成。");
+            return best;
+        }
         throw new InvalidOperationException(
-            $"角色补源已检查全部可用剧集，仍只有 {best.Length}/{profiles.Count} 个不同且清晰露脸的人物；" +
+            $"角色补源已检查全部可用剧集，仍只有 {best.Length} 人，" +
+            $"未达到最低 {minimumCharacterCount} 人（目标 {profiles.Count} 人）；" +
             "请手动指定人物参考图后重试。");
     }
 
@@ -1182,6 +1340,22 @@ public static partial class TikTokReferenceSourcePackageService
         return Enumerable.Range(1, totalEpisodes)
             .Where(episode => !represented.Contains(episode))
             .ToArray();
+    }
+
+    internal static bool ShouldUseMinimumRoleFallback(
+        int actualCount,
+        int configuredCharacterCount,
+        int minimumCharacterCount,
+        int consecutiveNoGrowthBatches,
+        bool allEpisodesChecked)
+    {
+        configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
+        minimumCharacterCount = NormalizeMinimumCharacterCount(
+            minimumCharacterCount,
+            configuredCharacterCount);
+        return actualCount >= minimumCharacterCount &&
+               actualCount < configuredCharacterCount &&
+               (allEpisodesChecked || consecutiveNoGrowthBatches >= RoleRecoveryNoGrowthBatchLimit);
     }
 
     internal static IReadOnlyList<int[]> ResolveRoleReferenceRecoveryBatches(
@@ -2501,7 +2675,9 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
         string intro,
         string script,
         ClientSettings settings,
-        IReadOnlyList<string> episodeCharacterSources)
+        IReadOnlyList<string> episodeCharacterSources,
+        int configuredCharacterCount,
+        int minimumCharacterCount)
     {
         var characterSourceFingerprint = string.Join('|', episodeCharacterSources.Select(path =>
         {
@@ -2516,6 +2692,8 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
             script,
             PosterImageConfigHelper.NormalizeImageProvider(settings.ImageProvider),
             ResolveModelId(settings),
+            $"target-count:{NormalizeConfiguredCharacterCount(configuredCharacterCount)}",
+            $"minimum-count:{NormalizeMinimumCharacterCount(minimumCharacterCount, configuredCharacterCount)}",
             characterSourceFingerprint,
         };
         var selectionMode = ResolveRoleReferenceSelectionMode(settings);

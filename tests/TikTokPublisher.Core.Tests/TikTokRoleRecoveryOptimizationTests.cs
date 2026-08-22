@@ -126,6 +126,29 @@ public sealed class TikTokRoleRecoveryOptimizationTests
             .Should().Be(24);
     }
 
+    [Theory]
+    [InlineData(4, 5, 3, 2, false, false)]
+    [InlineData(4, 5, 3, 3, false, true)]
+    [InlineData(4, 5, 3, 0, true, true)]
+    [InlineData(2, 5, 3, 9, true, false)]
+    [InlineData(5, 5, 3, 9, true, false)]
+    public void Minimum_fallback_requires_minimum_and_stagnation_or_exhaustion(
+        int actual,
+        int target,
+        int minimum,
+        int noGrowthBatches,
+        bool allEpisodesChecked,
+        bool expected)
+    {
+        TikTokReferenceSourcePackageService.ShouldUseMinimumRoleFallback(
+                actual,
+                target,
+                minimum,
+                noGrowthBatches,
+                allEpisodesChecked)
+            .Should().Be(expected);
+    }
+
     [Fact]
     public void Ai_review_failure_fallback_does_not_swallow_user_cancellation()
     {

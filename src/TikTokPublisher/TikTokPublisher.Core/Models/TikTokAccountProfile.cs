@@ -12,6 +12,7 @@ public sealed class TikTokAccountProfile
     public const int DefaultAiScriptOutlineEpisodeCount = 15;
     public const int DefaultEpisodeScriptEpisodeCount = 5;
     public const int DefaultRoleVectorCharacterCount = 3;
+    public const int DefaultRoleVectorMinimumCharacterCount = 3;
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string CreatedAt { get; set; } = "";
@@ -102,8 +103,10 @@ public sealed class TikTokAccountProfile
     public int TiktokAiScriptOutlineEpisodeCount { get; set; } = DefaultAiScriptOutlineEpisodeCount;
     /// <summary>分集剧本 PDF 生成集数；旧账号未配置时默认 5 集。</summary>
     public int TiktokEpisodeScriptEpisodeCount { get; set; } = DefaultEpisodeScriptEpisodeCount;
-    /// <summary>角色矢量图目标人物数；支持 3–6，候选不足时回退到 3 人。</summary>
+    /// <summary>角色矢量图目标人物数；支持 2–6。</summary>
     public int TiktokRoleVectorCharacterCount { get; set; } = DefaultRoleVectorCharacterCount;
+    /// <summary>目标人数无法满足时允许成功生成的最低人物数；支持 2–目标人数。</summary>
+    public int TiktokRoleVectorMinimumCharacterCount { get; set; } = DefaultRoleVectorMinimumCharacterCount;
     /// <summary>与本公司名称匹配的印章图片；留空时仅允许保留模板固定公司的印章。</summary>
     public string TiktokProofSealPath { get; set; } = "";
     /// <summary>旧全局证明材料配置是否已迁移为账号级配置。</summary>

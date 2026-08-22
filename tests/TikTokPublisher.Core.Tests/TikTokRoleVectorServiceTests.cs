@@ -190,8 +190,32 @@ public sealed class TikTokRoleVectorServiceTests
             manifest.RootElement.GetProperty("characters")[1]
                 .GetProperty("name").GetString().Should().Be("人物2");
 
+            logs.Clear();
+            var fallbackOutput = await TikTokRoleVectorService.GenerateAsync(
+                new QueueProjectItem { ProjectDir = source, NewTitle = "新剧名" },
+                new ClientSettings(),
+                configuredCharacterCount: 5,
+                forceRerun: true,
+                log: logs.Add,
+                ct: CancellationToken.None,
+                minimumCharacterCount: 3);
+            fallbackOutput.Should().Be(output);
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 5, 3).Should().BeTrue();
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 5, 4).Should().BeFalse();
+            logs.Should().Contain(message =>
+                message.Contains("目标 5 人未达成", StringComparison.Ordinal) &&
+                message.Contains("实际 3 人兜底", StringComparison.Ordinal));
+            using (var fallbackState = JsonDocument.Parse(File.ReadAllText(
+                       TikTokRoleVectorService.GetStatePath(workflow))))
+            {
+                fallbackState.RootElement.GetProperty("configuredCount").GetInt32().Should().Be(5);
+                fallbackState.RootElement.GetProperty("minimumCount").GetInt32().Should().Be(3);
+                fallbackState.RootElement.GetProperty("characterCount").GetInt32().Should().Be(3);
+                fallbackState.RootElement.GetProperty("fallbackUsed").GetBoolean().Should().BeTrue();
+            }
+
             SaveImage(saved.Characters[0].ReferencePath, 360, 640, new Rgba32(250, 20, 20));
-            TikTokRoleVectorService.HasCurrentOutput(workflow, 3)
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 5, 3)
                 .Should().BeFalse("人工参考图变化后角色矢量图状态必须失效");
         }
         finally
@@ -373,12 +397,12 @@ public sealed class TikTokRoleVectorServiceTests
 
     [Theory]
     [InlineData(6, 6, 6)]
-    [InlineData(5, 6, 2)]
+    [InlineData(5, 6, 5)]
     [InlineData(5, 5, 5)]
-    [InlineData(4, 5, 2)]
+    [InlineData(4, 5, 4)]
     [InlineData(4, 4, 4)]
-    [InlineData(3, 6, 2)]
-    [InlineData(2, 6, 2)]
+    [InlineData(3, 6, 3)]
+    [InlineData(2, 6, 3)]
     [InlineData(2, 2, 2)]
     [InlineData(8, 6, 6)]
     public void ResolveSelectedCharacterCount_UsesConfiguredCountOrMinimumFallback(
@@ -387,6 +411,38 @@ public sealed class TikTokRoleVectorServiceTests
         int expected)
     {
         TikTokReferenceSourcePackageService.ResolveSelectedCharacterCount(candidates, configured)
+            .Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(4, 5, 3, 4)]
+    [InlineData(3, 5, 3, 3)]
+    [InlineData(2, 5, 3, 3)]
+    [InlineData(4, 5, 4, 4)]
+    [InlineData(3, 5, 4, 4)]
+    public void ResolveSelectedCharacterCount_RespectsConfiguredMinimum(
+        int candidates,
+        int configured,
+        int minimum,
+        int expected)
+    {
+        TikTokReferenceSourcePackageService.ResolveSelectedCharacterCount(
+                candidates, configured, minimum)
+            .Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(0, 5, 3)]
+    [InlineData(6, 5, 5)]
+    [InlineData(2, 5, 2)]
+    [InlineData(4, 3, 3)]
+    public void MinimumCharacterCount_IsClampedToTarget(
+        int configuredMinimum,
+        int target,
+        int expected)
+    {
+        TikTokReferenceSourcePackageService.NormalizeMinimumCharacterCount(
+                configuredMinimum, target)
             .Should().Be(expected);
     }
 

@@ -58,6 +58,7 @@ public sealed class TikTokAiScriptOutlineServiceTests
         Assert.Equal(15, profile.TiktokAiScriptOutlineEpisodeCount);
         Assert.Equal(5, profile.TiktokEpisodeScriptEpisodeCount);
         Assert.Equal(3, profile.TiktokRoleVectorCharacterCount);
+        Assert.Equal(3, profile.TiktokRoleVectorMinimumCharacterCount);
     }
 
     [Fact]

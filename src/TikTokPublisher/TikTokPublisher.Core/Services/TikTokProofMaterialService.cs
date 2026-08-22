@@ -276,7 +276,10 @@ public sealed class TikTokProofMaterialService
                 forceRerun: false,
                 log,
                 cancellationToken,
-                account?.TiktokRoleVectorCharacterCount ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount)
+                account?.TiktokRoleVectorCharacterCount ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount,
+                recoverMissingRoleReferences: false,
+                minimumCharacterCount: account?.TiktokRoleVectorMinimumCharacterCount ??
+                                       TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount)
                 .ConfigureAwait(false);
             if (!TikTokRoleVectorService.HasCurrentOutput(context.WorkflowProjectDir))
             {

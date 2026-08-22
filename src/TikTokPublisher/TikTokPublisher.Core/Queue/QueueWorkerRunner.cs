@@ -1285,7 +1285,9 @@ public sealed class QueueWorkerRunner
                     account?.TiktokRoleVectorCharacterCount ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount,
                     options.ForceRerunCompletedSteps,
                     log,
-                    ct).ConfigureAwait(false);
+                    ct,
+                    account?.TiktokRoleVectorMinimumCharacterCount ??
+                    TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateProjectImages:
                 await TikTokProjectImageService.GenerateAsync(
@@ -1413,7 +1415,12 @@ public sealed class QueueWorkerRunner
                 var workflow = ProjectWorkspaceService.ResolveWorkflowProjectDir(item.ProjectDir);
                 var configuredCount = account?.TiktokRoleVectorCharacterCount ??
                                       TikTokAccountProfile.DefaultRoleVectorCharacterCount;
-                if (!TikTokRoleVectorService.HasCurrentOutput(workflow, configuredCount)) return true;
+                var minimumCount = account?.TiktokRoleVectorMinimumCharacterCount ??
+                                   TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount;
+                if (!TikTokRoleVectorService.HasCurrentOutput(
+                        workflow,
+                        configuredCount,
+                        minimumCount)) return true;
             }
             catch
             {

@@ -151,6 +151,12 @@ public partial class AccountProfileEditor : UserControl
                 : TikTokAccountProfile.DefaultRoleVectorCharacterCount,
             2,
             6);
+        RoleVectorMinimumCharacterCountBox.Value = Math.Clamp(
+            profile.TiktokRoleVectorMinimumCharacterCount > 0
+                ? profile.TiktokRoleVectorMinimumCharacterCount
+                : TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount,
+            2,
+            (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
@@ -266,6 +272,11 @@ public partial class AccountProfileEditor : UserControl
                 (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount),
                 2,
                 6);
+            profile.TiktokRoleVectorMinimumCharacterCount = Math.Clamp(
+                (int)(RoleVectorMinimumCharacterCountBox.Value ??
+                      TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount),
+                2,
+                profile.TiktokRoleVectorCharacterCount);
             profile.TiktokProofAccountConfigMigrated = true;
             profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
@@ -771,6 +782,7 @@ public partial class AccountProfileEditor : UserControl
         EpisodeScriptEpisodeCountBox.Value = TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount;
         AiScriptOutlineEpisodeCountBox.Value = TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount;
         RoleVectorCharacterCountBox.Value = TikTokAccountProfile.DefaultRoleVectorCharacterCount;
+        RoleVectorMinimumCharacterCountBox.Value = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount;
         CopyrightMaterials.Clear();
         ZeroCostAdsBox.IsChecked = false;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
