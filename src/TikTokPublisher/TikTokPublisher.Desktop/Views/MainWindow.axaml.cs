@@ -46,7 +46,6 @@ public partial class MainWindow : Window
         };
         QueueView.Initialize(_viewModel, _browserHost, EnsureBrowserHostMounted);
         BrowserView.Initialize(_browserHost, _viewModel);
-        BrowserView.BrowserViewportChanged += ScheduleBrowserHostMountLayout;
         BrowserView.LayoutUpdated += (_, _) =>
         {
             if (_activeNavTag == "browser")

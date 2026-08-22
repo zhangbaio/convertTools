@@ -4,7 +4,7 @@
              x:Class="TikTokPublisher.Ui.Views.TikTokBrowserView"
              x:DataType="vm:MainViewModel">
 
-    <Grid RowDefinitions="Auto,*,Auto" Background="#FFFFFF">
+    <Grid RowDefinitions="Auto,*" Background="#FFFFFF">
         <Border x:Name="AnalyticsToolbar"
                 Grid.Row="0"
                 IsVisible="False"
@@ -68,19 +68,5 @@
             </StackPanel>
         </Border>
         </Panel>
-
-        <Border Grid.Row="2"
-                x:Name="BrowserHorizontalScrollFrame"
-                IsVisible="False"
-                Background="#F8FAFC"
-                BorderBrush="#CBD5E1"
-                BorderThickness="0,1,0,0"
-                Padding="0,2">
-            <ScrollBar x:Name="BrowserHorizontalScroll"
-                       Orientation="Horizontal"
-                       Minimum="0"
-                       SmallChange="48"
-                       Scroll="OnBrowserHorizontalScroll" />
-        </Border>
     </Grid>
 </UserControl>
