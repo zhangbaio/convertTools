@@ -18,6 +18,34 @@ public static class TikTokEpisodeScriptService
     private static readonly TimeSpan CharacterTableRequestTimeout = TimeSpan.FromSeconds(90);
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(8) };
 
+    internal static string GetOutputPath(QueueProjectItem item, TikTokAccountProfile? account)
+    {
+        var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        var configuredEpisodeCount = ResolveConfiguredEpisodeCount(account);
+        var availableVideoCount = ProjectVideoResolver
+            .ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
+            .Take(configuredEpisodeCount)
+            .Count();
+        var targetEpisodeCount = ResolveTargetEpisodeCount(
+            account,
+            availableVideoCount,
+            item.EpisodeCount);
+        var title = string.IsNullOrWhiteSpace(item.NewTitle) ? item.Title : item.NewTitle.Trim();
+        return BuildOutputPath(context.WorkflowProjectDir, title, targetEpisodeCount);
+    }
+
+    internal static bool HasCurrentOutput(QueueProjectItem item, TikTokAccountProfile? account)
+    {
+        try
+        {
+            return IsReusablePdf(GetOutputPath(item, account));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static async Task<string> GenerateAsync(
         QueueProjectItem item,
         ClientSettings settings,
@@ -40,11 +68,9 @@ public static class TikTokEpisodeScriptService
         if (videos.Length == 0 && string.IsNullOrWhiteSpace(synopsis))
             throw new InvalidOperationException("生成剧本失败：项目既没有可用视频，也没有旧简介。");
 
-        var safeTitle = string.Concat(title.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
-        var outputSuffix = targetEpisodeCount == 5 ? OutputSuffix : $"前{targetEpisodeCount}集剧本.pdf";
-        var outputPdf = Path.Combine(context.WorkflowProjectDir, safeTitle + outputSuffix);
+        var outputPdf = BuildOutputPath(context.WorkflowProjectDir, title, targetEpisodeCount);
         var outputDocx = Path.ChangeExtension(outputPdf, ".docx");
-        if (!forceRerun && File.Exists(outputPdf) && new FileInfo(outputPdf).Length > 100)
+        if (!forceRerun && IsReusablePdf(outputPdf))
         {
             log?.Invoke($"已跳过生成剧本：本地已存在 {Path.GetFileName(outputPdf)}。");
             return outputPdf;
@@ -130,6 +156,26 @@ public static class TikTokEpisodeScriptService
         if (!settings.TiktokProofKeepDocx) TikTokProofMaterialPdfRenderService.TryDelete(outputDocx);
         log?.Invoke($"前{targetEpisodeCount}集剧本已生成：{outputPdf}");
         return outputPdf;
+    }
+
+    private static string BuildOutputPath(
+        string workflowProjectDirectory,
+        string title,
+        int targetEpisodeCount)
+    {
+        var safeTitle = string.Concat((title ?? string.Empty).Select(ch =>
+            Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+        var outputSuffix = targetEpisodeCount == 5 ? OutputSuffix : $"前{targetEpisodeCount}集剧本.pdf";
+        return Path.Combine(workflowProjectDirectory, safeTitle + outputSuffix);
+    }
+
+    private static bool IsReusablePdf(string path)
+    {
+        var info = new FileInfo(path);
+        if (!info.Exists || info.Length <= 100) return false;
+        Span<byte> header = stackalloc byte[5];
+        using var stream = File.OpenRead(path);
+        return stream.Read(header) == header.Length && header.SequenceEqual("%PDF-"u8);
     }
 
     internal static int ResolveConfiguredEpisodeCount(TikTokAccountProfile? account)

@@ -72,6 +72,96 @@ public sealed class TikTokQueueDocumentStepTests
     }
 
     [Fact]
+    public void Completed_episode_script_step_runs_again_when_expected_pdf_is_missing_or_invalid()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"episode-script-current-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "source-project");
+        Directory.CreateDirectory(source);
+        var item = new QueueProjectItem
+        {
+            ProjectDir = source,
+            NewTitle = "测试剧名",
+            EpisodeCount = 5,
+        };
+        item.NormalizeStepStates();
+        item.StepStates[QueueStepKeys.GenerateEpisodeScript] = QueueStepStatus.Completed;
+        var account = new TikTokPublisher.Core.Models.TikTokAccountProfile
+        {
+            TiktokEpisodeScriptEpisodeCount = 5,
+        };
+        var options = new QueueRunOptions
+        {
+            EnabledSteps = [QueueStepKeys.GenerateEpisodeScript],
+        };
+
+        try
+        {
+            QueueWorkerRunner.ShouldRunStep(
+                    item, QueueStepKeys.GenerateEpisodeScript, options, account)
+                .Should().BeTrue("数据库完成状态不能掩盖本机剧本 PDF 缺失");
+
+            var output = TikTokEpisodeScriptService.GetOutputPath(item, account);
+            Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+            File.WriteAllBytes(output, "%PDF-1.7\n"u8.ToArray().Concat(new byte[128]).ToArray());
+            QueueWorkerRunner.ShouldRunStep(
+                    item, QueueStepKeys.GenerateEpisodeScript, options, account)
+                .Should().BeFalse("有效的目标剧本 PDF 可以复用");
+
+            File.WriteAllBytes(output, new byte[160]);
+            QueueWorkerRunner.ShouldRunStep(
+                    item, QueueStepKeys.GenerateEpisodeScript, options, account)
+                .Should().BeTrue("损坏的 PDF 必须重新生成");
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Completed_ai_outline_step_runs_again_when_pdf_is_missing_or_invalid()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"ai-outline-current-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "source-project");
+        Directory.CreateDirectory(source);
+        var item = new QueueProjectItem
+        {
+            ProjectDir = source,
+            NewTitle = "测试剧名",
+            EpisodeCount = 5,
+        };
+        item.NormalizeStepStates();
+        item.StepStates[QueueStepKeys.GenerateAiScriptOutline] = QueueStepStatus.Completed;
+        var options = new QueueRunOptions
+        {
+            EnabledSteps = [QueueStepKeys.GenerateAiScriptOutline],
+        };
+
+        try
+        {
+            QueueWorkerRunner.ShouldRunStep(
+                    item, QueueStepKeys.GenerateAiScriptOutline, options)
+                .Should().BeTrue("数据库完成状态不能掩盖本机 AI 大纲 PDF 缺失");
+
+            var output = TikTokAiScriptOutlineService.GetOutputPath(item);
+            Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+            File.WriteAllBytes(output, "%PDF-1.7\n"u8.ToArray().Concat(new byte[128]).ToArray());
+            QueueWorkerRunner.ShouldRunStep(
+                    item, QueueStepKeys.GenerateAiScriptOutline, options)
+                .Should().BeFalse("有效的 AI 大纲 PDF 可以复用");
+
+            File.WriteAllBytes(output, new byte[160]);
+            QueueWorkerRunner.ShouldRunStep(
+                    item, QueueStepKeys.GenerateAiScriptOutline, options)
+                .Should().BeTrue("损坏的 PDF 必须重新生成");
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Episode_prompt_requires_reference_script_contract()
     {
         var prompt = TikTokEpisodeScriptService.BuildEpisodePrompt(
