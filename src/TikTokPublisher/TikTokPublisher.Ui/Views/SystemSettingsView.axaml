@@ -281,6 +281,28 @@
                             <NumericUpDown Grid.Row="7" Grid.Column="1" Value="{Binding TiktokMaterialValidateConcurrency}" Minimum="1" Maximum="16" Width="120" HorizontalAlignment="Left" />
                         </Grid>
 
+                        <TextBlock Text="生成任务并发" FontWeight="Bold" />
+                        <TextBlock Text="多个项目共享全局资源上限；检测到接口限流时会自动退避。" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,120,140,120" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="单项目生成并发" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokGenerationPerProjectConcurrency}" Minimum="1" Maximum="4" />
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="AI文本并发" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="3" Value="{Binding TiktokAiTextConcurrency}" Minimum="1" Maximum="12" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="ASR并发" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TiktokAsrConcurrency}" Minimum="1" Maximum="8" />
+                            <TextBlock Grid.Row="1" Grid.Column="2" Text="FFmpeg并发" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="1" Grid.Column="3" Value="{Binding TiktokFfmpegConcurrency}" Minimum="1" Maximum="8" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="AI图片并发" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding TiktokImageGenerationConcurrency}" Minimum="1" Maximum="8" />
+                            <TextBlock Grid.Row="2" Grid.Column="2" Text="视觉处理并发" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="2" Grid.Column="3" Value="{Binding TiktokVisualConcurrency}" Minimum="1" Maximum="8" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="文档渲染并发" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding TiktokDocumentConcurrency}" Minimum="1" Maximum="8" />
+                        </Grid>
+
                         <TextBlock Text="上传异常处理" FontWeight="Bold" />
                         <TextBlock Text="项目上传异常时自动标记失败并跳过，继续执行后续队列；单日创建上限等明确限制仍会停止队列。"
                                    TextWrapping="Wrap" />
@@ -400,6 +422,14 @@
                                            Foreground="#B8C8D8" />
                             </StackPanel>
                         </Grid>
+
+                        <TextBlock Text="角色定妆视图" FontWeight="Bold" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="视图模式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1" x:Name="RoleVectorViewModeCombo" HorizontalAlignment="Stretch" />
+                        </Grid>
+                        <TextBlock Text="多角度模式会为每个角色额外生成一张2×2转面表，并拆分为正面、侧面、后侧和背面；失败时自动回退单图。"
+                                   Foreground="#666" TextWrapping="Wrap" />
 
                         <TextBlock x:Name="PosterModeHintText"
                                    Foreground="#B8C8D8"

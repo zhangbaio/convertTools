@@ -279,6 +279,7 @@ public static class ClientSettingsStore
             50);
         settings.TiktokRoleReferenceSelectionMode = NormalizeRoleReferenceSelectionMode(
             settings.TiktokRoleReferenceSelectionMode);
+        settings.TiktokRoleVectorViewMode = NormalizeRoleVectorViewMode(settings.TiktokRoleVectorViewMode);
         settings.AiTagSystemPrompt = DefaultIfBlank(settings.AiTagSystemPrompt, ClientSettingsDefaults.AiTagSystemPrompt);
         settings.AiTagBatchPrompt = DefaultIfBlank(settings.AiTagBatchPrompt, ClientSettingsDefaults.AiTagBatchPrompt);
         settings.AiFullInfoSystemPrompt = DefaultIfBlank(settings.AiFullInfoSystemPrompt, ClientSettingsDefaults.AiFullInfoSystemPrompt);
@@ -475,6 +476,11 @@ public static class ClientSettingsStore
         string.Equals(value?.Trim(), "ai_full_review", StringComparison.OrdinalIgnoreCase)
             ? "ai_full_review"
             : ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
+
+    internal static string NormalizeRoleVectorViewMode(string? value) =>
+        string.Equals(value?.Trim(), "single", StringComparison.OrdinalIgnoreCase)
+            ? "single"
+            : ClientSettingsDefaults.TiktokRoleVectorViewMode;
 
     private static string NormalizeImageProvider(string? value) =>
         (value ?? ClientSettingsDefaults.ImageProvider).Trim().ToLowerInvariant() switch

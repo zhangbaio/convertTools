@@ -191,7 +191,12 @@ public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRendere
             throw new PlatformNotSupportedException("WPS PDF 渲染仅支持 Windows。");
         }
 
-        await RenderLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!RenderLock.Wait(0))
+        {
+            throw new WpsProofMaterialBusyException(
+                "WPS 正在导出另一份 PDF，当前任务将使用 LibreOffice 并行生成。");
+        }
         try
         {
             TikTokProofMaterialPdfRenderService.TryDelete(outputPdfPath);
@@ -273,6 +278,8 @@ public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRendere
         return completion.Task;
     }
 }
+
+internal sealed class WpsProofMaterialBusyException(string message) : InvalidOperationException(message);
 
 internal interface IWpsProofMaterialAutomation
 {

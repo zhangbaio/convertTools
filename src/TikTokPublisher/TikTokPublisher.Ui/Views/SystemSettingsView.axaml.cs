@@ -43,6 +43,7 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.TiktokSilenceAsrEngine)
                 or nameof(SystemSettingsViewModel.TiktokSilenceRepairMode)
                 or nameof(SystemSettingsViewModel.TiktokRoleReferenceSelectionMode)
+                or nameof(SystemSettingsViewModel.TiktokRoleVectorViewMode)
                 or nameof(SystemSettingsViewModel.PosterMode)
                 or nameof(SystemSettingsViewModel.ImageProvider)
                 or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
@@ -139,6 +140,11 @@ public partial class SystemSettingsView : UserControl
         RoleReferenceSelectionModeCombo.Items.Add(CreateItem("AI全量优选（推荐）", "ai_full_review"));
         RoleReferenceSelectionModeCombo.SelectionChanged += OnRoleReferenceSelectionModeChanged;
 
+        RoleVectorViewModeCombo.Items.Clear();
+        RoleVectorViewModeCombo.Items.Add(CreateItem("多角度转面图（推荐）", "multi_angle"));
+        RoleVectorViewModeCombo.Items.Add(CreateItem("单图兼容模式", "single"));
+        RoleVectorViewModeCombo.SelectionChanged += OnRoleVectorViewModeChanged;
+
         PosterModeCombo.Items.Clear();
         PosterModeCombo.Items.Add(CreateItem("原始海报AI改标题并校验", "original"));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;
@@ -193,6 +199,7 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(AsrEngineCombo, _vm.TiktokSilenceAsrEngine);
         SelectComboItem(SilenceRepairModeCombo, _vm.TiktokSilenceRepairMode);
         SelectComboItem(RoleReferenceSelectionModeCombo, _vm.TiktokRoleReferenceSelectionMode);
+        SelectComboItem(RoleVectorViewModeCombo, _vm.TiktokRoleVectorViewMode);
         _vm.PosterMode = ClientSettingsDefaults.PosterMode;
         SelectComboItem(PosterModeCombo, ClientSettingsDefaults.PosterMode);
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
@@ -296,6 +303,12 @@ public partial class SystemSettingsView : UserControl
         if (_vm is null || RoleReferenceSelectionModeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.TiktokRoleReferenceSelectionMode = item.Tag as string
             ?? ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
+    }
+
+    private void OnRoleVectorViewModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || RoleVectorViewModeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.TiktokRoleVectorViewMode = item.Tag as string ?? ClientSettingsDefaults.TiktokRoleVectorViewMode;
     }
 
     private void OnPosterModeChanged(object? sender, SelectionChangedEventArgs e)

@@ -229,7 +229,8 @@ internal static class RoleVectorTemplateRenderer
     internal static void Render(
         string outputPath,
         IReadOnlyList<string> characterImages,
-        IReadOnlyList<string> referenceFrames)
+        IReadOnlyList<string> referenceFrames,
+        IReadOnlyList<IReadOnlyList<string>>? characterViewSets = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         if (characterImages.Count is < 2 or > 6)
@@ -250,7 +251,19 @@ internal static class RoleVectorTemplateRenderer
 
             var characterPath = characterImages[groupIndex];
             for (var slotIndex = 0; slotIndex < group.CharacterSlots.Count; slotIndex++)
-                DrawImageSlot(canvas, characterPath, group.CharacterSlots[slotIndex], slotIndex);
+            {
+                var views = characterViewSets is not null && groupIndex < characterViewSets.Count
+                    ? characterViewSets[groupIndex].Where(File.Exists).ToArray()
+                    : [];
+                var viewPath = views.Length > 0
+                    ? views[Math.Min(slotIndex, views.Length - 1)]
+                    : characterPath;
+                DrawImageSlot(
+                    canvas,
+                    viewPath,
+                    group.CharacterSlots[slotIndex],
+                    views.Length > 1 ? 0 : slotIndex);
+            }
 
             for (var slotIndex = 0; slotIndex < group.ReferenceSlots.Count; slotIndex++)
             {

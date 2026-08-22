@@ -13,6 +13,8 @@
                 <CheckBox x:Name="ProblemsOnlyBox" Content="仅看问题" Margin="0,0,8,8" />
                 <Button x:Name="StopButton" Content="停止" Classes="dangerAction" Click="OnStopClick" IsEnabled="False" Margin="0,0,8,8" />
                 <Button Content="复制日志" Click="OnCopyClick" Margin="0,0,8,8" />
+                <Button Content="复制选中" Click="OnCopySelectionClick" Margin="0,0,8,8" />
+                <Button Content="全选日志" Click="OnSelectAllLogClick" Margin="0,0,8,8" />
             </WrapPanel>
 
             <Button Grid.Column="1"
@@ -47,21 +49,18 @@
                     BorderThickness="1"
                     CornerRadius="6"
                     Padding="10,8">
-                <ScrollViewer x:Name="LogScroll">
-                    <ItemsControl x:Name="LogItems">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="services:LogEntry">
-                                <SelectableTextBlock Text="{Binding Text}"
-                                                     Foreground="{Binding Foreground}"
-                                                     FontFamily="Cascadia Mono,Microsoft YaHei UI,Consolas"
-                                                     FontSize="13"
-                                                     LineHeight="19"
-                                                     TextWrapping="Wrap"
-                                                     Margin="0,1" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
+                <TextBox x:Name="LogTextBox"
+                         IsReadOnly="True"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         FontFamily="Cascadia Mono,Microsoft YaHei UI,Consolas"
+                         FontSize="13"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="2"
+                         VerticalContentAlignment="Top"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
             </Border>
         </Grid>
     </DockPanel>

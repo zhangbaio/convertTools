@@ -28,6 +28,7 @@ public static class ClientSettingsWorkflowConfigWriter
             ["AiTextTimeoutSeconds"] = settings.AiTextTimeoutSeconds,
             ["TiktokRoleReferenceSelectionMode"] = settings.TiktokRoleReferenceSelectionMode,
             ["TiktokRoleReferenceAiFallbackEnabled"] = settings.TiktokRoleReferenceAiFallbackEnabled,
+            ["TiktokRoleVectorViewMode"] = settings.TiktokRoleVectorViewMode,
             ["ImageModelId"] = settings.ImageModelId,
             ["ImageModelApiKey"] = settings.ImageModelApiKey,
             ["ImageModelEndpoint"] = settings.ImageModelEndpoint,

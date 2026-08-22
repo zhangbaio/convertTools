@@ -12,7 +12,7 @@ public static class TikTokRoleVectorService
     public const string OutputFileName = TikTokReferenceSourcePackageService.CharacterWorkbenchFileName;
     public const string BackupFileName = "角色矢量图_旧版.png";
     public const string StateFileName = ".role-vector-state.json";
-    public const string StateVersion = "v8-manual-role-material";
+    public const string StateVersion = "v10-multi-angle-character-views";
 
     public static string GetOutputPath(string workflowProjectDirectory) =>
         Path.Combine(TikTokReferenceSourcePackageService.GetRoot(workflowProjectDirectory), OutputFileName);
@@ -21,9 +21,24 @@ public static class TikTokRoleVectorService
         Path.Combine(TikTokReferenceSourcePackageService.GetRoot(workflowProjectDirectory), StateFileName);
 
     public static bool HasCurrentOutput(string workflowProjectDirectory)
-        => HasCurrentOutput(workflowProjectDirectory, configuredCharacterCount: null);
+        => HasCurrentOutput(
+            workflowProjectDirectory,
+            configuredCharacterCount: null,
+            minimumCharacterCount: null,
+            expectedViewMode: null);
 
     public static bool HasCurrentOutput(string workflowProjectDirectory, int? configuredCharacterCount)
+        => HasCurrentOutput(
+            workflowProjectDirectory,
+            configuredCharacterCount,
+            configuredCharacterCount,
+            expectedViewMode: null);
+
+    public static bool HasCurrentOutput(
+        string workflowProjectDirectory,
+        int? configuredCharacterCount,
+        int? minimumCharacterCount,
+        string? expectedViewMode = null)
     {
         var path = GetOutputPath(workflowProjectDirectory);
         if (!File.Exists(path)) return false;
@@ -33,7 +48,12 @@ public static class TikTokRoleVectorService
             return info is not null &&
                    info.Width == RoleVectorTemplateRenderer.CanvasWidth &&
                    info.Height == RoleVectorTemplateRenderer.CanvasHeight &&
-                   ValidateState(workflowProjectDirectory, path, configuredCharacterCount);
+                   ValidateState(
+                       workflowProjectDirectory,
+                       path,
+                       configuredCharacterCount,
+                       minimumCharacterCount,
+                       expectedViewMode);
         }
         catch
         {
@@ -47,25 +67,43 @@ public static class TikTokRoleVectorService
         int configuredCharacterCount,
         bool forceRerun,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        int minimumCharacterCount = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
         configuredCharacterCount = TikTokReferenceSourcePackageService.NormalizeConfiguredCharacterCount(
             configuredCharacterCount);
+        minimumCharacterCount = TikTokReferenceSourcePackageService.NormalizeMinimumCharacterCount(
+            minimumCharacterCount,
+            configuredCharacterCount);
+        var viewMode = TikTokReferenceSourcePackageService.NormalizeRoleVectorViewMode(
+            settings.TiktokRoleVectorViewMode);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var output = GetOutputPath(context.WorkflowProjectDir);
         var manualConfiguration = ManualRoleVectorMaterialService.Load(context.WorkflowProjectDir);
-        if (!forceRerun && HasCurrentOutput(context.WorkflowProjectDir, configuredCharacterCount))
+        if (!forceRerun && HasCurrentOutput(
+                context.WorkflowProjectDir,
+                configuredCharacterCount,
+                minimumCharacterCount,
+                viewMode))
         {
+            RoleVectorProgressTracker.Clear(context.WorkflowProjectDir);
             TikTokSourceFileInfoUploadPackageService.RefreshRoleDerivedImages(
                 context.WorkflowProjectDir, log, ct);
             log?.Invoke($"角色矢量图已存在且尺寸正确，跳过生成：{output}");
             return output;
         }
 
+        var progressTracker = RoleVectorProgressTracker.Open(
+            context.WorkflowProjectDir,
+            ComputeProgressFingerprint(item, settings, configuredCharacterCount, minimumCharacterCount),
+            forceRerun,
+            log);
+
         var root = TikTokReferenceSourcePackageService.GetRoot(context.WorkflowProjectDir);
         Directory.CreateDirectory(root);
+        progressTracker.MarkPhase("reference_selection");
         await TikTokReferenceSourcePackageService.GenerateAsync(
             item,
             settings,
@@ -73,14 +111,22 @@ public static class TikTokRoleVectorService
             log,
             ct,
             configuredCharacterCount,
-            recoverMissingRoleReferences: true).ConfigureAwait(false);
+            recoverMissingRoleReferences: true,
+            minimumCharacterCount: minimumCharacterCount,
+            progressTracker: progressTracker).ConfigureAwait(false);
         var characters = TikTokReferenceSourcePackageService.ListCurrentCharacterImages(
             context.WorkflowProjectDir,
             configuredCharacterCount);
-        if (characters.Count < configuredCharacterCount)
+        if (characters.Count < minimumCharacterCount)
         {
             characters = await TikTokReferenceSourcePackageService.EnsureCharacterImagesAsync(
-                item, settings, configuredCharacterCount, log, ct).ConfigureAwait(false);
+                item,
+                settings,
+                configuredCharacterCount,
+                log,
+                ct,
+                minimumCharacterCount,
+                progressTracker).ConfigureAwait(false);
         }
         else
         {
@@ -89,11 +135,12 @@ public static class TikTokRoleVectorService
         var sceneSources = await TikTokReferenceSourcePackageService.ResolveSceneSourcesAsync(
             context, root, log, ct).ConfigureAwait(false);
         var usedCharacters = characters.Take(6).ToArray();
-        if (usedCharacters.Length is < TikTokReferenceSourcePackageService.MinCharacterCount or
-            > TikTokReferenceSourcePackageService.MaxCharacterCount)
+        if (usedCharacters.Length < minimumCharacterCount ||
+            usedCharacters.Length > TikTokReferenceSourcePackageService.MaxCharacterCount)
         {
             throw new InvalidOperationException(
-                $"角色矢量图仅支持 2、3、4、5、6 人，当前采集到 {usedCharacters.Length} 人。");
+                $"角色矢量图目标 {configuredCharacterCount} 人、最低 {minimumCharacterCount} 人，" +
+                $"当前只有 {usedCharacters.Length} 人。");
         }
         var pairedReferences = TikTokReferenceSourcePackageService.ResolvePairedCharacterReferences(
             context.WorkflowProjectDir,
@@ -103,6 +150,17 @@ public static class TikTokRoleVectorService
             : sceneSources.Take(usedCharacters.Length).ToArray();
         if (referenceSources.Count == 0)
             throw new InvalidOperationException("生成角色矢量图失败：没有可用的角色参考图、真实场景图或视频抽帧。");
+        progressTracker.MarkPhase("multi_angle_views");
+        var characterViewSets = await TikTokReferenceSourcePackageService.EnsureCharacterViewSetsAsync(
+            usedCharacters,
+            settings,
+            log,
+            ct).ConfigureAwait(false);
+        TikTokReferenceSourcePackageService.SyncCharacterViewsToManifest(
+            context.WorkflowProjectDir,
+            usedCharacters,
+            characterViewSets,
+            viewMode);
         var templateDescription = usedCharacters.Length switch
         {
             2 => "双人上下居中模板",
@@ -115,11 +173,12 @@ public static class TikTokRoleVectorService
         if (usedCharacters.Length < configuredCharacterCount)
         {
             log?.Invoke(
-                $"角色矢量图：有效人物未达到账号配置的 {configuredCharacterCount} 人，" +
-                $"回退到 {TikTokReferenceSourcePackageService.MinCharacterCount} 人模板。");
+                $"角色矢量图：目标 {configuredCharacterCount} 人未达成，" +
+                $"已满足最低 {minimumCharacterCount} 人，按实际 {usedCharacters.Length} 人兜底。");
         }
         log?.Invoke(
-            $"角色矢量图：账号配置 {configuredCharacterCount} 人，最终选择 {usedCharacters.Length} 人，" +
+            $"角色矢量图：目标 {configuredCharacterCount} 人，最低 {minimumCharacterCount} 人，" +
+            $"最终选择 {usedCharacters.Length} 人，" +
             $"使用{templateDescription}；" +
             (pairedReferences.Count == usedCharacters.Length
                 ? $"左右已按角色一一配对，服装参考帧 {referenceSources.Count} 张。"
@@ -128,7 +187,11 @@ public static class TikTokRoleVectorService
         var temporary = Path.Combine(root, $".{Path.GetFileNameWithoutExtension(OutputFileName)}.{Guid.NewGuid():N}.tmp.png");
         try
         {
-            RoleVectorTemplateRenderer.Render(temporary, usedCharacters, referenceSources);
+            RoleVectorTemplateRenderer.Render(
+                temporary,
+                usedCharacters,
+                referenceSources,
+                characterViewSets);
             var info = Image.Identify(temporary)
                 ?? throw new InvalidDataException("生成的角色矢量图不是有效 PNG。");
             if (info.Width != RoleVectorTemplateRenderer.CanvasWidth ||
@@ -146,10 +209,14 @@ public static class TikTokRoleVectorService
                 context.WorkflowProjectDir,
                 output,
                 configuredCharacterCount,
+                minimumCharacterCount,
+                viewMode,
                 usedCharacters,
-                referenceSources);
+                referenceSources,
+                characterViewSets);
             TikTokSourceFileInfoUploadPackageService.RefreshRoleDerivedImages(
                 context.WorkflowProjectDir, log, ct);
+            progressTracker.Complete();
             log?.Invoke($"角色矢量图生成完成：{info.Width}×{info.Height} → {output}");
             return output;
         }
@@ -163,8 +230,11 @@ public static class TikTokRoleVectorService
         string workflowProjectDirectory,
         string output,
         int configuredCharacterCount,
+        int minimumCharacterCount,
+        string viewMode,
         IReadOnlyList<string> characters,
-        IReadOnlyList<string> references)
+        IReadOnlyList<string> references,
+        IReadOnlyList<IReadOnlyList<string>> characterViewSets)
     {
         var root = TikTokReferenceSourcePackageService.GetRoot(workflowProjectDirectory);
         var characterManifest = TikTokReferenceSourcePackageService.GetCharacterManifestPath(workflowProjectDirectory);
@@ -180,7 +250,10 @@ public static class TikTokRoleVectorService
             },
             manualFingerprint = ManualRoleVectorMaterialService.Load(workflowProjectDirectory).Fingerprint,
             configuredCount = configuredCharacterCount,
+            minimumCount = minimumCharacterCount,
             characterCount = characters.Count,
+            fallbackUsed = characters.Count < configuredCharacterCount,
+            viewMode,
             templateResource = layout.ResourceName,
             outputSha256 = ComputeSha256(output),
             characterManifest = Path.GetRelativePath(root, characterManifest),
@@ -195,6 +268,11 @@ public static class TikTokRoleVectorService
                 path = Path.GetFullPath(path),
                 sha256 = ComputeSha256(path),
             }),
+            characterViews = characterViewSets.Select(views => views.Where(File.Exists).Select(path => new
+            {
+                path = Path.GetFullPath(path),
+                sha256 = ComputeSha256(path),
+            })),
             generatedAt = DateTimeOffset.Now,
         };
         File.WriteAllText(
@@ -206,7 +284,9 @@ public static class TikTokRoleVectorService
     private static bool ValidateState(
         string workflowProjectDirectory,
         string output,
-        int? expectedConfiguredCharacterCount)
+        int? expectedConfiguredCharacterCount,
+        int? expectedMinimumCharacterCount,
+        string? expectedViewMode)
     {
         var statePath = GetStatePath(workflowProjectDirectory);
         if (!File.Exists(statePath)) return false;
@@ -238,12 +318,23 @@ public static class TikTokRoleVectorService
             if (expectedConfiguredCharacterCount.HasValue &&
                 configuredCount != TikTokReferenceSourcePackageService.NormalizeConfiguredCharacterCount(
                     expectedConfiguredCharacterCount.Value)) return false;
+            var minimumCount = rootElement.TryGetProperty("minimumCount", out var minimumCountValue)
+                ? minimumCountValue.GetInt32()
+                : configuredCount;
+            if (expectedConfiguredCharacterCount.HasValue && expectedMinimumCharacterCount.HasValue &&
+                minimumCount != TikTokReferenceSourcePackageService.NormalizeMinimumCharacterCount(
+                    expectedMinimumCharacterCount.Value,
+                    expectedConfiguredCharacterCount.Value)) return false;
             var characterCount = rootElement.GetProperty("characterCount").GetInt32();
             if (characterCount is < TikTokReferenceSourcePackageService.MinCharacterCount or
                 > TikTokReferenceSourcePackageService.MaxCharacterCount) return false;
-            if (expectedConfiguredCharacterCount.HasValue &&
-                characterCount != TikTokReferenceSourcePackageService.NormalizeConfiguredCharacterCount(
-                    expectedConfiguredCharacterCount.Value)) return false;
+            if (characterCount < minimumCount || characterCount > configuredCount) return false;
+            var storedViewMode = rootElement.TryGetProperty("viewMode", out var viewModeValue)
+                ? TikTokReferenceSourcePackageService.NormalizeRoleVectorViewMode(viewModeValue.GetString())
+                : "single";
+            if (!string.IsNullOrWhiteSpace(expectedViewMode) &&
+                storedViewMode != TikTokReferenceSourcePackageService.NormalizeRoleVectorViewMode(expectedViewMode))
+                return false;
             if (rootElement.GetProperty("templateResource").GetString() !=
                 RoleVectorTemplateRenderer.ResolveLayout(characterCount).ResourceName) return false;
             if (!MatchesHash(output, rootElement.GetProperty("outputSha256").GetString())) return false;
@@ -253,12 +344,32 @@ public static class TikTokRoleVectorService
             if (!MatchesHash(manifest, rootElement.GetProperty("characterManifestSha256").GetString())) return false;
             if (!ValidateFileEntries(packageRoot, rootElement.GetProperty("characters"), characterCount)) return false;
             if (!ValidateFileEntries(packageRoot, rootElement.GetProperty("references"), minimumCount: 1)) return false;
+            if (!rootElement.TryGetProperty("characterViews", out var viewSets) ||
+                !ValidateCharacterViewEntries(viewSets, characterCount)) return false;
             return true;
         }
         catch
         {
             return false;
         }
+    }
+
+    private static bool ValidateCharacterViewEntries(JsonElement viewSets, int characterCount)
+    {
+        if (viewSets.ValueKind != JsonValueKind.Array || viewSets.GetArrayLength() < characterCount) return false;
+        var groups = 0;
+        foreach (var group in viewSets.EnumerateArray())
+        {
+            if (group.ValueKind != JsonValueKind.Array || group.GetArrayLength() == 0) return false;
+            foreach (var entry in group.EnumerateArray())
+            {
+                var path = entry.TryGetProperty("path", out var pathValue) ? pathValue.GetString() : null;
+                var hash = entry.TryGetProperty("sha256", out var hashValue) ? hashValue.GetString() : null;
+                if (string.IsNullOrWhiteSpace(path) || !MatchesHash(Path.GetFullPath(path), hash)) return false;
+            }
+            groups++;
+        }
+        return groups >= characterCount;
     }
 
     private static bool ValidateFileEntries(string packageRoot, JsonElement entries, int minimumCount)
@@ -290,5 +401,27 @@ public static class TikTokRoleVectorService
     {
         using var stream = File.OpenRead(path);
         return Convert.ToHexString(SHA256.HashData(stream));
+    }
+
+    internal static string ComputeProgressFingerprint(
+        QueueProjectItem item,
+        ClientSettings settings,
+        int configuredCharacterCount,
+        int minimumCharacterCount)
+    {
+        var value = string.Join('\n',
+            "role-vector-progress-v1",
+            Path.GetFullPath(item.ProjectDir),
+            item.NewTitle ?? string.Empty,
+            item.OriginalTitle ?? string.Empty,
+            configuredCharacterCount,
+            minimumCharacterCount,
+            TikTokReferenceSourcePackageService.ResolveRoleReferenceSelectionMode(settings),
+            TikTokReferenceSourcePackageService.NormalizeRoleVectorViewMode(settings.TiktokRoleVectorViewMode),
+            settings.AiTextModel?.Trim() ?? string.Empty,
+            settings.ImageProvider?.Trim() ?? string.Empty,
+            settings.ImageModelId?.Trim() ?? string.Empty,
+            settings.OfoxImage2ModelId?.Trim() ?? string.Empty);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     }
 }

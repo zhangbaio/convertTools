@@ -84,6 +84,13 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _tiktokSilenceRepairBlocking;
     [ObservableProperty] private int _tiktokSilenceDetectConcurrency = 5;
     [ObservableProperty] private int _tiktokMaterialValidateConcurrency = 4;
+    [ObservableProperty] private int _tiktokGenerationPerProjectConcurrency = 2;
+    [ObservableProperty] private int _tiktokAiTextConcurrency = 3;
+    [ObservableProperty] private int _tiktokAsrConcurrency = 2;
+    [ObservableProperty] private int _tiktokFfmpegConcurrency = 2;
+    [ObservableProperty] private int _tiktokImageGenerationConcurrency = 2;
+    [ObservableProperty] private int _tiktokVisualConcurrency = 2;
+    [ObservableProperty] private int _tiktokDocumentConcurrency = 2;
     [ObservableProperty] private string _tiktokSilenceAsrLanguage = "zh-CN";
     [ObservableProperty] private bool _tiktokManualInterventionOnSingleFailure = true;
     [ObservableProperty] private string _asrProbeStatus = "";
@@ -97,6 +104,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
     [ObservableProperty] private bool _tiktokRoleReferenceAiFallbackEnabled =
         ClientSettingsDefaults.TiktokRoleReferenceAiFallbackEnabled;
+    [ObservableProperty] private string _tiktokRoleVectorViewMode = ClientSettingsDefaults.TiktokRoleVectorViewMode;
     [ObservableProperty] private string _aiTagSystemPrompt = "";
     [ObservableProperty] private string _aiTagBatchPrompt = "";
     [ObservableProperty] private string _aiFullInfoSystemPrompt = "";
@@ -228,6 +236,13 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokSilenceRepairBlocking = TiktokSilenceRepairBlocking,
         TiktokSilenceDetectConcurrency = TiktokSilenceDetectConcurrency,
         TiktokMaterialValidateConcurrency = TiktokMaterialValidateConcurrency,
+        TiktokGenerationPerProjectConcurrency = TiktokGenerationPerProjectConcurrency,
+        TiktokAiTextConcurrency = TiktokAiTextConcurrency,
+        TiktokAsrConcurrency = TiktokAsrConcurrency,
+        TiktokFfmpegConcurrency = TiktokFfmpegConcurrency,
+        TiktokImageGenerationConcurrency = TiktokImageGenerationConcurrency,
+        TiktokVisualConcurrency = TiktokVisualConcurrency,
+        TiktokDocumentConcurrency = TiktokDocumentConcurrency,
         TiktokSilenceAsrLanguage = TiktokSilenceAsrLanguage.Trim(),
         TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure,
         AiTextEndpoint = AiTextEndpoint.Trim(),
@@ -237,6 +252,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiTextMaxBatchSize = AiTextMaxBatchSize,
         TiktokRoleReferenceSelectionMode = TiktokRoleReferenceSelectionMode,
         TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled,
+        TiktokRoleVectorViewMode = TiktokRoleVectorViewMode,
         AiTagSystemPrompt = AiTagSystemPrompt,
         AiTagBatchPrompt = AiTagBatchPrompt,
         AiFullInfoSystemPrompt = AiFullInfoSystemPrompt,
@@ -883,6 +899,13 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokSilenceRepairBlocking = settings.TiktokSilenceRepairBlocking;
         TiktokSilenceDetectConcurrency = settings.TiktokSilenceDetectConcurrency;
         TiktokMaterialValidateConcurrency = settings.TiktokMaterialValidateConcurrency;
+        TiktokGenerationPerProjectConcurrency = settings.TiktokGenerationPerProjectConcurrency;
+        TiktokAiTextConcurrency = settings.TiktokAiTextConcurrency;
+        TiktokAsrConcurrency = settings.TiktokAsrConcurrency;
+        TiktokFfmpegConcurrency = settings.TiktokFfmpegConcurrency;
+        TiktokImageGenerationConcurrency = settings.TiktokImageGenerationConcurrency;
+        TiktokVisualConcurrency = settings.TiktokVisualConcurrency;
+        TiktokDocumentConcurrency = settings.TiktokDocumentConcurrency;
         TiktokSilenceAsrLanguage = settings.TiktokSilenceAsrLanguage;
         TiktokManualInterventionOnSingleFailure = settings.TiktokManualInterventionOnSingleFailure;
         AiTextEndpoint = settings.AiTextEndpoint;
@@ -892,6 +915,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiTextMaxBatchSize = settings.AiTextMaxBatchSize;
         TiktokRoleReferenceSelectionMode = settings.TiktokRoleReferenceSelectionMode;
         TiktokRoleReferenceAiFallbackEnabled = settings.TiktokRoleReferenceAiFallbackEnabled;
+        TiktokRoleVectorViewMode = settings.TiktokRoleVectorViewMode;
         AiTagSystemPrompt = settings.AiTagSystemPrompt;
         AiTagBatchPrompt = settings.AiTagBatchPrompt;
         AiFullInfoSystemPrompt = settings.AiFullInfoSystemPrompt;

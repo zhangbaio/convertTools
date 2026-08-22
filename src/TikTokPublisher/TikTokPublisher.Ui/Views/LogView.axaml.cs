@@ -55,8 +55,33 @@ public partial class LogView : UserControl
         SummaryLabel.Text = _logs.SummaryText;
         StopButton.IsEnabled = _logs.IsRunning;
         ProjectList.ItemsSource = _logs.Projects;
-        LogItems.ItemsSource = _logs.RenderedEntries;
+        RefreshLogText();
         SyncProjectSelection();
+    }
+
+    private void RefreshLogText()
+    {
+        if (_logs is null) return;
+        var next = _logs.BuildCopyText();
+        var current = LogTextBox.Text ?? string.Empty;
+        if (string.Equals(current, next, StringComparison.Ordinal)) return;
+
+        var selectionStart = LogTextBox.SelectionStart;
+        var selectionEnd = LogTextBox.SelectionEnd;
+        var hadSelection = selectionStart != selectionEnd;
+        var caretWasAtEnd = LogTextBox.CaretIndex >= current.Length;
+        LogTextBox.Text = next;
+        if (hadSelection)
+        {
+            LogTextBox.SelectionStart = Math.Clamp(selectionStart, 0, next.Length);
+            LogTextBox.SelectionEnd = Math.Clamp(selectionEnd, 0, next.Length);
+        }
+        else
+        {
+            LogTextBox.CaretIndex = caretWasAtEnd
+                ? next.Length
+                : Math.Clamp(selectionEnd, 0, next.Length);
+        }
     }
 
     private void SyncProjectSelection()
@@ -95,5 +120,26 @@ public partial class LogView : UserControl
         if (clipboard is null) return;
         await clipboard.SetTextAsync(_logs.BuildCopyText());
         if (_vm is not null) _vm.StatusMessage = "已复制日志到剪贴板";
+    }
+
+    private async void OnCopySelectionClick(object? sender, RoutedEventArgs e)
+    {
+        var selected = LogTextBox.SelectedText;
+        if (string.IsNullOrEmpty(selected))
+        {
+            if (_vm is not null) _vm.StatusMessage = "请先在日志区域选择要复制的内容";
+            return;
+        }
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is null) return;
+        await clipboard.SetTextAsync(selected);
+        if (_vm is not null) _vm.StatusMessage = "已复制选中的日志内容";
+    }
+
+    private void OnSelectAllLogClick(object? sender, RoutedEventArgs e)
+    {
+        LogTextBox.Focus();
+        LogTextBox.SelectAll();
+        if (_vm is not null) _vm.StatusMessage = "已全选当前日志";
     }
 }

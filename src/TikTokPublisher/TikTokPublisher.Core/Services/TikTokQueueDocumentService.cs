@@ -51,27 +51,51 @@ public static class TikTokEpisodeScriptService
         }
 
         EnsureAiConfigured(settings);
-        var episodes = new List<EpisodeScriptSection>();
-        for (var i = 0; i < targetEpisodeCount; i++)
+        var episodeResults = new EpisodeScriptSection?[targetEpisodeCount];
+        using var episodeSlots = new SemaphoreSlim(2, 2);
+        var episodeTasks = Enumerable.Range(0, targetEpisodeCount).Select(GenerateEpisodeAsync).ToArray();
+        await Task.WhenAll(episodeTasks).ConfigureAwait(false);
+        var episodes = episodeResults.Select(result => result!).ToList();
+
+        async Task GenerateEpisodeAsync(int i)
         {
             ct.ThrowIfCancellationRequested();
-            if (videos.Length > 0)
+            await episodeSlots.WaitAsync(ct).ConfigureAwait(false);
+            try
             {
-                var video = videos[i];
-                log?.Invoke($"剧本 {i + 1}/{targetEpisodeCount}：提取字幕与台词…");
-                var transcript = await ResolveTranscriptAsync(video, settings, log, ct).ConfigureAwait(false);
-                log?.Invoke($"剧本 {i + 1}/{targetEpisodeCount}：AI 整理参考版式分场剧本…");
-                var content = await RequestScriptAsync(title, i + 1, Path.GetFileName(video), transcript, settings, ct)
-                    .ConfigureAwait(false);
-                episodes.Add(new EpisodeScriptSection(i + 1, Path.GetFileName(video), content));
+                if (videos.Length > 0)
+                {
+                    var video = videos[i];
+                    log?.Invoke($"剧本 {i + 1}/{targetEpisodeCount}：提取字幕与台词…");
+                    var transcript = await QueueWorkloadResourceScheduler.RunAsync(
+                        QueueWorkloadResource.Asr,
+                        () => ResolveTranscriptAsync(video, settings, log, ct),
+                        log,
+                        ct).ConfigureAwait(false);
+                    log?.Invoke($"剧本 {i + 1}/{targetEpisodeCount}：AI 整理参考版式分场剧本…");
+                    var content = await QueueWorkloadResourceScheduler.RunAsync(
+                        QueueWorkloadResource.AiText,
+                        () => RequestScriptAsync(
+                            title, i + 1, Path.GetFileName(video), transcript, settings, ct),
+                        log,
+                        ct).ConfigureAwait(false);
+                    episodeResults[i] = new EpisodeScriptSection(i + 1, Path.GetFileName(video), content);
+                }
+                else
+                {
+                    log?.Invoke($"剧本 {i + 1}/{targetEpisodeCount}：无本地视频，正在根据新剧名和旧简介生成分场剧本…");
+                    var content = await QueueWorkloadResourceScheduler.RunAsync(
+                        QueueWorkloadResource.AiText,
+                        () => RequestSynopsisScriptAsync(
+                            title, i + 1, targetEpisodeCount, synopsis, settings, ct),
+                        log,
+                        ct).ConfigureAwait(false);
+                    episodeResults[i] = new EpisodeScriptSection(i + 1, "旧简介", content);
+                }
             }
-            else
+            finally
             {
-                log?.Invoke($"剧本 {i + 1}/{targetEpisodeCount}：无本地视频，正在根据新剧名和旧简介生成分场剧本…");
-                var content = await RequestSynopsisScriptAsync(
-                        title, i + 1, targetEpisodeCount, synopsis, settings, ct)
-                    .ConfigureAwait(false);
-                episodes.Add(new EpisodeScriptSection(i + 1, "旧简介", content));
+                episodeSlots.Release();
             }
         }
 
@@ -81,12 +105,15 @@ public static class TikTokEpisodeScriptService
             log?.Invoke("剧本：汇总前几集角色表…");
             using var characterTableTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             characterTableTimeout.CancelAfter(CharacterTableRequestTimeout);
-            characterTable = await RequestCharacterTableAsync(
+            characterTable = await QueueWorkloadResourceScheduler.RunAsync(
+                QueueWorkloadResource.AiText,
+                () => RequestCharacterTableAsync(
                     title,
                     episodes,
                     settings,
-                    characterTableTimeout.Token)
-                .ConfigureAwait(false);
+                    characterTableTimeout.Token),
+                log,
+                characterTableTimeout.Token).ConfigureAwait(false);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -95,7 +122,11 @@ public static class TikTokEpisodeScriptService
         }
 
         TikTokQueueDocumentWriter.WriteScriptDocument(outputDocx, title, episodes, characterTable);
-        await TikTokQueueDocumentWriter.RenderPdfAsync(outputDocx, outputPdf, settings, ct).ConfigureAwait(false);
+        await QueueWorkloadResourceScheduler.RunAsync(
+            QueueWorkloadResource.Document,
+            () => TikTokQueueDocumentWriter.RenderPdfAsync(outputDocx, outputPdf, settings, ct),
+            log,
+            ct).ConfigureAwait(false);
         if (!settings.TiktokProofKeepDocx) TikTokProofMaterialPdfRenderService.TryDelete(outputDocx);
         log?.Invoke($"前{targetEpisodeCount}集剧本已生成：{outputPdf}");
         return outputPdf;

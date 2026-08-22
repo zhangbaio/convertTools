@@ -80,6 +80,12 @@ public partial class AccountSettingsDialog : Window
                 : TikTokAccountProfile.DefaultRoleVectorCharacterCount,
             2,
             6);
+        RoleVectorMinimumCharacterCountBox.Value = Math.Clamp(
+            p.TiktokRoleVectorMinimumCharacterCount > 0
+                ? p.TiktokRoleVectorMinimumCharacterCount
+                : TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount,
+            2,
+            (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
@@ -162,6 +168,11 @@ public partial class AccountSettingsDialog : Window
             (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount),
             2,
             6);
+        p.TiktokRoleVectorMinimumCharacterCount = Math.Clamp(
+            (int)(RoleVectorMinimumCharacterCountBox.Value ??
+                  TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount),
+            2,
+            p.TiktokRoleVectorCharacterCount);
         p.TiktokProofAccountConfigMigrated = true;
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;

@@ -21,6 +21,7 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
                     AiTextModel = $"model-{index}",
                     TiktokRoleReferenceSelectionMode = index % 2 == 0 ? "local" : "ai_full_review",
                     TiktokRoleReferenceAiFallbackEnabled = index % 3 != 0,
+                    TiktokRoleVectorViewMode = index % 2 == 0 ? "multi_angle" : "single",
                     PosterTitleVerifyAiRetryCount = index % 4,
                     FrameExtractEpisodeIndex = index + 1,
                     FrameExtractTime = index + 1.5,
@@ -54,6 +55,8 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
                     .Should().Be(result.Index % 2 == 0 ? "local" : "ai_full_review");
                 document.RootElement.GetProperty("TiktokRoleReferenceAiFallbackEnabled").GetBoolean()
                     .Should().Be(result.Index % 3 != 0);
+                document.RootElement.GetProperty("TiktokRoleVectorViewMode").GetString()
+                    .Should().Be(result.Index % 2 == 0 ? "multi_angle" : "single");
                 document.RootElement.GetProperty("AiRewriteSynopsis").GetBoolean().Should().Be(result.Index % 2 == 0);
                 document.RootElement.GetProperty("PosterTitleVerifyAiRetryCount").GetInt32()
                     .Should().Be(result.Index % 4);

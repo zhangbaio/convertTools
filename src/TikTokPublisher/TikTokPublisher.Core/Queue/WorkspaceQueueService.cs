@@ -119,10 +119,23 @@ public static class WorkspaceQueueService
         SaveProjects(workspaceRoot, items);
     }
 
-    public static IReadOnlyList<QueueProjectItem> AddProjectsToQueue(string workspaceRoot, IEnumerable<string> projectDirs)
+    public static IReadOnlyList<QueueProjectItem> AddProjectsToQueue(
+        string workspaceRoot,
+        IEnumerable<string> projectDirs,
+        string? accountProfileId = null,
+        string? accountProfileName = null)
     {
         var root = Path.GetFullPath(workspaceRoot);
         var binding = WorkspaceBindingService.Load(root);
+        var explicitAccountId = (accountProfileId ?? "").Trim();
+        var explicitAccountName = (accountProfileName ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(explicitAccountId) &&
+            !string.IsNullOrWhiteSpace(binding?.AccountProfileId) &&
+            !string.Equals(binding.AccountProfileId.Trim(), explicitAccountId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"工作目录已绑定其他账号：{binding.AccountProfileName} ({binding.AccountProfileId})。");
+        }
         var items = ScanProjects(root).ToList();
         var options = LoadRunOptions(root);
         var existing = items.ToDictionary(i => Path.GetFullPath(i.ProjectDir), StringComparer.OrdinalIgnoreCase);
@@ -142,6 +155,7 @@ public static class WorkspaceQueueService
             {
                 existingItem.Enabled = true;
                 existingItem.QueuedAt = NextQueuedAt(ref lastQueuedAt);
+                ApplyExplicitAccountBinding(existingItem);
                 changed = true;
                 continue;
             }
@@ -149,6 +163,7 @@ public static class WorkspaceQueueService
             var item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), null, binding);
             item.Enabled = true;
             item.QueuedAt = NextQueuedAt(ref lastQueuedAt);
+            ApplyExplicitAccountBinding(item);
             items.Add(item);
             existing[normalized] = item;
             changed = true;
@@ -160,6 +175,13 @@ public static class WorkspaceQueueService
         items = OrderByQueuedAt(items);
         SaveRunOptions(root, items, options);
         return items.Where(i => appendedKeys.Contains(Path.GetFullPath(i.ProjectDir))).ToArray();
+
+        void ApplyExplicitAccountBinding(QueueProjectItem item)
+        {
+            if (string.IsNullOrWhiteSpace(explicitAccountId)) return;
+            item.AccountProfileId = explicitAccountId;
+            item.AccountProfileName = explicitAccountName;
+        }
     }
 
     public static void RemoveProjectsFromQueue(string workspaceRoot, IEnumerable<string> projectDirs)

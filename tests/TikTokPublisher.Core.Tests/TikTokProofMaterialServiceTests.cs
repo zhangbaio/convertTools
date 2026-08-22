@@ -548,6 +548,46 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
+    public async Task Concurrent_pdf_render_uses_wps_and_libreoffice_in_parallel_instead_of_waiting_for_wps()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        using var fixture = new ProofTemplateFixture();
+        var docxPath = fixture.CreateTemplate();
+        var firstOutput = Path.Combine(fixture.DirectoryPath, "first.pdf");
+        var secondOutput = Path.Combine(fixture.DirectoryPath, "second.pdf");
+        using var wpsEntered = new ManualResetEventSlim(false);
+        using var releaseWps = new ManualResetEventSlim(false);
+        var automation = new StubWpsProofMaterialAutomation((_, output, _, ct) =>
+        {
+            wpsEntered.Set();
+            releaseWps.Wait(ct);
+            File.WriteAllBytes(output, "%PDF-1.4\nwps"u8.ToArray());
+        });
+        var wps = new WpsProofMaterialPdfRenderer(automation);
+        var libreOffice = new StubRenderer("LibreOffice", async (_, output, ct) =>
+            await File.WriteAllBytesAsync(output, "%PDF-1.7\nlibreoffice"u8.ToArray(), ct));
+        var service = new TikTokProofMaterialPdfRenderService(wps, libreOffice);
+
+        var first = service.RenderAsync(docxPath, firstOutput);
+        wpsEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        try
+        {
+            var second = await service.RenderAsync(docxPath, secondOutput);
+            second.RendererName.Should().Be("LibreOffice");
+            File.Exists(secondOutput).Should().BeTrue();
+        }
+        finally
+        {
+            releaseWps.Set();
+        }
+
+        var firstResult = await first;
+        firstResult.RendererName.Should().Be("WPS");
+        File.Exists(firstOutput).Should().BeTrue();
+    }
+
+    [Fact]
     public void Queue_request_requires_new_title_and_never_falls_back_to_original_title()
     {
         var item = new QueueProjectItem

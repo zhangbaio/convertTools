@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
@@ -43,6 +44,26 @@ internal delegate Task<string> QueueProofMaterialPrerequisite(
     TikTokAccountProfile? account,
     Action<string>? log,
     CancellationToken cancellationToken);
+
+internal interface IQueueStepException
+{
+    string StepKey { get; }
+}
+
+internal sealed class QueueStepExecutionException(string stepKey, Exception innerException)
+    : Exception(innerException.Message, innerException), IQueueStepException
+{
+    public string StepKey { get; } = stepKey;
+}
+
+internal sealed class QueueStepCanceledException(
+    string stepKey,
+    OperationCanceledException innerException)
+    : OperationCanceledException(innerException.Message, innerException, innerException.CancellationToken),
+        IQueueStepException
+{
+    public string StepKey { get; } = stepKey;
+}
 
 /// <summary>工作目录队列 Worker（预处理步骤 + <c>upload_series</c>，支持项目级并行）。</summary>
 public sealed class QueueWorkerRunner
@@ -545,9 +566,7 @@ public sealed class QueueWorkerRunner
                 }
                 catch (OperationCanceledException ex)
                 {
-                    var failedStep = string.IsNullOrWhiteSpace(preItem.CurrentStep)
-                        ? preUploadSteps.LastOrDefault() ?? QueueStepRegistry.UploadSeries
-                        : preItem.CurrentStep;
+                    var failedStep = ResolveFailedStep(ex, preItem, preUploadSteps);
                     if (ct.IsCancellationRequested)
                     {
                         Mutate(() => MarkStopped(preItem, failedStep));
@@ -578,9 +597,7 @@ public sealed class QueueWorkerRunner
                 }
                 catch (Exception ex)
                 {
-                    var failedStep = string.IsNullOrWhiteSpace(preItem.CurrentStep)
-                        ? preUploadSteps.LastOrDefault() ?? QueueStepRegistry.UploadSeries
-                        : preItem.CurrentStep;
+                    var failedStep = ResolveFailedStep(ex, preItem, preUploadSteps);
                     Mutate(() =>
                     {
                         MarkFailed(preItem, failedStep, ex.Message);
@@ -727,7 +744,53 @@ public sealed class QueueWorkerRunner
         CancellationToken ct,
         Action<Action> mutate)
     {
+        var parallelDependencies = QueueStepExecutionGraph.BuildDependencies(preUploadSteps);
+        var parallelSteps = parallelDependencies.Keys.ToHashSet(StringComparer.Ordinal);
+        var parallelGroupStarted = false;
+        var generationSettings = ClientSettingsStore.Load();
+        var perProjectGenerationConcurrency = Math.Clamp(
+            generationSettings.TiktokGenerationPerProjectConcurrency,
+            1,
+            4);
+        using var projectGenerationSlots = new SemaphoreSlim(
+            perProjectGenerationConcurrency,
+            perProjectGenerationConcurrency);
+
         foreach (var stepKey in preUploadSteps)
+        {
+            if (!parallelSteps.Contains(stepKey))
+            {
+                await RunStepAsync(stepKey, [stepKey]).ConfigureAwait(false);
+                continue;
+            }
+
+            if (parallelGroupStarted) continue;
+            parallelGroupStarted = true;
+
+            var groupOrder = preUploadSteps.Where(parallelSteps.Contains).ToArray();
+            Dictionary<string, Lazy<Task>>? taskFactories = null;
+            taskFactories = groupOrder.ToDictionary(
+                groupStep => groupStep,
+                groupStep => new Lazy<Task>(
+                    () => RunNodeAsync(groupStep),
+                    LazyThreadSafetyMode.ExecutionAndPublication),
+                StringComparer.Ordinal);
+            await Task.WhenAll(groupOrder.Select(groupStep => taskFactories![groupStep].Value))
+                .ConfigureAwait(false);
+
+            async Task RunNodeAsync(string groupStep)
+            {
+                await Task.Yield();
+                var dependencyTasks = parallelDependencies[groupStep]
+                    .Select(dependency => taskFactories![dependency].Value)
+                    .ToArray();
+                if (dependencyTasks.Length > 0)
+                    await Task.WhenAll(dependencyTasks).ConfigureAwait(false);
+                await RunStepAsync(groupStep, parallelSteps).ConfigureAwait(false);
+            }
+        }
+
+        async Task RunStepAsync(string stepKey, IReadOnlyCollection<string> activeSteps)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -736,34 +799,65 @@ public sealed class QueueWorkerRunner
             if (!ShouldRunStep(item, stepKey, options, stepAccount))
             {
                 Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 已完成，跳过", stepKey);
-                continue;
+                return;
             }
 
             if (!QueueStepRegistry.IsImplemented(stepKey))
             {
                 Report(onProgress, workspace, item,
                     $"{QueueStepRegistry.LabelOf(stepKey)} 尚未接入 C# 版，跳过", stepKey);
-                continue;
+                return;
             }
 
             mutate(() => MarkRunning(item, stepKey));
             Report(onProgress, workspace, item, $"开始 {QueueStepRegistry.LabelOf(stepKey)}…", stepKey);
+            var stepTimer = Stopwatch.StartNew();
 
             var useSummaryLog = wasCompletedBeforeRun && options.ForceRerunCompletedSteps;
             Action<string> stepLog = useSummaryLog
                 ? QueueStepLogFilters.SummaryOnly(msg => Report(onProgress, workspace, item, msg, stepKey))
                 : msg => Report(onProgress, workspace, item, msg, stepKey);
 
-            await RunPreUploadStepAsync(
-                item,
-                stepKey,
-                options,
-                stepAccount,
-                stepLog,
-                ct).ConfigureAwait(false);
+            try
+            {
+                var useProjectGate = activeSteps.Count > 1;
+                if (useProjectGate)
+                    await projectGenerationSlots.WaitAsync(ct).ConfigureAwait(false);
+                try
+                {
+                    await QueueStepResourceScheduler.RunAsync(
+                        stepKey,
+                        () => RunPreUploadStepAsync(
+                            item,
+                            stepKey,
+                            options,
+                            stepAccount,
+                            stepLog,
+                            ct),
+                        stepLog,
+                        ct).ConfigureAwait(false);
+                }
+                finally
+                {
+                    if (useProjectGate) projectGenerationSlots.Release();
+                }
+            }
+            catch (OperationCanceledException ex)
+            {
+                throw new QueueStepCanceledException(stepKey, ex);
+            }
+            catch (Exception ex)
+            {
+                throw new QueueStepExecutionException(stepKey, ex);
+            }
 
-            mutate(() => MarkCompleted(item, stepKey));
-            Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 完成", stepKey);
+            mutate(() => MarkParallelStepCompleted(item, stepKey, activeSteps));
+            Report(
+                onProgress,
+                workspace,
+                item,
+                $"{QueueStepRegistry.LabelOf(stepKey)} 完成（耗时 {FormatStepElapsed(stepTimer.Elapsed)}）",
+                stepKey);
         }
     }
 
@@ -912,11 +1006,13 @@ public sealed class QueueWorkerRunner
             {
                 try
                 {
-                    if (TikTokPublishConstants.RequiresGeneratedProofMaterial(materialTypes))
-                    {
-                        reusableProofPath = TikTokProofMaterialService.ValidateExistingForUpload(item);
-                    }
-                    else
+                    var requiresAgreement =
+                        TikTokPublishConstants.RequiresGeneratedProofMaterial(materialTypes);
+                    var requiresAuxiliaryGeneratedMaterial = materialTypes.Any(type =>
+                        type is TikTokPublishConstants.SourceFileInformationMaterialType or
+                            TikTokPublishConstants.AiGenerationScreenshotsMaterialType or
+                            TikTokPublishConstants.EditingProjectFilesMaterialType);
+                    if (requiresAuxiliaryGeneratedMaterial)
                     {
                         var proofSettings = ClientSettingsStore.Load();
                         if (!TikTokProofMaterialService.HasReusableProofMaterialForCopyrightCompletion(
@@ -927,8 +1023,11 @@ public sealed class QueueWorkerRunner
                             throw new InvalidOperationException(
                                 "生成证明材料步骤已完成，但本机缺少当前账号勾选的辅助证明材料。");
                         }
-                        reusableProofPath = string.Empty;
                     }
+
+                    reusableProofPath = requiresAgreement
+                        ? TikTokProofMaterialService.ValidateExistingForUpload(item)
+                        : string.Empty;
                     Report(
                         onProgress,
                         workspace,
@@ -1158,6 +1257,7 @@ public sealed class QueueWorkerRunner
         CancellationToken ct)
     {
         var settings = ClientSettingsStore.Load();
+        QueueWorkloadResourceScheduler.Configure(settings);
         var materialOptions = TikTokMaterialValidationService.Options.FromAccount(account, settings);
         switch (stepKey)
         {
@@ -1190,7 +1290,9 @@ public sealed class QueueWorkerRunner
                     account?.TiktokRoleVectorCharacterCount ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount,
                     options.ForceRerunCompletedSteps,
                     log,
-                    ct).ConfigureAwait(false);
+                    ct,
+                    account?.TiktokRoleVectorMinimumCharacterCount ??
+                    TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateProjectImages:
                 await TikTokProjectImageService.GenerateAsync(
@@ -1318,7 +1420,14 @@ public sealed class QueueWorkerRunner
                 var workflow = ProjectWorkspaceService.ResolveWorkflowProjectDir(item.ProjectDir);
                 var configuredCount = account?.TiktokRoleVectorCharacterCount ??
                                       TikTokAccountProfile.DefaultRoleVectorCharacterCount;
-                if (!TikTokRoleVectorService.HasCurrentOutput(workflow, configuredCount)) return true;
+                var minimumCount = account?.TiktokRoleVectorMinimumCharacterCount ??
+                                   TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount;
+                var viewMode = ClientSettingsStore.Load().TiktokRoleVectorViewMode;
+                if (!TikTokRoleVectorService.HasCurrentOutput(
+                        workflow,
+                        configuredCount,
+                        minimumCount,
+                        viewMode)) return true;
             }
             catch
             {
@@ -1347,6 +1456,27 @@ public sealed class QueueWorkerRunner
         return string.IsNullOrWhiteSpace(detail)
             ? $"{stepLabel} 被取消或超时。"
             : $"{stepLabel} 被取消或超时：{detail}";
+    }
+
+    private static string FormatStepElapsed(TimeSpan elapsed) =>
+        elapsed.TotalMinutes >= 1
+            ? $"{(int)elapsed.TotalMinutes}分{elapsed.Seconds:D2}秒"
+            : $"{Math.Max(0.01, elapsed.TotalSeconds):0.00}秒";
+
+    private static string ResolveFailedStep(
+        Exception exception,
+        QueueProjectItem item,
+        IReadOnlyList<string> preUploadSteps)
+    {
+        if (exception is IQueueStepException stepException &&
+            !string.IsNullOrWhiteSpace(stepException.StepKey))
+        {
+            return stepException.StepKey;
+        }
+
+        return string.IsNullOrWhiteSpace(item.CurrentStep)
+            ? preUploadSteps.LastOrDefault() ?? QueueStepRegistry.UploadSeries
+            : item.CurrentStep;
     }
 
     private static string BuildExceptionDiagnostics(
@@ -1494,6 +1624,30 @@ public sealed class QueueWorkerRunner
         item.StatusText = QueueStepStatus.Completed;
         item.StepStates[stepKey] = QueueStepStatus.Completed;
         item.LastError = "";
+        item.NormalizeStepStates();
+    }
+
+    private static void MarkParallelStepCompleted(
+        QueueProjectItem item,
+        string stepKey,
+        IReadOnlyCollection<string> activeSteps)
+    {
+        if (stepKey == QueueStepRegistry.UploadSeries)
+            item.ManualUploadStatus = "";
+        item.StepStates[stepKey] = QueueStepStatus.Completed;
+        item.LastError = "";
+
+        var runningStep = activeSteps.FirstOrDefault(key =>
+            item.StepStates.GetValueOrDefault(key) == QueueStepStatus.Running);
+        if (!string.IsNullOrWhiteSpace(runningStep))
+        {
+            item.CurrentStep = runningStep;
+            item.StatusText = QueueStepStatus.Running;
+            return;
+        }
+
+        item.CurrentStep = "";
+        item.StatusText = QueueStepStatus.Completed;
         item.NormalizeStepStates();
     }
 
