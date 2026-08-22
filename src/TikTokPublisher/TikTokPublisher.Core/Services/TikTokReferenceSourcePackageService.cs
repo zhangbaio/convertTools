@@ -280,9 +280,11 @@ public static partial class TikTokReferenceSourcePackageService
             log?.Invoke($"角色参考图现有素材不足，将尝试逐集补下载：{ex.Message}");
             episodeCharacterSources = [];
         }
-        var existingCharacterDirBeforeRecovery = Path.Combine(root, CharacterDirectoryName);
+        // This is only a preflight decision. Do not rewrite the manifest or emit the
+        // old minimum-count fallback message before recovery has had a chance to fill
+        // the configured character count.
         var hasEnoughExistingCharacters =
-            SelectExistingCharacterImages(existingCharacterDirBeforeRecovery, log, configuredCharacterCount).Count >=
+            ListCurrentCharacterImages(context.WorkflowProjectDir, configuredCharacterCount).Count >=
             configuredCharacterCount;
         if (recoverMissingRoleReferences &&
             episodeCharacterSources.Length < characters.Length &&
