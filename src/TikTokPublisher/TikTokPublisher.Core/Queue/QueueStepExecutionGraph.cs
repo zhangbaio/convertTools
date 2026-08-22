@@ -73,7 +73,7 @@ internal static class QueueStepResourceScheduler
         QueueStepRegistry.GenerateRoleVector or
             QueueStepRegistry.GenerateProjectImages =>
             QueueWorkloadResource.Visual,
-        QueueStepRegistry.GenerateProofMaterial or QueueStepRegistry.GenerateTimestampCertificate =>
+        QueueStepRegistry.GenerateTimestampCertificate =>
             QueueWorkloadResource.Document,
         _ => null,
     };

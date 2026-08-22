@@ -206,7 +206,11 @@ public sealed class TikTokProofMaterialService
                 $"输出={request.OutputPdfPath}；渲染器={request.PreferredPdfRenderer}。");
             try
             {
-                result = await service.GenerateAsync(request, log, cancellationToken).ConfigureAwait(false);
+                result = await QueueWorkloadResourceScheduler.RunAsync(
+                    QueueWorkloadResource.Document,
+                    () => service.GenerateAsync(request, log, cancellationToken),
+                    log,
+                    cancellationToken).ConfigureAwait(false);
                 coreCompleted = true;
                 sourceCompleted = false;
                 aiCompleted = false;
