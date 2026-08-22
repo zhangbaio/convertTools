@@ -45,6 +45,34 @@ public static class TikTokSourceFileInfoUploadPackageService
             .Where(File.Exists)
             .ToArray();
 
+    internal static (string OutlinePdf, string ScriptPdf, string RoleVectorImage)
+        ValidateExistingPrerequisites(string workflowProjectDirectory)
+    {
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        var outline = ResolveRequiredFile(
+            null,
+            Path.Combine(workflow, TikTokAiScriptOutlineService.OutputFileName),
+            "AI 大纲 PDF",
+            "请先执行“生成AI大纲”步骤。");
+        var script = ResolveRequiredFile(
+            null,
+            FindScriptPdf(workflow),
+            "剧本 PDF",
+            "请先执行“生成剧本”步骤。");
+        var roleVector = ResolveRequiredFile(
+            null,
+            Path.Combine(
+                TikTokReferenceSourcePackageService.GetRoot(workflow),
+                TikTokReferenceSourcePackageService.CharacterWorkbenchFileName),
+            "角色矢量图",
+            "请先执行“生成角色矢量图”步骤。");
+
+        ValidatePdf(outline, "AI 大纲 PDF");
+        ValidatePdf(script, "剧本 PDF");
+        ValidatePng(roleVector, "角色矢量图", requireRoleVectorSize: true);
+        return (outline, script, roleVector);
+    }
+
     public static bool HasCurrentOutput(
         string workflowProjectDirectory,
         bool includeRoleSceneScreenshot = false)
