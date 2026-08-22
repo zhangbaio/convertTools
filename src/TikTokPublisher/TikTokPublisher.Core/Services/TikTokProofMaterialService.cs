@@ -254,38 +254,33 @@ public sealed class TikTokProofMaterialService
         else if (request.GenerateSourceFileScreenshots)
         {
             var timer = Stopwatch.StartNew();
-            log?.Invoke("[原始文件或素材文件信息] 正在确认 AI 大纲和剧本 PDF。");
-            var outlinePdf = await TikTokAiScriptOutlineService.GenerateAsync(
-                item,
-                settings,
-                account,
-                forceRerun: false,
-                log,
-                cancellationToken).ConfigureAwait(false);
-            var scriptPdf = await TikTokEpisodeScriptService.GenerateAsync(
-                item,
-                settings,
-                account,
-                forceRerun: false,
-                log,
-                cancellationToken).ConfigureAwait(false);
-            log?.Invoke("[原始文件或素材文件信息] 正在生成参考格式素材包；角色定妆图将由已配置的图片模型生成。");
-            await TikTokReferenceSourcePackageService.GenerateAsync(
-                item,
-                settings,
-                forceRerun: false,
-                log,
-                cancellationToken,
-                account?.TiktokRoleVectorCharacterCount ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount,
-                recoverMissingRoleReferences: false,
-                minimumCharacterCount: account?.TiktokRoleVectorMinimumCharacterCount ??
-                                       TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount)
-                .ConfigureAwait(false);
-            if (!TikTokRoleVectorService.HasCurrentOutput(context.WorkflowProjectDir))
+            log?.Invoke(
+                "[原始文件或素材文件信息] 正在校验已有 AI 大纲、剧本、参考素材包和角色矢量图；" +
+                "本步骤不会生成或修改这些前置材料。");
+            var prerequisites = TikTokSourceFileInfoUploadPackageService.ValidateExistingPrerequisites(
+                context.WorkflowProjectDir);
+            if (!TikTokReferenceSourcePackageService.HasCurrentOutput(context.WorkflowProjectDir))
             {
                 throw new InvalidOperationException(
-                    "原始文件或素材文件信息缺少角色矢量图，请先执行“生成角色矢量图”步骤。");
+                    "原始文件或素材文件信息缺少有效的参考格式原始素材包，" +
+                    "请先执行“生成角色矢量图”步骤；生成证明材料不会自动生成角色参考包。");
             }
+
+            var configuredCharacterCount = account?.TiktokRoleVectorCharacterCount ??
+                                           TikTokAccountProfile.DefaultRoleVectorCharacterCount;
+            var minimumCharacterCount = account?.TiktokRoleVectorMinimumCharacterCount ??
+                                        TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount;
+            if (!TikTokRoleVectorService.HasCurrentOutput(
+                    context.WorkflowProjectDir,
+                    configuredCharacterCount,
+                    minimumCharacterCount,
+                    settings.TiktokRoleVectorViewMode))
+            {
+                throw new InvalidOperationException(
+                    "原始文件或素材文件信息缺少有效的角色矢量图，" +
+                    "请先执行“生成角色矢量图”步骤；生成证明材料不会自动重新生成角色图片。");
+            }
+            log?.Invoke("[原始文件或素材文件信息] 前置校验通过，将只重新生成截图和上传包。");
             if (!TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir) &&
                 TikTokAiDramaProductionMaterialService.CanGenerate(context.WorkflowProjectDir))
             {
@@ -310,8 +305,8 @@ public sealed class TikTokProofMaterialService
                     cancellationToken);
                 var uploadFiles = TikTokSourceFileInfoUploadPackageService.Generate(
                     context.WorkflowProjectDir,
-                    outlinePdf,
-                    scriptPdf,
+                    prerequisites.OutlinePdf,
+                    prerequisites.ScriptPdf,
                     log,
                     request.IncludeSourceInfoRoleSceneScreenshot);
                 sourceCompleted = true;

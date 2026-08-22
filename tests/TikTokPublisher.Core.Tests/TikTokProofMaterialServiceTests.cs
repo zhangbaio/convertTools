@@ -66,6 +66,99 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
+    public async Task Source_information_generation_requires_existing_outline_without_hidden_generation()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"proof-source-preflight-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "source-project");
+        Directory.CreateDirectory(source);
+        var item = new QueueProjectItem
+        {
+            ProjectDir = source,
+            OriginalTitle = "原剧名",
+            NewTitle = "新剧名",
+            Description = "测试简介",
+            EpisodeCount = 3,
+        };
+        var account = new TikTokAccountProfile
+        {
+            TiktokCopyrightMaterialTypes = [TikTokPublishConstants.SourceFileInformationMaterialType],
+        };
+        var workflow = ProjectWorkspaceService.LoadContext(source).WorkflowProjectDir;
+
+        try
+        {
+            Func<Task> action = async () => await TikTokProofMaterialService.GenerateAsync(
+                item,
+                new ClientSettings(),
+                account,
+                forceRerun: true,
+                log: null,
+                CancellationToken.None);
+
+            await action.Should().ThrowAsync<FileNotFoundException>()
+                .WithMessage("*AI 大纲 PDF*生成AI大纲*步骤*");
+            File.Exists(Path.Combine(workflow, TikTokAiScriptOutlineService.OutputFileName))
+                .Should().BeFalse("证明材料步骤不得隐式生成 AI 大纲");
+            TikTokSourceFileInfoUploadPackageService.FindScriptPdf(workflow)
+                .Should().BeNull("证明材料步骤不得隐式生成剧本");
+            Directory.Exists(TikTokReferenceSourcePackageService.GetRoot(workflow))
+                .Should().BeFalse("前置校验失败时不得创建角色参考包");
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Source_information_generation_requires_existing_role_package_without_hidden_generation()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"proof-role-preflight-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "source-project");
+        Directory.CreateDirectory(source);
+        var item = new QueueProjectItem
+        {
+            ProjectDir = source,
+            OriginalTitle = "原剧名",
+            NewTitle = "新剧名",
+            Description = "测试简介",
+            EpisodeCount = 3,
+        };
+        var account = new TikTokAccountProfile
+        {
+            TiktokCopyrightMaterialTypes = [TikTokPublishConstants.SourceFileInformationMaterialType],
+        };
+        var workflow = ProjectWorkspaceService.LoadContext(source).WorkflowProjectDir;
+        Directory.CreateDirectory(workflow);
+        File.WriteAllBytes(
+            Path.Combine(workflow, TikTokAiScriptOutlineService.OutputFileName),
+            "%PDF-1.7\nexisting outline"u8.ToArray());
+        File.WriteAllBytes(
+            Path.Combine(workflow, "新剧名前5集剧本.pdf"),
+            "%PDF-1.7\nexisting script"u8.ToArray());
+
+        try
+        {
+            Func<Task> action = async () => await TikTokProofMaterialService.GenerateAsync(
+                item,
+                new ClientSettings(),
+                account,
+                forceRerun: true,
+                log: null,
+                CancellationToken.None);
+
+            await action.Should().ThrowAsync<FileNotFoundException>()
+                .WithMessage("*角色矢量图*生成角色矢量图*步骤*");
+            Directory.Exists(TikTokReferenceSourcePackageService.GetRoot(workflow))
+                .Should().BeFalse("证明材料步骤不得隐式创建或生成角色参考包");
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Builder_replaces_split_text_and_preserves_floating_seal_and_formatting()
     {
         using var fixture = new ProofTemplateFixture();
