@@ -201,7 +201,8 @@ public static partial class TikTokReferenceSourcePackageService
         CancellationToken ct,
         int configuredCharacterCount = TikTokAccountProfile.DefaultRoleVectorCharacterCount,
         bool recoverMissingRoleReferences = false,
-        int minimumCharacterCount = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount)
+        int minimumCharacterCount = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount,
+        RoleVectorProgressTracker? progressTracker = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
@@ -270,7 +271,13 @@ public static partial class TikTokReferenceSourcePackageService
         var characters = SelectCharacterProfiles(candidates, configuredCharacterCount);
         LogRoleReferenceSelectionMode(settings, log);
         string[] episodeCharacterSources;
-        try
+        var resumedSources = progressTracker?.GetSelectedSources() ?? [];
+        if (resumedSources.Count > 0)
+        {
+            episodeCharacterSources = resumedSources.Take(characters.Length).ToArray();
+            log?.Invoke($"角色参考图：从断点复用已匹配人物 {episodeCharacterSources.Length}/{characters.Length} 人。");
+        }
+        else try
         {
             episodeCharacterSources = await SelectRoleMatchedCharacterSourcesAsync(
                 characters,
@@ -285,6 +292,8 @@ public static partial class TikTokReferenceSourcePackageService
             log?.Invoke($"角色参考图现有素材不足，将尝试逐集补下载：{ex.Message}");
             episodeCharacterSources = [];
         }
+        if (episodeCharacterSources.Length > 0)
+            progressTracker?.MarkVisionBatch([], episodeCharacterSources);
         // This is only a preflight decision. Do not rewrite the manifest or emit the
         // old minimum-count fallback message before recovery has had a chance to fill
         // the configured character count.
@@ -310,7 +319,8 @@ public static partial class TikTokReferenceSourcePackageService
                 settings,
                 log,
                 ct,
-                minimumCharacterCount).ConfigureAwait(false);
+                minimumCharacterCount,
+                progressTracker).ConfigureAwait(false);
         }
         var sourceFingerprint = ComputeSourceFingerprint(
             title,
@@ -341,7 +351,10 @@ public static partial class TikTokReferenceSourcePackageService
                                                     configuredCharacterCount,
                                                     minimumCharacterCount);
         if (!useEpisodeCharacters && !reuseCharacters) EnsureImageModelConfigured(settings);
-        ResetPackageRoot(root, preserveCharactersAndRoleVector: reuseCharacters);
+        ResetPackageRoot(
+            root,
+            preserveCharactersAndRoleVector: reuseCharacters || progressTracker is not null);
+        progressTracker?.MarkPhase("character_generation");
         var characterDir = Path.Combine(root, CharacterDirectoryName);
         var videoDir = Path.Combine(root, VideoDirectoryName);
         var materialDir = Path.Combine(root, MaterialDirectoryName, "001");
@@ -358,7 +371,8 @@ public static partial class TikTokReferenceSourcePackageService
                 episodeCharacterSources,
                 settings,
                 log,
-                ct).ConfigureAwait(false));
+                ct,
+                progressTracker).ConfigureAwait(false));
             log?.Invoke(
                 $"参考格式素材包：已从剧集真实角色素材生成 {generatedCharacters.Count} 张定妆图，人物形象与成片保持一致。");
         }
@@ -376,10 +390,17 @@ public static partial class TikTokReferenceSourcePackageService
             {
                 ct.ThrowIfCancellationRequested();
                 var output = Path.Combine(characterDir, $"{SanitizeFileName(character.Name)}.png");
+                if (progressTracker?.CanReuseCharacter(character.Name, string.Empty, output) == true)
+                {
+                    generatedCharacters.Add(new GeneratedCharacter(character, output));
+                    log?.Invoke($"角色图片 {index + 1}/{characters.Length}：从断点复用 {character.Name} 定妆图。");
+                    continue;
+                }
                 log?.Invoke($"角色图片 {index + 1}/{characters.Length}：{character.Name}（图片模型）");
                 var bytes = await GenerateImageWithRetryAsync(
                     BuildCharacterPrompt(character), settings, character.Name, ct).ConfigureAwait(false);
                 await SaveNormalizedPngAsync(bytes, output, 768, 1024, ct).ConfigureAwait(false);
+                progressTracker?.MarkCharacter(character.Name, string.Empty, output);
                 generatedCharacters.Add(new GeneratedCharacter(character, output));
             }
         }
@@ -490,7 +511,8 @@ public static partial class TikTokReferenceSourcePackageService
         int configuredCharacterCount,
         Action<string>? log,
         CancellationToken ct,
-        int minimumCharacterCount = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount)
+        int minimumCharacterCount = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount,
+        RoleVectorProgressTracker? progressTracker = null)
     {
         configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
         minimumCharacterCount = NormalizeMinimumCharacterCount(minimumCharacterCount, configuredCharacterCount);
@@ -542,7 +564,8 @@ public static partial class TikTokReferenceSourcePackageService
                 episodeCharacterSources,
                 settings,
                 log,
-                ct).ConfigureAwait(false);
+                ct,
+                progressTracker).ConfigureAwait(false);
             WriteCharacterManifest(
                 characterDir,
                 imported,
@@ -576,11 +599,17 @@ public static partial class TikTokReferenceSourcePackageService
         {
             ct.ThrowIfCancellationRequested();
             var output = Path.Combine(characterDir, $"{SanitizeFileName(profile.Name)}.png");
-            if (File.Exists(output)) continue;
+            if (progressTracker?.CanReuseCharacter(profile.Name, string.Empty, output) == true)
+            {
+                log?.Invoke($"角色矢量图：从断点复用 {profile.Name} 定妆图。");
+                continue;
+            }
+            if (File.Exists(output) && progressTracker is null) continue;
             log?.Invoke($"角色矢量图：角色图片 {index + 1}/{profiles.Length}，生成 {profile.Name} 定妆图。");
             var bytes = await GenerateImageWithRetryAsync(
                 BuildCharacterPrompt(profile), settings, profile.Name, ct).ConfigureAwait(false);
             await SaveNormalizedPngAsync(bytes, output, 768, 1024, ct).ConfigureAwait(false);
+            progressTracker?.MarkCharacter(profile.Name, string.Empty, output);
         }
 
         existing = profiles
@@ -1143,7 +1172,8 @@ public static partial class TikTokReferenceSourcePackageService
         ClientSettings settings,
         Action<string>? log,
         CancellationToken ct,
-        int minimumCharacterCount)
+        int minimumCharacterCount,
+        RoleVectorProgressTracker? progressTracker)
     {
         minimumCharacterCount = NormalizeMinimumCharacterCount(minimumCharacterCount, profiles.Count);
         var totalEpisodes = 0;
@@ -1159,6 +1189,11 @@ public static partial class TikTokReferenceSourcePackageService
         var retainedFrames = TikTokAiGenerationScreenshotService
             .ListRetainedFrameImages(context.WorkflowProjectDir);
         var episodes = ResolveRoleReferenceRecoveryEpisodes(retainedFrames, totalEpisodes);
+        if (progressTracker is not null)
+        {
+            var checkedEpisodes = progressTracker.CheckedEpisodes;
+            episodes = episodes.Where(episode => !checkedEpisodes.Contains(episode)).ToArray();
+        }
         if (episodes.Count == 0)
         {
             log?.Invoke("角色补源：现有抽帧已覆盖全部剧集，仍未达到配置人数。");
@@ -1245,6 +1280,7 @@ public static partial class TikTokReferenceSourcePackageService
                 .ToList();
             if (modelCandidates.Count == 0)
             {
+                progressTracker?.MarkVisionBatch(batch, best);
                 log?.Invoke(
                     $"角色补源批次 {batchIndex + 1}/{batches.Count}：没有取得有效候选帧，" +
                     $"耗时 {batchTimer.Elapsed.TotalSeconds:F1} 秒，继续下一批。");
@@ -1300,6 +1336,7 @@ public static partial class TikTokReferenceSourcePackageService
                 }
                 catch (InvalidOperationException fallbackEx)
                 {
+                    progressTracker?.MarkVisionBatch(batch, best);
                     if (best.Length >= minimumCharacterCount)
                     {
                         consecutiveNoGrowthBatches++;
@@ -1324,6 +1361,7 @@ public static partial class TikTokReferenceSourcePackageService
             }
             catch (InvalidOperationException ex)
             {
+                progressTracker?.MarkVisionBatch(batch, best);
                 if (best.Length >= minimumCharacterCount)
                 {
                     consecutiveNoGrowthBatches++;
@@ -1348,6 +1386,7 @@ public static partial class TikTokReferenceSourcePackageService
             }
             var previousBestLength = best.Length;
             if (selected.Length >= best.Length) best = selected;
+            progressTracker?.MarkVisionBatch(batch, best);
             consecutiveNoGrowthBatches = best.Length > previousBestLength
                 ? 0
                 : consecutiveNoGrowthBatches + 1;
@@ -2081,7 +2120,8 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
         IReadOnlyList<string> sources,
         ClientSettings settings,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        RoleVectorProgressTracker? progressTracker = null)
     {
         ResilientFileSystem.EnsureDirectory(characterDirectory);
         var count = Math.Min(profiles.Count, sources.Count);
@@ -2103,6 +2143,15 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
                     characterDirectory,
                     $"{SanitizeFileName(profiles[index].Name)}.png");
                 var temporary = Path.Combine(Path.GetTempPath(), $"episode-character-{Guid.NewGuid():N}.png");
+                if (progressTracker?.CanReuseCharacter(
+                        profiles[index].Name,
+                        sources[index],
+                        output) == true)
+                {
+                    log?.Invoke($"角色图片 {index + 1}/{count}：从断点复用 {profiles[index].Name} 定妆图。");
+                    staged.Add((profiles[index], output, output, true, sources[index]));
+                    continue;
+                }
                 byte[] bytes;
                 var generatedWithReference = false;
                 if (IsImageModelConfigured(settings))
@@ -2134,7 +2183,10 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
                     bytes = await File.ReadAllBytesAsync(sources[index], ct).ConfigureAwait(false);
                 }
                 await SaveNormalizedPngAsync(bytes, temporary, 768, 1024, ct).ConfigureAwait(false);
-                staged.Add((profiles[index], temporary, output, generatedWithReference, sources[index]));
+                ResilientFileSystem.EnsureDirectory(characterDirectory);
+                File.Move(temporary, output, overwrite: true);
+                progressTracker?.MarkCharacter(profiles[index].Name, sources[index], output);
+                staged.Add((profiles[index], output, output, generatedWithReference, sources[index]));
             }
 
             Directory.CreateDirectory(characterDirectory);
@@ -2145,7 +2197,8 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
 
             ResilientFileSystem.EnsureDirectory(characterDirectory);
             foreach (var item in staged)
-                File.Move(item.Temporary, item.Output, overwrite: true);
+                if (!string.Equals(item.Temporary, item.Output, StringComparison.OrdinalIgnoreCase))
+                    File.Move(item.Temporary, item.Output, overwrite: true);
 
             return staged.Select(item => new GeneratedCharacter(
                 new CharacterProfile(
@@ -2160,7 +2213,13 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
         finally
         {
             foreach (var item in staged)
-                try { if (File.Exists(item.Temporary)) File.Delete(item.Temporary); } catch { }
+                try
+                {
+                    if (!string.Equals(item.Temporary, item.Output, StringComparison.OrdinalIgnoreCase) &&
+                        File.Exists(item.Temporary))
+                        File.Delete(item.Temporary);
+                }
+                catch { }
         }
     }
 
@@ -2961,7 +3020,8 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
             if (string.Equals(name, CharacterDirectoryName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, CharacterWorkbenchFileName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, TikTokRoleVectorService.BackupFileName, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(name, TikTokRoleVectorService.StateFileName, StringComparison.OrdinalIgnoreCase))
+                string.Equals(name, TikTokRoleVectorService.StateFileName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, RoleVectorProgressTracker.FileName, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
