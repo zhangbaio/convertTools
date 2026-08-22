@@ -59,11 +59,33 @@ public sealed class TikTokReferenceSourcePackageServiceTests
 
             rewritten.Should().BeFalse();
             File.ReadAllText(manifestPath).Should().Be(original);
+            TikTokReferenceSourcePackageService.CountValidCharacterManifestReferences(workflow)
+                .Should().Be(3);
         }
         finally
         {
             if (Directory.Exists(workflow)) Directory.Delete(workflow, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData(3, 3, 0, true, false)]
+    [InlineData(3, 3, 0, false, true)]
+    [InlineData(3, 3, 3, true, true)]
+    [InlineData(2, 3, 0, false, false)]
+    public void RoleRecovery_IsSkippedOnlyForCompletePairingOrUnavailableSource(
+        int existingCharacters,
+        int target,
+        int pairedReferences,
+        bool recoveryAvailable,
+        bool expected)
+    {
+        TikTokReferenceSourcePackageService.ShouldSkipRoleRecovery(
+                existingCharacters,
+                target,
+                pairedReferences,
+                recoveryAvailable)
+            .Should().Be(expected);
     }
 
     [Fact]

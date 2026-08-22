@@ -299,13 +299,21 @@ public static partial class TikTokReferenceSourcePackageService
         // the configured character count.
         var existingCharacterCount =
             ListCurrentCharacterImages(context.WorkflowProjectDir, configuredCharacterCount).Count;
-        var hasEnoughExistingCharacters =
-            existingCharacterCount >= configuredCharacterCount ||
-            (existingCharacterCount >= minimumCharacterCount &&
-             HasCharacterManifestForCounts(
-                 context.WorkflowProjectDir,
-                 configuredCharacterCount,
-                 minimumCharacterCount));
+        var validPairedReferenceCount = CountValidCharacterManifestReferences(
+            context.WorkflowProjectDir);
+        var roleRecoveryAvailable = HasRoleRecoverySource(context);
+        var hasEnoughExistingCharacters = ShouldSkipRoleRecovery(
+            existingCharacterCount,
+            configuredCharacterCount,
+            validPairedReferenceCount,
+            roleRecoveryAvailable);
+        if (episodeCharacterSources.Length < characters.Length && hasEnoughExistingCharacters)
+        {
+            log?.Invoke(validPairedReferenceCount >= configuredCharacterCount
+                ? $"角色参考图：现有角色清单已有 {validPairedReferenceCount} 个有效真实参考图配对，跳过重复补源。"
+                : $"角色参考图：真实画面仅匹配 {episodeCharacterSources.Length}/{characters.Length} 人，" +
+                  "但项目没有可用视频或 bookId，无法继续补源，复用现有角色定妆图。");
+        }
         if (recoverMissingRoleReferences &&
             episodeCharacterSources.Length < characters.Length &&
             !hasEnoughExistingCharacters)
@@ -965,6 +973,55 @@ public static partial class TikTokReferenceSourcePackageService
         {
             return false;
         }
+    }
+
+    internal static int CountValidCharacterManifestReferences(string workflowProjectDirectory)
+    {
+        try
+        {
+            var path = GetCharacterManifestPath(workflowProjectDirectory);
+            if (!File.Exists(path)) return 0;
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            if (!document.RootElement.TryGetProperty("characters", out var characters) ||
+                characters.ValueKind != JsonValueKind.Array) return 0;
+            return characters.EnumerateArray()
+                .Select(entry => entry.TryGetProperty("referencePath", out var reference)
+                    ? reference.GetString()
+                    : null)
+                .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    internal static bool ShouldSkipRoleRecovery(
+        int existingCharacterCount,
+        int configuredCharacterCount,
+        int validPairedReferenceCount,
+        bool recoveryAvailable)
+    {
+        configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
+        return validPairedReferenceCount >= configuredCharacterCount ||
+               (!recoveryAvailable && existingCharacterCount >= configuredCharacterCount);
+    }
+
+    private static bool HasRoleRecoverySource(ProjectWorkspaceContext context)
+    {
+        if (ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).Count > 0) return true;
+        var metadata = ReadMetadataObject(context);
+        foreach (var key in new[] { "bookId", "book_id" })
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(metadata[key]?.GetValue<string>())) return true;
+            }
+            catch { }
+        }
+        return false;
     }
 
     internal static void SyncCharacterViewsToManifest(
