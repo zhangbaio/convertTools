@@ -1422,10 +1422,12 @@ public sealed class QueueWorkerRunner
                                       TikTokAccountProfile.DefaultRoleVectorCharacterCount;
                 var minimumCount = account?.TiktokRoleVectorMinimumCharacterCount ??
                                    TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount;
+                var viewMode = ClientSettingsStore.Load().TiktokRoleVectorViewMode;
                 if (!TikTokRoleVectorService.HasCurrentOutput(
                         workflow,
                         configuredCount,
-                        minimumCount)) return true;
+                        minimumCount,
+                        viewMode)) return true;
             }
             catch
             {

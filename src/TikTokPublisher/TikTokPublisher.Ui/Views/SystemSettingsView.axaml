@@ -423,6 +423,14 @@
                             </StackPanel>
                         </Grid>
 
+                        <TextBlock Text="角色定妆视图" FontWeight="Bold" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="视图模式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1" x:Name="RoleVectorViewModeCombo" HorizontalAlignment="Stretch" />
+                        </Grid>
+                        <TextBlock Text="多角度模式会为每个角色额外生成一张2×2转面表，并拆分为正面、侧面、后侧和背面；失败时自动回退单图。"
+                                   Foreground="#666" TextWrapping="Wrap" />
+
                         <TextBlock x:Name="PosterModeHintText"
                                    Foreground="#666"
                                    TextWrapping="Wrap" />

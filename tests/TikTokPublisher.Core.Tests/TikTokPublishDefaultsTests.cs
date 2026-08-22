@@ -19,6 +19,7 @@ public sealed class TikTokPublishDefaultsTests
         settings.AiTextMaxBatchSize.Should().Be(ClientSettingsDefaults.AiTextMaxBatchSize);
         settings.TiktokRoleReferenceSelectionMode.Should().Be("local");
         settings.TiktokRoleReferenceAiFallbackEnabled.Should().BeTrue();
+        settings.TiktokRoleVectorViewMode.Should().Be("multi_angle");
         settings.AiTextApiKey.Should().BeEmpty();
 
         settings.ImageProvider.Should().Be(ClientSettingsDefaults.ImageProvider);
@@ -140,6 +141,7 @@ public sealed class TikTokPublishDefaultsTests
                 AiTextTimeoutSeconds = 0,
                 AiTextMaxBatchSize = 0,
                 TiktokRoleReferenceSelectionMode = "invalid",
+                TiktokRoleVectorViewMode = "invalid",
                 PosterMode = "",
                 ImageProvider = "",
                 ImageModelId = "",
@@ -173,6 +175,7 @@ public sealed class TikTokPublishDefaultsTests
             loaded.AiTextTimeoutSeconds.Should().Be(ClientSettingsDefaults.AiTextTimeoutSeconds);
             loaded.AiTextMaxBatchSize.Should().Be(ClientSettingsDefaults.AiTextMaxBatchSize);
             loaded.TiktokRoleReferenceSelectionMode.Should().Be("local");
+            loaded.TiktokRoleVectorViewMode.Should().Be("multi_angle");
             loaded.PosterMode.Should().Be(ClientSettingsDefaults.PosterMode);
             loaded.ImageProvider.Should().Be(ClientSettingsDefaults.ImageProvider);
             loaded.ImageModelId.Should().Be(ClientSettingsDefaults.ImageModelId);

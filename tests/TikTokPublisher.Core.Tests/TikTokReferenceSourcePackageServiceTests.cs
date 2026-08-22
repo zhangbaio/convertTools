@@ -1,7 +1,9 @@
 using System.Text.Json;
 using FluentAssertions;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
@@ -284,6 +286,67 @@ public sealed class TikTokReferenceSourcePackageServiceTests
         prompt.Should().Contain("必须是成年女性");
         prompt.Should().Contain("款式、颜色、面料、纹样");
         prompt.Should().Contain("不得换装");
+    }
+
+    [Fact]
+    public void Multi_angle_prompt_requires_four_distinct_locked_views()
+    {
+        var prompt = TikTokReferenceSourcePackageService.BuildMultiAngleCharacterPrompt("陆小满");
+
+        prompt.Should().Contain("严格2×2等分");
+        prompt.Should().Contain("左侧面");
+        prompt.Should().Contain("右后方三分之四");
+        prompt.Should().Contain("完整背面");
+        prompt.Should().Contain("禁止四格都是正面");
+        prompt.Should().Contain("服装款式、颜色、面料、纹样");
+    }
+
+    [Fact]
+    public void Multi_angle_sheet_is_split_into_four_portrait_views()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"multi-angle-split-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var outputs = new[]
+        {
+            Path.Combine(root, "01.png"),
+            Path.Combine(root, "02.png"),
+            Path.Combine(root, "03.png"),
+            Path.Combine(root, "04.png"),
+        };
+        var colors = new[]
+        {
+            new Rgba32(220, 30, 30),
+            new Rgba32(30, 220, 30),
+            new Rgba32(30, 30, 220),
+            new Rgba32(220, 180, 30),
+        };
+        try
+        {
+            using var sheet = new Image<Rgba32>(600, 800, Color.Black);
+            sheet.Mutate(context =>
+            {
+                context.Fill(colors[0], new Rectangle(0, 0, 300, 400));
+                context.Fill(colors[1], new Rectangle(300, 0, 300, 400));
+                context.Fill(colors[2], new Rectangle(0, 400, 300, 400));
+                context.Fill(colors[3], new Rectangle(300, 400, 300, 400));
+            });
+            using var buffer = new MemoryStream();
+            sheet.SaveAsPng(buffer);
+
+            TikTokReferenceSourcePackageService.SplitMultiAngleSheet(
+                buffer.ToArray(), outputs, CancellationToken.None);
+
+            for (var index = 0; index < outputs.Length; index++)
+            {
+                using var view = Image.Load<Rgba32>(outputs[index]);
+                view.Size.Should().Be(new Size(768, 1024));
+                view[384, 512].Should().Be(colors[index]);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]
@@ -723,6 +786,50 @@ public sealed class TikTokReferenceSourcePackageServiceTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Role_vector_renderer_uses_distinct_character_views_in_slot_order()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"role-vector-multi-view-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var characters = new[] { Path.Combine(root, "角色1.png"), Path.Combine(root, "角色2.png") };
+            SaveSolidImage(characters[0], new Rgba32(90, 90, 90));
+            SaveSolidImage(characters[1], new Rgba32(50, 50, 50));
+            var colors = new[]
+            {
+                new Rgba32(220, 30, 30),
+                new Rgba32(30, 220, 30),
+                new Rgba32(30, 30, 220),
+                new Rgba32(220, 180, 30),
+            };
+            var views = colors.Select((color, index) => Path.Combine(root, $"视图{index + 1}.png")).ToArray();
+            for (var index = 0; index < views.Length; index++) SaveSolidImage(views[index], colors[index]);
+            var frame = Path.Combine(root, "参考.png");
+            SaveSolidImage(frame, new Rgba32(120, 100, 80));
+            var outputPath = Path.Combine(root, "角色矢量图.png");
+
+            RoleVectorTemplateRenderer.Render(
+                outputPath,
+                characters,
+                [frame],
+                new IReadOnlyList<string>[] { views, new[] { characters[1] } });
+
+            using var output = Image.Load<Rgba32>(outputPath);
+            var slots = RoleVectorTemplateRenderer.TwoCharacterGroups[0].CharacterSlots;
+            for (var index = 0; index < slots.Count; index++)
+            {
+                var slot = slots[index];
+                output[slot.Left + slot.Width / 2, slot.Top + slot.Height / 2]
+                    .Should().Be(colors[index]);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
         }
     }
 

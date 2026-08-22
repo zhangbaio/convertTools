@@ -104,6 +104,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
     [ObservableProperty] private bool _tiktokRoleReferenceAiFallbackEnabled =
         ClientSettingsDefaults.TiktokRoleReferenceAiFallbackEnabled;
+    [ObservableProperty] private string _tiktokRoleVectorViewMode = ClientSettingsDefaults.TiktokRoleVectorViewMode;
     [ObservableProperty] private string _aiTagSystemPrompt = "";
     [ObservableProperty] private string _aiTagBatchPrompt = "";
     [ObservableProperty] private string _aiFullInfoSystemPrompt = "";
@@ -251,6 +252,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiTextMaxBatchSize = AiTextMaxBatchSize,
         TiktokRoleReferenceSelectionMode = TiktokRoleReferenceSelectionMode,
         TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled,
+        TiktokRoleVectorViewMode = TiktokRoleVectorViewMode,
         AiTagSystemPrompt = AiTagSystemPrompt,
         AiTagBatchPrompt = AiTagBatchPrompt,
         AiFullInfoSystemPrompt = AiFullInfoSystemPrompt,
@@ -913,6 +915,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiTextMaxBatchSize = settings.AiTextMaxBatchSize;
         TiktokRoleReferenceSelectionMode = settings.TiktokRoleReferenceSelectionMode;
         TiktokRoleReferenceAiFallbackEnabled = settings.TiktokRoleReferenceAiFallbackEnabled;
+        TiktokRoleVectorViewMode = settings.TiktokRoleVectorViewMode;
         AiTagSystemPrompt = settings.AiTagSystemPrompt;
         AiTagBatchPrompt = settings.AiTagBatchPrompt;
         AiFullInfoSystemPrompt = settings.AiFullInfoSystemPrompt;

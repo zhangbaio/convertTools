@@ -35,6 +35,7 @@ public static partial class TikTokReferenceSourcePackageService
     public const string VideoDirectoryName = "videos";
     public const string MaterialDirectoryName = "素材文件";
     public const string CharacterWorkbenchFileName = "角色矢量图.png";
+    public const string MultiAngleViewDirectorySuffix = "_多角度视图";
     public const string SceneDesignFileName1 = "场景设计图1.png";
     public const string SceneDesignFileName2 = "场景设计图2.png";
     public const string StateFileName = ".reference-source-package.json";
@@ -935,6 +936,45 @@ public static partial class TikTokReferenceSourcePackageService
         {
             return false;
         }
+    }
+
+    internal static void SyncCharacterViewsToManifest(
+        string workflowProjectDirectory,
+        IReadOnlyList<string> characterImages,
+        IReadOnlyList<IReadOnlyList<string>> viewSets,
+        string viewMode)
+    {
+        var manifestPath = GetCharacterManifestPath(workflowProjectDirectory);
+        if (!File.Exists(manifestPath)) return;
+        var rootDirectory = GetRoot(workflowProjectDirectory);
+        var root = JsonNode.Parse(File.ReadAllText(manifestPath))?.AsObject();
+        if (root is null || root["characters"] is not JsonArray entries) return;
+        root["viewMode"] = NormalizeRoleVectorViewMode(viewMode);
+        for (var index = 0; index < characterImages.Count && index < entries.Count; index++)
+        {
+            if (entries[index] is not JsonObject entry) continue;
+            var views = index < viewSets.Count
+                ? viewSets[index].Where(File.Exists).ToArray()
+                : [];
+            entry["viewMode"] = views.Length > 1 ? "multi_angle" : "single";
+            entry["views"] = new JsonArray(views.Select((path, viewIndex) =>
+                (JsonNode)new JsonObject
+                {
+                    ["pose"] = viewIndex switch
+                    {
+                        0 => "front_three_quarter",
+                        1 => "left_profile",
+                        2 => "rear_three_quarter",
+                        3 => "back",
+                        _ => $"view_{viewIndex + 1}",
+                    },
+                    ["file"] = Path.GetRelativePath(rootDirectory, path),
+                }).ToArray());
+        }
+        File.WriteAllText(
+            manifestPath,
+            root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+            new UTF8Encoding(false));
     }
 
     internal static IReadOnlyList<string> ResolvePairedCharacterReferences(
@@ -2147,6 +2187,129 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
         "竖版3:4，干净浅灰色摄影棚无缝背景，柔和专业棚拍光，真实影视摄影，自然皮肤、头发和服装纹理。\n" +
         "画面仅一人，无文字、无Logo、无水印；不是动漫、插画或3D。最高优先级：人物身份与参考图严格一致。";
 
+    internal static string BuildMultiAngleCharacterPrompt(string roleName) =>
+        "任务类型：基于参考定妆图生成同一人物的影视角色四视图转面表。\n" +
+        $"角色：{roleName}。参考图是人物身份和服装的唯一依据。\n" +
+        "输出一张严格2×2等分的四格转面表，每格仅一个完整全身人物，顺序固定：" +
+        "左上=正面三分之四，右上=左侧面，左下=右后方三分之四，右下=完整背面。\n" +
+        "四格必须是完全相同的成年人，脸型、五官、年龄、肤色、发型、体型完全一致；" +
+        "服装款式、颜色、面料、纹样、领口、袖型、腰带、鞋子、首饰和随身配件完全一致。\n" +
+        "禁止四格都是正面，禁止换脸、换装、改变体型，禁止多人同框、文字、Logo、水印、边框标题；" +
+        "浅灰色摄影棚背景，光线和人物比例统一，四格人物从头到脚完整可见。";
+
+    internal static string NormalizeRoleVectorViewMode(string? value) =>
+        string.Equals(value?.Trim(), "single", StringComparison.OrdinalIgnoreCase)
+            ? "single"
+            : "multi_angle";
+
+    internal static async Task<IReadOnlyList<IReadOnlyList<string>>> EnsureCharacterViewSetsAsync(
+        IReadOnlyList<string> characterImages,
+        ClientSettings settings,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var mode = NormalizeRoleVectorViewMode(settings.TiktokRoleVectorViewMode);
+        if (mode == "single")
+            return characterImages.Select(path => (IReadOnlyList<string>)new[] { path }).ToArray();
+        if (!IsImageModelConfigured(settings))
+        {
+            log?.Invoke("角色多角度视图：图片模型未配置，全部角色回退单图模式。");
+            return characterImages.Select(path => (IReadOnlyList<string>)new[] { path }).ToArray();
+        }
+
+        var tasks = characterImages.Select(async (path, index) =>
+        {
+            var roleName = Path.GetFileNameWithoutExtension(path);
+            try
+            {
+                var views = ResolveCharacterViewPaths(path);
+                if (views.All(File.Exists))
+                {
+                    log?.Invoke($"角色多角度视图 {index + 1}/{characterImages.Count}：复用 {roleName} 四视图。");
+                    return (IReadOnlyList<string>)views;
+                }
+                var sheet = await GenerateReferenceImageWithRetryAsync(
+                    BuildMultiAngleCharacterPrompt(roleName),
+                    path,
+                    settings,
+                    roleName + "多角度转面表",
+                    ct).ConfigureAwait(false);
+                SplitMultiAngleSheet(sheet, views, ct);
+                log?.Invoke($"角色多角度视图 {index + 1}/{characterImages.Count}：{roleName} 正面、侧面、后侧、背面已生成。");
+                return (IReadOnlyList<string>)views;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"角色多角度视图 {index + 1}/{characterImages.Count}：{roleName} 生成失败，回退单图模式：{ex.Message}");
+                return (IReadOnlyList<string>)new[] { path };
+            }
+        }).ToArray();
+        return await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
+
+    internal static string[] ResolveCharacterViewPaths(string characterImage)
+    {
+        var directory = Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(characterImage))!,
+            Path.GetFileNameWithoutExtension(characterImage) + MultiAngleViewDirectorySuffix);
+        return
+        [
+            Path.Combine(directory, "01_正面三分之四.png"),
+            Path.Combine(directory, "02_左侧面.png"),
+            Path.Combine(directory, "03_右后三分之四.png"),
+            Path.Combine(directory, "04_背面.png"),
+        ];
+    }
+
+    internal static void SplitMultiAngleSheet(
+        byte[] sheetBytes,
+        IReadOnlyList<string> outputs,
+        CancellationToken ct)
+    {
+        if (outputs.Count != 4) throw new ArgumentException("多角度视图必须包含4个输出路径。", nameof(outputs));
+        using var sheet = Image.Load<Rgba32>(sheetBytes);
+        if (sheet.Width < 512 || sheet.Height < 512)
+            throw new InvalidDataException($"多角度转面表尺寸过小：{sheet.Width}×{sheet.Height}。");
+        var halfWidth = sheet.Width / 2;
+        var halfHeight = sheet.Height / 2;
+        var regions = new[]
+        {
+            new Rectangle(0, 0, halfWidth, halfHeight),
+            new Rectangle(halfWidth, 0, sheet.Width - halfWidth, halfHeight),
+            new Rectangle(0, halfHeight, halfWidth, sheet.Height - halfHeight),
+            new Rectangle(halfWidth, halfHeight, sheet.Width - halfWidth, sheet.Height - halfHeight),
+        };
+        var temporary = outputs.Select(path => path + $".{Guid.NewGuid():N}.tmp.png").ToArray();
+        try
+        {
+            for (var index = 0; index < outputs.Count; index++)
+            {
+                ct.ThrowIfCancellationRequested();
+                using var view = sheet.Clone(context => context
+                    .Crop(regions[index])
+                    .Resize(new ResizeOptions
+                    {
+                        Size = new Size(768, 1024),
+                        Mode = ResizeMode.Crop,
+                        Position = AnchorPositionMode.Center,
+                    }));
+                Directory.CreateDirectory(Path.GetDirectoryName(outputs[index])!);
+                view.SaveAsPng(temporary[index]);
+            }
+            for (var index = 0; index < outputs.Count; index++)
+                File.Move(temporary[index], outputs[index], overwrite: true);
+        }
+        finally
+        {
+            foreach (var path in temporary)
+                try { if (File.Exists(path)) File.Delete(path); } catch { }
+        }
+    }
+
     private static string ExpectedGenderPrompt(CharacterProfile profile) => InferExpectedGender(profile) switch
     {
         "male" => "必须是成年男性",
@@ -2726,6 +2889,7 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
             script,
             PosterImageConfigHelper.NormalizeImageProvider(settings.ImageProvider),
             ResolveModelId(settings),
+            $"role-view-mode:{NormalizeRoleVectorViewMode(settings.TiktokRoleVectorViewMode)}:v1",
             $"target-count:{NormalizeConfiguredCharacterCount(configuredCharacterCount)}",
             $"minimum-count:{NormalizeMinimumCharacterCount(minimumCharacterCount, configuredCharacterCount)}",
             characterSourceFingerprint,
