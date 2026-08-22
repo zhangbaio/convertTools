@@ -241,6 +241,9 @@ public static class TikTokRoleVectorService
             var characterCount = rootElement.GetProperty("characterCount").GetInt32();
             if (characterCount is < TikTokReferenceSourcePackageService.MinCharacterCount or
                 > TikTokReferenceSourcePackageService.MaxCharacterCount) return false;
+            if (expectedConfiguredCharacterCount.HasValue &&
+                characterCount != TikTokReferenceSourcePackageService.NormalizeConfiguredCharacterCount(
+                    expectedConfiguredCharacterCount.Value)) return false;
             if (rootElement.GetProperty("templateResource").GetString() !=
                 RoleVectorTemplateRenderer.ResolveLayout(characterCount).ResourceName) return false;
             if (!MatchesHash(output, rootElement.GetProperty("outputSha256").GetString())) return false;

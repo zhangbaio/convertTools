@@ -259,7 +259,10 @@ public static partial class TikTokReferenceSourcePackageService
         var originalTitle = FirstNonEmpty(item.OriginalTitle, item.DisplayName, title);
         var intro = ResolveIntro(item, context);
         var script = ReadProjectScript(context, title, intro);
-        var candidates = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
+        var candidates = NormalizeCharacterProfiles(
+            ExtractCharacterProfiles(script, intro),
+            intro,
+            configuredCharacterCount);
         var characters = SelectCharacterProfiles(candidates, configuredCharacterCount);
         LogRoleReferenceSelectionMode(settings, log);
         string[] episodeCharacterSources;
@@ -277,7 +280,13 @@ public static partial class TikTokReferenceSourcePackageService
             log?.Invoke($"角色参考图现有素材不足，将尝试逐集补下载：{ex.Message}");
             episodeCharacterSources = [];
         }
-        if (recoverMissingRoleReferences && episodeCharacterSources.Length < characters.Length)
+        var existingCharacterDirBeforeRecovery = Path.Combine(root, CharacterDirectoryName);
+        var hasEnoughExistingCharacters =
+            SelectExistingCharacterImages(existingCharacterDirBeforeRecovery, log, configuredCharacterCount).Count >=
+            configuredCharacterCount;
+        if (recoverMissingRoleReferences &&
+            episodeCharacterSources.Length < characters.Length &&
+            !hasEnoughExistingCharacters)
         {
             episodeCharacterSources = await RecoverMissingRoleReferencesAsync(
                 item,
@@ -299,12 +308,12 @@ public static partial class TikTokReferenceSourcePackageService
             return root;
         }
 
-        var useEpisodeCharacters = episodeCharacterSources.Length >= MinCharacterCount;
+        var useEpisodeCharacters = episodeCharacterSources.Length >= configuredCharacterCount;
         var existingCharacterDir = Path.Combine(root, CharacterDirectoryName);
         var reusableCharacterPaths = !forceRerun && !useEpisodeCharacters && Directory.Exists(existingCharacterDir)
             ? SelectExistingCharacterImages(existingCharacterDir, log, configuredCharacterCount).ToArray()
             : [];
-        var reuseCharacters = reusableCharacterPaths.Length >= MinCharacterCount;
+        var reuseCharacters = reusableCharacterPaths.Length >= configuredCharacterCount;
         if (!useEpisodeCharacters && !reuseCharacters) EnsureImageModelConfigured(settings);
         ResetPackageRoot(root, preserveCharactersAndRoleVector: reuseCharacters);
         var characterDir = Path.Combine(root, CharacterDirectoryName);
@@ -475,7 +484,10 @@ public static partial class TikTokReferenceSourcePackageService
         var title = FirstNonEmpty(item.NewTitle, item.Title, item.OriginalTitle, Path.GetFileName(context.SourceProjectDir));
         var intro = ResolveIntro(item, context);
         var script = ReadProjectScript(context, title, intro);
-        var candidates = NormalizeCharacterProfiles(ExtractCharacterProfiles(script, intro), intro);
+        var candidates = NormalizeCharacterProfiles(
+            ExtractCharacterProfiles(script, intro),
+            intro,
+            configuredCharacterCount);
         var profiles = SelectCharacterProfiles(candidates, configuredCharacterCount);
 
         LogRoleReferenceSelectionMode(settings, log);
@@ -485,7 +497,7 @@ public static partial class TikTokReferenceSourcePackageService
             settings,
             log,
             ct).ConfigureAwait(false);
-        if (episodeCharacterSources.Length >= MinCharacterCount)
+        if (episodeCharacterSources.Length >= configuredCharacterCount)
         {
             var imported = await ImportEpisodeCharacterImagesAsync(
                 characterDir,
@@ -501,7 +513,7 @@ public static partial class TikTokReferenceSourcePackageService
         }
 
         var existing = SelectExistingCharacterImages(characterDir, log, configuredCharacterCount).ToList();
-        if (existing.Count >= MinCharacterCount)
+        if (existing.Count >= configuredCharacterCount)
         {
             log?.Invoke($"角色矢量图：复用现有角色定妆图 {existing.Count} 张，不调用图片模型。");
             return existing;
@@ -635,8 +647,10 @@ public static partial class TikTokReferenceSourcePackageService
 
     internal static CharacterProfile[] NormalizeCharacterProfiles(
         IEnumerable<CharacterProfile> candidates,
-        string intro = "")
+        string intro = "",
+        int requiredCount = MinCharacterCount)
     {
+        requiredCount = NormalizeConfiguredCharacterCount(requiredCount);
         var candidateList = candidates.ToList();
         if (candidateList.Count > 0 && candidateList.All(profile => IsGenericCharacterName(profile.Name)))
             candidateList.Clear();
@@ -652,8 +666,8 @@ public static partial class TikTokReferenceSourcePackageService
             .Take(MaxCharacterCount)
             .ToList();
 
-        if (indexed.Count < MinCharacterCount)
-            indexed = AddFallbackCharacters(indexed, intro).Take(MinCharacterCount).ToList();
+        if (indexed.Count < requiredCount)
+            indexed = AddFallbackCharacters(indexed, intro, requiredCount).Take(requiredCount).ToList();
         if (indexed.Count is < MinCharacterCount or > MaxCharacterCount)
             throw new InvalidOperationException(
                 $"角色采集结果必须为 {MinCharacterCount}–{MaxCharacterCount} 人，当前为 {indexed.Count} 人。");
@@ -679,11 +693,11 @@ public static partial class TikTokReferenceSourcePackageService
         IReadOnlyList<CharacterProfile> candidates,
         int configuredCharacterCount)
     {
-        var selectedCount = ResolveSelectedCharacterCount(candidates.Count, configuredCharacterCount);
-        if (candidates.Count < selectedCount)
+        configuredCharacterCount = NormalizeConfiguredCharacterCount(configuredCharacterCount);
+        if (candidates.Count < configuredCharacterCount)
             throw new InvalidOperationException(
-                $"角色候选不足：配置 {configuredCharacterCount} 人，最低需要 {selectedCount} 人，当前只有 {candidates.Count} 人。");
-        return candidates.Take(selectedCount).ToArray();
+                $"角色候选不足：配置 {configuredCharacterCount} 人，当前只有 {candidates.Count} 人。");
+        return candidates.Take(configuredCharacterCount).ToArray();
     }
 
     private static IReadOnlyList<string> SelectExistingCharacterImages(
@@ -1932,8 +1946,10 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
 
     internal static CharacterProfile[] AddFallbackCharacters(
         IReadOnlyList<CharacterProfile> existing,
-        string intro)
+        string intro,
+        int requiredCount = TikTokAccountProfile.DefaultRoleVectorCharacterCount)
     {
+        requiredCount = NormalizeConfiguredCharacterCount(requiredCount);
         var result = existing.ToList();
         foreach (Match match in IntroCharacterListRegex().Matches(intro ?? string.Empty))
         {
@@ -1945,7 +1961,7 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
                 result.Add(new CharacterProfile(
                     name,
                     $"剧情简介中明确出现的主要角色。时代、身份、服装与气质必须符合以下剧情：{intro}"));
-                if (result.Count >= 6) return result.ToArray();
+                if (result.Count >= requiredCount) return result.ToArray();
             }
         }
 
@@ -1954,12 +1970,15 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
             new CharacterProfile("主角1", $"短剧第一主角，根据剧情简介塑造：{intro}"),
             new CharacterProfile("主角2", $"短剧第二主角，优先与主角1性别不同，根据剧情简介塑造：{intro}"),
             new CharacterProfile("主要配角", $"与主角1、主角2均不是同一人的关键配角，根据剧情简介塑造：{intro}"),
+            new CharacterProfile("主要配角2", $"与其他人物不同的关键配角，根据剧情简介塑造：{intro}"),
+            new CharacterProfile("主要配角3", $"与其他人物不同的关键配角，根据剧情简介塑造：{intro}"),
+            new CharacterProfile("主要配角4", $"与其他人物不同的关键配角，根据剧情简介塑造：{intro}"),
         };
         foreach (var profile in fallbackProfiles)
         {
             if (result.Any(item => item.Name == profile.Name)) continue;
             result.Add(profile);
-            if (result.Count >= 3) break;
+            if (result.Count >= requiredCount) break;
         }
         return result.ToArray();
     }
