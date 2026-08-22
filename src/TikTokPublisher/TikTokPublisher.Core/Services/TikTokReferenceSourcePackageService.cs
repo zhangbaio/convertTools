@@ -334,6 +334,11 @@ public static partial class TikTokReferenceSourcePackageService
                 existingCharacterDir, log, configuredCharacterCount, minimumCharacterCount).ToArray()
             : [];
         var reuseCharacters = reusableCharacterPaths.Length >= minimumCharacterCount;
+        var preserveExistingCharacterManifest = reuseCharacters &&
+                                                HasCharacterManifestForCounts(
+                                                    context.WorkflowProjectDir,
+                                                    configuredCharacterCount,
+                                                    minimumCharacterCount);
         if (!useEpisodeCharacters && !reuseCharacters) EnsureImageModelConfigured(settings);
         ResetPackageRoot(root, preserveCharactersAndRoleVector: reuseCharacters);
         var characterDir = Path.Combine(root, CharacterDirectoryName);
@@ -377,12 +382,16 @@ public static partial class TikTokReferenceSourcePackageService
                 generatedCharacters.Add(new GeneratedCharacter(character, output));
             }
         }
-        WriteCharacterManifest(
+        var manifestRewritten = WriteCharacterManifestIfNeeded(
+            context.WorkflowProjectDir,
             characterDir,
             generatedCharacters,
             configuredCharacterCount,
             candidates.Length,
-            minimumCharacterCount);
+            minimumCharacterCount,
+            preserveExistingCharacterManifest);
+        if (!manifestRewritten)
+            log?.Invoke("参考格式素材包：复用现有角色定妆图时保留原人物参考图配对清单。");
 
         var videos = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).ToArray();
         LinkVideos(videos, videoDir, materialDir, title, ct);
@@ -548,6 +557,14 @@ public static partial class TikTokReferenceSourcePackageService
             characterDir, log, configuredCharacterCount, minimumCharacterCount).ToList();
         if (existing.Count >= minimumCharacterCount)
         {
+            WriteCharacterManifestIfNeeded(
+                context.WorkflowProjectDir,
+                characterDir,
+                existing.Select((path, index) => new GeneratedCharacter(profiles[index], path)).ToList(),
+                configuredCharacterCount,
+                existing.Count,
+                minimumCharacterCount,
+                preserveExisting: true);
             log?.Invoke($"角色矢量图：复用现有角色定妆图 {existing.Count} 张，不调用图片模型。");
             return existing;
         }
@@ -751,7 +768,7 @@ public static partial class TikTokReferenceSourcePackageService
         return candidates.Take(configuredCharacterCount).ToArray();
     }
 
-    private static IReadOnlyList<string> SelectExistingCharacterImages(
+    internal static IReadOnlyList<string> SelectExistingCharacterImages(
         string characterDirectory,
         Action<string>? log,
         int configuredCharacterCount,
@@ -806,15 +823,32 @@ public static partial class TikTokReferenceSourcePackageService
                 $"角色矢量图：配置 {configuredCharacterCount} 人，现有有效角色图 {ordered.Count} 张，" +
                 $"未达到目标数量，按实际 {selectedPaths.Length} 人兜底（最低 {minimumCharacterCount} 人）。");
         }
+        return selectedPaths;
+    }
+
+    internal static bool WriteCharacterManifestIfNeeded(
+        string workflowProjectDirectory,
+        string characterDirectory,
+        IReadOnlyList<GeneratedCharacter> characters,
+        int configuredCharacterCount,
+        int candidateCount,
+        int minimumCharacterCount,
+        bool preserveExisting)
+    {
+        if (preserveExisting && HasCharacterManifestForCounts(
+                workflowProjectDirectory,
+                configuredCharacterCount,
+                minimumCharacterCount))
+        {
+            return false;
+        }
         WriteCharacterManifest(
             characterDirectory,
-            selectedPaths.Select(path => new GeneratedCharacter(
-                new CharacterProfile(Path.GetFileNameWithoutExtension(path), "从现有角色目录选择"),
-                path)).ToList(),
+            characters,
             configuredCharacterCount,
-            ordered.Count,
+            candidateCount,
             minimumCharacterCount);
-        return selectedPaths;
+        return true;
     }
 
     private static void WriteCharacterManifest(
@@ -2853,7 +2887,7 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
         bool IsExtractedFrame,
         int LikelyFaceCount,
         double QualityScore);
-    private sealed record GeneratedCharacter(
+    internal sealed record GeneratedCharacter(
         CharacterProfile Profile,
         string Path,
         string Source = "image-model",

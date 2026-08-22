@@ -9,6 +9,62 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokReferenceSourcePackageServiceTests
 {
     [Fact]
+    public void ReusingCharacters_PreservesCompatibleReferencePairingManifest()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"preserve-role-manifest-{Guid.NewGuid():N}");
+        var characterDirectory = Path.Combine(
+            TikTokReferenceSourcePackageService.GetRoot(workflow),
+            TikTokReferenceSourcePackageService.CharacterDirectoryName);
+        Directory.CreateDirectory(characterDirectory);
+        var characters = Enumerable.Range(1, 3)
+            .Select(index => Path.Combine(characterDirectory, $"角色{index}.png"))
+            .ToArray();
+        var references = Enumerable.Range(1, 3)
+            .Select(index => Path.Combine(workflow, $"参考{index}.jpg"))
+            .ToArray();
+        foreach (var path in characters) SaveSolidImage(path);
+        foreach (var path in references) SaveSolidImage(path);
+        var manifestPath = TikTokReferenceSourcePackageService.GetCharacterManifestPath(workflow);
+        File.WriteAllText(
+            manifestPath,
+            JsonSerializer.Serialize(new
+            {
+                configuredCount = 3,
+                minimumCount = 3,
+                selectedCount = 3,
+                characters = characters.Select((path, index) => new
+                {
+                    order = index + 1,
+                    name = $"人物{index + 1}",
+                    file = Path.GetFileName(path),
+                    referencePath = references[index],
+                }),
+            }, new JsonSerializerOptions { WriteIndented = true }));
+        var original = File.ReadAllText(manifestPath);
+
+        try
+        {
+            var rewritten = TikTokReferenceSourcePackageService.WriteCharacterManifestIfNeeded(
+                workflow,
+                characterDirectory,
+                characters.Select((path, index) => new TikTokReferenceSourcePackageService.GeneratedCharacter(
+                    new TikTokReferenceSourcePackageService.CharacterProfile($"人物{index + 1}", "复用"),
+                    path)).ToArray(),
+                configuredCharacterCount: 3,
+                candidateCount: 3,
+                minimumCharacterCount: 3,
+                preserveExisting: true);
+
+            rewritten.Should().BeFalse();
+            File.ReadAllText(manifestPath).Should().Be(original);
+        }
+        finally
+        {
+            if (Directory.Exists(workflow)) Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Inaccessible_reference_package_uses_stable_recovery_directory()
     {
         var evidence = Path.Combine(Path.GetTempPath(), "reference-evidence");
