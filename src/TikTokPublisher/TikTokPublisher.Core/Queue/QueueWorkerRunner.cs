@@ -851,6 +851,19 @@ public sealed class QueueWorkerRunner
                 throw new QueueStepExecutionException(stepKey, ex);
             }
 
+            if (stepKey == QueueStepRegistry.SilenceDetect &&
+                !TikTokSilenceAsrService.HasCurrentReport(item.ProjectDir))
+            {
+                mutate(() => item.StepStates[stepKey] = QueueStepStatus.Skipped);
+                Report(
+                    onProgress,
+                    workspace,
+                    item,
+                    "静音检测未生成检测报告，已标记为跳过而不是已完成",
+                    stepKey);
+                return;
+            }
+
             mutate(() => MarkParallelStepCompleted(item, stepKey, activeSteps));
             Report(
                 onProgress,
@@ -1394,6 +1407,12 @@ public sealed class QueueWorkerRunner
         if (stepKey == QueueStepRegistry.UploadSeries && options.IsCopyrightProofOnlyRun())
             return true;
         if (options.ForceRerunCompletedSteps) return true;
+        if (stepKey == QueueStepRegistry.Download &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            NeedsDownloadArtifacts(item))
+        {
+            return true;
+        }
         if (stepKey == QueueStepRegistry.RewriteInfo &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             QueueMaterialStepService.NeedsAiRewrite(item, account))
@@ -1421,6 +1440,35 @@ public sealed class QueueWorkerRunner
         if (stepKey == QueueStepRegistry.GenerateAiScriptOutline &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             !TikTokAiScriptOutlineService.HasCurrentOutput(item))
+        {
+            return true;
+        }
+        if (stepKey == QueueStepRegistry.GenerateAiDramaMaterials &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed)
+        {
+            try
+            {
+                var workflow = ProjectWorkspaceService.ResolveWorkflowProjectDir(item.ProjectDir);
+                if (!TikTokAiDramaProductionMaterialService.HasCurrentOutput(workflow)) return true;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+        if (stepKey == QueueStepRegistry.GenerateProofMaterial &&
+            !options.IsStepEnabled(QueueStepRegistry.UploadSeries) &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            TikTokProofMaterialService.NeedsGenerateProofMaterial(
+                item,
+                ClientSettingsStore.Load(),
+                account))
+        {
+            return true;
+        }
+        if (stepKey == QueueStepRegistry.GenerateTimestampCertificate &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            !TikTokTimestampCertificateService.HasCurrentOutput(item))
         {
             return true;
         }
@@ -1452,6 +1500,12 @@ public sealed class QueueWorkerRunner
         {
             return true;
         }
+        if (stepKey == QueueStepRegistry.SilenceDetect &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            !TikTokSilenceAsrService.HasCurrentReport(item.ProjectDir))
+        {
+            return true;
+        }
         if (stepKey == QueueStepRegistry.MaterialValidate &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             !TikTokMaterialValidationService.HasCurrentValidationState(item.ProjectDir))
@@ -1460,6 +1514,27 @@ public sealed class QueueWorkerRunner
         }
         return item.StepStates.GetValueOrDefault(stepKey) is not
             (QueueStepStatus.Completed or QueueStepStatus.Skipped);
+    }
+
+    private static bool NeedsDownloadArtifacts(QueueProjectItem item)
+    {
+        if (item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Completed ||
+            item.StepStates.GetValueOrDefault(QueueStepRegistry.DeleteSourceVideos) == QueueStepStatus.Completed)
+        {
+            return false;
+        }
+
+        try
+        {
+            return ProjectVideoResolver.ResolveUploadVideos(
+                    item.ProjectDir,
+                    allowStagedFallback: true)
+                .Count == 0;
+        }
+        catch
+        {
+            return true;
+        }
     }
 
     private static string BuildNonQueueCancellationMessage(string stepLabel, OperationCanceledException ex)

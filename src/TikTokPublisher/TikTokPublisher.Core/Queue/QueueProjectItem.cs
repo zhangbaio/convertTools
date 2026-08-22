@@ -81,7 +81,6 @@ public sealed class QueueProjectItem
         // An explicit pending proof-material state must survive normalization (for example,
         // after a title rename). Only legacy uploaded records that predate this step are
         // backfilled as completed.
-        var hadProofMaterialState = StepStates.ContainsKey(QueueStepKeys.GenerateProofMaterial);
         var hadEpisodeScriptState = StepStates.ContainsKey(QueueStepKeys.GenerateEpisodeScript);
         var hadAiScriptOutlineState = StepStates.ContainsKey(QueueStepKeys.GenerateAiScriptOutline);
         var hadAiDramaMaterialsState = StepStates.ContainsKey(QueueStepKeys.GenerateAiDramaMaterials);
@@ -115,32 +114,68 @@ public sealed class QueueProjectItem
 
         if (StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed)
         {
-            if (!hadProofMaterialState)
-                StepStates[QueueStepKeys.GenerateProofMaterial] = QueueStepStatus.Completed;
-            if (!hadEpisodeScriptState)
+            // Legacy uploaded rows predate several generation steps. Never infer that
+            // a local artifact exists merely because the platform upload completed;
+            // cross-computer copies and cleanup can retain the database row without
+            // retaining its generated files.
+            if (!hadEpisodeScriptState && HasCurrentEpisodeScript())
                 StepStates[QueueStepKeys.GenerateEpisodeScript] = QueueStepStatus.Completed;
-            if (!hadAiScriptOutlineState)
+            if (!hadAiScriptOutlineState && HasCurrentAiScriptOutline())
                 StepStates[QueueStepKeys.GenerateAiScriptOutline] = QueueStepStatus.Completed;
-            if (!hadAiDramaMaterialsState)
+            if (!hadAiDramaMaterialsState && HasCurrentAiDramaMaterials())
                 StepStates[QueueStepKeys.GenerateAiDramaMaterials] = QueueStepStatus.Completed;
             if (!hadRoleVectorState && HasCurrentRoleVector())
                 StepStates[QueueStepKeys.GenerateRoleVector] = QueueStepStatus.Completed;
-            if (!hadTimestampState)
+            if (!hadTimestampState && HasCurrentTimestampCertificate())
                 StepStates[QueueStepKeys.GenerateTimestampCertificate] = QueueStepStatus.Completed;
-            if (StepStates.GetValueOrDefault(QueueStepKeys.MaterialValidate) == QueueStepStatus.Pending)
+            if (StepStates.GetValueOrDefault(QueueStepKeys.MaterialValidate) == QueueStepStatus.Pending &&
+                HasCurrentMaterialValidation())
                 StepStates[QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed;
-            if (StepStates.GetValueOrDefault(QueueStepKeys.GenerateProjectImages) == QueueStepStatus.Pending)
+            if (StepStates.GetValueOrDefault(QueueStepKeys.GenerateProjectImages) == QueueStepStatus.Pending &&
+                HasCurrentProjectImages())
                 StepStates[QueueStepKeys.GenerateProjectImages] = QueueStepStatus.Completed;
-            if (StepStates.GetValueOrDefault(QueueStepKeys.SmallVideoRepair) == QueueStepStatus.Pending)
+            if (StepStates.GetValueOrDefault(QueueStepKeys.SmallVideoRepair) == QueueStepStatus.Pending &&
+                HasCurrentSmallVideoRepair())
                 StepStates[QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed;
-            if (StepStates.GetValueOrDefault(QueueStepKeys.VideoTranslate) == QueueStepStatus.Pending)
-                StepStates[QueueStepKeys.VideoTranslate] = QueueStepStatus.Completed;
-            if (StepStates.GetValueOrDefault(QueueStepKeys.SilenceDetect) == QueueStepStatus.Pending)
+            if (StepStates.GetValueOrDefault(QueueStepKeys.SilenceDetect) == QueueStepStatus.Pending &&
+                HasCurrentSilenceReport())
                 StepStates[QueueStepKeys.SilenceDetect] = QueueStepStatus.Completed;
-            if (StepStates.GetValueOrDefault(QueueStepKeys.SilenceRepair) == QueueStepStatus.Pending)
-                StepStates[QueueStepKeys.SilenceRepair] = QueueStepStatus.Completed;
         }
     }
+
+    private bool HasCurrentEpisodeScript() =>
+        TikTokPublisher.Core.Services.TikTokEpisodeScriptService.HasCurrentOutput(this, account: null);
+
+    private bool HasCurrentAiScriptOutline() =>
+        TikTokPublisher.Core.Services.TikTokAiScriptOutlineService.HasCurrentOutput(this);
+
+    private bool HasCurrentAiDramaMaterials()
+    {
+        try
+        {
+            var workflow = ProjectWorkspaceService.ResolveWorkflowProjectDir(ProjectDir);
+            return TikTokPublisher.Core.Services.TikTokAiDramaProductionMaterialService.HasCurrentOutput(workflow);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool HasCurrentTimestampCertificate() =>
+        TikTokPublisher.Core.Services.TikTokTimestampCertificateService.HasCurrentOutput(this);
+
+    private bool HasCurrentMaterialValidation() =>
+        TikTokPublisher.Core.Services.TikTokMaterialValidationService.HasCurrentValidationState(ProjectDir);
+
+    private bool HasCurrentProjectImages() =>
+        TikTokPublisher.Core.Services.TikTokProjectImageService.HasCurrentProjectImages(ProjectDir);
+
+    private bool HasCurrentSmallVideoRepair() =>
+        !TikTokPublisher.Core.Services.TikTokSmallVideoRepairService.NeedsRepair(ProjectDir);
+
+    private bool HasCurrentSilenceReport() =>
+        TikTokPublisher.Core.Services.TikTokSilenceAsrService.HasCurrentReport(ProjectDir);
 
     private bool HasCurrentRoleVector()
     {

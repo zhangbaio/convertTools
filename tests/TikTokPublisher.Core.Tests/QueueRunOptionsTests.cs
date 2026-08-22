@@ -204,7 +204,7 @@ public sealed class QueueRunOptionsTests
     }
 
     [Fact]
-    public void NormalizeStepStates_backfills_legacy_uploaded_project_without_overwriting_explicit_pending_proof()
+    public void NormalizeStepStates_does_not_invent_completed_artifacts_for_legacy_uploaded_project()
     {
         var legacyUploaded = new QueueProjectItem
         {
@@ -225,7 +225,15 @@ public sealed class QueueRunOptionsTests
         legacyUploaded.NormalizeStepStates();
         explicitlyReset.NormalizeStepStates();
 
-        legacyUploaded.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
+        legacyUploaded.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(
+            QueueStepStatus.Pending,
+            "平台上传完成不能证明本机仍保留证明材料文件");
+        legacyUploaded.StepStates[QueueStepKeys.GenerateEpisodeScript].Should().Be(QueueStepStatus.Pending);
+        legacyUploaded.StepStates[QueueStepKeys.GenerateAiScriptOutline].Should().Be(QueueStepStatus.Pending);
+        legacyUploaded.StepStates[QueueStepKeys.GenerateAiDramaMaterials].Should().Be(QueueStepStatus.Pending);
+        legacyUploaded.StepStates[QueueStepKeys.GenerateTimestampCertificate].Should().Be(QueueStepStatus.Pending);
+        legacyUploaded.StepStates[QueueStepKeys.GenerateProjectImages].Should().Be(QueueStepStatus.Pending);
+        legacyUploaded.StepStates[QueueStepKeys.SilenceDetect].Should().Be(QueueStepStatus.Pending);
         explicitlyReset.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Pending);
     }
 }

@@ -51,6 +51,25 @@ public sealed class SilenceGapReport
 /// <summary>基于 ASR 的无台词间隔检测（火山在线大模型极速版）。</summary>
 public static class TikTokSilenceAsrService
 {
+    public const string ReportDocumentType = "silence_asr_report";
+
+    public static bool HasCurrentReport(string sourceProjectDir)
+    {
+        try
+        {
+            var context = Queue.ProjectWorkspaceService.LoadContext(sourceProjectDir);
+            var state = ProjectStateDocumentStore.LoadDocument(
+                context.WorkspaceRoot,
+                context.SourceProjectDir,
+                ReportDocumentType);
+            return state.TryGetValue("items", out var items) &&
+                   items.ValueKind == JsonValueKind.Array;
+        }
+        catch
+        {
+            return false;
+        }
+    }
     private const double EdgeEpsilonSeconds = 0.8;
     private const string VolcEndpoint =
         "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash";
@@ -180,7 +199,7 @@ public static class TikTokSilenceAsrService
         ProjectStateDocumentStore.SaveDocument(
             context.WorkspaceRoot,
             context.SourceProjectDir,
-            "silence_asr_report",
+            ReportDocumentType,
             new Dictionary<string, object?>
             {
                 ["version"] = 1,
