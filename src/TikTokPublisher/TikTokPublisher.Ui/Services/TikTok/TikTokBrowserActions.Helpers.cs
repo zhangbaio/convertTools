@@ -815,14 +815,14 @@ public static partial class TikTokBrowserActions
             var signed = page.Locator(
                 "[x-field-id='signed'] input[type='checkbox']").First;
             if (await signed.CountAsync() > 0)
-                return await signed.IsCheckedAsync();
+                return await IsCopyrightMaterialCheckboxSelectedAsync(signed);
 
             var promiseLabel = page.Locator("label").Filter(new() { HasText = "本人承诺" }).First;
             if (await promiseLabel.CountAsync() > 0)
             {
                 var scoped = promiseLabel.Locator("input.semi-checkbox-input, input[type='checkbox']").First;
                 if (await scoped.CountAsync() > 0)
-                    return await scoped.IsCheckedAsync();
+                    return await IsCopyrightMaterialCheckboxSelectedAsync(scoped);
             }
         }
         catch { /* fallback */ }
