@@ -356,6 +356,124 @@ public sealed class HongguoHighDramaChainTests
             .WithMessage("*暂不支持短剧今日上新*");
     }
 
+    [Fact]
+    public async Task Calendar_List_Fetches_First_Page_Then_Uses_Bounded_Parallel_Batch()
+    {
+        var calls = new System.Collections.Concurrent.ConcurrentBag<int>();
+        var active = 0;
+        var maxActive = 0;
+        var progress = new List<string>();
+        var today = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+
+        async Task<IReadOnlyList<DramaSearchItem>> Load(int page, CancellationToken cancellationToken)
+        {
+            calls.Add(page);
+            var current = Interlocked.Increment(ref active);
+            maxActive = Math.Max(maxActive, current);
+            try
+            {
+                await Task.Delay(20, cancellationToken);
+                var count = page switch { 1 or 2 => 20, 3 => 1, _ => 0 };
+                return Enumerable.Range(1, count)
+                    .Select(index => new DramaSearchItem($"hghigh:{page}-{index}", $"剧{page}-{index}", "", 1, "", "", "作者", today))
+                    .ToArray();
+            }
+            finally
+            {
+                Interlocked.Decrement(ref active);
+            }
+        }
+
+        var items = await HongguoHighApiService.FetchCalendarListForTestsAsync(
+            Load,
+            days: 1,
+            new InlineProgress<string>(progress.Add),
+            CancellationToken.None);
+
+        items.Should().HaveCount(41);
+        calls.Should().Contain([1, 2, 3, 4]);
+        maxActive.Should().Be(3);
+        progress.Should().Contain(message => message.Contains("已发现 41 部", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Ai_Landpage_Retries_504_With_Fresh_Signature()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var requestIds = new List<string>();
+        var executeCount = 0;
+        var delays = new List<TimeSpan>();
+        service.AuthedRequestForTests = (_, _, spec, _, _) =>
+        {
+            requestIds.Add(spec["requestId"]!.GetValue<string>());
+            return Task.FromResult<JsonNode?>(new JsonObject { ["host"] = "example.invalid", ["path"] = "/landpage" });
+        };
+        service.ExecuteSignedRequestForTests = (_, _, _, _) =>
+        {
+            executeCount++;
+            if (executeCount == 1)
+            {
+                throw new HongguoHighException("HTTP 504", 504);
+            }
+
+            return Task.FromResult<JsonNode?>(new JsonObject { ["ok"] = true });
+        };
+        service.DelayForTests = (delay, _) =>
+        {
+            delays.Add(delay);
+            return Task.CompletedTask;
+        };
+
+        var payload = await service.FetchAiLandpagePageAsync(
+            new DramaSourceSettings(),
+            page: 1,
+            timeoutSeconds: 30,
+            CancellationToken.None);
+
+        payload!["ok"]!.GetValue<bool>().Should().BeTrue();
+        executeCount.Should().Be(2);
+        requestIds.Should().HaveCount(2).And.OnlyHaveUniqueItems();
+        delays.Should().Equal(TimeSpan.FromSeconds(1.5));
+    }
+
+    [Fact]
+    public async Task Calendar_List_Reuses_Five_Minute_Cache()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var calls = 0;
+        var progress = new List<string>();
+        var settings = new DramaSourceSettings { HghighAccount = "cache@example.com" };
+
+        Task<IReadOnlyList<DramaSearchItem>> Load(int page, CancellationToken _)
+        {
+            calls++;
+            IReadOnlyList<DramaSearchItem> result =
+            [
+                new DramaSearchItem(
+                    $"hghigh:cache-{page}",
+                    "缓存剧目",
+                    "",
+                    1,
+                    "",
+                    "",
+                    "作者",
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture))
+            ];
+            return Task.FromResult(result);
+        }
+
+        var first = await service.GetCalendarNewForTestsAsync(
+            "manju", settings, 1, false, new InlineProgress<string>(progress.Add), Load, CancellationToken.None);
+        var second = await service.GetCalendarNewForTestsAsync(
+            "manju", settings, 1, false, new InlineProgress<string>(progress.Add), Load, CancellationToken.None);
+
+        first.Should().Equal(second);
+        calls.Should().Be(1);
+        progress.Should().Contain(message => message.Contains("5 分钟内上新列表缓存", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("16.7.19", true)]
     [InlineData("16.0.0", true)]
@@ -406,6 +524,11 @@ public sealed class HongguoHighDramaChainTests
         public void SavePikachuDeviceId(string deviceId)
         {
         }
+    }
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 
     private sealed class HighSearchHandler : HttpMessageHandler

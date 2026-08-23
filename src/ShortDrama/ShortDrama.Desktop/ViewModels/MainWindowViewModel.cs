@@ -2821,10 +2821,14 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 SearchModeToday => await _dramaSearchService.GetTodayAsync(cancellationToken),
                 SearchModeMangaToday => await LoadRouterSearchResultsAsync(
-                    router => router.GetMangaTodayAsync(queryDays, cancellationToken),
+                    router => router.IsHighSourceSelected()
+                        ? LoadProgressiveHighNewReleaseAsync(router, queryDays, isAi: false, cancellationToken)
+                        : router.GetMangaTodayAsync(queryDays, cancellationToken),
                     fallback: () => _dramaSearchService.GetTodayAsync(cancellationToken)),
                 SearchModeAiToday => await LoadRouterSearchResultsAsync(
-                    router => router.GetAiTodayAsync(queryDays, cancellationToken),
+                    router => router.IsHighSourceSelected()
+                        ? LoadProgressiveHighNewReleaseAsync(router, queryDays, isAi: true, cancellationToken)
+                        : router.GetAiTodayAsync(queryDays, cancellationToken),
                     fallback: () => _dramaSearchService.GetTodayAsync(cancellationToken)),
                 SearchModeHistory => await LoadRouterSearchResultsAsync(
                     router => router.GetHistoryAsync(queryDays, cancellationToken),
@@ -2837,6 +2841,26 @@ public partial class MainWindowViewModel : ViewModelBase
             _loadedSearchItems.AddRange(results);
             ApplyLoadedSearchResults(appendLog: true);
         });
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> LoadProgressiveHighNewReleaseAsync(
+        DramaSourceRouter router,
+        int days,
+        bool isAi,
+        CancellationToken cancellationToken)
+    {
+        var label = isAi ? "AI 短剧上新" : "漫剧上新";
+        var progress = new Progress<string>(message => StatusMessage = $"{label} · {message}");
+        var partial = isAi
+            ? await router.GetAiTodayAsync(days, enrich: false, progress, cancellationToken)
+            : await router.GetMangaTodayAsync(days, enrich: false, progress, cancellationToken);
+        _loadedSearchItems.Clear();
+        _loadedSearchItems.AddRange(partial);
+        ApplyLoadedSearchResults(appendLog: false);
+        StatusMessage = $"{label} · 已显示 {partial.Count} 条 · 正在后台补充详情...";
+        return isAi
+            ? await router.GetAiTodayAsync(days, enrich: true, progress, cancellationToken)
+            : await router.GetMangaTodayAsync(days, enrich: true, progress, cancellationToken);
     }
 
     private async Task RunSearchBusyAsync(string busyMessage, Func<CancellationToken, Task> action)

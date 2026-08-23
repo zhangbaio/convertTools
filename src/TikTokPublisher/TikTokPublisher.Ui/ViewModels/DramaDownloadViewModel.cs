@@ -342,6 +342,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private async Task LoadMangaTodayAsync()
     {
         SearchPage = 1;
+        if (ShortDramaDramaServices.IsHighSourceSelected())
+        {
+            await LoadProgressiveHighNewReleaseAsync(
+                $"漫剧上新 · {Math.Clamp(QueryDays, 1, 30)} 天",
+                isAi: false,
+                sourceMode: "mj_today");
+            return;
+        }
+
         await LoadSearchResultsAsync(
             $"漫剧上新 · {Math.Clamp(QueryDays, 1, 30)} 天",
             ct => ShortDramaDramaServices.GetMangaTodayAsync(Math.Clamp(QueryDays, 1, 30), ct),
@@ -352,6 +361,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private async Task LoadAiTodayAsync()
     {
         SearchPage = 1;
+        if (ShortDramaDramaServices.IsHighSourceSelected())
+        {
+            await LoadProgressiveHighNewReleaseAsync(
+                $"AI短剧上新 · {Math.Clamp(QueryDays, 1, 30)} 天",
+                isAi: true,
+                sourceMode: "aiju_today");
+            return;
+        }
+
         await LoadSearchResultsAsync(
             $"AI短剧上新 · {Math.Clamp(QueryDays, 1, 30)} 天",
             ct => ShortDramaDramaServices.GetAiTodayAsync(Math.Clamp(QueryDays, 1, 30), ct),
@@ -793,6 +811,57 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (target is not null) return target;
         LogRequested?.Invoke("请先为左侧选择账号配置有效的 TikTok 上传工作目录");
         return null;
+    }
+
+    private async Task LoadProgressiveHighNewReleaseAsync(string label, bool isAi, string sourceMode)
+    {
+        if (IsSearching) return;
+        IsSearching = true;
+        SearchPageText = $"{label} · 加载中...";
+        var progress = new Progress<string>(message => SearchPageText = $"{label} · {message}");
+        try
+        {
+            var days = Math.Clamp(QueryDays, 1, 30);
+            var partial = isAi
+                ? await ShortDramaDramaServices.GetAiTodayAsync(days, enrich: false, progress, CancellationToken.None)
+                : await ShortDramaDramaServices.GetMangaTodayAsync(days, enrich: false, progress, CancellationToken.None);
+            ReplaceLoadedSearchItems(partial, sourceMode, preserveSelection: false);
+            ApplyFilteredSearchResults(label);
+            SearchPageText = $"{label} · 已显示 {SearchResults.Count} 条 · 正在后台补充详情...";
+
+            var full = isAi
+                ? await ShortDramaDramaServices.GetAiTodayAsync(days, enrich: true, progress, CancellationToken.None)
+                : await ShortDramaDramaServices.GetMangaTodayAsync(days, enrich: true, progress, CancellationToken.None);
+            ReplaceLoadedSearchItems(full, sourceMode, preserveSelection: true);
+            ApplyFilteredSearchResults(label);
+            LogRequested?.Invoke($"{label}：{SearchResults.Count} 条");
+        }
+        catch (Exception ex)
+        {
+            SearchPageText = $"{label} · 加载失败";
+            LogRequested?.Invoke($"{label}失败：{ex.Message}");
+        }
+        finally
+        {
+            IsSearching = false;
+        }
+    }
+
+    private void ReplaceLoadedSearchItems(
+        IReadOnlyList<DramaSearchItem> items,
+        string sourceMode,
+        bool preserveSelection)
+    {
+        var selected = preserveSelection
+            ? SearchResults.Where(row => row.Selected).Select(row => row.Item.BookId).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : [];
+        _allSearchResults.Clear();
+        foreach (var item in items)
+        {
+            item.Selected = selected.Contains(item.BookId);
+            item.SourceMode = sourceMode;
+            _allSearchResults.Add(item);
+        }
     }
 
     private List<DramaSearchItem> FilterAuthorExcludedItems(List<DramaSearchItem> selectedItems, string queueLabel)
