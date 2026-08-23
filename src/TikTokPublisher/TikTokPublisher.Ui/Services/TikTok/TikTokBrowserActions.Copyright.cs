@@ -2042,6 +2042,95 @@ public static partial class TikTokBrowserActions
 
     private sealed record CopyrightUploadNetworkOutcome(bool Success, string Detail);
 
+    internal static bool IsCopyrightRadioSelectedState(
+        bool inputChecked,
+        string? inputAriaChecked,
+        string? roleAriaChecked,
+        string? labelClass,
+        string? innerClass)
+    {
+        if (inputChecked ||
+            string.Equals(inputAriaChecked?.Trim(), "true", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(roleAriaChecked?.Trim(), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        static bool HasCheckedClass(string? value, string expected) =>
+            (value ?? string.Empty)
+                .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                .Contains(expected, StringComparer.OrdinalIgnoreCase);
+
+        return HasCheckedClass(labelClass, "semi-radio-checked") ||
+               HasCheckedClass(innerClass, "semi-radio-inner-checked");
+    }
+
+    private static async Task<bool> IsCopyrightRadioSelectedAsync(ILocator radio)
+    {
+        try
+        {
+            var inputChecked = await radio.IsCheckedAsync();
+            var inputAriaChecked = await radio.GetAttributeAsync("aria-checked");
+            var label = radio.Locator("xpath=ancestor::label[1]");
+            var roleRadio = radio.Locator("xpath=ancestor-or-self::*[@role='radio'][1]");
+            var inner = label.Locator(".semi-radio-inner").First;
+            var labelClass = await label.CountAsync() > 0
+                ? await label.GetAttributeAsync("class")
+                : null;
+            var roleAriaChecked = await roleRadio.CountAsync() > 0
+                ? await roleRadio.GetAttributeAsync("aria-checked")
+                : null;
+            var innerClass = await inner.CountAsync() > 0
+                ? await inner.GetAttributeAsync("class")
+                : null;
+
+            return IsCopyrightRadioSelectedState(
+                inputChecked,
+                inputAriaChecked,
+                roleAriaChecked,
+                labelClass,
+                innerClass);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<ILocator?> TryResolveCopyrightRadioAsync(
+        IPage page,
+        string fieldId,
+        int optionIndex)
+    {
+        var fields = page.Locator($"[x-field-id='{fieldId}']");
+        var count = await fields.CountAsync();
+        ILocator? connectedFallback = null;
+        for (var index = count - 1; index >= 0; index--)
+        {
+            var field = fields.Nth(index);
+            var radio = field.Locator("input[type='radio']").Nth(optionIndex);
+            try
+            {
+                if (await radio.CountAsync() == 0 ||
+                    !await radio.EvaluateAsync<bool>(
+                        "element => element.isConnected && !element.disabled"))
+                {
+                    continue;
+                }
+
+                connectedFallback ??= radio;
+                if (await field.IsVisibleAsync())
+                    return radio;
+            }
+            catch
+            {
+                // React may redraw the field while the form is initializing.
+            }
+        }
+
+        return connectedFallback;
+    }
+
     private static async Task SelectCopyrightRadioAsync(
         IPage page,
         string fieldId,
@@ -2050,18 +2139,16 @@ public static partial class TikTokBrowserActions
         string legacyOptionLabel,
         CancellationToken ct)
     {
-        var field = page.Locator($"[x-field-id='{fieldId}']").First;
-        if (await field.CountAsync() > 0)
+        if (await page.Locator($"[x-field-id='{fieldId}']").CountAsync() > 0)
         {
-            var radio = field.Locator("input[type='radio']").Nth(optionIndex);
+            ILocator? radio = null;
             var ready = await WaitUntilAsync(async () =>
             {
                 ct.ThrowIfCancellationRequested();
                 try
                 {
-                    return await radio.CountAsync() > 0 &&
-                           await radio.EvaluateAsync<bool>(
-                               "element => element.isConnected && !element.disabled");
+                    radio = await TryResolveCopyrightRadioAsync(page, fieldId, optionIndex);
+                    return radio is not null;
                 }
                 catch
                 {
@@ -2073,16 +2160,20 @@ public static partial class TikTokBrowserActions
                     $"TikTok 版权字段「{fieldId}」的第 {optionIndex + 1} 个选项未在 " +
                     $"{CopyrightControlTimeoutMs / 1000} 秒内解锁。");
 
-            if (!await radio.IsCheckedAsync())
+            if (!await IsCopyrightRadioSelectedAsync(radio!))
             {
-                var label = radio.Locator("xpath=ancestor::label[1]");
+                var label = radio!.Locator("xpath=ancestor::label[1]");
                 await ClickWithFallbackAsync(await label.CountAsync() > 0 ? label : radio, ct);
             }
 
             var confirmed = await WaitUntilAsync(
                 async () =>
                 {
-                    try { return await radio.IsCheckedAsync(); }
+                    try
+                    {
+                        var current = await TryResolveCopyrightRadioAsync(page, fieldId, optionIndex);
+                        return current is not null && await IsCopyrightRadioSelectedAsync(current);
+                    }
                     catch { return false; }
                 },
                 5000,

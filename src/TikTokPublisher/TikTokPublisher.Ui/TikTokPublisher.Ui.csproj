@@ -19,6 +19,9 @@
     <ProjectReference Include="..\TikTokPublisher.Core\TikTokPublisher.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="TikTokPublisher.Core.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <AvaloniaResource Include="Themes\**" />
   </ItemGroup>
 </Project>
