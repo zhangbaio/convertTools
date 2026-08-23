@@ -20,6 +20,10 @@ internal sealed record CopyrightProofMaterialCoverageProbe(
     TikTokCopyrightMaterialCompletionPlan Plan,
     IReadOnlyList<string> Details);
 
+internal sealed record CopyrightMaterialCheckbox(
+    ILocator Control,
+    ILocator ClickTarget);
+
 public static partial class TikTokBrowserActions
 {
     private const int CopyrightControlTimeoutMs = 15000;
@@ -175,7 +179,7 @@ public static partial class TikTokBrowserActions
                     label,
                     CopyrightControlTimeoutMs,
                     ct);
-                if (await option.Input.IsCheckedAsync())
+                if (await IsCopyrightMaterialCheckboxSelectedAsync(option.Control))
                     throw new InvalidOperationException($"TikTok 版权材料仍处于勾选状态：{label}。");
             }
         }
@@ -827,12 +831,13 @@ public static partial class TikTokBrowserActions
                 continue;
             ct.ThrowIfCancellationRequested();
             var option = await TryFindCopyrightMaterialCheckboxAsync(page, pair.Key, pair.Value);
-            if (option is null || !await option.Value.Input.IsCheckedAsync()) continue;
+            if (option is null ||
+                !await IsCopyrightMaterialCheckboxSelectedAsync(option.Control)) continue;
             await EnsureCopyrightMaterialCheckboxStateAsync(
                 page,
                 pair.Key,
                 pair.Value,
-                option.Value,
+                option,
                 shouldSelect: false,
                 log,
                 ct);
@@ -987,7 +992,7 @@ public static partial class TikTokBrowserActions
                     CopyrightControlTimeoutMs,
                     ct);
                 var expected = configured.Contains(materialType);
-                if (await option.Input.IsCheckedAsync() != expected)
+                if (await IsCopyrightMaterialCheckboxSelectedAsync(option.Control) != expected)
                 {
                     throw new InvalidOperationException(
                         $"TikTok 编辑页版权材料勾选状态不一致：{label}，期望：{(expected ? "勾选" : "取消勾选")}。");
@@ -1371,14 +1376,14 @@ public static partial class TikTokBrowserActions
             }
             """);
 
-    private static async Task<(ILocator Input, ILocator ClickTarget)> WaitForCopyrightMaterialCheckboxAsync(
+    private static async Task<CopyrightMaterialCheckbox> WaitForCopyrightMaterialCheckboxAsync(
         IPage page,
         string materialKey,
         string label,
         int timeoutMs,
         CancellationToken ct)
     {
-        (ILocator Input, ILocator ClickTarget)? result = null;
+        CopyrightMaterialCheckbox? result = null;
         var found = await WaitUntilAsync(async () =>
         {
             ct.ThrowIfCancellationRequested();
@@ -1387,12 +1392,12 @@ public static partial class TikTokBrowserActions
         }, timeoutMs, 300, ct);
 
         return found && result is not null
-            ? result.Value
+            ? result
             : throw new InvalidOperationException(
                 $"TikTok「上传材料类型」已打开，但 {timeoutMs / 1000} 秒内未找到可操作的「{label}」复选框。");
     }
 
-    private static async Task<(ILocator Input, ILocator ClickTarget)?> TryFindCopyrightMaterialCheckboxAsync(
+    private static async Task<CopyrightMaterialCheckbox?> TryFindCopyrightMaterialCheckboxAsync(
         IPage page,
         string materialKey,
         string label)
@@ -1401,38 +1406,50 @@ public static partial class TikTokBrowserActions
 
         foreach (var candidateText in candidates.Distinct(StringComparer.Ordinal))
         {
-            var literal = XPathLiteral(candidateText);
-            var exactLabels = page.Locator(
-                $"xpath=//*[normalize-space(translate(text(), '*', ''))={literal} and " +
-                "ancestor::*[@role='tooltip' or @role='dialog' or " +
-                "contains(concat(' ', normalize-space(@class), ' '), ' semi-portal ')]]");
-            if (await exactLabels.CountAsync() == 0)
+            var labelLocators = new[]
             {
-                var popupRoots = page.Locator("[role='tooltip'], [role='dialog'], .semi-portal");
-                exactLabels = popupRoots.GetByText(candidateText, new() { Exact = true });
-            }
-            var count = await exactLabels.CountAsync();
-            for (var index = count - 1; index >= 0; index--)
+                page.Locator(
+                    $"xpath=//*[normalize-space(translate(text(), '*', ''))={XPathLiteral(candidateText)}]"),
+                page.GetByText(candidateText, new() { Exact = true }),
+                page.GetByText(candidateText, new() { Exact = false }),
+            };
+
+            foreach (var labels in labelLocators)
             {
-                try
+                var count = Math.Min(await labels.CountAsync(), 100);
+                for (var index = count - 1; index >= 0; index--)
                 {
-                    var exactLabel = exactLabels.Nth(index);
-                    if (!await exactLabel.IsVisibleAsync()) continue;
+                    try
+                    {
+                        var textNode = labels.Nth(index);
+                        if (!await textNode.IsVisibleAsync()) continue;
 
-                    // 真实页面的文字与 Semi checkbox 是同级节点，先找同时包含二者的 option。
-                    var clickTarget = exactLabel.Locator(
-                        "xpath=ancestor::*[.//input[@type='checkbox']][1]");
-                    if (await clickTarget.CountAsync() == 0 || !await clickTarget.IsVisibleAsync()) continue;
+                        // Old dropdowns and new right-side drawers may place the text and
+                        // checkbox in sibling columns. Resolve their nearest common option.
+                        var clickTarget = textNode.Locator(
+                            "xpath=ancestor-or-self::*[" +
+                            ".//input[@type='checkbox'] or .//*[@role='checkbox'] or @role='checkbox'][1]");
+                        if (await clickTarget.CountAsync() == 0 ||
+                            !await clickTarget.IsVisibleAsync()) continue;
 
-                    var input = clickTarget.Locator("input[type='checkbox']").First;
-                    if (await input.CountAsync() == 0) continue;
-                    if (!await input.EvaluateAsync<bool>(
-                            "element => element.isConnected && !element.disabled")) continue;
-                    return (input, clickTarget);
-                }
-                catch
-                {
-                    // 下拉层可能在轮询期间重绘，下一轮重新定位。
+                        var control = string.Equals(
+                                await clickTarget.GetAttributeAsync("role"),
+                                "checkbox",
+                                StringComparison.OrdinalIgnoreCase)
+                            ? clickTarget
+                            : clickTarget.Locator(
+                                "input[type='checkbox'], [role='checkbox']").First;
+                        if (await control.CountAsync() == 0) continue;
+                        if (!await control.EvaluateAsync<bool>(
+                                "element => element.isConnected && " +
+                                "!element.hasAttribute('disabled') && " +
+                                "element.getAttribute('aria-disabled') !== 'true'")) continue;
+                        return new CopyrightMaterialCheckbox(control, clickTarget);
+                    }
+                    catch
+                    {
+                        // The dropdown/drawer may redraw during polling.
+                    }
                 }
             }
         }
@@ -1444,13 +1461,13 @@ public static partial class TikTokBrowserActions
         IPage page,
         string materialKey,
         string label,
-        (ILocator Input, ILocator ClickTarget) option,
+        CopyrightMaterialCheckbox option,
         bool shouldSelect,
         Action<string>? log,
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var isSelected = await option.Input.IsCheckedAsync();
+        var isSelected = await IsCopyrightMaterialCheckboxSelectedAsync(option.Control);
         if (isSelected == shouldSelect)
         {
             if (shouldSelect)
@@ -1463,7 +1480,8 @@ public static partial class TikTokBrowserActions
         {
             ct.ThrowIfCancellationRequested();
             var current = await TryFindCopyrightMaterialCheckboxAsync(page, materialKey, label);
-            return current is not null && await current.Value.Input.IsCheckedAsync() == shouldSelect;
+            return current is not null &&
+                   await IsCopyrightMaterialCheckboxSelectedAsync(current.Control) == shouldSelect;
         }, 5000, 200, ct);
         if (!confirmed)
             throw new InvalidOperationException(
@@ -1640,8 +1658,60 @@ public static partial class TikTokBrowserActions
         await page.WaitForTimeoutAsync(400);
     }
 
+    internal static bool IsCopyrightMaterialCheckboxSelectedState(
+        bool nativeChecked,
+        string? ariaChecked,
+        string? controlClass,
+        string? wrapperClass,
+        string? innerClass)
+    {
+        if (nativeChecked ||
+            string.Equals(ariaChecked?.Trim(), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        static bool HasCheckedClass(string? value) =>
+            (value ?? string.Empty)
+                .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                .Any(part =>
+                    part.Equals("semi-checkbox-checked", StringComparison.OrdinalIgnoreCase) ||
+                    part.Equals("semi-checkbox-inner-checked", StringComparison.OrdinalIgnoreCase) ||
+                    part.Equals("checked", StringComparison.OrdinalIgnoreCase));
+
+        return HasCheckedClass(controlClass) ||
+               HasCheckedClass(wrapperClass) ||
+               HasCheckedClass(innerClass);
+    }
+
+    private static async Task<bool> IsCopyrightMaterialCheckboxSelectedAsync(ILocator control)
+    {
+        try
+        {
+            var tagName = await control.EvaluateAsync<string>(
+                "element => element.tagName.toLowerCase()");
+            var nativeChecked = string.Equals(tagName, "input", StringComparison.Ordinal) &&
+                                await control.IsCheckedAsync();
+            var ariaChecked = await control.GetAttributeAsync("aria-checked");
+            var wrapper = control.Locator(
+                "xpath=ancestor-or-self::*[contains(concat(' ', normalize-space(@class), ' '), ' semi-checkbox-wrapper ') or " +
+                "contains(concat(' ', normalize-space(@class), ' '), ' semi-checkbox ')][1]");
+            var inner = wrapper.Locator(".semi-checkbox-inner").First;
+            return IsCopyrightMaterialCheckboxSelectedState(
+                nativeChecked,
+                ariaChecked,
+                await control.GetAttributeAsync("class"),
+                await wrapper.CountAsync() > 0 ? await wrapper.GetAttributeAsync("class") : null,
+                await inner.CountAsync() > 0 ? await inner.GetAttributeAsync("class") : null);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static async Task ClickCopyrightMaterialOptionAsync(
-        (ILocator Input, ILocator ClickTarget) option,
+        CopyrightMaterialCheckbox option,
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -1652,10 +1722,11 @@ public static partial class TikTokBrowserActions
             await option.ClickTarget.EvaluateAsync(
                 """
                 element => {
-                  const target = element.matches('.semi-checkbox, input[type="checkbox"]')
+                  const target = element.matches('.semi-checkbox, input[type="checkbox"], [role="checkbox"]')
                     ? element
                     : element.querySelector('.semi-checkbox') ||
                       element.querySelector('input[type="checkbox"]') ||
+                      element.querySelector('[role="checkbox"]') ||
                       element;
                   target.click();
                 }
