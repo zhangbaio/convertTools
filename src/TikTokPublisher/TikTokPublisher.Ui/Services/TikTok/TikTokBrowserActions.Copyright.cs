@@ -469,6 +469,12 @@ public static partial class TikTokBrowserActions
             .ConfigureAwait(false);
         Log(log, "TikTok 编辑页版权材料本地产物预检通过，开始按最新配置全量重建。");
 
+        // The material selector is cascade-locked until both classification radios
+        // have effective React form state. Establish them before probing/removing
+        // existing edit-page materials; the regular configure pass verifies again.
+        await SelectCopyrightProofClassificationAsync(page, options, ct)
+            .ConfigureAwait(false);
+
         var coverage = await ProbeConfiguredCopyrightProofMaterialsAsync(
                 page,
                 options.CopyrightMaterialTypes,
@@ -687,24 +693,7 @@ public static partial class TikTokBrowserActions
             return;
         }
 
-        await SelectCopyrightRadioAsync(
-            page,
-            OriginalRightsHolderFieldId,
-            options.IsOriginalRightsHolder ? 0 : 1,
-            "是否原始权利人",
-            options.IsOriginalRightsHolder ? "是" : "否",
-            ct,
-            dependentReady: () => IsCopyrightRadioFieldUnlockedAsync(page, AdaptationFieldId),
-            dependentDescription: "内容原创类型仍未解锁");
-        await SelectCopyrightRadioAsync(
-            page,
-            AdaptationFieldId,
-            string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
-            "内容原创类型",
-            string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase) ? "改编" : "原创",
-            ct,
-            dependentReady: () => IsCopyrightMaterialTriggerUnlockedAsync(page),
-            dependentDescription: "上传材料类型仍被级联锁定");
+        await SelectCopyrightProofClassificationAsync(page, options, ct);
 
         var combo = await WaitForCopyrightMaterialTypeTriggerAsync(
             page,
@@ -2272,6 +2261,31 @@ public static partial class TikTokBrowserActions
         {
             return false;
         }
+    }
+
+    private static async Task SelectCopyrightProofClassificationAsync(
+        IPage page,
+        TikTokPublishOptions options,
+        CancellationToken ct)
+    {
+        await SelectCopyrightRadioAsync(
+            page,
+            OriginalRightsHolderFieldId,
+            options.IsOriginalRightsHolder ? 0 : 1,
+            "是否原始权利人",
+            options.IsOriginalRightsHolder ? "是" : "否",
+            ct,
+            dependentReady: () => IsCopyrightRadioFieldUnlockedAsync(page, AdaptationFieldId),
+            dependentDescription: "内容原创类型仍未解锁");
+        await SelectCopyrightRadioAsync(
+            page,
+            AdaptationFieldId,
+            string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
+            "内容原创类型",
+            string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase) ? "改编" : "原创",
+            ct,
+            dependentReady: () => IsCopyrightMaterialTriggerUnlockedAsync(page),
+            dependentDescription: "上传材料类型仍被级联锁定");
     }
 
     internal static async Task SelectCopyrightRadioAsync(

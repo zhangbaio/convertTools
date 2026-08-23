@@ -646,6 +646,12 @@ public static partial class TikTokBrowserActions
         await SelectContentCreationTypeAsync(page, options, log, ct);
         await PauseBetweenFieldsAsync(page);
 
+        // TikTok may keep the copyright material cascade locked until the copyright
+        // checklist has been acknowledged. Accept it before configuring proof fields,
+        // then verify it again after material uploads in case a React redraw clears it.
+        await AcceptPromiseAsync(page, log, ct);
+        await PauseBetweenFieldsAsync(page);
+
         if (preserveExistingCopyrightMaterials)
         {
             await ConfigureCopyrightProofForEditAsync(page, options, log, ct);
@@ -656,6 +662,7 @@ public static partial class TikTokBrowserActions
         }
         await PauseBetweenFieldsAsync(page);
 
+        // Idempotent final verification: normally this logs "already checked".
         await AcceptPromiseAsync(page, log, ct);
         await PauseBetweenFieldsAsync(page);
 
