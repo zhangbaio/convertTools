@@ -693,14 +693,18 @@ public static partial class TikTokBrowserActions
             options.IsOriginalRightsHolder ? 0 : 1,
             "是否原始权利人",
             options.IsOriginalRightsHolder ? "是" : "否",
-            ct);
+            ct,
+            dependentReady: () => IsCopyrightRadioFieldUnlockedAsync(page, AdaptationFieldId),
+            dependentDescription: "内容原创类型仍未解锁");
         await SelectCopyrightRadioAsync(
             page,
             AdaptationFieldId,
             string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
             "内容原创类型",
             string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase) ? "改编" : "原创",
-            ct);
+            ct,
+            dependentReady: () => IsCopyrightMaterialTriggerUnlockedAsync(page),
+            dependentDescription: "上传材料类型仍被级联锁定");
 
         var combo = await WaitForCopyrightMaterialTypeTriggerAsync(
             page,
@@ -1627,9 +1631,7 @@ public static partial class TikTokBrowserActions
             {
                 if (await candidate.CountAsync() == 0 || !await candidate.IsVisibleAsync())
                     continue;
-                if (!await candidate.EvaluateAsync<bool>(
-                        "element => element.isConnected && " +
-                        "!element.hasAttribute('disabled') && element.getAttribute('aria-disabled') !== 'true'"))
+                if (!await IsCopyrightMaterialTriggerUnlockedAsync(candidate))
                     continue;
                 return candidate;
             }
@@ -1639,7 +1641,55 @@ public static partial class TikTokBrowserActions
             }
         }
 
-        return await FindComboboxByFieldLabelAsync(page, ["上传材料类型"]);
+        var fallback = await FindComboboxByFieldLabelAsync(page, ["上传材料类型"]);
+        return fallback is not null && await IsCopyrightMaterialTriggerUnlockedAsync(fallback)
+            ? fallback
+            : null;
+    }
+
+    internal static bool IsCopyrightMaterialTriggerUnlockedState(
+        bool connected,
+        bool disabled,
+        string? ariaDisabled,
+        string? className)
+    {
+        var classes = (className ?? string.Empty)
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return connected &&
+               !disabled &&
+               !string.Equals(ariaDisabled?.Trim(), "true", StringComparison.OrdinalIgnoreCase) &&
+               !classes.Contains("triggerCascadeLocked-dG71jy", StringComparer.OrdinalIgnoreCase) &&
+               !classes.Any(value => value.StartsWith("triggerCascadeLocked-", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static async Task<bool> IsCopyrightMaterialTriggerUnlockedAsync(ILocator trigger)
+    {
+        try
+        {
+            var connected = await trigger.EvaluateAsync<bool>("element => element.isConnected");
+            var disabled = await trigger.EvaluateAsync<bool>(
+                "element => element.hasAttribute('disabled') || element.disabled === true");
+            return IsCopyrightMaterialTriggerUnlockedState(
+                connected,
+                disabled,
+                await trigger.GetAttributeAsync("aria-disabled"),
+                await trigger.GetAttributeAsync("class"));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<bool> IsCopyrightMaterialTriggerUnlockedAsync(IPage page)
+    {
+        var stableTrigger = page.Locator(
+            $"{CopyrightMaterialTypeFieldSelector} [aria-haspopup='true']").First;
+        if (await stableTrigger.CountAsync() > 0)
+            return await IsCopyrightMaterialTriggerUnlockedAsync(stableTrigger);
+
+        var fallback = await FindComboboxByFieldLabelAsync(page, ["上传材料类型"]);
+        return fallback is not null && await IsCopyrightMaterialTriggerUnlockedAsync(fallback);
     }
 
     private static async Task OpenCopyrightMaterialTypePopupAsync(
@@ -2202,13 +2252,37 @@ public static partial class TikTokBrowserActions
         return connectedFallback;
     }
 
-    private static async Task SelectCopyrightRadioAsync(
+    private static async Task<bool> IsCopyrightRadioFieldUnlockedAsync(
+        IPage page,
+        string fieldId)
+    {
+        var field = page.Locator($"[x-field-id='{fieldId}']").First;
+        if (await field.CountAsync() == 0)
+            return true;
+
+        try
+        {
+            return await field.EvaluateAsync<bool>(
+                """
+                element => Array.from(element.querySelectorAll('input[type="radio"]'))
+                  .some(input => input.isConnected && !input.disabled)
+                """);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static async Task SelectCopyrightRadioAsync(
         IPage page,
         string fieldId,
         int optionIndex,
         string legacyFieldLabel,
         string legacyOptionLabel,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<Task<bool>>? dependentReady = null,
+        string? dependentDescription = null)
     {
         if (await page.Locator($"[x-field-id='{fieldId}']").CountAsync() > 0)
         {
@@ -2231,29 +2305,46 @@ public static partial class TikTokBrowserActions
                     $"TikTok 版权字段「{fieldId}」的第 {optionIndex + 1} 个选项未在 " +
                     $"{CopyrightControlTimeoutMs / 1000} 秒内解锁。");
 
-            if (!await IsCopyrightRadioSelectedAsync(radio!))
+            async Task<bool> IsSelectionEffectiveAsync()
             {
-                var label = radio!.Locator("xpath=ancestor::label[1]");
-                await ClickWithFallbackAsync(await label.CountAsync() > 0 ? label : radio, ct);
+                var current = await TryResolveCopyrightRadioAsync(page, fieldId, optionIndex);
+                if (current is null || !await IsCopyrightRadioSelectedAsync(current))
+                    return false;
+                return dependentReady is null || await dependentReady();
             }
 
-            var confirmed = await WaitUntilAsync(
-                async () =>
+            for (var attempt = 1; attempt <= 3; attempt++)
+            {
+                if (await IsSelectionEffectiveAsync())
+                    return;
+
+                var current = await TryResolveCopyrightRadioAsync(page, fieldId, optionIndex);
+                if (current is null)
                 {
-                    try
+                    await page.WaitForTimeoutAsync(250);
+                    continue;
+                }
+
+                var label = current.Locator("xpath=ancestor::label[1]");
+                await ClickWithFallbackAsync(await label.CountAsync() > 0 ? label : current, ct);
+                var confirmed = await WaitUntilAsync(
+                    async () =>
                     {
-                        var current = await TryResolveCopyrightRadioAsync(page, fieldId, optionIndex);
-                        return current is not null && await IsCopyrightRadioSelectedAsync(current);
-                    }
-                    catch { return false; }
-                },
-                5000,
-                150,
-                ct);
-            if (!confirmed)
-                throw new InvalidOperationException(
-                    $"TikTok 版权字段「{fieldId}」的第 {optionIndex + 1} 个选项点击后未选中。");
-            return;
+                        try { return await IsSelectionEffectiveAsync(); }
+                        catch { return false; }
+                    },
+                    4000,
+                    150,
+                    ct);
+                if (confirmed)
+                    return;
+            }
+
+            var suffix = string.IsNullOrWhiteSpace(dependentDescription)
+                ? "选中状态未生效"
+                : dependentDescription;
+            throw new InvalidOperationException(
+                $"TikTok 版权字段「{fieldId}」的第 {optionIndex + 1} 个选项点击后未生效：{suffix}。");
         }
 
         // 兼容尚未提供 x-field-id 的旧页面。
@@ -2285,6 +2376,14 @@ public static partial class TikTokBrowserActions
         if (!selected)
             throw new InvalidOperationException(
                 $"未找到 TikTok 版权字段「{fieldId}」（旧版「{legacyFieldLabel}」的「{legacyOptionLabel}」选项）。");
+        if (dependentReady is not null)
+        {
+            var effective = await WaitUntilAsync(dependentReady, 5000, 150, ct);
+            if (!effective)
+                throw new InvalidOperationException(
+                    $"TikTok 版权字段「{legacyFieldLabel}」选择「{legacyOptionLabel}」后未生效：" +
+                    $"{dependentDescription ?? "后续字段仍未解锁"}。");
+        }
         await page.WaitForTimeoutAsync(150);
     }
 }
