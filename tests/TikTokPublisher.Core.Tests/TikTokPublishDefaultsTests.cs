@@ -944,6 +944,36 @@ public sealed class TikTokPublishDefaultsTests
             .Should().Equal("work_registration_certificate");
     }
 
+    [Fact]
+    public void Auto_managed_copyright_materials_allow_auxiliary_configuration_shrink()
+    {
+        var desired = TikTokPublishConstants.ValidateAutoManagedCopyrightMaterialTypes(
+        [
+            TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
+            TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+        ]);
+
+        desired.Should().Equal(
+            TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
+            TikTokPublishConstants.AiGenerationScreenshotsMaterialType);
+        TikTokPublishConstants.AutoManagedCopyrightMaterialTypes.Should().Contain(
+            TikTokPublishConstants.EditingProjectFilesMaterialType,
+            "旧草稿中的第三项辅助材料仍需纳入清空范围");
+    }
+
+    [Fact]
+    public void Auto_managed_copyright_materials_reject_manual_type_before_remote_cleanup()
+    {
+        var action = () => TikTokPublishConstants.ValidateAutoManagedCopyrightMaterialTypes(
+        [
+            TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
+            "opening_ending_rights_notice",
+        ]);
+
+        action.Should().Throw<NotSupportedException>()
+            .WithMessage("*片头片尾及权利标识*");
+    }
+
     [Theory]
     [InlineData("production_agreement", true)]
     [InlineData("source_file_information", true)]
