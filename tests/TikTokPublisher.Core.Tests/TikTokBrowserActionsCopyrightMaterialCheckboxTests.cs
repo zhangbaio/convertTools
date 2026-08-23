@@ -74,4 +74,18 @@ public sealed class TikTokBrowserActionsCopyrightMaterialCheckboxTests
                 new OperationCanceledException())
             .Should().BeFalse();
     }
+
+    [Fact]
+    public void UploadFailureMessage_IdentifiesFormAndSuggestsRetryLater()
+    {
+        var message = TikTokBrowserActions.BuildCopyrightMaterialUploadFailureMessage(
+            "AI 生成过程截图",
+            "检测到 1 个红色失败文件卡");
+
+        message.Should().Contain("AI 生成过程截图");
+        message.Should().Contain("文件上传失败");
+        message.Should().Contain("TikTok 官方上传服务");
+        message.Should().Contain("网络波动");
+        message.Should().Contain("稍后重试");
+    }
 }
