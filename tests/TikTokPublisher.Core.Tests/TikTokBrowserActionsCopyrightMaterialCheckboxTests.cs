@@ -57,4 +57,21 @@ public sealed class TikTokBrowserActionsCopyrightMaterialCheckboxTests
                 innerClass: "semi-checkbox-inner")
             .Should().BeFalse();
     }
+
+    [Fact]
+    public void UploadRetry_AllowsExactlyOneRetry()
+    {
+        TikTokBrowserActions.ShouldRetryCopyrightMaterialUpload(
+                attempt: 1,
+                new InvalidOperationException("上传失败"))
+            .Should().BeTrue();
+        TikTokBrowserActions.ShouldRetryCopyrightMaterialUpload(
+                attempt: 2,
+                new InvalidOperationException("再次失败"))
+            .Should().BeFalse();
+        TikTokBrowserActions.ShouldRetryCopyrightMaterialUpload(
+                attempt: 1,
+                new OperationCanceledException())
+            .Should().BeFalse();
+    }
 }

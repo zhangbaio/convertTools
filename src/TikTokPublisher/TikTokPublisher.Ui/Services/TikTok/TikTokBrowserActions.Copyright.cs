@@ -28,6 +28,7 @@ public static partial class TikTokBrowserActions
 {
     private const int CopyrightControlTimeoutMs = 15000;
     private const int CopyrightUploadTimeoutMs = 60000;
+    private const int CopyrightUploadMaxAttempts = 2;
     private const string CopyrightMaterialTypeFieldSelector =
         "[x-field-id='copyrightProof.selectedMaterialTypes']";
     private const string ProductionAgreementUploadFieldSelector =
@@ -200,7 +201,8 @@ public static partial class TikTokBrowserActions
         for (var removed = 0; removed < maximumFiles; removed++)
         {
             ct.ThrowIfCancellationRequested();
-            var before = await CountExistingCopyrightMaterialFilesAsync(field);
+            // Include failed placeholder cards as well as successfully rendered files.
+            var before = await CountCopyrightMaterialFileCardsAsync(field);
             if (before == 0)
             {
                 Log(log, $"TikTok 版权材料附件已清空：{label}。");
@@ -246,7 +248,7 @@ public static partial class TikTokBrowserActions
             var decreased = await WaitUntilAsync(async () =>
             {
                 ct.ThrowIfCancellationRequested();
-                try { return await CountExistingCopyrightMaterialFilesAsync(field) < before; }
+                try { return await CountCopyrightMaterialFileCardsAsync(field) < before; }
                 catch { return before == 1; }
             }, 10000, 250, ct);
             if (!decreased)
@@ -1143,6 +1145,60 @@ public static partial class TikTokBrowserActions
         if (filePaths.Count == 0)
             throw new InvalidOperationException($"TikTok 版权材料「{label}」没有可上传的文件。");
 
+        for (var attempt = 1; attempt <= CopyrightUploadMaxAttempts; attempt++)
+        {
+            try
+            {
+                await UploadCopyrightMaterialFilesOnceAsync(
+                    page,
+                    materialKey,
+                    label,
+                    filePaths,
+                    preferProductionAgreementFieldId,
+                    log,
+                    ct);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ShouldRetryCopyrightMaterialUpload(attempt, ex))
+            {
+                Log(log,
+                    $"⚠️ TikTok 版权材料上传失败，准备清理本次批次并重试一次：{label}；{ex.Message}");
+                var failedControl = await WaitForCopyrightMaterialUploadControlAsync(
+                    page,
+                    materialKey,
+                    label,
+                    CopyrightControlTimeoutMs,
+                    preferProductionAgreementFieldId,
+                    ct);
+                await RemoveAllCopyrightMaterialFilesAsync(
+                    page,
+                    failedControl.Field,
+                    label,
+                    log,
+                    ct);
+                await page.WaitForTimeoutAsync(700);
+                Log(log, $"TikTok 版权材料失败批次已删除，开始第 2 次上传：{label}。");
+            }
+        }
+    }
+
+    internal static bool ShouldRetryCopyrightMaterialUpload(int attempt, Exception exception) =>
+        attempt < CopyrightUploadMaxAttempts && exception is not OperationCanceledException;
+
+    private static async Task UploadCopyrightMaterialFilesOnceAsync(
+        IPage page,
+        string materialKey,
+        string label,
+        IReadOnlyList<string> filePaths,
+        bool preferProductionAgreementFieldId,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+
         var uploadControl = await WaitForCopyrightMaterialUploadControlAsync(
             page,
             materialKey,
@@ -1220,7 +1276,10 @@ public static partial class TikTokBrowserActions
             await WaitForCopyrightMaterialUploadResultAsync(
                 refreshedUploadControl.Field,
                 label,
-                Path.GetFileName(filePaths[0]),
+                filePaths.Select(Path.GetFileName)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Cast<string>()
+                    .ToArray(),
                 initialFileCardCount,
                 networkOutcome.Task,
                 log,
@@ -1959,7 +2018,7 @@ public static partial class TikTokBrowserActions
     private static async Task WaitForCopyrightMaterialUploadResultAsync(
         ILocator field,
         string label,
-        string fileName,
+        IReadOnlyList<string> fileNames,
         int initialFileCardCount,
         Task<CopyrightUploadNetworkOutcome> networkOutcomeTask,
         Action<string>? log,
@@ -1977,7 +2036,7 @@ public static partial class TikTokBrowserActions
             {
                 lastProbe = await ProbeCopyrightMaterialUploadStateAsync(
                     field,
-                    fileName,
+                    fileNames,
                     initialFileCardCount);
             }
             catch (Exception ex)
@@ -2044,12 +2103,12 @@ public static partial class TikTokBrowserActions
 
     private static Task<string> ProbeCopyrightMaterialUploadStateAsync(
         ILocator field,
-        string fileName,
+        IReadOnlyList<string> fileNames,
         int initialFileCardCount) =>
         field.EvaluateAsync<string>(
             """
             (root, args) => {
-              const { expectedFileName, initialFileCardCount } = args;
+              const { expectedFileNames, initialFileCardCount } = args;
               const normalize = value => (value || '').replace(/\s+/g, ' ').trim();
               const lower = value => normalize(value).toLowerCase();
               const isVisible = element => {
@@ -2067,7 +2126,7 @@ public static partial class TikTokBrowserActions
                   .filter(Boolean).join(' '));
               const elements = [root, ...root.querySelectorAll('*')].filter(isVisible);
               const fieldText = lower(elements.map(describe).join(' '));
-              const expected = lower(expectedFileName);
+              const expected = (expectedFileNames || []).map(lower).filter(Boolean);
 
               const alerts = [...root.ownerDocument.querySelectorAll(
                 "[role='alert'], .semi-toast-error, .semi-notification-error, .semi-banner-error")]
@@ -2083,9 +2142,42 @@ public static partial class TikTokBrowserActions
                 const className = lower(typeof element.className === 'string' ? element.className : '');
                 return /(?:upload.*error|error.*upload|upload.*fail|fail.*upload)/.test(className);
               });
-              if (matchedError || errorElement) {
+              const directListCards = [...root.querySelectorAll(
+                '.semi-upload-file-list-main[role="list"] > *, ' +
+                '.semi-upload-file-list-main > [role="list"] > *')].filter(isVisible);
+              const fallbackCards = [...root.querySelectorAll(
+                '[class*="pictureCard"], [class*="fileCard"], [class*="upload-file"]')]
+                .filter(card => isVisible(card) && !card.querySelector('input[type="file"]'));
+              const cards = directListCards.length > 0
+                ? directListCards
+                : [...new Set(fallbackCards)];
+              const isErrorColor = value => {
+                const match = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+                if (!match) return false;
+                const [, r, g, b] = match.map(Number);
+                return r >= 180 && g < 175 && b < 175 && r > g * 1.2 && r > b * 1.1;
+              };
+              const cardHasError = card => {
+                const cardElements = [card, ...card.querySelectorAll('*')].filter(isVisible);
+                const cardText = lower(cardElements.map(describe).join(' '));
+                if (errorMarkers.some(marker => cardText.includes(marker))) return true;
+                if (cardElements.some(element => {
+                  const className = lower(typeof element.className === 'string' ? element.className : '');
+                  return /(?:upload.*error|error.*upload|upload.*fail|fail.*upload|picture.*error|error.*picture)/.test(className);
+                })) return true;
+                if (card.querySelector(
+                  '[data-icon*="retry" i], [data-testid*="retry" i], ' +
+                  '[aria-label*="重试"], [title*="重试"], ' +
+                  '[aria-label*="retry" i], [title*="retry" i]')) return true;
+                const style = getComputedStyle(card);
+                return [style.borderTopColor, style.borderRightColor,
+                  style.borderBottomColor, style.borderLeftColor, style.outlineColor]
+                  .some(isErrorColor);
+              };
+              const failedCards = cards.filter(cardHasError);
+              if (matchedError || errorElement || failedCards.length > 0) {
                 const detail = alertText || (errorElement ? describe(errorElement) : '') || matchedError || '页面显示上传错误状态';
-                return `error:${detail.slice(0, 300)}`;
+                return `error:${failedCards.length > 0 ? `检测到 ${failedCards.length} 个红色失败文件卡；` : ''}${detail.slice(0, 300)}`;
               }
 
               const progressElements = [...root.querySelectorAll("[role='progressbar'], progress")]
@@ -2104,13 +2196,10 @@ public static partial class TikTokBrowserActions
               if (incompleteProgress || busyMarker || busyElement)
                 return `busy:${busyMarker || '文件正在上传'}`;
 
-              const fileShown = expected.length > 0 && fieldText.includes(expected);
-              const listCards = root.querySelectorAll(
-                '.semi-upload-file-list-main[role="list"] > *, ' +
-                '.semi-upload-file-list-main [role="list"] > *');
-              const fallbackCards = root.querySelectorAll('[class*="pictureCard"]');
-              const fileCardCount = listCards.length > 0 ? listCards.length : fallbackCards.length;
-              const newFileCardShown = fileCardCount > initialFileCardCount;
+              const fileShown = expected.length > 0 && expected.every(name => fieldText.includes(name));
+              const fileCardCount = cards.length;
+              const expectedNewCount = Math.max(1, expected.length);
+              const newFileCardShown = fileCardCount >= initialFileCardCount + expectedNewCount;
               const successMarkers = ['上传成功', '已上传', 'upload success', 'uploaded'];
               const successMarker = successMarkers.find(marker => fieldText.includes(marker));
               const successfulElement = elements.find(element => {
@@ -2118,13 +2207,26 @@ public static partial class TikTokBrowserActions
                 return /(?:upload.*success|success.*upload|upload.*finished|upload.*complete)/.test(className);
               });
               if ((fileShown || newFileCardShown) && (successMarker || successfulElement))
-                return `success:${expectedFileName} 已显示且页面无上传中或错误状态`;
-              if (fileShown || newFileCardShown)
-                return `ready:${fileShown ? expectedFileName : 'PDF 文件卡片'} 已显示且页面无上传中或错误状态`;
-              return `pending:等待上传区域显示 ${expectedFileName}`;
+                return `success:${expected.join('、') || '材料文件'} 已显示且所有文件卡均无失败状态`;
+
+              const cardHasReadyEvidence = card => {
+                const cardText = lower(describe(card));
+                const hasFileLabel = /\.(pdf|png|jpe?g|webp|gif|docx?)\b/i.test(cardText) ||
+                  /\bpdf\b/i.test(cardText);
+                const hasPreview = Boolean(card.querySelector(
+                  'img[src]:not([src=""]), canvas, [class*="preview"], [class*="pdf"]'));
+                return hasFileLabel || hasPreview;
+              };
+              const readyCardCount = cards.filter(cardHasReadyEvidence).length;
+              if ((fileShown || newFileCardShown) &&
+                  readyCardCount >= initialFileCardCount + expectedNewCount)
+                return `ready:${expected.join('、') || '材料文件'} 已显示真实预览且所有文件卡均无失败状态`;
+              if (newFileCardShown)
+                return `busy:文件卡已出现，但仅 ${readyCardCount}/${fileCardCount} 个具有成功预览，继续等待`;
+              return `pending:等待上传区域显示 ${expected.join('、') || '材料文件'}`;
             }
             """,
-            new { expectedFileName = fileName, initialFileCardCount });
+            new { expectedFileNames = fileNames, initialFileCardCount });
 
     private static bool IsLikelyCopyrightUploadResponse(IResponse response)
     {
