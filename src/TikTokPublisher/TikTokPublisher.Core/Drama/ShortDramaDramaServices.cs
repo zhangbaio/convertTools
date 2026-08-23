@@ -56,6 +56,13 @@ public static class ShortDramaDramaServices
     }
 
     public static async Task<IReadOnlyList<DramaSearchItem>> GetMangaTodayAsync(int days, CancellationToken cancellationToken)
+        => await GetMangaTodayAsync(days, enrich: true, progress: null, cancellationToken);
+
+    public static async Task<IReadOnlyList<DramaSearchItem>> GetMangaTodayAsync(
+        int days,
+        bool enrich,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
     {
         RefreshSettings();
         if (Search is not DramaSourceRouter router)
@@ -63,11 +70,18 @@ public static class ShortDramaDramaServices
             return [];
         }
 
-        var items = await router.GetMangaTodayAsync(days, cancellationToken);
+        var items = await router.GetMangaTodayAsync(days, enrich, progress, cancellationToken);
         return items.Select(FromCore).ToArray();
     }
 
     public static async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(int days, CancellationToken cancellationToken)
+        => await GetAiTodayAsync(days, enrich: true, progress: null, cancellationToken);
+
+    public static async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(
+        int days,
+        bool enrich,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
     {
         RefreshSettings();
         if (Search is not DramaSourceRouter router)
@@ -75,8 +89,14 @@ public static class ShortDramaDramaServices
             return [];
         }
 
-        var items = await router.GetAiTodayAsync(days, cancellationToken);
+        var items = await router.GetAiTodayAsync(days, enrich, progress, cancellationToken);
         return items.Select(FromCore).ToArray();
+    }
+
+    public static bool IsHighSourceSelected()
+    {
+        RefreshSettings();
+        return Router.Value.IsHighSourceSelected();
     }
 
     public static async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)

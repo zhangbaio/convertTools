@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 
 namespace ShortDrama.Infrastructure.Automation;
 
@@ -42,7 +43,8 @@ public static class HongguoHighCrypto
 
     public static readonly JsonSerializerOptions CompactJson = new()
     {
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
     };
 
     public static readonly byte[] DpapiEntropy = Encoding.ASCII.GetBytes(AppId);
