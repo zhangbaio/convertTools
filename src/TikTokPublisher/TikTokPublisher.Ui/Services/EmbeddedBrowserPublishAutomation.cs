@@ -339,6 +339,15 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title, snapshotDir);
             return PublishResult.FailAndStopQueue(message);
         }
+        catch (TikTokPlatformTemporaryException ex)
+        {
+            var message = ex.Message;
+            L($"检测到 TikTok 平台临时提交异常：{ex.PlatformText}。当前项目未提交成功，请稍后重试。");
+            var snapshotDir = await CaptureFailureSnapshotAsync(message).ConfigureAwait(false);
+            if (hasWorkflow)
+                TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title, snapshotDir);
+            return PublishResult.Fail(message);
+        }
         catch (Exception ex)
         {
             var failureText = $"{ex.GetType().Name}: {ex.Message}";

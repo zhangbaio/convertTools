@@ -179,8 +179,30 @@ public static partial class TikTokBrowserActions
         await DismissFloatingAssistantAsync(page, log);
         var button = page.Locator("button:visible").Filter(new() { HasText = "提交" }).First;
         await WaitSubmitEnabledAsync(button, log, ct);
+        using var platformFailureCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var platformFailureWatcher = WatchTemporaryPlatformSubmitFailureAsync(
+            page,
+            platformFailureCts.Token);
         await button.ClickAsync(new() { Timeout = 15000 });
         await ConfirmSubmitDialogIfPresentAsync(page, log, ct);
+        var settleDelay = Task.Delay(1500, ct);
+        await Task.WhenAny(platformFailureWatcher, settleDelay).ConfigureAwait(false);
+        platformFailureCts.Cancel();
+        string? platformFailure = null;
+        try
+        {
+            platformFailure = await platformFailureWatcher.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // Normal watcher shutdown after the submit feedback window closes.
+        }
+        if (platformFailure is not null)
+        {
+            var message = TikTokPlatformSubmitFailureDetector.BuildRetryMessage(platformFailure);
+            Log(log, message);
+            throw new TikTokPlatformTemporaryException(platformFailure, message);
+        }
         var dailyLimit = await DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false);
         if (dailyLimit is not null)
             throw new TikTokDailyLimitException(dailyLimit);
@@ -266,6 +288,52 @@ public static partial class TikTokBrowserActions
                 }
             }
             catch { /* try next source */ }
+        }
+
+        return null;
+    }
+
+    private static async Task<string?> WatchTemporaryPlatformSubmitFailureAsync(
+        IPage page,
+        CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(8);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var feedback = page.Locator(
+                    ".semi-toast:visible, .semi-toast-content:visible, " +
+                    "[role='alert']:visible, .semi-notification:visible, .semi-banner:visible");
+                var count = Math.Min(await feedback.CountAsync().ConfigureAwait(false), 12);
+                for (var index = 0; index < count; index++)
+                {
+                    var item = feedback.Nth(index);
+                    var text = await item.InnerTextAsync(new() { Timeout = 500 }).ConfigureAwait(false);
+                    var detected = TikTokPlatformSubmitFailureDetector.Detect(text);
+                    if (detected is not null)
+                        return detected;
+                }
+
+                // Semi mounts toast portals directly below body and can remove the toast between
+                // locator enumeration and InnerTextAsync. The body snapshot closes that race.
+                var bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 500 })
+                    .ConfigureAwait(false);
+                var bodyDetected = TikTokPlatformSubmitFailureDetector.Detect(bodyText);
+                if (bodyDetected is not null)
+                    return bodyDetected;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // The page may navigate or redraw while the toast is sampled; retry quickly.
+            }
+
+            await Task.Delay(100, ct).ConfigureAwait(false);
         }
 
         return null;
@@ -1388,4 +1456,15 @@ internal sealed class TikTokDailyLimitException : InvalidOperationException
     }
 
     public string LimitText { get; }
+}
+
+internal sealed class TikTokPlatformTemporaryException : InvalidOperationException
+{
+    public TikTokPlatformTemporaryException(string platformText, string message)
+        : base(message)
+    {
+        PlatformText = platformText;
+    }
+
+    public string PlatformText { get; }
 }
