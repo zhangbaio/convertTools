@@ -32,7 +32,6 @@ public static partial class TikTokBrowserActions
         "[x-field-id^='copyrightProof.materialFiles.']";
     private const string OriginalRightsHolderFieldId = "copyrightProof.isOriginalRightsHolder";
     private const string AdaptationFieldId = "copyrightProof.isAdaptation";
-
     private static string? GetCopyrightMaterialUploadFieldSelector(string materialKey) =>
         materialKey switch
         {
@@ -61,6 +60,35 @@ public static partial class TikTokBrowserActions
             TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
             TikTokPublishConstants.EditingProjectFilesMaterialType,
         };
+
+        await RemoveCopyrightProofMaterialsAsync(page, targets, log, ct);
+        await VerifyCopyrightProofMaterialsRemovedAsync(page, targets, ct);
+        Log(log, "TikTok 已删除 AI 生成过程截图、剪辑工程文件，并取消勾选对应材料类型。");
+    }
+
+    private static async Task RemoveAutoManagedCopyrightProofMaterialsAsync(
+        IPage page,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        await RemoveCopyrightProofMaterialsAsync(
+            page,
+            TikTokPublishConstants.AutoManagedCopyrightMaterialTypes,
+            log,
+            ct);
+        await VerifyCopyrightProofMaterialsRemovedAsync(
+            page,
+            TikTokPublishConstants.AutoManagedCopyrightMaterialTypes,
+            ct);
+        Log(log, "TikTok 编辑页已清空全部自动管理的版权材料，并取消原有材料勾选。");
+    }
+
+    private static async Task RemoveCopyrightProofMaterialsAsync(
+        IPage page,
+        IReadOnlyList<string> targets,
+        Action<string>? log,
+        CancellationToken ct)
+    {
 
         foreach (var materialKey in targets)
         {
@@ -101,9 +129,6 @@ public static partial class TikTokBrowserActions
                 ct);
         }
         await ClosePopupIfOpenAsync(page);
-
-        await VerifyAuxiliaryCopyrightProofMaterialsRemovedAsync(page, ct);
-        Log(log, "TikTok 已删除 AI 生成过程截图、剪辑工程文件，并取消勾选对应材料类型。");
     }
 
     internal static async Task VerifyAuxiliaryCopyrightProofMaterialsRemovedAsync(
@@ -115,6 +140,15 @@ public static partial class TikTokBrowserActions
             TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
             TikTokPublishConstants.EditingProjectFilesMaterialType,
         };
+
+        await VerifyCopyrightProofMaterialsRemovedAsync(page, targets, ct);
+    }
+
+    private static async Task VerifyCopyrightProofMaterialsRemovedAsync(
+        IPage page,
+        IReadOnlyList<string> targets,
+        CancellationToken ct)
+    {
 
         foreach (var materialKey in targets)
         {
@@ -414,6 +448,23 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct)
     {
+        var desiredMaterialTypes = TikTokPublishConstants
+            .ValidateAutoManagedCopyrightMaterialTypes(options.CopyrightMaterialTypes);
+
+        // Editing is a full reconciliation, not an incremental append. Validate every
+        // configured local artifact before touching the remote draft so a missing file
+        // can never leave the draft half-cleared.
+        await ConfigureCopyrightProofAsync(
+                page,
+                options,
+                existingMaterialTypes: [],
+                log,
+                ct,
+                uploadAiScriptOutlineOnly: false,
+                validateOnly: true)
+            .ConfigureAwait(false);
+        Log(log, "TikTok 编辑页版权材料本地产物预检通过，开始按最新配置全量重建。");
+
         var coverage = await ProbeConfiguredCopyrightProofMaterialsAsync(
                 page,
                 options.CopyrightMaterialTypes,
@@ -429,20 +480,19 @@ public static partial class TikTokBrowserActions
                 "请刷新页面后重试，或使用“补全版权证明”功能。");
         }
 
-        if (coverage.Plan.ExistingMaterialTypes.Count > 0)
-        {
-            var labels = coverage.Plan.ExistingMaterialTypes
-                .Select(type => TikTokPublishConstants.CopyrightMaterialLabels[type]);
-            Log(log, $"TikTok 编辑页将保留已有版权材料并跳过重复上传：{string.Join("、", labels)}。");
-        }
+        await RemoveAutoManagedCopyrightProofMaterialsAsync(page, log, ct)
+            .ConfigureAwait(false);
 
         await ConfigureCopyrightProofAsync(
                 page,
                 options,
-                coverage.Plan.ExistingMaterialTypes,
+                existingMaterialTypes: [],
                 log,
                 ct,
-                uploadAiScriptOutlineOnly: false)
+                uploadAiScriptOutlineOnly: false,
+                preserveUnmanagedMaterialSelections: true)
+            .ConfigureAwait(false);
+        await VerifyCopyrightProofRebuildAsync(page, desiredMaterialTypes, log, ct)
             .ConfigureAwait(false);
     }
 
@@ -452,7 +502,9 @@ public static partial class TikTokBrowserActions
         IEnumerable<string>? existingMaterialTypes,
         Action<string>? log,
         CancellationToken ct,
-        bool uploadAiScriptOutlineOnly = false)
+        bool uploadAiScriptOutlineOnly = false,
+        bool preserveUnmanagedMaterialSelections = false,
+        bool validateOnly = false)
     {
         ct.ThrowIfCancellationRequested();
 
@@ -474,14 +526,9 @@ public static partial class TikTokBrowserActions
             configuredMaterialKeys,
             existingMaterialTypes);
 
-        var supportedAutoUploadKeys = new HashSet<string>(StringComparer.Ordinal)
-        {
-            TikTokPublishConstants.ProductionAgreementMaterialType,
-            TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
-            TikTokPublishConstants.SourceFileInformationMaterialType,
-            TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
-            TikTokPublishConstants.EditingProjectFilesMaterialType,
-        };
+        var supportedAutoUploadKeys = new HashSet<string>(
+            TikTokPublishConstants.AutoManagedCopyrightMaterialTypes,
+            StringComparer.Ordinal);
         var unsupportedMaterialKeys = configuredMaterialKeys
             .Where(key => !supportedAutoUploadKeys.Contains(key))
             .ToList();
@@ -625,6 +672,17 @@ public static partial class TikTokBrowserActions
                 throw new FileNotFoundException("当前项目的 TikTok 证明材料文件不存在。", resolvedFilePath);
         }
 
+        if (validateOnly)
+        {
+            ValidateLocalCopyrightUploadFiles(
+                sourceInfoFiles
+                    .Concat(aiUploadFiles)
+                    .Concat(editingProjectFiles)
+                    .Concat(string.IsNullOrWhiteSpace(filingLicenseFile) ? [] : [filingLicenseFile])
+                    .Concat(string.IsNullOrWhiteSpace(resolvedFilePath) ? [] : [resolvedFilePath]));
+            return;
+        }
+
         await SelectCopyrightRadioAsync(
             page,
             OriginalRightsHolderFieldId,
@@ -765,6 +823,8 @@ public static partial class TikTokBrowserActions
             if (includeFilingLicense &&
                 string.Equals(pair.Key, TikTokPublishConstants.FilingOrDistributionLicenseMaterialType, StringComparison.Ordinal))
                 continue;
+            if (preserveUnmanagedMaterialSelections && !supportedAutoUploadKeys.Contains(pair.Key))
+                continue;
             ct.ThrowIfCancellationRequested();
             var option = await TryFindCopyrightMaterialCheckboxAsync(page, pair.Key, pair.Value);
             if (option is null || !await option.Value.Input.IsCheckedAsync()) continue;
@@ -803,7 +863,7 @@ public static partial class TikTokBrowserActions
                 log,
                 ct);
         }
-        else
+        else if (includeProductionAgreement)
         {
             Log(log, $"TikTok 版权材料已存在，保留并跳过重复上传：{productionAgreementLabel}。");
         }
@@ -871,6 +931,80 @@ public static partial class TikTokBrowserActions
         {
             Log(log, $"TikTok 版权材料已存在，保留并跳过重复上传：{filingLicenseLabel}。");
         }
+    }
+
+    private static void ValidateLocalCopyrightUploadFiles(IEnumerable<string> filePaths)
+    {
+        foreach (var path in filePaths.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length == 0)
+                throw new InvalidDataException($"待上传版权材料文件不存在或为空：{path}");
+            if (string.Equals(info.Extension, ".pdf", StringComparison.OrdinalIgnoreCase))
+                TikTokProofMaterialPdfRenderService.ValidatePdf(info.FullName);
+        }
+    }
+
+    private static async Task VerifyCopyrightProofRebuildAsync(
+        IPage page,
+        IEnumerable<string>? configuredMaterialTypes,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var configured = TikTokPublishConstants
+            .NormalizeCopyrightMaterialTypes(configuredMaterialTypes)
+            .ToHashSet(StringComparer.Ordinal);
+        var coverage = await ProbeConfiguredCopyrightProofMaterialsAsync(page, configured, ct)
+            .ConfigureAwait(false);
+        foreach (var detail in coverage.Details)
+            Log(log, $"TikTok 编辑页版权材料重建复查：{detail}。");
+        if (!coverage.FormAvailable || !coverage.Plan.IsComplete)
+        {
+            var missing = coverage.Plan.MissingMaterialTypes
+                .Select(type => TikTokPublishConstants.CopyrightMaterialLabels[type]);
+            throw new InvalidOperationException(
+                "TikTok 编辑页版权材料全量重建后复查失败：" +
+                (coverage.FormAvailable
+                    ? $"仍缺少 {string.Join("、", missing)}。"
+                    : "版权证明表单不可识别。"));
+        }
+
+        var trigger = await WaitForCopyrightMaterialTypeTriggerAsync(
+            page,
+            CopyrightControlTimeoutMs,
+            ct);
+        await OpenCopyrightMaterialTypePopupAsync(page, trigger, ct);
+        try
+        {
+            foreach (var materialType in TikTokPublishConstants.AutoManagedCopyrightMaterialTypes)
+            {
+                ct.ThrowIfCancellationRequested();
+                var label = TikTokPublishConstants.CopyrightMaterialLabels[materialType];
+                var option = await WaitForCopyrightMaterialCheckboxAsync(
+                    page,
+                    materialType,
+                    label,
+                    CopyrightControlTimeoutMs,
+                    ct);
+                var expected = configured.Contains(materialType);
+                if (await option.Input.IsCheckedAsync() != expected)
+                {
+                    throw new InvalidOperationException(
+                        $"TikTok 编辑页版权材料勾选状态不一致：{label}，期望：{(expected ? "勾选" : "取消勾选")}。");
+                }
+
+                if (expected) continue;
+                var field = await TryFindCopyrightMaterialFieldAsync(page, materialType, label);
+                if (field is not null && await CountExistingCopyrightMaterialFilesAsync(field) > 0)
+                    throw new InvalidOperationException($"TikTok 编辑页已取消的版权材料仍有附件：{label}。");
+            }
+        }
+        finally
+        {
+            await ClosePopupIfOpenAsync(page);
+        }
+
+        Log(log, "TikTok 编辑页版权材料已按最新配置全量重建并通过提交前复查。");
     }
 
     /// <summary>

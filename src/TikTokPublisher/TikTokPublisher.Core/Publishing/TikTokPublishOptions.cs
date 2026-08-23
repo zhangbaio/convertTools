@@ -79,6 +79,15 @@ public static class TikTokPublishConstants
         SourceFileInformationMaterialType,
     };
 
+    public static readonly IReadOnlyList<string> AutoManagedCopyrightMaterialTypes =
+    [
+        ProductionAgreementMaterialType,
+        FilingOrDistributionLicenseMaterialType,
+        SourceFileInformationMaterialType,
+        AiGenerationScreenshotsMaterialType,
+        EditingProjectFilesMaterialType,
+    ];
+
     public static IReadOnlyList<string> NormalizeCopyrightMaterialTypes(IEnumerable<string>? materialTypes)
     {
         var normalized = new List<string>();
@@ -108,6 +117,22 @@ public static class TikTokPublishConstants
         }
 
         return normalized;
+    }
+
+    public static IReadOnlyList<string> ValidateAutoManagedCopyrightMaterialTypes(
+        IEnumerable<string>? materialTypes)
+    {
+        var validated = ValidateCopyrightMaterialTypes(materialTypes);
+        var supported = new HashSet<string>(AutoManagedCopyrightMaterialTypes, StringComparer.Ordinal);
+        var unsupported = validated.Where(type => !supported.Contains(type)).ToArray();
+        if (unsupported.Length > 0)
+        {
+            var labels = unsupported.Select(type => CopyrightMaterialLabels[type]);
+            throw new NotSupportedException(
+                $"以下版权材料不支持自动清空后重建：{string.Join("、", labels)}。");
+        }
+
+        return validated;
     }
 
     public static bool RequiresGeneratedProofMaterial(IEnumerable<string>? materialTypes) =>
