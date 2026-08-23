@@ -27,8 +27,9 @@ internal sealed record CopyrightMaterialCheckbox(
 public static partial class TikTokBrowserActions
 {
     private const int CopyrightControlTimeoutMs = 15000;
-    private const int CopyrightUploadTimeoutMs = 60000;
+    private const int CopyrightUploadTimeoutMs = 120000;
     private const int CopyrightUploadMaxAttempts = 2;
+    private const int CopyrightUploadFailureConfirmationSeconds = 20;
     private const string CopyrightMaterialTypeFieldSelector =
         "[x-field-id='copyrightProof.selectedMaterialTypes']";
     private const string ProductionAgreementUploadFieldSelector =
@@ -1166,7 +1167,9 @@ public static partial class TikTokBrowserActions
             catch (Exception ex) when (ShouldRetryCopyrightMaterialUpload(attempt, ex))
             {
                 Log(log,
-                    $"⚠️ TikTok 版权材料上传失败，准备清理本次批次并重试一次：{label}；{ex.Message}");
+                    $"⚠️ TikTok 版权材料表单「{label}」首次上传失败。" +
+                    "可能是 TikTok 官方上传服务暂时异常或当前网络波动；" +
+                    $"程序将先删除失败文件，再自动重试一次。详情：{ex.Message}");
                 var failedControl = await WaitForCopyrightMaterialUploadControlAsync(
                     page,
                     materialKey,
@@ -2028,6 +2031,9 @@ public static partial class TikTokBrowserActions
         string lastProbe = "pending:尚未读取页面状态";
         string? lastLoggedProbeKind = null;
         var stableReadyCount = 0;
+        DateTime? pageFailureSince = null;
+        string? pageFailureDetail = null;
+        var lastFailureWaitLogSecond = -1;
 
         var finished = await WaitUntilAsync(async () =>
         {
@@ -2047,20 +2053,52 @@ public static partial class TikTokBrowserActions
             var separator = lastProbe.IndexOf(':');
             var kind = separator < 0 ? lastProbe : lastProbe[..separator];
             var detail = separator < 0 ? lastProbe : lastProbe[(separator + 1)..];
+            string? currentFailure = null;
             if (networkOutcomeTask.IsCompletedSuccessfully)
             {
                 var networkOutcome = networkOutcomeTask.Result;
                 if (!networkOutcome.Success)
+                    currentFailure = networkOutcome.Detail;
+            }
+            if (currentFailure is null && string.Equals(kind, "error", StringComparison.Ordinal))
+                currentFailure = detail;
+
+            if (currentFailure is not null)
+            {
+                if (!string.Equals(pageFailureDetail, currentFailure, StringComparison.Ordinal))
                 {
-                    failure = networkOutcome.Detail;
+                    pageFailureDetail = currentFailure;
+                    pageFailureSince = DateTime.UtcNow;
+                    lastFailureWaitLogSecond = -1;
+                    Log(log,
+                        $"⚠️ TikTok 版权材料表单「{label}」检测到疑似文件上传失败，" +
+                        $"继续观察 {CopyrightUploadFailureConfirmationSeconds} 秒，" +
+                        $"避免把仍在处理中或网络暂时波动的文件误判为失败。页面状态：{currentFailure}。");
+                }
+
+                var elapsedSeconds = pageFailureSince is null
+                    ? 0
+                    : (int)(DateTime.UtcNow - pageFailureSince.Value).TotalSeconds;
+                if (elapsedSeconds >= CopyrightUploadFailureConfirmationSeconds)
+                {
+                    failure = currentFailure;
                     return true;
                 }
+
+                if (elapsedSeconds > 0 && elapsedSeconds % 5 == 0 &&
+                    elapsedSeconds != lastFailureWaitLogSecond)
+                {
+                    lastFailureWaitLogSecond = elapsedSeconds;
+                    Log(log,
+                        $"⏳ TikTok 版权材料表单「{label}」仍显示上传异常，" +
+                        $"已持续 {elapsedSeconds}/{CopyrightUploadFailureConfirmationSeconds} 秒，继续等待页面恢复。");
+                }
+                return false;
             }
-            if (string.Equals(kind, "error", StringComparison.Ordinal))
-            {
-                failure = detail;
-                return true;
-            }
+
+            pageFailureSince = null;
+            pageFailureDetail = null;
+            lastFailureWaitLogSecond = -1;
 
             if (string.Equals(kind, "success", StringComparison.Ordinal))
                 return true;
@@ -2094,12 +2132,19 @@ public static partial class TikTokBrowserActions
 
         if (failure is not null)
             throw new InvalidOperationException(
-                $"TikTok 版权材料「{label}」上传失败：{failure}");
+                BuildCopyrightMaterialUploadFailureMessage(label, failure));
         if (!finished)
             throw new TimeoutException(
-                $"等待 TikTok 版权材料「{label}」上传完成超时（{CopyrightUploadTimeoutMs / 1000} 秒）；" +
-                $"最后状态：{lastProbe}。");
+                BuildCopyrightMaterialUploadFailureMessage(
+                    label,
+                    $"等待 {CopyrightUploadTimeoutMs / 1000} 秒仍未完成；最后状态：{lastProbe}"));
     }
+
+    internal static string BuildCopyrightMaterialUploadFailureMessage(
+        string label,
+        string detail) =>
+        $"TikTok 版权材料表单「{label}」的文件上传失败：{detail}。" +
+        "可能是 TikTok 官方上传服务暂时异常或当前网络波动，请稍后重试。";
 
     private static Task<string> ProbeCopyrightMaterialUploadStateAsync(
         ILocator field,
