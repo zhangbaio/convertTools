@@ -55,7 +55,14 @@ public static class TikTokProjectPayloadFactory
         if (uploadPaths.Count == 0 && !string.IsNullOrWhiteSpace(item.VideoPath) && File.Exists(item.VideoPath))
             uploadPaths.Add(item.VideoPath);
 
-        var episodeCount = ResolveEpisodeCount(merged, item, uploadPaths.Count);
+        var stagedUploadVideoCount = !string.IsNullOrWhiteSpace(item.ProjectDir)
+            ? ProjectVideoResolver.ResolveStagedUploadVideos(item.ProjectDir).Count
+            : 0;
+        var episodeCount = ResolveEpisodeCount(
+            merged,
+            item,
+            uploadPaths.Count,
+            stagedUploadVideoCount);
         var targetAudience = ResolveTargetAudience(merged);
         var genres = ResolveGenres(merged, item.GenreCategory);
 
@@ -75,8 +82,14 @@ public static class TikTokProjectPayloadFactory
     private static int ResolveEpisodeCount(
         IReadOnlyDictionary<string, string> merged,
         PublishItem item,
-        int uploadVideoCount)
+        int uploadVideoCount,
+        int stagedUploadVideoCount)
     {
+        // The staging directory is the finalized upload set. Once it exists, stale
+        // source/workflow metadata must not inflate the TikTok total episode field.
+        if (stagedUploadVideoCount > 0)
+            return stagedUploadVideoCount;
+
         var counts = new List<int>();
         foreach (var key in EpisodeCountKeys)
         {
