@@ -534,7 +534,8 @@ public static partial class TikTokBrowserActions
         TikTokPublishOptions options,
         TikTokPublishRecommendation recommendation,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool preserveExistingCopyrightMaterials = false)
     {
         await EnsureSeriesDetailsStepAsync(page, ct);
         await SetSwitchAsync(page, "#anchorPromotionStatus", options.AnchorPromotionEnabled, ct);
@@ -577,7 +578,14 @@ public static partial class TikTokBrowserActions
         await SelectContentCreationTypeAsync(page, options, log, ct);
         await PauseBetweenFieldsAsync(page);
 
-        await ConfigureCopyrightProofAsync(page, options, log, ct);
+        if (preserveExistingCopyrightMaterials)
+        {
+            await ConfigureCopyrightProofForEditAsync(page, options, log, ct);
+        }
+        else
+        {
+            await ConfigureCopyrightProofAsync(page, options, log, ct);
+        }
         await PauseBetweenFieldsAsync(page);
 
         await AcceptPromiseAsync(page, log, ct);

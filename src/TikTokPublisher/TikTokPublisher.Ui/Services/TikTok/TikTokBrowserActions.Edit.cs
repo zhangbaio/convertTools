@@ -40,7 +40,14 @@ public static partial class TikTokBrowserActions
         await EnsureEditFlowVideosCompleteAsync(page, payload, options, log, ct);
         await EnsureEditCoverUploadedAsync(page, coverPath, log, ct);
         await EnsureEditDescriptionFilledAsync(page, payload.Description, log, ct);
-        await FillSharedPublishFieldsAsync(page, payload, options, recommendation, log, ct);
+        await FillSharedPublishFieldsAsync(
+            page,
+            payload,
+            options,
+            recommendation,
+            log,
+            ct,
+            preserveExistingCopyrightMaterials: true);
         Log(log, "TikTok 编辑页表单已填写完成。");
     }
 

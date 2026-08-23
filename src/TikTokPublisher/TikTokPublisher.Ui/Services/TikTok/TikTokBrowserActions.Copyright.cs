@@ -408,6 +408,44 @@ public static partial class TikTokBrowserActions
         CancellationToken ct) =>
         ConfigureCopyrightProofAsync(page, options, [], log, ct, uploadAiScriptOutlineOnly: false);
 
+    internal static async Task ConfigureCopyrightProofForEditAsync(
+        IPage page,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var coverage = await ProbeConfiguredCopyrightProofMaterialsAsync(
+                page,
+                options.CopyrightMaterialTypes,
+                ct)
+            .ConfigureAwait(false);
+        foreach (var detail in coverage.Details)
+            Log(log, $"TikTok 编辑页版权材料逐项检查：{detail}。");
+
+        if (!coverage.FormAvailable)
+        {
+            throw new InvalidOperationException(
+                "TikTok 编辑页未能识别现有版权材料。为避免重复上传，已停止自动填写；" +
+                "请刷新页面后重试，或使用“补全版权证明”功能。");
+        }
+
+        if (coverage.Plan.ExistingMaterialTypes.Count > 0)
+        {
+            var labels = coverage.Plan.ExistingMaterialTypes
+                .Select(type => TikTokPublishConstants.CopyrightMaterialLabels[type]);
+            Log(log, $"TikTok 编辑页将保留已有版权材料并跳过重复上传：{string.Join("、", labels)}。");
+        }
+
+        await ConfigureCopyrightProofAsync(
+                page,
+                options,
+                coverage.Plan.ExistingMaterialTypes,
+                log,
+                ct,
+                uploadAiScriptOutlineOnly: false)
+            .ConfigureAwait(false);
+    }
+
     internal static async Task ConfigureCopyrightProofAsync(
         IPage page,
         TikTokPublishOptions options,
