@@ -60,4 +60,27 @@ public sealed class TikTokBrowserActionsCopyrightStateTests
                 innerClass: "semi-radio-inner")
             .Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData(true, false, null, "trigger-iF4aJp", true)]
+    [InlineData(true, false, "false", "trigger-iF4aJp semi-dropdown-showing", true)]
+    [InlineData(true, false, null, "trigger-iF4aJp triggerCascadeLocked-dG71jy", false)]
+    [InlineData(true, false, null, "trigger-iF4aJp triggerCascadeLocked-newHash", false)]
+    [InlineData(true, true, null, "trigger-iF4aJp", false)]
+    [InlineData(true, false, "true", "trigger-iF4aJp", false)]
+    [InlineData(false, false, null, "trigger-iF4aJp", false)]
+    public void MaterialTriggerState_RequiresUnlockedCascade(
+        bool connected,
+        bool disabled,
+        string? ariaDisabled,
+        string className,
+        bool expected)
+    {
+        TikTokBrowserActions.IsCopyrightMaterialTriggerUnlockedState(
+                connected,
+                disabled,
+                ariaDisabled,
+                className)
+            .Should().Be(expected);
+    }
 }
