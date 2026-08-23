@@ -88,4 +88,24 @@ public sealed class TikTokBrowserActionsCopyrightMaterialCheckboxTests
         message.Should().Contain("网络波动");
         message.Should().Contain("稍后重试");
     }
+
+    [Fact]
+    public void ManualUploadGuidance_ExplainsHowToDistinguishPlatformAndAutomationFailures()
+    {
+        var message = TikTokBrowserActions.BuildCopyrightMaterialManualUploadGuidance(
+            "AI 生成过程截图",
+            [@"E:\workflow\AI 生成过程截图\01.png", @"E:\workflow\AI 生成过程截图\02.png"],
+            "检测到 2 个红色失败文件卡");
+
+        message.Should().Contain("AI 生成过程截图");
+        message.Should().Contain("自动上传两次均失败");
+        message.Should().Contain("点击“+”手动上传");
+        message.Should().Contain("01.png");
+        message.Should().Contain(@"E:\workflow\AI 生成过程截图");
+        message.Should().Contain("手动上传成功");
+        message.Should().Contain("自动化");
+        message.Should().Contain("手动上传也失败");
+        message.Should().Contain("TikTok 官方上传服务");
+        message.Should().Contain("稍后重试");
+    }
 }

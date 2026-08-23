@@ -1186,11 +1186,47 @@ public static partial class TikTokBrowserActions
                 await page.WaitForTimeoutAsync(700);
                 Log(log, $"TikTok 版权材料失败批次已删除，开始第 2 次上传：{label}。");
             }
+            catch (Exception ex)
+            {
+                var guidance = BuildCopyrightMaterialManualUploadGuidance(
+                    label,
+                    filePaths,
+                    ex.Message);
+                Log(log, $"❌ {guidance}");
+                throw new InvalidOperationException(guidance, ex);
+            }
         }
     }
 
     internal static bool ShouldRetryCopyrightMaterialUpload(int attempt, Exception exception) =>
         attempt < CopyrightUploadMaxAttempts && exception is not OperationCanceledException;
+
+    internal static string BuildCopyrightMaterialManualUploadGuidance(
+        string label,
+        IReadOnlyList<string> filePaths,
+        string detail)
+    {
+        var fileNames = filePaths
+            .Select(Path.GetFileName)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var directories = filePaths
+            .Select(Path.GetDirectoryName)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var fileText = fileNames.Length == 0 ? "请使用当前项目对应的材料文件" : string.Join("、", fileNames);
+        var directoryText = directories.Length == 0 ? "当前项目材料目录" : string.Join("；", directories);
+
+        return
+            $"TikTok 版权材料表单「{label}」自动上传两次均失败。" +
+            $"请保留当前 TikTok 编辑页面，在该表单点击“+”手动上传：{fileText}。" +
+            $"本地目录：{directoryText}。" +
+            "如果手动上传成功，说明更可能是自动化与当前页面的兼容问题，请保留失败日志和快照；" +
+            "如果手动上传也失败，则更可能是 TikTok 官方上传服务、当前网络或平台文件校验暂时异常，可以稍后重试。" +
+            $"自动上传详情：{detail}";
+    }
 
     private static async Task UploadCopyrightMaterialFilesOnceAsync(
         IPage page,
