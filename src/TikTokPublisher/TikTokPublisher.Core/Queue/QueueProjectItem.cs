@@ -14,8 +14,6 @@ public static class QueueStepKeys
     public const string GenerateTimestampCertificate = "generate_timestamp_certificate";
     public const string SmallVideoRepair = "small_video_repair";
     public const string VideoTranslate = "video_translate";
-    public const string SilenceDetect = "silence_detect";
-    public const string SilenceRepair = "silence_repair";
     public const string MaterialValidate = "material_validate";
     public const string DeleteSourceVideos = "delete_source_videos";
     public const string UploadSeries = "upload_series";
@@ -37,6 +35,7 @@ public sealed class QueueProjectItem
 {
     private const string LegacyLiveActionStep = "detect_live_action";
     private const string LegacyLiveActionBlockedStatus = "真人剧已拦截";
+    private static readonly string[] RemovedStepKeys = ["silence_detect", "silence_repair"];
 
     public string ProjectDir { get; set; } = "";
     public string DisplayName { get; set; } = "";
@@ -77,6 +76,7 @@ public sealed class QueueProjectItem
     public void NormalizeStepStates()
     {
         RecoverLegacyLiveActionBlock();
+        RemoveRetiredSteps();
 
         // An explicit pending proof-material state must survive normalization (for example,
         // after a title rename). Only legacy uploaded records that predate this step are
@@ -104,8 +104,6 @@ public sealed class QueueProjectItem
                      QueueStepKeys.MaterialValidate,
                      QueueStepKeys.SmallVideoRepair,
                      QueueStepKeys.VideoTranslate,
-                     QueueStepKeys.SilenceDetect,
-                     QueueStepKeys.SilenceRepair,
                  })
             StepStates.TryAdd(key, QueueStepStatus.Pending);
 
@@ -137,9 +135,6 @@ public sealed class QueueProjectItem
             if (StepStates.GetValueOrDefault(QueueStepKeys.SmallVideoRepair) == QueueStepStatus.Pending &&
                 HasCurrentSmallVideoRepair())
                 StepStates[QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed;
-            if (StepStates.GetValueOrDefault(QueueStepKeys.SilenceDetect) == QueueStepStatus.Pending &&
-                HasCurrentSilenceReport())
-                StepStates[QueueStepKeys.SilenceDetect] = QueueStepStatus.Completed;
         }
     }
 
@@ -173,9 +168,6 @@ public sealed class QueueProjectItem
 
     private bool HasCurrentSmallVideoRepair() =>
         !TikTokPublisher.Core.Services.TikTokSmallVideoRepairService.NeedsRepair(ProjectDir);
-
-    private bool HasCurrentSilenceReport() =>
-        TikTokPublisher.Core.Services.TikTokSilenceAsrService.HasCurrentReport(ProjectDir);
 
     private bool HasCurrentRoleVector()
     {
@@ -213,6 +205,15 @@ public sealed class QueueProjectItem
         StatusText = QueueStepStatus.Pending;
         CurrentStep = "";
         LastError = "";
+    }
+
+    private void RemoveRetiredSteps()
+    {
+        foreach (var stepKey in RemovedStepKeys)
+            StepStates.Remove(stepKey);
+
+        if (RemovedStepKeys.Contains(CurrentStep, StringComparer.Ordinal))
+            CurrentStep = "";
     }
 
     public Dictionary<string, object?> ToPayload()

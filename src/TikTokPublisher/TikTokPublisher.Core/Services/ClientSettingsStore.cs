@@ -12,6 +12,24 @@ public static class ClientSettingsStore
 {
     public const string SettingsKey = "client_settings";
 
+    private static readonly string[] RetiredSilenceSettingKeys =
+    [
+        "tiktok_silence_asr_engine",
+        "tiktok_silence_local_model_dir",
+        "tiktok_silence_local_vad_path",
+        "tiktok_silence_hybrid_low_seconds",
+        "tiktok_silence_hybrid_high_seconds",
+        "tiktok_silence_asr_app_id",
+        "tiktok_silence_asr_access_token",
+        "tiktok_silence_asr_threshold_seconds",
+        "tiktok_silence_repair_mode",
+        "tiktok_silence_repair_target_seconds",
+        "tiktok_silence_repair_max_speed",
+        "tiktok_silence_repair_blocking",
+        "tiktok_silence_detect_concurrency",
+        "tiktok_silence_asr_language",
+    ];
+
     private static readonly HashSet<string> ExcludedSaveKeys = new(StringComparer.Ordinal)
     {
         "tiktok_account_profiles_json",
@@ -46,9 +64,6 @@ public static class ClientSettingsStore
         "tiktok_is_ai_drama",
         "tiktok_publish_mode",
         "tiktok_consignment_enabled",
-        "tiktok_silence_validation_enabled",
-        "tiktok_max_continuous_silence_seconds",
-        "tiktok_silence_threshold_db",
         "tiktok_paid_enabled",
         "tiktok_paid_ratio_enabled",
         "tiktok_paid_ratio_percent",
@@ -87,6 +102,7 @@ public static class ClientSettingsStore
             return new ClientSettings();
         }
 
+        MigrateSharedAsrSettings(raw);
         var json = raw.ToJsonString();
         var settings = JsonSerializer.Deserialize<ClientSettings>(json, JsonOptions) ?? new ClientSettings();
         return Normalize(settings);
@@ -117,6 +133,9 @@ public static class ClientSettingsStore
 
             existing[property.Key] = property.Value?.DeepClone();
         }
+
+        foreach (var key in RetiredSilenceSettingKeys)
+            existing.Remove(key);
 
         SaveRawObject(path, existing);
     }
@@ -150,6 +169,23 @@ public static class ClientSettingsStore
         }
 
         return WorkspaceQueuePaths.QueueDatabasePath(workspacePath);
+    }
+
+    private static void MigrateSharedAsrSettings(JsonObject settings)
+    {
+        CopyLegacyValue("tiktok_silence_local_model_dir", "tiktok_asr_local_model_dir");
+        CopyLegacyValue("tiktok_silence_local_vad_path", "tiktok_asr_local_vad_path");
+        CopyLegacyValue("tiktok_silence_asr_app_id", "tiktok_asr_app_id");
+        CopyLegacyValue("tiktok_silence_asr_access_token", "tiktok_asr_access_token");
+        CopyLegacyValue("tiktok_silence_asr_language", "tiktok_asr_language");
+        return;
+
+        void CopyLegacyValue(string legacyKey, string currentKey)
+        {
+            if (settings.ContainsKey(currentKey) || !settings.TryGetPropertyValue(legacyKey, out var legacyValue))
+                return;
+            settings[currentKey] = legacyValue?.DeepClone();
+        }
     }
 
     private static JsonObject? LoadRawObject(string? databasePath = null)
@@ -221,7 +257,7 @@ public static class ClientSettingsStore
         var chain = (settings.DramaSourceChain ?? "hgnew").Trim().ToLowerInvariant();
         settings.DramaSourceChain = chain switch
         {
-            "hgnew" or "hglocal" or "pikachu" or "hghigh" => chain,
+            "hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf" => chain,
             _ => "hgnew"
         };
 
@@ -245,13 +281,10 @@ public static class ClientSettingsStore
         settings.HgnewClientVersion = HongguoClientVersion.Normalize(settings.HgnewClientVersion);
         settings.PikachuDramaType = NormalizePikachuDramaType(settings.PikachuDramaType);
         settings.PikachuFanqieCookie = NormalizePikachuFanqieCookie(settings.PikachuFanqieCookie);
-        settings.TiktokSilenceAsrEngine = NormalizeAsrEngine(settings.TiktokSilenceAsrEngine);
-        settings.TiktokSilenceRepairMode = NormalizeRepairMode(settings.TiktokSilenceRepairMode);
-        settings.TiktokSilenceDetectConcurrency = Math.Clamp(settings.TiktokSilenceDetectConcurrency, 1, 16);
         settings.TiktokMaterialValidateConcurrency = Math.Clamp(settings.TiktokMaterialValidateConcurrency, 1, 16);
-        settings.TiktokSilenceAsrLanguage = string.IsNullOrWhiteSpace(settings.TiktokSilenceAsrLanguage)
+        settings.TiktokAsrLanguage = string.IsNullOrWhiteSpace(settings.TiktokAsrLanguage)
             ? "zh-CN"
-            : settings.TiktokSilenceAsrLanguage.Trim();
+            : settings.TiktokAsrLanguage.Trim();
         settings.VideoTranslateEngine = string.Equals(settings.VideoTranslateEngine, "llm", StringComparison.OrdinalIgnoreCase)
             ? "llm"
             : "volc";
@@ -449,20 +482,6 @@ public static class ClientSettingsStore
 
     public static string NormalizeUdid(string? value) =>
         ShortDrama.Infrastructure.Automation.HongguoDeviceId.Normalize(value);
-
-    private static string NormalizeAsrEngine(string? value) =>
-        (value ?? "local").Trim().ToLowerInvariant() switch
-        {
-            "volcengine" or "local" or "hybrid" => (value ?? "local").Trim().ToLowerInvariant(),
-            _ => "local"
-        };
-
-    private static string NormalizeRepairMode(string? value) =>
-        (value ?? "auto").Trim().ToLowerInvariant() switch
-        {
-            "auto" or "trim" or "speedup" => (value ?? "auto").Trim().ToLowerInvariant(),
-            _ => "auto"
-        };
 
     private static string NormalizePosterMode(string? value) =>
         (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant() switch

@@ -269,8 +269,8 @@ public static class TikTokEpisodeScriptService
         if (File.Exists(srt))
             return await File.ReadAllTextAsync(srt, ct).ConfigureAwait(false);
 
-        var segments = await TikTokSilenceAsrService
-            .RecognizeLocalTranscriptAsync(video, settings, log, ct)
+        var segments = await Asr.LocalParaformerAsrClient
+            .RecognizeVideoTranscriptAsync(video, settings, log, ct)
             .ConfigureAwait(false);
         if (segments.Count == 0)
             throw new InvalidOperationException($"{Path.GetFileName(video)} 未识别到有效台词。");

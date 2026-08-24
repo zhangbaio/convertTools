@@ -44,11 +44,11 @@ public partial class TikTokQueueView : UserControl
     private static readonly TimeSpan QueueAutoLoginTimeout = TimeSpan.FromMinutes(10);
     private static readonly double[] QueueTableDefaultColumnWidths =
     {
-        48, 56, 104, 210, 210, 60, 128, 68, 68, 68, 68, 68, 68, 68, 76, 68, 68, 0, 68, 68, 68, 68, 68, 180,
+        48, 56, 104, 210, 210, 60, 128, 68, 68, 68, 68, 68, 68, 68, 76, 68, 68, 0, 68, 68, 68, 180,
     };
     private static readonly double[] QueueTableMinColumnWidths =
     {
-        42, 48, 72, 120, 120, 48, 92, 56, 56, 56, 56, 56, 56, 56, 62, 56, 62, 0, 62, 62, 62, 56, 56, 120,
+        42, 48, 72, 120, 120, 48, 92, 56, 56, 56, 56, 56, 56, 56, 62, 56, 62, 0, 62, 56, 56, 120,
     };
     private readonly double[] _queueTableColumnWidths = QueueTableDefaultColumnWidths.ToArray();
     private readonly List<WeakReference<Grid>> _queueTableRowGrids = new();
@@ -3252,24 +3252,6 @@ public partial class TikTokQueueView : UserControl
             vm.StatusMessage = $"修改新剧名失败：{ex.Message}";
             await ShowMessageAsync(owner, "修改新剧名失败", ex.Message, warning: true);
         }
-    }
-
-    private async void OnRepairSilenceClick(object? sender, RoutedEventArgs e)
-    {
-        var vm = _vm;
-        if (vm is null) return;
-        var dirs = GetSelectedProjectDirs();
-        if (dirs.Count == 0)
-        {
-            vm.StatusMessage = "请先选中要修复静音的视频";
-            return;
-        }
-
-        var options = vm.CreateCurrentQueueRunOptionsSnapshot();
-        options.EnabledSteps = new List<string> { QueueStepRegistry.SilenceRepair };
-        options.ForceRerunCompletedSteps = true;
-        options.UploadEntryMode = "";
-        await StartQueueRunAsync(options, dirs);
     }
 
     private void OnSelectToCurrentProjectClick(object? sender, RoutedEventArgs e)

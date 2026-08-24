@@ -231,6 +231,52 @@ public sealed class HongguoHighCalendarMapperTests
     }
 
     [Fact]
+    public void MapPayload_Reads_Original_App_Cover_Shapes_And_Normalizes_Byteimg_Template()
+    {
+        var payload = JsonNode.Parse("""
+            {
+              "items": [
+                {
+                  "video_data": {
+                    "series_id": "ai-cover-1",
+                    "series_title": "AI封面剧",
+                    "seriesCover": {
+                      "urlList": [
+                        "https://p3-novel.byteimg.com/img/novel-pic/abc123~tplv-resize:200:300.image?x=1"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "bookInfo": {
+                    "bookId": "ai-cover-2",
+                    "bookName": "备用封面剧",
+                    "bookCover": {
+                      "urls": ["//p3-novel.byteimg.com/origin/novel-pic/def456"]
+                    }
+                  }
+                }
+              ]
+            }
+            """)!;
+
+        var items = HongguoHighCalendarMapper.MapPayload(payload);
+
+        items.Should().HaveCount(2);
+        items[0].PosterUrl.Should().Be("https://p3-novel.byteimg.com/origin/novel-pic/abc123");
+        items[1].PosterUrl.Should().Be("https://p3-novel.byteimg.com/origin/novel-pic/def456");
+    }
+
+    [Theory]
+    [InlineData("file:///tmp/poster.jpg")]
+    [InlineData("novel-pic/abc123")]
+    [InlineData("")]
+    public void NormalizeMediaUrl_Rejects_NonHttp_Values(string value)
+    {
+        HongguoHighCalendarMapper.NormalizeMediaUrl(value).Should().BeNull();
+    }
+
+    [Fact]
     public void ApplyBookInfo_Fills_Author_Episodes_And_Clock()
     {
         var item = new DramaSearchItem("hghigh:1", "剧名", "", 0, "", "", "", "2026-08-18 00:00:00");
@@ -248,6 +294,58 @@ public sealed class HongguoHighCalendarMapperTests
         var expected = DateTimeOffset.Parse("2026-08-18T11:05:01+08:00").LocalDateTime
             .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
         applied.PublishTime.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ApplyBookInfo_Uses_Authoritative_Episode_Count_When_Chapter_Number_Lags()
+    {
+        var item = new DramaSearchItem("hghigh:1", "剧名", "", 80, "", "", "", "");
+        var info = JsonNode.Parse("""
+            {
+              "chapter_number": 80,
+              "serial_count": 999,
+              "final_chapter_number": 81,
+              "drama_chapter_number": 81,
+              "last_chapter_title": "第81集"
+            }
+            """)!.AsObject();
+
+        var applied = HongguoHighCalendarMapper.ApplyBookInfo(item, info);
+
+        applied.EpisodeTotal.Should().Be(81);
+    }
+
+    [Fact]
+    public void Calendar_enrichment_is_required_when_only_poster_is_missing()
+    {
+        var missingPoster = new DramaSearchItem(
+            "hghigh:1",
+            "剧名",
+            "都市日常",
+            36,
+            "简介",
+            "",
+            "作者甲",
+            "2026-08-24 10:00:00");
+        var complete = missingPoster with { PosterUrl = "https://cdn.example.com/poster.jpg" };
+
+        HongguoHighApiService.NeedsCalendarEnrichment(missingPoster).Should().BeTrue();
+        HongguoHighApiService.NeedsCalendarEnrichment(complete).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ReadEpisodeTotal_Uses_Drama_Count_Before_Stale_Or_Unrelated_Counts()
+    {
+        var info = JsonNode.Parse("""
+            {
+              "drama_chapter_number": 62,
+              "final_chapter_number": 62,
+              "serial_count": 999,
+              "chapter_number": 61
+            }
+            """)!.AsObject();
+
+        HongguoHighCalendarMapper.ReadEpisodeTotal(info).Should().Be(62);
     }
 
     [Fact]
@@ -275,6 +373,59 @@ public sealed class HongguoHighCalendarMapperTests
         mapped.Title.Should().Be("AI剧");
         mapped.Author.Should().Be("作者乙");
         mapped.PublishTime.Should().Be("2026-08-18 12:00:00");
+    }
+
+    [Fact]
+    public void ExtractLandpageItems_Preserves_Outer_Cover_Alongside_VideoData()
+    {
+        var payload = JsonNode.Parse("""
+            {
+              "cell_view": [
+                {
+                  "seriesCover": {
+                    "urlList": ["https://p3-novel.byteimg.com/origin/novel-pic/outer-cover"]
+                  },
+                  "videoData": {
+                    "seriesId": "ai-outer-cover",
+                    "series_title": "外层封面剧"
+                  }
+                }
+              ]
+            }
+            """)!;
+
+        var raw = HongguoHighCalendarMapper.ExtractLandpageItems(payload);
+        var mapped = HongguoHighCalendarMapper.TryMapItem(raw.Single());
+
+        mapped.Should().NotBeNull();
+        mapped!.BookId.Should().Be("hghigh:ai-outer-cover");
+        mapped.PosterUrl.Should().Be("https://p3-novel.byteimg.com/origin/novel-pic/outer-cover");
+    }
+
+    [Fact]
+    public void MapPayload_Recursively_Finds_ImageUrl_In_Unknown_Outer_Shape()
+    {
+        var payload = JsonNode.Parse("""
+            {
+              "items": [
+                {
+                  "book_id": "deep-cover",
+                  "book_name": "深层封面剧",
+                  "render_meta": {
+                    "artwork": {
+                      "resources": [
+                        "https://p3-novel.byteimg.com/origin/novel-pic/deep-cover-image"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+            """)!;
+
+        var mapped = HongguoHighCalendarMapper.MapPayload(payload).Single();
+
+        mapped.PosterUrl.Should().Be("https://p3-novel.byteimg.com/origin/novel-pic/deep-cover-image");
     }
 }
 
@@ -305,6 +456,7 @@ public sealed class HongguoHighDramaChainTests
         results.Should().ContainSingle();
         results[0].Title.Should().Be("高码率剧");
         results[0].BookId.Should().Be("hghigh:123456");
+        results[0].EpisodeTotal.Should().Be(81);
         results[0].PosterUrl.Should().Be("https://cover");
         handler.Hosts.Should().Contain("api5-sinfonlinea.novelfm.com");
         handler.Hosts.Should().NotContain("au.s1o.cc");
@@ -335,6 +487,96 @@ public sealed class HongguoHighDramaChainTests
         handler.LastUri!.Host.Should().Be("api-sinfonlinec.fanqiesdk.com");
         handler.LastUri.Query.Should().Contain("book_id=999");
         handler.LastUri.Query.Should().Contain("aid=1967");
+    }
+
+    [Fact]
+    public async Task GetVideoPlaybackAsync_Retries_Empty_Address_And_Matches_Episode()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var calls = 0;
+        var delays = new List<TimeSpan>();
+        service.AuthedRequestForTests = (_, path, _, _, _) =>
+        {
+            path.Should().Be("/video/batch-parse");
+            calls++;
+            JsonNode response = calls == 1
+                ? new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["episodeId"] = "vid-81",
+                        ["message"] = "解析器繁忙"
+                    }
+                }
+                : new JsonObject
+                {
+                    ["data"] = new JsonArray
+                    {
+                        new JsonObject
+                        {
+                            ["episodeId"] = "other",
+                            ["downloadUrl"] = "https://cdn.example.com/wrong.mp4"
+                        },
+                        new JsonObject
+                        {
+                            ["episodeId"] = "vid-81",
+                            ["downloadUrl"] = "https://cdn.example.com/81.mp4",
+                            ["sizeBytes"] = 123L
+                        }
+                    }
+                };
+            return Task.FromResult<JsonNode?>(response);
+        };
+        service.DelayForTests = (delay, _) =>
+        {
+            delays.Add(delay);
+            return Task.CompletedTask;
+        };
+
+        var playback = await service.GetVideoPlaybackAsync(
+            new DramaSourceSettings(),
+            HongguoHighCrypto.EncodeEpisodeId("book-1", 81, "vid-81"),
+            "1080P",
+            CancellationToken.None);
+
+        playback.Url.Should().Be("https://cdn.example.com/81.mp4");
+        playback.Size.Should().Be(123L);
+        calls.Should().Be(2);
+        delays.Should().Equal(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task GetVideoPlaybackAsync_Fails_After_Three_Empty_Responses()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var calls = 0;
+        var delays = new List<TimeSpan>();
+        service.AuthedRequestForTests = (_, _, _, _, _) =>
+        {
+            calls++;
+            return Task.FromResult<JsonNode?>(new JsonArray
+            {
+                new JsonObject { ["episodeId"] = "vid-81", ["message"] = "暂无地址" }
+            });
+        };
+        service.DelayForTests = (delay, _) =>
+        {
+            delays.Add(delay);
+            return Task.CompletedTask;
+        };
+
+        var act = () => service.GetVideoPlaybackAsync(
+            new DramaSourceSettings(),
+            HongguoHighCrypto.EncodeEpisodeId("book-1", 81, "vid-81"),
+            "1080P",
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<HongguoHighException>()
+            .WithMessage("*连续 3 次*暂无地址*");
+        calls.Should().Be(3);
+        delays.Should().Equal(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
     }
 
     [Fact]
@@ -392,8 +634,74 @@ public sealed class HongguoHighDramaChainTests
 
         items.Should().HaveCount(41);
         calls.Should().Contain([1, 2, 3, 4]);
-        maxActive.Should().Be(3);
+        maxActive.Should().Be(5);
         progress.Should().Contain(message => message.Contains("已发现 41 部", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Calendar_List_Reports_Completed_Pages_Without_Waiting_For_Slowest_Peer()
+    {
+        var releaseSlowPage = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var partialCounts = new System.Collections.Concurrent.ConcurrentQueue<int>();
+        var today = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+
+        async Task<IReadOnlyList<DramaSearchItem>> Load(int page, CancellationToken cancellationToken)
+        {
+            if (page == 4)
+                await releaseSlowPage.Task.WaitAsync(cancellationToken);
+            var count = page == 4 ? 1 : 20;
+            return Enumerable.Range(1, count)
+                .Select(index => new DramaSearchItem(
+                    $"hghigh:stream-{page}-{index}", $"剧{page}-{index}", "", 1, "", "", "作者", today))
+                .ToArray();
+        }
+
+        var loading = HongguoHighApiService.FetchCalendarListForTestsAsync(
+            Load,
+            days: 1,
+            progress: null,
+            CancellationToken.None,
+            new InlineProgress<IReadOnlyList<DramaSearchItem>>(items => partialCounts.Enqueue(items.Count)));
+
+        await Task.Delay(150);
+        partialCounts.Should().Contain([20, 40, 60]);
+        loading.IsCompleted.Should().BeFalse();
+
+        releaseSlowPage.SetResult(true);
+        var items = await loading;
+        items.Should().HaveCount(61);
+        partialCounts.Should().Contain(61);
+    }
+
+    [Fact]
+    public async Task Calendar_Details_Report_Incrementally_And_Reuse_BookInfo_Cache()
+    {
+        var handler = new HighDirectoryHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = new HongguoHighApiService(httpClient);
+        IReadOnlyList<DramaSearchItem>? reported = null;
+        IReadOnlyList<DramaSearchItem> items =
+        [
+            new DramaSearchItem("hghigh:book-1", "剧1", "", 0, "", "", "", ""),
+            new DramaSearchItem("hghigh:book-2", "剧2", "", 0, "", "", "", ""),
+        ];
+
+        var first = await service.EnrichNewReleaseItemsAsync(
+            new DramaSourceSettings(),
+            items,
+            progress: null,
+            CancellationToken.None,
+            new InlineProgress<IReadOnlyList<DramaSearchItem>>(batch => reported = batch));
+
+        first.Should().OnlyContain(item => item.Author == "作者甲");
+        first.Should().OnlyContain(item => item.PosterUrl == "https://p3-novel.byteimg.com/origin/novel-pic/directory-cover");
+        reported.Should().NotBeNull();
+        reported!.Should().OnlyContain(item => item.Author == "作者甲");
+        handler.RequestCount.Should().Be(2);
+
+        await service.EnrichNewReleaseItemsAsync(
+            new DramaSourceSettings(), items, progress: null, CancellationToken.None);
+        handler.RequestCount.Should().Be(2);
     }
 
     [Fact]
@@ -539,7 +847,7 @@ public sealed class HongguoHighDramaChainTests
         {
             Hosts.Add(request.RequestUri!.Host);
             var json = """
-                {"code":0,"data":{"search_data":[{"books":[{"book_id":"123456","book_name":"高码率剧","author":"甲","audio_thumb_uri":"https://cover","abstract":"简介","category":"漫剧"}]}]}}
+                {"code":0,"data":{"search_data":[{"books":[{"book_id":"123456","book_name":"高码率剧","author":"甲","audio_thumb_uri":"https://cover","abstract":"简介","category":"漫剧","chapter_number":80,"serial_count":80,"last_chapter_title":"第81集"}]}]}}
                 """;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
@@ -551,12 +859,14 @@ public sealed class HongguoHighDramaChainTests
     private sealed class HighDirectoryHandler : HttpMessageHandler
     {
         public Uri? LastUri { get; private set; }
+        public int RequestCount { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             LastUri = request.RequestUri;
+            RequestCount++;
             var json = """
-                {"code":0,"data":{"item_list":["vid-a","vid-b"],"book_info":{"book_name":"测试剧","chapter_number":2}}}
+                {"code":0,"data":{"item_list":["vid-a","vid-b"],"cover_bundle":{"url_list":["https://p3-novel.byteimg.com/origin/novel-pic/directory-cover"]},"book_info":{"book_name":"测试剧","author":"作者甲","chapter_number":2}}}
                 """;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {

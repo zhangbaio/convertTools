@@ -100,6 +100,52 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Client_settings_store_migrates_shared_asr_values_and_removes_retired_silence_keys()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-asr-migration-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            AppSettingStore.SaveJson(
+                ClientSettingsStore.SettingsKey,
+                new Dictionary<string, object?>
+                {
+                    ["tiktok_silence_local_model_dir"] = "legacy-models",
+                    ["tiktok_silence_local_vad_path"] = "legacy-vad.onnx",
+                    ["tiktok_silence_asr_app_id"] = "legacy-app",
+                    ["tiktok_silence_asr_access_token"] = "legacy-token",
+                    ["tiktok_silence_asr_language"] = "zh-CN",
+                    ["tiktok_silence_repair_mode"] = "speedup",
+                },
+                databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+            loaded.TiktokAsrLocalModelDir.Should().Be("legacy-models");
+            loaded.TiktokAsrLocalVadPath.Should().Be("legacy-vad.onnx");
+            loaded.TiktokAsrAppId.Should().Be("legacy-app");
+            loaded.TiktokAsrAccessToken.Should().Be("legacy-token");
+            loaded.TiktokAsrLanguage.Should().Be("zh-CN");
+
+            ClientSettingsStore.Save(loaded, databasePath);
+            AppSettingStore.TryLoadJson<Dictionary<string, JsonElement>>(
+                    ClientSettingsStore.SettingsKey,
+                    out var saved,
+                    databasePath)
+                .Should().BeTrue();
+            saved.Should().NotBeNull();
+            saved!.Keys.Should().NotContain(key => key.StartsWith("tiktok_silence_", StringComparison.Ordinal));
+            saved.Keys.Should().Contain("tiktok_asr_local_model_dir");
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Installer_secret_reset_on_fresh_database_keeps_single_title_only_poster_defaults()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-fresh-reset-{Guid.NewGuid():N}");
@@ -647,9 +693,6 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokUploadBatchSize.Should().Be(3);
         account.TiktokUploadBatchStallSeconds.Should().Be(75);
         account.TiktokUploadBatchMaxRetries.Should().Be(3);
-        account.TiktokSilenceValidationEnabled.Should().BeTrue();
-        account.TiktokMaxContinuousSilenceSeconds.Should().Be(20);
-        account.TiktokSilenceThresholdDb.Should().Be(-45.0);
         account.TiktokDeleteVideosOnArchive.Should().BeTrue();
     }
 

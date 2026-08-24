@@ -14,13 +14,13 @@ namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 {
-    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "hghigh"];
-    private static readonly string[] NewReleaseServices = ["hgnew", "hglocal", "hghigh"];
+    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "hghigh", "mapleleaf"];
+    private static readonly string[] NewReleaseServices = ["hgnew", "hglocal", "hghigh", "mapleleaf"];
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
     private const string EpisodeNumberModeContinuous = "continuous";
     private const int DownloadBufferSize = 128 * 1024;
     private const int DefaultDownloadFileSegments = 4;
-    private const int MaxDownloadFileSegments = 8;
+    private const int MaxDownloadFileSegments = 16;
     private const long MinSegmentedDownloadSize = 4L * 1024 * 1024;
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif"];
@@ -38,6 +38,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private readonly HongguoDramaDownloader _hgnewDownloader;
     private readonly HongguoMemoryReaderService _hongguoMemoryReaderService;
     private readonly HongguoHighApiService _hghighApiService;
+    private readonly MapleleafApiService _mapleleafApiService;
 
     public DramaSourceRouter(
         HttpClient httpClient,
@@ -55,7 +56,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             hgnewSearchService,
             hgnewDownloader,
             hongguoMemoryReaderService,
-            new HongguoHighApiService(httpClient))
+            new HongguoHighApiService(httpClient),
+            new MapleleafApiService(httpClient))
     {
     }
 
@@ -68,6 +70,29 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         HongguoDramaDownloader hgnewDownloader,
         HongguoMemoryReaderService hongguoMemoryReaderService,
         HongguoHighApiService hghighApiService)
+        : this(
+            httpClient,
+            settingsProvider,
+            hglocalApiService,
+            hgnewApiService,
+            hgnewSearchService,
+            hgnewDownloader,
+            hongguoMemoryReaderService,
+            hghighApiService,
+            new MapleleafApiService(httpClient))
+    {
+    }
+
+    public DramaSourceRouter(
+        HttpClient httpClient,
+        IDramaSettingsProvider settingsProvider,
+        HongguoLocalApiService hglocalApiService,
+        HongguoNewApiService hgnewApiService,
+        HongguoDramaSearchService hgnewSearchService,
+        HongguoDramaDownloader hgnewDownloader,
+        HongguoMemoryReaderService hongguoMemoryReaderService,
+        HongguoHighApiService hghighApiService,
+        MapleleafApiService mapleleafApiService)
     {
         _httpClient = httpClient;
         _settingsProvider = settingsProvider;
@@ -77,6 +102,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         _hgnewDownloader = hgnewDownloader;
         _hongguoMemoryReaderService = hongguoMemoryReaderService;
         _hghighApiService = hghighApiService;
+        _mapleleafApiService = mapleleafApiService;
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
@@ -92,6 +118,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
             "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken),
             "hghigh" => await _hghighApiService.SearchAsync(settings, keyword, page, cancellationToken),
+            "mapleleaf" => await _mapleleafApiService.SearchAsync(settings, keyword, page, cancellationToken),
             _ => []
         };
     }
@@ -115,7 +142,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             settings,
             hgnewLoader: ct => _hgnewApiService.GetTodayNewAsync(settings, "djnew", ct),
             hglocalLoader: ct => GetLocalTodayAsync(settings, ct),
-            cancellationToken);
+            cancellationToken,
+            mapleleafLoader: ct => _mapleleafApiService.GetLatestAsync(settings, "djnew", 1, ct));
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetMangaTodayAsync(int days, CancellationToken cancellationToken)
@@ -125,7 +153,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int days,
         bool enrich,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         var settings = _settingsProvider.Get();
         return await LoadNewReleaseAsync(
@@ -133,7 +163,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             hgnewLoader: ct => LoadHgnewMangaTodayAsync(settings, days, ct),
             hglocalLoader: ct => GetLatestByGenreAsync(settings, "comic_series", days, ct),
             cancellationToken: cancellationToken,
-            hghighLoader: ct => _hghighApiService.GetManjuNewAsync(settings, days, enrich, progress, ct));
+            hghighLoader: ct => _hghighApiService.GetManjuNewAsync(
+                settings, days, enrich, progress, ct, partialResults, detailResults),
+            mapleleafLoader: ct => _mapleleafApiService.GetLatestAsync(settings, "mjnew", days, ct));
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(int days, CancellationToken cancellationToken)
@@ -143,7 +175,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int days,
         bool enrich,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         var settings = _settingsProvider.Get();
         return await LoadNewReleaseAsync(
@@ -151,11 +185,35 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             hgnewLoader: ct => LoadHgnewAiTodayAsync(settings, days, ct),
             hglocalLoader: ct => GetLatestByGenreAsync(settings, "ai_series", days, ct),
             cancellationToken: cancellationToken,
-            hghighLoader: ct => _hghighApiService.GetAiNewAsync(settings, days, enrich, progress, ct));
+            hghighLoader: ct => _hghighApiService.GetAiNewAsync(
+                settings, days, enrich, progress, ct, partialResults, detailResults),
+            mapleleafLoader: ct => _mapleleafApiService.GetLatestAsync(settings, "aiju", days, ct));
     }
 
     public bool IsHighSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase);
+
+    public async Task<IReadOnlyList<DramaSearchItem>> EnrichHighNewReleaseItemsAsync(
+        IReadOnlyList<DramaSearchItem> items,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
+    {
+        var settings = _settingsProvider.Get();
+        if (!string.Equals(
+                settings.DramaSourceChain?.Trim(),
+                "hghigh",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return items;
+        }
+        return await _hghighApiService.EnrichNewReleaseItemsAsync(
+            settings,
+            items,
+            progress,
+            cancellationToken,
+            detailResults);
+    }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)
     {
@@ -170,7 +228,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             settings,
             hgnewLoader: ct => LoadHgnewHistoryAsync(settings, days, ct),
             hglocalLoader: ct => GetLatestByGenreAsync(settings, "short_play", days, ct),
-            cancellationToken);
+            cancellationToken,
+            mapleleafLoader: ct => _mapleleafApiService.GetLatestAsync(settings, "djnew", days, ct));
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> SearchHgnewAsync(
@@ -195,7 +254,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> hgnewLoader,
         Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> hglocalLoader,
         CancellationToken cancellationToken,
-        Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>>? hghighLoader = null)
+        Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>>? hghighLoader = null,
+        Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>>? mapleleafLoader = null)
     {
         var source = ResolveSelectedService(settings.DramaSourceChain, NewReleaseServices);
         return source switch
@@ -203,6 +263,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             "hgnew" => await hgnewLoader(cancellationToken),
             "hglocal" => await hglocalLoader(cancellationToken),
             "hghigh" => hghighLoader is null ? [] : await hghighLoader(cancellationToken),
+            "mapleleaf" => mapleleafLoader is null ? [] : await mapleleafLoader(cancellationToken),
             _ => []
         };
     }
@@ -334,6 +395,24 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var downloadAttempts = ParsePositiveInt(settings.HongguoEpisodeDownloadAttempts, 5);
         var downloadFileSegments = ParseDownloadFileSegments(settings.DownloadFileSegments);
         var bookId = request.BookId?.Trim() ?? string.Empty;
+
+        if (bookId.StartsWith(MapleleafApiService.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
+            bookId.StartsWith(MapleleafApiService.EpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(settings.DramaSourceChain?.Trim(), "mapleleaf", StringComparison.OrdinalIgnoreCase))
+        {
+            var mapleleafBookId = MapleleafApiService.EnsureBookPrefix(bookId);
+            return await DownloadWithProviderAsync(
+                request,
+                progress,
+                cancellationToken,
+                resolveEpisodes: ct => GetMapleleafEpisodesAsync(mapleleafBookId, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetMapleleafVideoUrlAsync(videoId, quality, settings, ct),
+                posterPrefix: MapleleafApiService.BookPrefix,
+                validateVideoEncoding: false,
+                downloadFileSegments: Math.Max(downloadFileSegments, 16),
+                downloadTimeoutSeconds: downloadTimeoutSeconds,
+                downloadAttempts: downloadAttempts);
+        }
 
         if (bookId.StartsWith(HongguoLocalBookPrefix, StringComparison.OrdinalIgnoreCase))
         {
@@ -1813,6 +1892,29 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private async Task<SourceVideoDetail> GetHghighVideoUrlAsync(string videoId, string quality, DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         var detail = await _hghighApiService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
+        return new SourceVideoDetail(detail.Url);
+    }
+
+    private async Task<IReadOnlyList<SourceEpisode>> GetMapleleafEpisodesAsync(
+        string bookId,
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var items = await _mapleleafApiService.GetEpisodesAsync(settings, bookId, cancellationToken);
+        return items.Select(item => new SourceEpisode(
+            item.EpisodeNumber,
+            item.Title,
+            item.VideoId,
+            item.PosterUrl)).ToArray();
+    }
+
+    private async Task<SourceVideoDetail> GetMapleleafVideoUrlAsync(
+        string videoId,
+        string quality,
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var detail = await _mapleleafApiService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
         return new SourceVideoDetail(detail.Url);
     }
 

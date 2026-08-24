@@ -467,9 +467,6 @@ public static class WorkspaceQueueService
         }
 
         var manifestExists = HasTikTokUploadManifest(context);
-        if (IsPending(item, QueueStepKeys.SilenceDetect) && HasSilenceAsrReport(context))
-            item.StepStates[QueueStepKeys.SilenceDetect] = QueueStepStatus.Completed;
-
         if (IsPending(item, QueueStepKeys.MaterialValidate) &&
             TikTokMaterialValidationService.HasCurrentValidationState(sourceProjectDir))
         {
@@ -535,10 +532,6 @@ public static class WorkspaceQueueService
             item,
             QueueStepKeys.MaterialValidate,
             TikTokMaterialValidationService.HasCurrentValidationState(context.SourceProjectDir));
-        ResetCompletedWhenMissing(
-            item,
-            QueueStepKeys.SilenceDetect,
-            HasSilenceAsrReport(context));
     }
 
     private static void ResetCompletedWhenMissing(
@@ -732,19 +725,6 @@ public static class WorkspaceQueueService
         }
 
         return File.Exists(Path.Combine(context.WorkflowProjectDir, "tiktok-upload-manifest.json"));
-    }
-
-    private static bool HasSilenceAsrReport(ProjectWorkspaceContext context)
-    {
-        if (ProjectStateDocumentStore.LoadDocument(
-                context.WorkspaceRoot,
-                context.SourceProjectDir,
-                "silence_asr_report").Count > 0)
-        {
-            return true;
-        }
-
-        return File.Exists(Path.Combine(context.WorkflowProjectDir, "silence-asr-report.json"));
     }
 
     private static bool HasVideoFiles(params string[] roots)

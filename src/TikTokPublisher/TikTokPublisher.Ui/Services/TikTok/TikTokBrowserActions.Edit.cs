@@ -627,14 +627,7 @@ public static partial class TikTokBrowserActions
         for (var guard = 0; guard < 500; guard++)
         {
             ct.ThrowIfCancellationRequested();
-            var count = await page.EvaluateAsync<int>(
-                """
-                () => {
-                  const t = document.querySelector('.semi-table-body table');
-                  if (t && t.getAttribute('aria-rowcount')) return +t.getAttribute('aria-rowcount');
-                  return document.querySelectorAll('.semi-table-body tr.semi-table-row').length;
-                }
-                """);
+            var count = await ReadEditVideoTableRowCountAsync(page);
             if (count <= keepCount) break;
 
             var clickResult = await ClickEditVideoDeleteButtonBeyondKeepAsync(page, keepCount, count);
@@ -643,24 +636,48 @@ public static partial class TikTokBrowserActions
 
             await page.WaitForTimeoutAsync(500);
             await ConfirmDeleteDialogIfPresentAsync(page, ct);
-            await page.WaitForTimeoutAsync(800);
-
-            var newCount = await page.EvaluateAsync<int>(
-                """
-                () => {
-                  const t = document.querySelector('.semi-table-body table');
-                  if (t && t.getAttribute('aria-rowcount')) return +t.getAttribute('aria-rowcount');
-                  return document.querySelectorAll('.semi-table-body tr.semi-table-row').length;
-                }
-                """);
-            if (newCount >= count)
-                throw new InvalidOperationException("点击删除后行数未减少，可能删除控件失配，已中止。");
+            await WaitForEditVideoRowCountDecreaseAsync(page, count, ct);
             deleted++;
         }
 
         if (deleted > 0)
             Log(log, $"已删除错位的 {deleted} 行（保留前 {keepCount} 集）。");
         return deleted;
+    }
+
+    private static async Task<int> WaitForEditVideoRowCountDecreaseAsync(
+        IPage page,
+        int previousCount,
+        CancellationToken ct,
+        int timeoutSeconds = 15)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(Math.Max(3, timeoutSeconds));
+        int? candidate = null;
+        var lastCount = previousCount;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            lastCount = await ReadEditVideoTableRowCountAsync(page);
+            if (lastCount < previousCount)
+            {
+                // TikTok briefly tears down the virtual table while applying a deletion. Require
+                // the lower count twice so a transient zero is not mistaken for an empty list.
+                if (candidate == lastCount)
+                    return lastCount;
+                candidate = lastCount;
+            }
+            else
+            {
+                candidate = null;
+            }
+
+            await page.WaitForTimeoutAsync(300);
+        }
+
+        throw new InvalidOperationException(
+            $"点击删除后等待 {Math.Max(3, timeoutSeconds)} 秒行数仍未减少" +
+            $"（删除前 {previousCount}，最后读取 {lastCount}），可能删除请求未被平台接受，已中止。");
     }
 
     private static async Task<string> ClickEditVideoDeleteButtonBeyondKeepAsync(

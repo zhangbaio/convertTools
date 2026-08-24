@@ -106,13 +106,22 @@ public static class QueueMaterialStepService
         var existingVideos = ProjectVideoResolver.ResolveSourceVideos(
             context.SourceProjectDir,
             allowStagedFallback: true);
-        if (existingVideos.Count > 0)
+        var existingEpisodeNumbers = existingVideos
+            .Select(path => EpisodeNumberInFileName.Match(Path.GetFileName(path)))
+            .Where(match => match.Success)
+            .Select(match => int.TryParse(match.Groups[1].Value, out var parsed) ? parsed : 0)
+            .Where(number => number > 0)
+            .Distinct()
+            .ToArray();
+        var missingEpisodes = ResolveMissingProofMaterialEpisodes(
+            existingEpisodeNumbers,
+            existingVideos.Count,
+            required);
+        if (missingEpisodes.Count == 0)
         {
-            log($"证明材料补源：已有可用视频 {existingVideos.Count} 个，无需下载。");
+            log($"证明材料补源：已有可用视频 {existingVideos.Count} 个，已满足 {required} 集最低需求，无需下载。");
             return ProofMaterialVideoHydrationResult.Empty;
         }
-
-        var missingEpisodes = Enumerable.Range(1, required).ToArray();
 
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
         if (string.IsNullOrWhiteSpace(metadata.BookId))
@@ -206,6 +215,26 @@ public static class QueueMaterialStepService
             }
             throw;
         }
+    }
+
+    internal static IReadOnlyList<int> ResolveMissingProofMaterialEpisodes(
+        IReadOnlyCollection<int> existingEpisodeNumbers,
+        int existingVideoCount,
+        int requiredEpisodeCount)
+    {
+        ArgumentNullException.ThrowIfNull(existingEpisodeNumbers);
+        var required = Math.Clamp(requiredEpisodeCount, 1, 200);
+        var existingCount = Math.Max(0, existingVideoCount);
+        if (existingCount >= required)
+            return [];
+
+        var existing = existingEpisodeNumbers
+            .Where(number => number > 0)
+            .ToHashSet();
+        return Enumerable.Range(1, required)
+            .Where(number => !existing.Contains(number))
+            .Take(required - existingCount)
+            .ToArray();
     }
 
     internal sealed record ProofMaterialVideoHydrationResult(

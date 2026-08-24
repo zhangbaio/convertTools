@@ -150,6 +150,32 @@
 
                         <Separator Margin="0,4" />
 
+                        <TextBlock Text="Mapleleaf 链路（1.6.0 独立接口）" FontWeight="Bold" />
+                        <TextBlock Text="账号、密码和 DeviceUDID 与红果新接口完全独立。搜索、上新和剧集列表走 Mapleleaf；单集播放地址通常需要同时配置下方的本地直连红果 API。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Mapleleaf 账号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MapleleafAccount}" Watermark="邮箱或手机号" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Mapleleaf 密码" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding MapleleafPassword}" PasswordChar="●" RevealPassword="False" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="DeviceUDID" VerticalAlignment="Center" />
+                            <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding MapleleafUdid, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         Watermark="GUID 或 32 位设备号" />
+                                <Button Grid.Column="1" Content="读取 DeviceUDID" Command="{Binding ReadMapleleafUdidCommand}" MinWidth="120" />
+                                <Button Grid.Column="2" Content="生成" Command="{Binding GenerateMapleleafUdidCommand}" MinWidth="72" />
+                                <Button Grid.Column="3" Content="测试登录" Command="{Binding ProbeMapleleafLoginCommand}" MinWidth="96" />
+                            </Grid>
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="测试结果" VerticalAlignment="Center" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding MapleleafProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+                        </Grid>
+
+                        <Separator Margin="0,4" />
+
                         <TextBlock Text="本地直连链路（自建红果接口服务）" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本地链路地址" VerticalAlignment="Center" />
@@ -222,63 +248,36 @@
             <TabItem Header="ASR配置">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4">
-                        <TextBlock Text="ASR 引擎" FontWeight="Bold" />
+                        <TextBlock Text="ASR 配置" FontWeight="Bold" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Content="测试本地模型" Command="{Binding ProbeLocalAsrCommand}" />
                             <Button Content="测试火山 ASR" Command="{Binding ProbeVolcengineAsrCommand}" />
                             <TextBlock Text="{Binding AsrProbeStatus}" VerticalAlignment="Center" Classes="pageSummary" TextWrapping="Wrap" />
                         </StackPanel>
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="ASR 引擎" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="AsrEngineCombo" HorizontalAlignment="Stretch" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="本地模型目录" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TiktokAsrLocalModelDir}" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="本地模型目录" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TiktokSilenceLocalModelDir}" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="本地VAD路径" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TiktokAsrLocalVadPath}" />
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="本地VAD路径" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding TiktokSilenceLocalVadPath}" />
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="混合复核下限" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding TiktokSilenceHybridLowSeconds}" Minimum="0" Maximum="120" Increment="0.5" Width="120" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="混合复核上限" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding TiktokSilenceHybridHighSeconds}" Minimum="0" Maximum="120" Increment="0.5" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="识别语言" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding TiktokAsrLanguage}" Width="140" HorizontalAlignment="Left" />
                         </Grid>
 
                         <TextBlock Text="ASR 凭据" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="ASR AppID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TiktokSilenceAsrAppId}" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TiktokAsrAppId}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="ASR AccessToken" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TiktokSilenceAsrAccessToken}" PasswordChar="●" RevealPassword="False" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TiktokAsrAccessToken}" PasswordChar="●" RevealPassword="False" />
                         </Grid>
 
-                        <TextBlock Text="静音检测与修复" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="ASR静音阈值" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokSilenceAsrThresholdSeconds}" Minimum="5" Maximum="120" Width="120" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="静音修复方式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="SilenceRepairModeCombo" HorizontalAlignment="Stretch" />
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="静音修复目标时长" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding TiktokSilenceRepairTargetSeconds}" Minimum="3" Maximum="120" Increment="0.5" Width="120" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="静音修复最大倍速" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding TiktokSilenceRepairMaxSpeed}" Minimum="1.1" Maximum="4" Increment="0.05" Width="120" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="静音修复失败阻断" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="4" Grid.Column="1" IsChecked="{Binding TiktokSilenceRepairBlocking}" Content="修复失败时判定项目失败" />
-
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="ASR并发数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding TiktokSilenceDetectConcurrency}" Minimum="1" Maximum="16" Width="120" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="6" Grid.Column="0" Text="识别语言" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding TiktokSilenceAsrLanguage}" Width="140" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="7" Grid.Column="0" Text="素材校验并发" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="7" Grid.Column="1" Value="{Binding TiktokMaterialValidateConcurrency}" Minimum="1" Maximum="16" Width="120" HorizontalAlignment="Left" />
+                        <TextBlock Text="素材校验" FontWeight="Bold" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="素材校验并发" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokMaterialValidateConcurrency}" Minimum="1" Maximum="16" Width="120" HorizontalAlignment="Left" />
                         </Grid>
 
                         <TextBlock Text="生成任务并发" FontWeight="Bold" />

@@ -1,6 +1,5 @@
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
-using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Services.Asr;
 
 namespace TikTokPublisher.Core.Tests;
@@ -36,28 +35,12 @@ public sealed class LocalParaformerAsrClientTests
     }
 
     [Fact]
-    public void ToSpeechIntervals_maps_transcript_timing_without_changing_order()
-    {
-        IReadOnlyList<TranscriptSegment> segments =
-        [
-            new TranscriptSegment(3.25, 4.5, "第二句"),
-            new TranscriptSegment(0.5, 1.75, "第一句"),
-        ];
-
-        var intervals = LocalParaformerAsrClient.ToSpeechIntervals(segments);
-
-        intervals.Should().Equal(
-            new SpeechInterval(3.25, 4.5),
-            new SpeechInterval(0.5, 1.75));
-    }
-
-    [Fact]
-    public async Task RecognizeLocalTranscriptAsync_honors_pre_cancelled_token_before_model_or_ffmpeg()
+    public async Task RecognizeVideoTranscriptAsync_honors_pre_cancelled_token_before_model_or_ffmpeg()
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        Func<Task> act = async () => await TikTokSilenceAsrService.RecognizeLocalTranscriptAsync(
+        Func<Task> act = async () => await LocalParaformerAsrClient.RecognizeVideoTranscriptAsync(
             "does-not-exist.mp4",
             new ClientSettings(),
             log: null,

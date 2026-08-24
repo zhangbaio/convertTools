@@ -9,6 +9,7 @@ using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
+using TikTokPublisher.Core.Services.Asr;
 
 namespace TikTokPublisher.Ui.ViewModels;
 
@@ -52,6 +53,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _hghighRevealEnc;
     [ObservableProperty] private bool _hghighRevealSign;
 
+    [ObservableProperty] private string _mapleleafAccount = "";
+    [ObservableProperty] private string _mapleleafPassword = "";
+    [ObservableProperty] private string _mapleleafUdid = "";
+    [ObservableProperty] private string _mapleleafProbeStatus = "";
+
     public string HghighRevealEncButtonText => HghighRevealEnc ? "隐藏密钥" : "显示密钥";
     public string HghighRevealSignButtonText => HghighRevealSign ? "隐藏密钥" : "显示密钥";
 
@@ -70,19 +76,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _hongguoLocalProbeStatus = "";
     [ObservableProperty] private string _aiTextProbeStatus = "";
 
-    [ObservableProperty] private string _tiktokSilenceAsrEngine = "local";
-    [ObservableProperty] private string _tiktokSilenceLocalModelDir = "";
-    [ObservableProperty] private string _tiktokSilenceLocalVadPath = "";
-    [ObservableProperty] private double _tiktokSilenceHybridLowSeconds = 15;
-    [ObservableProperty] private double _tiktokSilenceHybridHighSeconds = 25;
-    [ObservableProperty] private string _tiktokSilenceAsrAppId = "";
-    [ObservableProperty] private string _tiktokSilenceAsrAccessToken = "";
-    [ObservableProperty] private int _tiktokSilenceAsrThresholdSeconds = 20;
-    [ObservableProperty] private string _tiktokSilenceRepairMode = "auto";
-    [ObservableProperty] private double _tiktokSilenceRepairTargetSeconds = 17;
-    [ObservableProperty] private double _tiktokSilenceRepairMaxSpeed = 2;
-    [ObservableProperty] private bool _tiktokSilenceRepairBlocking;
-    [ObservableProperty] private int _tiktokSilenceDetectConcurrency = 5;
+    [ObservableProperty] private string _tiktokAsrLocalModelDir = "";
+    [ObservableProperty] private string _tiktokAsrLocalVadPath = "";
+    [ObservableProperty] private string _tiktokAsrAppId = "";
+    [ObservableProperty] private string _tiktokAsrAccessToken = "";
     [ObservableProperty] private int _tiktokMaterialValidateConcurrency = 4;
     [ObservableProperty] private int _tiktokGenerationPerProjectConcurrency = 2;
     [ObservableProperty] private int _tiktokAiTextConcurrency = 3;
@@ -91,7 +88,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokImageGenerationConcurrency = 2;
     [ObservableProperty] private int _tiktokVisualConcurrency = 2;
     [ObservableProperty] private int _tiktokDocumentConcurrency = 2;
-    [ObservableProperty] private string _tiktokSilenceAsrLanguage = "zh-CN";
+    [ObservableProperty] private string _tiktokAsrLanguage = "zh-CN";
     [ObservableProperty] private bool _tiktokManualInterventionOnSingleFailure = true;
     [ObservableProperty] private string _asrProbeStatus = "";
 
@@ -162,12 +159,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [
         "hgnew",
         "hghigh",
+        "mapleleaf",
         "hglocal",
         "pikachu"
     ];
 
-    public IReadOnlyList<string> AsrEngineOptions { get; } = ["volcengine", "local", "hybrid"];
-    public IReadOnlyList<string> SilenceRepairModeOptions { get; } = ["auto", "trim", "speedup"];
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
     public IReadOnlyList<string> PosterModeOptions { get; } = [ClientSettingsDefaults.PosterMode];
     public IReadOnlyList<string> ImageProviderOptions { get; } = ["doubao", "ofox_image2"];
@@ -213,6 +209,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HghighPassword = HghighPassword,
         HghighDeviceId = HghighDeviceId.Trim(),
         HghighClientExe = HghighClientExe.Trim(),
+        MapleleafAccount = MapleleafAccount.Trim(),
+        MapleleafPassword = MapleleafPassword,
+        MapleleafUdid = MapleleafUdid.Trim(),
         HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
         HongguoLocalApiKey = HongguoLocalApiKey.Trim(),
         HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(HongguoLocalDownloadMode),
@@ -222,19 +221,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PikachuDramaType = NormalizePikachuDramaType(PikachuDramaType),
         PikachuDeviceId = PikachuDeviceId.Trim(),
         PikachuClientVersion = string.IsNullOrWhiteSpace(PikachuClientVersion) ? "1.4.4" : PikachuClientVersion.Trim(),
-        TiktokSilenceAsrEngine = TiktokSilenceAsrEngine,
-        TiktokSilenceLocalModelDir = TiktokSilenceLocalModelDir.Trim(),
-        TiktokSilenceLocalVadPath = TiktokSilenceLocalVadPath.Trim(),
-        TiktokSilenceHybridLowSeconds = TiktokSilenceHybridLowSeconds,
-        TiktokSilenceHybridHighSeconds = TiktokSilenceHybridHighSeconds,
-        TiktokSilenceAsrAppId = TiktokSilenceAsrAppId.Trim(),
-        TiktokSilenceAsrAccessToken = TiktokSilenceAsrAccessToken,
-        TiktokSilenceAsrThresholdSeconds = TiktokSilenceAsrThresholdSeconds,
-        TiktokSilenceRepairMode = TiktokSilenceRepairMode,
-        TiktokSilenceRepairTargetSeconds = TiktokSilenceRepairTargetSeconds,
-        TiktokSilenceRepairMaxSpeed = TiktokSilenceRepairMaxSpeed,
-        TiktokSilenceRepairBlocking = TiktokSilenceRepairBlocking,
-        TiktokSilenceDetectConcurrency = TiktokSilenceDetectConcurrency,
+        TiktokAsrLocalModelDir = TiktokAsrLocalModelDir.Trim(),
+        TiktokAsrLocalVadPath = TiktokAsrLocalVadPath.Trim(),
+        TiktokAsrAppId = TiktokAsrAppId.Trim(),
+        TiktokAsrAccessToken = TiktokAsrAccessToken,
         TiktokMaterialValidateConcurrency = TiktokMaterialValidateConcurrency,
         TiktokGenerationPerProjectConcurrency = TiktokGenerationPerProjectConcurrency,
         TiktokAiTextConcurrency = TiktokAiTextConcurrency,
@@ -243,7 +233,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokImageGenerationConcurrency = TiktokImageGenerationConcurrency,
         TiktokVisualConcurrency = TiktokVisualConcurrency,
         TiktokDocumentConcurrency = TiktokDocumentConcurrency,
-        TiktokSilenceAsrLanguage = TiktokSilenceAsrLanguage.Trim(),
+        TiktokAsrLanguage = TiktokAsrLanguage.Trim(),
         TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure,
         AiTextEndpoint = AiTextEndpoint.Trim(),
         AiTextApiKey = AiTextApiKey,
@@ -690,6 +680,61 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void ReadMapleleafUdid()
+    {
+        var deviceId = MapleleafDeviceStore.TryReadDeviceId();
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            MapleleafProbeStatus = "未在注册表中找到 HongGuoClient\\DeviceUDID。请先登录 Mapleleaf，或生成新设备号。";
+            return;
+        }
+
+        MapleleafUdid = deviceId;
+        MapleleafProbeStatus = "已从注册表读取 Mapleleaf DeviceUDID。";
+    }
+
+    [RelayCommand]
+    private void GenerateMapleleafUdid()
+    {
+        if (!string.IsNullOrWhiteSpace(MapleleafUdid))
+        {
+            MapleleafProbeStatus = "设备号已有值；如确需更换，请先清空后再生成，避免账号与旧设备解绑。";
+            return;
+        }
+
+        MapleleafUdid = MapleleafDeviceStore.GenerateDeviceId();
+        MapleleafProbeStatus = "已生成新的 Mapleleaf DeviceUDID，请保存设置。";
+    }
+
+    [RelayCommand]
+    private async Task ProbeMapleleafLoginAsync()
+    {
+        if (string.IsNullOrWhiteSpace(MapleleafAccount) || string.IsNullOrWhiteSpace(MapleleafPassword))
+        {
+            MapleleafProbeStatus = "请先填写 Mapleleaf 账号和密码。";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(MapleleafUdid))
+        {
+            MapleleafProbeStatus = "请先填写、读取或生成 Mapleleaf DeviceUDID。";
+            return;
+        }
+
+        MapleleafProbeStatus = "测试中...";
+        try
+        {
+            var settings = DramaSourceSettingsMapping.FromClientSettings(ToSettings());
+            var result = await new MapleleafApiService(ProbeHttp).ProbeLoginAsync(settings, CancellationToken.None);
+            var preview = result.Token.Length > 12 ? $"{result.Token[..6]}…{result.Token[^4..]}" : result.Token;
+            MapleleafProbeStatus = $"测试登录成功：{DateTime.Now:HH:mm:ss} token={preview}";
+        }
+        catch (Exception ex)
+        {
+            MapleleafProbeStatus = $"测试登录失败：{ex.Message}";
+        }
+    }
+
+    [RelayCommand]
     private async Task ProbeAiTextAsync()
     {
         if (string.IsNullOrWhiteSpace(AiTextEndpoint) || string.IsNullOrWhiteSpace(AiTextApiKey))
@@ -729,8 +774,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private void ProbeLocalAsr()
     {
         var settings = ToSettings();
-        settings.TiktokSilenceAsrEngine = "local";
-        var (ok, reason) = TikTokSilenceAsrService.CheckAvailable(settings);
+        var (ok, reason) = SherpaOnnxModelResolver.CheckAvailable(settings);
         AsrProbeStatus = ok ? "本地 Paraformer 配置可用" : reason;
         StatusRequested?.Invoke(AsrProbeStatus);
     }
@@ -739,8 +783,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private void ProbeVolcengineAsr()
     {
         var settings = ToSettings();
-        settings.TiktokSilenceAsrEngine = "volcengine";
-        var (ok, reason) = TikTokSilenceAsrService.CheckAvailable(settings);
+        var ok = !string.IsNullOrWhiteSpace(settings.TiktokAsrAppId) &&
+                 !string.IsNullOrWhiteSpace(settings.TiktokAsrAccessToken);
+        var reason = ok ? "" : "未配置火山 ASR（AppID / AccessToken）";
         AsrProbeStatus = ok ? "火山 ASR 凭据已配置" : reason;
         StatusRequested?.Invoke(AsrProbeStatus);
     }
@@ -872,6 +917,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             ? HongguoHighDeviceStore.TryReadDeviceId()
             : settings.HghighDeviceId;
         HghighClientExe = settings.HghighClientExe;
+        MapleleafAccount = settings.MapleleafAccount;
+        MapleleafPassword = settings.MapleleafPassword;
+        MapleleafUdid = string.IsNullOrWhiteSpace(settings.MapleleafUdid)
+            ? MapleleafDeviceStore.TryReadDeviceId()
+            : settings.MapleleafUdid;
         var masters = HongguoHighDeviceStore.LoadStartupMastersRaw();
         HghighEncMaster = masters.Enc;
         HghighSignMaster = masters.Sign;
@@ -885,19 +935,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PikachuDramaType = NormalizePikachuDramaType(settings.PikachuDramaType);
         PikachuDeviceId = settings.PikachuDeviceId;
         PikachuClientVersion = settings.PikachuClientVersion;
-        TiktokSilenceAsrEngine = settings.TiktokSilenceAsrEngine;
-        TiktokSilenceLocalModelDir = settings.TiktokSilenceLocalModelDir;
-        TiktokSilenceLocalVadPath = settings.TiktokSilenceLocalVadPath;
-        TiktokSilenceHybridLowSeconds = settings.TiktokSilenceHybridLowSeconds;
-        TiktokSilenceHybridHighSeconds = settings.TiktokSilenceHybridHighSeconds;
-        TiktokSilenceAsrAppId = settings.TiktokSilenceAsrAppId;
-        TiktokSilenceAsrAccessToken = settings.TiktokSilenceAsrAccessToken;
-        TiktokSilenceAsrThresholdSeconds = settings.TiktokSilenceAsrThresholdSeconds;
-        TiktokSilenceRepairMode = settings.TiktokSilenceRepairMode;
-        TiktokSilenceRepairTargetSeconds = settings.TiktokSilenceRepairTargetSeconds;
-        TiktokSilenceRepairMaxSpeed = settings.TiktokSilenceRepairMaxSpeed;
-        TiktokSilenceRepairBlocking = settings.TiktokSilenceRepairBlocking;
-        TiktokSilenceDetectConcurrency = settings.TiktokSilenceDetectConcurrency;
+        TiktokAsrLocalModelDir = settings.TiktokAsrLocalModelDir;
+        TiktokAsrLocalVadPath = settings.TiktokAsrLocalVadPath;
+        TiktokAsrAppId = settings.TiktokAsrAppId;
+        TiktokAsrAccessToken = settings.TiktokAsrAccessToken;
         TiktokMaterialValidateConcurrency = settings.TiktokMaterialValidateConcurrency;
         TiktokGenerationPerProjectConcurrency = settings.TiktokGenerationPerProjectConcurrency;
         TiktokAiTextConcurrency = settings.TiktokAiTextConcurrency;
@@ -906,7 +947,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokImageGenerationConcurrency = settings.TiktokImageGenerationConcurrency;
         TiktokVisualConcurrency = settings.TiktokVisualConcurrency;
         TiktokDocumentConcurrency = settings.TiktokDocumentConcurrency;
-        TiktokSilenceAsrLanguage = settings.TiktokSilenceAsrLanguage;
+        TiktokAsrLanguage = settings.TiktokAsrLanguage;
         TiktokManualInterventionOnSingleFailure = settings.TiktokManualInterventionOnSingleFailure;
         AiTextEndpoint = settings.AiTextEndpoint;
         AiTextApiKey = settings.AiTextApiKey;

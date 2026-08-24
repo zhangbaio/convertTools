@@ -238,6 +238,18 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string hghighClientExe = string.Empty;
 
     [ObservableProperty]
+    private string mapleleafAccount = string.Empty;
+
+    [ObservableProperty]
+    private string mapleleafPassword = string.Empty;
+
+    [ObservableProperty]
+    private string mapleleafUdid = string.Empty;
+
+    [ObservableProperty]
+    private string mapleleafProbeStatus = string.Empty;
+
+    [ObservableProperty]
     private string hghighProbeStatus = string.Empty;
 
     [ObservableProperty]
@@ -514,6 +526,42 @@ public partial class ConfigWindowViewModel : ViewModelBase
             : "尚未缓存启动密钥。选择官方客户端后点「提取启动密钥」（安装包已内置 Frida）。";
     }
 
+    public void ReadMapleleafUdid()
+    {
+        var deviceId = MapleleafDeviceStore.TryReadDeviceId();
+        MapleleafProbeStatus = string.IsNullOrWhiteSpace(deviceId)
+            ? "未在注册表中找到 HongGuoClient\\DeviceUDID。"
+            : "已从注册表读取 Mapleleaf DeviceUDID。";
+        if (!string.IsNullOrWhiteSpace(deviceId))
+            MapleleafUdid = deviceId;
+    }
+
+    public void GenerateMapleleafUdid()
+    {
+        if (!string.IsNullOrWhiteSpace(MapleleafUdid))
+        {
+            MapleleafProbeStatus = "设备号已有值；请先清空后再生成，避免账号与旧设备解绑。";
+            return;
+        }
+        MapleleafUdid = MapleleafDeviceStore.GenerateDeviceId();
+        MapleleafProbeStatus = "已生成新的 Mapleleaf DeviceUDID。";
+    }
+
+    public async Task ProbeMapleleafLoginAsync()
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            var service = new MapleleafApiService(http);
+            await service.ProbeLoginAsync(GlobalDramaSettingsProvider.FromGlobal(BuildWorkingGlobalConfig()), CancellationToken.None);
+            MapleleafProbeStatus = $"测试登录成功：{DateTime.Now:HH:mm:ss}";
+        }
+        catch (Exception ex)
+        {
+            MapleleafProbeStatus = $"测试登录失败：{ex.Message}";
+        }
+    }
+
     public async Task ProbeHongguoLocalAsync()
     {
         try
@@ -619,6 +667,11 @@ public partial class ConfigWindowViewModel : ViewModelBase
             ? HongguoHighDeviceStore.TryReadDeviceId()
             : _loadedGlobalConfig.HghighDeviceId;
         HghighClientExe = _loadedGlobalConfig.HghighClientExe;
+        MapleleafAccount = _loadedGlobalConfig.MapleleafAccount;
+        MapleleafPassword = _loadedGlobalConfig.MapleleafPassword;
+        MapleleafUdid = string.IsNullOrWhiteSpace(_loadedGlobalConfig.MapleleafUdid)
+            ? MapleleafDeviceStore.TryReadDeviceId()
+            : _loadedGlobalConfig.MapleleafUdid;
         RefreshHghighMastersStatus();
         HongguoDownloadTimeoutSeconds = string.IsNullOrWhiteSpace(_loadedGlobalConfig.HongguoDownloadTimeoutSeconds) ? "60" : _loadedGlobalConfig.HongguoDownloadTimeoutSeconds;
         HongguoEpisodeDownloadAttempts = string.IsNullOrWhiteSpace(_loadedGlobalConfig.HongguoEpisodeDownloadAttempts) ? "5" : _loadedGlobalConfig.HongguoEpisodeDownloadAttempts;
@@ -732,6 +785,9 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HghighPassword = HghighPassword,
             HghighDeviceId = HghighDeviceId.Trim(),
             HghighClientExe = HghighClientExe.Trim(),
+            MapleleafAccount = MapleleafAccount.Trim(),
+            MapleleafPassword = MapleleafPassword,
+            MapleleafUdid = MapleleafUdid.Trim(),
             HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds.Trim(),
             HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts.Trim(),
             HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
@@ -846,6 +902,9 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HghighPassword = HghighPassword,
             HghighDeviceId = HghighDeviceId.Trim(),
             HghighClientExe = HghighClientExe.Trim(),
+            MapleleafAccount = MapleleafAccount.Trim(),
+            MapleleafPassword = MapleleafPassword,
+            MapleleafUdid = MapleleafUdid.Trim(),
             HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds.Trim(),
             HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts.Trim(),
             HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),

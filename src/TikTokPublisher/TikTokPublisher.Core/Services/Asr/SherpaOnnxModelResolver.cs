@@ -12,8 +12,8 @@ public static class SherpaOnnxModelResolver
 
     public static SherpaOnnxModelPaths? TryResolve(ClientSettings settings)
     {
-        var explicitDir = (settings.TiktokSilenceLocalModelDir ?? "").Trim();
-        var explicitVad = (settings.TiktokSilenceLocalVadPath ?? "").Trim();
+        var explicitDir = (settings.TiktokAsrLocalModelDir ?? "").Trim();
+        var explicitVad = (settings.TiktokAsrLocalVadPath ?? "").Trim();
         var dirCandidates = new List<string>();
         if (!string.IsNullOrEmpty(explicitDir))
             dirCandidates.Add(explicitDir);

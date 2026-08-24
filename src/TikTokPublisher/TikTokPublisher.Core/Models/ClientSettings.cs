@@ -22,6 +22,9 @@ public sealed class ClientSettings
     public string HghighPassword { get; set; } = "";
     public string HghighDeviceId { get; set; } = "";
     public string HghighClientExe { get; set; } = "";
+    public string MapleleafAccount { get; set; } = "";
+    public string MapleleafPassword { get; set; } = "";
+    public string MapleleafUdid { get; set; } = "";
 
     public string HongguoLocalBaseUrl { get; set; } = "";
     public string HongguoLocalApiKey { get; set; } = "";
@@ -34,19 +37,10 @@ public sealed class ClientSettings
     public string PikachuDeviceId { get; set; } = "";
     public string PikachuClientVersion { get; set; } = "1.4.4";
 
-    public string TiktokSilenceAsrEngine { get; set; } = "local";
-    public string TiktokSilenceLocalModelDir { get; set; } = "";
-    public string TiktokSilenceLocalVadPath { get; set; } = "";
-    public double TiktokSilenceHybridLowSeconds { get; set; } = 15.0;
-    public double TiktokSilenceHybridHighSeconds { get; set; } = 25.0;
-    public string TiktokSilenceAsrAppId { get; set; } = "";
-    public string TiktokSilenceAsrAccessToken { get; set; } = "";
-    public int TiktokSilenceAsrThresholdSeconds { get; set; } = 20;
-    public string TiktokSilenceRepairMode { get; set; } = "auto";
-    public double TiktokSilenceRepairTargetSeconds { get; set; } = 17.0;
-    public double TiktokSilenceRepairMaxSpeed { get; set; } = 2.0;
-    public bool TiktokSilenceRepairBlocking { get; set; }
-    public int TiktokSilenceDetectConcurrency { get; set; } = 5;
+    public string TiktokAsrLocalModelDir { get; set; } = "";
+    public string TiktokAsrLocalVadPath { get; set; } = "";
+    public string TiktokAsrAppId { get; set; } = "";
+    public string TiktokAsrAccessToken { get; set; } = "";
     public int TiktokMaterialValidateConcurrency { get; set; } = 4;
     public int TiktokGenerationPerProjectConcurrency { get; set; } = 2;
     public int TiktokAiTextConcurrency { get; set; } = 3;
@@ -55,7 +49,7 @@ public sealed class ClientSettings
     public int TiktokImageGenerationConcurrency { get; set; } = 2;
     public int TiktokVisualConcurrency { get; set; } = 2;
     public int TiktokDocumentConcurrency { get; set; } = 2;
-    public string TiktokSilenceAsrLanguage { get; set; } = "zh-CN";
+    public string TiktokAsrLanguage { get; set; } = "zh-CN";
     public bool TiktokManualInterventionOnSingleFailure { get; set; } = true;
 
     public string VideoTranslateEngine { get; set; } = "volc";
@@ -187,6 +181,9 @@ public sealed class ClientSettings
         HghighPassword = HghighPassword,
         HghighDeviceId = HghighDeviceId,
         HghighClientExe = HghighClientExe,
+        MapleleafAccount = MapleleafAccount,
+        MapleleafPassword = MapleleafPassword,
+        MapleleafUdid = MapleleafUdid,
         HongguoLocalBaseUrl = HongguoLocalBaseUrl,
         HongguoLocalApiKey = HongguoLocalApiKey,
         HongguoLocalDownloadMode = HongguoLocalDownloadMode,
@@ -196,19 +193,10 @@ public sealed class ClientSettings
         PikachuDramaType = PikachuDramaType,
         PikachuDeviceId = PikachuDeviceId,
         PikachuClientVersion = PikachuClientVersion,
-        TiktokSilenceAsrEngine = TiktokSilenceAsrEngine,
-        TiktokSilenceLocalModelDir = TiktokSilenceLocalModelDir,
-        TiktokSilenceLocalVadPath = TiktokSilenceLocalVadPath,
-        TiktokSilenceHybridLowSeconds = TiktokSilenceHybridLowSeconds,
-        TiktokSilenceHybridHighSeconds = TiktokSilenceHybridHighSeconds,
-        TiktokSilenceAsrAppId = TiktokSilenceAsrAppId,
-        TiktokSilenceAsrAccessToken = TiktokSilenceAsrAccessToken,
-        TiktokSilenceAsrThresholdSeconds = TiktokSilenceAsrThresholdSeconds,
-        TiktokSilenceRepairMode = TiktokSilenceRepairMode,
-        TiktokSilenceRepairTargetSeconds = TiktokSilenceRepairTargetSeconds,
-        TiktokSilenceRepairMaxSpeed = TiktokSilenceRepairMaxSpeed,
-        TiktokSilenceRepairBlocking = TiktokSilenceRepairBlocking,
-        TiktokSilenceDetectConcurrency = TiktokSilenceDetectConcurrency,
+        TiktokAsrLocalModelDir = TiktokAsrLocalModelDir,
+        TiktokAsrLocalVadPath = TiktokAsrLocalVadPath,
+        TiktokAsrAppId = TiktokAsrAppId,
+        TiktokAsrAccessToken = TiktokAsrAccessToken,
         TiktokMaterialValidateConcurrency = TiktokMaterialValidateConcurrency,
         TiktokGenerationPerProjectConcurrency = TiktokGenerationPerProjectConcurrency,
         TiktokAiTextConcurrency = TiktokAiTextConcurrency,
@@ -217,7 +205,7 @@ public sealed class ClientSettings
         TiktokImageGenerationConcurrency = TiktokImageGenerationConcurrency,
         TiktokVisualConcurrency = TiktokVisualConcurrency,
         TiktokDocumentConcurrency = TiktokDocumentConcurrency,
-        TiktokSilenceAsrLanguage = TiktokSilenceAsrLanguage,
+        TiktokAsrLanguage = TiktokAsrLanguage,
         TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure,
         VideoTranslateEngine = VideoTranslateEngine,
         VideoTranslateSourceLanguage = VideoTranslateSourceLanguage,

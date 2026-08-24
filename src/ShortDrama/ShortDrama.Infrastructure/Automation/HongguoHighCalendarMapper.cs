@@ -1,16 +1,21 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using ShortDrama.Core.Models;
 
 namespace ShortDrama.Infrastructure.Automation;
 
 public static class HongguoHighCalendarMapper
 {
+    private static readonly Regex LastChapterNumberRegex =
+        new(@"第\s*0*(\d+)\s*集", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly string[] NestedKeys =
     [
         "book_info", "bookInfo", "series_info", "seriesInfo",
-        "video_data", "videoData", "album_info", "albumInfo"
+        "video_data", "videoData", "video_detail", "videoDetail",
+        "album_info", "albumInfo"
     ];
 
     private static readonly string[] BookIdKeys =
@@ -29,7 +34,21 @@ public static class HongguoHighCalendarMapper
         ["category", "tag_text", "type", "complete_category", "tags"];
 
     private static readonly string[] CoverKeys =
-        ["thumb_url", "cover", "series_cover", "cover_url", "poster", "audio_thumb_uri", "thumb_uri"];
+    [
+        "series_cover", "seriesCover", "book_cover", "bookCover",
+        "poster_url", "posterUrl", "poster", "cover",
+        "origin_cover", "originCover", "cover_url", "coverUrl",
+        "thumb_url", "thumbUrl", "thumb_uri", "thumbUri",
+        "audio_thumb_uri", "audioThumbUri", "horiz_thumb_url", "horizThumbUrl",
+        "image_url", "imageUrl"
+    ];
+
+    private static readonly string[] MediaValueKeys =
+    [
+        "url_list", "urlList", "urls", "url",
+        "cover_url", "coverUrl", "main_url", "mainUrl",
+        "uri", "web_uri", "webUri"
+    ];
 
     private static readonly string[] PublishKeys =
     [
@@ -39,7 +58,12 @@ public static class HongguoHighCalendarMapper
     ];
 
     private static readonly string[] EpisodeKeys =
-        ["episode_cnt", "episode_count", "episodeCount", "chapter_number", "serial_count", "drama_chapter_number"];
+    [
+        "drama_chapter_number", "dramaChapterNumber", "final_chapter_number", "finalChapterNumber",
+        "serial_count", "episode_cnt", "episode_count", "episodeCount", "chapter_number"
+    ];
+
+    private static readonly string[] LastChapterTitleKeys = ["last_chapter_title", "lastChapterTitle"];
 
     private static readonly string[] TimeFormats =
     [
@@ -129,11 +153,19 @@ public static class HongguoHighCalendarMapper
                 case JsonObject obj:
                 {
                     JsonObject? candidate = null;
-                    if (obj["video_data"] is JsonObject video &&
+                    var video = obj["video_data"] as JsonObject ?? obj["videoData"] as JsonObject;
+                    if (video is not null &&
                         (!string.IsNullOrWhiteSpace(ReadString(video, "series_id")) ||
-                         !string.IsNullOrWhiteSpace(ReadString(video, "series_id_str"))))
+                         !string.IsNullOrWhiteSpace(ReadString(video, "seriesId")) ||
+                         !string.IsNullOrWhiteSpace(ReadString(video, "series_id_str")) ||
+                         !string.IsNullOrWhiteSpace(ReadString(video, "seriesIdStr"))))
                     {
-                        candidate = video;
+                        // The official client resolves fields from both the outer landpage cell
+                        // and video_data. Covers are frequently siblings of video_data, so
+                        // returning only the nested object silently drops them.
+                        candidate = obj.DeepClone().AsObject();
+                        foreach (var property in video)
+                            candidate[property.Key] = property.Value?.DeepClone();
                     }
                     else if (!string.IsNullOrWhiteSpace(ReadString(obj, "series_id")) ||
                              !string.IsNullOrWhiteSpace(ReadString(obj, "series_title")) ||
@@ -190,9 +222,9 @@ public static class HongguoHighCalendarMapper
             BookId: HongguoHighCrypto.EnsureBookPrefix(bookId),
             Title: FirstMeaningful(obj, TitleKeys, nested) ?? bookId,
             Category: category,
-            EpisodeTotal: FirstPositiveInt(obj, EpisodeKeys, nested),
+            EpisodeTotal: ReadEpisodeTotal(obj, nested),
             Intro: FirstMeaningful(obj, IntroKeys, nested) ?? "",
-            PosterUrl: FirstMeaningful(obj, CoverKeys, nested) ?? "",
+            PosterUrl: FirstMediaUrl(obj, CoverKeys, nested) ?? ExtractMediaUrl(obj) ?? "",
             Author: FirstMeaningful(obj, AuthorKeys, nested) ?? "",
             PublishTime: NormalizePublishTime(CollectPublishValues(obj, nested)),
             FavoriteCount: FirstPositiveInt(obj, ["favorite_count", "followed_cnt", "collect_count", "add_bookshelf_count", "addBookshelfCount"], nested));
@@ -211,16 +243,15 @@ public static class HongguoHighCalendarMapper
             }
         }
 
-        var episodeTotal = item.EpisodeTotal > 0
-            ? item.EpisodeTotal
-            : FirstPositiveInt(bookInfo, EpisodeKeys, []);
+        var resolvedEpisodeTotal = ReadEpisodeTotal(bookInfo, []);
+        var episodeTotal = resolvedEpisodeTotal > 0 ? resolvedEpisodeTotal : item.EpisodeTotal;
         var publishTime = NormalizePublishTime(
             CollectPublishValues(bookInfo, []).Append(item.PublishTime));
         var intro = string.IsNullOrWhiteSpace(item.Intro)
             ? FirstMeaningful(bookInfo, IntroKeys, []) ?? ""
             : item.Intro;
         var poster = string.IsNullOrWhiteSpace(item.PosterUrl)
-            ? FirstMeaningful(bookInfo, CoverKeys, []) ?? ""
+            ? FirstMediaUrl(bookInfo, CoverKeys, []) ?? ""
             : item.PosterUrl;
         var favorite = item.FavoriteCount > 0
             ? item.FavoriteCount
@@ -344,6 +375,166 @@ public static class HongguoHighCalendarMapper
         return null;
     }
 
+    private static string? FirstMediaUrl(
+        JsonObject obj,
+        IEnumerable<string> keys,
+        IReadOnlyList<JsonObject> nested)
+    {
+        foreach (var key in keys)
+        {
+            if (obj.TryGetPropertyValue(key, out var value))
+            {
+                var url = MediaUrlValue(value);
+                if (url is not null)
+                    return url;
+            }
+
+            foreach (var child in nested)
+            {
+                if (!child.TryGetPropertyValue(key, out value))
+                    continue;
+                var url = MediaUrlValue(value);
+                if (url is not null)
+                    return url;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? MediaUrlValue(JsonNode? value)
+    {
+        switch (value)
+        {
+            case JsonValue scalar when scalar.TryGetValue<string>(out var text):
+                return NormalizeMediaUrl(text);
+            case JsonArray array:
+                foreach (var item in array)
+                {
+                    var url = MediaUrlValue(item);
+                    if (url is not null)
+                        return url;
+                }
+                break;
+            case JsonObject obj:
+                foreach (var key in MediaValueKeys)
+                {
+                    if (!obj.TryGetPropertyValue(key, out var nested))
+                        continue;
+                    var url = MediaUrlValue(nested);
+                    if (url is not null)
+                        return url;
+                }
+                break;
+        }
+
+        return null;
+    }
+
+    internal static string? ExtractMediaUrl(JsonNode? value) =>
+        ExtractMediaUrl(value, allowAnyHttpUrl: false);
+
+    private static string? ExtractMediaUrl(JsonNode? value, bool allowAnyHttpUrl)
+    {
+        switch (value)
+        {
+            case JsonValue scalar when scalar.TryGetValue<string>(out var text):
+            {
+                var url = NormalizeMediaUrl(text);
+                return url is not null && (allowAnyHttpUrl || LooksLikeImageUrl(url)) ? url : null;
+            }
+            case JsonArray array:
+                foreach (var item in array)
+                {
+                    var url = ExtractMediaUrl(item, allowAnyHttpUrl);
+                    if (url is not null)
+                        return url;
+                }
+                break;
+            case JsonObject obj:
+                foreach (var key in CoverKeys.Concat(MediaValueKeys))
+                {
+                    if (!obj.TryGetPropertyValue(key, out var candidate))
+                        continue;
+                    var url = ExtractMediaUrl(candidate, allowAnyHttpUrl: true);
+                    if (url is not null)
+                        return url;
+                }
+
+                foreach (var property in obj)
+                {
+                    var key = property.Key;
+                    if (!key.Contains("cover", StringComparison.OrdinalIgnoreCase) &&
+                        !key.Contains("poster", StringComparison.OrdinalIgnoreCase) &&
+                        !key.Contains("thumb", StringComparison.OrdinalIgnoreCase) &&
+                        !key.Contains("image", StringComparison.OrdinalIgnoreCase) &&
+                        !key.Contains("pic", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    var url = ExtractMediaUrl(property.Value, allowAnyHttpUrl: true);
+                    if (url is not null)
+                        return url;
+                }
+
+                foreach (var property in obj)
+                {
+                    var url = ExtractMediaUrl(property.Value, allowAnyHttpUrl: false);
+                    if (url is not null)
+                        return url;
+                }
+                break;
+        }
+
+        return null;
+    }
+
+    private static bool LooksLikeImageUrl(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+            return false;
+        var path = uri.AbsolutePath;
+        return uri.Host.EndsWith(".byteimg.com", StringComparison.OrdinalIgnoreCase) ||
+               uri.Host.EndsWith(".fqnovelpic.com", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains("/novel-pic/", StringComparison.OrdinalIgnoreCase) ||
+               new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif" }
+                   .Any(extension => path.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal static string? NormalizeMediaUrl(string? value)
+    {
+        var raw = (value ?? "").Trim();
+        if (raw.StartsWith("//", StringComparison.Ordinal))
+            raw = "https:" + raw;
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return null;
+
+        const string marker = "/novel-pic/";
+        var path = uri.AbsolutePath;
+        var markerIndex = path.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        var templateIndex = markerIndex >= 0
+            ? path.IndexOf('~', markerIndex + marker.Length)
+            : -1;
+        if (uri.Host.EndsWith(".byteimg.com", StringComparison.OrdinalIgnoreCase) &&
+            markerIndex >= 0 &&
+            templateIndex > markerIndex)
+        {
+            var imageId = path[(markerIndex + marker.Length)..templateIndex];
+            if (!string.IsNullOrWhiteSpace(imageId))
+            {
+                var prefix = path[..markerIndex];
+                if (prefix.EndsWith("/img", StringComparison.OrdinalIgnoreCase))
+                    prefix = prefix[..^4];
+                if (!prefix.EndsWith("/origin", StringComparison.OrdinalIgnoreCase))
+                    prefix += "/origin";
+                return $"{uri.Scheme}://{uri.Authority}{prefix}{marker}{imageId}";
+            }
+        }
+
+        return uri.AbsoluteUri;
+    }
+
     private static int FirstPositiveInt(JsonObject obj, IEnumerable<string> keys, IReadOnlyList<JsonObject> nested)
     {
         foreach (var key in keys)
@@ -365,6 +556,29 @@ public static class HongguoHighCalendarMapper
         }
 
         return 0;
+    }
+
+    public static int ReadEpisodeTotal(JsonObject obj) => ReadEpisodeTotal(obj, NestedObjects(obj));
+
+    private static int ReadEpisodeTotal(JsonObject obj, IReadOnlyList<JsonObject> nested)
+    {
+        var lastChapterNumber = ParseLastChapterNumber(FirstMeaningful(obj, LastChapterTitleKeys, nested));
+        return lastChapterNumber > 0
+            ? lastChapterNumber
+            : FirstPositiveInt(obj, EpisodeKeys, nested);
+    }
+
+    private static int ParseLastChapterNumber(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return 0;
+        }
+
+        var match = LastChapterNumberRegex.Match(title);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var parsed)
+            ? Math.Max(0, parsed)
+            : 0;
     }
 
     private static int ReadPositiveInt(JsonObject obj, string key)

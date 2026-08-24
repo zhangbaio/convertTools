@@ -149,17 +149,10 @@
                             <TextBlock Grid.Row="24" Grid.Column="0" Text="价格选项序号" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="24" Grid.Column="1" x:Name="ExpectedPriceOptionIndexBox" Minimum="1" Maximum="999" Value="1" Width="160" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="25" Grid.Column="0" Text="静音检测校验" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="25" Grid.Column="1" x:Name="SilenceValidationBox" Content="启用" />
-
-                            <TextBlock Grid.Row="26" Grid.Column="0" Text="静音阈值 dB" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="26" Grid.Column="1" x:Name="SilenceThresholdBox" Minimum="-80" Maximum="0" Value="-45" Width="160" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="27" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="27" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
 
-                            <TextBlock Grid.Row="28" Grid.Column="0" Text="最大连续静音秒数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="28" Grid.Column="1" x:Name="MaxContinuousSilenceSecondsBox" Minimum="1" Maximum="300" Value="20" Width="160" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="29" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="29" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">

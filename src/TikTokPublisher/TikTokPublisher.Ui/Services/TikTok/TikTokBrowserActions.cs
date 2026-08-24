@@ -183,19 +183,20 @@ public static partial class TikTokBrowserActions
         var platformFailureWatcher = WatchTemporaryPlatformSubmitFailureAsync(
             page,
             platformFailureCts.Token);
-        await button.ClickAsync(new() { Timeout = 15000 });
-        await ConfirmSubmitDialogIfPresentAsync(page, log, ct);
-        var settleDelay = Task.Delay(1500, ct);
-        await Task.WhenAny(platformFailureWatcher, settleDelay).ConfigureAwait(false);
-        platformFailureCts.Cancel();
         string? platformFailure = null;
         try
         {
+            await button.ClickAsync(new() { Timeout = 15000 });
+            await ConfirmSubmitDialogIfPresentAsync(page, log, ct);
+            // Keep sampling for the watcher's complete feedback window. TikTok can emit the
+            // generic submit failure several seconds after the confirmation dialog closes.
+            // Cancelling after a short settle delay turns that real platform rejection into a
+            // misleading two-minute "still draft" timeout.
             platformFailure = await platformFailureWatcher.ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        finally
         {
-            // Normal watcher shutdown after the submit feedback window closes.
+            platformFailureCts.Cancel();
         }
         if (platformFailure is not null)
         {
@@ -297,7 +298,7 @@ public static partial class TikTokBrowserActions
         IPage page,
         CancellationToken ct)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(8);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
@@ -829,7 +830,9 @@ public static partial class TikTokBrowserActions
         var text = Math.Max(0, value).ToString();
         var locator = await ResolveVisibleInputAsync(page, selector, fieldName, ct);
         await locator.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
-        await locator.ClickAsync(new() { Timeout = 5000 });
+        // FillAsync focuses the input itself. A separate ClickAsync also waits for scheduled
+        // navigations; while video uploads are active TikTok can keep that wait pending even
+        // though the click already succeeded, aborting the whole form after five seconds.
         await locator.FillAsync(text);
         try
         {

@@ -152,8 +152,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _queueDeleteSourceVideosEnabled;
     [ObservableProperty] private bool _queueSmallVideoRepairEnabled;
     [ObservableProperty] private bool _queueVideoTranslateEnabled;
-    [ObservableProperty] private bool _queueSilenceDetectEnabled;
-    [ObservableProperty] private bool _queueSilenceRepairEnabled;
     [ObservableProperty] private bool _queueMaterialValidateEnabled;
     [ObservableProperty] private bool _queueUploadEnabled = true;
     [ObservableProperty] private int _todayUploadCount;
@@ -552,8 +550,6 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnQueueUploadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueSmallVideoRepairEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueVideoTranslateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueSilenceDetectEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueSilenceRepairEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueMaterialValidateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
 
     private void UpdateQueueRunOptionsFromUi()
@@ -714,8 +710,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueDeleteSourceVideosEnabled = true;
             QueueSmallVideoRepairEnabled = true;
             QueueVideoTranslateEnabled = false;
-            QueueSilenceDetectEnabled = true;
-            QueueSilenceRepairEnabled = true;
             QueueMaterialValidateEnabled = true;
             QueueUploadEnabled = true;
             SyncManagementAfterUpload = true;
@@ -749,8 +743,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueDeleteSourceVideosEnabled = false;
             QueueSmallVideoRepairEnabled = false;
             QueueVideoTranslateEnabled = false;
-            QueueSilenceDetectEnabled = false;
-            QueueSilenceRepairEnabled = false;
             QueueMaterialValidateEnabled = false;
             QueueUploadEnabled = false;
             SyncManagementAfterUpload = false;
@@ -3334,8 +3326,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
             QueueSmallVideoRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SmallVideoRepair);
             QueueVideoTranslateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.VideoTranslate);
-            QueueSilenceDetectEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceDetect);
-            QueueSilenceRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SilenceRepair);
             QueueMaterialValidateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.MaterialValidate);
             QueueUploadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.UploadSeries);
         }
@@ -3360,8 +3350,6 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);
         if (QueueSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
         if (QueueVideoTranslateEnabled) steps.Add(QueueStepRegistry.VideoTranslate);
-        if (QueueSilenceDetectEnabled) steps.Add(QueueStepRegistry.SilenceDetect);
-        if (QueueSilenceRepairEnabled) steps.Add(QueueStepRegistry.SilenceRepair);
         if (QueueMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);
         if (QueueUploadEnabled) steps.Add(QueueStepRegistry.UploadSeries);
         _queueRunOptions.EnabledSteps = QueueStepRegistry.OrderEnabledSteps(steps).ToList();

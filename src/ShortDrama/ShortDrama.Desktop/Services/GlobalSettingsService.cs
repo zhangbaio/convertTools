@@ -54,6 +54,9 @@ public sealed class GlobalSettingsService
             HghighPassword = snapshot.HghighPassword,
             HghighDeviceId = snapshot.HghighDeviceId,
             HghighClientExe = snapshot.HghighClientExe,
+            MapleleafAccount = snapshot.MapleleafAccount,
+            MapleleafPassword = snapshot.MapleleafPassword,
+            MapleleafUdid = snapshot.MapleleafUdid,
             HongguoDownloadTimeoutSeconds = int.TryParse(snapshot.HongguoDownloadTimeoutSeconds, out var hongguoDownloadTimeoutSeconds) && hongguoDownloadTimeoutSeconds > 0
                 ? hongguoDownloadTimeoutSeconds
                 : 60,
@@ -278,7 +281,7 @@ public sealed class GlobalSettingsService
         }
 
         var mergedDramaSourceChain = PickString(current.DramaSourceChain, "drama_source_chain", "hgnew");
-        if (mergedDramaSourceChain is not ("hgnew" or "hglocal" or "pikachu" or "hghigh"))
+        if (mergedDramaSourceChain is not ("hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf"))
         {
             mergedDramaSourceChain = "hgnew";
         }
@@ -306,6 +309,9 @@ public sealed class GlobalSettingsService
             HghighPassword = PickString(current.HghighPassword, "hghigh_password"),
             HghighDeviceId = PickString(current.HghighDeviceId, "hghigh_device_id"),
             HghighClientExe = PickString(current.HghighClientExe, "hghigh_client_exe"),
+            MapleleafAccount = PickString(current.MapleleafAccount, "mapleleaf_account"),
+            MapleleafPassword = PickString(current.MapleleafPassword, "mapleleaf_password"),
+            MapleleafUdid = PickString(current.MapleleafUdid, "mapleleaf_udid"),
             HongguoDownloadTimeoutSeconds = PickPositiveInt(current.HongguoDownloadTimeoutSeconds, "hongguo_download_timeout_seconds", 60),
             HongguoEpisodeDownloadAttempts = PickPositiveInt(current.HongguoEpisodeDownloadAttempts, "hongguo_episode_download_attempts", 5),
             HongguoLocalBaseUrl = PickString(current.HongguoLocalBaseUrl, "hongguo_local_base_url"),
@@ -420,6 +426,9 @@ public sealed class GlobalSettingsService
             HghighPassword: dto.HghighPassword,
             HghighDeviceId: dto.HghighDeviceId,
             HghighClientExe: dto.HghighClientExe,
+            MapleleafAccount: dto.MapleleafAccount,
+            MapleleafPassword: dto.MapleleafPassword,
+            MapleleafUdid: dto.MapleleafUdid,
             HongguoDownloadTimeoutSeconds: Math.Max(1, dto.HongguoDownloadTimeoutSeconds).ToString(),
             HongguoEpisodeDownloadAttempts: Math.Max(1, dto.HongguoEpisodeDownloadAttempts).ToString(),
             HongguoLocalBaseUrl: dto.HongguoLocalBaseUrl,

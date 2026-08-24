@@ -8,6 +8,8 @@ namespace TikTokPublisher.Core.Services;
 
 public static class TikTokAiDramaProductionMaterialService
 {
+    internal const int RequiredSourceFrameCount = 12;
+    internal const int MaxSourceSupplementEpisodeCount = 3;
     public const string OutputDirectoryName = "AI漫剧制作素材";
     public const string CharacterDirectoryName = "01_角色设定";
     public const string SceneDirectoryName = "02_场景设定";
@@ -20,7 +22,7 @@ public static class TikTokAiDramaProductionMaterialService
     public static bool CanGenerate(string workflowProjectDirectory)
     {
         var workflow = Path.GetFullPath(workflowProjectDirectory);
-        return FindImagesInNamedDirectories(workflow, "抽帧原图", recursiveFiles: true).Take(12).Count() >= 12 &&
+        return CountSourceFrames(workflow, RequiredSourceFrameCount) >= RequiredSourceFrameCount &&
                (FindImagesInNamedDirectories(workflow, "AI 生成过程截图", recursiveFiles: false).Any() ||
                 FindImagesInNamedDirectories(workflow, TikTokProjectImageService.OutputDirectoryName, recursiveFiles: false).Any());
     }
@@ -28,9 +30,7 @@ public static class TikTokAiDramaProductionMaterialService
     internal static bool NeedsSourceMaterialRefresh(string workflowProjectDirectory)
     {
         var workflow = Path.GetFullPath(workflowProjectDirectory);
-        var frameCount = FindImagesInNamedDirectories(workflow, "抽帧原图", recursiveFiles: true)
-            .Take(12)
-            .Count();
+        var frameCount = CountSourceFrames(workflow, RequiredSourceFrameCount);
         var hasStoryboard = FindImagesInNamedDirectories(
                 workflow,
                 TikTokAiGenerationScreenshotService.OutputDirectoryName,
@@ -80,13 +80,52 @@ public static class TikTokAiDramaProductionMaterialService
         if (NeedsSourceMaterialRefresh(context.WorkflowProjectDir))
         {
             log?.Invoke(
-                "AI 漫剧制作素材：真实抽帧或分镜工作台不足，正在从原始视频自动补充前置素材。");
-            await TikTokVisualEvidencePreparationService.EnsureCurrentAsync(
-                context.WorkflowProjectDir,
-                title,
-                settings,
-                log,
-                ct).ConfigureAwait(false);
+                "AI 漫剧制作素材：真实抽帧或分镜工作台不足，将按第 1→2→3 集递增补源，达到 12 张真实画面后立即停止。");
+            for (var requiredEpisodes = 1;
+                 requiredEpisodes <= MaxSourceSupplementEpisodeCount &&
+                 NeedsSourceMaterialRefresh(context.WorkflowProjectDir);
+                 requiredEpisodes++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var currentFrameCount = CountSourceFrames(
+                    context.WorkflowProjectDir,
+                    RequiredSourceFrameCount);
+                if (currentFrameCount < RequiredSourceFrameCount)
+                {
+                    await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
+                        item,
+                        settings,
+                        requiredEpisodes,
+                        log ?? (_ => { }),
+                        ct).ConfigureAwait(false);
+                }
+
+                await TikTokVisualEvidencePreparationService.EnsureCurrentAsync(
+                    context.WorkflowProjectDir,
+                    title,
+                    settings,
+                    log,
+                    ct,
+                    minimumRetainedFrameCount: RequiredSourceFrameCount).ConfigureAwait(false);
+
+                currentFrameCount = CountSourceFrames(
+                    context.WorkflowProjectDir,
+                    RequiredSourceFrameCount);
+                if (currentFrameCount >= RequiredSourceFrameCount)
+                {
+                    log?.Invoke(
+                        $"AI 漫剧制作素材最小补源完成：已准备 {currentFrameCount} 张真实画面；" +
+                        $"最多使用前 {requiredEpisodes} 集，停止继续下载。");
+                    break;
+                }
+
+                if (requiredEpisodes < MaxSourceSupplementEpisodeCount)
+                {
+                    log?.Invoke(
+                        $"WARN 第 1-{requiredEpisodes} 集抽帧后只有 {currentFrameCount} 张真实画面，" +
+                        $"继续补下载第 {requiredEpisodes + 1} 集。");
+                }
+            }
         }
 
         ResilientFileSystem.DeleteDirectory(root);
@@ -96,10 +135,10 @@ public static class TikTokAiDramaProductionMaterialService
         var sourceFrames = FindImagesInNamedDirectories(context.WorkflowProjectDir, "抽帧原图", recursiveFiles: true)
             .Take(32)
             .ToArray();
-        if (sourceFrames.Length < 12)
+        if (sourceFrames.Length < RequiredSourceFrameCount)
             throw new InvalidOperationException(
                 $"生成 AI 漫剧制作素材失败：自动补抽帧后只有 {sourceFrames.Length} 张真实画面参考图，" +
-                "请确认项目原始视频仍然存在且 FFmpeg 可用。");
+                $"已尝试最小补下载前 {MaxSourceSupplementEpisodeCount} 集；请确认片源仍可下载且 FFmpeg 可用。");
 
         var selected = SelectEvenly(sourceFrames, 16).ToArray();
         for (var index = 0; index < selected.Length; index++)
@@ -168,6 +207,14 @@ public static class TikTokAiDramaProductionMaterialService
 
     private static bool HasEnoughFiles(string directory, int minimum) =>
         Directory.Exists(directory) && Directory.EnumerateFiles(directory).Count() >= minimum;
+
+    private static int CountSourceFrames(string workflowProjectDirectory, int maximum) =>
+        FindImagesInNamedDirectories(
+                Path.GetFullPath(workflowProjectDirectory),
+                "抽帧原图",
+                recursiveFiles: true)
+            .Take(Math.Max(1, maximum))
+            .Count();
 
     private static IEnumerable<string> FindImagesInNamedDirectories(
         string root,

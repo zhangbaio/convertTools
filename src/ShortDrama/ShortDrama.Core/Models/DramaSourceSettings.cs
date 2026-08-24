@@ -13,6 +13,9 @@ public sealed record DramaSourceSettings
     public string HghighPassword { get; init; } = "";
     public string HghighDeviceId { get; init; } = "";
     public string HghighClientExe { get; init; } = "";
+    public string MapleleafAccount { get; init; } = "";
+    public string MapleleafPassword { get; init; } = "";
+    public string MapleleafUdid { get; init; } = "";
     public string HongguoDownloadTimeoutSeconds { get; init; } = "60";
     public string HongguoEpisodeDownloadAttempts { get; init; } = "5";
     public string DownloadFileSegments { get; init; } = "4";

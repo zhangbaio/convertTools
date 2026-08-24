@@ -12,11 +12,13 @@ public sealed class HongguoHighApiService
 {
     private const int CalendarPageSize = 20;
     private const int CalendarMaxPages = 15;
-    private const int CalendarPageConcurrency = 3;
+    private const int CalendarPageConcurrency = 5;
     private const int CalendarEnrichConcurrency = 12;
     private const int LandpageMaxAttempts = 3;
+    private const int PlaybackParseMaxAttempts = 3;
     private static readonly HashSet<int> LandpageRetryCodes = [408, 425, 429, 500, 502, 503, 504];
     private static readonly TimeSpan CalendarCacheLifetime = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan CalendarDetailCacheLifetime = TimeSpan.FromHours(12);
     public const string FanqieWeChatUa =
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) " +
         "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 " +
@@ -40,6 +42,7 @@ public sealed class HongguoHighApiService
     private readonly object _gate = new();
     private readonly HongguoHighSession _session = new();
     private readonly ConcurrentDictionary<string, CalendarCacheEntry> _calendarCache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, CalendarDetailCacheEntry> _calendarDetailCache = new(StringComparer.Ordinal);
     private HongguoHighDevice? _device;
 
     internal Func<DramaSourceSettings, string, JsonObject, int, CancellationToken, Task<JsonNode?>>? AuthedRequestForTests { get; set; }
@@ -47,6 +50,7 @@ public sealed class HongguoHighApiService
     internal Func<TimeSpan, CancellationToken, Task>? DelayForTests { get; set; }
 
     private sealed record CalendarCacheEntry(DateTimeOffset CreatedAt, IReadOnlyList<DramaSearchItem> Items);
+    private sealed record CalendarDetailCacheEntry(DateTimeOffset CreatedAt, JsonObject BookInfo);
 
     public HongguoHighApiService(HttpClient httpClient)
     {
@@ -130,7 +134,7 @@ public sealed class HongguoHighApiService
                 BookId: HongguoHighCrypto.EnsureBookPrefix(bookId),
                 Title: GetString(book, "book_name") ?? GetString(book, "title") ?? "",
                 Category: GetString(book, "category") ?? "",
-                EpisodeTotal: GetInt(book, "chapter_number") ?? GetInt(book, "serial_count") ?? 0,
+                EpisodeTotal: HongguoHighCalendarMapper.ReadEpisodeTotal(book),
                 Intro: GetString(book, "abstract") ?? "",
                 PosterUrl: FirstHttpUrl(
                     GetString(book, "thumb_url"),
@@ -199,51 +203,103 @@ public sealed class HongguoHighApiService
         }
 
         var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
-        var inner = await AuthedRequestAsync(
-            settings,
-            "/video/batch-parse",
-            new JsonObject
+        JsonObject? lastItem = null;
+        for (var attempt = 1; attempt <= PlaybackParseMaxAttempts; attempt++)
+        {
+            var requestData = new JsonObject
             {
                 ["bookId"] = bookId,
                 ["book_id"] = bookId,
                 ["episodes"] = new JsonArray { HongguoHighCrypto.BatchParseEpisodePayload(rawVideoId, episodeNumber) },
                 ["quality"] = HongguoHighCrypto.NormalizeQuality(quality),
                 ["resolution"] = HongguoHighCrypto.NormalizeQuality(quality)
-            },
-            timeout,
-            cancellationToken);
+            };
+            var inner = AuthedRequestForTests is null
+                ? await AuthedRequestAsync(settings, "/video/batch-parse", requestData, timeout, cancellationToken)
+                : await AuthedRequestForTests(settings, "/video/batch-parse", requestData, timeout, cancellationToken);
 
-        JsonObject? item = null;
-        if (inner is JsonArray array)
-        {
-            item = array.FirstOrDefault() as JsonObject;
-        }
-        else if (inner is JsonObject obj)
-        {
-            foreach (var key in new[] { "data", "items", "results", "episodes" })
+            lastItem = SelectPlaybackItem(inner, rawVideoId);
+            var url = ReadPlaybackUrl(lastItem);
+            if (IsHttpUrl(url))
             {
-                if (obj[key] is JsonArray nested)
-                {
-                    item = nested.FirstOrDefault() as JsonObject;
-                    break;
-                }
+                var size = GetLong(lastItem, "size")
+                           ?? GetLong(lastItem, "size_bytes")
+                           ?? GetLong(lastItem, "sizeBytes")
+                           ?? 0;
+                return new HongguoNewApiService.HongguoVideoPlayback(url!, size);
             }
 
-            item ??= obj;
+            if (attempt < PlaybackParseMaxAttempts)
+            {
+                var delay = TimeSpan.FromSeconds(attempt);
+                if (DelayForTests is null)
+                {
+                    await Task.Delay(delay, cancellationToken);
+                }
+                else
+                {
+                    await DelayForTests(delay, cancellationToken);
+                }
+            }
         }
 
-        var url = GetString(item, "url")
-                  ?? GetString(item, "video_url")
-                  ?? GetString(item, "download_url")
-                  ?? GetString(item, "playUrl")
-                  ?? "";
-        if (string.IsNullOrWhiteSpace(url))
-        {
-            throw new HongguoHighException("高码率解析未返回播放地址");
-        }
-
-        return new HongguoNewApiService.HongguoVideoPlayback(url, GetLong(item, "size") ?? 0);
+        var detail = GetString(lastItem, "message") ?? GetString(lastItem, "msg");
+        throw new HongguoHighException(string.IsNullOrWhiteSpace(detail)
+            ? $"高码率解析连续 {PlaybackParseMaxAttempts} 次未返回播放地址"
+            : $"高码率解析连续 {PlaybackParseMaxAttempts} 次未返回播放地址：{detail}");
     }
+
+    private static JsonObject? SelectPlaybackItem(JsonNode? response, string rawVideoId)
+    {
+        var candidates = new List<JsonObject>();
+        switch (response)
+        {
+            case JsonArray array:
+                candidates.AddRange(array.OfType<JsonObject>());
+                break;
+            case JsonObject obj:
+                foreach (var key in new[] { "data", "items", "results", "episodes" })
+                {
+                    if (obj[key] is JsonArray nested)
+                    {
+                        candidates.AddRange(nested.OfType<JsonObject>());
+                    }
+                    else if (obj[key] is JsonObject nestedObject)
+                    {
+                        candidates.Add(nestedObject);
+                    }
+                }
+
+                if (candidates.Count == 0)
+                {
+                    candidates.Add(obj);
+                }
+
+                break;
+        }
+
+        return candidates.FirstOrDefault(item =>
+                   string.Equals(GetString(item, "episode_id"), rawVideoId, StringComparison.Ordinal) ||
+                   string.Equals(GetString(item, "episodeId"), rawVideoId, StringComparison.Ordinal) ||
+                   string.Equals(GetString(item, "video_id"), rawVideoId, StringComparison.Ordinal) ||
+                   string.Equals(GetString(item, "videoId"), rawVideoId, StringComparison.Ordinal))
+               ?? candidates.FirstOrDefault();
+    }
+
+    private static string? ReadPlaybackUrl(JsonObject? item) =>
+        GetString(item, "url")
+        ?? GetString(item, "video_url")
+        ?? GetString(item, "download_url")
+        ?? GetString(item, "play_url")
+        ?? GetString(item, "playUrl")
+        ?? GetString(item, "videoUrl")
+        ?? GetString(item, "downloadUrl")
+        ?? GetString(item, "DownloadUrl");
+
+    private static bool IsHttpUrl(string? value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+        (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetManjuNewAsync(
         DramaSourceSettings settings,
@@ -256,7 +312,9 @@ public sealed class HongguoHighApiService
         int days,
         bool enrich,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
         return await GetCalendarNewAsync(
@@ -284,7 +342,9 @@ public sealed class HongguoHighApiService
                 return HongguoHighCalendarMapper.MapPayload(inner);
             },
             timeout,
-            cancellationToken);
+            cancellationToken,
+            partialResults,
+            detailResults);
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetAiNewAsync(
@@ -298,7 +358,9 @@ public sealed class HongguoHighApiService
         int days,
         bool enrich,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
         return await GetCalendarNewAsync(
@@ -320,7 +382,25 @@ public sealed class HongguoHighApiService
                         .ToArray();
             },
             timeout,
-            cancellationToken);
+            cancellationToken,
+            partialResults,
+            detailResults);
+    }
+
+    public async Task<IReadOnlyList<DramaSearchItem>> EnrichNewReleaseItemsAsync(
+        DramaSourceSettings settings,
+        IReadOnlyList<DramaSearchItem> items,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
+    {
+        var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
+        return await EnrichCalendarItemsAsync(
+            items,
+            timeout,
+            progress,
+            cancellationToken,
+            detailResults);
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> GetCalendarNewAsync(
@@ -331,7 +411,9 @@ public sealed class HongguoHighApiService
         IProgress<string>? progress,
         Func<int, CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> pageLoader,
         int timeoutSeconds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         var windowDays = Math.Clamp(days, 1, 30);
         var phase = enrich ? "enriched" : "list";
@@ -339,6 +421,8 @@ public sealed class HongguoHighApiService
         if (TryReadCalendarCache(key, out var cached))
         {
             progress?.Report($"已使用 5 分钟内{(enrich ? "完整结果" : "上新列表")}缓存 · 共 {cached.Count} 部");
+            if (!enrich)
+                partialResults?.Report(cached);
             return cached;
         }
 
@@ -351,14 +435,24 @@ public sealed class HongguoHighApiService
         }
         else
         {
-            items = await FetchCalendarListAsync(pageLoader, windowDays, progress, cancellationToken);
+            items = await FetchCalendarListAsync(
+                pageLoader,
+                windowDays,
+                progress,
+                cancellationToken,
+                partialResults);
             _calendarCache[listKey] = new CalendarCacheEntry(DateTimeOffset.UtcNow, items);
         }
 
         if (enrich && items.Count > 0)
         {
             progress?.Report($"上新列表已获取 · 共 {items.Count} 部，正在补充详情...");
-            items = await EnrichCalendarItemsAsync(items, timeoutSeconds, progress, cancellationToken);
+            items = await EnrichCalendarItemsAsync(
+                items,
+                timeoutSeconds,
+                progress,
+                cancellationToken,
+                detailResults);
             items = HongguoHighCalendarMapper.FilterByRecentDays(items, windowDays);
         }
 
@@ -373,14 +467,18 @@ public sealed class HongguoHighApiService
         bool enrich,
         IProgress<string>? progress,
         Func<int, CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> pageLoader,
-        CancellationToken cancellationToken) =>
-        GetCalendarNewAsync(kind, settings, days, enrich, progress, pageLoader, 30, cancellationToken);
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null) =>
+        GetCalendarNewAsync(
+            kind, settings, days, enrich, progress, pageLoader, 30, cancellationToken, partialResults, detailResults);
 
     private static async Task<IReadOnlyList<DramaSearchItem>> FetchCalendarListAsync(
         Func<int, CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> pageLoader,
         int days,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
     {
         var results = new List<DramaSearchItem>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -399,21 +497,33 @@ public sealed class HongguoHighApiService
             return pageItems.Count == 0 || pageItems.Count < CalendarPageSize || PageIsBeforeWindow(pageItems, days);
         }
 
+        void ReportPartial() =>
+            partialResults?.Report(HongguoHighCalendarMapper.FilterByRecentDays(results, days));
+
         progress?.Report("正在拉取上新列表 · 第 1 页");
         var stopped = MergePage(1, await pageLoader(1, cancellationToken));
+        ReportPartial();
         for (var start = 2; !stopped && start <= CalendarMaxPages; start += CalendarPageConcurrency)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var pageNumbers = Enumerable.Range(start, Math.Min(CalendarPageConcurrency, CalendarMaxPages - start + 1)).ToArray();
             progress?.Report($"正在并发拉取上新列表 · 第 {pageNumbers.First()}-{pageNumbers.Last()} 页");
-            var pages = await Task.WhenAll(pageNumbers.Select(async page =>
-                (Page: page, Items: await pageLoader(page, cancellationToken))));
-            foreach (var page in pages.OrderBy(item => item.Page))
+            var pending = pageNumbers
+                .Select(async page => (Page: page, Items: await pageLoader(page, cancellationToken)))
+                .ToList();
+            var completed = new SortedDictionary<int, IReadOnlyList<DramaSearchItem>>();
+            var nextPage = pageNumbers.First();
+            while (pending.Count > 0)
             {
-                stopped = MergePage(page.Page, page.Items);
-                if (stopped)
+                var task = await Task.WhenAny(pending);
+                pending.Remove(task);
+                var page = await task;
+                completed[page.Page] = page.Items;
+                while (!stopped && completed.Remove(nextPage, out var pageItems))
                 {
-                    break;
+                    stopped = MergePage(nextPage, pageItems);
+                    ReportPartial();
+                    nextPage++;
                 }
             }
         }
@@ -425,14 +535,16 @@ public sealed class HongguoHighApiService
         Func<int, CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> pageLoader,
         int days,
         IProgress<string>? progress,
-        CancellationToken cancellationToken) =>
-        FetchCalendarListAsync(pageLoader, days, progress, cancellationToken);
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null) =>
+        FetchCalendarListAsync(pageLoader, days, progress, cancellationToken, partialResults);
 
     private async Task<IReadOnlyList<DramaSearchItem>> EnrichCalendarItemsAsync(
         IReadOnlyList<DramaSearchItem> items,
         int timeoutSeconds,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         if (items.Count == 0)
         {
@@ -441,38 +553,65 @@ public sealed class HongguoHighApiService
 
         var gate = new SemaphoreSlim(CalendarEnrichConcurrency);
         var completed = 0;
+        var reportGate = new object();
+        var pendingReports = new List<DramaSearchItem>();
         var enriched = await Task.WhenAll(items.Select(async item =>
         {
-            if (!string.IsNullOrWhiteSpace(item.Author) &&
-                item.EpisodeTotal > 0 &&
-                !string.IsNullOrWhiteSpace(item.PublishTime))
+            DramaSearchItem result;
+            if (!NeedsCalendarEnrichment(item))
             {
-                var done = Interlocked.Increment(ref completed);
-                if (done == items.Count || done % 20 == 0)
+                result = item;
+            }
+            else
+            {
+                await gate.WaitAsync(cancellationToken);
+                try
                 {
-                    progress?.Report($"正在补充剧目详情 · {done}/{items.Count}");
+                    var info = await FetchFanqieBookInfoAsync(item.BookId, timeoutSeconds, cancellationToken);
+                    result = info is null ? item : HongguoHighCalendarMapper.ApplyBookInfo(item, info);
                 }
-                return item;
+                finally
+                {
+                    gate.Release();
+                }
             }
 
-            await gate.WaitAsync(cancellationToken);
-            try
+            var done = Interlocked.Increment(ref completed);
+            IReadOnlyList<DramaSearchItem>? reportBatch = null;
+            lock (reportGate)
             {
-                var info = await FetchFanqieBookInfoAsync(item.BookId, timeoutSeconds, cancellationToken);
-                return info is null ? item : HongguoHighCalendarMapper.ApplyBookInfo(item, info);
-            }
-            finally
-            {
-                gate.Release();
-                var done = Interlocked.Increment(ref completed);
-                if (done == items.Count || done % 20 == 0)
+                pendingReports.Add(result);
+                if (pendingReports.Count >= 10 || done == items.Count)
                 {
-                    progress?.Report($"正在补充剧目详情 · {done}/{items.Count}");
+                    reportBatch = pendingReports.ToArray();
+                    pendingReports.Clear();
                 }
             }
+            if (done == items.Count || done % 20 == 0)
+                progress?.Report($"正在补充剧目详情 · {done}/{items.Count}");
+            if (reportBatch is not null)
+                detailResults?.Report(reportBatch);
+            return result;
         }));
+        IReadOnlyList<DramaSearchItem>? finalBatch = null;
+        lock (reportGate)
+        {
+            if (pendingReports.Count > 0)
+            {
+                finalBatch = pendingReports.ToArray();
+                pendingReports.Clear();
+            }
+        }
+        if (finalBatch is not null)
+            detailResults?.Report(finalBatch);
         return enriched;
     }
+
+    internal static bool NeedsCalendarEnrichment(DramaSearchItem item) =>
+        string.IsNullOrWhiteSpace(item.Author) ||
+        item.EpisodeTotal <= 0 ||
+        string.IsNullOrWhiteSpace(item.PublishTime) ||
+        string.IsNullOrWhiteSpace(item.PosterUrl);
 
     private static bool PageIsBeforeWindow(IReadOnlyList<DramaSearchItem> items, int days)
     {
@@ -515,12 +654,29 @@ public sealed class HongguoHighApiService
             return null;
         }
 
+        if (_calendarDetailCache.TryGetValue(rawBookId, out var cached) &&
+            DateTimeOffset.UtcNow - cached.CreatedAt <= CalendarDetailCacheLifetime)
+        {
+            return cached.BookInfo.DeepClone().AsObject();
+        }
+        _calendarDetailCache.TryRemove(rawBookId, out _);
+
         try
         {
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 10, 120)));
             var data = await FetchFanqieDirectoryDataAsync(rawBookId, timeoutCts.Token);
-            return data["book_info"] as JsonObject ?? data;
+            var info = data["book_info"] as JsonObject ?? data;
+            var directoryPoster = HongguoHighCalendarMapper.ExtractMediaUrl(data);
+            if (!string.IsNullOrWhiteSpace(directoryPoster) &&
+                string.IsNullOrWhiteSpace(HongguoHighCalendarMapper.ExtractMediaUrl(info)))
+            {
+                info["cover_url"] = directoryPoster;
+            }
+            _calendarDetailCache[rawBookId] = new CalendarDetailCacheEntry(
+                DateTimeOffset.UtcNow,
+                info.DeepClone().AsObject());
+            return info;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

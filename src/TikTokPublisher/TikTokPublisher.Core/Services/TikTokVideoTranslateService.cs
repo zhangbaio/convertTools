@@ -42,7 +42,7 @@ public static class TikTokVideoTranslateService
 
     private static void ValidateSettings(ClientSettings s)
     {
-        if (string.IsNullOrWhiteSpace(s.TiktokSilenceAsrAppId) || string.IsNullOrWhiteSpace(s.TiktokSilenceAsrAccessToken))
+        if (string.IsNullOrWhiteSpace(s.TiktokAsrAppId) || string.IsNullOrWhiteSpace(s.TiktokAsrAccessToken))
             throw new InvalidOperationException("视频翻译需要火山 ASR AppID / AccessToken（系统设置 → ASR 配置）。");
         if (s.VideoTranslateEngine == "volc" && (string.IsNullOrWhiteSpace(s.VideoTranslateVolcAccessKeyId) || string.IsNullOrWhiteSpace(s.VideoTranslateVolcSecretAccessKey)))
             throw new InvalidOperationException("未配置火山翻译 AccessKeyId / SecretAccessKey（系统服务 → 翻译配置）。");
@@ -59,15 +59,15 @@ public static class TikTokVideoTranslateService
             await FfmpegRunner.RunAsync(MediaBinaryResolver.ResolveFfmpeg(), ["-y", "-hide_banner", "-loglevel", "error", "-i", video, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav], ct).ConfigureAwait(false);
             var audio = await File.ReadAllBytesAsync(wav, ct).ConfigureAwait(false);
             var body = new JsonObject {
-                ["user"] = new JsonObject { ["uid"] = s.TiktokSilenceAsrAppId },
+                ["user"] = new JsonObject { ["uid"] = s.TiktokAsrAppId },
                 ["audio"] = new JsonObject { ["data"] = Convert.ToBase64String(audio) },
                 ["request"] = new JsonObject { ["model_name"]="bigmodel", ["model_version"]="400", ["enable_itn"]=true, ["enable_punc"]=true, ["show_utterances"]=true, ["language"]=s.VideoTranslateSourceLanguage }
             };
             using var req = new HttpRequestMessage(HttpMethod.Post, AsrEndpoint);
             req.Headers.TryAddWithoutValidation("X-Api-Resource-Id", "volc.bigasr.auc_turbo");
             req.Headers.TryAddWithoutValidation("X-Api-Sequence", "-1");
-            req.Headers.TryAddWithoutValidation("X-Api-App-Key", s.TiktokSilenceAsrAppId);
-            req.Headers.TryAddWithoutValidation("X-Api-Access-Key", s.TiktokSilenceAsrAccessToken);
+            req.Headers.TryAddWithoutValidation("X-Api-App-Key", s.TiktokAsrAppId);
+            req.Headers.TryAddWithoutValidation("X-Api-Access-Key", s.TiktokAsrAccessToken);
             req.Headers.TryAddWithoutValidation("X-Api-Request-Id", Guid.NewGuid().ToString());
             req.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
             using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);

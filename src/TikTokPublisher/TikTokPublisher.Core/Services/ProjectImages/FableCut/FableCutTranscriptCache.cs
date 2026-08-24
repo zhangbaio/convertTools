@@ -33,8 +33,8 @@ internal static class FableCutTranscriptCache
             return cached;
         }
 
-        var segments = await TikTokSilenceAsrService
-            .RecognizeLocalTranscriptAsync(fullVideoPath, settings, log, ct)
+        var segments = await LocalParaformerAsrClient
+            .RecognizeVideoTranscriptAsync(fullVideoPath, settings, log, ct)
             .ConfigureAwait(false);
         if (segments.Count == 0)
             throw new InvalidOperationException($"本地 ASR 未识别到有效对白：{Path.GetFileName(videoPath)}");
@@ -76,9 +76,9 @@ internal static class FableCutTranscriptCache
         var payload = JsonSerializer.Serialize(new
         {
             schema = CacheSchemaVersion,
-            language = (settings.TiktokSilenceAsrLanguage ?? "zh-CN").Trim(),
-            configured_model_dir = (settings.TiktokSilenceLocalModelDir ?? "").Trim(),
-            configured_vad_path = (settings.TiktokSilenceLocalVadPath ?? "").Trim(),
+            language = (settings.TiktokAsrLanguage ?? "zh-CN").Trim(),
+            configured_model_dir = (settings.TiktokAsrLocalModelDir ?? "").Trim(),
+            configured_vad_path = (settings.TiktokAsrLocalVadPath ?? "").Trim(),
             model = FileIdentity(resolved?.ModelPath),
             tokens = FileIdentity(resolved?.TokensPath),
             vad = FileIdentity(resolved?.VadPath),

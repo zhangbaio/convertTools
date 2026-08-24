@@ -12,16 +12,10 @@ public static class TikTokMaterialValidationService
 {
     public sealed class Options
     {
-        public bool SilenceValidationEnabled { get; init; } = true;
-        public double MaxContinuousSilenceSeconds { get; init; } = TikTokVideoConstraints.DefaultMaxContinuousSilenceSeconds;
-        public double SilenceThresholdDb { get; init; } = TikTokVideoConstraints.DefaultSilenceThresholdDb;
         public int Concurrency { get; init; } = 4;
 
         public static Options FromAccount(TikTokAccountProfile? account, ClientSettings? settings = null) => new()
         {
-            SilenceValidationEnabled = account?.TiktokSilenceValidationEnabled ?? true,
-            MaxContinuousSilenceSeconds = Math.Max(1, account?.TiktokMaxContinuousSilenceSeconds ?? (int)TikTokVideoConstraints.DefaultMaxContinuousSilenceSeconds),
-            SilenceThresholdDb = account?.TiktokSilenceThresholdDb ?? TikTokVideoConstraints.DefaultSilenceThresholdDb,
             Concurrency = Math.Clamp(settings?.TiktokMaterialValidateConcurrency ?? 4, 1, 16),
         };
     }
@@ -143,7 +137,7 @@ public static class TikTokMaterialValidationService
     {
         var context = ProjectWorkspaceService.LoadContext(sourceProjectDir);
         var episodes = payload.UploadPaths
-            .Select(TikTokSilenceAsrService.CacheKey)
+            .Select(path => Path.GetFileName(path) ?? "")
             .Where(key => !string.IsNullOrWhiteSpace(key))
             .Distinct(StringComparer.Ordinal)
             .ToDictionary(key => key, _ => (object?)true, StringComparer.Ordinal);
