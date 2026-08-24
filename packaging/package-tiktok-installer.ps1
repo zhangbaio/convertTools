@@ -682,8 +682,9 @@ Ensure-WebView2RuntimeInstaller
 Ensure-FfmpegDependency
 Ensure-FridaPythonDependency
 Remove-DirectorySafe -Path $PublishDir
-Remove-DirectorySafe -Path $InstallerDir
 New-Item -ItemType Directory -Force -Path $PublishDir | Out-Null
+# Keep previously generated installers. Versioned setup filenames allow each
+# successful package to coexist with earlier releases in artifacts\INSTALL.
 New-Item -ItemType Directory -Force -Path $InstallerDir | Out-Null
 
 $dotnet = Resolve-DotNet
