@@ -851,19 +851,6 @@ public sealed class QueueWorkerRunner
                 throw new QueueStepExecutionException(stepKey, ex);
             }
 
-            if (stepKey == QueueStepRegistry.SilenceDetect &&
-                !TikTokSilenceAsrService.HasCurrentReport(item.ProjectDir))
-            {
-                mutate(() => item.StepStates[stepKey] = QueueStepStatus.Skipped);
-                Report(
-                    onProgress,
-                    workspace,
-                    item,
-                    "静音检测未生成检测报告，已标记为跳过而不是已完成",
-                    stepKey);
-                return;
-            }
-
             mutate(() => MarkParallelStepCompleted(item, stepKey, activeSteps));
             Report(
                 onProgress,
@@ -1334,14 +1321,6 @@ public sealed class QueueWorkerRunner
                 await TikTokVideoTranslateService.TranslateAsync(
                     item.ProjectDir, item.Title, item.OriginalTitle, settings, log, ct).ConfigureAwait(false);
                 break;
-            case QueueStepRegistry.SilenceDetect:
-                await TikTokSilenceDetectService.DetectAsync(
-                    item.ProjectDir, item.Title, item.OriginalTitle, materialOptions, log, ct).ConfigureAwait(false);
-                break;
-            case QueueStepRegistry.SilenceRepair:
-                await TikTokSilenceRepairService.RepairAsync(
-                    item.ProjectDir, item.Title, item.OriginalTitle, materialOptions, log, ct).ConfigureAwait(false);
-                break;
             case QueueStepRegistry.MaterialValidate:
                 await TikTokMaterialValidationService.ValidateAsync(
                     item.ProjectDir, item.Title, item.OriginalTitle, materialOptions, log, ct, account).ConfigureAwait(false);
@@ -1497,12 +1476,6 @@ public sealed class QueueWorkerRunner
         if (stepKey == QueueStepRegistry.SmallVideoRepair &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             TikTokSmallVideoRepairService.NeedsRepair(item.ProjectDir))
-        {
-            return true;
-        }
-        if (stepKey == QueueStepRegistry.SilenceDetect &&
-            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
-            !TikTokSilenceAsrService.HasCurrentReport(item.ProjectDir))
         {
             return true;
         }

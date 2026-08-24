@@ -162,7 +162,6 @@ public partial class AccountProfileEditor : UserControl
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(profile.TiktokDayZeroRoi);
         AnchorPromotionBox.IsChecked = profile.TiktokAnchorPromotionEnabled;
-        SilenceValidationBox.IsChecked = profile.TiktokSilenceValidationEnabled;
         ProfilePreviewBox.Value = profile.TiktokProfilePreviewEpisodes > 0 ? profile.TiktokProfilePreviewEpisodes : 3;
         FreePreviewBox.Value = profile.TiktokFreePreviewEpisodes > 0 ? profile.TiktokFreePreviewEpisodes : 3;
         GenreCountBox.Value = TikTokPublishOptions.NormalizeGenreCount(profile.TiktokGenreCount);
@@ -171,8 +170,6 @@ public partial class AccountProfileEditor : UserControl
         UploadBatchSizeBox.Value = profile.TiktokUploadBatchSize;
         UploadBatchStallBox.Value = profile.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = profile.TiktokUploadBatchMaxRetries;
-        SilenceThresholdBox.Value = (decimal)profile.TiktokSilenceThresholdDb;
-        MaxContinuousSilenceSecondsBox.Value = profile.TiktokMaxContinuousSilenceSeconds;
 
         SelectByTag(ExpectedPriceModeCombo, profile.TiktokExpectedFullPriceMode, "manual");
         ExpectedPriceOptionIndexBox.Value = profile.TiktokExpectedFullPriceOptionIndex;
@@ -284,7 +281,6 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(
                 (double)(DayZeroRoiBox.Value ?? (decimal)TikTokPublishOptions.DefaultDayZeroRoi));
             profile.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
-            profile.TiktokSilenceValidationEnabled = SilenceValidationBox.IsChecked == true;
             profile.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
             profile.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);
             profile.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount((int)(GenreCountBox.Value ?? TikTokPublishOptions.DefaultGenreCount));
@@ -293,8 +289,6 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
             profile.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
             profile.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
-            profile.TiktokSilenceThresholdDb = (double)(SilenceThresholdBox.Value ?? -45);
-            profile.TiktokMaxContinuousSilenceSeconds = (int)(MaxContinuousSilenceSecondsBox.Value ?? 20);
             profile.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
             profile.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
             var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
@@ -787,7 +781,6 @@ public partial class AccountProfileEditor : UserControl
         ZeroCostAdsBox.IsChecked = false;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
         SubmitEnabledBox.IsChecked = true;
-        MaxContinuousSilenceSecondsBox.Value = 20;
         ExpectedPriceValueBox.Text = "";
         ExpectedPriceOptionsCombo.Items.Clear();
         ProxyHostBox.Text = "";

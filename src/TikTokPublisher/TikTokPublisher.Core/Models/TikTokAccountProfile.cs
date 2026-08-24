@@ -149,9 +149,6 @@ public sealed class TikTokAccountProfile
     public int TiktokUploadBatchSize { get; set; } = 3;
     public int TiktokUploadBatchStallSeconds { get; set; } = 75;
     public int TiktokUploadBatchMaxRetries { get; set; } = 3;
-    public bool TiktokSilenceValidationEnabled { get; set; } = true;
-    public int TiktokMaxContinuousSilenceSeconds { get; set; } = 20;
-    public double TiktokSilenceThresholdDb { get; set; } = -45.0;
     public string TiktokExcelReportPath { get; set; } = "";
     public List<string>? TiktokQueueEnabledSteps { get; set; }
     public bool? TiktokQueueAutoArchiveAfterUpload { get; set; }

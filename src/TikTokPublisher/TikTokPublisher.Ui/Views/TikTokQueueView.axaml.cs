@@ -3254,24 +3254,6 @@ public partial class TikTokQueueView : UserControl
         }
     }
 
-    private async void OnRepairSilenceClick(object? sender, RoutedEventArgs e)
-    {
-        var vm = _vm;
-        if (vm is null) return;
-        var dirs = GetSelectedProjectDirs();
-        if (dirs.Count == 0)
-        {
-            vm.StatusMessage = "请先选中要修复静音的视频";
-            return;
-        }
-
-        var options = vm.CreateCurrentQueueRunOptionsSnapshot();
-        options.EnabledSteps = new List<string> { QueueStepRegistry.SilenceRepair };
-        options.ForceRerunCompletedSteps = true;
-        options.UploadEntryMode = "";
-        await StartQueueRunAsync(options, dirs);
-    }
-
     private void OnSelectToCurrentProjectClick(object? sender, RoutedEventArgs e)
     {
         var vm = _vm;

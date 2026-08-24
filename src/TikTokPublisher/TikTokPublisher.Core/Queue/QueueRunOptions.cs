@@ -18,8 +18,6 @@ public static class QueueStepRegistry
 
     public const string SmallVideoRepair = QueueStepKeys.SmallVideoRepair;
     public const string VideoTranslate = QueueStepKeys.VideoTranslate;
-    public const string SilenceDetect = QueueStepKeys.SilenceDetect;
-    public const string SilenceRepair = QueueStepKeys.SilenceRepair;
 
     /// <summary>与 Python <c>STEP_ORDER</c> 一致。</summary>
     public static IReadOnlyList<QueueStepDefinition> All { get; } = new[]
@@ -36,8 +34,6 @@ public static class QueueStepRegistry
         new QueueStepDefinition(QueueStepKeys.GenerateTimestampCertificate, "生成时间戳", true),
         new QueueStepDefinition(SmallVideoRepair, "小文件修复", true),
         new QueueStepDefinition(VideoTranslate, "视频翻译", true),
-        new QueueStepDefinition(SilenceDetect, "静音检测", true),
-        new QueueStepDefinition(SilenceRepair, "静音修复", true),
         new QueueStepDefinition(MaterialValidate, "素材校验", true),
         new QueueStepDefinition(QueueStepKeys.DeleteSourceVideos, "删除源视频", true),
         new QueueStepDefinition(UploadSeries, "上传剧集", true),

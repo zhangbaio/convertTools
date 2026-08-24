@@ -21,8 +21,8 @@ public sealed class FableCutTranscriptCacheTests
             File.WriteAllBytes(vad, [4, 5, 6]);
             var settings = new ClientSettings
             {
-                TiktokSilenceLocalModelDir = root,
-                TiktokSilenceLocalVadPath = vad,
+                TiktokAsrLocalModelDir = root,
+                TiktokAsrLocalVadPath = vad,
             };
 
             var before = FableCutTranscriptCache.ComputeSettingsFingerprint(settings);

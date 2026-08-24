@@ -13,6 +13,4 @@ public static class TikTokVideoConstraints
         ".mp4", ".m4v", ".mov",
     };
 
-    public const double DefaultMaxContinuousSilenceSeconds = 20.0;
-    public const double DefaultSilenceThresholdDb = -45.0;
 }

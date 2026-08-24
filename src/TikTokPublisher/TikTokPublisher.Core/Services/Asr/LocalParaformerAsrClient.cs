@@ -1,6 +1,6 @@
 using SherpaOnnx;
+using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
-using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Services.Asr;
 
@@ -24,25 +24,71 @@ public static class LocalParaformerAsrClient
         CancellationToken ct)
         => Task.Run(() => RecognizeTranscriptSegments(wavPath, settings, ct), ct);
 
-    /// <summary>兼容旧静音检测调用，仅保留台词段的时间区间。</summary>
-    public static async Task<IReadOnlyList<SpeechInterval>> RecognizeSpeechIntervalsAsync(
-        string wavPath,
+    /// <summary>从视频抽取 16kHz 单声道音频并识别台词。</summary>
+    public static async Task<IReadOnlyList<TranscriptSegment>> RecognizeVideoTranscriptAsync(
+        string videoPath,
         ClientSettings settings,
+        Action<string>? log,
         CancellationToken ct)
     {
-        var segments = await RecognizeTranscriptSegmentsAsync(wavPath, settings, ct).ConfigureAwait(false);
-        return ToSpeechIntervals(segments);
+        ArgumentException.ThrowIfNullOrWhiteSpace(videoPath);
+        ArgumentNullException.ThrowIfNull(settings);
+        ct.ThrowIfCancellationRequested();
+
+        var (ok, reason) = SherpaOnnxModelResolver.CheckAvailable(settings);
+        if (!ok)
+            throw new InvalidOperationException(reason);
+
+        log?.Invoke($"本地 Paraformer ASR：正在抽取音频（{Path.GetFileName(videoPath)}）…");
+        var wavPath = await ExtractAsrWavAsync(videoPath, ct).ConfigureAwait(false);
+        try
+        {
+            log?.Invoke("本地 Paraformer ASR 识别中…");
+            var segments = await RecognizeTranscriptSegmentsAsync(wavPath, settings, ct).ConfigureAwait(false);
+            log?.Invoke($"本地 Paraformer ASR 完成：识别到 {segments.Count} 段台词。");
+            return segments;
+        }
+        finally
+        {
+            TryDelete(wavPath);
+            TryDelete(Path.GetDirectoryName(wavPath));
+        }
     }
 
-    internal static IReadOnlyList<SpeechInterval> ToSpeechIntervals(
-        IReadOnlyList<TranscriptSegment> segments)
+    private static async Task<string> ExtractAsrWavAsync(string videoPath, CancellationToken ct)
     {
-        if (segments.Count == 0)
-            return Array.Empty<SpeechInterval>();
+        var ffmpeg = MediaBinaryResolver.ResolveFfmpeg();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"tiktok-asr-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var wav = Path.Combine(tempDir, Path.GetFileNameWithoutExtension(videoPath) + ".16k.wav");
+        try
+        {
+            await FfmpegRunner.RunAsync(ffmpeg,
+            [
+                "-y", "-hide_banner", "-loglevel", "error",
+                "-i", videoPath, "-vn", "-ac", "1", "-ar", "16000",
+                "-c:a", "pcm_s16le", wav,
+            ], ct).ConfigureAwait(false);
+            if (!File.Exists(wav))
+                throw new InvalidOperationException("音频抽取失败");
+            return wav;
+        }
+        catch
+        {
+            TryDelete(tempDir);
+            throw;
+        }
+    }
 
-        return segments
-            .Select(segment => new SpeechInterval(segment.StartSeconds, segment.EndSeconds))
-            .ToArray();
+    private static void TryDelete(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+            else if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+        }
+        catch { }
     }
 
     internal static TranscriptSegment? CreateTranscriptSegment(

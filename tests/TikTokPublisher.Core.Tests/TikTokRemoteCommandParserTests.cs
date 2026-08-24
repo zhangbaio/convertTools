@@ -104,8 +104,6 @@ public sealed class TikTokRemoteCommandParserTests
             QueueStepRegistry.RewriteInfo,
             QueueStepRegistry.GeneratePoster,
             QueueStepRegistry.SmallVideoRepair,
-            QueueStepRegistry.SilenceDetect,
-            QueueStepRegistry.SilenceRepair,
             QueueStepRegistry.MaterialValidate,
             QueueStepRegistry.UploadSeries);
         options.EnabledSteps.Should().NotContain(QueueStepRegistry.GenerateProofMaterial);

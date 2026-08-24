@@ -104,9 +104,6 @@ public partial class AccountSettingsDialog : Window
         ExpectedPriceValueBox.Text = !string.IsNullOrWhiteSpace(p.TiktokExpectedFullPriceLabel)
             ? p.TiktokExpectedFullPriceLabel
             : p.TiktokExpectedFullPriceValue;
-        SilenceValidationBox.IsChecked = p.TiktokSilenceValidationEnabled;
-        SilenceThresholdBox.Value = (decimal)p.TiktokSilenceThresholdDb;
-        MaxContinuousSilenceSecondsBox.Value = p.TiktokMaxContinuousSilenceSeconds;
         ProxyEnabledBox.IsChecked = p.TiktokProxyEnabled;
         SelectByTag(ProxyTypeCombo, p.TiktokProxyType, "http");
         ProxyHostBox.Text = p.TiktokProxyHost;
@@ -193,9 +190,6 @@ public partial class AccountSettingsDialog : Window
         var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
         p.TiktokExpectedFullPriceValue = priceValue;
         p.TiktokExpectedFullPriceLabel = priceLabel;
-        p.TiktokSilenceValidationEnabled = SilenceValidationBox.IsChecked == true;
-        p.TiktokSilenceThresholdDb = (double)(SilenceThresholdBox.Value ?? -45);
-        p.TiktokMaxContinuousSilenceSeconds = (int)(MaxContinuousSilenceSecondsBox.Value ?? 20);
         p.TiktokProxyEnabled = ProxyEnabledBox.IsChecked == true;
         p.TiktokProxyType = TagOf(ProxyTypeCombo, "http");
         p.TiktokProxyHost = ProxyHostBox.Text?.Trim() ?? "";

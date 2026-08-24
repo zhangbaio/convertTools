@@ -220,7 +220,6 @@
                     <Button Content="检查未补版权证明" Click="OnAuditPublishedCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="删除版权辅助材料" Click="OnCleanupCopyrightProofMaterialsClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" IsVisible="False" />
                     <Button Content="改新剧名" Click="OnRenameNewTitleClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
-                    <Button Content="修复静音视频" Click="OnRepairSilenceClick" Classes="repairAction compactAction" Margin="0,0,8,8" />
                     <Button Content="全选" Click="OnSelectAllQueueClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                     <Button Content="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                     <Button Content="取消全选" Click="OnClearQueueSelectionClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
@@ -384,8 +383,6 @@
                                 </CheckBox>
                                 <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="视频翻译" IsChecked="{Binding QueueVideoTranslateEnabled}" Margin="0,0,12,2" IsVisible="False" />
-                                <CheckBox Content="静音检测" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="静音修复" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="素材校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="删除源视频" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="上传剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
@@ -475,8 +472,8 @@
                           HorizontalScrollBarVisibility="Auto"
                           VerticalScrollBarVisibility="Disabled"
                           AllowAutoHide="False">
-                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="2024">
-                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,68,68,180">
+                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1888">
+                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
@@ -495,12 +492,10 @@
                         <TextBlock Grid.Column="15" Text="时间戳" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="16" Text="修复" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="17" Text="翻译" Classes="tableHeader stepTableHeader" IsVisible="False" />
-                        <TextBlock Grid.Column="18" Text="静音检测" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="19" Text="静音修复" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="20" Text="校验" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="21" Text="删源" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="22" Text="上传" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="23" Text="备注" Classes="tableHeader" />
+                        <TextBlock Grid.Column="18" Text="校验" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="19" Text="删源" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="20" Text="上传" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="21" Text="备注" Classes="tableHeader" />
                         <Border Grid.Column="0" Classes="queueColumnResizer" Tag="0" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="1" Classes="queueColumnResizer" Tag="1" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="2" Classes="queueColumnResizer" Tag="2" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
@@ -522,8 +517,6 @@
                         <Border Grid.Column="18" Classes="queueColumnResizer" Tag="18" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="19" Classes="queueColumnResizer" Tag="19" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="20" Classes="queueColumnResizer" Tag="20" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                        <Border Grid.Column="21" Classes="queueColumnResizer" Tag="21" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                        <Border Grid.Column="22" Classes="queueColumnResizer" Tag="22" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                     </Grid>
 
                     <ListBox x:Name="QueueProjectList"
@@ -535,8 +528,8 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Border Classes="queueTableRow" Width="2024" Height="42" Loaded="OnQueueTableRowLoaded">
-                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,68,68,180" ClipToBounds="True">
+                                <Border Classes="queueTableRow" Width="1888" Height="42" Loaded="OnQueueTableRowLoaded">
+                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180" ClipToBounds="True">
                                         <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="4,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -605,19 +598,13 @@
                                         <Border Grid.Column="17" Classes="stepStatusBadge" Background="{Binding VideoTranslateStatusBackgroundBrush}" BorderBrush="{Binding VideoTranslateStatusBorderBrush}" ToolTip.Tip="{Binding VideoTranslateStatus}" IsVisible="False">
                                             <TextBlock Text="{Binding VideoTranslateStatus}" Foreground="{Binding VideoTranslateStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="18" Classes="stepStatusBadge" Background="{Binding SilenceDetectStatusBackgroundBrush}" BorderBrush="{Binding SilenceDetectStatusBorderBrush}" ToolTip.Tip="{Binding SilenceDetectStatus}">
-                                            <TextBlock Text="{Binding SilenceDetectStatus}" Foreground="{Binding SilenceDetectStatusBrush}" Classes="stepStatusText" />
-                                        </Border>
-                                        <Border Grid.Column="19" Classes="stepStatusBadge" Background="{Binding SilenceRepairStatusBackgroundBrush}" BorderBrush="{Binding SilenceRepairStatusBorderBrush}" ToolTip.Tip="{Binding SilenceRepairStatus}">
-                                            <TextBlock Text="{Binding SilenceRepairStatus}" Foreground="{Binding SilenceRepairStatusBrush}" Classes="stepStatusText" />
-                                        </Border>
-                                        <Border Grid.Column="20" Classes="stepStatusBadge" Background="{Binding ValidateStatusBackgroundBrush}" BorderBrush="{Binding ValidateStatusBorderBrush}" ToolTip.Tip="{Binding ValidateStatus}">
+                                        <Border Grid.Column="18" Classes="stepStatusBadge" Background="{Binding ValidateStatusBackgroundBrush}" BorderBrush="{Binding ValidateStatusBorderBrush}" ToolTip.Tip="{Binding ValidateStatus}">
                                             <TextBlock Text="{Binding ValidateStatus}" Foreground="{Binding ValidateStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="21" Classes="stepStatusBadge" Background="{Binding DeleteSourceStatusBackgroundBrush}" BorderBrush="{Binding DeleteSourceStatusBorderBrush}" ToolTip.Tip="{Binding DeleteSourceStatus}">
+                                        <Border Grid.Column="19" Classes="stepStatusBadge" Background="{Binding DeleteSourceStatusBackgroundBrush}" BorderBrush="{Binding DeleteSourceStatusBorderBrush}" ToolTip.Tip="{Binding DeleteSourceStatus}">
                                             <TextBlock Text="{Binding DeleteSourceStatus}" Foreground="{Binding DeleteSourceStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="22" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding DetailText}">
+                                        <Border Grid.Column="20" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding DetailText}">
                                             <Border.ContextMenu>
                                                 <ContextMenu>
                                                     <MenuItem Header="标记上传成功" Click="OnMarkUploadCompletedClick" />
@@ -626,7 +613,7 @@
                                             </Border.ContextMenu>
                                             <TextBlock Text="{Binding UploadStatus}" Foreground="{Binding UploadStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <TextBox Grid.Column="23"
+                                        <TextBox Grid.Column="21"
                                                  Classes="queueRemarkBox"
                                                  Text="{Binding Remark, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                                  Watermark="备注"

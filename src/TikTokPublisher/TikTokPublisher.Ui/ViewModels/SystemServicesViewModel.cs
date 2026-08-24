@@ -54,8 +54,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private bool _remoteGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _remoteSmallVideoRepairEnabled;
     [ObservableProperty] private bool _remoteVideoTranslateEnabled;
-    [ObservableProperty] private bool _remoteSilenceDetectEnabled;
-    [ObservableProperty] private bool _remoteSilenceRepairEnabled;
     [ObservableProperty] private bool _remoteMaterialValidateEnabled;
     [ObservableProperty] private bool _remoteDeleteSourceVideosEnabled;
     [ObservableProperty] private bool _remoteUploadEnabled;
@@ -321,8 +319,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         if (RemoteGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (RemoteSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
         if (RemoteVideoTranslateEnabled) steps.Add(QueueStepRegistry.VideoTranslate);
-        if (RemoteSilenceDetectEnabled) steps.Add(QueueStepRegistry.SilenceDetect);
-        if (RemoteSilenceRepairEnabled) steps.Add(QueueStepRegistry.SilenceRepair);
         if (RemoteMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);
         if (RemoteDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);
         if (RemoteUploadEnabled) steps.Add(QueueStepRegistry.UploadSeries);
@@ -339,8 +335,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         RemoteGenerateProofMaterialEnabled = selected.Contains(QueueStepRegistry.GenerateProofMaterial);
         RemoteSmallVideoRepairEnabled = selected.Contains(QueueStepRegistry.SmallVideoRepair);
         RemoteVideoTranslateEnabled = selected.Contains(QueueStepRegistry.VideoTranslate);
-        RemoteSilenceDetectEnabled = selected.Contains(QueueStepRegistry.SilenceDetect);
-        RemoteSilenceRepairEnabled = selected.Contains(QueueStepRegistry.SilenceRepair);
         RemoteMaterialValidateEnabled = selected.Contains(QueueStepRegistry.MaterialValidate);
         RemoteDeleteSourceVideosEnabled = selected.Contains(QueueStepRegistry.DeleteSourceVideos);
         RemoteUploadEnabled = selected.Contains(QueueStepRegistry.UploadSeries);

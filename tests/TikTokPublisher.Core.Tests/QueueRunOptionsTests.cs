@@ -36,6 +36,27 @@ public sealed class QueueRunOptionsTests
     }
 
     [Fact]
+    public void NormalizeStepStates_RemovesRetiredSilenceSteps()
+    {
+        var item = new QueueProjectItem
+        {
+            CurrentStep = "silence_repair",
+            StepStates = new Dictionary<string, string>
+            {
+                ["silence_detect"] = QueueStepStatus.Completed,
+                ["silence_repair"] = QueueStepStatus.Running,
+                [QueueStepKeys.UploadSeries] = QueueStepStatus.Pending,
+            },
+        };
+
+        item.NormalizeStepStates();
+
+        item.StepStates.Should().NotContainKey("silence_detect");
+        item.StepStates.Should().NotContainKey("silence_repair");
+        item.CurrentStep.Should().BeEmpty();
+    }
+
+    [Fact]
     public void NormalizeStepStates_DoesNotResetUnrelatedSkippedSteps()
     {
         var item = new QueueProjectItem
@@ -233,7 +254,6 @@ public sealed class QueueRunOptionsTests
         legacyUploaded.StepStates[QueueStepKeys.GenerateAiDramaMaterials].Should().Be(QueueStepStatus.Pending);
         legacyUploaded.StepStates[QueueStepKeys.GenerateTimestampCertificate].Should().Be(QueueStepStatus.Pending);
         legacyUploaded.StepStates[QueueStepKeys.GenerateProjectImages].Should().Be(QueueStepStatus.Pending);
-        legacyUploaded.StepStates[QueueStepKeys.SilenceDetect].Should().Be(QueueStepStatus.Pending);
         explicitlyReset.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Pending);
     }
 }

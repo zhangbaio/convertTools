@@ -21,7 +21,6 @@ public sealed class QueueStepArtifactConsistencyTests
                      QueueStepKeys.GenerateProjectImages,
                      QueueStepKeys.GenerateTimestampCertificate,
                      QueueStepKeys.MaterialValidate,
-                     QueueStepKeys.SilenceDetect,
                  })
         {
             fixture.Item.StepStates[step] = QueueStepStatus.Completed;
@@ -38,7 +37,6 @@ public sealed class QueueStepArtifactConsistencyTests
         scanned.StepStates[QueueStepKeys.GenerateProjectImages].Should().Be(QueueStepStatus.Pending);
         scanned.StepStates[QueueStepKeys.GenerateTimestampCertificate].Should().Be(QueueStepStatus.Pending);
         scanned.StepStates[QueueStepKeys.MaterialValidate].Should().Be(QueueStepStatus.Pending);
-        scanned.StepStates[QueueStepKeys.SilenceDetect].Should().Be(QueueStepStatus.Pending);
     }
 
     [Fact]
@@ -108,19 +106,6 @@ public sealed class QueueStepArtifactConsistencyTests
                 QueueStepKeys.Download,
                 options)
             .Should().BeFalse("已上传项目允许本地视频被清理");
-    }
-
-    [Fact]
-    public void Completed_silence_detection_runs_again_when_report_is_missing()
-    {
-        using var fixture = new QueueProjectFixture();
-        fixture.Item.StepStates[QueueStepKeys.SilenceDetect] = QueueStepStatus.Completed;
-
-        QueueWorkerRunner.ShouldRunStep(
-                fixture.Item,
-                QueueStepKeys.SilenceDetect,
-                new QueueRunOptions { EnabledSteps = [QueueStepKeys.SilenceDetect] })
-            .Should().BeTrue("没有 silence_asr_report 时不能保留已完成状态");
     }
 
     private sealed class QueueProjectFixture : IDisposable

@@ -40,8 +40,6 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.PikachuDramaType)
                 or nameof(SystemSettingsViewModel.HongguoLocalDownloadMode)
                 or nameof(SystemSettingsViewModel.HongguoLocalTranscodeEngine)
-                or nameof(SystemSettingsViewModel.TiktokSilenceAsrEngine)
-                or nameof(SystemSettingsViewModel.TiktokSilenceRepairMode)
                 or nameof(SystemSettingsViewModel.TiktokRoleReferenceSelectionMode)
                 or nameof(SystemSettingsViewModel.TiktokRoleVectorViewMode)
                 or nameof(SystemSettingsViewModel.PosterMode)
@@ -123,18 +121,6 @@ public partial class SystemSettingsView : UserControl
         HongguoLocalTranscodeEngineCombo.Items.Add(CreateItem("处理器转码", "cpu"));
         HongguoLocalTranscodeEngineCombo.SelectionChanged += OnHongguoLocalTranscodeEngineChanged;
 
-        AsrEngineCombo.Items.Clear();
-        AsrEngineCombo.Items.Add(CreateItem("火山 ASR（在线，最准）", "volcengine"));
-        AsrEngineCombo.Items.Add(CreateItem("本地 Paraformer（免费离线）", "local"));
-        AsrEngineCombo.Items.Add(CreateItem("混合（本地 + 临界用火山复核）", "hybrid"));
-        AsrEngineCombo.SelectionChanged += OnAsrEngineChanged;
-
-        SilenceRepairModeCombo.Items.Clear();
-        SilenceRepairModeCombo.Items.Add(CreateItem("自动（片头尾裁剪/中间变速）", "auto"));
-        SilenceRepairModeCombo.Items.Add(CreateItem("一律裁剪", "trim"));
-        SilenceRepairModeCombo.Items.Add(CreateItem("一律变速", "speedup"));
-        SilenceRepairModeCombo.SelectionChanged += OnSilenceRepairModeChanged;
-
         RoleReferenceSelectionModeCombo.Items.Clear();
         RoleReferenceSelectionModeCombo.Items.Add(CreateItem("本地链路（默认）", "local"));
         RoleReferenceSelectionModeCombo.Items.Add(CreateItem("AI全量优选（推荐）", "ai_full_review"));
@@ -196,8 +182,6 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(PikachuTypeCombo, _vm.PikachuDramaType);
         SelectComboItem(HongguoLocalDownloadModeCombo, _vm.HongguoLocalDownloadMode);
         SelectComboItem(HongguoLocalTranscodeEngineCombo, _vm.HongguoLocalTranscodeEngine);
-        SelectComboItem(AsrEngineCombo, _vm.TiktokSilenceAsrEngine);
-        SelectComboItem(SilenceRepairModeCombo, _vm.TiktokSilenceRepairMode);
         SelectComboItem(RoleReferenceSelectionModeCombo, _vm.TiktokRoleReferenceSelectionMode);
         SelectComboItem(RoleVectorViewModeCombo, _vm.TiktokRoleVectorViewMode);
         _vm.PosterMode = ClientSettingsDefaults.PosterMode;
@@ -284,18 +268,6 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || HongguoLocalTranscodeEngineCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.HongguoLocalTranscodeEngine = item.Tag as string ?? "auto";
-    }
-
-    private void OnAsrEngineChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_vm is null || AsrEngineCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.TiktokSilenceAsrEngine = item.Tag as string ?? "local";
-    }
-
-    private void OnSilenceRepairModeChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_vm is null || SilenceRepairModeCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.TiktokSilenceRepairMode = item.Tag as string ?? "auto";
     }
 
     private void OnRoleReferenceSelectionModeChanged(object? sender, SelectionChangedEventArgs e)
