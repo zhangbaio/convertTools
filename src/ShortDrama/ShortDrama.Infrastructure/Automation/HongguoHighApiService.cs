@@ -12,7 +12,7 @@ public sealed class HongguoHighApiService
 {
     private const int CalendarPageSize = 20;
     private const int CalendarMaxPages = 15;
-    private const int CalendarPageConcurrency = 3;
+    private const int CalendarPageConcurrency = 5;
     private const int CalendarEnrichConcurrency = 12;
     private const int LandpageMaxAttempts = 3;
     private const int PlaybackParseMaxAttempts = 3;

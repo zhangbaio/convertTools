@@ -581,7 +581,7 @@ public sealed class HongguoHighDramaChainTests
 
         items.Should().HaveCount(41);
         calls.Should().Contain([1, 2, 3, 4]);
-        maxActive.Should().Be(3);
+        maxActive.Should().Be(5);
         progress.Should().Contain(message => message.Contains("已发现 41 部", StringComparison.Ordinal));
     }
 

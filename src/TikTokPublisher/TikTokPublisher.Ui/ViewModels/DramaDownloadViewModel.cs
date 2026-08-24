@@ -904,6 +904,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 SearchPageText = $"{label} · {message}";
         });
         var receivedPartial = false;
+        var firstPageShown = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var pageProgress = new Progress<IReadOnlyList<DramaSearchItem>>(items =>
         {
             if (generation != _searchGeneration || request.IsCancellationRequested)
@@ -912,22 +913,25 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             receivedPartial = true;
             ApplyFilteredSearchResults(label);
             SearchPageText = $"{label} · 已显示 {SearchResults.Count} 条 · 正在继续获取上新列表...";
+            firstPageShown.TrySetResult(true);
         });
         try
         {
             var days = Math.Clamp(QueryDays, 1, 30);
-            var partial = isAi
-                ? await ShortDramaDramaServices.GetAiTodayAsync(
-                    days, enrich: false, progress, request.Token, pageProgress)
-                : await ShortDramaDramaServices.GetMangaTodayAsync(
-                    days, enrich: false, progress, request.Token, pageProgress);
+            var listTask = Task.Run(
+                async () => isAi
+                    ? await ShortDramaDramaServices.GetAiTodayAsync(
+                        days, enrich: false, progress, request.Token, pageProgress)
+                    : await ShortDramaDramaServices.GetMangaTodayAsync(
+                        days, enrich: false, progress, request.Token, pageProgress),
+                request.Token);
+            var firstCompletion = await Task.WhenAny(listTask, firstPageShown.Task);
+            if (firstCompletion == listTask && !listTask.IsCompletedSuccessfully)
+                await listTask;
             if (generation != _searchGeneration || request.IsCancellationRequested)
                 return;
-            ReplaceLoadedSearchItems(partial, sourceMode, preserveSelection: receivedPartial);
-            ApplyFilteredSearchResults(label);
-            SearchPageText = $"{label} · 已显示 {SearchResults.Count} 条 · 正在后台补充详情...";
-            _ = CompleteHighNewReleaseDetailsAsync(
-                label, isAi, sourceMode, days, generation, request, progress);
+            _ = CompleteHighNewReleaseAsync(
+                label, isAi, sourceMode, days, generation, request, progress, listTask);
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested)
         {
@@ -948,22 +952,32 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         }
     }
 
-    private async Task CompleteHighNewReleaseDetailsAsync(
+    private async Task CompleteHighNewReleaseAsync(
         string label,
         bool isAi,
         string sourceMode,
         int days,
         long generation,
         CancellationTokenSource request,
-        IProgress<string> progress)
+        IProgress<string> progress,
+        Task<IReadOnlyList<DramaSearchItem>> listTask)
     {
         try
         {
-            var full = isAi
-                ? await ShortDramaDramaServices.GetAiTodayAsync(
-                    days, enrich: true, progress, request.Token)
-                : await ShortDramaDramaServices.GetMangaTodayAsync(
-                    days, enrich: true, progress, request.Token);
+            var partial = await listTask;
+            if (generation != _searchGeneration || request.IsCancellationRequested)
+                return;
+            ReplaceLoadedSearchItems(partial, sourceMode, preserveSelection: true);
+            ApplyFilteredSearchResults(label);
+            SearchPageText = $"{label} · 已显示 {SearchResults.Count} 条 · 正在后台补充详情...";
+
+            var full = await Task.Run(
+                async () => isAi
+                    ? await ShortDramaDramaServices.GetAiTodayAsync(
+                        days, enrich: true, progress, request.Token)
+                    : await ShortDramaDramaServices.GetMangaTodayAsync(
+                        days, enrich: true, progress, request.Token),
+                request.Token);
             if (generation != _searchGeneration || request.IsCancellationRequested)
                 return;
             ReplaceLoadedSearchItems(full, sourceMode, preserveSelection: true);
