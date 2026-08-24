@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -898,19 +899,41 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         _newReleaseCts = request;
         IsSearching = true;
         SearchPageText = $"{label} · 加载中...";
+        var pagesDisplayed = 0;
+        var latestNetworkStatus = "正在获取第 1 页";
+        var scheduledDetailIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var processedDetailIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pageEnrichmentTasks = new ConcurrentBag<Task<IReadOnlyList<DramaSearchItem>>>();
+        var pageEnrichmentGate = new SemaphoreSlim(2, 2);
+
+        void UpdateProgressText()
+        {
+            if (generation != _searchGeneration || request.IsCancellationRequested)
+                return;
+            var pageLabel = pagesDisplayed > 0 ? $"第 {pagesDisplayed} 页" : "等待第 1 页";
+            SearchPageText =
+                $"{label} · {pageLabel} · 已显示 {SearchResults.Count} 条 · " +
+                $"指标 {processedDetailIds.Count}/{_allSearchResults.Count} · {latestNetworkStatus}";
+        }
+
         var progress = new Progress<string>(message =>
         {
             if (generation == _searchGeneration)
-                SearchPageText = $"{label} · {message}";
+            {
+                latestNetworkStatus = message;
+                UpdateProgressText();
+            }
         });
         var receivedPartial = false;
-        Task<IReadOnlyList<DramaSearchItem>>? previewEnrichment = null;
         var detailProgress = new Progress<IReadOnlyList<DramaSearchItem>>(items =>
         {
             if (generation != _searchGeneration || request.IsCancellationRequested)
                 return;
             MergeEnrichedSearchItems(items);
+            foreach (var item in items)
+                processedDetailIds.Add(item.BookId);
             ApplyFilteredSearchResults(label);
+            UpdateProgressText();
         });
         var firstPageShown = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var pageProgress = new Progress<IReadOnlyList<DramaSearchItem>>(items =>
@@ -919,19 +942,34 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 return;
             ReplaceLoadedSearchItems(items, sourceMode, preserveSelection: receivedPartial);
             receivedPartial = true;
+            pagesDisplayed++;
             ApplyFilteredSearchResults(label);
-            SearchPageText = $"{label} · 已显示 {SearchResults.Count} 条 · 正在继续获取上新列表...";
-            if (previewEnrichment is null && items.Count > 0)
+            var pageItems = items
+                .Where(item => scheduledDetailIds.Add(item.BookId))
+                .ToArray();
+            foreach (var detailBatch in pageItems.Chunk(20))
             {
-                var previewItems = items.Take(20).ToArray();
-                previewEnrichment = Task.Run(
-                    async () => await ShortDramaDramaServices.EnrichHighNewReleaseItemsAsync(
-                        previewItems,
-                        progress: null,
-                        cancellationToken: request.Token,
-                        detailResults: detailProgress),
+                var batch = detailBatch.ToArray();
+                var enrichment = Task.Run(async () =>
+                {
+                    await pageEnrichmentGate.WaitAsync(request.Token);
+                    try
+                    {
+                        return await ShortDramaDramaServices.EnrichHighNewReleaseItemsAsync(
+                            batch,
+                            progress: null,
+                            cancellationToken: request.Token,
+                            detailResults: detailProgress);
+                    }
+                    finally
+                    {
+                        pageEnrichmentGate.Release();
+                    }
+                },
                     request.Token);
+                pageEnrichmentTasks.Add(enrichment);
             }
+            UpdateProgressText();
             firstPageShown.TrySetResult(true);
         });
         try
@@ -950,7 +988,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             if (generation != _searchGeneration || request.IsCancellationRequested)
                 return;
             _ = CompleteHighNewReleaseAsync(
-                label, isAi, sourceMode, days, generation, request, progress, listTask, previewEnrichment, detailProgress);
+                label, isAi, sourceMode, days, generation, request, progress, listTask, pageEnrichmentTasks, detailProgress);
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested)
         {
@@ -980,7 +1018,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         CancellationTokenSource request,
         IProgress<string> progress,
         Task<IReadOnlyList<DramaSearchItem>> listTask,
-        Task<IReadOnlyList<DramaSearchItem>>? previewEnrichment,
+        ConcurrentBag<Task<IReadOnlyList<DramaSearchItem>>> pageEnrichmentTasks,
         IProgress<IReadOnlyList<DramaSearchItem>> detailProgress)
     {
         try
@@ -992,8 +1030,9 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             ApplyFilteredSearchResults(label);
             SearchPageText = $"{label} · 已显示 {SearchResults.Count} 条 · 正在后台补充详情...";
 
-            if (previewEnrichment is not null)
-                await previewEnrichment;
+            var pageDetails = pageEnrichmentTasks.ToArray();
+            if (pageDetails.Length > 0)
+                await Task.WhenAll(pageDetails);
 
             var full = await Task.Run(
                 async () => isAi
