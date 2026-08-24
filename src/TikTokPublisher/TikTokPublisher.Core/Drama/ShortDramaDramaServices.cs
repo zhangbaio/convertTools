@@ -8,7 +8,7 @@ using CoreSearchItem = ShortDrama.Core.Models.DramaSearchItem;
 namespace TikTokPublisher.Core.Drama;
 
 /// <summary>
-/// 桥接 <c>ShortDrama.Infrastructure</c> 多链路短剧搜索/下载（hgnew / hglocal / pikachu / hghigh）。
+/// 桥接 <c>ShortDrama.Infrastructure</c> 多链路短剧搜索/下载（hgnew / hglocal / pikachu / hghigh / mapleleaf）。
 /// </summary>
 public static class ShortDramaDramaServices
 {
@@ -63,7 +63,8 @@ public static class ShortDramaDramaServices
         bool enrich,
         IProgress<string>? progress,
         CancellationToken cancellationToken,
-        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         RefreshSettings();
         if (Search is not DramaSourceRouter router)
@@ -75,8 +76,12 @@ public static class ShortDramaDramaServices
             ? null
             : new ForwardProgress<IReadOnlyList<CoreSearchItem>>(items =>
                 partialResults.Report(items.Select(FromCore).ToArray()));
+        var coreDetails = detailResults is null
+            ? null
+            : new ForwardProgress<IReadOnlyList<CoreSearchItem>>(items =>
+                detailResults.Report(items.Select(FromCore).ToArray()));
         var items = await router.GetMangaTodayAsync(
-            days, enrich, progress, cancellationToken, corePartial);
+            days, enrich, progress, cancellationToken, corePartial, coreDetails);
         return items.Select(FromCore).ToArray();
     }
 
@@ -88,7 +93,8 @@ public static class ShortDramaDramaServices
         bool enrich,
         IProgress<string>? progress,
         CancellationToken cancellationToken,
-        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         RefreshSettings();
         if (Search is not DramaSourceRouter router)
@@ -100,9 +106,35 @@ public static class ShortDramaDramaServices
             ? null
             : new ForwardProgress<IReadOnlyList<CoreSearchItem>>(items =>
                 partialResults.Report(items.Select(FromCore).ToArray()));
+        var coreDetails = detailResults is null
+            ? null
+            : new ForwardProgress<IReadOnlyList<CoreSearchItem>>(items =>
+                detailResults.Report(items.Select(FromCore).ToArray()));
         var items = await router.GetAiTodayAsync(
-            days, enrich, progress, cancellationToken, corePartial);
+            days, enrich, progress, cancellationToken, corePartial, coreDetails);
         return items.Select(FromCore).ToArray();
+    }
+
+    public static async Task<IReadOnlyList<DramaSearchItem>> EnrichHighNewReleaseItemsAsync(
+        IReadOnlyList<DramaSearchItem> items,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
+    {
+        RefreshSettings();
+        if (Search is not DramaSourceRouter router)
+            return items;
+        var coreItems = items.Select(ToCore).ToArray();
+        var coreDetails = detailResults is null
+            ? null
+            : new ForwardProgress<IReadOnlyList<CoreSearchItem>>(batch =>
+                detailResults.Report(batch.Select(FromCore).ToArray()));
+        var enriched = await router.EnrichHighNewReleaseItemsAsync(
+            coreItems,
+            progress,
+            cancellationToken,
+            coreDetails);
+        return enriched.Select(FromCore).ToArray();
     }
 
     public static bool IsHighSourceSelected()

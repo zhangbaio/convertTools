@@ -126,7 +126,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         bool enrich,
         IProgress<string>? progress,
         CancellationToken cancellationToken,
-        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         var settings = _settingsProvider.Get();
         return await LoadNewReleaseAsync(
@@ -135,7 +136,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             hglocalLoader: ct => GetLatestByGenreAsync(settings, "comic_series", days, ct),
             cancellationToken: cancellationToken,
             hghighLoader: ct => _hghighApiService.GetManjuNewAsync(
-                settings, days, enrich, progress, ct, partialResults));
+                settings, days, enrich, progress, ct, partialResults, detailResults));
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(int days, CancellationToken cancellationToken)
@@ -146,7 +147,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         bool enrich,
         IProgress<string>? progress,
         CancellationToken cancellationToken,
-        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         var settings = _settingsProvider.Get();
         return await LoadNewReleaseAsync(
@@ -155,11 +157,32 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             hglocalLoader: ct => GetLatestByGenreAsync(settings, "ai_series", days, ct),
             cancellationToken: cancellationToken,
             hghighLoader: ct => _hghighApiService.GetAiNewAsync(
-                settings, days, enrich, progress, ct, partialResults));
+                settings, days, enrich, progress, ct, partialResults, detailResults));
     }
 
     public bool IsHighSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase);
+    public async Task<IReadOnlyList<DramaSearchItem>> EnrichHighNewReleaseItemsAsync(
+        IReadOnlyList<DramaSearchItem> items,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
+    {
+        var settings = _settingsProvider.Get();
+        if (!string.Equals(
+                settings.DramaSourceChain?.Trim(),
+                "hghigh",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return items;
+        }
+        return await _hghighApiService.EnrichNewReleaseItemsAsync(
+            settings,
+            items,
+            progress,
+            cancellationToken,
+            detailResults);
+    }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)
     {

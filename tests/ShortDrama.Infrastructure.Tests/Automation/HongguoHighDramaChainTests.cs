@@ -621,6 +621,36 @@ public sealed class HongguoHighDramaChainTests
     }
 
     [Fact]
+    public async Task Calendar_Details_Report_Incrementally_And_Reuse_BookInfo_Cache()
+    {
+        var handler = new HighDirectoryHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = new HongguoHighApiService(httpClient);
+        IReadOnlyList<DramaSearchItem>? reported = null;
+        IReadOnlyList<DramaSearchItem> items =
+        [
+            new DramaSearchItem("hghigh:book-1", "剧1", "", 0, "", "", "", ""),
+            new DramaSearchItem("hghigh:book-2", "剧2", "", 0, "", "", "", ""),
+        ];
+
+        var first = await service.EnrichNewReleaseItemsAsync(
+            new DramaSourceSettings(),
+            items,
+            progress: null,
+            CancellationToken.None,
+            new InlineProgress<IReadOnlyList<DramaSearchItem>>(batch => reported = batch));
+
+        first.Should().OnlyContain(item => item.Author == "作者甲");
+        reported.Should().NotBeNull();
+        reported!.Should().OnlyContain(item => item.Author == "作者甲");
+        handler.RequestCount.Should().Be(2);
+
+        await service.EnrichNewReleaseItemsAsync(
+            new DramaSourceSettings(), items, progress: null, CancellationToken.None);
+        handler.RequestCount.Should().Be(2);
+    }
+
+    [Fact]
     public async Task Ai_Landpage_Retries_504_With_Fresh_Signature()
     {
         using var httpClient = new HttpClient(new FailAllHandler());
@@ -775,12 +805,14 @@ public sealed class HongguoHighDramaChainTests
     private sealed class HighDirectoryHandler : HttpMessageHandler
     {
         public Uri? LastUri { get; private set; }
+        public int RequestCount { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             LastUri = request.RequestUri;
+            RequestCount++;
             var json = """
-                {"code":0,"data":{"item_list":["vid-a","vid-b"],"book_info":{"book_name":"测试剧","chapter_number":2}}}
+                {"code":0,"data":{"item_list":["vid-a","vid-b"],"book_info":{"book_name":"测试剧","author":"作者甲","chapter_number":2}}}
                 """;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
