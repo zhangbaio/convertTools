@@ -14,6 +14,8 @@ public static partial class TikTokBrowserActions
     internal const long CdpFileTransferLimitBytes = 45L * 1024 * 1024;
     private const int MaxInactiveIncompleteRepairAttempts = 2;
     private const int MaxInactiveIncompleteRepairFiles = 3;
+    private const int MaxEmptyQueueRepairAttempts = 2;
+    private const int EmptyQueueRepairSeconds = 15;
 
     public static async Task UploadLocalVideosAsync(
         IPage page,
@@ -68,10 +70,19 @@ public static partial class TikTokBrowserActions
         (int uploaded, int waiting)? inactiveIncompleteSignature = null;
         DateTime? inactiveIncompleteSince = null;
         var inactiveIncompleteRepairAttempts = 0;
+        DateTime? emptyQueueSince = null;
+        var emptyQueueRepairAttempts = 0;
 
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
+            if (!IsTikTokDraftPageUrl(page.Url))
+            {
+                throw new InvalidOperationException(
+                    $"等待视频上传时页面已离开 TikTok 草稿上传页：{page.Url}。" +
+                    "已中止等待，避免在无关页面持续误判上传进度。");
+            }
+
             string bodyText;
             try
             {
@@ -100,6 +111,52 @@ public static partial class TikTokBrowserActions
                 await ReadUploadTableTextsAsync(page));
             var uploading = activity.Uploading;
             var waitingCount = activity.WaitingCount;
+            var emptyQueue = TikTokUploadProgressParser.IsClearlyEmptyUploadQueue(
+                bodyText,
+                uploadedCount,
+                activity);
+
+            if (emptyQueue)
+            {
+                emptyQueueSince ??= DateTime.UtcNow;
+                if ((DateTime.UtcNow - emptyQueueSince.Value).TotalSeconds >= EmptyQueueRepairSeconds)
+                {
+                    var repairPaths = (videoPaths ?? Array.Empty<string>())
+                        .Where(path => !string.IsNullOrWhiteSpace(path))
+                        .Select(Path.GetFullPath)
+                        .ToList();
+                    if (repairPaths.Count == 0)
+                    {
+                        throw new InvalidOperationException(
+                            "TikTok 视频上传队列已清空，且没有可用于自动恢复的视频路径。");
+                    }
+
+                    if (emptyQueueRepairAttempts >= MaxEmptyQueueRepairAttempts)
+                    {
+                        throw new InvalidOperationException(
+                            $"TikTok 视频上传队列连续清空，自动重新选择文件 {emptyQueueRepairAttempts} 次后仍未恢复。" +
+                            "请改用分批上传或检查平台上传服务状态。");
+                    }
+
+                    emptyQueueRepairAttempts++;
+                    Log(log,
+                        $"⚠️ TikTok 视频上传队列已空闲且无任何视频行超过 {EmptyQueueRepairSeconds} 秒，" +
+                        $"自动重新选择全部 {repairPaths.Count} 个视频（第 {emptyQueueRepairAttempts}/{MaxEmptyQueueRepairAttempts} 次）。");
+                    await RefeedInactiveIncompleteVideosAsync(page, repairPaths, log, ct).ConfigureAwait(false);
+                    await page.WaitForTimeoutAsync(5000);
+                    emptyQueueSince = null;
+                    readySince = null;
+                    lastSignature = null;
+                    lastProgressTime = DateTime.UtcNow;
+                    lastStatus = "";
+                    continue;
+                }
+            }
+            else
+            {
+                emptyQueueSince = null;
+            }
+
             var meetsDone = TikTokUploadProgressParser.IsUploadComplete(
                 uploadedCount,
                 expectedCount,
@@ -206,6 +263,14 @@ public static partial class TikTokBrowserActions
         }
 
         throw new TimeoutException("等待 TikTok 视频上传完成超时。");
+    }
+
+    private static bool IsTikTokDraftPageUrl(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed))
+            return false;
+        return parsed.Host.EndsWith("tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase) &&
+               parsed.AbsolutePath.StartsWith("/series/draft", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsInactiveIncompleteUpload(

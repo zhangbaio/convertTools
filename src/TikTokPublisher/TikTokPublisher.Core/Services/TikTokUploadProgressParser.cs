@@ -80,7 +80,9 @@ public static class TikTokUploadProgressParser
         if (uploadedCount is not null)
             return Math.Min(100, Math.Max(0, (int)Math.Round(uploadedCount.Value / (double)expectedCount * 100)));
 
-        if (waitingCount >= 0 && waitingCount <= expectedCount)
+        // With no ready count, waiting=0 is ambiguous: it also describes an empty upload
+        // control or an unrelated page. Reporting 100% in that state is actively misleading.
+        if (waitingCount > 0 && waitingCount <= expectedCount)
         {
             return Math.Min(
                 100,
@@ -88,6 +90,21 @@ public static class TikTokUploadProgressParser
         }
 
         return 0;
+    }
+
+    public static bool IsClearlyEmptyUploadQueue(
+        string bodyText,
+        int? readyCount,
+        TikTokUploadActivity activity)
+    {
+        if (readyCount is not null || activity.Uploading || activity.WaitingCount > 0)
+            return false;
+
+        var value = bodyText ?? "";
+        return value.Contains("正片内容", StringComparison.Ordinal) &&
+               value.Contains("点击上传或拖拽视频到此处", StringComparison.Ordinal) &&
+               ExtractUploadedHeadingCount(value) is null &&
+               !EpisodeLinePattern.IsMatch(value);
     }
 
     public static TikTokUploadActivity DetectUploadActivity(

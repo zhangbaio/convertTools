@@ -99,7 +99,7 @@ public sealed class TikTokUploadProgressParserTests
 
   [Theory]
   [InlineData(null, 43, 28, 35)]
-  [InlineData(null, 43, 0, 100)]
+  [InlineData(null, 43, 0, 0)]
   [InlineData(15, 43, 28, 35)]
   [InlineData(43, 43, 0, 100)]
   public void EstimateDisplayPercent_UsesUploadedOrWaitingFallback(
@@ -112,5 +112,29 @@ public sealed class TikTokUploadProgressParserTests
       .EstimateDisplayPercent(uploadedCount, expectedCount, waitingCount)
       .Should()
       .Be(expectedPercent);
+  }
+
+  [Fact]
+  public void EmptyUploadQueue_RequiresUploadPromptWithoutRowsOrActivity()
+  {
+    var idle = new TikTokUploadActivity(false, 0, false);
+
+    TikTokUploadProgressParser
+      .IsClearlyEmptyUploadQueue("内容上传\n正片内容\n点击上传或拖拽视频到此处", null, idle)
+      .Should()
+      .BeTrue();
+
+    TikTokUploadProgressParser
+      .IsClearlyEmptyUploadQueue("内容上传\n正片内容 (60)\n第 1 集 当前剧-第1集\n草稿", 60, idle)
+      .Should()
+      .BeFalse();
+
+    TikTokUploadProgressParser
+      .IsClearlyEmptyUploadQueue(
+        "内容上传\n正片内容\n点击上传或拖拽视频到此处\n第 1 集 当前剧-第1集\n等待中",
+        null,
+        new TikTokUploadActivity(false, 1, true))
+      .Should()
+      .BeFalse();
   }
 }
