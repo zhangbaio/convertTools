@@ -1,12 +1,16 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using ShortDrama.Core.Models;
 
 namespace ShortDrama.Infrastructure.Automation;
 
 public static class HongguoHighCalendarMapper
 {
+    private static readonly Regex LastChapterNumberRegex =
+        new(@"第\s*0*(\d+)\s*集", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly string[] NestedKeys =
     [
         "book_info", "bookInfo", "series_info", "seriesInfo",
@@ -39,7 +43,12 @@ public static class HongguoHighCalendarMapper
     ];
 
     private static readonly string[] EpisodeKeys =
-        ["episode_cnt", "episode_count", "episodeCount", "chapter_number", "serial_count", "drama_chapter_number"];
+    [
+        "drama_chapter_number", "dramaChapterNumber", "final_chapter_number", "finalChapterNumber",
+        "serial_count", "episode_cnt", "episode_count", "episodeCount", "chapter_number"
+    ];
+
+    private static readonly string[] LastChapterTitleKeys = ["last_chapter_title", "lastChapterTitle"];
 
     private static readonly string[] TimeFormats =
     [
@@ -190,7 +199,7 @@ public static class HongguoHighCalendarMapper
             BookId: HongguoHighCrypto.EnsureBookPrefix(bookId),
             Title: FirstMeaningful(obj, TitleKeys, nested) ?? bookId,
             Category: category,
-            EpisodeTotal: FirstPositiveInt(obj, EpisodeKeys, nested),
+            EpisodeTotal: ReadEpisodeTotal(obj, nested),
             Intro: FirstMeaningful(obj, IntroKeys, nested) ?? "",
             PosterUrl: FirstMeaningful(obj, CoverKeys, nested) ?? "",
             Author: FirstMeaningful(obj, AuthorKeys, nested) ?? "",
@@ -211,9 +220,8 @@ public static class HongguoHighCalendarMapper
             }
         }
 
-        var episodeTotal = item.EpisodeTotal > 0
-            ? item.EpisodeTotal
-            : FirstPositiveInt(bookInfo, EpisodeKeys, []);
+        var resolvedEpisodeTotal = ReadEpisodeTotal(bookInfo, []);
+        var episodeTotal = resolvedEpisodeTotal > 0 ? resolvedEpisodeTotal : item.EpisodeTotal;
         var publishTime = NormalizePublishTime(
             CollectPublishValues(bookInfo, []).Append(item.PublishTime));
         var intro = string.IsNullOrWhiteSpace(item.Intro)
@@ -365,6 +373,29 @@ public static class HongguoHighCalendarMapper
         }
 
         return 0;
+    }
+
+    public static int ReadEpisodeTotal(JsonObject obj) => ReadEpisodeTotal(obj, NestedObjects(obj));
+
+    private static int ReadEpisodeTotal(JsonObject obj, IReadOnlyList<JsonObject> nested)
+    {
+        var lastChapterNumber = ParseLastChapterNumber(FirstMeaningful(obj, LastChapterTitleKeys, nested));
+        return lastChapterNumber > 0
+            ? lastChapterNumber
+            : FirstPositiveInt(obj, EpisodeKeys, nested);
+    }
+
+    private static int ParseLastChapterNumber(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return 0;
+        }
+
+        var match = LastChapterNumberRegex.Match(title);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var parsed)
+            ? Math.Max(0, parsed)
+            : 0;
     }
 
     private static int ReadPositiveInt(JsonObject obj, string key)

@@ -15,6 +15,7 @@ public sealed class HongguoHighApiService
     private const int CalendarPageConcurrency = 3;
     private const int CalendarEnrichConcurrency = 12;
     private const int LandpageMaxAttempts = 3;
+    private const int PlaybackParseMaxAttempts = 3;
     private static readonly HashSet<int> LandpageRetryCodes = [408, 425, 429, 500, 502, 503, 504];
     private static readonly TimeSpan CalendarCacheLifetime = TimeSpan.FromMinutes(5);
     public const string FanqieWeChatUa =
@@ -130,7 +131,7 @@ public sealed class HongguoHighApiService
                 BookId: HongguoHighCrypto.EnsureBookPrefix(bookId),
                 Title: GetString(book, "book_name") ?? GetString(book, "title") ?? "",
                 Category: GetString(book, "category") ?? "",
-                EpisodeTotal: GetInt(book, "chapter_number") ?? GetInt(book, "serial_count") ?? 0,
+                EpisodeTotal: HongguoHighCalendarMapper.ReadEpisodeTotal(book),
                 Intro: GetString(book, "abstract") ?? "",
                 PosterUrl: FirstHttpUrl(
                     GetString(book, "thumb_url"),
@@ -199,51 +200,103 @@ public sealed class HongguoHighApiService
         }
 
         var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
-        var inner = await AuthedRequestAsync(
-            settings,
-            "/video/batch-parse",
-            new JsonObject
+        JsonObject? lastItem = null;
+        for (var attempt = 1; attempt <= PlaybackParseMaxAttempts; attempt++)
+        {
+            var requestData = new JsonObject
             {
                 ["bookId"] = bookId,
                 ["book_id"] = bookId,
                 ["episodes"] = new JsonArray { HongguoHighCrypto.BatchParseEpisodePayload(rawVideoId, episodeNumber) },
                 ["quality"] = HongguoHighCrypto.NormalizeQuality(quality),
                 ["resolution"] = HongguoHighCrypto.NormalizeQuality(quality)
-            },
-            timeout,
-            cancellationToken);
+            };
+            var inner = AuthedRequestForTests is null
+                ? await AuthedRequestAsync(settings, "/video/batch-parse", requestData, timeout, cancellationToken)
+                : await AuthedRequestForTests(settings, "/video/batch-parse", requestData, timeout, cancellationToken);
 
-        JsonObject? item = null;
-        if (inner is JsonArray array)
-        {
-            item = array.FirstOrDefault() as JsonObject;
-        }
-        else if (inner is JsonObject obj)
-        {
-            foreach (var key in new[] { "data", "items", "results", "episodes" })
+            lastItem = SelectPlaybackItem(inner, rawVideoId);
+            var url = ReadPlaybackUrl(lastItem);
+            if (IsHttpUrl(url))
             {
-                if (obj[key] is JsonArray nested)
-                {
-                    item = nested.FirstOrDefault() as JsonObject;
-                    break;
-                }
+                var size = GetLong(lastItem, "size")
+                           ?? GetLong(lastItem, "size_bytes")
+                           ?? GetLong(lastItem, "sizeBytes")
+                           ?? 0;
+                return new HongguoNewApiService.HongguoVideoPlayback(url!, size);
             }
 
-            item ??= obj;
+            if (attempt < PlaybackParseMaxAttempts)
+            {
+                var delay = TimeSpan.FromSeconds(attempt);
+                if (DelayForTests is null)
+                {
+                    await Task.Delay(delay, cancellationToken);
+                }
+                else
+                {
+                    await DelayForTests(delay, cancellationToken);
+                }
+            }
         }
 
-        var url = GetString(item, "url")
-                  ?? GetString(item, "video_url")
-                  ?? GetString(item, "download_url")
-                  ?? GetString(item, "playUrl")
-                  ?? "";
-        if (string.IsNullOrWhiteSpace(url))
-        {
-            throw new HongguoHighException("高码率解析未返回播放地址");
-        }
-
-        return new HongguoNewApiService.HongguoVideoPlayback(url, GetLong(item, "size") ?? 0);
+        var detail = GetString(lastItem, "message") ?? GetString(lastItem, "msg");
+        throw new HongguoHighException(string.IsNullOrWhiteSpace(detail)
+            ? $"高码率解析连续 {PlaybackParseMaxAttempts} 次未返回播放地址"
+            : $"高码率解析连续 {PlaybackParseMaxAttempts} 次未返回播放地址：{detail}");
     }
+
+    private static JsonObject? SelectPlaybackItem(JsonNode? response, string rawVideoId)
+    {
+        var candidates = new List<JsonObject>();
+        switch (response)
+        {
+            case JsonArray array:
+                candidates.AddRange(array.OfType<JsonObject>());
+                break;
+            case JsonObject obj:
+                foreach (var key in new[] { "data", "items", "results", "episodes" })
+                {
+                    if (obj[key] is JsonArray nested)
+                    {
+                        candidates.AddRange(nested.OfType<JsonObject>());
+                    }
+                    else if (obj[key] is JsonObject nestedObject)
+                    {
+                        candidates.Add(nestedObject);
+                    }
+                }
+
+                if (candidates.Count == 0)
+                {
+                    candidates.Add(obj);
+                }
+
+                break;
+        }
+
+        return candidates.FirstOrDefault(item =>
+                   string.Equals(GetString(item, "episode_id"), rawVideoId, StringComparison.Ordinal) ||
+                   string.Equals(GetString(item, "episodeId"), rawVideoId, StringComparison.Ordinal) ||
+                   string.Equals(GetString(item, "video_id"), rawVideoId, StringComparison.Ordinal) ||
+                   string.Equals(GetString(item, "videoId"), rawVideoId, StringComparison.Ordinal))
+               ?? candidates.FirstOrDefault();
+    }
+
+    private static string? ReadPlaybackUrl(JsonObject? item) =>
+        GetString(item, "url")
+        ?? GetString(item, "video_url")
+        ?? GetString(item, "download_url")
+        ?? GetString(item, "play_url")
+        ?? GetString(item, "playUrl")
+        ?? GetString(item, "videoUrl")
+        ?? GetString(item, "downloadUrl")
+        ?? GetString(item, "DownloadUrl");
+
+    private static bool IsHttpUrl(string? value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+        (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetManjuNewAsync(
         DramaSourceSettings settings,

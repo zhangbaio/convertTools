@@ -251,6 +251,40 @@ public sealed class HongguoHighCalendarMapperTests
     }
 
     [Fact]
+    public void ApplyBookInfo_Uses_Authoritative_Episode_Count_When_Chapter_Number_Lags()
+    {
+        var item = new DramaSearchItem("hghigh:1", "剧名", "", 80, "", "", "", "");
+        var info = JsonNode.Parse("""
+            {
+              "chapter_number": 80,
+              "serial_count": 999,
+              "final_chapter_number": 81,
+              "drama_chapter_number": 81,
+              "last_chapter_title": "第81集"
+            }
+            """)!.AsObject();
+
+        var applied = HongguoHighCalendarMapper.ApplyBookInfo(item, info);
+
+        applied.EpisodeTotal.Should().Be(81);
+    }
+
+    [Fact]
+    public void ReadEpisodeTotal_Uses_Drama_Count_Before_Stale_Or_Unrelated_Counts()
+    {
+        var info = JsonNode.Parse("""
+            {
+              "drama_chapter_number": 62,
+              "final_chapter_number": 62,
+              "serial_count": 999,
+              "chapter_number": 61
+            }
+            """)!.AsObject();
+
+        HongguoHighCalendarMapper.ReadEpisodeTotal(info).Should().Be(62);
+    }
+
+    [Fact]
     public void ExtractLandpageItems_Reads_Video_Data_Series()
     {
         var payload = JsonNode.Parse("""
@@ -305,6 +339,7 @@ public sealed class HongguoHighDramaChainTests
         results.Should().ContainSingle();
         results[0].Title.Should().Be("高码率剧");
         results[0].BookId.Should().Be("hghigh:123456");
+        results[0].EpisodeTotal.Should().Be(81);
         results[0].PosterUrl.Should().Be("https://cover");
         handler.Hosts.Should().Contain("api5-sinfonlinea.novelfm.com");
         handler.Hosts.Should().NotContain("au.s1o.cc");
@@ -335,6 +370,96 @@ public sealed class HongguoHighDramaChainTests
         handler.LastUri!.Host.Should().Be("api-sinfonlinec.fanqiesdk.com");
         handler.LastUri.Query.Should().Contain("book_id=999");
         handler.LastUri.Query.Should().Contain("aid=1967");
+    }
+
+    [Fact]
+    public async Task GetVideoPlaybackAsync_Retries_Empty_Address_And_Matches_Episode()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var calls = 0;
+        var delays = new List<TimeSpan>();
+        service.AuthedRequestForTests = (_, path, _, _, _) =>
+        {
+            path.Should().Be("/video/batch-parse");
+            calls++;
+            JsonNode response = calls == 1
+                ? new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["episodeId"] = "vid-81",
+                        ["message"] = "解析器繁忙"
+                    }
+                }
+                : new JsonObject
+                {
+                    ["data"] = new JsonArray
+                    {
+                        new JsonObject
+                        {
+                            ["episodeId"] = "other",
+                            ["downloadUrl"] = "https://cdn.example.com/wrong.mp4"
+                        },
+                        new JsonObject
+                        {
+                            ["episodeId"] = "vid-81",
+                            ["downloadUrl"] = "https://cdn.example.com/81.mp4",
+                            ["sizeBytes"] = 123L
+                        }
+                    }
+                };
+            return Task.FromResult<JsonNode?>(response);
+        };
+        service.DelayForTests = (delay, _) =>
+        {
+            delays.Add(delay);
+            return Task.CompletedTask;
+        };
+
+        var playback = await service.GetVideoPlaybackAsync(
+            new DramaSourceSettings(),
+            HongguoHighCrypto.EncodeEpisodeId("book-1", 81, "vid-81"),
+            "1080P",
+            CancellationToken.None);
+
+        playback.Url.Should().Be("https://cdn.example.com/81.mp4");
+        playback.Size.Should().Be(123L);
+        calls.Should().Be(2);
+        delays.Should().Equal(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task GetVideoPlaybackAsync_Fails_After_Three_Empty_Responses()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var calls = 0;
+        var delays = new List<TimeSpan>();
+        service.AuthedRequestForTests = (_, _, _, _, _) =>
+        {
+            calls++;
+            return Task.FromResult<JsonNode?>(new JsonArray
+            {
+                new JsonObject { ["episodeId"] = "vid-81", ["message"] = "暂无地址" }
+            });
+        };
+        service.DelayForTests = (delay, _) =>
+        {
+            delays.Add(delay);
+            return Task.CompletedTask;
+        };
+
+        var act = () => service.GetVideoPlaybackAsync(
+            new DramaSourceSettings(),
+            HongguoHighCrypto.EncodeEpisodeId("book-1", 81, "vid-81"),
+            "1080P",
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<HongguoHighException>()
+            .WithMessage("*连续 3 次*暂无地址*");
+        calls.Should().Be(3);
+        delays.Should().Equal(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
     }
 
     [Fact]
@@ -539,7 +664,7 @@ public sealed class HongguoHighDramaChainTests
         {
             Hosts.Add(request.RequestUri!.Host);
             var json = """
-                {"code":0,"data":{"search_data":[{"books":[{"book_id":"123456","book_name":"高码率剧","author":"甲","audio_thumb_uri":"https://cover","abstract":"简介","category":"漫剧"}]}]}}
+                {"code":0,"data":{"search_data":[{"books":[{"book_id":"123456","book_name":"高码率剧","author":"甲","audio_thumb_uri":"https://cover","abstract":"简介","category":"漫剧","chapter_number":80,"serial_count":80,"last_chapter_title":"第81集"}]}]}}
                 """;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
