@@ -667,6 +667,12 @@ public sealed class HongguoHighApiService
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 10, 120)));
             var data = await FetchFanqieDirectoryDataAsync(rawBookId, timeoutCts.Token);
             var info = data["book_info"] as JsonObject ?? data;
+            var directoryPoster = HongguoHighCalendarMapper.ExtractMediaUrl(data);
+            if (!string.IsNullOrWhiteSpace(directoryPoster) &&
+                string.IsNullOrWhiteSpace(HongguoHighCalendarMapper.ExtractMediaUrl(info)))
+            {
+                info["cover_url"] = directoryPoster;
+            }
             _calendarDetailCache[rawBookId] = new CalendarDetailCacheEntry(
                 DateTimeOffset.UtcNow,
                 info.DeepClone().AsObject());

@@ -153,11 +153,19 @@ public static class HongguoHighCalendarMapper
                 case JsonObject obj:
                 {
                     JsonObject? candidate = null;
-                    if (obj["video_data"] is JsonObject video &&
+                    var video = obj["video_data"] as JsonObject ?? obj["videoData"] as JsonObject;
+                    if (video is not null &&
                         (!string.IsNullOrWhiteSpace(ReadString(video, "series_id")) ||
-                         !string.IsNullOrWhiteSpace(ReadString(video, "series_id_str"))))
+                         !string.IsNullOrWhiteSpace(ReadString(video, "seriesId")) ||
+                         !string.IsNullOrWhiteSpace(ReadString(video, "series_id_str")) ||
+                         !string.IsNullOrWhiteSpace(ReadString(video, "seriesIdStr"))))
                     {
-                        candidate = video;
+                        // The official client resolves fields from both the outer landpage cell
+                        // and video_data. Covers are frequently siblings of video_data, so
+                        // returning only the nested object silently drops them.
+                        candidate = obj.DeepClone().AsObject();
+                        foreach (var property in video)
+                            candidate[property.Key] = property.Value?.DeepClone();
                     }
                     else if (!string.IsNullOrWhiteSpace(ReadString(obj, "series_id")) ||
                              !string.IsNullOrWhiteSpace(ReadString(obj, "series_title")) ||
@@ -216,7 +224,7 @@ public static class HongguoHighCalendarMapper
             Category: category,
             EpisodeTotal: ReadEpisodeTotal(obj, nested),
             Intro: FirstMeaningful(obj, IntroKeys, nested) ?? "",
-            PosterUrl: FirstMediaUrl(obj, CoverKeys, nested) ?? "",
+            PosterUrl: FirstMediaUrl(obj, CoverKeys, nested) ?? ExtractMediaUrl(obj) ?? "",
             Author: FirstMeaningful(obj, AuthorKeys, nested) ?? "",
             PublishTime: NormalizePublishTime(CollectPublishValues(obj, nested)),
             FavoriteCount: FirstPositiveInt(obj, ["favorite_count", "followed_cnt", "collect_count", "add_bookshelf_count", "addBookshelfCount"], nested));
@@ -421,6 +429,76 @@ public static class HongguoHighCalendarMapper
         }
 
         return null;
+    }
+
+    internal static string? ExtractMediaUrl(JsonNode? value) =>
+        ExtractMediaUrl(value, allowAnyHttpUrl: false);
+
+    private static string? ExtractMediaUrl(JsonNode? value, bool allowAnyHttpUrl)
+    {
+        switch (value)
+        {
+            case JsonValue scalar when scalar.TryGetValue<string>(out var text):
+            {
+                var url = NormalizeMediaUrl(text);
+                return url is not null && (allowAnyHttpUrl || LooksLikeImageUrl(url)) ? url : null;
+            }
+            case JsonArray array:
+                foreach (var item in array)
+                {
+                    var url = ExtractMediaUrl(item, allowAnyHttpUrl);
+                    if (url is not null)
+                        return url;
+                }
+                break;
+            case JsonObject obj:
+                foreach (var key in CoverKeys.Concat(MediaValueKeys))
+                {
+                    if (!obj.TryGetPropertyValue(key, out var candidate))
+                        continue;
+                    var url = ExtractMediaUrl(candidate, allowAnyHttpUrl: true);
+                    if (url is not null)
+                        return url;
+                }
+
+                foreach (var property in obj)
+                {
+                    var key = property.Key;
+                    if (!key.Contains("cover", StringComparison.OrdinalIgnoreCase) &&
+                        !key.Contains("poster", StringComparison.OrdinalIgnoreCase) &&
+                        !key.Contains("thumb", StringComparison.OrdinalIgnoreCase) &&
+                        !key.Contains("image", StringComparison.OrdinalIgnoreCase) &&
+                        !key.Contains("pic", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    var url = ExtractMediaUrl(property.Value, allowAnyHttpUrl: true);
+                    if (url is not null)
+                        return url;
+                }
+
+                foreach (var property in obj)
+                {
+                    var url = ExtractMediaUrl(property.Value, allowAnyHttpUrl: false);
+                    if (url is not null)
+                        return url;
+                }
+                break;
+        }
+
+        return null;
+    }
+
+    private static bool LooksLikeImageUrl(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
+            return false;
+        var path = uri.AbsolutePath;
+        return uri.Host.EndsWith(".byteimg.com", StringComparison.OrdinalIgnoreCase) ||
+               uri.Host.EndsWith(".fqnovelpic.com", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains("/novel-pic/", StringComparison.OrdinalIgnoreCase) ||
+               new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif" }
+                   .Any(extension => path.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
     }
 
     internal static string? NormalizeMediaUrl(string? value)

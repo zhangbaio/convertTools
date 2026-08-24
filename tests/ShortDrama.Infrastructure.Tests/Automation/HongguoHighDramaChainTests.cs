@@ -374,6 +374,59 @@ public sealed class HongguoHighCalendarMapperTests
         mapped.Author.Should().Be("作者乙");
         mapped.PublishTime.Should().Be("2026-08-18 12:00:00");
     }
+
+    [Fact]
+    public void ExtractLandpageItems_Preserves_Outer_Cover_Alongside_VideoData()
+    {
+        var payload = JsonNode.Parse("""
+            {
+              "cell_view": [
+                {
+                  "seriesCover": {
+                    "urlList": ["https://p3-novel.byteimg.com/origin/novel-pic/outer-cover"]
+                  },
+                  "videoData": {
+                    "seriesId": "ai-outer-cover",
+                    "series_title": "外层封面剧"
+                  }
+                }
+              ]
+            }
+            """)!;
+
+        var raw = HongguoHighCalendarMapper.ExtractLandpageItems(payload);
+        var mapped = HongguoHighCalendarMapper.TryMapItem(raw.Single());
+
+        mapped.Should().NotBeNull();
+        mapped!.BookId.Should().Be("hghigh:ai-outer-cover");
+        mapped.PosterUrl.Should().Be("https://p3-novel.byteimg.com/origin/novel-pic/outer-cover");
+    }
+
+    [Fact]
+    public void MapPayload_Recursively_Finds_ImageUrl_In_Unknown_Outer_Shape()
+    {
+        var payload = JsonNode.Parse("""
+            {
+              "items": [
+                {
+                  "book_id": "deep-cover",
+                  "book_name": "深层封面剧",
+                  "render_meta": {
+                    "artwork": {
+                      "resources": [
+                        "https://p3-novel.byteimg.com/origin/novel-pic/deep-cover-image"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+            """)!;
+
+        var mapped = HongguoHighCalendarMapper.MapPayload(payload).Single();
+
+        mapped.PosterUrl.Should().Be("https://p3-novel.byteimg.com/origin/novel-pic/deep-cover-image");
+    }
 }
 
 public sealed class HongguoHighDramaChainTests
@@ -641,6 +694,7 @@ public sealed class HongguoHighDramaChainTests
             new InlineProgress<IReadOnlyList<DramaSearchItem>>(batch => reported = batch));
 
         first.Should().OnlyContain(item => item.Author == "作者甲");
+        first.Should().OnlyContain(item => item.PosterUrl == "https://p3-novel.byteimg.com/origin/novel-pic/directory-cover");
         reported.Should().NotBeNull();
         reported!.Should().OnlyContain(item => item.Author == "作者甲");
         handler.RequestCount.Should().Be(2);
@@ -812,7 +866,7 @@ public sealed class HongguoHighDramaChainTests
             LastUri = request.RequestUri;
             RequestCount++;
             var json = """
-                {"code":0,"data":{"item_list":["vid-a","vid-b"],"book_info":{"book_name":"测试剧","author":"作者甲","chapter_number":2}}}
+                {"code":0,"data":{"item_list":["vid-a","vid-b"],"cover_bundle":{"url_list":["https://p3-novel.byteimg.com/origin/novel-pic/directory-cover"]},"book_info":{"book_name":"测试剧","author":"作者甲","chapter_number":2}}}
                 """;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {

@@ -906,6 +906,13 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var pageEnrichmentTasks = new ConcurrentBag<Task<IReadOnlyList<DramaSearchItem>>>();
         var pageEnrichmentGate = new SemaphoreSlim(2, 2);
 
+        static bool HasRequiredMetrics(DramaSearchItem item) =>
+            !string.IsNullOrWhiteSpace(item.PosterUrl) &&
+            !string.IsNullOrWhiteSpace(item.Author) &&
+            !string.IsNullOrWhiteSpace(item.Category) &&
+            item.EpisodeTotal > 0 &&
+            !string.IsNullOrWhiteSpace(item.PublishTime);
+
         void UpdateProgressText()
         {
             if (generation != _searchGeneration || request.IsCancellationRequested)
@@ -931,7 +938,12 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 return;
             MergeEnrichedSearchItems(items);
             foreach (var item in items)
-                processedDetailIds.Add(item.BookId);
+            {
+                if (HasRequiredMetrics(item))
+                    processedDetailIds.Add(item.BookId);
+                else
+                    processedDetailIds.Remove(item.BookId);
+            }
             ApplyFilteredSearchResults(label);
             UpdateProgressText();
         });
@@ -943,6 +955,9 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             ReplaceLoadedSearchItems(items, sourceMode, preserveSelection: receivedPartial);
             receivedPartial = true;
             pagesDisplayed++;
+            processedDetailIds.Clear();
+            foreach (var item in _allSearchResults.Where(HasRequiredMetrics))
+                processedDetailIds.Add(item.BookId);
             ApplyFilteredSearchResults(label);
             var pageItems = items
                 .Where(item => scheduledDetailIds.Add(item.BookId))
