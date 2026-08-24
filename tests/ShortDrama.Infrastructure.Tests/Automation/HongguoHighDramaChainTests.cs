@@ -586,6 +586,41 @@ public sealed class HongguoHighDramaChainTests
     }
 
     [Fact]
+    public async Task Calendar_List_Reports_Completed_Pages_Without_Waiting_For_Slowest_Peer()
+    {
+        var releaseSlowPage = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var partialCounts = new System.Collections.Concurrent.ConcurrentQueue<int>();
+        var today = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+
+        async Task<IReadOnlyList<DramaSearchItem>> Load(int page, CancellationToken cancellationToken)
+        {
+            if (page == 4)
+                await releaseSlowPage.Task.WaitAsync(cancellationToken);
+            var count = page == 4 ? 1 : 20;
+            return Enumerable.Range(1, count)
+                .Select(index => new DramaSearchItem(
+                    $"hghigh:stream-{page}-{index}", $"剧{page}-{index}", "", 1, "", "", "作者", today))
+                .ToArray();
+        }
+
+        var loading = HongguoHighApiService.FetchCalendarListForTestsAsync(
+            Load,
+            days: 1,
+            progress: null,
+            CancellationToken.None,
+            new InlineProgress<IReadOnlyList<DramaSearchItem>>(items => partialCounts.Enqueue(items.Count)));
+
+        await Task.Delay(150);
+        partialCounts.Should().Contain([20, 40, 60]);
+        loading.IsCompleted.Should().BeFalse();
+
+        releaseSlowPage.SetResult(true);
+        var items = await loading;
+        items.Should().HaveCount(61);
+        partialCounts.Should().Contain(61);
+    }
+
+    [Fact]
     public async Task Ai_Landpage_Retries_504_With_Fresh_Signature()
     {
         using var httpClient = new HttpClient(new FailAllHandler());

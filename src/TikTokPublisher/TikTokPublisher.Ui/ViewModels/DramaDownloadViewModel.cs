@@ -23,13 +23,13 @@ public sealed record TikTokQueueImportRequest(
 
 public sealed partial class DramaSearchRowViewModel : ViewModelBase
 {
-    public DramaSearchItem Item { get; }
+    public DramaSearchItem Item { get; private set; }
 
     public DramaSearchRowViewModel(DramaSearchItem item) => Item = item;
 
     public event Action? SelectionChanged;
 
-    public int RowIndex { get; set; }
+    [ObservableProperty] private int _rowIndex;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasPosterImage))]
@@ -43,6 +43,7 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
 
     private CancellationTokenSource? _posterCts;
     private string? _loadedPosterUrl;
+    private string? _requestedPosterUrl;
 
     public bool Selected
     {
@@ -65,6 +66,25 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
     public string Intro => Item.Intro;
     public string PosterUrl => Item.PosterUrl;
 
+    public void UpdateItem(DramaSearchItem item)
+    {
+        var oldPosterUrl = (Item.PosterUrl ?? string.Empty).Trim();
+        var newPosterUrl = (item.PosterUrl ?? string.Empty).Trim();
+        Item = item;
+        OnPropertyChanged(nameof(Selected));
+        OnPropertyChanged(nameof(Title));
+        OnPropertyChanged(nameof(Author));
+        OnPropertyChanged(nameof(EpisodeTotal));
+        OnPropertyChanged(nameof(FavoriteText));
+        OnPropertyChanged(nameof(Category));
+        OnPropertyChanged(nameof(PublishTime));
+        OnPropertyChanged(nameof(Intro));
+        OnPropertyChanged(nameof(PosterUrl));
+
+        if (!string.Equals(oldPosterUrl, newPosterUrl, StringComparison.Ordinal))
+            ResetPosterState();
+    }
+
     public void RequestPosterLoad()
     {
         var url = (Item.PosterUrl ?? string.Empty).Trim();
@@ -72,12 +92,18 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
         {
             return;
         }
+        if (_posterCts is { IsCancellationRequested: false } &&
+            string.Equals(_requestedPosterUrl, url, StringComparison.Ordinal))
+        {
+            return;
+        }
 
         _posterCts?.Cancel();
         _posterCts?.Dispose();
-        _posterCts = new CancellationTokenSource();
-        var token = _posterCts.Token;
-        _ = LoadPosterAsync(url, token);
+        var request = new CancellationTokenSource();
+        _posterCts = request;
+        _requestedPosterUrl = url;
+        _ = LoadPosterAsync(url, request);
     }
 
     public void DisposePoster()
@@ -85,23 +111,30 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
         _posterCts?.Cancel();
         _posterCts?.Dispose();
         _posterCts = null;
+        _requestedPosterUrl = null;
         _loadedPosterUrl = null;
         PosterImage?.Dispose();
         PosterImage = null;
         PosterStatus = "封面加载中";
     }
 
-    private async Task LoadPosterAsync(string url, CancellationToken cancellationToken)
+    private void ResetPosterState()
     {
-        if (string.IsNullOrWhiteSpace(url))
-        {
-            await SetPosterStatusAsync("暂无封面", cancellationToken);
-            return;
-        }
+        DisposePoster();
+    }
 
-        await SetPosterStatusAsync("封面加载中", cancellationToken);
+    private async Task LoadPosterAsync(string url, CancellationTokenSource request)
+    {
+        var cancellationToken = request.Token;
         try
         {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                await SetPosterStatusAsync("暂无封面", cancellationToken);
+                return;
+            }
+
+            await SetPosterStatusAsync("封面加载中", cancellationToken);
             var path = await DramaPosterCache.TryGetLocalPathAsync(url, cancellationToken);
             if (cancellationToken.IsCancellationRequested)
             {
@@ -133,6 +166,15 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
         catch
         {
             await SetPosterStatusAsync("暂无封面", cancellationToken);
+        }
+        finally
+        {
+            if (ReferenceEquals(_posterCts, request))
+            {
+                _posterCts = null;
+                _requestedPosterUrl = null;
+                request.Dispose();
+            }
         }
     }
 
@@ -182,6 +224,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private readonly DramaDownloadRunner _runner = new();
     private readonly List<DramaSearchItem> _allSearchResults = new();
     private CancellationTokenSource? _downloadCts;
+    private CancellationTokenSource? _newReleaseCts;
+    private long _searchGeneration;
     private bool _isLoadingState;
 
     public ObservableCollection<DramaSearchRowViewModel> SearchResults { get; } = new();
@@ -610,6 +654,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         string sourceMode)
     {
         if (IsSearching) return;
+        CancelBackgroundNewRelease();
         IsSearching = true;
         SearchPageText = $"{label} · 加载中...";
         try
@@ -652,20 +697,51 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     private void ApplyFilteredSearchResults(string? label = null)
     {
-        var items = ApplySearchFilters(_allSearchResults);
-        foreach (var existing in SearchResults)
+        var items = ApplySearchFilters(_allSearchResults)
+            .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
+            .GroupBy(item => item.BookId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+        var reusable = SearchResults
+            .Where(row => !string.IsNullOrWhiteSpace(row.Item.BookId))
+            .GroupBy(row => row.Item.BookId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var desiredRows = new List<DramaSearchRowViewModel>(items.Count);
+        for (var index = 0; index < items.Count; index++)
         {
-            existing.SelectionChanged -= UpdateSelectedCount;
-            existing.DisposePoster();
+            var item = items[index];
+            if (reusable.TryGetValue(item.BookId, out var row))
+            {
+                row.UpdateItem(item);
+            }
+            else
+            {
+                row = new DramaSearchRowViewModel(item);
+                row.SelectionChanged += UpdateSelectedCount;
+            }
+            row.RowIndex = index + 1;
+            desiredRows.Add(row);
         }
 
-        SearchResults.Clear();
-        var index = 1;
-        foreach (var item in items)
+        var desiredSet = desiredRows.ToHashSet();
+        for (var index = SearchResults.Count - 1; index >= 0; index--)
         {
-            var row = new DramaSearchRowViewModel(item) { RowIndex = index++ };
-            row.SelectionChanged += UpdateSelectedCount;
-            SearchResults.Add(row);
+            var row = SearchResults[index];
+            if (desiredSet.Contains(row))
+                continue;
+            row.SelectionChanged -= UpdateSelectedCount;
+            row.DisposePoster();
+            SearchResults.RemoveAt(index);
+        }
+
+        for (var index = 0; index < desiredRows.Count; index++)
+        {
+            var row = desiredRows[index];
+            var currentIndex = SearchResults.IndexOf(row);
+            if (currentIndex < 0)
+                SearchResults.Insert(index, row);
+            else if (currentIndex != index)
+                SearchResults.Move(currentIndex, index);
         }
 
         SearchPageText = $"{(string.IsNullOrWhiteSpace(label) ? $"第 {SearchPage} 页" : label)} · 共 {SearchResults.Count} 条";
@@ -816,35 +892,119 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private async Task LoadProgressiveHighNewReleaseAsync(string label, bool isAi, string sourceMode)
     {
         if (IsSearching) return;
+        CancelBackgroundNewRelease();
+        var generation = _searchGeneration;
+        var request = new CancellationTokenSource();
+        _newReleaseCts = request;
         IsSearching = true;
         SearchPageText = $"{label} · 加载中...";
-        var progress = new Progress<string>(message => SearchPageText = $"{label} · {message}");
+        var progress = new Progress<string>(message =>
+        {
+            if (generation == _searchGeneration)
+                SearchPageText = $"{label} · {message}";
+        });
+        var receivedPartial = false;
+        var pageProgress = new Progress<IReadOnlyList<DramaSearchItem>>(items =>
+        {
+            if (generation != _searchGeneration || request.IsCancellationRequested)
+                return;
+            ReplaceLoadedSearchItems(items, sourceMode, preserveSelection: receivedPartial);
+            receivedPartial = true;
+            ApplyFilteredSearchResults(label);
+            SearchPageText = $"{label} · 已显示 {SearchResults.Count} 条 · 正在继续获取上新列表...";
+        });
         try
         {
             var days = Math.Clamp(QueryDays, 1, 30);
             var partial = isAi
-                ? await ShortDramaDramaServices.GetAiTodayAsync(days, enrich: false, progress, CancellationToken.None)
-                : await ShortDramaDramaServices.GetMangaTodayAsync(days, enrich: false, progress, CancellationToken.None);
-            ReplaceLoadedSearchItems(partial, sourceMode, preserveSelection: false);
+                ? await ShortDramaDramaServices.GetAiTodayAsync(
+                    days, enrich: false, progress, request.Token, pageProgress)
+                : await ShortDramaDramaServices.GetMangaTodayAsync(
+                    days, enrich: false, progress, request.Token, pageProgress);
+            if (generation != _searchGeneration || request.IsCancellationRequested)
+                return;
+            ReplaceLoadedSearchItems(partial, sourceMode, preserveSelection: receivedPartial);
             ApplyFilteredSearchResults(label);
             SearchPageText = $"{label} · 已显示 {SearchResults.Count} 条 · 正在后台补充详情...";
-
-            var full = isAi
-                ? await ShortDramaDramaServices.GetAiTodayAsync(days, enrich: true, progress, CancellationToken.None)
-                : await ShortDramaDramaServices.GetMangaTodayAsync(days, enrich: true, progress, CancellationToken.None);
-            ReplaceLoadedSearchItems(full, sourceMode, preserveSelection: true);
-            ApplyFilteredSearchResults(label);
-            LogRequested?.Invoke($"{label}：{SearchResults.Count} 条");
+            _ = CompleteHighNewReleaseDetailsAsync(
+                label, isAi, sourceMode, days, generation, request, progress);
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested)
+        {
+            // A newer search replaced this request.
         }
         catch (Exception ex)
         {
-            SearchPageText = $"{label} · 加载失败";
-            LogRequested?.Invoke($"{label}失败：{ex.Message}");
+            if (generation == _searchGeneration)
+            {
+                SearchPageText = $"{label} · 加载失败";
+                LogRequested?.Invoke($"{label}失败：{ex.Message}");
+            }
+            ReleaseNewReleaseRequest(request);
         }
         finally
         {
             IsSearching = false;
         }
+    }
+
+    private async Task CompleteHighNewReleaseDetailsAsync(
+        string label,
+        bool isAi,
+        string sourceMode,
+        int days,
+        long generation,
+        CancellationTokenSource request,
+        IProgress<string> progress)
+    {
+        try
+        {
+            var full = isAi
+                ? await ShortDramaDramaServices.GetAiTodayAsync(
+                    days, enrich: true, progress, request.Token)
+                : await ShortDramaDramaServices.GetMangaTodayAsync(
+                    days, enrich: true, progress, request.Token);
+            if (generation != _searchGeneration || request.IsCancellationRequested)
+                return;
+            ReplaceLoadedSearchItems(full, sourceMode, preserveSelection: true);
+            ApplyFilteredSearchResults(label);
+            SearchPageText = $"{label} · 共 {SearchResults.Count} 条";
+            LogRequested?.Invoke($"{label}：{SearchResults.Count} 条");
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested)
+        {
+            // A newer search replaced this background enrichment.
+        }
+        catch (Exception ex)
+        {
+            if (generation == _searchGeneration)
+            {
+                SearchPageText = $"{label} · 已显示 {SearchResults.Count} 条 · 详情补充失败";
+                LogRequested?.Invoke($"{label}详情补充失败：{ex.Message}");
+            }
+        }
+        finally
+        {
+            ReleaseNewReleaseRequest(request);
+        }
+    }
+
+    private void CancelBackgroundNewRelease()
+    {
+        Interlocked.Increment(ref _searchGeneration);
+        var previous = _newReleaseCts;
+        _newReleaseCts = null;
+        if (previous is null)
+            return;
+        previous.Cancel();
+        previous.Dispose();
+    }
+
+    private void ReleaseNewReleaseRequest(CancellationTokenSource request)
+    {
+        if (ReferenceEquals(_newReleaseCts, request))
+            _newReleaseCts = null;
+        request.Dispose();
     }
 
     private void ReplaceLoadedSearchItems(

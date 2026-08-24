@@ -125,7 +125,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int days,
         bool enrich,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
     {
         var settings = _settingsProvider.Get();
         return await LoadNewReleaseAsync(
@@ -133,7 +134,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             hgnewLoader: ct => LoadHgnewMangaTodayAsync(settings, days, ct),
             hglocalLoader: ct => GetLatestByGenreAsync(settings, "comic_series", days, ct),
             cancellationToken: cancellationToken,
-            hghighLoader: ct => _hghighApiService.GetManjuNewAsync(settings, days, enrich, progress, ct));
+            hghighLoader: ct => _hghighApiService.GetManjuNewAsync(
+                settings, days, enrich, progress, ct, partialResults));
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetAiTodayAsync(int days, CancellationToken cancellationToken)
@@ -143,7 +145,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int days,
         bool enrich,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
     {
         var settings = _settingsProvider.Get();
         return await LoadNewReleaseAsync(
@@ -151,7 +154,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             hgnewLoader: ct => LoadHgnewAiTodayAsync(settings, days, ct),
             hglocalLoader: ct => GetLatestByGenreAsync(settings, "ai_series", days, ct),
             cancellationToken: cancellationToken,
-            hghighLoader: ct => _hghighApiService.GetAiNewAsync(settings, days, enrich, progress, ct));
+            hghighLoader: ct => _hghighApiService.GetAiNewAsync(
+                settings, days, enrich, progress, ct, partialResults));
     }
 
     public bool IsHighSourceSelected() =>

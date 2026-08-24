@@ -62,7 +62,8 @@ public static class ShortDramaDramaServices
         int days,
         bool enrich,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
     {
         RefreshSettings();
         if (Search is not DramaSourceRouter router)
@@ -70,7 +71,12 @@ public static class ShortDramaDramaServices
             return [];
         }
 
-        var items = await router.GetMangaTodayAsync(days, enrich, progress, cancellationToken);
+        var corePartial = partialResults is null
+            ? null
+            : new ForwardProgress<IReadOnlyList<CoreSearchItem>>(items =>
+                partialResults.Report(items.Select(FromCore).ToArray()));
+        var items = await router.GetMangaTodayAsync(
+            days, enrich, progress, cancellationToken, corePartial);
         return items.Select(FromCore).ToArray();
     }
 
@@ -81,7 +87,8 @@ public static class ShortDramaDramaServices
         int days,
         bool enrich,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
     {
         RefreshSettings();
         if (Search is not DramaSourceRouter router)
@@ -89,7 +96,12 @@ public static class ShortDramaDramaServices
             return [];
         }
 
-        var items = await router.GetAiTodayAsync(days, enrich, progress, cancellationToken);
+        var corePartial = partialResults is null
+            ? null
+            : new ForwardProgress<IReadOnlyList<CoreSearchItem>>(items =>
+                partialResults.Report(items.Select(FromCore).ToArray()));
+        var items = await router.GetAiTodayAsync(
+            days, enrich, progress, cancellationToken, corePartial);
         return items.Select(FromCore).ToArray();
     }
 
@@ -181,5 +193,10 @@ public static class ShortDramaDramaServices
             DefaultRequestVersion = HttpVersion.Version11,
             DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
         };
+    }
+
+    private sealed class ForwardProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 }

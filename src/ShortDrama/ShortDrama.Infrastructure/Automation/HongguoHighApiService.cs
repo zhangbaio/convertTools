@@ -309,7 +309,8 @@ public sealed class HongguoHighApiService
         int days,
         bool enrich,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
     {
         var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
         return await GetCalendarNewAsync(
@@ -337,7 +338,8 @@ public sealed class HongguoHighApiService
                 return HongguoHighCalendarMapper.MapPayload(inner);
             },
             timeout,
-            cancellationToken);
+            cancellationToken,
+            partialResults);
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetAiNewAsync(
@@ -351,7 +353,8 @@ public sealed class HongguoHighApiService
         int days,
         bool enrich,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
     {
         var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
         return await GetCalendarNewAsync(
@@ -373,7 +376,8 @@ public sealed class HongguoHighApiService
                         .ToArray();
             },
             timeout,
-            cancellationToken);
+            cancellationToken,
+            partialResults);
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> GetCalendarNewAsync(
@@ -384,7 +388,8 @@ public sealed class HongguoHighApiService
         IProgress<string>? progress,
         Func<int, CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> pageLoader,
         int timeoutSeconds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
     {
         var windowDays = Math.Clamp(days, 1, 30);
         var phase = enrich ? "enriched" : "list";
@@ -392,6 +397,8 @@ public sealed class HongguoHighApiService
         if (TryReadCalendarCache(key, out var cached))
         {
             progress?.Report($"已使用 5 分钟内{(enrich ? "完整结果" : "上新列表")}缓存 · 共 {cached.Count} 部");
+            if (!enrich)
+                partialResults?.Report(cached);
             return cached;
         }
 
@@ -404,7 +411,12 @@ public sealed class HongguoHighApiService
         }
         else
         {
-            items = await FetchCalendarListAsync(pageLoader, windowDays, progress, cancellationToken);
+            items = await FetchCalendarListAsync(
+                pageLoader,
+                windowDays,
+                progress,
+                cancellationToken,
+                partialResults);
             _calendarCache[listKey] = new CalendarCacheEntry(DateTimeOffset.UtcNow, items);
         }
 
@@ -426,14 +438,16 @@ public sealed class HongguoHighApiService
         bool enrich,
         IProgress<string>? progress,
         Func<int, CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> pageLoader,
-        CancellationToken cancellationToken) =>
-        GetCalendarNewAsync(kind, settings, days, enrich, progress, pageLoader, 30, cancellationToken);
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null) =>
+        GetCalendarNewAsync(kind, settings, days, enrich, progress, pageLoader, 30, cancellationToken, partialResults);
 
     private static async Task<IReadOnlyList<DramaSearchItem>> FetchCalendarListAsync(
         Func<int, CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> pageLoader,
         int days,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null)
     {
         var results = new List<DramaSearchItem>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -452,21 +466,33 @@ public sealed class HongguoHighApiService
             return pageItems.Count == 0 || pageItems.Count < CalendarPageSize || PageIsBeforeWindow(pageItems, days);
         }
 
+        void ReportPartial() =>
+            partialResults?.Report(HongguoHighCalendarMapper.FilterByRecentDays(results, days));
+
         progress?.Report("正在拉取上新列表 · 第 1 页");
         var stopped = MergePage(1, await pageLoader(1, cancellationToken));
+        ReportPartial();
         for (var start = 2; !stopped && start <= CalendarMaxPages; start += CalendarPageConcurrency)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var pageNumbers = Enumerable.Range(start, Math.Min(CalendarPageConcurrency, CalendarMaxPages - start + 1)).ToArray();
             progress?.Report($"正在并发拉取上新列表 · 第 {pageNumbers.First()}-{pageNumbers.Last()} 页");
-            var pages = await Task.WhenAll(pageNumbers.Select(async page =>
-                (Page: page, Items: await pageLoader(page, cancellationToken))));
-            foreach (var page in pages.OrderBy(item => item.Page))
+            var pending = pageNumbers
+                .Select(async page => (Page: page, Items: await pageLoader(page, cancellationToken)))
+                .ToList();
+            var completed = new SortedDictionary<int, IReadOnlyList<DramaSearchItem>>();
+            var nextPage = pageNumbers.First();
+            while (pending.Count > 0)
             {
-                stopped = MergePage(page.Page, page.Items);
-                if (stopped)
+                var task = await Task.WhenAny(pending);
+                pending.Remove(task);
+                var page = await task;
+                completed[page.Page] = page.Items;
+                while (!stopped && completed.Remove(nextPage, out var pageItems))
                 {
-                    break;
+                    stopped = MergePage(nextPage, pageItems);
+                    ReportPartial();
+                    nextPage++;
                 }
             }
         }
@@ -478,8 +504,9 @@ public sealed class HongguoHighApiService
         Func<int, CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> pageLoader,
         int days,
         IProgress<string>? progress,
-        CancellationToken cancellationToken) =>
-        FetchCalendarListAsync(pageLoader, days, progress, cancellationToken);
+        CancellationToken cancellationToken,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults = null) =>
+        FetchCalendarListAsync(pageLoader, days, progress, cancellationToken, partialResults);
 
     private async Task<IReadOnlyList<DramaSearchItem>> EnrichCalendarItemsAsync(
         IReadOnlyList<DramaSearchItem> items,
