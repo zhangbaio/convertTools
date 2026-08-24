@@ -257,7 +257,7 @@ public static class ClientSettingsStore
         var chain = (settings.DramaSourceChain ?? "hgnew").Trim().ToLowerInvariant();
         settings.DramaSourceChain = chain switch
         {
-            "hgnew" or "hglocal" or "pikachu" or "hghigh" => chain,
+            "hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf" => chain,
             _ => "hgnew"
         };
 

@@ -23,6 +23,9 @@ public sealed class GlobalDesktopSettings
     public string HghighPassword { get; set; } = string.Empty;
     public string HghighDeviceId { get; set; } = string.Empty;
     public string HghighClientExe { get; set; } = string.Empty;
+    public string MapleleafAccount { get; set; } = string.Empty;
+    public string MapleleafPassword { get; set; } = string.Empty;
+    public string MapleleafUdid { get; set; } = string.Empty;
     public int HongguoDownloadTimeoutSeconds { get; set; } = 60;
     public int HongguoEpisodeDownloadAttempts { get; set; } = 5;
     public string HongguoLocalBaseUrl { get; set; } = string.Empty;

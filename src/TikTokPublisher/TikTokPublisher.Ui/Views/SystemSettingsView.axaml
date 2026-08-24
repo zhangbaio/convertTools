@@ -150,6 +150,32 @@
 
                         <Separator Margin="0,4" />
 
+                        <TextBlock Text="Mapleleaf 链路（1.6.0 独立接口）" FontWeight="Bold" />
+                        <TextBlock Text="账号、密码和 DeviceUDID 与红果新接口完全独立。搜索、上新和剧集列表走 Mapleleaf；单集播放地址通常需要同时配置下方的本地直连红果 API。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Mapleleaf 账号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MapleleafAccount}" Watermark="邮箱或手机号" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Mapleleaf 密码" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding MapleleafPassword}" PasswordChar="●" RevealPassword="False" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="DeviceUDID" VerticalAlignment="Center" />
+                            <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                                <TextBox Grid.Column="0"
+                                         Text="{Binding MapleleafUdid, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         Watermark="GUID 或 32 位设备号" />
+                                <Button Grid.Column="1" Content="读取 DeviceUDID" Command="{Binding ReadMapleleafUdidCommand}" MinWidth="120" />
+                                <Button Grid.Column="2" Content="生成" Command="{Binding GenerateMapleleafUdidCommand}" MinWidth="72" />
+                                <Button Grid.Column="3" Content="测试登录" Command="{Binding ProbeMapleleafLoginCommand}" MinWidth="96" />
+                            </Grid>
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="测试结果" VerticalAlignment="Center" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding MapleleafProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+                        </Grid>
+
+                        <Separator Margin="0,4" />
+
                         <TextBlock Text="本地直连链路（自建红果接口服务）" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本地链路地址" VerticalAlignment="Center" />

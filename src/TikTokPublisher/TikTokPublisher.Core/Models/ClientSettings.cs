@@ -22,6 +22,9 @@ public sealed class ClientSettings
     public string HghighPassword { get; set; } = "";
     public string HghighDeviceId { get; set; } = "";
     public string HghighClientExe { get; set; } = "";
+    public string MapleleafAccount { get; set; } = "";
+    public string MapleleafPassword { get; set; } = "";
+    public string MapleleafUdid { get; set; } = "";
 
     public string HongguoLocalBaseUrl { get; set; } = "";
     public string HongguoLocalApiKey { get; set; } = "";
@@ -178,6 +181,9 @@ public sealed class ClientSettings
         HghighPassword = HghighPassword,
         HghighDeviceId = HghighDeviceId,
         HghighClientExe = HghighClientExe,
+        MapleleafAccount = MapleleafAccount,
+        MapleleafPassword = MapleleafPassword,
+        MapleleafUdid = MapleleafUdid,
         HongguoLocalBaseUrl = HongguoLocalBaseUrl,
         HongguoLocalApiKey = HongguoLocalApiKey,
         HongguoLocalDownloadMode = HongguoLocalDownloadMode,

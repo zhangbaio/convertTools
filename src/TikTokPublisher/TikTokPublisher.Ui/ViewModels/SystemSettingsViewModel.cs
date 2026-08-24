@@ -53,6 +53,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _hghighRevealEnc;
     [ObservableProperty] private bool _hghighRevealSign;
 
+    [ObservableProperty] private string _mapleleafAccount = "";
+    [ObservableProperty] private string _mapleleafPassword = "";
+    [ObservableProperty] private string _mapleleafUdid = "";
+    [ObservableProperty] private string _mapleleafProbeStatus = "";
+
     public string HghighRevealEncButtonText => HghighRevealEnc ? "隐藏密钥" : "显示密钥";
     public string HghighRevealSignButtonText => HghighRevealSign ? "隐藏密钥" : "显示密钥";
 
@@ -154,6 +159,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [
         "hgnew",
         "hghigh",
+        "mapleleaf",
         "hglocal",
         "pikachu"
     ];
@@ -203,6 +209,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HghighPassword = HghighPassword,
         HghighDeviceId = HghighDeviceId.Trim(),
         HghighClientExe = HghighClientExe.Trim(),
+        MapleleafAccount = MapleleafAccount.Trim(),
+        MapleleafPassword = MapleleafPassword,
+        MapleleafUdid = MapleleafUdid.Trim(),
         HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
         HongguoLocalApiKey = HongguoLocalApiKey.Trim(),
         HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(HongguoLocalDownloadMode),
@@ -671,6 +680,61 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void ReadMapleleafUdid()
+    {
+        var deviceId = MapleleafDeviceStore.TryReadDeviceId();
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            MapleleafProbeStatus = "未在注册表中找到 HongGuoClient\\DeviceUDID。请先登录 Mapleleaf，或生成新设备号。";
+            return;
+        }
+
+        MapleleafUdid = deviceId;
+        MapleleafProbeStatus = "已从注册表读取 Mapleleaf DeviceUDID。";
+    }
+
+    [RelayCommand]
+    private void GenerateMapleleafUdid()
+    {
+        if (!string.IsNullOrWhiteSpace(MapleleafUdid))
+        {
+            MapleleafProbeStatus = "设备号已有值；如确需更换，请先清空后再生成，避免账号与旧设备解绑。";
+            return;
+        }
+
+        MapleleafUdid = MapleleafDeviceStore.GenerateDeviceId();
+        MapleleafProbeStatus = "已生成新的 Mapleleaf DeviceUDID，请保存设置。";
+    }
+
+    [RelayCommand]
+    private async Task ProbeMapleleafLoginAsync()
+    {
+        if (string.IsNullOrWhiteSpace(MapleleafAccount) || string.IsNullOrWhiteSpace(MapleleafPassword))
+        {
+            MapleleafProbeStatus = "请先填写 Mapleleaf 账号和密码。";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(MapleleafUdid))
+        {
+            MapleleafProbeStatus = "请先填写、读取或生成 Mapleleaf DeviceUDID。";
+            return;
+        }
+
+        MapleleafProbeStatus = "测试中...";
+        try
+        {
+            var settings = DramaSourceSettingsMapping.FromClientSettings(ToSettings());
+            var result = await new MapleleafApiService(ProbeHttp).ProbeLoginAsync(settings, CancellationToken.None);
+            var preview = result.Token.Length > 12 ? $"{result.Token[..6]}…{result.Token[^4..]}" : result.Token;
+            MapleleafProbeStatus = $"测试登录成功：{DateTime.Now:HH:mm:ss} token={preview}";
+        }
+        catch (Exception ex)
+        {
+            MapleleafProbeStatus = $"测试登录失败：{ex.Message}";
+        }
+    }
+
+    [RelayCommand]
     private async Task ProbeAiTextAsync()
     {
         if (string.IsNullOrWhiteSpace(AiTextEndpoint) || string.IsNullOrWhiteSpace(AiTextApiKey))
@@ -853,6 +917,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             ? HongguoHighDeviceStore.TryReadDeviceId()
             : settings.HghighDeviceId;
         HghighClientExe = settings.HghighClientExe;
+        MapleleafAccount = settings.MapleleafAccount;
+        MapleleafPassword = settings.MapleleafPassword;
+        MapleleafUdid = string.IsNullOrWhiteSpace(settings.MapleleafUdid)
+            ? MapleleafDeviceStore.TryReadDeviceId()
+            : settings.MapleleafUdid;
         var masters = HongguoHighDeviceStore.LoadStartupMastersRaw();
         HghighEncMaster = masters.Enc;
         HghighSignMaster = masters.Sign;
