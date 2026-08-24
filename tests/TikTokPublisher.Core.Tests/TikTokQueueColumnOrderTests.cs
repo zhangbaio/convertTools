@@ -1,4 +1,5 @@
 using FluentAssertions;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace TikTokPublisher.Core.Tests;
@@ -39,6 +40,34 @@ public sealed class TikTokQueueColumnOrderTests
         xaml.Should().Contain("Grid.Column=\"21\"\n                                                 Classes=\"queueRemarkBox\"");
         xaml.Should().Contain("ColumnDefinitions=\"48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180\"");
     }
+
+    [Fact]
+    public void Queue_table_runtime_width_arrays_match_xaml_column_count()
+    {
+        var root = FindRepositoryRoot();
+        var xaml = File.ReadAllText(Path.Combine(
+            root, "src", "TikTokPublisher", "TikTokPublisher.Ui", "Views", "TikTokQueueView.axaml"));
+        var code = File.ReadAllText(Path.Combine(
+            root, "src", "TikTokPublisher", "TikTokPublisher.Ui", "Views", "TikTokQueueView.axaml.cs"));
+
+        var definitions = Regex.Match(
+            xaml,
+            "QueueTableHeaderGrid[^>]+ColumnDefinitions=\"(?<values>[^\"]+)\"")
+            .Groups["values"].Value.Split(',', StringSplitOptions.TrimEntries);
+        var defaults = ReadArray(code, "QueueTableDefaultColumnWidths");
+        var minimums = ReadArray(code, "QueueTableMinColumnWidths");
+
+        defaults.Should().HaveCount(definitions.Length);
+        minimums.Should().HaveCount(definitions.Length);
+    }
+
+    private static string[] ReadArray(string code, string fieldName) =>
+        Regex.Match(
+                code,
+                $@"{fieldName}\s*=\s*\{{(?<values>.*?)\}};",
+                RegexOptions.Singleline)
+            .Groups["values"].Value
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private static string FindRepositoryRoot()
     {
