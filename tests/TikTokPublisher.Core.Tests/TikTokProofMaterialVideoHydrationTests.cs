@@ -84,6 +84,25 @@ public sealed class TikTokProofMaterialVideoHydrationTests
             .ToString().Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData(new int[0], 0, 1, new[] { 1 })]
+    [InlineData(new[] { 1 }, 1, 2, new[] { 2 })]
+    [InlineData(new[] { 1, 2 }, 2, 3, new[] { 3 })]
+    [InlineData(new[] { 1, 2, 3 }, 3, 3, new int[0])]
+    [InlineData(new[] { 9 }, 1, 2, new[] { 1 })]
+    public void ResolveMissingProofMaterialEpisodes_DownloadsOnlyTheIncrementalMinimum(
+        int[] existingEpisodeNumbers,
+        int existingVideoCount,
+        int requiredEpisodeCount,
+        int[] expected)
+    {
+        QueueMaterialStepService.ResolveMissingProofMaterialEpisodes(
+                existingEpisodeNumbers,
+                existingVideoCount,
+                requiredEpisodeCount)
+            .Should().Equal(expected);
+    }
+
     private sealed class TemporaryDirectory : IDisposable
     {
         public TemporaryDirectory()

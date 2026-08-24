@@ -16,10 +16,11 @@ internal static class TikTokVisualEvidencePreparationService
         string dramaTitle,
         ClientSettings settings,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        int minimumRetainedFrameCount = 0)
     {
         var workflow = Path.GetFullPath(workflowProjectDirectory);
-        if (TikTokAiGenerationScreenshotService.HasCurrentOutput(workflow))
+        if (HasCurrentOutput(workflow, minimumRetainedFrameCount))
             return TikTokAiGenerationScreenshotService.ListGeneratedImages(workflow);
 
         var lazy = ActivePreparations.GetOrAdd(
@@ -36,6 +37,17 @@ internal static class TikTokVisualEvidencePreparationService
             if (lazy.IsValueCreated && lazy.Value.IsCompleted)
                 ActivePreparations.TryRemove(workflow, out _);
         }
+    }
+
+    internal static bool HasCurrentOutput(string workflowProjectDirectory, int minimumRetainedFrameCount)
+    {
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        if (!TikTokAiGenerationScreenshotService.HasCurrentOutput(workflow))
+            return false;
+
+        var minimum = Math.Max(0, minimumRetainedFrameCount);
+        return minimum == 0 ||
+               TikTokAiGenerationScreenshotService.ListRetainedFrameImages(workflow).Take(minimum).Count() >= minimum;
     }
 
     private static Task<IReadOnlyList<string>> GenerateAsync(

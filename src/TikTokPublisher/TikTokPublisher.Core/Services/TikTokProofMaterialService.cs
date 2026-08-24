@@ -281,10 +281,9 @@ public sealed class TikTokProofMaterialService
                     "请先执行“生成角色矢量图”步骤；生成证明材料不会自动重新生成角色图片。");
             }
             log?.Invoke("[原始文件或素材文件信息] 前置校验通过，将只重新生成截图和上传包。");
-            if (!TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir) &&
-                TikTokAiDramaProductionMaterialService.CanGenerate(context.WorkflowProjectDir))
+            if (!TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir))
             {
-                log?.Invoke("[原始文件或素材文件信息] 检测到真实抽帧和工作台素材，自动整理 AI 漫剧制作素材。");
+                log?.Invoke("[原始文件或素材文件信息] 自动整理 AI 漫剧制作素材；缺少真实视频时将执行最小补源。");
                 await TikTokAiDramaProductionMaterialService.GenerateAsync(
                     item,
                     settings,

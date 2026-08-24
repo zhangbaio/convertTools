@@ -1,9 +1,46 @@
+using FluentAssertions;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokAiDramaProductionMaterialServiceTests
 {
+    [Fact]
+    public void MinimumSourcePolicy_UsesTwelveFramesAndAtMostThreeEpisodes()
+    {
+        TikTokAiDramaProductionMaterialService.RequiredSourceFrameCount.Should().Be(12);
+        TikTokAiDramaProductionMaterialService.MaxSourceSupplementEpisodeCount.Should().Be(3);
+    }
+
+    [Fact]
+    public void VisualEvidenceCache_RequiresRequestedRetainedFrameCount()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-visual-evidence-{Guid.NewGuid():N}");
+        var output = TikTokAiGenerationScreenshotService.GetOutputDirectory(workflow);
+        var retained = TikTokAiGenerationScreenshotService.GetRetainedFramesDirectory(workflow);
+        Directory.CreateDirectory(retained);
+        try
+        {
+            for (var index = 1; index <= TikTokAiGenerationScreenshotService.RequiredImageCount; index++)
+                File.WriteAllText(Path.Combine(output, $"{index:D2}_分镜工作台.png"), "storyboard");
+            File.WriteAllText(
+                TikTokAiGenerationScreenshotService.GetRetainedFramesManifestPath(workflow),
+                "{}");
+
+            TikTokVisualEvidencePreparationService.HasCurrentOutput(workflow, 0).Should().BeTrue();
+            TikTokVisualEvidencePreparationService.HasCurrentOutput(workflow, 12).Should().BeFalse();
+
+            for (var index = 1; index <= 12; index++)
+                File.WriteAllText(Path.Combine(retained, $"frame-{index:D2}.jpg"), "frame");
+
+            TikTokVisualEvidencePreparationService.HasCurrentOutput(workflow, 12).Should().BeTrue();
+        }
+        finally
+        {
+            if (Directory.Exists(workflow)) Directory.Delete(workflow, true);
+        }
+    }
+
     [Fact]
     public void NeedsSourceMaterialRefresh_RequiresTwelveFramesAndStoryboardImage()
     {
