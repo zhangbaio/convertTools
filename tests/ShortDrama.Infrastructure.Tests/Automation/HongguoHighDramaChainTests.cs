@@ -231,6 +231,52 @@ public sealed class HongguoHighCalendarMapperTests
     }
 
     [Fact]
+    public void MapPayload_Reads_Original_App_Cover_Shapes_And_Normalizes_Byteimg_Template()
+    {
+        var payload = JsonNode.Parse("""
+            {
+              "items": [
+                {
+                  "video_data": {
+                    "series_id": "ai-cover-1",
+                    "series_title": "AI封面剧",
+                    "seriesCover": {
+                      "urlList": [
+                        "https://p3-novel.byteimg.com/img/novel-pic/abc123~tplv-resize:200:300.image?x=1"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "bookInfo": {
+                    "bookId": "ai-cover-2",
+                    "bookName": "备用封面剧",
+                    "bookCover": {
+                      "urls": ["//p3-novel.byteimg.com/origin/novel-pic/def456"]
+                    }
+                  }
+                }
+              ]
+            }
+            """)!;
+
+        var items = HongguoHighCalendarMapper.MapPayload(payload);
+
+        items.Should().HaveCount(2);
+        items[0].PosterUrl.Should().Be("https://p3-novel.byteimg.com/origin/novel-pic/abc123");
+        items[1].PosterUrl.Should().Be("https://p3-novel.byteimg.com/origin/novel-pic/def456");
+    }
+
+    [Theory]
+    [InlineData("file:///tmp/poster.jpg")]
+    [InlineData("novel-pic/abc123")]
+    [InlineData("")]
+    public void NormalizeMediaUrl_Rejects_NonHttp_Values(string value)
+    {
+        HongguoHighCalendarMapper.NormalizeMediaUrl(value).Should().BeNull();
+    }
+
+    [Fact]
     public void ApplyBookInfo_Fills_Author_Episodes_And_Clock()
     {
         var item = new DramaSearchItem("hghigh:1", "剧名", "", 0, "", "", "", "2026-08-18 00:00:00");

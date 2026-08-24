@@ -14,7 +14,8 @@ public static class HongguoHighCalendarMapper
     private static readonly string[] NestedKeys =
     [
         "book_info", "bookInfo", "series_info", "seriesInfo",
-        "video_data", "videoData", "album_info", "albumInfo"
+        "video_data", "videoData", "video_detail", "videoDetail",
+        "album_info", "albumInfo"
     ];
 
     private static readonly string[] BookIdKeys =
@@ -33,7 +34,21 @@ public static class HongguoHighCalendarMapper
         ["category", "tag_text", "type", "complete_category", "tags"];
 
     private static readonly string[] CoverKeys =
-        ["thumb_url", "cover", "series_cover", "cover_url", "poster", "audio_thumb_uri", "thumb_uri"];
+    [
+        "series_cover", "seriesCover", "book_cover", "bookCover",
+        "poster_url", "posterUrl", "poster", "cover",
+        "origin_cover", "originCover", "cover_url", "coverUrl",
+        "thumb_url", "thumbUrl", "thumb_uri", "thumbUri",
+        "audio_thumb_uri", "audioThumbUri", "horiz_thumb_url", "horizThumbUrl",
+        "image_url", "imageUrl"
+    ];
+
+    private static readonly string[] MediaValueKeys =
+    [
+        "url_list", "urlList", "urls", "url",
+        "cover_url", "coverUrl", "main_url", "mainUrl",
+        "uri", "web_uri", "webUri"
+    ];
 
     private static readonly string[] PublishKeys =
     [
@@ -201,7 +216,7 @@ public static class HongguoHighCalendarMapper
             Category: category,
             EpisodeTotal: ReadEpisodeTotal(obj, nested),
             Intro: FirstMeaningful(obj, IntroKeys, nested) ?? "",
-            PosterUrl: FirstMeaningful(obj, CoverKeys, nested) ?? "",
+            PosterUrl: FirstMediaUrl(obj, CoverKeys, nested) ?? "",
             Author: FirstMeaningful(obj, AuthorKeys, nested) ?? "",
             PublishTime: NormalizePublishTime(CollectPublishValues(obj, nested)),
             FavoriteCount: FirstPositiveInt(obj, ["favorite_count", "followed_cnt", "collect_count", "add_bookshelf_count", "addBookshelfCount"], nested));
@@ -228,7 +243,7 @@ public static class HongguoHighCalendarMapper
             ? FirstMeaningful(bookInfo, IntroKeys, []) ?? ""
             : item.Intro;
         var poster = string.IsNullOrWhiteSpace(item.PosterUrl)
-            ? FirstMeaningful(bookInfo, CoverKeys, []) ?? ""
+            ? FirstMediaUrl(bookInfo, CoverKeys, []) ?? ""
             : item.PosterUrl;
         var favorite = item.FavoriteCount > 0
             ? item.FavoriteCount
@@ -350,6 +365,96 @@ public static class HongguoHighCalendarMapper
         }
 
         return null;
+    }
+
+    private static string? FirstMediaUrl(
+        JsonObject obj,
+        IEnumerable<string> keys,
+        IReadOnlyList<JsonObject> nested)
+    {
+        foreach (var key in keys)
+        {
+            if (obj.TryGetPropertyValue(key, out var value))
+            {
+                var url = MediaUrlValue(value);
+                if (url is not null)
+                    return url;
+            }
+
+            foreach (var child in nested)
+            {
+                if (!child.TryGetPropertyValue(key, out value))
+                    continue;
+                var url = MediaUrlValue(value);
+                if (url is not null)
+                    return url;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? MediaUrlValue(JsonNode? value)
+    {
+        switch (value)
+        {
+            case JsonValue scalar when scalar.TryGetValue<string>(out var text):
+                return NormalizeMediaUrl(text);
+            case JsonArray array:
+                foreach (var item in array)
+                {
+                    var url = MediaUrlValue(item);
+                    if (url is not null)
+                        return url;
+                }
+                break;
+            case JsonObject obj:
+                foreach (var key in MediaValueKeys)
+                {
+                    if (!obj.TryGetPropertyValue(key, out var nested))
+                        continue;
+                    var url = MediaUrlValue(nested);
+                    if (url is not null)
+                        return url;
+                }
+                break;
+        }
+
+        return null;
+    }
+
+    internal static string? NormalizeMediaUrl(string? value)
+    {
+        var raw = (value ?? "").Trim();
+        if (raw.StartsWith("//", StringComparison.Ordinal))
+            raw = "https:" + raw;
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return null;
+
+        const string marker = "/novel-pic/";
+        var path = uri.AbsolutePath;
+        var markerIndex = path.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        var templateIndex = markerIndex >= 0
+            ? path.IndexOf('~', markerIndex + marker.Length)
+            : -1;
+        if (uri.Host.EndsWith(".byteimg.com", StringComparison.OrdinalIgnoreCase) &&
+            markerIndex >= 0 &&
+            templateIndex > markerIndex)
+        {
+            var imageId = path[(markerIndex + marker.Length)..templateIndex];
+            if (!string.IsNullOrWhiteSpace(imageId))
+            {
+                var prefix = path[..markerIndex];
+                if (prefix.EndsWith("/img", StringComparison.OrdinalIgnoreCase))
+                    prefix = prefix[..^4];
+                if (!prefix.EndsWith("/origin", StringComparison.OrdinalIgnoreCase))
+                    prefix += "/origin";
+                return $"{uri.Scheme}://{uri.Authority}{prefix}{marker}{imageId}";
+            }
+        }
+
+        return uri.AbsoluteUri;
     }
 
     private static int FirstPositiveInt(JsonObject obj, IEnumerable<string> keys, IReadOnlyList<JsonObject> nested)
