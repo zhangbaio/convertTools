@@ -270,6 +270,24 @@ public sealed class HongguoHighCalendarMapperTests
     }
 
     [Fact]
+    public void Calendar_enrichment_is_required_when_only_poster_is_missing()
+    {
+        var missingPoster = new DramaSearchItem(
+            "hghigh:1",
+            "剧名",
+            "都市日常",
+            36,
+            "简介",
+            "",
+            "作者甲",
+            "2026-08-24 10:00:00");
+        var complete = missingPoster with { PosterUrl = "https://cdn.example.com/poster.jpg" };
+
+        HongguoHighApiService.NeedsCalendarEnrichment(missingPoster).Should().BeTrue();
+        HongguoHighApiService.NeedsCalendarEnrichment(complete).Should().BeFalse();
+    }
+
+    [Fact]
     public void ReadEpisodeTotal_Uses_Drama_Count_Before_Stale_Or_Unrelated_Counts()
     {
         var info = JsonNode.Parse("""

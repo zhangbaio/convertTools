@@ -496,9 +496,7 @@ public sealed class HongguoHighApiService
         var completed = 0;
         var enriched = await Task.WhenAll(items.Select(async item =>
         {
-            if (!string.IsNullOrWhiteSpace(item.Author) &&
-                item.EpisodeTotal > 0 &&
-                !string.IsNullOrWhiteSpace(item.PublishTime))
+            if (!NeedsCalendarEnrichment(item))
             {
                 var done = Interlocked.Increment(ref completed);
                 if (done == items.Count || done % 20 == 0)
@@ -526,6 +524,12 @@ public sealed class HongguoHighApiService
         }));
         return enriched;
     }
+
+    internal static bool NeedsCalendarEnrichment(DramaSearchItem item) =>
+        string.IsNullOrWhiteSpace(item.Author) ||
+        item.EpisodeTotal <= 0 ||
+        string.IsNullOrWhiteSpace(item.PublishTime) ||
+        string.IsNullOrWhiteSpace(item.PosterUrl);
 
     private static bool PageIsBeforeWindow(IReadOnlyList<DramaSearchItem> items, int days)
     {
