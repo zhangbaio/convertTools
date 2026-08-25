@@ -39,7 +39,9 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         FinalAction finalAction,
         Action<string>? log,
         bool uploadFilesPreflighted,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool? playwrightHeadlessOverride = null,
+        bool allowHeadedSubmitRetry = true)
     {
         void L(string m) => log?.Invoke(m);
 
@@ -140,9 +142,45 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
 
         var useLaunch = string.Equals(
             (account.TiktokUploadBrowserMode ?? "").Trim(), "playwright", StringComparison.OrdinalIgnoreCase);
-        if (useLaunch && account.TiktokPlaywrightUploadHeadless && finalAction == FinalAction.Publish)
+        var launchHeadless = playwrightHeadlessOverride ?? account.TiktokPlaywrightUploadHeadless;
+        if (useLaunch && launchHeadless && finalAction == FinalAction.Publish)
         {
             L("提示：当前使用外部浏览器无头模式提交，TikTok 可能在最终提交阶段触发风控；提交后会校验原创管理状态。");
+        }
+
+        async Task<PublishResult> RetrySubmitWithHeadedBrowserAsync(string reason)
+        {
+            await CaptureFailureSnapshotAsync(reason).ConfigureAwait(false);
+            L($"无头浏览器提交未被 TikTok 接受，自动切换可见浏览器重试一次：{reason}");
+            try { dailyLimitCts?.Cancel(); } catch { /* watcher is already stopping */ }
+            if (dailyLimitWatcher is not null)
+            {
+                try { await dailyLimitWatcher.ConfigureAwait(false); }
+                catch (OperationCanceledException) { /* normal watcher shutdown */ }
+                catch (ObjectDisposedException) { /* linked CTS already released */ }
+                catch { /* a fresh browser retry must not be blocked by the old watcher */ }
+            }
+            dailyLimitCts?.Dispose();
+            dailyLimitCts = null;
+            dailyLimitWatcher = null;
+            try { await (chromium?.DisposeAsync() ?? ValueTask.CompletedTask).ConfigureAwait(false); }
+            catch { /* retry with a fresh browser */ }
+            chromium = null;
+            pw?.Dispose();
+            pw = null;
+            activePage = null;
+
+            return await PublishCoreAsync(
+                    account,
+                    item,
+                    browser,
+                    finalAction,
+                    log,
+                    uploadFilesPreflighted: true,
+                    ct: outerCt,
+                    playwrightHeadlessOverride: false,
+                    allowHeadedSubmitRetry: false)
+                .ConfigureAwait(false);
         }
 
         try
@@ -152,7 +190,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             {
                 var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
                 (pw, chromium, page) = await EmbeddedBrowserAutomationBridge
-                    .LaunchPageAsync(account, targetUrl, authPath, account.TiktokPlaywrightUploadHeadless, L, ct)
+                    .LaunchPageAsync(account, targetUrl, authPath, launchHeadless, L, ct)
                     .ConfigureAwait(false);
             }
             else
@@ -339,6 +377,12 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title, snapshotDir);
             return PublishResult.FailAndStopQueue(message);
         }
+        catch (TikTokPlatformTemporaryException ex) when (
+            ShouldRetrySubmitWithHeadedBrowser(
+                useLaunch, launchHeadless, finalAction, allowHeadedSubmitRetry, ex.Message))
+        {
+            return await RetrySubmitWithHeadedBrowserAsync(ex.Message).ConfigureAwait(false);
+        }
         catch (TikTokPlatformTemporaryException ex)
         {
             var message = ex.Message;
@@ -347,6 +391,12 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             if (hasWorkflow)
                 TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title, snapshotDir);
             return PublishResult.Fail(message);
+        }
+        catch (InvalidOperationException ex) when (
+            ShouldRetrySubmitWithHeadedBrowser(
+                useLaunch, launchHeadless, finalAction, allowHeadedSubmitRetry, ex.Message))
+        {
+            return await RetrySubmitWithHeadedBrowserAsync(ex.Message).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -382,6 +432,23 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             catch { /* disconnect CDP only */ }
             pw?.Dispose();
         }
+    }
+
+    internal static bool ShouldRetrySubmitWithHeadedBrowser(
+        bool useLaunch,
+        bool launchHeadless,
+        FinalAction finalAction,
+        bool allowRetry,
+        string? failureMessage)
+    {
+        if (!useLaunch || !launchHeadless || finalAction != FinalAction.Publish || !allowRetry)
+            return false;
+
+        var message = failureMessage ?? "";
+        return message.Contains("平台暂时性提交失败", StringComparison.Ordinal) ||
+               message.Contains("操作失败请重试", StringComparison.Ordinal) ||
+               message.Contains("提交后平台仍显示草稿", StringComparison.Ordinal) ||
+               message.Contains("提交后未确认进入视频检测", StringComparison.Ordinal);
     }
 
     /// <summary>

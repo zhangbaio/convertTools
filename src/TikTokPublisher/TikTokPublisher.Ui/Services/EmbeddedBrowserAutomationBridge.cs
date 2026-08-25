@@ -72,6 +72,7 @@ public static class EmbeddedBrowserAutomationBridge
 
             var context = await chromium.NewContextAsync(contextOptions).ConfigureAwait(false);
             var page = await context.NewPageAsync().ConfigureAwait(false);
+            TikTokFileUploadTransportRegistry.Mark(page, TikTokFileUploadTransport.LocalPlaywright);
 
             page.Dialog += (_, dialog) =>
             {
@@ -137,6 +138,7 @@ public static class EmbeddedBrowserAutomationBridge
             ?? throw new InvalidOperationException("内置浏览器上下文不可用");
         var page = context.Pages.FirstOrDefault()
             ?? throw new InvalidOperationException("内置浏览器页面不可用");
+        TikTokFileUploadTransportRegistry.Mark(page, TikTokFileUploadTransport.CdpPathInjection);
 
         AttachAutomationDialogHandler(page, log);
 

@@ -10,6 +10,12 @@ public static class TikTokBatchUploadService
 {
     private static readonly Regex EpisodeNumberPattern = new(@"第\s*(\d+)\s*集", RegexOptions.Compiled);
 
+    internal static bool ShouldUseBatchedUpload(TikTokPublishOptions options, int fileCount)
+    {
+        var batchSize = Math.Clamp(options.UploadBatchSize, 1, 20);
+        return options.UseBatchUpload || fileCount > batchSize;
+    }
+
     public static async Task FillRemainingWithBatchedUploadAsync(
         IPage page,
         TikTokPublishPayload payload,
@@ -114,17 +120,21 @@ public static class TikTokBatchUploadService
                 ct.ThrowIfCancellationRequested();
                 log?.Invoke($"第 {batchIndex + 1}/{batches.Count} 批（{labels}）开始上传（第 {attempt} 次尝试）。");
 
-                await FeedBatchAsync(page, batch, log, ct);
-                var batchStallSeconds = TikTokBrowserActions.ResolveUploadStallSeconds(
-                    stallSeconds, batch.Count, batch);
-                var outcome = await WaitBatchAsync(
-                    page,
-                    targetReady,
-                    grandTotal,
-                    titleCandidates,
-                    batchStallSeconds,
-                    log,
-                    ct);
+                var accepted = await FeedBatchAsync(page, batch, targetReady, log, ct);
+                var outcome = BatchWaitOutcome.Stuck;
+                if (accepted)
+                {
+                    var batchStallSeconds = TikTokBrowserActions.ResolveUploadStallSeconds(
+                        stallSeconds, batch.Count, batch);
+                    outcome = await WaitBatchAsync(
+                        page,
+                        targetReady,
+                        grandTotal,
+                        titleCandidates,
+                        batchStallSeconds,
+                        log,
+                        ct);
+                }
 
                 if (outcome == BatchWaitOutcome.Done)
                 {
@@ -134,21 +144,31 @@ public static class TikTokBatchUploadService
                     break;
                 }
 
-                log?.Invoke($"⚠️ 第 {batchIndex + 1} 批检测到卡死，删除本批并重传（第 {attempt}/{maxRetries} 次）。");
-                var batchEpisodes = batch.Select(EpisodeNumber).Where(n => n > 0).ToList();
-                await DeleteBatchRowsAsync(page, batchEpisodes, log, ct);
+                if (accepted)
+                {
+                    log?.Invoke($"⚠️ 第 {batchIndex + 1} 批检测到卡死，删除本批并重传（第 {attempt}/{maxRetries} 次）。");
+                    var batchEpisodes = batch.Select(EpisodeNumber).Where(n => n > 0).ToList();
+                    await DeleteBatchRowsAsync(page, batchEpisodes, log, ct);
+                }
+                else
+                {
+                    log?.Invoke($"⚠️ 第 {batchIndex + 1} 批未被页面接收，直接重新选择文件（第 {attempt}/{maxRetries} 次）。");
+                }
                 if (attempt >= maxRetries)
                 {
                     throw new InvalidOperationException(
-                        $"TikTok 分批上传失败：第 {batchIndex + 1} 批（{labels}）重试 {maxRetries} 次仍卡死。");
+                        accepted
+                            ? $"TikTok 分批上传失败：第 {batchIndex + 1} 批（{labels}）重试 {maxRetries} 次仍卡死。"
+                            : $"TikTok 分批上传失败：第 {batchIndex + 1} 批（{labels}）执行文件选择 {maxRetries} 次后，页面仍未出现视频行或上传状态。");
                 }
             }
         }
     }
 
-    private static async Task FeedBatchAsync(
+    private static async Task<bool> FeedBatchAsync(
         IPage page,
         IReadOnlyList<string> batch,
+        int targetReady,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -167,8 +187,58 @@ public static class TikTokBatchUploadService
             await TikTokBrowserActions.FeedVideoFilesToInputAsync(page, input, resolved, ct);
         }
 
-        log?.Invoke($"已提交本批 {batch.Count} 个文件。");
+        log?.Invoke($"已向浏览器选择本批 {batch.Count} 个文件，正在确认 TikTok 页面已接收。");
         await page.WaitForTimeoutAsync(1500);
+        if (await WaitForBatchAcceptedAsync(page, batch, targetReady, ct))
+        {
+            log?.Invoke($"TikTok 页面已接收本批 {batch.Count} 个文件。");
+            return true;
+        }
+
+        log?.Invoke("⚠️ 文件选择命令已执行，但 TikTok 页面未出现本批视频行或上传状态，按未接收处理。");
+        return false;
+    }
+
+    private static async Task<bool> WaitForBatchAcceptedAsync(
+        IPage page,
+        IReadOnlyList<string> batch,
+        int targetReady,
+        CancellationToken ct,
+        int timeoutSeconds = 25)
+    {
+        var names = batch
+            .Select(path => Path.GetFileNameWithoutExtension(path))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToArray();
+        var deadline = DateTime.UtcNow.AddSeconds(Math.Max(5, timeoutSeconds));
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            string bodyText;
+            try { bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 }); }
+            catch { bodyText = ""; }
+
+            TikTokBrowserActions.ThrowIfTikTokCrashText(bodyText);
+            await TikTokBrowserActions.ThrowIfDailyEpisodeLimitAsync(page).ConfigureAwait(false);
+            if (bodyText.Contains("上传失败", StringComparison.Ordinal) ||
+                bodyText.Contains("Upload failed", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var rowCount = await ReadUploadTableRowCountAsync(page);
+            if (rowCount >= targetReady ||
+                names.Any(name => bodyText.Contains(name, StringComparison.OrdinalIgnoreCase)))
+                return true;
+
+            var activity = TikTokUploadProgressParser.DetectUploadActivity(
+                bodyText,
+                await TikTokBrowserActions.ReadUploadTableTextsAsync(page));
+            if (activity.Uploading || activity.WaitingCount > 0)
+                return true;
+
+            await page.WaitForTimeoutAsync(500);
+        }
+
+        return false;
     }
 
     private static async Task<ILocator?> ResolveUploadButtonAsync(IPage page)
