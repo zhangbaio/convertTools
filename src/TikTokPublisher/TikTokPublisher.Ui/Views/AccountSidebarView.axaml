@@ -31,18 +31,10 @@
                 <TextBlock Text="账号" Classes="pageSummary" />
 
                 <Grid ColumnDefinitions="*,*">
-                    <Button Grid.Column="0" Content="登录"
-                            Classes="sidebarPrimaryAction"
-                            Command="{Binding LoginCommand}" Margin="0,0,3,0" />
-                    <Button Grid.Column="1" Content="账号配置"
-                            Click="OnAccountSettingsClick" Margin="3,0,0,0" />
-                </Grid>
-
-                <Grid ColumnDefinitions="*,*">
                     <Button Grid.Column="0" Content="+ 添加账号"
                             Command="{Binding AddAccountCommand}" Margin="0,0,3,0" />
-                    <Button Grid.Column="1" Content="重新登录"
-                            Command="{Binding ReloginCommand}" Margin="3,0,0,0" />
+                    <Button Grid.Column="1" Content="账号配置"
+                            Click="OnAccountSettingsClick" Margin="3,0,0,0" />
                 </Grid>
 
                 <Grid ColumnDefinitions="*,*">
