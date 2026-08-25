@@ -40,6 +40,7 @@ public sealed class HongguoHighApiService
 
     private readonly HttpClient _httpClient;
     private readonly object _gate = new();
+    private readonly SemaphoreSlim _loginGate = new(1, 1);
     private readonly HongguoHighSession _session = new();
     private readonly ConcurrentDictionary<string, CalendarCacheEntry> _calendarCache = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, CalendarDetailCacheEntry> _calendarDetailCache = new(StringComparer.Ordinal);
@@ -48,6 +49,7 @@ public sealed class HongguoHighApiService
     internal Func<DramaSourceSettings, string, JsonObject, int, CancellationToken, Task<JsonNode?>>? AuthedRequestForTests { get; set; }
     internal Func<JsonNode?, byte[], int, CancellationToken, Task<JsonNode?>>? ExecuteSignedRequestForTests { get; set; }
     internal Func<TimeSpan, CancellationToken, Task>? DelayForTests { get; set; }
+    internal Func<DramaSourceSettings, CancellationToken, Task<JsonObject>>? LoginForTests { get; set; }
 
     private sealed record CalendarCacheEntry(DateTimeOffset CreatedAt, IReadOnlyList<DramaSearchItem> Items);
     private sealed record CalendarDetailCacheEntry(DateTimeOffset CreatedAt, JsonObject BookInfo);
@@ -1102,6 +1104,17 @@ public sealed class HongguoHighApiService
         var data = node as JsonObject
                    ?? throw new HongguoHighException("登录响应格式异常");
 
+        ApplyLoginData(settings, device, data);
+        return data;
+    }
+
+    private void ApplyLoginData(
+        DramaSourceSettings settings,
+        HongguoHighDevice device,
+        JsonObject data)
+    {
+        var account = (settings.HghighAccount ?? "").Trim();
+
         var token = HongguoHighCrypto.TrimBearer(
             GetString(data, "accessToken") ?? GetString(data, "token") ?? GetString(data, "j"));
         if (string.IsNullOrWhiteSpace(token))
@@ -1120,8 +1133,6 @@ public sealed class HongguoHighApiService
             _session.SessionKeyB64 = GetString(data, "session_key") ?? GetString(data, "sessionKey") ?? GetString(data, "key") ?? "";
             data["token"] = token;
         }
-
-        return data;
     }
 
     private async Task<JsonNode?> AuthedRequestAsync(
@@ -1132,18 +1143,14 @@ public sealed class HongguoHighApiService
         CancellationToken cancellationToken)
     {
         await EnsureTokenAsync(settings, timeoutSeconds, cancellationToken);
+        var staleToken = ReadCurrentAccessToken();
         try
         {
             return await RequestAsync(LoadDevice(), _session, "POST", path, data, timeoutSeconds, cancellationToken);
         }
         catch (HongguoHighException ex) when (ShouldRelogin(ex))
         {
-            lock (_gate)
-            {
-                _session.Clear();
-            }
-
-            await EnsureTokenAsync(settings, timeoutSeconds, cancellationToken);
+            await RefreshTokenAsync(settings, staleToken, cancellationToken);
             return await RequestAsync(LoadDevice(), _session, "POST", path, data, timeoutSeconds, cancellationToken);
         }
     }
@@ -1163,8 +1170,80 @@ public sealed class HongguoHighApiService
         }
 
         _ = timeoutSeconds;
-        await LoginAsync(settings, cancellationToken);
+        await _loginGate.WaitAsync(cancellationToken);
+        try
+        {
+            lock (_gate)
+            {
+                if (!string.IsNullOrWhiteSpace(_session.AccessToken) &&
+                    _session.Account == account &&
+                    _session.BoundDeviceId == device.DeviceId)
+                {
+                    return;
+                }
+            }
+
+            await LoginOnceAsync(settings, cancellationToken);
+        }
+        finally
+        {
+            _loginGate.Release();
+        }
     }
+
+    private async Task RefreshTokenAsync(
+        DramaSourceSettings settings,
+        string staleToken,
+        CancellationToken cancellationToken)
+    {
+        await _loginGate.WaitAsync(cancellationToken);
+        try
+        {
+            lock (_gate)
+            {
+                if (!string.IsNullOrWhiteSpace(_session.AccessToken) &&
+                    !string.Equals(_session.AccessToken, staleToken, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _session.Clear();
+            }
+
+            await LoginOnceAsync(settings, cancellationToken);
+        }
+        finally
+        {
+            _loginGate.Release();
+        }
+    }
+
+    private async Task<JsonObject> LoginOnceAsync(
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken)
+    {
+        if (LoginForTests is null)
+        {
+            return await LoginAsync(settings, cancellationToken);
+        }
+
+        var data = await LoginForTests(settings, cancellationToken);
+        ApplyLoginData(settings, LoadDevice(), data);
+        return data;
+    }
+
+    private string ReadCurrentAccessToken()
+    {
+        lock (_gate)
+        {
+            return _session.AccessToken;
+        }
+    }
+
+    internal Task EnsureTokenForTestsAsync(
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken) =>
+        EnsureTokenAsync(settings, ParseTimeout(settings.HongguoDownloadTimeoutSeconds), cancellationToken);
 
     private async Task<JsonNode> RequestAsync(
         HongguoHighDevice device,
@@ -1177,6 +1256,7 @@ public sealed class HongguoHighApiService
     {
         var normalizedPath = "/" + (path ?? "").TrimStart('/');
         JsonObject envelope;
+        string bearer;
         lock (_gate)
         {
             var proof = HongguoHighDeviceStore.ResolveDeviceProof(device);
@@ -1192,6 +1272,10 @@ public sealed class HongguoHighApiService
                 var inner = HongguoHighCrypto.BuildBusinessInner(device, session, normalizedPath, data, proof);
                 envelope = HongguoHighCrypto.BuildLetterEnvelope(device, session, inner, method, normalizedPath);
             }
+
+            // The encrypted envelope and Authorization header must come from the
+            // same session generation. A concurrent relogin may replace _session.
+            bearer = HongguoHighCrypto.TrimBearer(session.AccessToken);
         }
 
         using var request = new HttpRequestMessage(new HttpMethod(method.ToUpperInvariant()), JoinApi(normalizedPath))
@@ -1202,7 +1286,6 @@ public sealed class HongguoHighApiService
         request.Headers.TryAddWithoutValidation("X-App-Id", HongguoHighCrypto.AppId);
         request.Headers.TryAddWithoutValidation("X-Device-Id", device.DeviceId);
         request.Headers.TryAddWithoutValidation("X-Client-Version", HongguoHighCrypto.ClientVersion);
-        var bearer = HongguoHighCrypto.TrimBearer(session.AccessToken);
         if (!string.IsNullOrWhiteSpace(bearer) && !HongguoHighCrypto.AuthPaths.Contains(normalizedPath))
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
@@ -1266,7 +1349,7 @@ public sealed class HongguoHighApiService
         }
     }
 
-    private static bool ShouldRelogin(HongguoHighException ex)
+    internal static bool ShouldRelogin(HongguoHighException ex)
     {
         var message = ex.Message ?? "";
         if (message.Contains("路径签名", StringComparison.Ordinal) ||
@@ -1278,6 +1361,7 @@ public sealed class HongguoHighApiService
 
         return ex.Code is 401 or 403 ||
                message.Contains("登录", StringComparison.Ordinal) ||
+               message.Contains("会话凭证不一致", StringComparison.Ordinal) ||
                message.Contains("token", StringComparison.OrdinalIgnoreCase);
     }
 

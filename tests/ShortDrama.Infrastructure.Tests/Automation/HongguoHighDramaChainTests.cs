@@ -432,6 +432,49 @@ public sealed class HongguoHighCalendarMapperTests
 public sealed class HongguoHighDramaChainTests
 {
     [Fact]
+    public async Task EnsureTokenAsync_Coalesces_Concurrent_Initial_Logins()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var loginStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseLogin = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var loginCalls = 0;
+        service.LoginForTests = async (settings, cancellationToken) =>
+        {
+            Interlocked.Increment(ref loginCalls);
+            loginStarted.TrySetResult();
+            await releaseLogin.Task.WaitAsync(cancellationToken);
+            return new JsonObject
+            {
+                ["accessToken"] = "shared-token",
+                ["sessionId"] = "shared-session",
+                ["sessionKey"] = Convert.ToBase64String(Enumerable.Repeat((byte)0x42, 32).ToArray())
+            };
+        };
+        var settings = new DramaSourceSettings
+        {
+            HghighAccount = "high@example.com",
+            HghighPassword = "secret"
+        };
+
+        var requests = Enumerable.Range(0, 8)
+            .Select(_ => service.EnsureTokenForTestsAsync(settings, CancellationToken.None))
+            .ToArray();
+        await loginStarted.Task;
+        releaseLogin.TrySetResult();
+        await Task.WhenAll(requests);
+
+        loginCalls.Should().Be(1);
+    }
+
+    [Fact]
+    public void ShouldRelogin_Recognizes_Session_Credential_Mismatch()
+    {
+        HongguoHighApiService.ShouldRelogin(new HongguoHighException("会话凭证不一致", 422))
+            .Should().BeTrue();
+    }
+
+    [Fact]
     public async Task SearchAsync_Uses_V216_Search_Tab_And_Authoritative_Video_Episode_Count()
     {
         using var httpClient = new HttpClient(new FailAllHandler());
