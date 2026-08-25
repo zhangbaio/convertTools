@@ -349,6 +349,7 @@ public sealed class HongguoHighApiService
 
         var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
         JsonObject? lastItem = null;
+        Exception? lastError = null;
         for (var attempt = 1; attempt <= PlaybackParseMaxAttempts; attempt++)
         {
             var requestData = new JsonObject
@@ -359,19 +360,28 @@ public sealed class HongguoHighApiService
                 ["quality"] = HongguoHighCrypto.NormalizeQuality(quality),
                 ["resolution"] = HongguoHighCrypto.NormalizeQuality(quality)
             };
-            var inner = AuthedRequestForTests is null
-                ? await AuthedRequestAsync(settings, "/video/batch-parse", requestData, timeout, cancellationToken)
-                : await AuthedRequestForTests(settings, "/video/batch-parse", requestData, timeout, cancellationToken);
-
-            lastItem = SelectPlaybackItem(inner, rawVideoId);
-            var url = ReadPlaybackUrl(lastItem);
-            if (IsHttpUrl(url))
+            try
             {
-                var size = GetLong(lastItem, "size")
-                           ?? GetLong(lastItem, "size_bytes")
-                           ?? GetLong(lastItem, "sizeBytes")
-                           ?? 0;
-                return new HongguoNewApiService.HongguoVideoPlayback(url!, size);
+                var inner = AuthedRequestForTests is null
+                    ? await AuthedRequestAsync(settings, "/video/batch-parse", requestData, timeout, cancellationToken)
+                    : await AuthedRequestForTests(settings, "/video/batch-parse", requestData, timeout, cancellationToken);
+
+                lastError = null;
+                lastItem = SelectPlaybackItem(inner, rawVideoId);
+                var url = ReadPlaybackUrl(lastItem);
+                if (IsHttpUrl(url))
+                {
+                    var size = GetLong(lastItem, "size")
+                               ?? GetLong(lastItem, "size_bytes")
+                               ?? GetLong(lastItem, "sizeBytes")
+                               ?? 0;
+                    return new HongguoNewApiService.HongguoVideoPlayback(url!, size);
+                }
+            }
+            catch (Exception ex) when (IsRetryablePlaybackParseException(ex, cancellationToken))
+            {
+                lastError = ex;
+                lastItem = null;
             }
 
             if (attempt < PlaybackParseMaxAttempts)
@@ -388,10 +398,36 @@ public sealed class HongguoHighApiService
             }
         }
 
-        var detail = GetString(lastItem, "message") ?? GetString(lastItem, "msg");
+        var detail = lastError?.Message ?? GetString(lastItem, "message") ?? GetString(lastItem, "msg");
+        var code = lastError is HongguoHighException highError ? highError.Code : 0;
         throw new HongguoHighException(string.IsNullOrWhiteSpace(detail)
             ? $"高码率解析连续 {PlaybackParseMaxAttempts} 次未返回播放地址"
-            : $"高码率解析连续 {PlaybackParseMaxAttempts} 次未返回播放地址：{detail}");
+            : $"高码率解析连续 {PlaybackParseMaxAttempts} 次未返回播放地址：{detail}",
+            code,
+            lastError);
+    }
+
+    private static bool IsRetryablePlaybackParseException(Exception exception, CancellationToken cancellationToken)
+    {
+        if (exception is HttpRequestException)
+            return true;
+        if (exception is TaskCanceledException)
+            return !cancellationToken.IsCancellationRequested;
+        if (exception is not HongguoHighException high || ShouldRelogin(high))
+            return false;
+
+        if (LandpageRetryCodes.Contains(high.Code))
+            return true;
+
+        var message = high.Message ?? "";
+        return (message.Contains("未返回", StringComparison.Ordinal) &&
+                (message.Contains("下载地址", StringComparison.Ordinal) ||
+                 message.Contains("播放地址", StringComparison.Ordinal))) ||
+               message.Contains("解析器繁忙", StringComparison.Ordinal) ||
+               message.Contains("稍后重试", StringComparison.Ordinal) ||
+               message.Contains("请求超时", StringComparison.Ordinal) ||
+               message.Contains("限流", StringComparison.Ordinal) ||
+               message.Contains("timeout", StringComparison.OrdinalIgnoreCase);
     }
 
     private static JsonObject? SelectPlaybackItem(JsonNode? response, string rawVideoId)
