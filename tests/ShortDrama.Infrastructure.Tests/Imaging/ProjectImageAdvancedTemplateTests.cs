@@ -87,6 +87,21 @@ public sealed class ProjectImageAdvancedTemplateTests : IDisposable
         samples[^1].Should().BeApproximately(800d / 9d, 0.001);
     }
 
+    [Theory]
+    [InlineData(80, 80, 40, 0.1)]
+    [InlineData(0.05, 0.1, 0.1, 0.1)]
+    [InlineData(double.NaN, 0.1, 0.1, 0.1)]
+    public void Frame_extraction_retries_at_earlier_safe_times(
+        double requested,
+        double first,
+        double second,
+        double third)
+    {
+        var attempts = ProjectImageGenerator.BuildFrameExtractionAttemptTimes(requested);
+
+        attempts.Should().Equal(first, second, third);
+    }
+
     public void Dispose()
     {
         try
