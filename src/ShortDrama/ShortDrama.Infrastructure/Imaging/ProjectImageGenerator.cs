@@ -2842,36 +2842,93 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         double timeSeconds,
         CancellationToken cancellationToken)
     {
-        var tempPath = Path.Combine(Path.GetTempPath(), $"shortdrama-frame-{Guid.NewGuid():N}.png");
+        var failures = new List<string>();
+        foreach (var attemptTime in BuildFrameExtractionAttemptTimes(timeSeconds))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var tempPath = Path.Combine(Path.GetTempPath(), $"shortdrama-frame-{Guid.NewGuid():N}.png");
+            try
+            {
+                var result = await _processRunner.RunAsync(
+                    ffmpeg,
+                    [
+                        "-hide_banner",
+                        "-loglevel", "error",
+                        "-ss", attemptTime.ToString("0.###", CultureInfo.InvariantCulture),
+                        "-i", videoPath,
+                        "-frames:v", "1",
+                        "-an",
+                        "-sn",
+                        "-y",
+                        tempPath
+                    ],
+                    Path.GetDirectoryName(videoPath),
+                    cancellationToken);
+
+                if (result.ExitCode != 0)
+                {
+                    failures.Add(
+                        $"{attemptTime:0.###} 秒：退出码 {result.ExitCode}，{FormatFfmpegError(result.StandardError)}");
+                    continue;
+                }
+
+                try
+                {
+                    if (!File.Exists(tempPath) || new FileInfo(tempPath).Length == 0)
+                    {
+                        failures.Add(
+                            $"{attemptTime:0.###} 秒：FFmpeg 返回成功但未生成图片，{FormatFfmpegError(result.StandardError)}");
+                        continue;
+                    }
+
+                    return await Image.LoadAsync<Rgba32>(tempPath, cancellationToken);
+                }
+                catch (IOException ex)
+                {
+                    failures.Add($"{attemptTime:0.###} 秒：读取抽帧图片失败，{ex.Message}");
+                }
+            }
+            finally
+            {
+                TryDeleteFrameFile(tempPath);
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"FFmpeg 抽帧失败。视频={videoPath}；FFmpeg={ffmpeg}；" +
+            $"尝试={string.Join(" | ", failures)}");
+    }
+
+    internal static IReadOnlyList<double> BuildFrameExtractionAttemptTimes(double requestedTimeSeconds)
+    {
+        var requested = double.IsFinite(requestedTimeSeconds)
+            ? Math.Max(0.1, requestedTimeSeconds)
+            : 0.1;
+        return [requested, Math.Max(0.1, requested * 0.5), 0.1];
+    }
+
+    private static string FormatFfmpegError(string? standardError)
+    {
+        var value = string.IsNullOrWhiteSpace(standardError)
+            ? "stderr 为空"
+            : standardError.Trim().ReplaceLineEndings(" ");
+        return value.Length <= 800 ? value : value[..800] + "…";
+    }
+
+    private static void TryDeleteFrameFile(string path)
+    {
         try
         {
-            var result = await _processRunner.RunAsync(
-                ffmpeg,
-                [
-                    "-hide_banner",
-                    "-loglevel", "error",
-                    "-ss", timeSeconds.ToString("0.###", CultureInfo.InvariantCulture),
-                    "-i", videoPath,
-                    "-frames:v", "1",
-                    "-y",
-                    tempPath
-                ],
-                Path.GetDirectoryName(videoPath),
-                cancellationToken);
-
-            if (result.ExitCode != 0)
-            {
-                throw new InvalidOperationException($"FFmpeg 抽帧失败: {result.StandardError}");
-            }
-
-            return await Image.LoadAsync<Rgba32>(tempPath, cancellationToken);
+            if (File.Exists(path))
+                File.Delete(path);
         }
-        finally
+        catch (IOException)
         {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
+            // Best-effort cleanup: a scanner may briefly hold the temporary frame.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Best-effort cleanup: do not hide the actual extraction result.
         }
     }
 
@@ -2925,6 +2982,12 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
 
     private static string ResolveBinary(string name)
     {
+        var bundled = BundledToolResolver.TryResolveBundledBinary(name);
+        if (bundled is not null)
+        {
+            return bundled;
+        }
+
         var pathEnv = Environment.GetEnvironmentVariable("PATH");
         if (!string.IsNullOrWhiteSpace(pathEnv))
         {
@@ -2943,12 +3006,6 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                     }
                 }
             }
-        }
-
-        var packaged = BundledToolResolver.TryResolveBinary(name);
-        if (packaged is not null)
-        {
-            return packaged;
         }
 
         throw new InvalidOperationException($"未找到 {name}，请先将 {name} 加入系统 PATH。");

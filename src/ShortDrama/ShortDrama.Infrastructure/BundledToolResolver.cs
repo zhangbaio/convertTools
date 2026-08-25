@@ -13,6 +13,21 @@ public static class BundledToolResolver
         return null;
     }
 
+    /// <summary>
+    /// Resolves only binaries shipped beside the application, without consulting PATH.
+    /// Use this when reproducibility is more important than allowing a machine-wide override.
+    /// </summary>
+    public static string? TryResolveBundledBinary(string name)
+    {
+        foreach (var candidate in EnumerateBundledBinaryCandidates(name))
+        {
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
     public static string? TryResolvePython()
     {
         foreach (var root in EnumerateSearchRoots())
@@ -71,6 +86,13 @@ public static class BundledToolResolver
         foreach (var dir in EnumeratePathDirectories())
             yield return Path.Combine(dir, fileName);
 
+        foreach (var candidate in EnumerateBundledBinaryCandidates(name))
+            yield return candidate;
+    }
+
+    private static IEnumerable<string> EnumerateBundledBinaryCandidates(string name)
+    {
+        var fileName = ExecutableName(name);
         foreach (var root in EnumerateSearchRoots())
         {
             yield return Path.Combine(root, fileName);

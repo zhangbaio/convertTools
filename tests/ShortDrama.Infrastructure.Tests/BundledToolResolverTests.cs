@@ -24,8 +24,10 @@ public sealed class BundledToolResolverTests
             await File.WriteAllTextAsync(toolPath, string.Empty);
 
             var resolved = BundledToolResolver.TryResolveBinary(toolName);
+            var bundledOnly = BundledToolResolver.TryResolveBundledBinary(toolName);
 
             resolved.Should().Be(toolPath);
+            bundledOnly.Should().Be(toolPath);
         }
         finally
         {
