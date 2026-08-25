@@ -38,6 +38,76 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
+    public void Proof_checkpoint_falls_back_to_workflow_sidecar_when_legacy_database_cannot_migrate()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"proof-sidecar-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "source-project");
+        var workflow = Path.Combine(workspace, "workflow", "source-project");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        var databasePath = WorkspaceQueuePaths.QueueDatabasePath(workspace);
+        using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={databasePath}"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE project_state_documents (
+                    document_id TEXT NOT NULL,
+                    project_id TEXT NOT NULL DEFAULT '',
+                    workspace_path TEXT NOT NULL DEFAULT '',
+                    project_dir TEXT NOT NULL DEFAULT '',
+                    workflow_project_dir TEXT NOT NULL DEFAULT '',
+                    document_type TEXT NOT NULL DEFAULT '',
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
+                );
+                INSERT INTO project_state_documents (document_id) VALUES ('duplicate'), ('duplicate');
+                """;
+            command.ExecuteNonQuery();
+        }
+        var context = new ProjectWorkspaceContext(source, workflow, workspace);
+        var request = CreateRequest(
+            Path.Combine(workflow, "template.docx"),
+            Path.Combine(workflow, TikTokProofMaterialService.ProofPdfFileName));
+        var result = new TikTokProofMaterialResult(
+            request.OutputPdfPath,
+            null,
+            "WPS",
+            new TikTokProofMaterialReplacementCounts(1, 1, 1, 1, 0));
+
+        try
+        {
+            var logs = new List<string>();
+            TikTokProofMaterialService.SaveState(
+                context,
+                request,
+                "sidecar-fingerprint",
+                result,
+                coreCompleted: true,
+                sourceFileScreenshotsCompleted: true,
+                aiGenerationScreenshotsCompleted: true,
+                editingProjectFilesCompleted: true,
+                logs.Add);
+
+            var sidecar = Path.Combine(workflow, TikTokProofMaterialService.StateSidecarFileName);
+            File.Exists(sidecar).Should().BeTrue();
+            using (var document = JsonDocument.Parse(File.ReadAllText(sidecar)))
+                document.RootElement.GetProperty("fingerprint").GetString().Should().Be("sidecar-fingerprint");
+
+            TikTokProofMaterialService.LoadState(context)["fingerprint"].GetString()
+                .Should().Be("sidecar-fingerprint");
+            logs.Should().ContainSingle(message =>
+                message.Contains("已使用本地侧车断点继续", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Publish_item_prerequisite_skips_generation_when_cooperation_agreement_is_not_selected()
     {
         var account = new TikTokAccountProfile

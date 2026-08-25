@@ -14,6 +14,7 @@ public sealed class TikTokProofMaterialService
     public const string ProofPdfFileName = "证明材料.pdf";
     public const string ProofDocxFileName = "证明材料.docx";
     public const string StateDocumentType = "tiktok_proof_material_state";
+    internal const string StateSidecarFileName = ".tiktok-proof-material-state.json";
 
     private const string FingerprintVersion = "v9-editing-project-files";
     private static readonly IReadOnlySet<string> SupportedSealImageExtensions =
@@ -217,7 +218,8 @@ public sealed class TikTokProofMaterialService
                 editingCompleted = false;
                 SaveState(
                     context, request, fingerprint, result,
-                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
+                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
+                    log);
                 log?.Invoke(
                     $"[合作协议（核心）] 完成并保存断点：{DescribeFile(result.PdfPath)}；" +
                     $"渲染器={result.PdfRenderer}；耗时={FormatElapsed(coreTimer.Elapsed)}。");
@@ -311,7 +313,8 @@ public sealed class TikTokProofMaterialService
                 sourceCompleted = true;
                 SaveState(
                     context, request, fingerprint, result,
-                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
+                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
+                    log);
                 LogGeneratedMaterial(log, "原始文件或素材文件信息", outputs, timer.Elapsed);
                 LogGeneratedMaterial(log, "原始文件信息上传包", uploadFiles, timer.Elapsed);
             }
@@ -392,7 +395,8 @@ public sealed class TikTokProofMaterialService
                     aiCompleted = true;
                     SaveState(
                         context, request, fingerprint, result,
-                        coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
+                        coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
+                        log);
                 }
                 LogGeneratedMaterial(log, "AI 生成过程截图", outputs, timer.Elapsed);
             }
@@ -440,7 +444,8 @@ public sealed class TikTokProofMaterialService
                     editingCompleted = true;
                     SaveState(
                         context, request, fingerprint, result,
-                        coreCompleted, sourceCompleted, aiCompleted, editingCompleted);
+                        coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
+                        log);
                 }
                 LogGeneratedMaterial(
                     log,
@@ -460,7 +465,8 @@ public sealed class TikTokProofMaterialService
             coreCompleted,
             !request.GenerateSourceFileScreenshots || sourceCompleted,
             !request.GenerateAiGenerationScreenshots || aiCompleted,
-            !request.GenerateEditingProjectFiles || editingCompleted);
+            !request.GenerateEditingProjectFiles || editingCompleted,
+            log);
         log?.Invoke($"证明材料任务完成：已生成并登记 {selectedMaterials.Count} 类材料。");
         return result;
     }
@@ -979,13 +985,36 @@ public sealed class TikTokProofMaterialService
                File.Exists(GetDocxPath(context.WorkflowProjectDir));
     }
 
-    private static Dictionary<string, JsonElement> LoadState(ProjectWorkspaceContext context) =>
-        ProjectStateDocumentStore.LoadDocument(
+    internal static Dictionary<string, JsonElement> LoadState(ProjectWorkspaceContext context)
+    {
+        var sidecarPath = Path.Combine(context.WorkflowProjectDir, StateSidecarFileName);
+        if (File.Exists(sidecarPath))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(sidecarPath));
+                if (document.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    return document.RootElement.EnumerateObject()
+                        .ToDictionary(
+                            property => property.Name,
+                            property => property.Value.Clone(),
+                            StringComparer.Ordinal);
+                }
+            }
+            catch
+            {
+                // 侧车损坏时仍可回退数据库断点；下一次成功生成会原子覆盖该文件。
+            }
+        }
+
+        return ProjectStateDocumentStore.LoadDocument(
             context.WorkspaceRoot,
             context.SourceProjectDir,
             StateDocumentType);
+    }
 
-    private static void SaveState(
+    internal static void SaveState(
         ProjectWorkspaceContext context,
         TikTokProofMaterialRequest request,
         string fingerprint,
@@ -993,7 +1022,8 @@ public sealed class TikTokProofMaterialService
         bool coreCompleted,
         bool sourceFileScreenshotsCompleted,
         bool aiGenerationScreenshotsCompleted,
-        bool editingProjectFilesCompleted)
+        bool editingProjectFilesCompleted,
+        Action<string>? log = null)
     {
         var payload = new Dictionary<string, object?>
         {
@@ -1052,12 +1082,55 @@ public sealed class TikTokProofMaterialService
                 : Array.Empty<string>(),
             ["generated_at"] = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
         };
-        ProjectStateDocumentStore.SaveDocument(
-            context.WorkspaceRoot,
-            context.SourceProjectDir,
-            StateDocumentType,
-            payload,
-            context.WorkflowProjectDir);
+        Exception? databaseError = null;
+        try
+        {
+            ProjectStateDocumentStore.SaveDocument(
+                context.WorkspaceRoot,
+                context.SourceProjectDir,
+                StateDocumentType,
+                payload,
+                context.WorkflowProjectDir);
+        }
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or UnauthorizedAccessException)
+        {
+            databaseError = ex;
+        }
+
+        var sidecarPath = Path.Combine(context.WorkflowProjectDir, StateSidecarFileName);
+        var temporaryPath = sidecarPath + $".{Guid.NewGuid():N}.tmp";
+        try
+        {
+            Directory.CreateDirectory(context.WorkflowProjectDir);
+            File.WriteAllText(
+                temporaryPath,
+                JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }),
+                Encoding.UTF8);
+            File.Move(temporaryPath, sidecarPath, overwrite: true);
+        }
+        catch (Exception sidecarError)
+        {
+            if (databaseError is not null)
+            {
+                throw new InvalidOperationException(
+                    $"证明材料已生成，但数据库断点和本地侧车状态均保存失败：" +
+                    $"数据库={databaseError.Message}；侧车={sidecarError.Message}",
+                    new AggregateException(databaseError, sidecarError));
+            }
+
+            log?.Invoke($"WARN 证明材料数据库断点已保存，但本地侧车状态保存失败：{sidecarError.Message}");
+        }
+        finally
+        {
+            TryDelete(temporaryPath);
+        }
+
+        if (databaseError is not null)
+        {
+            log?.Invoke(
+                $"WARN 工作目录数据库暂时无法写入，已使用本地侧车断点继续：" +
+                $"{Path.GetFileName(sidecarPath)}；原因={databaseError.Message}");
+        }
     }
 
     private static string GetStateString(
