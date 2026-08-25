@@ -138,7 +138,7 @@ public sealed class TikTokManagementAccountSnapshotSyncService
             byId[accountId] = new TikTokClientAccountSnapshotItem(
                 accountId,
                 username,
-                (profile.TiktokProofCopyrightCompanyName ?? "").Trim());
+                (profile.TiktokProofDeclarantCompanyName ?? "").Trim());
         }
 
         return byId.Values

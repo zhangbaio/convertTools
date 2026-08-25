@@ -34,7 +34,8 @@ public sealed class TikTokAccountInventorySyncCoordinatorTests
             {
                 Id = "acct-a",
                 TiktokLoginEmail = "account-a@example.test",
-                TiktokProofCopyrightCompanyName = "武汉速视科技有限公司",
+                TiktokProofCopyrightCompanyName = "不应上报的致贵方名称",
+                TiktokProofDeclarantCompanyName = "武汉速视科技有限公司",
             },
         ]);
 
@@ -56,7 +57,7 @@ public sealed class TikTokAccountInventorySyncCoordinatorTests
     }
 
     [Fact]
-    public async Task AccountsChanged_AfterSubjectCompanyUpdate_QueuesLatestSnapshot()
+    public async Task AccountsChanged_AfterDeclarantCompanyUpdate_QueuesLatestSnapshot()
     {
         var requestBodies = new ConcurrentQueue<string>();
         using var http = new HttpClient(new StubHandler(async request =>
@@ -69,7 +70,7 @@ public sealed class TikTokAccountInventorySyncCoordinatorTests
         {
             Id = "acct-a",
             TiktokLoginEmail = "account-a@example.test",
-            TiktokProofCopyrightCompanyName = "旧主体公司",
+            TiktokProofDeclarantCompanyName = "旧主体公司",
         };
         var store = CreateStoreWithAccounts([account]);
 
@@ -81,7 +82,7 @@ public sealed class TikTokAccountInventorySyncCoordinatorTests
         coordinator.Start();
         await WaitUntilAsync(() => requestBodies.Count >= 1);
 
-        account.TiktokProofCopyrightCompanyName = "新主体公司";
+        account.TiktokProofDeclarantCompanyName = "新主体公司";
         RaiseAccountsChanged(store);
 
         await WaitUntilAsync(() => requestBodies.Count >= 2);
