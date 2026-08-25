@@ -7,6 +7,9 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokProofMaterialVideoHydrationTests
 {
+    private static readonly byte[] OnePixelPng = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+
     [Fact]
     public void ResolveTemporaryVideoEpisodeCount_UsesNoVideos_WhenOutputsDoNotNeedGeneration()
     {
@@ -65,6 +68,54 @@ public sealed class TikTokProofMaterialVideoHydrationTests
         File.Exists(existing).Should().BeTrue();
         File.Exists(hydrated).Should().BeTrue(
             "证明材料补下载的视频应由项目归档流程统一清理");
+    }
+
+    [Fact]
+    public void FindProofMaterialFallbackFrame_PrefersRetainedAiFrame()
+    {
+        using var temp = new TemporaryDirectory();
+        var retainedDirectory = TikTokAiGenerationScreenshotService.GetRetainedFramesDirectory(temp.Path);
+        Directory.CreateDirectory(retainedDirectory);
+        var retained = Path.Combine(retainedDirectory, "保留帧.jpg");
+        File.WriteAllBytes(retained, [1, 2, 3]);
+        var otherDirectory = Path.Combine(temp.Path, "其他材料", "抽帧原图");
+        Directory.CreateDirectory(otherDirectory);
+        File.WriteAllBytes(Path.Combine(otherDirectory, "其他帧.png"), [1, 2, 3, 4, 5]);
+
+        QueueMaterialStepService.FindProofMaterialFallbackFrame(temp.Path)
+            .Should().Be(retained);
+    }
+
+    [Fact]
+    public void FindProofMaterialFallbackFrame_UsesOtherExtractedFrameDirectory()
+    {
+        using var temp = new TemporaryDirectory();
+        var frameDirectory = Path.Combine(temp.Path, "参考格式原始素材包", "抽帧原图");
+        Directory.CreateDirectory(frameDirectory);
+        var empty = Path.Combine(frameDirectory, "空图片.jpg");
+        var usable = Path.Combine(frameDirectory, "可用图片.png");
+        File.WriteAllBytes(empty, []);
+        File.WriteAllBytes(usable, [1, 2, 3]);
+
+        QueueMaterialStepService.FindProofMaterialFallbackFrame(temp.Path)
+            .Should().Be(usable);
+    }
+
+    [Fact]
+    public async Task CreateProofMaterialFrameFallbackVideoAsync_CreatesPlayableInputFile()
+    {
+        using var temp = new TemporaryDirectory();
+        var frame = Path.Combine(temp.Path, "抽帧.png");
+        var output = Path.Combine(temp.Path, "证明材料抽帧兜底.mp4");
+        File.WriteAllBytes(frame, OnePixelPng);
+
+        await QueueMaterialStepService.CreateProofMaterialFrameFallbackVideoAsync(
+            frame,
+            output,
+            CancellationToken.None);
+
+        File.Exists(output).Should().BeTrue();
+        new FileInfo(output).Length.Should().BeGreaterThan(0);
     }
 
     [Theory]
