@@ -90,6 +90,20 @@ public static class TikTokEditFlowService
         CancellationToken ct)
     {
         var detailUrl = TikTokUploadStateStore.LoadCachedEditDetailUrl(workflowProjectDir);
+        if (string.IsNullOrWhiteSpace(detailUrl))
+        {
+            detailUrl = TikTokUploadStateStore.RecoverEditDetailUrlFromFailureSnapshots(workflowProjectDir);
+            if (!string.IsNullOrWhiteSpace(detailUrl))
+            {
+                TikTokUploadStateStore.RecordPlatformSeriesFound(
+                    workflowProjectDir,
+                    detailUrl,
+                    payload.Title,
+                    "failure_snapshot_recovery",
+                    NormalizeTitleCandidates(payload.Title, payload.OriginalTitle));
+                log?.Invoke($"TikTok 已从历史失败快照恢复草稿地址：{detailUrl}");
+            }
+        }
         if (string.IsNullOrWhiteSpace(detailUrl)) return false;
 
         log?.Invoke($"TikTok 已命中本地草稿缓存，直接走编辑流程：{detailUrl}");

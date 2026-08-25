@@ -133,6 +133,65 @@ public static class TikTokUploadStateStore
         return lookup.TryGetProperty("detail_url", out var urlEl) ? (urlEl.GetString() ?? "").Trim() : "";
     }
 
+    /// <summary>
+    /// Recovers a confirmed draft detail URL from failure snapshots. A create flow can acquire
+    /// its series id before failing, so the snapshot may be the only durable copy of that id.
+    /// </summary>
+    public static string RecoverEditDetailUrlFromFailureSnapshots(string workflowProjectDir)
+    {
+        var snapshotRoot = Path.Combine(Path.GetFullPath(workflowProjectDir), "upload-failure-snapshots");
+        if (!Directory.Exists(snapshotRoot)) return "";
+
+        try
+        {
+            foreach (var directory in Directory.EnumerateDirectories(snapshotRoot)
+                         .OrderByDescending(Path.GetFileName, StringComparer.Ordinal))
+            {
+                var metadataPath = Path.Combine(directory, "metadata.json");
+                if (!File.Exists(metadataPath)) continue;
+
+                try
+                {
+                    using var metadata = JsonDocument.Parse(File.ReadAllText(metadataPath));
+                    if (metadata.RootElement.ValueKind != JsonValueKind.Object ||
+                        !metadata.RootElement.TryGetProperty("url", out var urlElement))
+                        continue;
+
+                    var normalized = NormalizeSeriesDraftDetailUrl(urlElement.GetString());
+                    if (!string.IsNullOrWhiteSpace(normalized))
+                        return normalized;
+                }
+                catch
+                {
+                    // A partially written snapshot must not prevent checking older snapshots.
+                }
+            }
+        }
+        catch
+        {
+            return "";
+        }
+
+        return "";
+    }
+
+    public static bool TryRecordPlatformSeriesFromUrl(
+        string workflowProjectDir,
+        string? currentUrl,
+        string? matchedTitle,
+        string source)
+    {
+        var detailUrl = NormalizeSeriesDraftDetailUrl(currentUrl);
+        if (string.IsNullOrWhiteSpace(detailUrl)) return false;
+
+        RecordPlatformSeriesFound(
+            workflowProjectDir,
+            detailUrl,
+            matchedTitle ?? "",
+            source);
+        return true;
+    }
+
     public static void RecordPlatformSeriesFound(
         string workflowProjectDir,
         string detailUrl,
@@ -247,6 +306,19 @@ public static class TikTokUploadStateStore
     {
         var match = SeriesIdPattern.Match(detailUrl ?? "");
         return match.Success ? match.Groups[1].Value : "";
+    }
+
+    internal static string NormalizeSeriesDraftDetailUrl(string? candidate)
+    {
+        var text = (candidate ?? "").Trim();
+        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) ||
+            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(uri.Host, "www.tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase))
+            return "";
+
+        var match = SeriesIdPattern.Match(uri.AbsolutePath);
+        if (!match.Success) return "";
+        return $"https://www.tiktokdramacenter.com/series/draft/{match.Groups[1].Value}";
     }
 
     private static string NowText() => DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss");
