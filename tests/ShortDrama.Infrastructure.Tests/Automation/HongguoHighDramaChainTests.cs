@@ -645,6 +645,76 @@ public sealed class HongguoHighDramaChainTests
     }
 
     [Fact]
+    public async Task GetVideoPlaybackAsync_Retries_Server_Missing_Address_Error()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var calls = 0;
+        var delays = new List<TimeSpan>();
+        service.AuthedRequestForTests = (_, path, _, _, _) =>
+        {
+            path.Should().Be("/video/batch-parse");
+            calls++;
+            if (calls == 1)
+                throw new HongguoHighException("高码率解析未返回可用下载地址", 422);
+
+            return Task.FromResult<JsonNode?>(new JsonArray
+            {
+                new JsonObject
+                {
+                    ["episodeId"] = "vid-32",
+                    ["downloadUrl"] = "https://cdn.example.com/32.mp4"
+                }
+            });
+        };
+        service.DelayForTests = (delay, _) =>
+        {
+            delays.Add(delay);
+            return Task.CompletedTask;
+        };
+
+        var playback = await service.GetVideoPlaybackAsync(
+            new DramaSourceSettings(),
+            HongguoHighCrypto.EncodeEpisodeId("book-1", 32, "vid-32"),
+            "1080P",
+            CancellationToken.None);
+
+        playback.Url.Should().Be("https://cdn.example.com/32.mp4");
+        calls.Should().Be(2);
+        delays.Should().Equal(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task GetVideoPlaybackAsync_Does_Not_Retry_Authentication_Error()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var calls = 0;
+        var delays = new List<TimeSpan>();
+        service.AuthedRequestForTests = (_, _, _, _, _) =>
+        {
+            calls++;
+            throw new HongguoHighException("token 已失效", 401);
+        };
+        service.DelayForTests = (delay, _) =>
+        {
+            delays.Add(delay);
+            return Task.CompletedTask;
+        };
+
+        var act = () => service.GetVideoPlaybackAsync(
+            new DramaSourceSettings(),
+            HongguoHighCrypto.EncodeEpisodeId("book-1", 32, "vid-32"),
+            "1080P",
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<HongguoHighException>()
+            .WithMessage("token 已失效");
+        calls.Should().Be(1);
+        delays.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task GetTodayAsync_Throws_For_Hghigh_Without_Falling_Back()
     {
         using var httpClient = new HttpClient(new FailAllHandler());
