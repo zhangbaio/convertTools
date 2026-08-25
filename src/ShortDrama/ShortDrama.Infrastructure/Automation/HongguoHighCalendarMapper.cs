@@ -375,6 +375,67 @@ public static class HongguoHighCalendarMapper
         return null;
     }
 
+    /// <summary>
+    /// The v2.1.6 client search endpoint returns cells whose authoritative drama fields live in
+    /// <c>video_data[0]</c> and <c>video_detail</c>. Flatten those layers so the common mapper uses
+    /// the same 58-style episode count shown by the official client instead of unrelated book
+    /// chapter counters.
+    /// </summary>
+    public static IReadOnlyList<JsonObject> ExtractSearchTabItems(JsonNode? payload)
+    {
+        var found = new List<JsonObject>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        Walk(payload);
+        return found;
+
+        void Walk(JsonNode? node)
+        {
+            switch (node)
+            {
+                case JsonObject obj:
+                {
+                    var videoArray = obj["video_data"] as JsonArray ?? obj["videoData"] as JsonArray;
+                    var video = videoArray?.OfType<JsonObject>().FirstOrDefault();
+                    var bookId = ReadString(obj, "book_id") ?? ReadString(obj, "bookId");
+                    if (string.IsNullOrWhiteSpace(bookId) && video is not null)
+                        bookId = ReadString(video, "series_id") ?? ReadString(video, "seriesId");
+                    if (video is not null && !string.IsNullOrWhiteSpace(bookId))
+                    {
+                        var candidate = obj.DeepClone().AsObject();
+                        foreach (var property in video)
+                            candidate[property.Key] = property.Value?.DeepClone();
+                        var detail = video["video_detail"] as JsonObject;
+                        if (detail is not null)
+                        {
+                            foreach (var property in detail)
+                                candidate[property.Key] = property.Value?.DeepClone();
+                        }
+                        var authoritativeEpisodeCount = detail is null ? 0 : ReadPositiveInt(detail, "episode_cnt");
+                        if (authoritativeEpisodeCount <= 0)
+                            authoritativeEpisodeCount = ReadPositiveInt(video, "episode_cnt");
+                        if (authoritativeEpisodeCount > 0)
+                        {
+                            candidate["last_chapter_title"] = $"第{authoritativeEpisodeCount}集";
+                            candidate["drama_chapter_number"] = authoritativeEpisodeCount;
+                            candidate["episode_cnt"] = authoritativeEpisodeCount;
+                        }
+                        candidate["book_id"] = bookId;
+                        if (seen.Add(bookId)) found.Add(candidate);
+                        return;
+                    }
+
+                    foreach (var property in obj)
+                        Walk(property.Value);
+                    break;
+                }
+                case JsonArray array:
+                    foreach (var item in array)
+                        Walk(item);
+                    break;
+            }
+        }
+    }
+
     private static string? FirstMediaUrl(
         JsonObject obj,
         IEnumerable<string> keys,
