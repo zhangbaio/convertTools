@@ -10,6 +10,7 @@ public static class WorkspaceQueueDatabase
 {
     private const string QueueOptionsKey = "queue_run_options";
     private const string QueueAccountOptionsKey = "queue_run_options_by_account";
+    internal static object WriteSyncRoot { get; } = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -36,8 +37,11 @@ public static class WorkspaceQueueDatabase
     public static void Save(string workspaceRoot, IReadOnlyList<QueueProjectItem> items, Dictionary<string, object?>? options = null)
     {
         var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
-        EnsureDatabase(dbPath);
-        SaveToDatabase(dbPath, workspaceRoot, items, options ?? new Dictionary<string, object?>());
+        lock (WriteSyncRoot)
+        {
+            EnsureDatabaseCore(dbPath);
+            SaveToDatabase(dbPath, workspaceRoot, items, options ?? new Dictionary<string, object?>());
+        }
     }
 
     private static WorkspaceQueueState LoadFromDatabase(string dbPath, string workspaceRoot)
@@ -215,6 +219,12 @@ public static class WorkspaceQueueDatabase
 
     public static void EnsureDatabase(string dbPath)
     {
+        lock (WriteSyncRoot)
+            EnsureDatabaseCore(dbPath);
+    }
+
+    private static void EnsureDatabaseCore(string dbPath)
+    {
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
         using var conn = Open(dbPath);
         ExecuteNonQuery(conn, """
@@ -262,6 +272,18 @@ public static class WorkspaceQueueDatabase
                 updated_at TEXT NOT NULL
             )
             """);
+        // Python/早期 C# 版本可能已经创建过同名表。CREATE TABLE IF NOT EXISTS
+        // 不会补字段，随后保存证明材料断点就会在 PDF 已生成后抛出 “no column named ...”，
+        // 导致界面误报生成失败。这里对已有工作目录执行幂等字段迁移。
+        EnsureColumn(conn, "project_state_documents", "document_id", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "project_state_documents", "project_id", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "project_state_documents", "workspace_path", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "project_state_documents", "project_dir", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "project_state_documents", "workflow_project_dir", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "project_state_documents", "document_type", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "project_state_documents", "payload_json", "TEXT NOT NULL DEFAULT '{}'");
+        EnsureColumn(conn, "project_state_documents", "created_at", "TEXT NOT NULL DEFAULT ''");
+        EnsureColumn(conn, "project_state_documents", "updated_at", "TEXT NOT NULL DEFAULT ''");
         ExecuteNonQuery(conn, """
             CREATE INDEX IF NOT EXISTS idx_project_state_documents_project_type
                 ON project_state_documents(project_id, document_type)
@@ -295,15 +317,41 @@ public static class WorkspaceQueueDatabase
         cmd.ExecuteNonQuery();
     }
 
-    private static SqliteConnection Open(string dbPath)
+    private static void EnsureColumn(
+        SqliteConnection conn,
+        string tableName,
+        string columnName,
+        string declaration)
     {
-        var conn = new SqliteConnection($"Data Source={dbPath}");
+        using var check = conn.CreateCommand();
+        check.CommandText = $"PRAGMA table_info([{tableName}])";
+        using var reader = check.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+
+        reader.Close();
+        using var alter = conn.CreateCommand();
+        alter.CommandText = $"ALTER TABLE [{tableName}] ADD COLUMN [{columnName}] {declaration}";
+        alter.ExecuteNonQuery();
+    }
+
+    internal static SqliteConnection OpenConnection(string dbPath, bool readOnly = false)
+    {
+        var mode = readOnly ? ";Mode=ReadOnly" : "";
+        var conn = new SqliteConnection($"Data Source={dbPath}{mode};Default Timeout=30");
         conn.Open();
         using var pragma = conn.CreateCommand();
-        pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;";
+        pragma.CommandText = readOnly
+            ? "PRAGMA busy_timeout=30000; PRAGMA foreign_keys=ON;"
+            : "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=30000; PRAGMA foreign_keys=ON;";
         pragma.ExecuteNonQuery();
         return conn;
     }
+
+    private static SqliteConnection Open(string dbPath) => OpenConnection(dbPath);
 
     private static void UpsertAppSetting(SqliteConnection conn, string key, Dictionary<string, object?> payload, string updatedAt)
     {

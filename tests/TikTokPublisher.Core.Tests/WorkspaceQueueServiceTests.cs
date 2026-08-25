@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
@@ -8,6 +9,65 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class WorkspaceQueueServiceTests
 {
+    [Fact]
+    public void Project_state_store_migrates_legacy_table_before_saving_checkpoint()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-legacy-state-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "source-project");
+        var workflow = Path.Combine(workspace, "workflow", "source-project");
+        var databasePath = WorkspaceQueuePaths.QueueDatabasePath(workspace);
+        try
+        {
+            Directory.CreateDirectory(project);
+            Directory.CreateDirectory(workflow);
+            Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+            using (var connection = new SqliteConnection($"Data Source={databasePath}"))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    CREATE TABLE project_state_documents (
+                        document_id TEXT PRIMARY KEY,
+                        project_id TEXT NOT NULL DEFAULT '',
+                        workspace_path TEXT NOT NULL DEFAULT '',
+                        project_dir TEXT NOT NULL DEFAULT '',
+                        document_type TEXT NOT NULL DEFAULT '',
+                        payload_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )
+                    """;
+                command.ExecuteNonQuery();
+            }
+
+            ProjectStateDocumentStore.SaveDocument(
+                workspace,
+                project,
+                "legacy-proof-state",
+                new Dictionary<string, object?> { ["fingerprint"] = "migrated" },
+                workflow);
+
+            var restored = ProjectStateDocumentStore.LoadDocument(
+                workspace,
+                project,
+                "legacy-proof-state");
+            restored["fingerprint"].GetString().Should().Be("migrated");
+
+            using var verify = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
+            verify.Open();
+            using var schema = verify.CreateCommand();
+            schema.CommandText = "PRAGMA table_info(project_state_documents)";
+            using var reader = schema.ExecuteReader();
+            var columns = new List<string>();
+            while (reader.Read()) columns.Add(reader.GetString(1));
+            columns.Should().Contain("workflow_project_dir");
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
     [Fact]
     public void Workspace_scan_does_not_auto_add_bare_video_directory_before_manual_import()
     {

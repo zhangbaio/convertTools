@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 
@@ -39,8 +38,7 @@ public static class ProjectStateDocumentStore
 
         try
         {
-            using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
-            connection.Open();
+            using var connection = WorkspaceQueueDatabase.OpenConnection(databasePath, readOnly: true);
             using var command = connection.CreateCommand();
             command.CommandText = """
                 SELECT payload_json
@@ -85,8 +83,7 @@ public static class ProjectStateDocumentStore
 
         try
         {
-            using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
-            connection.Open();
+            using var connection = WorkspaceQueueDatabase.OpenConnection(databasePath, readOnly: true);
             using var command = connection.CreateCommand();
             var placeholders = string.Join(", ", workspaceAliases.Select((_, index) => $"$workspace{index}"));
             command.CommandText = $"""
@@ -134,28 +131,29 @@ public static class ProjectStateDocumentStore
         if (string.IsNullOrWhiteSpace(docType))
             return;
 
-        WorkspaceQueueDatabase.EnsureDatabase(databasePath);
-        var workspaceKey = NormalizePath(workspaceRoot);
-        var projectKey = NormalizePath(projectDir);
-        var workflowKey = string.IsNullOrWhiteSpace(workflowProjectDir) ? "" : NormalizePath(workflowProjectDir);
-        var documentId = StableDocumentId(workspaceKey, projectKey, docType);
-        var now = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss");
-        var payloadJson = JsonSerializer.Serialize(payload ?? new Dictionary<string, object?>());
-
-        using var connection = new SqliteConnection($"Data Source={databasePath}");
-        connection.Open();
-        var createdAt = now;
-        using (var existing = connection.CreateCommand())
+        lock (WorkspaceQueueDatabase.WriteSyncRoot)
         {
-            existing.CommandText = "SELECT created_at FROM project_state_documents WHERE document_id = $id";
-            existing.Parameters.AddWithValue("$id", documentId);
-            var value = existing.ExecuteScalar()?.ToString();
-            if (!string.IsNullOrWhiteSpace(value))
-                createdAt = value;
-        }
+            WorkspaceQueueDatabase.EnsureDatabase(databasePath);
+            var workspaceKey = NormalizePath(workspaceRoot);
+            var projectKey = NormalizePath(projectDir);
+            var workflowKey = string.IsNullOrWhiteSpace(workflowProjectDir) ? "" : NormalizePath(workflowProjectDir);
+            var documentId = StableDocumentId(workspaceKey, projectKey, docType);
+            var now = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss");
+            var payloadJson = JsonSerializer.Serialize(payload ?? new Dictionary<string, object?>());
 
-        using var command = connection.CreateCommand();
-        command.CommandText = """
+            using var connection = WorkspaceQueueDatabase.OpenConnection(databasePath);
+            var createdAt = now;
+            using (var existing = connection.CreateCommand())
+            {
+                existing.CommandText = "SELECT created_at FROM project_state_documents WHERE document_id = $id";
+                existing.Parameters.AddWithValue("$id", documentId);
+                var value = existing.ExecuteScalar()?.ToString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    createdAt = value;
+            }
+
+            using var command = connection.CreateCommand();
+            command.CommandText = """
             INSERT INTO project_state_documents (
                 document_id, project_id, workspace_path, project_dir, workflow_project_dir,
                 document_type, payload_json, created_at, updated_at
@@ -172,16 +170,17 @@ public static class ProjectStateDocumentStore
                 payload_json = excluded.payload_json,
                 updated_at = excluded.updated_at
             """;
-        command.Parameters.AddWithValue("$document_id", documentId);
-        command.Parameters.AddWithValue("$project_id", StableProjectId(workspaceKey, projectKey));
-        command.Parameters.AddWithValue("$workspace_path", workspaceKey);
-        command.Parameters.AddWithValue("$project_dir", projectKey);
-        command.Parameters.AddWithValue("$workflow_project_dir", workflowKey);
-        command.Parameters.AddWithValue("$document_type", docType);
-        command.Parameters.AddWithValue("$payload_json", payloadJson);
-        command.Parameters.AddWithValue("$created_at", createdAt);
-        command.Parameters.AddWithValue("$updated_at", now);
-        command.ExecuteNonQuery();
+            command.Parameters.AddWithValue("$document_id", documentId);
+            command.Parameters.AddWithValue("$project_id", StableProjectId(workspaceKey, projectKey));
+            command.Parameters.AddWithValue("$workspace_path", workspaceKey);
+            command.Parameters.AddWithValue("$project_dir", projectKey);
+            command.Parameters.AddWithValue("$workflow_project_dir", workflowKey);
+            command.Parameters.AddWithValue("$document_type", docType);
+            command.Parameters.AddWithValue("$payload_json", payloadJson);
+            command.Parameters.AddWithValue("$created_at", createdAt);
+            command.Parameters.AddWithValue("$updated_at", now);
+            command.ExecuteNonQuery();
+        }
     }
 
     public static void DeleteProjectDocuments(string workspaceRoot, string projectDir)
@@ -193,20 +192,22 @@ public static class ProjectStateDocumentStore
         var workspaceAliases = WorkspaceAliases(workspaceRoot);
         try
         {
-            WorkspaceQueueDatabase.EnsureDatabase(databasePath);
-            using var connection = new SqliteConnection($"Data Source={databasePath}");
-            connection.Open();
-            using var command = connection.CreateCommand();
-            var placeholders = string.Join(", ", workspaceAliases.Select((_, index) => $"$workspace{index}"));
-            command.CommandText = $"""
+            lock (WorkspaceQueueDatabase.WriteSyncRoot)
+            {
+                WorkspaceQueueDatabase.EnsureDatabase(databasePath);
+                using var connection = WorkspaceQueueDatabase.OpenConnection(databasePath);
+                using var command = connection.CreateCommand();
+                var placeholders = string.Join(", ", workspaceAliases.Select((_, index) => $"$workspace{index}"));
+                command.CommandText = $"""
                 DELETE FROM project_state_documents
                 WHERE workspace_path IN ({placeholders})
                   AND project_dir = $project_dir
                 """;
-            for (var i = 0; i < workspaceAliases.Count; i++)
-                command.Parameters.AddWithValue($"$workspace{i}", workspaceAliases[i]);
-            command.Parameters.AddWithValue("$project_dir", NormalizePath(projectDir));
-            command.ExecuteNonQuery();
+                for (var i = 0; i < workspaceAliases.Count; i++)
+                    command.Parameters.AddWithValue($"$workspace{i}", workspaceAliases[i]);
+                command.Parameters.AddWithValue("$project_dir", NormalizePath(projectDir));
+                command.ExecuteNonQuery();
+            }
         }
         catch
         {
