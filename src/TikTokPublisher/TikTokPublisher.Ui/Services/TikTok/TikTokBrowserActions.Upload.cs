@@ -439,25 +439,35 @@ public static partial class TikTokBrowserActions
         IReadOnlyList<string> resolvedPaths,
         CancellationToken ct)
     {
-        if (await CdpDomFileUpload.TrySetFilesAsync(page, resolvedPaths, ct).ConfigureAwait(false))
+        var transport = TikTokFileUploadTransportRegistry.Resolve(page);
+        if (transport == TikTokFileUploadTransport.LocalPlaywright)
+        {
+            await FeedVideoFilesViaPlaywrightAsync(page, button, resolvedPaths, ct);
             return;
+        }
 
-        if (ContainsPlaywrightStreamBlockedFile(resolvedPaths))
-            throw CreateCdpPathInjectionRequiredException(resolvedPaths);
+        var input = await FindVideoFileInputAsync(page);
+        if (input is null)
+        {
+            if (RequiresCdpPathInjection(transport, resolvedPaths.Select(SafeFileSize).ToArray()))
+                throw CreateCdpPathInjectionRequiredException(resolvedPaths);
+            await FeedVideoFilesViaPlaywrightAsync(page, button, resolvedPaths, ct);
+            return;
+        }
 
         var batches = BuildVideoUploadBatches(resolvedPaths);
         for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
             ct.ThrowIfCancellationRequested();
             var batch = batches[batchIndex];
-            if (await CdpDomFileUpload.TrySetFilesAsync(page, batch, ct).ConfigureAwait(false))
+            if (await CdpDomFileUpload.TrySetFilesAsync(page, input, batch, ct).ConfigureAwait(false))
             {
                 if (batchIndex < batches.Count - 1)
                     await page.WaitForTimeoutAsync(400);
                 continue;
             }
 
-            if (ContainsPlaywrightStreamBlockedFile(batch))
+            if (RequiresCdpPathInjection(transport, batch.Select(SafeFileSize).ToArray()))
                 throw CreateCdpPathInjectionRequiredException(batch);
 
             await FeedVideoFilesViaPlaywrightAsync(page, button, batch, ct);
@@ -473,10 +483,12 @@ public static partial class TikTokBrowserActions
         IReadOnlyList<string> resolvedPaths,
         CancellationToken ct)
     {
-        if (await CdpDomFileUpload.TrySetFilesAsync(page, resolvedPaths, ct).ConfigureAwait(false))
+        var transport = TikTokFileUploadTransportRegistry.Resolve(page);
+        if (transport == TikTokFileUploadTransport.CdpPathInjection &&
+            await CdpDomFileUpload.TrySetFilesAsync(page, input, resolvedPaths, ct).ConfigureAwait(false))
             return;
 
-        if (ContainsPlaywrightStreamBlockedFile(resolvedPaths))
+        if (RequiresCdpPathInjection(transport, resolvedPaths.Select(SafeFileSize).ToArray()))
             throw CreateCdpPathInjectionRequiredException(resolvedPaths);
 
         await FeedVideoFilesWithBatchesAsync(page, input, resolvedPaths, ct);
@@ -504,7 +516,7 @@ public static partial class TikTokBrowserActions
             if (input is null)
                 throw new InvalidOperationException($"未找到 TikTok 视频上传控件：{ex.Message}", ex);
 
-            await SetInputFilesWithCdpGuardAsync(page, input, batch, timeoutMs, ct);
+            await SetInputFilesWithTransportGuardAsync(page, input, batch, timeoutMs, ct);
         }
     }
 
@@ -650,11 +662,12 @@ public static partial class TikTokBrowserActions
         return 60.0 * Math.Ceiling(referenceMb / 50.0);
     }
 
-    private static bool ContainsPlaywrightStreamBlockedFile(IReadOnlyList<string> paths) =>
-        paths.Any(path => SafeFileSize(path) > CdpFileTransferLimitBytes);
-
-    private static bool ExceedsPlaywrightStreamBatchLimit(IReadOnlyList<string> paths) =>
-        paths.Sum(SafeFileSize) > CdpFileTransferLimitBytes;
+    internal static bool RequiresCdpPathInjection(
+        TikTokFileUploadTransport transport,
+        IReadOnlyList<long> fileSizes) =>
+        transport == TikTokFileUploadTransport.CdpPathInjection &&
+        (fileSizes.Any(size => size > CdpFileTransferLimitBytes) ||
+         fileSizes.Sum() > CdpFileTransferLimitBytes);
 
     private static InvalidOperationException CreateCdpPathInjectionRequiredException(IReadOnlyList<string> paths)
     {
@@ -665,7 +678,7 @@ public static partial class TikTokBrowserActions
         var name = string.IsNullOrWhiteSpace(largest.path) ? "未知文件" : Path.GetFileName(largest.path);
         var sizeLabel = FormatFileSize(largest.size);
         return new InvalidOperationException(
-            $"视频文件过大（{name}，{sizeLabel}），内嵌浏览器须通过 CDP 路径注入上传，但未能绑定文件控件。" +
+            $"视频文件过大（{name}，{sizeLabel}），CDP 浏览器须通过本地路径注入上传，但未能绑定正片文件控件。" +
             "请确认当前在「内容上传」步骤且页面已加载完成，然后重试。");
     }
 
@@ -795,22 +808,31 @@ public static partial class TikTokBrowserActions
         IReadOnlyList<string> resolvedPaths,
         CancellationToken ct)
     {
+        var transport = TikTokFileUploadTransportRegistry.Resolve(page);
+        if (transport == TikTokFileUploadTransport.LocalPlaywright)
+        {
+            await input.SetInputFilesAsync(
+                resolvedPaths,
+                new() { Timeout = ResolveSetInputFilesTimeoutMs(resolvedPaths) });
+            return;
+        }
+
         var batches = BuildVideoUploadBatches(resolvedPaths);
         for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
         {
             ct.ThrowIfCancellationRequested();
             var batch = batches[batchIndex];
-            if (await CdpDomFileUpload.TrySetFilesAsync(page, batch, ct).ConfigureAwait(false))
+            if (await CdpDomFileUpload.TrySetFilesAsync(page, input, batch, ct).ConfigureAwait(false))
             {
                 if (batchIndex < batches.Count - 1)
                     await Task.Delay(400, ct);
                 continue;
             }
 
-            if (ContainsPlaywrightStreamBlockedFile(batch) || ExceedsPlaywrightStreamBatchLimit(batch))
+            if (RequiresCdpPathInjection(transport, batch.Select(SafeFileSize).ToArray()))
                 throw CreateCdpPathInjectionRequiredException(batch);
 
-            await SetInputFilesWithCdpGuardAsync(
+            await SetInputFilesWithTransportGuardAsync(
                 page, input, batch, ResolveSetInputFilesTimeoutMs(batch), ct);
 
             if (batchIndex < batches.Count - 1)
@@ -818,17 +840,19 @@ public static partial class TikTokBrowserActions
         }
     }
 
-    private static async Task SetInputFilesWithCdpGuardAsync(
+    private static async Task SetInputFilesWithTransportGuardAsync(
         IPage page,
         ILocator input,
         IReadOnlyList<string> batch,
         int timeoutMs,
         CancellationToken ct)
     {
-        if (await CdpDomFileUpload.TrySetFilesAsync(page, batch, ct).ConfigureAwait(false))
+        var transport = TikTokFileUploadTransportRegistry.Resolve(page);
+        if (transport == TikTokFileUploadTransport.CdpPathInjection &&
+            await CdpDomFileUpload.TrySetFilesAsync(page, input, batch, ct).ConfigureAwait(false))
             return;
 
-        if (ContainsPlaywrightStreamBlockedFile(batch) || ExceedsPlaywrightStreamBatchLimit(batch))
+        if (RequiresCdpPathInjection(transport, batch.Select(SafeFileSize).ToArray()))
             throw CreateCdpPathInjectionRequiredException(batch);
 
         if (batch.Count == 1)
@@ -849,17 +873,19 @@ public static partial class TikTokBrowserActions
 
         if (multipleAttr is null)
         {
+            var transport = TikTokFileUploadTransportRegistry.Resolve(page);
             foreach (var path in resolvedPaths)
             {
                 ct.ThrowIfCancellationRequested();
                 var single = new[] { path };
-                if (await CdpDomFileUpload.TrySetFilesAsync(page, single, ct).ConfigureAwait(false))
+                if (transport == TikTokFileUploadTransport.CdpPathInjection &&
+                    await CdpDomFileUpload.TrySetFilesAsync(page, input, single, ct).ConfigureAwait(false))
                 {
                     await Task.Delay(400, ct);
                     continue;
                 }
 
-                if (ContainsPlaywrightStreamBlockedFile(single))
+                if (RequiresCdpPathInjection(transport, single.Select(SafeFileSize).ToArray()))
                     throw CreateCdpPathInjectionRequiredException(single);
 
                 await input.SetInputFilesAsync(path, new() { Timeout = ResolveSetInputFilesTimeoutMs(single) });

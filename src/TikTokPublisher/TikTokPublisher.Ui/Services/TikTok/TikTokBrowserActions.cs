@@ -142,7 +142,10 @@ public static partial class TikTokBrowserActions
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        if (options.UseBatchUpload)
+        var uploadPaths = payload.UploadVideoPaths.Count > 0
+            ? payload.UploadVideoPaths.ToList()
+            : payload.VideoPaths.ToList();
+        if (TikTokBatchUploadService.ShouldUseBatchedUpload(options, uploadPaths.Count))
         {
             await TikTokBatchUploadService.FillRemainingWithBatchedUploadAsync(
                 page, payload, options, recommendation, coverPath, coverAlreadyUploaded, log, ct);
@@ -152,9 +155,6 @@ public static partial class TikTokBrowserActions
         if (!coverAlreadyUploaded)
             await UploadCoverAsync(page, coverPath, log, ct);
 
-        var uploadPaths = payload.UploadVideoPaths.Count > 0
-            ? payload.UploadVideoPaths.ToList()
-            : payload.VideoPaths.ToList();
         await UploadLocalVideosAsync(page, uploadPaths, waitForFinish: false, log, ct);
         await FillSharedPublishFieldsAsync(page, payload, options, recommendation, log, ct);
         Log(log, "TikTok 其余表单已填写完成，开始检查视频是否上传完成。");
