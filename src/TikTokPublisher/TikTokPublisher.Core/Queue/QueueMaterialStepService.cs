@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using ShortDrama.Core.Models;
 using TikTokPublisher.Core.Drama;
+using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
@@ -14,6 +15,7 @@ namespace TikTokPublisher.Core.Queue;
 public static class QueueMaterialStepService
 {
     private const int MissingEpisodeRepairRounds = 3;
+    private const string ProofMaterialFrameFallbackVideoFileName = "证明材料抽帧兜底.mp4";
     private const string AiRewriteStateDocumentType = "ai_rewrite_state";
     private const int AiRewriteStateVersion = 1;
 
@@ -203,6 +205,9 @@ public static class QueueMaterialStepService
         }
         catch
         {
+            if (ct.IsCancellationRequested)
+                throw;
+
             var partial = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir)
                 .Select(Path.GetFullPath)
                 .Where(path => !before.Contains(path))
@@ -211,7 +216,18 @@ public static class QueueMaterialStepService
             {
                 log(
                     $"证明材料补源中断：已保留下载完成的 {partial.Length} 个视频，" +
-                    "将在项目归档时按账号配置清理。");
+                    "将直接使用这些视频继续生成证明材料。");
+                return new ProofMaterialVideoHydrationResult(partial);
+            }
+
+            var fallbackVideo = await TryCreateProofMaterialFrameFallbackVideoAsync(
+                    context,
+                    log,
+                    ct)
+                .ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(fallbackVideo))
+            {
+                return new ProofMaterialVideoHydrationResult([fallbackVideo]);
             }
             throw;
         }
@@ -236,6 +252,106 @@ public static class QueueMaterialStepService
             .Take(required - existingCount)
             .ToArray();
     }
+
+    private static async Task<string?> TryCreateProofMaterialFrameFallbackVideoAsync(
+        ProjectWorkspaceContext context,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        var framePath = FindProofMaterialFallbackFrame(context.WorkflowProjectDir);
+        if (string.IsNullOrWhiteSpace(framePath))
+            return null;
+
+        var outputPath = Path.Combine(
+            context.SourceProjectDir,
+            ProofMaterialFrameFallbackVideoFileName);
+        try
+        {
+            log(
+                $"WARN 证明材料视频下载失败，检测到已保留的抽帧图片，" +
+                $"正在生成本地兜底视频：{Path.GetFileName(framePath)}。");
+            await CreateProofMaterialFrameFallbackVideoAsync(framePath, outputPath, ct)
+                .ConfigureAwait(false);
+            log(
+                $"WARN 已使用抽帧图片生成证明材料兜底视频，将继续生成工程图和 AI 过程截图：" +
+                $"{outputPath}");
+            return outputPath;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            log($"WARN 抽帧图片兜底视频生成失败，将保留原下载错误：{ex.Message}");
+            return null;
+        }
+    }
+
+    internal static async Task CreateProofMaterialFrameFallbackVideoAsync(
+        string framePath,
+        string outputPath,
+        CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(framePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        if (!File.Exists(framePath) || new FileInfo(framePath).Length <= 0)
+            throw new FileNotFoundException("证明材料抽帧兜底图片不存在或为空。", framePath);
+
+        var fullOutputPath = Path.GetFullPath(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullOutputPath)!);
+        var temporaryPath = fullOutputPath + $".{Guid.NewGuid():N}.tmp.mp4";
+        try
+        {
+            var ffmpeg = FfmpegLocator.ResolveFfmpeg();
+            await FfmpegRunner.RunAsync(
+                    ffmpeg,
+                    [
+                        "-hide_banner", "-loglevel", "error", "-y",
+                        "-loop", "1", "-i", Path.GetFullPath(framePath),
+                        "-t", "4", "-r", "25",
+                        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease," +
+                               "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,format=yuv420p",
+                        "-an", "-c:v", "libx264", "-preset", "veryfast",
+                        "-movflags", "+faststart", temporaryPath,
+                    ],
+                    ct)
+                .ConfigureAwait(false);
+            if (!File.Exists(temporaryPath) || new FileInfo(temporaryPath).Length <= 0)
+                throw new InvalidOperationException("FFmpeg 未生成有效的证明材料抽帧兜底视频。");
+
+            File.Move(temporaryPath, fullOutputPath, overwrite: true);
+        }
+        finally
+        {
+            TryDelete(temporaryPath);
+        }
+    }
+
+    internal static string? FindProofMaterialFallbackFrame(string workflowProjectDirectory)
+    {
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        var retained = TikTokAiGenerationScreenshotService.ListRetainedFrameImages(workflow)
+            .Where(IsUsableProofMaterialFallbackImage)
+            .OrderByDescending(path => new FileInfo(path).Length)
+            .FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(retained))
+            return retained;
+
+        if (!Directory.Exists(workflow))
+            return null;
+
+        return Directory.EnumerateDirectories(workflow, "抽帧原图", SearchOption.AllDirectories)
+            .SelectMany(directory => Directory.EnumerateFiles(directory, "*.*", SearchOption.TopDirectoryOnly))
+            .Where(IsUsableProofMaterialFallbackImage)
+            .OrderByDescending(path => new FileInfo(path).Length)
+            .FirstOrDefault();
+    }
+
+    private static bool IsUsableProofMaterialFallbackImage(string path) =>
+        File.Exists(path) &&
+        new FileInfo(path).Length > 0 &&
+        Path.GetExtension(path).ToLowerInvariant() is ".jpg" or ".jpeg" or ".png" or ".webp" or ".bmp";
 
     internal sealed record ProofMaterialVideoHydrationResult(
         IReadOnlyList<string> CreatedVideoPaths)

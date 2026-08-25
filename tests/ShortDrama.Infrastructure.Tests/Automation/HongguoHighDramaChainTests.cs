@@ -432,35 +432,100 @@ public sealed class HongguoHighCalendarMapperTests
 public sealed class HongguoHighDramaChainTests
 {
     [Fact]
-    public async Task SearchAsync_Uses_Novelfm_Host_And_Hghigh_Prefix()
+    public async Task SearchAsync_Uses_V216_Search_Tab_And_Authoritative_Video_Episode_Count()
     {
-        var handler = new HighSearchHandler();
-        using var httpClient = new HttpClient(handler);
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
         var settings = new DramaSourceSettings
         {
             DramaSourceChain = "hghigh",
             HghighAccount = "high@example.com",
             HghighPassword = "secret"
         };
-        var router = new DramaSourceRouter(
-            httpClient,
-            new StaticSettings(settings),
-            new HongguoLocalApiService(httpClient),
-            new HongguoNewApiService(httpClient),
-            new HongguoDramaSearchService(httpClient),
-            new HongguoDramaDownloader(httpClient),
-            new HongguoMemoryReaderService());
+        JsonObject? capturedSpec = null;
+        service.AuthedRequestForTests = (_, path, spec, _, _) =>
+        {
+            path.Should().Be("/redguo/sign");
+            capturedSpec = spec.DeepClone().AsObject();
+            return Task.FromResult<JsonNode?>(new JsonObject
+            {
+                ["host"] = "api5-normal-sinfonlinea.fqnovel.com",
+                ["path"] = "/reading/bookapi/search/tab/v",
+                ["method"] = "GET",
+            });
+        };
+        service.ExecuteSignedRequestForTests = (_, body, _, _) =>
+        {
+            body.Should().BeEmpty();
+            return Task.FromResult<JsonNode?>(JsonNode.Parse("""
+                {
+                  "data": {
+                    "search_data": [{
+                      "book_id": "7677524795017137177",
+                      "drama_chapter_number": 60,
+                      "video_data": [{
+                        "series_id": "7677524795017137177",
+                        "title": "陆总，迟来的深情我不要",
+                        "episode_cnt": 58,
+                        "video_detail": {
+                          "episode_cnt": 58,
+                          "episode_right_text": "共58集",
+                          "series_intro": "简介",
+                          "series_cover": "https://cdn.example.com/cover"
+                        }
+                      }]
+                    }]
+                  }
+                }
+                """));
+        };
 
-        var results = await router.SearchAsync("测试高码率", 1, CancellationToken.None);
+        var results = await service.SearchAsync(settings, "陆总，迟来的深情我不要", 1, CancellationToken.None);
 
         results.Should().ContainSingle();
-        results[0].Title.Should().Be("高码率剧");
-        results[0].BookId.Should().Be("hghigh:123456");
-        results[0].EpisodeTotal.Should().Be(81);
-        results[0].PosterUrl.Should().Be("https://cover");
+        results[0].Title.Should().Be("陆总，迟来的深情我不要");
+        results[0].BookId.Should().Be("hghigh:7677524795017137177");
+        results[0].EpisodeTotal.Should().Be(58);
+        results[0].PosterUrl.Should().Be("https://cdn.example.com/cover");
+        capturedSpec.Should().NotBeNull();
+        capturedSpec!["host"]!.GetValue<string>().Should().Be("api5-normal-sinfonlinea.fqnovel.com");
+        capturedSpec["path"]!.GetValue<string>().Should().Be("/reading/bookapi/search/tab/v");
+        capturedSpec["method"]!.GetValue<string>().Should().Be("GET");
+        var parameters = capturedSpec["params"]!.AsObject();
+        parameters["query"]!.GetValue<string>().Should().Be("陆总，迟来的深情我不要");
+        parameters["tab_type"]!.GetValue<int>().Should().Be(11);
+        parameters["offset"]!.GetValue<int>().Should().Be(0);
+        parameters["count"]!.GetValue<int>().Should().Be(20);
+    }
+
+    [Fact]
+    public async Task SearchAsync_Falls_Back_To_Novelfm_When_V216_Signing_Is_Unavailable()
+    {
+        var handler = new HighSearchAndDirectoryHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = new HongguoHighApiService(httpClient)
+        {
+            AuthedRequestForTests = (_, _, _, _, _) => throw new HongguoHighException("sign unavailable")
+        };
+
+        var results = await service.SearchAsync(
+            new DramaSourceSettings(),
+            "测试高码率",
+            1,
+            CancellationToken.None);
+
+        results.Should().ContainSingle();
+        results[0].EpisodeTotal.Should().Be(58);
         handler.Hosts.Should().Contain("api5-sinfonlinea.novelfm.com");
-        handler.Hosts.Should().NotContain("au.s1o.cc");
-        handler.Hosts.Should().NotContain("m.iusc.cc");
+        handler.Hosts.Should().Contain("api-sinfonlinec.fanqiesdk.com");
+    }
+
+    [Fact]
+    public void Fanqie_Query_Encoding_Matches_The_V216_Client()
+    {
+        HongguoHighApiService.EscapeFanqieQueryValue("1080*2400").Should().Be("1080*2400");
+        HongguoHighApiService.EscapeFanqieQueryValue("clks####11@123")
+            .Should().Be("clks%23%23%23%2311%40123");
     }
 
     [Fact]
@@ -839,16 +904,30 @@ public sealed class HongguoHighDramaChainTests
         public void Report(T value) => report(value);
     }
 
-    private sealed class HighSearchHandler : HttpMessageHandler
+    private sealed class HighSearchAndDirectoryHandler : HttpMessageHandler
     {
         public List<string> Hosts { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Hosts.Add(request.RequestUri!.Host);
-            var json = """
-                {"code":0,"data":{"search_data":[{"books":[{"book_id":"123456","book_name":"高码率剧","author":"甲","audio_thumb_uri":"https://cover","abstract":"简介","category":"漫剧","chapter_number":80,"serial_count":80,"last_chapter_title":"第81集"}]}]}}
-                """;
+            string json;
+            if (request.RequestUri.AbsolutePath.Contains("/directory/list/", StringComparison.Ordinal))
+            {
+                var episodes = new JsonArray(
+                    Enumerable.Range(1, 58).Select(index => JsonValue.Create($"vid-{index}")).ToArray());
+                json = new JsonObject
+                {
+                    ["code"] = 0,
+                    ["data"] = new JsonObject { ["item_list"] = episodes },
+                }.ToJsonString();
+            }
+            else
+            {
+                json = """
+                    {"code":0,"data":{"search_data":[{"books":[{"book_id":"123456","book_name":"高码率剧","author":"甲","audio_thumb_uri":"https://cover","abstract":"简介","category":"漫剧","drama_chapter_number":60}]}]}}
+                    """;
+            }
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(json)

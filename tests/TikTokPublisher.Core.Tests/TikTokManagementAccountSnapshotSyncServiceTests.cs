@@ -21,7 +21,8 @@ public sealed class TikTokManagementAccountSnapshotSyncServiceTests
                 TiktokAccountNickname = "昵称不能上传",
                 TiktokLoginEmail = " 2720937754@qq.com ",
                 TiktokLoginPassword = "secret-a",
-                TiktokProofCopyrightCompanyName = "武汉速视科技有限公司",
+                TiktokProofCopyrightCompanyName = "不应上报的致贵方名称",
+                TiktokProofDeclarantCompanyName = "武汉速视科技有限公司",
             },
             new TikTokAccountProfile
             {

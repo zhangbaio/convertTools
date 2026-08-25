@@ -1,7 +1,7 @@
-using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Threading.Channels;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -903,8 +903,11 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var latestNetworkStatus = "正在获取第 1 页";
         var scheduledDetailIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var processedDetailIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var pageEnrichmentTasks = new ConcurrentBag<Task<IReadOnlyList<DramaSearchItem>>>();
-        var pageEnrichmentGate = new SemaphoreSlim(2, 2);
+        var pageQueue = Channel.CreateUnbounded<IReadOnlyList<DramaSearchItem>>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = true,
+        });
 
         static bool HasRequiredMetrics(DramaSearchItem item) =>
             !string.IsNullOrWhiteSpace(item.PosterUrl) &&
@@ -931,61 +934,44 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 UpdateProgressText();
             }
         });
-        var receivedPartial = false;
-        var detailProgress = new Progress<IReadOnlyList<DramaSearchItem>>(items =>
-        {
-            if (generation != _searchGeneration || request.IsCancellationRequested)
-                return;
-            MergeEnrichedSearchItems(items);
-            foreach (var item in items)
-            {
-                if (HasRequiredMetrics(item))
-                    processedDetailIds.Add(item.BookId);
-                else
-                    processedDetailIds.Remove(item.BookId);
-            }
-            ApplyFilteredSearchResults(label);
-            UpdateProgressText();
-        });
         var firstPageShown = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var pageProgress = new Progress<IReadOnlyList<DramaSearchItem>>(items =>
+        var pagePipelineTask = Task.Run(async () =>
+        {
+            await foreach (var pageItems in pageQueue.Reader.ReadAllAsync(request.Token))
+            {
+                var enriched = await ShortDramaDramaServices.EnrichHighNewReleaseItemsAsync(
+                    pageItems,
+                    progress: null,
+                    cancellationToken: request.Token,
+                    detailResults: null);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (generation != _searchGeneration || request.IsCancellationRequested)
+                        return;
+                    AppendLoadedSearchItems(enriched, sourceMode);
+                    pagesDisplayed++;
+                    foreach (var item in enriched)
+                    {
+                        if (HasRequiredMetrics(item))
+                            processedDetailIds.Add(item.BookId);
+                        else
+                            processedDetailIds.Remove(item.BookId);
+                    }
+                    ApplyFilteredSearchResults(label);
+                    UpdateProgressText();
+                    firstPageShown.TrySetResult(true);
+                });
+            }
+        }, request.Token);
+        var pageProgress = new InlineProgress<IReadOnlyList<DramaSearchItem>>(items =>
         {
             if (generation != _searchGeneration || request.IsCancellationRequested)
                 return;
-            ReplaceLoadedSearchItems(items, sourceMode, preserveSelection: receivedPartial);
-            receivedPartial = true;
-            pagesDisplayed++;
-            processedDetailIds.Clear();
-            foreach (var item in _allSearchResults.Where(HasRequiredMetrics))
-                processedDetailIds.Add(item.BookId);
-            ApplyFilteredSearchResults(label);
             var pageItems = items
                 .Where(item => scheduledDetailIds.Add(item.BookId))
                 .ToArray();
-            foreach (var detailBatch in pageItems.Chunk(20))
-            {
-                var batch = detailBatch.ToArray();
-                var enrichment = Task.Run(async () =>
-                {
-                    await pageEnrichmentGate.WaitAsync(request.Token);
-                    try
-                    {
-                        return await ShortDramaDramaServices.EnrichHighNewReleaseItemsAsync(
-                            batch,
-                            progress: null,
-                            cancellationToken: request.Token,
-                            detailResults: detailProgress);
-                    }
-                    finally
-                    {
-                        pageEnrichmentGate.Release();
-                    }
-                },
-                    request.Token);
-                pageEnrichmentTasks.Add(enrichment);
-            }
-            UpdateProgressText();
-            firstPageShown.TrySetResult(true);
+            foreach (var page in pageItems.Chunk(20))
+                pageQueue.Writer.TryWrite(page.ToArray());
         });
         try
         {
@@ -1001,16 +987,27 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             if (firstCompletion == listTask && !listTask.IsCompletedSuccessfully)
                 await listTask;
             if (generation != _searchGeneration || request.IsCancellationRequested)
+            {
+                pageQueue.Writer.TryComplete();
                 return;
+            }
             _ = CompleteHighNewReleaseAsync(
-                label, isAi, sourceMode, days, generation, request, progress, listTask, pageEnrichmentTasks, detailProgress);
+                label,
+                generation,
+                request,
+                listTask,
+                pageQueue.Writer,
+                pagePipelineTask,
+                scheduledDetailIds);
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested)
         {
+            pageQueue.Writer.TryComplete();
             // A newer search replaced this request.
         }
         catch (Exception ex)
         {
+            pageQueue.Writer.TryComplete(ex);
             if (generation == _searchGeneration)
             {
                 SearchPageText = $"{label} · 加载失败";
@@ -1026,39 +1023,27 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     private async Task CompleteHighNewReleaseAsync(
         string label,
-        bool isAi,
-        string sourceMode,
-        int days,
         long generation,
         CancellationTokenSource request,
-        IProgress<string> progress,
         Task<IReadOnlyList<DramaSearchItem>> listTask,
-        ConcurrentBag<Task<IReadOnlyList<DramaSearchItem>>> pageEnrichmentTasks,
-        IProgress<IReadOnlyList<DramaSearchItem>> detailProgress)
+        ChannelWriter<IReadOnlyList<DramaSearchItem>> pageWriter,
+        Task pagePipelineTask,
+        HashSet<string> scheduledDetailIds)
     {
+        var pipelineAwaited = false;
         try
         {
-            var partial = await listTask;
+            var completeList = await listTask;
+            var remaining = completeList
+                .Where(item => scheduledDetailIds.Add(item.BookId))
+                .ToArray();
+            foreach (var page in remaining.Chunk(20))
+                pageWriter.TryWrite(page.ToArray());
+            pageWriter.TryComplete();
+            await pagePipelineTask;
+            pipelineAwaited = true;
             if (generation != _searchGeneration || request.IsCancellationRequested)
                 return;
-            ReplaceLoadedSearchItems(partial, sourceMode, preserveSelection: true);
-            ApplyFilteredSearchResults(label);
-            SearchPageText = $"{label} · 已显示 {SearchResults.Count} 条 · 正在后台补充详情...";
-
-            var pageDetails = pageEnrichmentTasks.ToArray();
-            if (pageDetails.Length > 0)
-                await Task.WhenAll(pageDetails);
-
-            var full = await Task.Run(
-                async () => isAi
-                    ? await ShortDramaDramaServices.GetAiTodayAsync(
-                        days, enrich: true, progress, request.Token, detailResults: detailProgress)
-                    : await ShortDramaDramaServices.GetMangaTodayAsync(
-                        days, enrich: true, progress, request.Token, detailResults: detailProgress),
-                request.Token);
-            if (generation != _searchGeneration || request.IsCancellationRequested)
-                return;
-            ReplaceLoadedSearchItems(full, sourceMode, preserveSelection: true);
             ApplyFilteredSearchResults(label);
             SearchPageText = $"{label} · 共 {SearchResults.Count} 条";
             LogRequested?.Invoke($"{label}：{SearchResults.Count} 条");
@@ -1077,6 +1062,12 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         }
         finally
         {
+            pageWriter.TryComplete();
+            if (!pipelineAwaited)
+            {
+                try { await pagePipelineTask; }
+                catch { /* the primary error/cancellation is reported above */ }
+            }
             ReleaseNewReleaseRequest(request);
         }
     }
@@ -1116,6 +1107,25 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         }
     }
 
+    private void AppendLoadedSearchItems(IReadOnlyList<DramaSearchItem> items, string sourceMode)
+    {
+        var byId = _allSearchResults
+            .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
+            .ToDictionary(item => item.BookId, StringComparer.OrdinalIgnoreCase);
+        foreach (var source in items)
+        {
+            source.SourceMode = sourceMode;
+            if (byId.TryGetValue(source.BookId, out var target))
+            {
+                CopySearchItemDetails(target, source);
+                continue;
+            }
+
+            _allSearchResults.Add(source);
+            byId[source.BookId] = source;
+        }
+    }
+
     private void MergeEnrichedSearchItems(IReadOnlyList<DramaSearchItem> items)
     {
         if (items.Count == 0)
@@ -1127,14 +1137,24 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         {
             if (!byId.TryGetValue(source.BookId, out var target))
                 continue;
-            target.Author = source.Author;
-            target.Category = source.Category;
-            target.EpisodeTotal = source.EpisodeTotal;
-            target.PublishTime = source.PublishTime;
-            target.Intro = source.Intro;
-            target.PosterUrl = source.PosterUrl;
-            target.FavoriteCount = source.FavoriteCount;
+            CopySearchItemDetails(target, source);
         }
+    }
+
+    private static void CopySearchItemDetails(DramaSearchItem target, DramaSearchItem source)
+    {
+        target.Author = source.Author;
+        target.Category = source.Category;
+        target.EpisodeTotal = source.EpisodeTotal;
+        target.PublishTime = source.PublishTime;
+        target.Intro = source.Intro;
+        target.PosterUrl = source.PosterUrl;
+        target.FavoriteCount = source.FavoriteCount;
+    }
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 
     private List<DramaSearchItem> FilterAuthorExcludedItems(List<DramaSearchItem> selectedItems, string queueLabel)

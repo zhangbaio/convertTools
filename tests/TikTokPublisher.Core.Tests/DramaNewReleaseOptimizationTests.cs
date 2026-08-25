@@ -15,10 +15,31 @@ public sealed class DramaNewReleaseOptimizationTests
 
         tiktok.Should().Contain("LoadProgressiveHighNewReleaseAsync");
         tiktok.Should().Contain("enrich: false");
-        tiktok.Should().Contain("正在后台补充详情");
+        tiktok.Should().Contain("pagePipelineTask");
         shortDrama.Should().Contain("LoadProgressiveHighNewReleaseAsync");
         shortDrama.Should().Contain("enrich: false");
         shortDrama.Should().Contain("正在后台补充详情");
+    }
+
+    [Fact]
+    public void TikTok_new_release_pages_are_enriched_by_a_single_fifo_consumer_before_display()
+    {
+        var source = File.ReadAllText(FindRepoFile(
+            "src", "TikTokPublisher", "TikTokPublisher.Ui", "ViewModels", "DramaDownloadViewModel.cs"));
+
+        source.Should().Contain("Channel.CreateUnbounded<IReadOnlyList<DramaSearchItem>>");
+        source.Should().Contain("SingleReader = true");
+        source.Should().Contain("await foreach (var pageItems in pageQueue.Reader.ReadAllAsync");
+        source.Should().Contain("await ShortDramaDramaServices.EnrichHighNewReleaseItemsAsync");
+        source.Should().Contain("AppendLoadedSearchItems(enriched, sourceMode)");
+        source.Should().Contain("foreach (var page in pageItems.Chunk(20))");
+        source.Should().Contain("await pagePipelineTask");
+        source.Should().NotContain("ConcurrentBag<Task<IReadOnlyList<DramaSearchItem>>>");
+
+        source.IndexOf("await ShortDramaDramaServices.EnrichHighNewReleaseItemsAsync", StringComparison.Ordinal)
+            .Should().BeLessThan(
+                source.IndexOf("AppendLoadedSearchItems(enriched, sourceMode)", StringComparison.Ordinal),
+                "a page must be enriched before it becomes visible");
     }
 
     [Fact]

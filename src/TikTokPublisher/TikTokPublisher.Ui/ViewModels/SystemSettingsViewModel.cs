@@ -600,16 +600,16 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     private void ShowExtractedMasters(string enc, string sign)
     {
-        HghighRevealEnc = true;
-        HghighRevealSign = true;
+        HghighRevealEnc = false;
+        HghighRevealSign = false;
         ApplyMastersToForm(enc, sign);
         var capturedEnc = enc ?? "";
         var capturedSign = sign ?? "";
         Dispatcher.UIThread.Post(
             () =>
             {
-                HghighRevealEnc = true;
-                HghighRevealSign = true;
+                HghighRevealEnc = false;
+                HghighRevealSign = false;
                 ApplyMastersToForm(capturedEnc, capturedSign);
             },
             DispatcherPriority.Background);

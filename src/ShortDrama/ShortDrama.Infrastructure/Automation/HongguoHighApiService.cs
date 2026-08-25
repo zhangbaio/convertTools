@@ -79,6 +79,116 @@ public sealed class HongguoHighApiService
         int page,
         CancellationToken cancellationToken)
     {
+        try
+        {
+            var latest = await SearchLatestClientApiAsync(settings, keyword, page, cancellationToken);
+            if (latest.Count > 0)
+                return latest;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // Keep the former novelfm endpoint as a compatibility fallback when signing or the
+            // current client endpoint is temporarily unavailable.
+        }
+
+        var legacy = await SearchLegacyNovelFmAsync(keyword, page, cancellationToken);
+        return await CorrectSearchEpisodeTotalsFromDirectoryAsync(legacy, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> SearchLatestClientApiAsync(
+        DramaSourceSettings settings,
+        string keyword,
+        int page,
+        CancellationToken cancellationToken)
+    {
+        var trimmed = (keyword ?? "").Trim();
+        if (trimmed.Length == 0)
+            return [];
+
+        var offset = Math.Max(0, (Math.Max(1, page) - 1) * 20);
+        var now = DateTimeOffset.UtcNow;
+        var normalSessionId = Guid.NewGuid().ToString();
+        var coldStartSessionId = Guid.NewGuid().ToString();
+        var spec = new JsonObject
+        {
+            ["host"] = "api5-normal-sinfonlinea.fqnovel.com",
+            ["path"] = "/reading/bookapi/search/tab/v",
+            ["method"] = "GET",
+            ["purpose"] = "search",
+            ["requestId"] = $"redguo.search:{page}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
+            ["device_profile_version"] = "hbr-account-tt-encrypt-v1",
+            ["deviceProfileVersion"] = "hbr-account-tt-encrypt-v1",
+            ["params"] = new JsonObject
+            {
+                ["aid"] = 8662,
+                ["app_name"] = "novelread",
+                ["version_code"] = 72332,
+                ["version_name"] = "7.2.3.32",
+                ["device_platform"] = "android",
+                ["device_type"] = "LE2100",
+                ["device_brand"] = "OnePlus",
+                ["os"] = "android",
+                ["os_version"] = "12",
+                ["os_api"] = 31,
+                ["manifest_version_code"] = 72332,
+                ["update_version_code"] = 72332,
+                ["channel"] = "oppo_8662_64",
+                ["language"] = "zh",
+                ["resolution"] = "1080*2400",
+                ["dpi"] = 480,
+                ["ac"] = "wifi",
+                ["ssmix"] = "a",
+                ["host_abi"] = "arm64-v8a",
+                ["dragon_device_type"] = "phone",
+                ["pv_player"] = 72332,
+                ["compliance_status"] = 0,
+                ["need_personal_recommend"] = 1,
+                ["player_so_load"] = 1,
+                ["is_android_pad_screen"] = 0,
+                ["rom_version"] = "ColorOS_12.1_LE2100_12_C.63",
+                ["query"] = trimmed,
+                ["tab_type"] = 11,
+                ["offset"] = offset,
+                ["count"] = 20,
+                ["search_source"] = 1,
+                ["gender"] = 2,
+                ["search_id"] = $"clks####11@{now.ToUnixTimeSeconds()}",
+                ["normal_session_cnt_in_day"] = 10,
+                ["cold_start_session_cnt_in_day"] = 4,
+                ["normal_session_id"] = normalSessionId,
+                ["cold_start_session_id"] = coldStartSessionId,
+                ["session_id"] = $"{now.ToUnixTimeMilliseconds()}{Guid.NewGuid():N}"[..31].ToUpperInvariant(),
+            },
+            ["manual"] = page == 1,
+            ["charge"] = page == 1,
+        };
+        var descriptor = AuthedRequestForTests is null
+            ? await AuthedRequestAsync(settings, "/redguo/sign", spec, 60, cancellationToken)
+            : await AuthedRequestForTests(settings, "/redguo/sign", spec, 60, cancellationToken);
+        var payload = ExecuteSignedRequestForTests is null
+            ? await ExecuteSignedFanqieRequestAsync(descriptor, [], 60, cancellationToken)
+            : await ExecuteSignedRequestForTests(descriptor, [], 60, cancellationToken);
+
+        var results = new List<DramaSearchItem>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in HongguoHighCalendarMapper.ExtractSearchTabItems(payload))
+        {
+            var item = HongguoHighCalendarMapper.TryMapItem(raw);
+            if (item is not null && seen.Add(item.BookId))
+                results.Add(item);
+        }
+        return results;
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> SearchLegacyNovelFmAsync(
+        string keyword,
+        int page,
+        CancellationToken cancellationToken)
+    {
         var trimmed = (keyword ?? "").Trim();
         if (trimmed.Length == 0)
         {
@@ -150,6 +260,41 @@ public sealed class HongguoHighApiService
         }
 
         return results;
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> CorrectSearchEpisodeTotalsFromDirectoryAsync(
+        IReadOnlyList<DramaSearchItem> items,
+        CancellationToken cancellationToken)
+    {
+        if (items.Count == 0)
+            return items;
+
+        using var gate = new SemaphoreSlim(6, 6);
+        return await Task.WhenAll(items.Select(async item =>
+        {
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                var rawBookId = HongguoHighCrypto.StripBookPrefix(item.BookId);
+                if (string.IsNullOrWhiteSpace(rawBookId))
+                    return item;
+                var directory = await FetchFanqieDirectoryDataAsync(rawBookId, cancellationToken);
+                var actualCount = directory["item_list"] is JsonArray episodes ? episodes.Count : 0;
+                return actualCount > 0 ? item with { EpisodeTotal = actualCount } : item;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return item;
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
     }
 
     public async Task<IReadOnlyList<HongguoNewApiService.HongguoEpisodeInfo>> GetEpisodesAsync(
@@ -810,6 +955,7 @@ public sealed class HongguoHighApiService
         }
 
         var method = (GetString(obj, "method") ?? "POST").ToUpperInvariant();
+        var hasRequestBody = method is not ("GET" or "HEAD");
         using var request = new HttpRequestMessage(new HttpMethod(method), url);
         if (obj["headers"] is JsonObject headers)
         {
@@ -826,6 +972,8 @@ public sealed class HongguoHighApiService
                 var value = NodeToText(header.Value);
                 if (!request.Headers.TryAddWithoutValidation(name, value))
                 {
+                    if (!hasRequestBody)
+                        continue;
                     request.Content ??= new ByteArrayContent(gzipBody);
                     request.Content.Headers.TryAddWithoutValidation(name, value);
                 }
@@ -837,14 +985,17 @@ public sealed class HongguoHighApiService
             var pairs = queryParams.Select(pair =>
             {
                 var text = NodeToText(pair.Value);
-                return $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(text)}";
+                return $"{EscapeFanqieQueryValue(pair.Key)}={EscapeFanqieQueryValue(text)}";
             });
             var builder = new UriBuilder(request.RequestUri) { Query = string.Join("&", pairs) };
             request.RequestUri = builder.Uri;
         }
 
-        request.Content ??= new ByteArrayContent(gzipBody);
-        request.Content.Headers.ContentType ??= new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+        if (hasRequestBody)
+        {
+            request.Content ??= new ByteArrayContent(gzipBody);
+            request.Content.Headers.ContentType ??= new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+        }
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 10, 120)));
         using var response = await _httpClient.SendAsync(request, timeoutCts.Token);
@@ -857,6 +1008,10 @@ public sealed class HongguoHighApiService
         EnsureBusinessOk(payload, "番茄 landpage 失败");
         return payload["data"] ?? payload;
     }
+
+    internal static string EscapeFanqieQueryValue(string value) =>
+        Uri.EscapeDataString(value ?? "")
+            .Replace("%2A", "*", StringComparison.OrdinalIgnoreCase);
 
     private static JsonObject BuildAiLandpageBody(int page)
     {

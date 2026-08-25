@@ -134,6 +134,15 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             if (!hasWorkflow || activePage is null)
                 return null;
 
+            if (TikTokUploadStateStore.TryRecordPlatformSeriesFromUrl(
+                    workflowDir,
+                    activePage.Url,
+                    payload.Title,
+                    "failure_page_url"))
+            {
+                L($"TikTok 已记录当前草稿详情地址：{activePage.Url}");
+            }
+
             var snapshot = await TikTokUploadFailureSnapshotService
                 .CaptureAsync(activePage, workflowDir, failureText, payload.Title, account.DisplayName, L)
                 .ConfigureAwait(false);
@@ -315,6 +324,15 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                             page, payload, options, recommendation, coverPath, coverAlreadyUploaded: true, L, ct)
                         .ConfigureAwait(false);
                 }
+            }
+
+            if (hasWorkflow && TikTokUploadStateStore.TryRecordPlatformSeriesFromUrl(
+                    workflowDir,
+                    page.Url,
+                    payload.Title,
+                    enteredEditFlow ? "edit_page_url" : "create_page_url"))
+            {
+                L($"TikTok 已记录当前草稿详情地址：{page.Url}");
             }
 
             var dailyLimit = await TikTokBrowserActions.DetectDailyEpisodeLimitAsync(page).ConfigureAwait(false);
