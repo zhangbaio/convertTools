@@ -227,19 +227,40 @@ function Wait-ExplorerNavigationPaneAtTop {
     return $false
 }
 
+function Convert-ExplorerLocationUrlToPath {
+    param([string]$LocationUrl)
+
+    if ([string]::IsNullOrWhiteSpace($LocationUrl)) { return $null }
+    try {
+        $locationUri = [Uri]$LocationUrl
+        if (-not $locationUri.IsFile) { return $null }
+
+        # Uri.LocalPath handles both forms emitted by Shell.Application:
+        #   file:///C:/folder      -> C:\folder
+        #   file://server/share   -> \\server\share
+        # Stripping only "file:///" turns a UNC URL into the relative path
+        # "file:\\server\share", which can never match the requested directory.
+        return [IO.Path]::GetFullPath($locationUri.LocalPath).TrimEnd('\')
+    } catch {
+        return $null
+    }
+}
+
 $resolved = [IO.Path]::GetFullPath($TargetPath).TrimEnd('\')
 $before = @{}
 $shell = New-Object -ComObject Shell.Application
 foreach ($item in @($shell.Windows())) { $before[[int64]$item.HWND] = $true }
 Start-Process explorer.exe -ArgumentList @('/n,', $resolved)
 $window = $null
+$ownsWindow = $false
 for ($attempt = 0; $attempt -lt 60 -and $null -eq $window; $attempt++) {
     Start-Sleep -Milliseconds 200
     foreach ($candidate in @($shell.Windows())) {
         try {
-            $location = ([uri]::UnescapeDataString([string]$candidate.LocationURL) -replace '^file:///', '') -replace '/', '\'
-            if ([IO.Path]::GetFullPath($location).TrimEnd('\') -ieq $resolved -and -not $before.ContainsKey([int64]$candidate.HWND)) {
+            $location = Convert-ExplorerLocationUrlToPath ([string]$candidate.LocationURL)
+            if ($location -ieq $resolved) {
                 $window = $candidate
+                $ownsWindow = -not $before.ContainsKey([int64]$candidate.HWND)
                 break
             }
         } catch {}
@@ -305,5 +326,9 @@ try {
         $bitmap.Dispose()
     }
 } finally {
-    try { $window.Quit() } catch {}
+    # Windows 11 may open the target in an existing Explorer window/tab. Do not
+    # close a window that belonged to the user before this capture started.
+    if ($ownsWindow) {
+        try { $window.Quit() } catch {}
+    }
 }

@@ -17,6 +17,33 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
     }
 
     [Fact]
+    public void Explorer_capture_script_normalizes_local_and_unc_location_urls()
+    {
+        using var stream = typeof(TikTokSourceFileInfoScreenshotService).Assembly
+            .GetManifestResourceStream("TikTokPublisher.Core.Resources.CaptureExplorerWindow.ps1");
+        stream.Should().NotBeNull();
+        using var reader = new StreamReader(stream!);
+        var script = reader.ReadToEnd();
+
+        script.Should().Contain("$locationUri.LocalPath");
+        script.Should().Contain("file://server/share");
+        script.Should().NotContain("-replace '^file:///', ''");
+    }
+
+    [Fact]
+    public void Explorer_capture_script_accepts_reused_windows_without_closing_them()
+    {
+        using var stream = typeof(TikTokSourceFileInfoScreenshotService).Assembly
+            .GetManifestResourceStream("TikTokPublisher.Core.Resources.CaptureExplorerWindow.ps1");
+        stream.Should().NotBeNull();
+        using var reader = new StreamReader(stream!);
+        var script = reader.ReadToEnd();
+
+        script.Should().Contain("$ownsWindow = -not $before.ContainsKey");
+        script.Should().Contain("if ($ownsWindow)");
+    }
+
+    [Fact]
     public void Explorer_capture_plan_uses_two_real_material_categories()
     {
         var outputs = new[]
