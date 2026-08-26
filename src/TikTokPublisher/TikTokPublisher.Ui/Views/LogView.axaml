@@ -4,6 +4,15 @@
              x:Class="TikTokPublisher.Ui.Views.LogView"
              Background="{StaticResource PythonPageBgBrush}">
 
+    <UserControl.Styles>
+        <Style Selector="Border.logViewerFrame:pointerover">
+            <Setter Property="BorderBrush" Value="#376581" />
+        </Style>
+        <Style Selector="Border.logViewerFrame:focus-within">
+            <Setter Property="BorderBrush" Value="#35B8FF" />
+        </Style>
+    </UserControl.Styles>
+
     <DockPanel Margin="16,14,16,16">
         <TextBlock DockPanel.Dock="Top" Text="生产执行报告" FontWeight="Bold" Margin="0,0,0,8" />
 
@@ -44,23 +53,26 @@
             </ListBox>
 
             <Border Grid.Column="1"
+                    Classes="logViewerFrame"
                     Background="{StaticResource PythonBgBrush}"
                     BorderBrush="{StaticResource PythonPanelBorderBrush}"
                     BorderThickness="1"
                     CornerRadius="6"
                     Padding="10,8">
-                <TextBox x:Name="LogTextBox"
-                         IsReadOnly="True"
-                         AcceptsReturn="True"
-                         TextWrapping="Wrap"
-                         FontFamily="Cascadia Mono,Microsoft YaHei UI,Consolas"
-                         FontSize="13"
-                         Background="Transparent"
-                         BorderThickness="0"
-                         Padding="2"
-                         VerticalContentAlignment="Top"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                <ScrollViewer x:Name="LogScrollViewer"
+                              Background="Transparent"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <SelectableTextBlock x:Name="LogTextBlock"
+                                         TextWrapping="Wrap"
+                                         FontFamily="Cascadia Mono,Microsoft YaHei UI,Consolas"
+                                         FontSize="13"
+                                         Foreground="#D7E3EC"
+                                         Background="Transparent"
+                                         SelectionBrush="#245D8C"
+                                         SelectionForegroundBrush="#FFFFFF"
+                                         Padding="2" />
+                </ScrollViewer>
             </Border>
         </Grid>
     </DockPanel>

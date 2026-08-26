@@ -402,8 +402,6 @@
                                 </CheckBox>
                                 <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="视频翻译" IsChecked="{Binding QueueVideoTranslateEnabled}" Margin="0,0,12,2" IsVisible="False" />
-                                <CheckBox Content="音轨检查" IsChecked="{Binding QueueSilenceDetectEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="处理音轨" IsChecked="{Binding QueueSilenceRepairEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="成片检查" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="清理原片" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="发布剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />

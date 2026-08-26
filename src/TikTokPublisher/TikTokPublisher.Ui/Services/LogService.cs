@@ -53,10 +53,15 @@ public sealed class LogService
 {
     private const int MaxEntries = 5000;
     private const int MaxRendered = 1200;
-    private static readonly IBrush InfoForeground = new SolidColorBrush(Color.Parse("#E3F2FF"));
-    private static readonly IBrush SuccessForeground = new SolidColorBrush(Color.Parse("#6EE7B7"));
-    private static readonly IBrush WarningForeground = new SolidColorBrush(Color.Parse("#FFD27A"));
-    private static readonly IBrush ErrorForeground = new SolidColorBrush(Color.Parse("#FF9EAA"));
+    private static readonly IBrush InfoForeground = new SolidColorBrush(Color.Parse("#D7E3EC"));
+    private static readonly IBrush SuccessForeground = new SolidColorBrush(Color.Parse("#BDEBD8"));
+    private static readonly IBrush WarningForeground = new SolidColorBrush(Color.Parse("#FFE2A3"));
+    private static readonly IBrush ErrorForeground = new SolidColorBrush(Color.Parse("#FFC1C8"));
+    private static readonly IBrush InfoAccentForeground = new SolidColorBrush(Color.Parse("#72C7FF"));
+    private static readonly IBrush SuccessAccentForeground = new SolidColorBrush(Color.Parse("#4BD69A"));
+    private static readonly IBrush WarningAccentForeground = new SolidColorBrush(Color.Parse("#F5C66B"));
+    private static readonly IBrush ErrorAccentForeground = new SolidColorBrush(Color.Parse("#FF6473"));
+    private static readonly IBrush TimestampForegroundBrush = new SolidColorBrush(Color.Parse("#7F9CB3"));
     private static readonly TimeSpan Retention = TimeSpan.FromDays(TikTokExecutionHistoryService.DefaultRetentionDays);
     private static readonly Regex HeaderRegex = new(
         @"^\[(?<time>[^\]]+)\]\s*(?<level>\w+)\s*(?:\[(?<project>[^\]]+)\])?\s*(?<rest>.*)$",
@@ -415,6 +420,16 @@ public sealed class LogService
         "success" => SuccessForeground,
         _ => InfoForeground,
     };
+
+    public static IBrush AccentBrushForLevel(string level) => NormalizeLevel(level) switch
+    {
+        "error" => ErrorAccentForeground,
+        "warn" => WarningAccentForeground,
+        "success" => SuccessAccentForeground,
+        _ => InfoAccentForeground,
+    };
+
+    public static IBrush TimestampForeground => TimestampForegroundBrush;
 
     public static string FormatLevel(string level) => NormalizeLevel(level) switch
     {
