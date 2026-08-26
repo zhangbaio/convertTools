@@ -11,7 +11,7 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 public sealed class MapleleafApiServiceTests
 {
     [Fact]
-    public async Task ProbeLogin_Uses_160_Headers_And_Reads_AccessToken()
+    public async Task ProbeLogin_Uses_165_Headers_And_Reads_AccessToken()
     {
         var handler = new MapleleafHandler();
         var service = CreateService(handler);
@@ -21,7 +21,7 @@ public sealed class MapleleafApiServiceTests
         result.Token.Should().Be("maple-token");
         var login = handler.Requests.Single(item => item.Path.EndsWith("/User/login", StringComparison.Ordinal));
         login.Headers["X-Client-Name"].Should().Be("Mapleleaf");
-        login.Headers["X-Client-Version"].Should().Be("1.6.0");
+        login.Headers["X-Client-Version"].Should().Be("1.6.5");
         login.Headers["X-Device-Id"].Should().Be("device-guid");
     }
 
@@ -39,6 +39,42 @@ public sealed class MapleleafApiServiceTests
         items[0].EpisodeTotal.Should().Be(24);
         items[0].FavoriteCount.Should().Be(8765);
         handler.Requests.Should().Contain(item => item.Path.EndsWith("/search.php", StringComparison.Ordinal) && item.Body.Contains("\"offset\":10", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("djnew", "short")]
+    [InlineData("mjnew", "comic")]
+    [InlineData("aiju", "ai_real")]
+    public async Task Latest_Uses_165_Type_Names(string mode, string expectedType)
+    {
+        var handler = new MapleleafHandler();
+        var service = CreateService(handler);
+
+        var items = await service.GetLatestAsync(Settings(), mode, 1, CancellationToken.None);
+
+        items.Should().ContainSingle();
+        var request = handler.Requests.Single(item => item.Path.EndsWith("/ThirdParty/latest", StringComparison.Ordinal));
+        request.Body.Should().Contain($"\"type\":\"{expectedType}\"");
+        request.Body.Should().Contain($"\"action\":\"{expectedType}\"");
+    }
+
+    [Fact]
+    public async Task Latest_Follows_HasMore_Pages_And_Deduplicates_Books()
+    {
+        var handler = new MapleleafHandler(latestHasMore: true);
+        var service = CreateService(handler);
+
+        var items = await service.GetLatestAsync(Settings(), "mjnew", 1, CancellationToken.None);
+
+        items.Select(item => item.BookId).Should().Equal("mapleleaf:latest-1", "mapleleaf:latest-2");
+        var requests = handler.Requests
+            .Where(item => item.Path.EndsWith("/ThirdParty/latest", StringComparison.Ordinal))
+            .OrderBy(item => item.Body.Contains("\"page\":1", StringComparison.Ordinal) ? 1 : 2)
+            .ToArray();
+        requests.Should().HaveCount(2);
+        requests[0].Body.Should().Contain("\"type\":\"comic\"");
+        requests[0].Body.Should().Contain("\"page\":1");
+        requests[1].Body.Should().Contain("\"page\":2");
     }
 
     [Fact]
@@ -93,7 +129,7 @@ public sealed class MapleleafApiServiceTests
         MapleleafUdid = "device-guid"
     };
 
-    private sealed class MapleleafHandler(bool delayLogin = false) : HttpMessageHandler
+    private sealed class MapleleafHandler(bool delayLogin = false, bool latestHasMore = false) : HttpMessageHandler
     {
         public ConcurrentBag<CapturedRequest> Requests { get; } = [];
         public int LoginCount;
@@ -127,6 +163,15 @@ public sealed class MapleleafApiServiceTests
 
             if (request.RequestUri.AbsolutePath.EndsWith("/ThirdParty/videoparse", StringComparison.Ordinal))
                 return Json("""{"success":true,"data":{"url":"https://cdn.example/video-3.mp4","size":"12MB"}}""");
+
+            if (request.RequestUri.AbsolutePath.EndsWith("/ThirdParty/latest", StringComparison.Ordinal))
+            {
+                if (latestHasMore && body.Contains("\"page\":1", StringComparison.Ordinal))
+                    return Json("""{"success":true,"data":{"has_more":true,"data":[{"bookId":"latest-1","title":"上新剧一"}]}}""");
+                if (latestHasMore)
+                    return Json("""{"success":true,"data":{"has_more":false,"data":[{"bookId":"latest-1","title":"上新剧一"},{"bookId":"latest-2","title":"上新剧二"}]}}""");
+                return Json("""{"success":true,"data":{"has_more":false,"data":[{"bookId":"latest-1","title":"上新剧"}]}}""");
+            }
 
             return new HttpResponseMessage(HttpStatusCode.NotFound)
             {

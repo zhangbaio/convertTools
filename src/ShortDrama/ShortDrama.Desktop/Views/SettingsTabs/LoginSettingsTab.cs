@@ -62,7 +62,7 @@ public sealed class LoginSettingsTab : UserControl
         panel.Children.Add(Row("密钥状态", ReadOnlyText(nameof(ConfigWindowViewModel.HghighMastersStatus))));
         panel.Children.Add(Row("测试结果", BuildHghighProbeRow()));
 
-        panel.Children.Add(SectionTitle("Mapleleaf 1.6.0"));
+        panel.Children.Add(SectionTitle("Mapleleaf 1.6.5"));
         panel.Children.Add(Hint("独立账号和设备号；搜索、上新与剧集列表走 Mapleleaf，单集播放地址通常需要同时配置 hglocal。"));
         panel.Children.Add(Row("账号", BindText(nameof(ConfigWindowViewModel.MapleleafAccount))));
         panel.Children.Add(Row("密码", BindPassword(nameof(ConfigWindowViewModel.MapleleafPassword))));
