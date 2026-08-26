@@ -14,6 +14,9 @@ public static class WorkspaceQueueService
 
         var binding = WorkspaceBindingService.Load(root);
         var state = WorkspaceQueueDatabase.Load(root);
+        var clientSettings = new Lazy<ClientSettings>(
+            () => ClientSettingsStore.Load(),
+            LazyThreadSafetyMode.ExecutionAndPublication);
         var persistedEntries = state.Items
             .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
             .Select(item => (Normalized: Path.GetFullPath(item.ProjectDir), Item: item))
@@ -27,7 +30,7 @@ public static class WorkspaceQueueService
         {
             var normalized = Path.GetFullPath(scanned.ProjectDir);
             persistedByDir.TryGetValue(normalized, out var persisted);
-            discovered[normalized] = MergeScanned(scanned, persisted, binding);
+            discovered[normalized] = MergeScanned(scanned, persisted, binding, clientSettings);
         }
 
         var results = new List<QueueProjectItem>();
@@ -43,7 +46,7 @@ public static class WorkspaceQueueService
                     continue;
                 }
                 if (!WorkspaceProjectScanner.IsValidProjectDirectory(normalized)) continue;
-                item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), persisted, binding);
+                item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), persisted, binding, clientSettings);
             }
             results.Add(item);
             seen.Add(normalized);
@@ -56,6 +59,37 @@ public static class WorkspaceQueueService
         }
 
         return OrderByQueuedAt(results);
+    }
+
+    /// <summary>
+    /// Loads the database snapshot without touching project artifact trees. This is suitable
+    /// for immediately populating the UI while a full filesystem reconciliation runs.
+    /// </summary>
+    public static (IReadOnlyList<QueueProjectItem> Items, QueueRunOptions Options) LoadPersistedSnapshot(
+        string workspaceRoot)
+    {
+        var root = Path.GetFullPath(workspaceRoot);
+        if (!Directory.Exists(root))
+            return (Array.Empty<QueueProjectItem>(), new QueueRunOptions());
+
+        var binding = WorkspaceBindingService.Load(root);
+        var state = WorkspaceQueueDatabase.Load(root);
+        var items = new List<QueueProjectItem>();
+        foreach (var item in state.Items)
+        {
+            if (string.IsNullOrWhiteSpace(item.ProjectDir) || !Directory.Exists(item.ProjectDir))
+                continue;
+
+            ApplyWorkspaceBinding(item, binding);
+            item.NormalizeStepStates();
+            RecoverInterruptedRunningSteps(item);
+            ApplyManualUploadStatus(item);
+            items.Add(item);
+        }
+
+        var options = QueueRunOptions.FromDictionary(state.Options);
+        options.ClearTransientRunState();
+        return (OrderByQueuedAt(items), options);
     }
 
     public static IReadOnlyList<QueueProjectItem> ResolveExecutionSnapshot(
@@ -307,7 +341,8 @@ public static class WorkspaceQueueService
     private static QueueProjectItem MergeScanned(
         WorkspaceProjectScanner.WorkspaceProject scanned,
         QueueProjectItem? persisted,
-        WorkspaceBindingService.WorkspaceBinding? binding = null)
+        WorkspaceBindingService.WorkspaceBinding? binding = null,
+        Lazy<ClientSettings>? clientSettings = null)
     {
         var item = persisted is null
             ? new QueueProjectItem()
@@ -350,7 +385,7 @@ public static class WorkspaceQueueService
             item.QueuedAt = ResolveInitialQueuedAt(scanned);
 
         item.NormalizeStepStates();
-        RecoverLocalStepExecutionState(item);
+        RecoverLocalStepExecutionState(item, clientSettings);
         RecoverQueueItemExecutionState(item);
         ApplyManualUploadStatus(item);
         item.NormalizeStepStates();
@@ -405,7 +440,9 @@ public static class WorkspaceQueueService
         }
     }
 
-    private static void RecoverLocalStepExecutionState(QueueProjectItem item)
+    private static void RecoverLocalStepExecutionState(
+        QueueProjectItem item,
+        Lazy<ClientSettings>? clientSettings = null)
     {
         if (string.IsNullOrWhiteSpace(item.ProjectDir)) return;
 
@@ -482,64 +519,67 @@ public static class WorkspaceQueueService
             item.StepStates[QueueStepKeys.DeleteSourceVideos] = QueueStepStatus.Completed;
         }
 
-        ReconcileCompletedArtifactStates(item, context, hasDownloadArtifacts);
+        ReconcileCompletedArtifactStates(item, context, hasDownloadArtifacts, clientSettings);
     }
 
     private static void ReconcileCompletedArtifactStates(
         QueueProjectItem item,
         ProjectWorkspaceContext context,
-        bool hasDownloadArtifacts)
+        bool hasDownloadArtifacts,
+        Lazy<ClientSettings>? clientSettings)
     {
         ResetCompletedWhenMissing(
             item,
             QueueStepKeys.Download,
-            hasDownloadArtifacts ||
-            item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed ||
-            item.StepStates.GetValueOrDefault(QueueStepKeys.DeleteSourceVideos) == QueueStepStatus.Completed);
+            () => hasDownloadArtifacts ||
+                  item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed ||
+                  item.StepStates.GetValueOrDefault(QueueStepKeys.DeleteSourceVideos) == QueueStepStatus.Completed);
         ResetCompletedWhenMissing(
             item,
             QueueStepKeys.RewriteInfo,
-            !QueueMaterialStepService.NeedsAiRewrite(item));
+            () => !QueueMaterialStepService.NeedsAiRewrite(item));
         ResetCompletedWhenMissing(
             item,
             QueueStepKeys.GeneratePoster,
-            !TikTokPosterGenerationStateService.NeedsGeneratePoster(item, ClientSettingsStore.Load()));
+            () => !TikTokPosterGenerationStateService.NeedsGeneratePoster(
+                item,
+                (clientSettings ??= new Lazy<ClientSettings>(() => ClientSettingsStore.Load())).Value));
         ResetCompletedWhenMissing(
             item,
             QueueStepKeys.GenerateEpisodeScript,
-            TikTokEpisodeScriptService.HasCurrentOutput(item, account: null));
+            () => TikTokEpisodeScriptService.HasCurrentOutput(item, account: null));
         ResetCompletedWhenMissing(
             item,
             QueueStepKeys.GenerateAiScriptOutline,
-            TikTokAiScriptOutlineService.HasCurrentOutput(item));
+            () => TikTokAiScriptOutlineService.HasCurrentOutput(item));
         ResetCompletedWhenMissing(
             item,
             QueueStepKeys.GenerateAiDramaMaterials,
-            TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir));
+            () => TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir));
         ResetCompletedWhenMissing(
             item,
             QueueStepKeys.GenerateRoleVector,
-            TikTokRoleVectorService.HasCurrentOutput(context.WorkflowProjectDir));
+            () => TikTokRoleVectorService.HasCurrentOutput(context.WorkflowProjectDir));
         ResetCompletedWhenMissing(
             item,
             QueueStepKeys.GenerateProjectImages,
-            TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir));
+            () => TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir));
         ResetCompletedWhenMissing(
             item,
             QueueStepKeys.GenerateTimestampCertificate,
-            TikTokTimestampCertificateService.HasCurrentOutput(item));
+            () => TikTokTimestampCertificateService.HasCurrentOutput(item));
         ResetCompletedWhenMissing(
             item,
             QueueStepKeys.MaterialValidate,
-            TikTokMaterialValidationService.HasCurrentValidationState(context.SourceProjectDir));
+            () => TikTokMaterialValidationService.HasCurrentValidationState(context.SourceProjectDir));
     }
 
     private static void ResetCompletedWhenMissing(
         QueueProjectItem item,
         string stepKey,
-        bool hasCurrentArtifact)
+        Func<bool> hasCurrentArtifact)
     {
-        if (item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed && !hasCurrentArtifact)
+        if (item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed && !hasCurrentArtifact())
             item.StepStates[stepKey] = QueueStepStatus.Pending;
     }
 
