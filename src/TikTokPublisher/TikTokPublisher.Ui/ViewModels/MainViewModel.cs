@@ -980,6 +980,28 @@ public sealed partial class MainViewModel : ViewModelBase
                 ShowWorkspaceLoadingState(root);
         });
 
+        // On a cold app start there is no in-memory snapshot. Populate the table from the
+        // queue database first (normally tens of milliseconds) and reconcile filesystem
+        // artifacts in the slower scan below. This avoids presenting an empty workspace
+        // for the entire duration of a cold disk scan.
+        if (!TryGetWorkspaceQueueSnapshot(root, out _, out _))
+        {
+            var persistedSnapshot = await Task.Run(() => WorkspaceQueueService.LoadPersistedSnapshot(root))
+                .ConfigureAwait(false);
+            if (persistedSnapshot.Items.Count > 0)
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (generation != _workspaceRefreshGeneration) return;
+                    ApplyWorkspaceScanResult(
+                        root,
+                        persistedSnapshot.Items.ToList(),
+                        persistedSnapshot.Options);
+                    QueueSummaryText = $"已加载 {persistedSnapshot.Items.Count} 个项目，正在校验工作目录 {root}";
+                });
+            }
+        }
+
         var scanResult = await Task.Run(() =>
         {
             _queueStatePersist.Flush(root, TimeSpan.FromMilliseconds(400));

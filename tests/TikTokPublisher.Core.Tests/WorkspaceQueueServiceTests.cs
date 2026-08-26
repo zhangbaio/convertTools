@@ -10,6 +10,43 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class WorkspaceQueueServiceTests
 {
     [Fact]
+    public void LoadPersistedSnapshot_returns_queue_rows_without_filesystem_reconciliation()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-fast-snapshot-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "测试短剧");
+        try
+        {
+            CreateProject(project);
+            var item = new QueueProjectItem
+            {
+                ProjectDir = project,
+                OriginalTitle = "测试短剧",
+                NewTitle = "测试新剧名",
+                EpisodeCount = 37,
+                StatusText = QueueStepStatus.Completed,
+            };
+            item.NormalizeStepStates();
+            item.StepStates[QueueStepKeys.GeneratePoster] = QueueStepStatus.Completed;
+            var options = new QueueRunOptions { AutoArchiveAfterUpload = true };
+            WorkspaceQueueService.SaveProjects(workspace, [item], options.ToPersistentDictionary());
+
+            var snapshot = WorkspaceQueueService.LoadPersistedSnapshot(workspace);
+
+            var restored = snapshot.Items.Should().ContainSingle().Subject;
+            restored.ProjectDir.Should().Be(project);
+            restored.EpisodeCount.Should().Be(37);
+            restored.StepStates[QueueStepKeys.GeneratePoster].Should().Be(
+                QueueStepStatus.Completed,
+                "the fast snapshot must not inspect missing poster artifacts");
+            snapshot.Options.AutoArchiveAfterUpload.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
+    [Fact]
     public void Project_state_store_migrates_legacy_table_before_saving_checkpoint()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"workspace-legacy-state-{Guid.NewGuid():N}");
