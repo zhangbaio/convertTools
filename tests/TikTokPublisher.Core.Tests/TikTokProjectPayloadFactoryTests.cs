@@ -8,6 +8,40 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokProjectPayloadFactoryTests
 {
     [Fact]
+    public void BuildFromPublishItem_UsesSuccessfulDownloadCountInsteadOfStaleDeclaredCount()
+    {
+        var workspaceDir = Path.Combine(Path.GetTempPath(), $"tiktok-payload-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(workspaceDir, "source");
+        Directory.CreateDirectory(sourceDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(sourceDir, "短剧信息.txt"), "剧名: 测试短剧\n集数: 68\n");
+            File.WriteAllText(
+                Path.Combine(sourceDir, ".weixin-channel-download-state.json"),
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    video_count = 37,
+                    failures = Array.Empty<string>(),
+                }));
+
+            var payload = TikTokProjectPayloadFactory.BuildFromPublishItem(new PublishItem
+            {
+                ProjectDir = sourceDir,
+                EpisodeCount = 68,
+            });
+
+            payload.EpisodeCount.Should().Be(37);
+        }
+        finally
+        {
+            try { Directory.Delete(workspaceDir, recursive: true); }
+            catch (IOException) { }
+        }
+    }
+
+    [Fact]
     public void BuildFromPublishItem_UsesFinalizedStagingCountInsteadOfStaleDeclaredCount()
     {
         var workspaceDir = Path.Combine(Path.GetTempPath(), $"tiktok-payload-{Guid.NewGuid():N}");

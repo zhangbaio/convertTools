@@ -7,6 +7,45 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokUploadEpisodeConsistencyServiceTests
 {
     [Fact]
+    public void ValidateBeforeUpload_Fails_When_StagingIsShorterThanSuccessfulDownloadSet()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"episode-consistency-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(workspace, "source");
+        var stagingDir = Path.Combine(workspace, "workflow", "source", TikTokUploadStagingService.StagingDirName);
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(stagingDir);
+
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(sourceDir, ".weixin-channel-download-state.json"),
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    video_count = 37,
+                    failures = Array.Empty<string>(),
+                }));
+            for (var episode = 1; episode <= 36; episode++)
+                File.WriteAllBytes(Path.Combine(stagingDir, $"renamed-第{episode}集.mp4"), [1]);
+
+            var result = TikTokUploadEpisodeConsistencyService.ValidateBeforeUpload(new PublishItem
+            {
+                ProjectDir = sourceDir,
+                EpisodeCount = 68,
+            });
+
+            result.Ok.Should().BeFalse();
+            result.ExpectedCount.Should().Be(37);
+            result.SourceVideoCount.Should().Be(36);
+            result.MissingEpisodes.Should().Equal(37);
+        }
+        finally
+        {
+            TryDelete(workspace);
+        }
+    }
+
+    [Fact]
     public void ValidateBeforeUpload_Passes_When_Staging_IsComplete_AndSourceIsMissingEpisode()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"episode-consistency-{Guid.NewGuid():N}");

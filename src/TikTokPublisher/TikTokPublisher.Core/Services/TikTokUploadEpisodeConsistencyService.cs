@@ -85,8 +85,12 @@ public static class TikTokUploadEpisodeConsistencyService
                 .ToList();
 
         var declaredCounts = ResolveDeclaredEpisodeCounts(context, itemEpisodeCount).ToList();
-        var expectedCount = stagedVideos.Count > 0
-            ? stagedVideos.Count
+        var expectedCount = ProjectWorkspaceService.TryResolveDownloadedEpisodeCount(
+                context.SourceProjectDir,
+                out var downloadedCount)
+            ? downloadedCount
+            : stagedVideos.Count > 0
+                ? stagedVideos.Count
             : declaredCounts.Count > 0
                 ? declaredCounts.Max()
                 : uploadVideos.Count;
