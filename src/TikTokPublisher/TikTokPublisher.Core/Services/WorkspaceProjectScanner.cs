@@ -202,7 +202,11 @@ public static class WorkspaceProjectScanner
             metadata?["category"]?.GetValue<string>()) ?? "";
 
         var episodeCount = videos.Count;
-        if (stagedVideos.Count > 0)
+        if (ProjectWorkspaceService.TryResolveDownloadedEpisodeCount(projectDir, out var downloadedCount))
+        {
+            episodeCount = downloadedCount;
+        }
+        else if (stagedVideos.Count > 0)
         {
             // tiktok_upload_videos is the finalized upload set and therefore the
             // authoritative episode count, even if metadata or material copies differ.

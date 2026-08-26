@@ -724,12 +724,8 @@ public static class QueueMaterialStepService
                 .Distinct()
                 .Order()
                 .ToArray();
-            var selection = root.TryGetProperty("episodes", out var episodesElement)
-                ? episodesElement.GetString() ?? ""
-                : "";
-            var representsFullDownload = string.Equals(selection.Trim(), "all", StringComparison.OrdinalIgnoreCase) ||
-                                         expectedCount <= 0 ||
-                                         numbers.Length == expectedCount;
+            var representsFullDownload = expectedCount <= 0 ||
+                                          numbers.Length == expectedCount;
             return representsFullDownload && numbers.Length > 1 ? numbers : null;
         }
         catch

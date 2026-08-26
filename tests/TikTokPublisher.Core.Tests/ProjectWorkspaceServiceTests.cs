@@ -235,6 +235,43 @@ public sealed class ProjectWorkspaceServiceTests
     }
 
     [Fact]
+    public void ResolveSourceEpisodeCount_PrefersSuccessfulDownloadCountOverStaleMetadata()
+    {
+        var projectDir = Path.Combine(Path.GetTempPath(), $"project-workspace-download-count-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectDir);
+
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(projectDir, "shortdrama-project.json"),
+                JsonSerializer.Serialize(new { episodeCount = 68 }));
+            File.WriteAllText(
+                Path.Combine(projectDir, ".weixin-channel-download-state.json"),
+                JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    video_count = 37,
+                    episodes = "all",
+                    failures = Array.Empty<string>(),
+                    episode_number_mode = "source",
+                    episode_mappings = Enumerable.Range(1, 37).Select(number => new
+                    {
+                        source_episode_number = number,
+                        sequence_episode_number = number,
+                    }),
+                }));
+
+            ProjectWorkspaceService.ResolveSourceEpisodeCount(projectDir).Should().Be(37);
+            ProjectWorkspaceService.TryResolveDownloadedEpisodeCount(projectDir, out var count).Should().BeTrue();
+            count.Should().Be(37);
+        }
+        finally
+        {
+            if (Directory.Exists(projectDir)) Directory.Delete(projectDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ResolveSourceEpisodeCount_PrefersDeclaredMetadataOverDuplicateVideoCopies()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"project-workspace-count-{Guid.NewGuid():N}");

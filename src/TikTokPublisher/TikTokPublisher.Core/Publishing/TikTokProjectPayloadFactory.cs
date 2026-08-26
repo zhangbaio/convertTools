@@ -85,6 +85,12 @@ public static class TikTokProjectPayloadFactory
         int uploadVideoCount,
         int stagedUploadVideoCount)
     {
+        if (!string.IsNullOrWhiteSpace(item.ProjectDir) &&
+            ProjectWorkspaceService.TryResolveDownloadedEpisodeCount(item.ProjectDir, out var downloadedCount))
+        {
+            return downloadedCount;
+        }
+
         // The staging directory is the finalized upload set. Once it exists, stale
         // source/workflow metadata must not inflate the TikTok total episode field.
         if (stagedUploadVideoCount > 0)

@@ -9,6 +9,47 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class QueueMaterialStepServiceTests
 {
     [Fact]
+    public void Download_completeness_uses_successful_download_count_instead_of_stale_declared_count()
+    {
+        var sourceDir = Path.Combine(Path.GetTempPath(), $"download-real-count-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sourceDir);
+        var item = new QueueProjectItem { ProjectDir = sourceDir, EpisodeCount = 68 };
+
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(sourceDir, "shortdrama-project.json"),
+                JsonSerializer.Serialize(new { episodeCount = 68 }));
+            File.WriteAllText(
+                Path.Combine(sourceDir, ".weixin-channel-download-state.json"),
+                JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    video_count = 37,
+                    episodes = "all",
+                    failures = Array.Empty<string>(),
+                    episode_number_mode = "source",
+                    episode_mappings = Enumerable.Range(1, 37).Select(number => new
+                    {
+                        source_episode_number = number,
+                        sequence_episode_number = number,
+                    }),
+                }));
+            foreach (var number in Enumerable.Range(1, 37))
+                File.WriteAllBytes(Path.Combine(sourceDir, $"第{number}集.mp4"), [1]);
+
+            var expectedNumbers = QueueMaterialStepService.ResolveExpectedDownloadedEpisodeNumbers(sourceDir, item);
+            expectedNumbers.Should().Equal(Enumerable.Range(1, 37));
+            QueueMaterialStepService.InspectDownloadedEpisodes(sourceDir, item, expectedNumbers)
+                .IsComplete.Should().BeTrue();
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Download_completeness_uses_source_episode_mapping_when_numbers_are_not_contiguous()
     {
         var sourceDir = Path.Combine(Path.GetTempPath(), $"download-mapping-{Guid.NewGuid():N}");

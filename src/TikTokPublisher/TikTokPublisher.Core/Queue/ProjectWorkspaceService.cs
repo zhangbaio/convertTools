@@ -12,6 +12,7 @@ public sealed record ProjectWorkspaceContext(
 public static class ProjectWorkspaceService
 {
     private const string MetadataFile = "shortdrama-project.json";
+    private const string DownloadStateFile = ".weixin-channel-download-state.json";
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif",
@@ -303,6 +304,12 @@ public static class ProjectWorkspaceService
         var context = LoadContext(projectDir);
         var candidates = new List<int>();
 
+        // A successful download is the authoritative description of the usable
+        // episode set. Search/detail metadata can be stale (for example, a title
+        // may advertise 68 episodes while its current directory exposes 37).
+        if (TryResolveDownloadedEpisodeCount(context.SourceProjectDir, out var downloadedCount))
+            return downloadedCount;
+
         foreach (var infoPath in new[]
                  {
                      Path.Combine(context.SourceProjectDir, "短剧信息.txt"),
@@ -330,6 +337,64 @@ public static class ProjectWorkspaceService
 
         var videoCount = CountDistinctVideoEpisodes(context.SourceProjectDir, context.WorkflowProjectDir);
         return videoCount > 0 ? videoCount : 1;
+    }
+
+    public static bool TryResolveDownloadedEpisodeCount(string projectDir, out int episodeCount)
+    {
+        episodeCount = 0;
+        try
+        {
+            var context = LoadContext(projectDir);
+            var statePath = Path.Combine(context.SourceProjectDir, DownloadStateFile);
+            if (!File.Exists(statePath)) return false;
+
+            using var document = JsonDocument.Parse(File.ReadAllText(statePath));
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return false;
+            if (root.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.False)
+                return false;
+            if (root.TryGetProperty("failures", out var failures) &&
+                failures.ValueKind == JsonValueKind.Array &&
+                failures.GetArrayLength() > 0)
+            {
+                return false;
+            }
+
+            if (root.TryGetProperty("video_count", out var videoCount) &&
+                videoCount.TryGetInt32(out var downloaded) &&
+                downloaded > 0)
+            {
+                episodeCount = downloaded;
+                return true;
+            }
+
+            if (!root.TryGetProperty("episode_mappings", out var mappings) ||
+                mappings.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            var mode = root.TryGetProperty("episode_number_mode", out var modeElement)
+                ? modeElement.GetString() ?? "source"
+                : "source";
+            var propertyName = string.Equals(mode, "continuous", StringComparison.OrdinalIgnoreCase)
+                ? "sequence_episode_number"
+                : "source_episode_number";
+            episodeCount = mappings.EnumerateArray()
+                .Select(mapping => mapping.TryGetProperty(propertyName, out var numberElement) &&
+                                   numberElement.TryGetInt32(out var number)
+                    ? number
+                    : 0)
+                .Where(number => number > 0)
+                .Distinct()
+                .Count();
+            return episodeCount > 0;
+        }
+        catch
+        {
+            episodeCount = 0;
+            return false;
+        }
     }
 
     private static bool TryReadPositiveInt(
