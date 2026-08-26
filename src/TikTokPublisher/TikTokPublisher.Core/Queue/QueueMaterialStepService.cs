@@ -416,10 +416,11 @@ public static class QueueMaterialStepService
         if (requested.Length == 0) return new Dictionary<int, string>();
 
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
-        var resolved = requested
-            .Select(episode => (Episode: episode, Path: FindEpisodeVideo(context.SourceProjectDir, episode)))
-            .Where(item => item.Path is not null)
-            .ToDictionary(item => item.Episode, item => item.Path!);
+        var resolved = ResolveExistingRoleReferenceEpisodeVideos(
+                context.SourceProjectDir,
+                requested,
+                item.EpisodeCount)
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
         var missing = requested.Where(episode => !resolved.ContainsKey(episode)).ToArray();
         if (missing.Length == 0)
         {
@@ -467,10 +468,14 @@ public static class QueueMaterialStepService
                 .ConfigureAwait(false);
         }
 
+        var refreshed = ResolveExistingRoleReferenceEpisodeVideos(
+            context.SourceProjectDir,
+            requested,
+            item.EpisodeCount);
         foreach (var episode in requested)
         {
-            var downloaded = FindEpisodeVideo(context.SourceProjectDir, episode);
-            if (downloaded is not null) resolved[episode] = downloaded;
+            if (refreshed.TryGetValue(episode, out var downloaded))
+                resolved[episode] = downloaded;
         }
         var unresolved = requested.Where(episode => !resolved.ContainsKey(episode)).ToArray();
         if (unresolved.Length > 0)
@@ -483,15 +488,85 @@ public static class QueueMaterialStepService
         return resolved;
     }
 
-    private static string? FindEpisodeVideo(string sourceProjectDirectory, int episodeNumber) =>
-        ProjectVideoResolver.ResolveSourceVideos(sourceProjectDirectory)
-            .FirstOrDefault(path =>
+    internal static IReadOnlyDictionary<int, string> ResolveExistingRoleReferenceEpisodeVideos(
+        string sourceProjectDirectory,
+        IReadOnlyList<int> requestedEpisodes,
+        int expectedEpisodeCount)
+    {
+        var requested = requestedEpisodes
+            .Where(episode => episode > 0)
+            .Distinct()
+            .ToHashSet();
+        var resolved = new Dictionary<int, string>();
+        if (requested.Count == 0)
+            return resolved;
+
+        MapExistingEpisodeVideos(
+            ProjectVideoResolver.ResolveSourceVideos(sourceProjectDirectory),
+            requested,
+            expectedEpisodeCount,
+            resolved);
+        if (resolved.Count < requested.Count)
+        {
+            MapExistingEpisodeVideos(
+                ProjectVideoResolver.ResolveStagedUploadVideos(sourceProjectDirectory),
+                requested,
+                expectedEpisodeCount,
+                resolved);
+        }
+
+        return resolved;
+    }
+
+    private static void MapExistingEpisodeVideos(
+        IReadOnlyList<string> videos,
+        IReadOnlySet<int> requested,
+        int expectedEpisodeCount,
+        IDictionary<int, string> resolved)
+    {
+        foreach (var path in videos)
+        {
+            if (!TryReadEpisodeNumberFromFileName(path, out var episodeNumber) ||
+                !requested.Contains(episodeNumber) ||
+                resolved.ContainsKey(episodeNumber))
             {
-                var match = EpisodeNumberInFileName.Match(Path.GetFileName(path));
-                return match.Success &&
-                       int.TryParse(match.Groups[1].Value, out var parsed) &&
-                       parsed == episodeNumber;
-            });
+                continue;
+            }
+
+            resolved[episodeNumber] = path;
+        }
+
+        // Some imported complete series use names such as 001.mp4 or arbitrary clip names.
+        // Natural-order fallback is safe only when the directory contains the declared full set;
+        // never guess episode numbers from a partial folder.
+        if (expectedEpisodeCount <= 0 || videos.Count != expectedEpisodeCount)
+            return;
+
+        foreach (var episodeNumber in requested)
+        {
+            if (resolved.ContainsKey(episodeNumber) || episodeNumber > videos.Count)
+                continue;
+            resolved[episodeNumber] = videos[episodeNumber - 1];
+        }
+    }
+
+    internal static bool TryReadEpisodeNumberFromFileName(string path, out int episodeNumber)
+    {
+        var stem = Path.GetFileNameWithoutExtension(path).Trim();
+        foreach (var pattern in EpisodeNumberFileNamePatterns)
+        {
+            var match = pattern.Match(stem);
+            if (match.Success &&
+                int.TryParse(match.Groups[1].Value, out episodeNumber) &&
+                episodeNumber > 0)
+            {
+                return true;
+            }
+        }
+
+        episodeNumber = 0;
+        return false;
+    }
 
     private static DramaDownloadRequest BuildDownloadRequest(
         ProjectWorkspaceContext context,
@@ -543,6 +618,16 @@ public static class QueueMaterialStepService
 
     private static readonly System.Text.RegularExpressions.Regex EpisodeNumberInFileName =
         new(@"第\s*(\d+)\s*集", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static readonly System.Text.RegularExpressions.Regex[] EpisodeNumberFileNamePatterns =
+    [
+        EpisodeNumberInFileName,
+        new(@"(?:^|[\s_.-])(?:episode|ep)[\s_.-]*0*(\d+)(?:$|[\s_.-])",
+            System.Text.RegularExpressions.RegexOptions.Compiled |
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+        new(@"^0*(\d+)$", System.Text.RegularExpressions.RegexOptions.Compiled),
+        new(@"(?:^|[\s_.-])0*(\d+)$", System.Text.RegularExpressions.RegexOptions.Compiled),
+    ];
 
     private static readonly string[] EpisodeVideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".ts"];
 

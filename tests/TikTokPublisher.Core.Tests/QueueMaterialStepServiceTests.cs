@@ -8,6 +8,96 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class QueueMaterialStepServiceTests
 {
+    [Theory]
+    [InlineData("第10集.mp4", 10)]
+    [InlineData("episode-11.mp4", 11)]
+    [InlineData("show_ep_012.mp4", 12)]
+    [InlineData("0013.mp4", 13)]
+    [InlineData("show-14.mp4", 14)]
+    public void Role_reference_episode_parser_accepts_common_file_names(string fileName, int expected)
+    {
+        QueueMaterialStepService.TryReadEpisodeNumberFromFileName(fileName, out var actual)
+            .Should().BeTrue();
+        actual.Should().Be(expected);
+    }
+
+    [Fact]
+    public void Role_reference_video_lookup_maps_complete_unlabeled_series_by_natural_order()
+    {
+        var sourceDir = Path.Combine(Path.GetTempPath(), $"role-video-order-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sourceDir);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(sourceDir, "clip-a.mp4"), [1]);
+            File.WriteAllBytes(Path.Combine(sourceDir, "clip-b.mp4"), [2]);
+
+            var resolved = QueueMaterialStepService.ResolveExistingRoleReferenceEpisodeVideos(
+                sourceDir,
+                [1, 2],
+                expectedEpisodeCount: 2);
+
+            Path.GetFileName(resolved[1]).Should().Be("clip-a.mp4");
+            Path.GetFileName(resolved[2]).Should().Be("clip-b.mp4");
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Role_reference_video_lookup_does_not_guess_from_partial_unlabeled_series()
+    {
+        var sourceDir = Path.Combine(Path.GetTempPath(), $"role-video-partial-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sourceDir);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(sourceDir, "clip-a.mp4"), [1]);
+
+            var resolved = QueueMaterialStepService.ResolveExistingRoleReferenceEpisodeVideos(
+                sourceDir,
+                [1],
+                expectedEpisodeCount: 60);
+
+            resolved.Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Role_reference_video_lookup_reuses_upload_staging_when_source_is_incomplete()
+    {
+        var workspaceDir = Path.Combine(Path.GetTempPath(), $"role-video-staging-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(workspaceDir, "source");
+        var stagingDir = Path.Combine(
+            workspaceDir,
+            "workflow",
+            "source",
+            TikTokUploadStagingService.StagingDirName);
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(stagingDir);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(sourceDir, "第1集.mp4"), [1]);
+            File.WriteAllBytes(Path.Combine(stagingDir, "renamed-第2集.mp4"), [2]);
+
+            var resolved = QueueMaterialStepService.ResolveExistingRoleReferenceEpisodeVideos(
+                sourceDir,
+                [1, 2],
+                expectedEpisodeCount: 2);
+
+            Path.GetFileName(resolved[1]).Should().Be("第1集.mp4");
+            Path.GetFileName(resolved[2]).Should().Be("renamed-第2集.mp4");
+        }
+        finally
+        {
+            Directory.Delete(workspaceDir, recursive: true);
+        }
+    }
+
     [Fact]
     public void Download_completeness_uses_successful_download_count_instead_of_stale_declared_count()
     {
