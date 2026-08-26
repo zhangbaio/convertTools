@@ -8,13 +8,13 @@ using System.Text.Json.Nodes;
 
 namespace ShortDrama.Infrastructure.Automation;
 
-/// <summary>Mapleleaf 1.6.0 REST data source.</summary>
+/// <summary>Mapleleaf 1.6.5 REST data source.</summary>
 public sealed class MapleleafApiService
 {
     public const string BookPrefix = "mapleleaf:";
     public const string EpisodePrefix = "mapleleaf_ep:";
     public const string ClientName = "Mapleleaf";
-    public const string ClientVersion = "1.6.0";
+    public const string ClientVersion = "1.6.5";
 
     private static readonly string[] DefaultApiBases =
     [
@@ -22,12 +22,14 @@ public sealed class MapleleafApiService
         "http://175.24.138.161/api",
         "http://124.221.67.210/api",
         "http://118.89.198.57/api",
-        "http://111.229.141.69/api"
+        "http://111.229.141.69/api",
+        "http://8.133.218.237/api"
     ];
 
     private const string PreferredSearchBase = "http://118.89.198.57/api";
     private const string DefaultPhpParseUrl = "http://47.116.45.15/index.php";
     private const int SearchPageSize = 10;
+    private const int LatestMaxPages = 20;
 
     private readonly HttpClient _httpClient;
     private readonly HongguoLocalApiService _localService;
@@ -142,29 +144,42 @@ public sealed class MapleleafApiService
     {
         var action = mode.Trim().ToLowerInvariant() switch
         {
-            "djnew" => "today_new",
-            "mjnew" => "mj_today_new",
-            "aiju" => "aiju_today_new",
+            "djnew" => "short",
+            "mjnew" => "comic",
+            "aiju" => "ai_real",
             _ => throw new MapleleafException($"不支持的 Mapleleaf 上新类型：{mode}")
         };
-        var inner = await SendAuthenticatedAsync(
-            settings,
-            "/ThirdParty/latest",
-            new JsonObject
-            {
-                ["type"] = action,
-                ["action"] = action,
-                ["page"] = 1,
-                ["pageSize"] = 50,
-                ["pointsRequired"] = 1
-            },
-            cancellationToken);
+        var collected = new List<DramaSearchItem>();
+        var seenBookIds = new HashSet<string>(StringComparer.Ordinal);
+        for (var page = 1; page <= LatestMaxPages; page++)
+        {
+            var inner = await SendAuthenticatedAsync(
+                settings,
+                "/ThirdParty/latest",
+                new JsonObject
+                {
+                    ["type"] = action,
+                    ["action"] = action,
+                    ["page"] = page,
+                    ["pageSize"] = 50,
+                    ["pointsRequired"] = 1
+                },
+                cancellationToken);
 
-        if (inner is JsonObject warming && ReadBool(warming, "warming") && !ReadBool(warming, "ready"))
-            throw new MapleleafException(ReadString(warming, "message") is { Length: > 0 } message ? message : "数据预热中，请稍后重试");
+            if (inner is JsonObject warming && ReadBool(warming, "warming") && !ReadBool(warming, "ready"))
+                throw new MapleleafException(ReadString(warming, "message") is { Length: > 0 } message ? message : "数据预热中，请稍后重试");
+
+            foreach (var item in MapSearchItems(inner))
+            {
+                if (seenBookIds.Add(item.BookId))
+                    collected.Add(item);
+            }
+            if (inner is not JsonObject pageResult || !ReadBool(pageResult, "has_more"))
+                break;
+        }
 
         var cutoff = DateTimeOffset.Now.Date.AddDays(-Math.Max(1, days) + 1);
-        return MapSearchItems(inner)
+        return collected
             .Where(item => !TryParseDate(item.PublishTime, out var date) || date.Date >= cutoff)
             .ToArray();
     }
