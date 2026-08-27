@@ -887,6 +887,21 @@ public static partial class TikTokArchivedProjectService
             restoredItem.ProofMaterialStatementDate = proofMaterialStatementDate;
         }
 
+        // The archive index is the authoritative snapshot of the titles at archive
+        // time. Older/database-reconstructed archives may not contain queueProjectState,
+        // while copied project metadata can be stale or contain the published-video
+        // recovery placeholder. Do not let a fallback filesystem scan replace a title
+        // that the archive itself still knows.
+        var archivedDisplayName = ReadString(archivePayload, "displayName", "display_name");
+        var archivedOriginalTitle = ReadString(archivePayload, "originalTitle", "original_title");
+        var archivedNewTitle = ReadString(archivePayload, "newTitle", "new_title");
+        if (!string.IsNullOrWhiteSpace(archivedDisplayName))
+            restoredItem.DisplayName = archivedDisplayName;
+        if (!string.IsNullOrWhiteSpace(archivedOriginalTitle))
+            restoredItem.OriginalTitle = archivedOriginalTitle;
+        if (!string.IsNullOrWhiteSpace(archivedNewTitle))
+            restoredItem.NewTitle = archivedNewTitle;
+
         remaining.Add(restoredItem);
 
         WorkspaceQueueService.SaveRunOptions(workspaceRoot, remaining, options);

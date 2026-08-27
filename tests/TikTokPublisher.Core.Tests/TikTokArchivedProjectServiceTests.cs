@@ -367,6 +367,43 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
     }
 
     [Fact]
+    public void Restore_uses_archive_titles_when_queue_snapshot_is_missing_and_project_metadata_is_stale()
+    {
+        var restoredSource = Path.Combine(_workspaceRoot, "restore-archive-titles");
+        var restoredWorkflow = Path.Combine(_workspaceRoot, "workflow", "_restore-archive-titles");
+        var archivedSource = Path.Combine(_archiveRoot, "source", "restore-archive-titles");
+        var archivedWorkflow = Path.Combine(_archiveRoot, "workflow", "_restore-archive-titles");
+        Directory.CreateDirectory(archivedSource);
+        Directory.CreateDirectory(archivedWorkflow);
+        WriteProjectMetadata(archivedSource, restoredSource, restoredWorkflow, "未知（TikTok已发布视频恢复）");
+        WriteProjectMetadata(archivedWorkflow, restoredSource, restoredWorkflow, "未知（TikTok已发布视频恢复）");
+        var metadataPath = Path.Combine(_archiveRoot, "meta", "restore-archive-titles.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(metadataPath)!);
+        File.WriteAllText(
+            metadataPath,
+            JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                ["projectKey"] = "restore-archive-titles",
+                ["displayName"] = "归档显示名",
+                ["originalTitle"] = "归档前真实原剧名",
+                ["newTitle"] = "归档前真实新剧名",
+                ["archiveSource"] = "tiktok",
+                ["archivedAt"] = "2026-08-27T10:00:00",
+                ["sourceProjectDir"] = restoredSource,
+                ["workflowProjectDir"] = restoredWorkflow,
+                ["archivedSourceDir"] = archivedSource,
+                ["archivedWorkflowDir"] = archivedWorkflow,
+            }));
+
+        TikTokArchivedProjectService.Restore(_workspaceRoot, metadataPath, _archiveRoot);
+
+        var restored = WorkspaceQueueDatabase.Load(_workspaceRoot).Items.Single();
+        restored.DisplayName.Should().Be("归档显示名");
+        restored.OriginalTitle.Should().Be("归档前真实原剧名");
+        restored.NewTitle.Should().Be("归档前真实新剧名");
+    }
+
+    [Fact]
     public void ScanProjects_clears_archived_flag_when_project_directory_exists()
     {
         var sourceDir = CreateProjectDirs("visible").SourceDir;
