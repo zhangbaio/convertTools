@@ -101,7 +101,8 @@ public sealed class TikTokProofMaterialService
         bool forceRerun,
         Action<string>? log,
         CancellationToken cancellationToken,
-        RoleReferenceEpisodeFallback? episodeFallback = null)
+        RoleReferenceEpisodeFallback? episodeFallback = null,
+        QueueRunOptions? runOptions = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
@@ -118,6 +119,9 @@ public sealed class TikTokProofMaterialService
             account,
             context.WorkflowProjectDir,
             statementDate);
+        var sourceInfoSelection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
+            runOptions?.EnabledSteps,
+            request.IncludeSourceInfoRoleSceneScreenshot);
         item.ProofMaterialStatementDate = statementDate.ToString("yyyy-MM-dd");
         var fingerprint = ComputeFingerprint(request);
         var outputDocxPath = GetDocxPath(context.WorkflowProjectDir);
@@ -135,7 +139,12 @@ public sealed class TikTokProofMaterialService
             TryDelete(outputDocxPath);
         }
 
-        if (!forceRerun && HasCurrentOutput(context, request, fingerprint, settings))
+        if (!forceRerun && HasCurrentOutput(
+                context,
+                request,
+                fingerprint,
+                settings,
+                sourceInfoSelection))
         {
             var renderer = GetStateString(checkpoint, "renderer");
             log?.Invoke($"[合作协议（核心）] 复用现有文件：{request.OutputPdfPath}。");
@@ -145,7 +154,8 @@ public sealed class TikTokProofMaterialService
                 request.GenerateSourceFileScreenshots,
                 TikTokSourceFileInfoUploadPackageService.ListFiles(
                     context.WorkflowProjectDir,
-                    request.IncludeSourceInfoRoleSceneScreenshot));
+                    request.IncludeSourceInfoRoleSceneScreenshot,
+                    sourceInfoSelection));
             LogExistingMaterial(
                 log,
                 "AI 生成过程截图",
@@ -239,115 +249,6 @@ public sealed class TikTokProofMaterialService
             TryDelete(outputDocxPath);
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        if (request.GenerateSourceFileScreenshots && sourceCompleted &&
-            TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir) &&
-            TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
-                context.WorkflowProjectDir,
-                request.IncludeSourceInfoRoleSceneScreenshot))
-        {
-            LogExistingMaterial(
-                log,
-                "原始文件或素材文件信息（断点复用）",
-                selected: true,
-                TikTokSourceFileInfoUploadPackageService.ListFiles(
-                    context.WorkflowProjectDir,
-                    request.IncludeSourceInfoRoleSceneScreenshot));
-        }
-        else if (request.GenerateSourceFileScreenshots)
-        {
-            var timer = Stopwatch.StartNew();
-            log?.Invoke(
-                "[原始文件或素材文件信息] 正在校验已有 AI 大纲、剧本、参考素材包和角色矢量图；" +
-                "本步骤不会生成或修改这些前置材料。");
-            var prerequisites = TikTokSourceFileInfoUploadPackageService.ValidateExistingPrerequisites(
-                context.WorkflowProjectDir);
-            if (!TikTokReferenceSourcePackageService.HasCurrentOutput(context.WorkflowProjectDir))
-            {
-                throw new InvalidOperationException(
-                    "原始文件或素材文件信息缺少有效的参考格式原始素材包，" +
-                    "请先执行“生成角色矢量图”步骤；生成证明材料不会自动生成角色参考包。");
-            }
-
-            var configuredCharacterCount = account?.TiktokRoleVectorCharacterCount ??
-                                           TikTokAccountProfile.DefaultRoleVectorCharacterCount;
-            var minimumCharacterCount = account?.TiktokRoleVectorMinimumCharacterCount ??
-                                        TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount;
-            if (!TikTokRoleVectorService.HasCurrentOutput(
-                    context.WorkflowProjectDir,
-                    configuredCharacterCount,
-                    minimumCharacterCount,
-                    settings.TiktokRoleVectorViewMode))
-            {
-                throw new InvalidOperationException(
-                    "原始文件或素材文件信息缺少有效的角色矢量图，" +
-                    "请先执行“生成角色矢量图”步骤；生成证明材料不会自动重新生成角色图片。");
-            }
-            if (episodeFallback is not null &&
-                ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir).Count == 0)
-            {
-                _ = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
-                        item,
-                        settings,
-                        requiredEpisodeCount: 1,
-                        log ?? (_ => { }),
-                        cancellationToken,
-                        episodeFallback)
-                    .ConfigureAwait(false);
-            }
-            TikTokReferenceSourcePackageService.RefreshMaterialVideoLinks(
-                item,
-                log,
-                cancellationToken);
-            log?.Invoke("[原始文件或素材文件信息] 前置校验通过，将只重新生成截图和上传包。");
-            if (!TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir))
-            {
-                log?.Invoke("[原始文件或素材文件信息] 自动整理 AI 漫剧制作素材；缺少真实视频时将执行最小补源。");
-                await TikTokAiDramaProductionMaterialService.GenerateAsync(
-                    item,
-                    settings,
-                    forceRerun: false,
-                    log,
-                    cancellationToken,
-                    episodeFallback).ConfigureAwait(false);
-            }
-            log?.Invoke(
-                $"[原始文件或素材文件信息] 开始：来源={context.WorkflowProjectDir}；" +
-                $"输出目录={TikTokSourceFileInfoScreenshotService.GetOutputDirectory(context.WorkflowProjectDir)}。");
-            try
-            {
-                var outputs = TikTokSourceFileInfoScreenshotService.Generate(
-                    context.WorkflowProjectDir,
-                    request.DramaTitle,
-                    request.CopyrightCompanyName,
-                    log,
-                    cancellationToken);
-                var uploadFiles = TikTokSourceFileInfoUploadPackageService.Generate(
-                    context.WorkflowProjectDir,
-                    prerequisites.OutlinePdf,
-                    prerequisites.ScriptPdf,
-                    log,
-                    request.IncludeSourceInfoRoleSceneScreenshot);
-                sourceCompleted = true;
-                SaveState(
-                    context, request, fingerprint, result,
-                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
-                    log);
-                LogGeneratedMaterial(log, "原始文件或素材文件信息", outputs, timer.Elapsed);
-                LogGeneratedMaterial(log, "原始文件信息上传包", uploadFiles, timer.Elapsed);
-            }
-            catch (Exception ex)
-            {
-                log?.Invoke(
-                    $"[原始文件或素材文件信息] 失败：耗时={FormatElapsed(timer.Elapsed)}；原因={ex.Message}");
-                throw;
-            }
-        }
-        else
-        {
-            log?.Invoke("[原始文件或素材文件信息] 跳过：当前账号未勾选此材料类型。");
-        }
-
         var aiNeedsVideo =
             request.GenerateAiGenerationScreenshots &&
             (!aiCompleted || !TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir));
@@ -375,6 +276,103 @@ public sealed class TikTokProofMaterialService
         await Task.WhenAll(
             RunAiScreenshotBranchAsync(),
             RunEditingProjectBranchAsync()).ConfigureAwait(false);
+
+        await RunSourceInfoBranchAsync().ConfigureAwait(false);
+
+        async Task RunSourceInfoBranchAsync()
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!request.GenerateSourceFileScreenshots)
+            {
+                log?.Invoke("[原始文件或素材文件信息] 跳过：当前账号未勾选此材料类型。");
+                return;
+            }
+
+            if (sourceCompleted &&
+                TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir) &&
+                TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
+                    context.WorkflowProjectDir,
+                    request.IncludeSourceInfoRoleSceneScreenshot,
+                    sourceInfoSelection))
+            {
+                LogExistingMaterial(
+                    log,
+                    "原始文件或素材文件信息（断点复用）",
+                    selected: true,
+                    TikTokSourceFileInfoUploadPackageService.ListFiles(
+                        context.WorkflowProjectDir,
+                        request.IncludeSourceInfoRoleSceneScreenshot,
+                        sourceInfoSelection));
+                return;
+            }
+
+            var timer = Stopwatch.StartNew();
+            try
+            {
+                log?.Invoke(
+                    "[原始文件或素材文件信息] 按本次启用步骤整理真实产物；" +
+                    $"AI大纲={(sourceInfoSelection.IncludeOutline ? "包含" : "未启用")}，" +
+                    $"剧本={(sourceInfoSelection.IncludeScript ? "包含" : "未启用")}，" +
+                    $"角色矢量图={(sourceInfoSelection.IncludeRoleVector ? "包含" : "未启用")}。");
+                var prerequisites = TikTokSourceFileInfoUploadPackageService.ResolveAvailablePrerequisites(
+                    context.WorkflowProjectDir,
+                    sourceInfoSelection);
+                if (episodeFallback is not null &&
+                    ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir).Count == 0)
+                {
+                    _ = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
+                            item,
+                            settings,
+                            requiredEpisodeCount: 1,
+                            log ?? (_ => { }),
+                            cancellationToken,
+                            episodeFallback)
+                        .ConfigureAwait(false);
+                }
+
+                // The reference package is optional. Refresh it only when a previous
+                // role-vector step created it; source information must not create that
+                // unselected step as a hidden dependency.
+                if (TikTokReferenceSourcePackageService.HasCurrentOutput(context.WorkflowProjectDir))
+                {
+                    TikTokReferenceSourcePackageService.RefreshMaterialVideoLinks(
+                        item,
+                        log,
+                        cancellationToken);
+                }
+
+                log?.Invoke(
+                    $"[原始文件或素材文件信息] 开始：来源={context.WorkflowProjectDir}；" +
+                    $"输出目录={TikTokSourceFileInfoScreenshotService.GetOutputDirectory(context.WorkflowProjectDir)}。");
+                var outputs = TikTokSourceFileInfoScreenshotService.Generate(
+                    context.WorkflowProjectDir,
+                    request.DramaTitle,
+                    request.CopyrightCompanyName,
+                    log,
+                    cancellationToken);
+                var uploadFiles = TikTokSourceFileInfoUploadPackageService.Generate(
+                    context.WorkflowProjectDir,
+                    prerequisites.OutlinePdf,
+                    prerequisites.ScriptPdf,
+                    log,
+                    request.IncludeSourceInfoRoleSceneScreenshot,
+                    sourceInfoSelection,
+                    validateComplete: false);
+                sourceCompleted = true;
+                SaveState(
+                    context, request, fingerprint, result,
+                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
+                    log);
+                LogGeneratedMaterial(log, "原始文件或素材文件信息", outputs, timer.Elapsed);
+                LogGeneratedMaterial(log, "原始文件信息上传包", uploadFiles, timer.Elapsed);
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke(
+                    $"[原始文件或素材文件信息] 失败：耗时={FormatElapsed(timer.Elapsed)}；原因={ex.Message}");
+                throw;
+            }
+        }
 
         async Task RunAiScreenshotBranchAsync()
         {
@@ -516,7 +514,8 @@ public sealed class TikTokProofMaterialService
         TikTokAccountProfile? account,
         Action<string>? log,
         CancellationToken cancellationToken,
-        RoleReferenceEpisodeFallback? episodeFallback = null)
+        RoleReferenceEpisodeFallback? episodeFallback = null,
+        QueueRunOptions? runOptions = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         cancellationToken.ThrowIfCancellationRequested();
@@ -532,7 +531,8 @@ public sealed class TikTokProofMaterialService
                 forceRerun: false,
                 log,
                 cancellationToken,
-                episodeFallback).ConfigureAwait(false);
+                episodeFallback,
+                runOptions).ConfigureAwait(false);
             var requiresAgreement = TikTokPublishConstants.RequiresGeneratedProofMaterial(
                 account?.TiktokCopyrightMaterialTypes);
             if (!requiresAgreement)
@@ -615,7 +615,8 @@ public sealed class TikTokProofMaterialService
     public static bool NeedsGenerateProofMaterial(
         QueueProjectItem item,
         ClientSettings settings,
-        TikTokAccountProfile? account)
+        TikTokAccountProfile? account,
+        QueueRunOptions? runOptions = null)
     {
         try
         {
@@ -630,7 +631,10 @@ public sealed class TikTokProofMaterialService
                 context.WorkflowProjectDir,
                 ResolveStatementDate(item, state));
             var fingerprint = ComputeFingerprint(request);
-            return !HasCurrentOutput(context, request, fingerprint, settings);
+            var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
+                runOptions?.EnabledSteps,
+                request.IncludeSourceInfoRoleSceneScreenshot);
+            return !HasCurrentOutput(context, request, fingerprint, settings, selection);
         }
         catch
         {
@@ -643,7 +647,8 @@ public sealed class TikTokProofMaterialService
     public static bool HasReusableProofMaterialForCopyrightCompletion(
         QueueProjectItem item,
         ClientSettings settings,
-        TikTokAccountProfile? account)
+        TikTokAccountProfile? account,
+        QueueRunOptions? runOptions = null)
     {
         try
         {
@@ -657,7 +662,15 @@ public sealed class TikTokProofMaterialService
                 account,
                 context.WorkflowProjectDir,
                 ResolveStatementDate(item, state));
-            return HasCurrentOutput(context, request, ComputeFingerprint(request), settings);
+            var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
+                runOptions?.EnabledSteps,
+                request.IncludeSourceInfoRoleSceneScreenshot);
+            return HasCurrentOutput(
+                context,
+                request,
+                ComputeFingerprint(request),
+                settings,
+                selection);
         }
         catch
         {
@@ -941,7 +954,8 @@ public sealed class TikTokProofMaterialService
         ProjectWorkspaceContext context,
         TikTokProofMaterialRequest request,
         string fingerprint,
-        ClientSettings settings)
+        ClientSettings settings,
+        TikTokSourceFileInfoPackageSelection sourceInfoSelection)
     {
         var state = LoadState(context);
         if (!string.Equals(
@@ -969,7 +983,8 @@ public sealed class TikTokProofMaterialService
             (!TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir) ||
              !TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
                  context.WorkflowProjectDir,
-                 request.IncludeSourceInfoRoleSceneScreenshot)))
+                 request.IncludeSourceInfoRoleSceneScreenshot,
+                 sourceInfoSelection)))
         {
             return false;
         }

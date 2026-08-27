@@ -4111,6 +4111,7 @@ public partial class TikTokQueueView : UserControl
             return PublishResult.Fail("内置浏览器未就绪或未登录，请先在「浏览器」页完成登录");
 
         var item = QueuePublishHost.ToPublishItem(project);
+        item.EnabledQueueSteps = options.EnabledSteps.ToArray();
         item.ForceEditUpload = string.Equals(options.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
         item.CopyrightProofOnly = options.IsCopyrightProofOnlyRun();
         if (!item.CopyrightProofOnly && string.IsNullOrWhiteSpace(item.VideoPath))

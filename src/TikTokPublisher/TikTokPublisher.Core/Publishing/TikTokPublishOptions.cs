@@ -269,6 +269,8 @@ public sealed class TikTokPublishOptions
         new Dictionary<string, string>(StringComparer.Ordinal);
     public bool UploadAiScriptOutlineWithScreenshots { get; set; }
     public bool UploadSourceInfoRoleSceneScreenshot { get; set; }
+    public TikTokSourceFileInfoPackageSelection SourceInfoPackageSelection { get; set; } =
+        TikTokSourceFileInfoPackageSelection.LegacyDefault();
     public string AiScriptOutlineFilePath { get; set; } = "";
     /// <summary>旧版单文件字段，仅兼容合作协议；其他材料不得复用此路径。</summary>
     public string CopyrightMaterialFilePath { get; set; } = "";

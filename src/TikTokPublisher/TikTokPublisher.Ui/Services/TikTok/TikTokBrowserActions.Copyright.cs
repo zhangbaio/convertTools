@@ -575,19 +575,18 @@ public static partial class TikTokBrowserActions
         var sourceInfoFiles = includeSourceFileInformation && uploadSourceFileInformation
             ? ResolveSourceFileInformationFiles(options)
             : [];
-        var expectedSourceInfoFileCount = TikTokSourceFileInfoUploadPackageService.RequiredFileCount +
-                                          (options.UploadSourceInfoRoleSceneScreenshot ? 1 : 0);
+        var expectedSourceInfoFileCount = TikTokSourceFileInfoUploadPackageService.RequiredFileCountFor(
+            options.SourceInfoPackageSelection);
         if (includeSourceFileInformation && uploadSourceFileInformation &&
             sourceInfoFiles.Count != expectedSourceInfoFileCount)
         {
             throw new FileNotFoundException(
                 $"「原始文件或素材文件信息」必须上传 {expectedSourceInfoFileCount} 个文件：" +
-                "AI剧本大纲.pdf、剧本.pdf、01_剧本与项目资料.png、角色矢量图.png；" +
-                (options.UploadSourceInfoRoleSceneScreenshot
-                    ? "另需上传02_角色场景或项目素材.png；"
-                    : string.Empty) +
+                $"{string.Join("、", TikTokSourceFileInfoUploadPackageService.GetExpectedOutputPaths(
+                    ".",
+                    options.SourceInfoPackageSelection).Select(Path.GetFileName))}；" +
                 $"当前找到 {sourceInfoFiles.Count} 个（目录：{TikTokSourceFileInfoUploadPackageService.OutputDirectoryName}）。" +
-                "请先执行“生成证明材料”。");
+                "请先执行“生成证明材料”和“成片检查”。");
         }
 
         var includeAiGenerationScreenshots = configuredMaterialKeys.Contains(
@@ -1050,7 +1049,8 @@ public static partial class TikTokBrowserActions
             ? []
             : TikTokSourceFileInfoUploadPackageService.ListFiles(
                 workflowDir,
-                options.UploadSourceInfoRoleSceneScreenshot);
+                options.UploadSourceInfoRoleSceneScreenshot,
+                options.SourceInfoPackageSelection);
     }
 
     /// <summary>

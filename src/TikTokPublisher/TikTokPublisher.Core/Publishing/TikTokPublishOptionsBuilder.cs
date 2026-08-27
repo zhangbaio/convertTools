@@ -8,7 +8,8 @@ public static class TikTokPublishOptionsBuilder
     public static TikTokPublishOptions FromAccount(
         TikTokAccountProfile? account,
         string? workflowProjectDir = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        IEnumerable<string>? enabledQueueSteps = null)
     {
         if (account is null)
         {
@@ -21,6 +22,9 @@ public static class TikTokPublishOptionsBuilder
 
         TikTokPublishConstants.ValidatePublishConfiguration(account);
         var options = TikTokPublishOptions.FromAccount(account);
+        options.SourceInfoPackageSelection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
+            enabledQueueSteps,
+            account.TiktokUploadSourceInfoRoleSceneScreenshot);
         options.CopyrightMaterialTypes = TikTokPublishConstants.ValidateCopyrightMaterialTypes(
             options.CopyrightMaterialTypes);
         options.TargetAudienceMode = NormalizeTargetAudienceMode(account.TiktokTargetAudienceMode);
@@ -70,9 +74,10 @@ public static class TikTokPublishOptionsBuilder
                 paths[TikTokPublishConstants.SourceFileInformationMaterialType] = sourceInfoDir;
                 var fileCount = TikTokSourceFileInfoUploadPackageService.ListFiles(
                     workflowProjectDir,
-                    options.UploadSourceInfoRoleSceneScreenshot).Count;
-                var expectedFileCount = TikTokSourceFileInfoUploadPackageService.RequiredFileCount +
-                                        (options.UploadSourceInfoRoleSceneScreenshot ? 1 : 0);
+                    options.UploadSourceInfoRoleSceneScreenshot,
+                    options.SourceInfoPackageSelection).Count;
+                var expectedFileCount = TikTokSourceFileInfoUploadPackageService.RequiredFileCountFor(
+                    options.SourceInfoPackageSelection);
                 log?.Invoke(
                     fileCount == expectedFileCount
                         ? $"TikTok 原始文件信息上传包已就绪：{fileCount} 个文件 → {sourceInfoDir}"

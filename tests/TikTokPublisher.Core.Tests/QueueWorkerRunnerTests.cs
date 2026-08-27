@@ -518,7 +518,7 @@ public sealed class QueueWorkerRunnerTests
     }
 
     [Fact]
-    public async Task RunAsync_upload_only_prepares_current_project_proof_before_browser()
+    public async Task RunAsync_upload_only_does_not_prepare_unchecked_proof_before_browser()
     {
         var account = new TikTokAccountProfile
         {
@@ -555,13 +555,12 @@ public sealed class QueueWorkerRunnerTests
 
         summary.SuccessCount.Should().Be(1, string.Join(Environment.NewLine, progress));
         summary.FailedCount.Should().Be(0);
-        ensureCalls.Should().Be(1);
-        ensuredPath.Should().Be(TikTokProofMaterialService.GetPdfPath(
-            ProjectWorkspaceService.LoadContext(item.ProjectDir).WorkflowProjectDir));
-        item.StepStates[QueueStepRegistry.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
+        ensureCalls.Should().Be(0);
+        ensuredPath.Should().BeNull();
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial].Should().Be(QueueStepStatus.Pending);
         item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
         host.BrowserReadyCalls.Should().Be(1);
-        progress.Should().Contain(message => message.Contains("上传前检查当前项目证明材料", StringComparison.Ordinal));
+        progress.Should().NotContain(message => message.Contains("上传前检查当前项目证明材料", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -764,15 +763,15 @@ public sealed class QueueWorkerRunnerTests
 
         summary.SuccessCount.Should().Be(1, string.Join(Environment.NewLine, progress));
         summary.FailedCount.Should().Be(0);
-        ensureCalls.Should().Be(1, "另一台电脑缺少辅助材料时应自动重新生成");
+        ensureCalls.Should().Be(0, "未启用生成证明材料时上传步骤不得隐式生成辅助材料");
         File.Exists(proofPath).Should().BeFalse("未选择合作协议时不应强制生成证明材料.pdf");
         host.BrowserReadyCalls.Should().Be(1);
-        progress.Should().Contain(message =>
+        progress.Should().NotContain(message =>
             message.Contains("本机文件缺失或无效，已自动转为重新生成", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task RunAsync_force_rerun_regenerates_completed_proof()
+    public async Task RunAsync_force_rerun_does_not_regenerate_unchecked_proof()
     {
         var account = new TikTokAccountProfile
         {
@@ -811,14 +810,14 @@ public sealed class QueueWorkerRunnerTests
 
         summary.SuccessCount.Should().Be(1);
         summary.FailedCount.Should().Be(0);
-        ensureCalls.Should().Be(1);
+        ensureCalls.Should().Be(0);
         item.StepStates[QueueStepRegistry.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
         item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
         host.BrowserReadyCalls.Should().Be(1);
     }
 
     [Fact]
-    public async Task RunAsync_upload_only_fails_clearly_when_proof_preparation_fails()
+    public async Task RunAsync_upload_only_ignores_unchecked_proof_generator_failure()
     {
         var account = new TikTokAccountProfile
         {
@@ -844,14 +843,12 @@ public sealed class QueueWorkerRunnerTests
             onPersist: null,
             CancellationToken.None);
 
-        summary.SuccessCount.Should().Be(0);
-        summary.FailedCount.Should().Be(1);
-        host.BrowserReadyCalls.Should().Be(0);
-        host.PublishedProjectDirs.Should().BeEmpty();
-        item.StepStates[QueueStepRegistry.GenerateProofMaterial].Should().Be(QueueStepStatus.Failed);
-        item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Failed);
-        item.LastError.Should().Contain("上传合作协议前准备证明材料失败")
-            .And.Contain("PDF renderer unavailable");
+        summary.SuccessCount.Should().Be(1);
+        summary.FailedCount.Should().Be(0);
+        host.BrowserReadyCalls.Should().Be(1);
+        host.PublishedProjectDirs.Should().ContainSingle();
+        item.StepStates[QueueStepRegistry.GenerateProofMaterial].Should().Be(QueueStepStatus.Pending);
+        item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
     }
 
     [Fact]
@@ -942,9 +939,7 @@ public sealed class QueueWorkerRunnerTests
 
         summary.SuccessCount.Should().Be(1);
         summary.FailedCount.Should().Be(0);
-        proofAccount.Should().BeSameAs(configuredAccount);
-        proofAccount!.TiktokProofCopyrightCompanyName.Should().Be("武汉斑铬科技有限公司");
-        proofAccount.TiktokProofDeclarantCompanyName.Should().Be("湖北斑派科技有限公司");
+        proofAccount.Should().BeNull("未启用生成证明材料步骤时不得隐式调用证明材料生成器");
         host.PublishedAccountIds.Should().Equal(configuredAccount.Id);
         item.AccountProfileId.Should().Be(configuredAccount.Id);
         item.AccountProfileName.Should().Be(configuredAccount.DisplayName);

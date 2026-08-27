@@ -88,7 +88,11 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                     .ConfigureAwait(false);
             }
             workflowDir = TikTokUploadStateStore.ResolveWorkflowProjectDir(item.ProjectDir);
-            options = TikTokPublishOptionsBuilder.FromAccount(account, workflowDir, L);
+            options = TikTokPublishOptionsBuilder.FromAccount(
+                account,
+                workflowDir,
+                L,
+                item.EnabledQueueSteps);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

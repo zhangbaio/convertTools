@@ -83,7 +83,11 @@ public static class TikTokCopyrightProofEditService
             L("已进入版权证明页；本任务不会修改剧集信息、视频、商业模式或价格。");
 
             var workflowDir = TikTokUploadStateStore.ResolveWorkflowProjectDir(item.ProjectDir);
-            var options = TikTokPublishOptionsBuilder.FromAccount(account, workflowDir, L);
+            var options = TikTokPublishOptionsBuilder.FromAccount(
+                account,
+                workflowDir,
+                L,
+                item.EnabledQueueSteps);
             if (forceAiOutlineSupplement)
             {
                 if (!options.UploadAiScriptOutlineWithScreenshots ||
