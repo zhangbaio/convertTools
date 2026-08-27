@@ -68,7 +68,8 @@ public static class ProjectWorkspaceService
         if (PathsEqual(source, workflow))
             return;
 
-        if (!IsDirectChildOf(source, workspace))
+        if (!IsDirectChildOf(source, workspace) &&
+            !IsLegacyNestedRecoveryProject(source, workspace))
         {
             throw new InvalidDataException(
                 $"当前项目源目录不属于工作区：{source}；工作区：{workspace}。");
@@ -103,7 +104,10 @@ public static class ProjectWorkspaceService
             return;
         }
 
-        var defaultWorkflow = Path.Combine(workflowRoot, Path.GetFileName(source));
+        var defaultWorkflowName = IsLegacyRecoveryLeaf(source)
+            ? "_" + (Directory.GetParent(source)?.Name ?? "版权恢复")
+            : Path.GetFileName(source);
+        var defaultWorkflow = Path.Combine(workflowRoot, defaultWorkflowName);
         if (!PathsEqual(workflow, defaultWorkflow))
         {
             throw new InvalidDataException(
@@ -486,6 +490,13 @@ public static class ProjectWorkspaceService
             return Directory.GetParent(sourceProjectDir)?.Parent?.FullName ?? sourceProjectDir;
         }
 
+        if (IsLegacyRecoveryLeaf(sourceProjectDir))
+        {
+            return Directory.GetParent(sourceProjectDir)?.Parent?.FullName
+                   ?? Directory.GetParent(sourceProjectDir)?.FullName
+                   ?? sourceProjectDir;
+        }
+
         return Directory.GetParent(sourceProjectDir)?.FullName ?? sourceProjectDir;
     }
 
@@ -504,7 +515,10 @@ public static class ProjectWorkspaceService
             return Path.Combine(ResolveWorkflowRoot(sourceProjectDir), configuredName);
         }
 
-        return Path.Combine(ResolveWorkflowRoot(sourceProjectDir), Path.GetFileName(sourceProjectDir));
+        var defaultName = IsLegacyRecoveryLeaf(sourceProjectDir)
+            ? "_" + (Directory.GetParent(sourceProjectDir)?.Name ?? "版权恢复")
+            : Path.GetFileName(sourceProjectDir);
+        return Path.Combine(ResolveWorkflowRoot(sourceProjectDir), defaultName);
     }
 
     private static string ResolveWorkflowRoot(string sourceProjectDir) =>
@@ -512,6 +526,19 @@ public static class ProjectWorkspaceService
 
     private static bool IsDirectChildOf(string path, string parent) =>
         PathsEqual(Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty, Path.GetFullPath(parent));
+
+    private static bool IsLegacyRecoveryLeaf(string path) =>
+        string.Equals(
+            Path.GetFileName(Path.TrimEndingDirectorySeparator(path)),
+            "_版权恢复",
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    private static bool IsLegacyNestedRecoveryProject(string sourceProjectDir, string workspaceRoot)
+    {
+        if (!IsLegacyRecoveryLeaf(sourceProjectDir)) return false;
+        var parent = Directory.GetParent(sourceProjectDir)?.FullName;
+        return !string.IsNullOrWhiteSpace(parent) && IsDirectChildOf(parent, workspaceRoot);
+    }
 
     private static bool PathsEqual(string left, string right) =>
         string.Equals(
@@ -777,7 +804,7 @@ public static class ProjectWorkspaceService
         File.WriteAllLines(infoPath, lines);
     }
 
-    private static void UpdateProjectInfoFieldIfBlank(string infoPath, string key, string value)
+    internal static void UpdateProjectInfoFieldIfBlank(string infoPath, string key, string value)
     {
         if (string.IsNullOrWhiteSpace(value)) return;
 

@@ -23,7 +23,7 @@ public static class TikTokEpisodeScriptService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var configuredEpisodeCount = ResolveConfiguredEpisodeCount(account);
         var availableVideoCount = ProjectVideoResolver
-            .ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
+            .ResolveMaterialVideos(context.SourceProjectDir, allowStagedFallback: true)
             .Take(configuredEpisodeCount)
             .Count();
         var targetEpisodeCount = ResolveTargetEpisodeCount(
@@ -52,11 +52,28 @@ public static class TikTokEpisodeScriptService
         TikTokAccountProfile? account,
         bool forceRerun,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        RoleReferenceEpisodeFallback? episodeFallback = null)
     {
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var configuredEpisodeCount = ResolveConfiguredEpisodeCount(account);
-        var videos = ProjectVideoResolver.ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
+        if (ProjectVideoResolver.ResolveMaterialVideos(
+                context.SourceProjectDir,
+                allowStagedFallback: true).Count < configuredEpisodeCount)
+        {
+            _ = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
+                    item,
+                    settings,
+                    configuredEpisodeCount,
+                    log ?? (_ => { }),
+                    ct,
+                    episodeFallback)
+                .ConfigureAwait(false);
+        }
+
+        var videos = ProjectVideoResolver.ResolveMaterialVideos(
+                context.SourceProjectDir,
+                allowStagedFallback: true)
             .Take(configuredEpisodeCount).ToArray();
 
         var title = string.IsNullOrWhiteSpace(item.NewTitle) ? item.Title : item.NewTitle.Trim();
@@ -259,7 +276,7 @@ public static class TikTokEpisodeScriptService
         {synopsis}
         """;
 
-    private static async Task<string> ResolveTranscriptAsync(
+    internal static async Task<string> ResolveTranscriptAsync(
         string video,
         ClientSettings settings,
         Action<string>? log,

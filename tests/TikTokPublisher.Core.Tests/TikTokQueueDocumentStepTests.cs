@@ -10,6 +10,47 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokQueueDocumentStepTests
 {
+    [Fact]
+    public void Episode_script_uses_published_material_cache_for_recovery_project()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"recovery-script-material-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "恢复项目_版权恢复");
+        var workflow = Path.Combine(workspace, "workflow", "_恢复项目");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        File.WriteAllText(
+            Path.Combine(source, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sourceProjectDir = source,
+                workflowProjectDir = workflow,
+                tiktokPublishedRecovery = true,
+            }));
+        try
+        {
+            var cache = ProjectVideoResolver.ResolvePublishedMaterialVideoDirectory(source);
+            Directory.CreateDirectory(cache);
+            File.WriteAllBytes(Path.Combine(cache, "第001集.mp4"), [1, 2, 3]);
+            var item = new QueueProjectItem
+            {
+                ProjectDir = source,
+                NewTitle = "恢复新剧名",
+                EpisodeCount = 16,
+            };
+            var account = new TikTokPublisher.Core.Models.TikTokAccountProfile
+            {
+                TiktokEpisodeScriptEpisodeCount = 5,
+            };
+
+            Path.GetFileName(TikTokEpisodeScriptService.GetOutputPath(item, account))
+                .Should().Be("恢复新剧名前1集剧本.pdf");
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(5, 40, 40, 5)]
     [InlineData(10, 40, 40, 10)]
