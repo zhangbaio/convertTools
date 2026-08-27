@@ -71,6 +71,52 @@ public sealed class TikTokProofMaterialVideoHydrationTests
     }
 
     [Fact]
+    public async Task Missing_book_id_uses_uploaded_series_fallback_for_material_videos_only()
+    {
+        using var temp = new TemporaryDirectory();
+        var source = Path.Combine(temp.Path, "source");
+        var workflow = Path.Combine(temp.Path, "workflow", "source");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        File.WriteAllText(
+            Path.Combine(source, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sourceProjectDir = source,
+                workflowProjectDir = workflow,
+            }));
+        var item = new QueueProjectItem
+        {
+            ProjectDir = source,
+            NewTitle = "已上传项目",
+            UploadCompletedAt = DateTimeOffset.Now.ToString("o"),
+        };
+        var calls = 0;
+        var result = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
+            item,
+            new ClientSettings(),
+            requiredEpisodeCount: 1,
+            _ => { },
+            CancellationToken.None,
+            (_, episodes, _, _) =>
+            {
+                calls++;
+                episodes.Should().Equal(1);
+                var cache = ProjectVideoResolver.ResolvePublishedMaterialVideoDirectory(source);
+                Directory.CreateDirectory(cache);
+                var path = Path.Combine(cache, "第001集.mp4");
+                File.WriteAllBytes(path, [1, 2, 3]);
+                return Task.FromResult<IReadOnlyDictionary<int, string>>(
+                    new Dictionary<int, string> { [1] = path });
+            });
+
+        calls.Should().Be(1);
+        result.CreatedVideoPaths.Should().ContainSingle();
+        ProjectVideoResolver.ResolveMaterialVideos(source).Should().ContainSingle();
+        ProjectVideoResolver.ResolveUploadVideos(source, allowStagedFallback: true).Should().BeEmpty();
+    }
+
+    [Fact]
     public void FindProofMaterialFallbackFrame_PrefersRetainedAiFrame()
     {
         using var temp = new TemporaryDirectory();

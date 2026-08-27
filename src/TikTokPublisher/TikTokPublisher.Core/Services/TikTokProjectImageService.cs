@@ -96,7 +96,7 @@ public static class TikTokProjectImageService
         }
 
         var sourceVideos = ProjectVideoResolver
-            .ResolveSourceVideos(context.SourceProjectDir, allowStagedFallback: true)
+            .ResolveMaterialVideos(context.SourceProjectDir, allowStagedFallback: true)
             .Take(renderEpisodeLimit)
             .ToArray();
         if (sourceVideos.Length == 0)
@@ -233,7 +233,7 @@ public static class TikTokProjectImageService
 
             var renderEpisodeLimit = ResolveRenderEpisodeLimit(normalized);
             var sourceVideos = ProjectVideoResolver
-                .ResolveSourceVideos(context.SourceProjectDir, allowStagedFallback: true)
+                .ResolveMaterialVideos(context.SourceProjectDir, allowStagedFallback: true)
                 .Take(renderEpisodeLimit)
                 .ToArray();
             if (sourceVideos.Length == 0)

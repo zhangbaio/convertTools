@@ -7,6 +7,8 @@ namespace TikTokPublisher.Core.Services;
 public static class ProjectVideoResolver
 {
     private const string UploadStagingDirName = "tiktok_upload_videos";
+    public const string MaterialVideoDirectoryName = "material-videos";
+    public const string PublishedMaterialDirectoryName = "tiktok-published";
 
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -78,6 +80,52 @@ public static class ProjectVideoResolver
         return ResolveStagedUploadVideosFromWorkflow(workflow);
     }
 
+    /// <summary>
+    /// Resolves videos that may be used to generate local materials. Unlike
+    /// <see cref="ResolveUploadVideos"/>, this includes the isolated cache restored
+    /// from an already-uploaded TikTok series. The cache is deliberately never part
+    /// of the upload resolver, so a later forced upload cannot publish platform
+    /// downloads as if they were original source files.
+    /// </summary>
+    public static IReadOnlyList<string> ResolveMaterialVideos(
+        string sourceProjectDir,
+        bool allowStagedFallback = true)
+    {
+        var source = Path.GetFullPath(sourceProjectDir);
+        if (!Directory.Exists(source))
+            return Array.Empty<string>();
+
+        var workflow = ProjectWorkspaceService.ResolveWorkflowProjectDir(source);
+        if (string.IsNullOrWhiteSpace(workflow))
+            workflow = source;
+
+        var local = ResolveSourceVideosFromRoots(source, workflow);
+        if (local.Count == 0 && allowStagedFallback)
+            local = ResolveStagedUploadVideosFromWorkflow(workflow);
+
+        var published = ResolvePublishedMaterialVideosFromWorkflow(workflow);
+        if (published.Count == 0)
+            return local;
+        if (local.Count == 0)
+            return published;
+
+        return DedupeAndSort(
+            local.Concat(published).ToList(),
+            path => NaturalKey(Path.GetFileName(path)));
+    }
+
+    public static string ResolvePublishedMaterialVideoDirectory(string sourceProjectDir)
+    {
+        var source = Path.GetFullPath(sourceProjectDir);
+        var workflow = ProjectWorkspaceService.ResolveWorkflowProjectDir(source);
+        if (string.IsNullOrWhiteSpace(workflow))
+            workflow = source;
+        return Path.Combine(
+            workflow,
+            MaterialVideoDirectoryName,
+            PublishedMaterialDirectoryName);
+    }
+
     private static List<string> ResolveSourceVideosFromRoots(string sourceProjectDir, string workflowProjectDir)
     {
         var candidates = new List<string>();
@@ -127,6 +175,22 @@ public static class ProjectVideoResolver
             var relative = Path.GetRelativePath(stagingRoot, path);
             return NaturalKey(relative);
         });
+    }
+
+    private static List<string> ResolvePublishedMaterialVideosFromWorkflow(string workflowProjectDir)
+    {
+        var cacheRoot = Path.Combine(
+            workflowProjectDir,
+            MaterialVideoDirectoryName,
+            PublishedMaterialDirectoryName);
+        if (!Directory.Exists(cacheRoot)) return new List<string>();
+
+        var candidates = Directory.EnumerateFiles(cacheRoot, "*.*", SearchOption.AllDirectories)
+            .Where(IsCandidateVideoFile)
+            .Select(Path.GetFullPath)
+            .ToList();
+        return DedupeAndSort(candidates, path =>
+            NaturalKey(Path.GetRelativePath(cacheRoot, path)));
     }
 
     internal static bool IsCompleteVideoFile(string path)

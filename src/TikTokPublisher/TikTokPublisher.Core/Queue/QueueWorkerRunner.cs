@@ -64,6 +64,13 @@ internal delegate Task<string> QueueProofMaterialPrerequisite(
     Action<string>? log,
     CancellationToken cancellationToken);
 
+internal delegate Task<string> QueueProofMaterialPrerequisiteWithFallback(
+    QueueProjectItem item,
+    TikTokAccountProfile? account,
+    Action<string>? log,
+    CancellationToken cancellationToken,
+    RoleReferenceEpisodeFallback? episodeFallback);
+
 internal interface IQueueStepException
 {
     string StepKey { get; }
@@ -90,7 +97,7 @@ public sealed class QueueWorkerRunner
     private const int ProjectConcurrencyHardMax = 20;
 
     private readonly UploadSlotCoordinator _uploadSlots;
-    private readonly QueueProofMaterialPrerequisite _ensureProofMaterial;
+    private readonly QueueProofMaterialPrerequisiteWithFallback _ensureProofMaterial;
     private readonly List<QueueProjectItem> _incomingItems = new();
     private readonly object _incomingLock = new();
     private bool _acceptingItems = true;
@@ -98,13 +105,30 @@ public sealed class QueueWorkerRunner
     public ManualInterventionCoordinator ManualIntervention { get; } = new();
 
     public QueueWorkerRunner(UploadSlotCoordinator? sharedUploadSlots = null)
-        : this(TikTokProofMaterialService.EnsureCurrentForUploadAsync, sharedUploadSlots)
+        : this(
+            (item, account, log, ct, episodeFallback) =>
+                TikTokProofMaterialService.EnsureCurrentForUploadAsync(
+                    item,
+                    account,
+                    log,
+                    ct,
+                    episodeFallback),
+            sharedUploadSlots)
     {
     }
 
     internal QueueWorkerRunner(
         QueueProofMaterialPrerequisite ensureProofMaterial,
         UploadSlotCoordinator? sharedUploadSlots = null)
+        : this(
+            (item, account, log, ct, _) => ensureProofMaterial(item, account, log, ct),
+            sharedUploadSlots)
+    {
+    }
+
+    private QueueWorkerRunner(
+        QueueProofMaterialPrerequisiteWithFallback ensureProofMaterial,
+        UploadSlotCoordinator? sharedUploadSlots)
     {
         _ensureProofMaterial = ensureProofMaterial ?? throw new ArgumentNullException(nameof(ensureProofMaterial));
         _uploadSlots = sharedUploadSlots ?? new UploadSlotCoordinator();
@@ -895,7 +919,7 @@ public sealed class QueueWorkerRunner
         CancellationToken ct,
         Action<Action> mutate,
         ManualInterventionCoordinator? manualIntervention,
-        QueueProofMaterialPrerequisite ensureProofMaterial)
+        QueueProofMaterialPrerequisiteWithFallback ensureProofMaterial)
     {
         var wasCompletedBeforeRun =
             item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Completed;
@@ -1080,7 +1104,18 @@ public sealed class QueueWorkerRunner
             {
                 var proofPath = reuseExistingProof
                     ? reusableProofPath!
-                    : await ensureProofMaterial(item, account, uploadLog, ct).ConfigureAwait(false);
+                    : await ensureProofMaterial(
+                            item,
+                            account,
+                            uploadLog,
+                            ct,
+                            CreateUploadedMaterialVideoFallback(
+                                workspace,
+                                item,
+                                account,
+                                host,
+                                uploadLog))
+                        .ConfigureAwait(false);
                 if (!string.IsNullOrWhiteSpace(proofPath))
                     TikTokProofMaterialPdfRenderService.ValidatePdf(proofPath);
                 if (!reuseExistingProof)
@@ -1284,6 +1319,12 @@ public sealed class QueueWorkerRunner
         var settings = ClientSettingsStore.Load();
         QueueWorkloadResourceScheduler.Configure(settings);
         var materialOptions = TikTokMaterialValidationService.Options.FromAccount(account, settings);
+        var materialVideoFallback = CreateUploadedMaterialVideoFallback(
+            workspace,
+            item,
+            account,
+            host,
+            log);
         switch (stepKey)
         {
             case QueueStepRegistry.Download:
@@ -1306,28 +1347,24 @@ public sealed class QueueWorkerRunner
                 break;
             case QueueStepRegistry.GenerateAiDramaMaterials:
                 await TikTokAiDramaProductionMaterialService.GenerateAsync(
-                    item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
+                    item,
+                    settings,
+                    options.ForceRerunCompletedSteps,
+                    log,
+                    ct,
+                    materialVideoFallback).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateRoleVector:
-                RoleReferenceEpisodeFallback? roleVideoFallback = null;
-                if (account is not null &&
-                    (!string.IsNullOrWhiteSpace(item.UploadCompletedAt) ||
-                     item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Completed))
+                if (materialVideoFallback is not null)
                 {
-                    roleVideoFallback = async (fallbackItem, episodeNumbers, fallbackLog, token) =>
-                    {
-                        var result = await host.DownloadRoleReferenceEpisodesAsync(
-                                workspace,
-                                account,
-                                fallbackItem,
-                                episodeNumbers,
-                                fallbackLog ?? log,
-                                token)
-                            .ConfigureAwait(false);
-                        if (!result.Ok)
-                            (fallbackLog ?? log)(result.Message);
-                        return result.EpisodeFiles;
-                    };
+                    _ = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
+                            item,
+                            settings,
+                            requiredEpisodeCount: 1,
+                            log,
+                            ct,
+                            materialVideoFallback)
+                        .ConfigureAwait(false);
                 }
                 await TikTokRoleVectorService.GenerateAsync(
                     item,
@@ -1338,9 +1375,20 @@ public sealed class QueueWorkerRunner
                     ct,
                     account?.TiktokRoleVectorMinimumCharacterCount ??
                     TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount,
-                    roleVideoFallback).ConfigureAwait(false);
+                    materialVideoFallback).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateProjectImages:
+                _ = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
+                        item,
+                        settings,
+                        TikTokProofMaterialService.ResolveTemporaryVideoEpisodeCount(
+                            generateAiScreenshots: false,
+                            generateEditingProjectFiles: true,
+                            settings),
+                        log,
+                        ct,
+                        materialVideoFallback)
+                    .ConfigureAwait(false);
                 await TikTokProjectImageService.GenerateAsync(
                     item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
                 break;
@@ -1351,7 +1399,8 @@ public sealed class QueueWorkerRunner
                     account,
                     options.ForceRerunCompletedSteps,
                     log,
-                    ct).ConfigureAwait(false);
+                    ct,
+                    materialVideoFallback).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateTimestampCertificate:
                 await TikTokTimestampCertificateService.GenerateAsync(
@@ -1375,6 +1424,37 @@ public sealed class QueueWorkerRunner
                 throw new InvalidOperationException($"未知预处理步骤：{stepKey}");
         }
 
+    }
+
+    private static RoleReferenceEpisodeFallback? CreateUploadedMaterialVideoFallback(
+        string workspace,
+        QueueProjectItem item,
+        TikTokAccountProfile? account,
+        IQueuePublishHost host,
+        Action<string> log)
+    {
+        if (account is null ||
+            (string.IsNullOrWhiteSpace(item.UploadCompletedAt) &&
+             item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) != QueueStepStatus.Completed))
+        {
+            return null;
+        }
+
+        return async (fallbackItem, episodeNumbers, fallbackLog, token) =>
+        {
+            var writeLog = fallbackLog ?? log;
+            var result = await host.DownloadRoleReferenceEpisodesAsync(
+                    workspace,
+                    account,
+                    fallbackItem,
+                    episodeNumbers,
+                    writeLog,
+                    token)
+                .ConfigureAwait(false);
+            if (!result.Ok)
+                writeLog(result.Message);
+            return result.EpisodeFiles;
+        };
     }
 
     private static async Task SyncManagementAfterUploadIfEnabledAsync(
