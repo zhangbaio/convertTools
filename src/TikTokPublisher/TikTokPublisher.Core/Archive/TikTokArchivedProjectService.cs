@@ -269,6 +269,8 @@ public static partial class TikTokArchivedProjectService
             ["queued_at"] = queuedAtValue,
             ["uploadCompletedAt"] = uploadCompletedAtValue,
             ["upload_completed_at"] = uploadCompletedAtValue,
+            ["workspaceRootAtArchive"] = Path.GetFullPath(workspaceRoot),
+            ["archiveLayoutVersion"] = 2,
             ["sourceProjectDir"] = sourceProjectDir,
             ["workflowProjectDir"] = workflowProjectDir,
             ["archivedSourceDir"] = archivedSourceDir,
@@ -666,7 +668,17 @@ public static partial class TikTokArchivedProjectService
             try
             {
                 var fullStoredTarget = Path.GetFullPath(storedTarget);
-                if (IsWithin(fullStoredTarget, workspace))
+                var archivedWorkspace = ResolveWorkspaceRootAtArchive(payload);
+                if (!string.IsNullOrWhiteSpace(archivedWorkspace) &&
+                    IsWithin(fullStoredTarget, archivedWorkspace))
+                {
+                    var relativeTarget = Path.GetRelativePath(archivedWorkspace, fullStoredTarget);
+                    var rebasedTarget = Path.GetFullPath(relativeTarget, workspace);
+                    if (IsWithin(rebasedTarget, workspace))
+                        return rebasedTarget;
+                }
+
+                if (IsRestoreTargetInCurrentLayout(fullStoredTarget, workspace, isWorkflow))
                     return fullStoredTarget;
             }
             catch
@@ -682,6 +694,98 @@ public static partial class TikTokArchivedProjectService
         return isWorkflow
             ? Path.Combine(workspace, "workflow", leaf)
             : Path.Combine(workspace, leaf);
+    }
+
+    private static string ResolveWorkspaceRootAtArchive(IReadOnlyDictionary<string, object?> payload)
+    {
+        var storedWorkspace = ReadString(
+            payload,
+            "workspaceRootAtArchive",
+            "workspace_root_at_archive",
+            "WorkspaceRootAtArchive");
+        if (!string.IsNullOrWhiteSpace(storedWorkspace))
+        {
+            try
+            {
+                return Path.GetFullPath(storedWorkspace);
+            }
+            catch
+            {
+                // Legacy path inference below can still recover malformed metadata.
+            }
+        }
+
+        var candidates = new List<string>();
+        var sourceTarget = ReadString(
+            payload,
+            "sourceProjectDir",
+            "source_project_dir",
+            "SourceProjectDir");
+        if (!string.IsNullOrWhiteSpace(sourceTarget))
+        {
+            try
+            {
+                var fullSource = Path.GetFullPath(sourceTarget);
+                var sourceParent = Directory.GetParent(fullSource);
+                var sourceWorkspace = string.Equals(
+                        Path.GetFileName(Path.TrimEndingDirectorySeparator(fullSource)),
+                        "_版权恢复",
+                        StringComparison.OrdinalIgnoreCase)
+                    ? sourceParent?.Parent?.FullName
+                    : sourceParent?.FullName;
+                AddPathCandidate(candidates, sourceWorkspace);
+            }
+            catch
+            {
+                // Try the workflow path below.
+            }
+        }
+
+        var workflowTarget = ReadString(
+            payload,
+            "workflowProjectDir",
+            "workflow_project_dir",
+            "WorkflowProjectDir");
+        if (!string.IsNullOrWhiteSpace(workflowTarget))
+        {
+            try
+            {
+                var workflowParent = Directory.GetParent(Path.GetFullPath(workflowTarget));
+                if (workflowParent is not null &&
+                    string.Equals(workflowParent.Name, "workflow", StringComparison.OrdinalIgnoreCase))
+                {
+                    AddPathCandidate(candidates, workflowParent.Parent?.FullName);
+                }
+            }
+            catch
+            {
+                // Source inference above may already be sufficient.
+            }
+        }
+
+        var distinctCandidates = candidates
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(2)
+            .ToArray();
+        return distinctCandidates.Length == 1
+            ? distinctCandidates[0]
+            : "";
+    }
+
+    private static bool IsRestoreTargetInCurrentLayout(
+        string targetPath,
+        string workspaceRoot,
+        bool isWorkflow)
+    {
+        var expectedParent = isWorkflow
+            ? Path.Combine(workspaceRoot, "workflow")
+            : workspaceRoot;
+        var actualParent = Path.GetDirectoryName(Path.GetFullPath(targetPath));
+        return !string.IsNullOrWhiteSpace(actualParent) &&
+               string.Equals(
+                   Path.TrimEndingDirectorySeparator(Path.GetFullPath(actualParent)),
+                   Path.TrimEndingDirectorySeparator(Path.GetFullPath(expectedParent)),
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     private static void AddPathCandidate(ICollection<string> candidates, string? path)
