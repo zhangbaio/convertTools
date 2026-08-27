@@ -957,7 +957,12 @@ public sealed partial class MainViewModel : ViewModelBase
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (generation != _workspaceRefreshGeneration) return;
-            if (TryGetWorkspaceQueueSnapshot(root, out var cachedItems, out var cachedOptions))
+            // A forced refresh is used after external filesystem/database mutations such
+            // as restoring archived projects. Reusing the pre-restore snapshot here would
+            // make the archive entry disappear while the restored project remained absent
+            // from the production queue until the application was restarted.
+            if (!force &&
+                TryGetWorkspaceQueueSnapshot(root, out var cachedItems, out var cachedOptions))
             {
                 ApplyWorkspaceScanResult(root, cachedItems, cachedOptions);
                 return;
