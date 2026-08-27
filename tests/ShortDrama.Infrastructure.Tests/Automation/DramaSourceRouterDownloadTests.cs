@@ -374,6 +374,8 @@ public sealed class DramaSourceRouterDownloadTests
                 .Should().Equal(videoBytes);
             handler.GetCdnRequestsWithoutRange().Should().NotBeEmpty();
             progress.Messages.Should().Contain(message => message.Contains("回退单流下载", StringComparison.Ordinal));
+            progress.Messages.Should().Contain(message =>
+                message.Contains("分块下载要求 HTTP 206", StringComparison.Ordinal));
         }
         finally
         {

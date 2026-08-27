@@ -263,7 +263,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     public bool IsPosterView => !IsListView;
 
     public event Action<string>? LogRequested;
-    public event Action<TikTokQueueImportRequest>? ImportToQueueRequested;
+    public event Func<TikTokQueueImportRequest, Task>? ImportToQueueRequested;
     public event Func<TikTokQueueImportTarget?>? TikTokQueueTargetRequested;
 
     public void UpdateTikTokQueueTarget(TikTokQueueImportTarget? target)
@@ -504,7 +504,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         }
         var uploadWorkspace = target.WorkspaceRoot;
 
-        if (!Directory.Exists(uploadWorkspace))
+        if (!await Task.Run(() => Directory.Exists(uploadWorkspace)))
         {
             LogRequested?.Invoke($"TikTok 上传工作目录不存在：{uploadWorkspace}");
             return;
@@ -521,22 +521,25 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         foreach (var item in selected)
         {
             var queueEntryDramaType = ResolveQueueEntryDramaType(item);
-            var projectDir = await ShortDramaDramaServices.BootstrapAsync(
-                uploadWorkspace,
-                item,
-                episodes,
-                DefaultQuality,
-                DownloadConcurrent,
-                EpisodeNumberMode,
-                queueEntryDramaType,
-                CancellationToken.None);
+            var projectDir = await Task.Run(() => ShortDramaDramaServices.BootstrapAsync(
+                    uploadWorkspace,
+                    item,
+                    episodes,
+                    DefaultQuality,
+                    DownloadConcurrent,
+                    EpisodeNumberMode,
+                    queueEntryDramaType,
+                    CancellationToken.None))
+                .ConfigureAwait(true);
             dirs.Add(projectDir);
             item.Selected = false;
             LogRequested?.Invoke($"已准备 TikTok 队列项目：{item.Title}");
         }
 
         UpdateSelectedCount();
-        ImportToQueueRequested?.Invoke(new TikTokQueueImportRequest(target, dirs));
+        var importHandler = ImportToQueueRequested;
+        if (importHandler is not null)
+            await importHandler(new TikTokQueueImportRequest(target, dirs));
         LogRequested?.Invoke($"已加入 {dirs.Count} 个剧目到「{target.AccountProfileName}」TikTok 队列");
     }
 
@@ -579,14 +582,16 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private void StopDownloadQueue() => _downloadCts?.Cancel();
 
     [RelayCommand]
-    private void ImportCompletedToQueue()
+    private async Task ImportCompletedToQueueAsync()
     {
-        var dirs = QueueRows
+        var candidateDirs = QueueRows
             .Where(r => IsCompletedStatus(r.Item.Status))
             .Select(r => r.Item.ProjectDir)
-            .Where(dir => !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        var dirs = await Task.Run(() => candidateDirs.Where(Directory.Exists).ToArray())
+            .ConfigureAwait(true);
         if (dirs.Length == 0)
         {
             LogRequested?.Invoke("没有已完成下载的项目可导入");
@@ -595,7 +600,9 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
         var target = CaptureTikTokQueueTarget();
         if (target is null) return;
-        ImportToQueueRequested?.Invoke(new TikTokQueueImportRequest(target, dirs));
+        var importHandler = ImportToQueueRequested;
+        if (importHandler is not null)
+            await importHandler(new TikTokQueueImportRequest(target, dirs));
     }
 
     [RelayCommand]

@@ -883,6 +883,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             else if (probeResponse.IsSuccessStatusCode)
             {
                 EnsureMediaResponse(probeResponse);
+                report?.Invoke("CDN 未返回 HTTP 206，已改用单流下载");
                 await WriteResponseBodyAsync(probeResponse, targetPath, cancellationToken);
                 return;
             }
@@ -916,10 +917,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
                 DeleteIfExists(targetPath);
-                report?.Invoke("分块下载失败，已自动回退单流下载");
+                report?.Invoke($"{segmentCount} 路分块下载失败，已自动回退单流下载：{ex.Message}");
             }
         }
 

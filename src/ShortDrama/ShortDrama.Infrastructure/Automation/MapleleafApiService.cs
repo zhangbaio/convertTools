@@ -35,13 +35,19 @@ public sealed class MapleleafApiService
     private readonly HongguoLocalApiService _localService;
     private readonly IReadOnlyList<string> _apiBases;
     private readonly string _phpParseUrl;
+    private readonly Func<string, string?> _latestCachePathResolver;
     private readonly SemaphoreSlim _loginGate = new(1, 1);
     private string _token = string.Empty;
     private string _tokenAccount = string.Empty;
     private string _tokenDevice = string.Empty;
 
     public MapleleafApiService(HttpClient httpClient)
-        : this(httpClient, new HongguoLocalApiService(httpClient), null, null)
+        : this(
+            httpClient,
+            new HongguoLocalApiService(httpClient),
+            null,
+            null,
+            ResolveOfficialLatestCachePath)
     {
     }
 
@@ -49,12 +55,14 @@ public sealed class MapleleafApiService
         HttpClient httpClient,
         HongguoLocalApiService localService,
         IReadOnlyList<string>? apiBases,
-        string? phpParseUrl)
+        string? phpParseUrl,
+        Func<string, string?>? latestCachePathResolver = null)
     {
         _httpClient = httpClient;
         _localService = localService;
         _apiBases = apiBases is { Count: > 0 } ? apiBases : DefaultApiBases;
         _phpParseUrl = string.IsNullOrWhiteSpace(phpParseUrl) ? DefaultPhpParseUrl : phpParseUrl.Trim();
+        _latestCachePathResolver = latestCachePathResolver ?? ResolveOfficialLatestCachePath;
     }
 
     public async Task<MapleleafLoginProbeResult> ProbeLoginAsync(
@@ -151,20 +159,31 @@ public sealed class MapleleafApiService
         };
         var collected = new List<DramaSearchItem>();
         var seenBookIds = new HashSet<string>(StringComparer.Ordinal);
+        var officialCacheItems = LoadOfficialLatestCache(action);
         for (var page = 1; page <= LatestMaxPages; page++)
         {
-            var inner = await SendAuthenticatedAsync(
-                settings,
-                "/ThirdParty/latest",
-                new JsonObject
-                {
-                    ["type"] = action,
-                    ["action"] = action,
-                    ["page"] = page,
-                    ["pageSize"] = 50,
-                    ["pointsRequired"] = 1
-                },
-                cancellationToken);
+            JsonNode? inner;
+            try
+            {
+                inner = await SendAuthenticatedAsync(
+                    settings,
+                    "/ThirdParty/latest",
+                    new JsonObject
+                    {
+                        ["type"] = action,
+                        ["action"] = action,
+                        ["page"] = page,
+                        ["pageSize"] = 50,
+                        ["pointsRequired"] = 1
+                    },
+                    cancellationToken);
+            }
+            catch (MapleleafException) when (officialCacheItems.Count > 0)
+            {
+                collected.Clear();
+                collected.AddRange(officialCacheItems);
+                break;
+            }
 
             if (inner is JsonObject warming && ReadBool(warming, "warming") && !ReadBool(warming, "ready"))
                 throw new MapleleafException(ReadString(warming, "message") is { Length: > 0 } message ? message : "数据预热中，请稍后重试");
@@ -178,9 +197,32 @@ public sealed class MapleleafApiService
                 break;
         }
 
+        var indexes = collected
+            .Select((item, index) => (item.BookId, index))
+            .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
+            .GroupBy(item => item.BookId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().index, StringComparer.Ordinal);
+        foreach (var cachedItem in officialCacheItems)
+        {
+            if (indexes.TryGetValue(cachedItem.BookId, out var existingIndex))
+            {
+                var current = collected[existingIndex];
+                if (!TryParseDate(current.PublishTime, out var currentTime) ||
+                    (TryParseDate(cachedItem.PublishTime, out var cachedTime) && cachedTime >= currentTime))
+                {
+                    collected[existingIndex] = cachedItem;
+                }
+                continue;
+            }
+
+            indexes[cachedItem.BookId] = collected.Count;
+            collected.Add(cachedItem);
+        }
+
         var cutoff = DateTimeOffset.Now.Date.AddDays(-Math.Max(1, days) + 1);
         return collected
             .Where(item => !TryParseDate(item.PublishTime, out var date) || date.Date >= cutoff)
+            .OrderByDescending(item => TryParseDate(item.PublishTime, out var date) ? date : DateTimeOffset.MinValue)
             .ToArray();
     }
 
@@ -217,6 +259,73 @@ public sealed class MapleleafApiService
         return result;
     }
 
+    private static string? ResolveOfficialLatestCachePath(string action)
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return string.IsNullOrWhiteSpace(localAppData)
+            ? null
+            : Path.Combine(localAppData, "HongGuo", "Client", $"latest-cache-{action}.json");
+    }
+
+    private IReadOnlyList<DramaSearchItem> LoadOfficialLatestCache(string action)
+    {
+        string? path;
+        try
+        {
+            path = _latestCachePathResolver(action);
+        }
+        catch
+        {
+            return [];
+        }
+
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return [];
+        try
+        {
+            var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+            if (root is null)
+                return [];
+            var cacheDate = ReadString(root, "Date", "date")
+                .Replace("-", string.Empty, StringComparison.Ordinal)
+                .Replace("/", string.Empty, StringComparison.Ordinal);
+            if (!string.Equals(cacheDate, DateTime.Now.ToString("yyyyMMdd", CultureInfo.InvariantCulture), StringComparison.Ordinal))
+                return [];
+            var rawItems = root["Items"] as JsonArray ?? root["items"] as JsonArray;
+            if (rawItems is null)
+                return [];
+            return rawItems
+                .OfType<JsonObject>()
+                .Select(MapOfficialCacheItem)
+                .Where(item => item.BookId.Length > BookPrefix.Length)
+                .ToArray();
+        }
+        catch (IOException)
+        {
+            return [];
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static DramaSearchItem MapOfficialCacheItem(JsonObject item) =>
+        new(
+            EnsureBookPrefix(ReadString(item, "BookId", "book_id", "bookId")),
+            ReadString(item, "Title", "title"),
+            ReadString(item, "Type", "type"),
+            ReadInt(item, "ChapterCountStr", "episode_cnt", "episodeCount") ?? 0,
+            ReadString(item, "Intro", "intro"),
+            ReadString(item, "CoverUrl", "cover", "coverUrl"),
+            ReadString(item, "Author", "author"),
+            ReadString(item, "OnlineTimeStr", "online_time", "onlineTime"),
+            ReadInt(item, "PlayCountStr", "favorite_count", "play_cnt", "playCnt") ?? 0);
+
     public async Task<MapleleafVideoPlayback> GetVideoPlaybackAsync(
         DramaSourceSettings settings,
         string prefixedOrRawVideoId,
@@ -230,20 +339,9 @@ public sealed class MapleleafApiService
         if (LooksLikeHttpUrl(videoId))
             return await ParseShareUrlAsync(settings, videoId, quality, cancellationToken);
 
+        // Mapleleaf 1.6.5 can return a signed plaintext Xigua CDN URL. Prefer it so
+        // the downloader can use the full 16-way Range path without proxying or decrypting.
         Exception? lastError = null;
-        if (HasLocalParser(settings))
-        {
-            try
-            {
-                var local = await _localService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
-                return new MapleleafVideoPlayback(local.Url, 0);
-            }
-            catch (Exception ex)
-            {
-                lastError = ex;
-            }
-        }
-
         try
         {
             var inner = await SendAuthenticatedAsync(
@@ -259,6 +357,21 @@ public sealed class MapleleafApiService
         catch (Exception ex)
         {
             lastError = ex;
+        }
+
+        // Keep the local Hongguo API as a compatibility fallback for periods when
+        // the official parser is unavailable. Its URL may be a slower proxy stream.
+        if (HasLocalParser(settings))
+        {
+            try
+            {
+                var local = await _localService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
+                return new MapleleafVideoPlayback(local.Url, 0);
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+            }
         }
 
         var hint = "Mapleleaf 后端未返回播放直链";
@@ -303,7 +416,7 @@ public sealed class MapleleafApiService
             {
                 return await SendAuthenticatedUrlAsync(settings, baseUrl.TrimEnd('/') + "/" + path.TrimStart('/'), body, cancellationToken);
             }
-            catch (MapleleafException ex) when (ex.Code >= 500 || ex.Code == 0)
+            catch (MapleleafException ex) when (IsHostFailoverError(ex))
             {
                 lastError = ex;
             }
@@ -391,7 +504,7 @@ public sealed class MapleleafApiService
                     cancellationToken,
                     unwrap: false);
             }
-            catch (MapleleafException ex) when (ex.Code >= 500 || ex.Code == 0)
+            catch (MapleleafException ex) when (IsHostFailoverError(ex))
             {
                 lastError = ex;
             }
@@ -566,6 +679,9 @@ public sealed class MapleleafApiService
         return new[] { "token不存在", "token已失效", "登录已失效", "登录过期", "未登录", "重新登录", "unauthorized", "jwt" }
             .Any(message.Contains);
     }
+
+    private static bool IsHostFailoverError(MapleleafException ex) =>
+        ex.Code is 0 or 404 or 405 or 408 or 429 || ex.Code >= 500;
 
     private static bool IsUnavailableSearchError(Exception ex)
     {

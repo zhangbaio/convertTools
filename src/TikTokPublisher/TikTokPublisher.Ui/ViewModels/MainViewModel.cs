@@ -236,7 +236,7 @@ public sealed partial class MainViewModel : ViewModelBase
         WireXingeRemoteCommandService();
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
-        DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
+        DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueueAsync;
         DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
         UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
@@ -278,7 +278,7 @@ public sealed partial class MainViewModel : ViewModelBase
         WireXingeRemoteCommandService();
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
-        DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueue;
+        DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueueAsync;
         DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
         UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
@@ -3636,7 +3636,7 @@ public sealed partial class MainViewModel : ViewModelBase
         AccountProfileNetworkChanged?.Invoke(profile);
     }
 
-    public void ImportDramaProjectsToQueue(TikTokQueueImportRequest request)
+    public async Task ImportDramaProjectsToQueueAsync(TikTokQueueImportRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var target = request.Target;
@@ -3648,30 +3648,39 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         var root = NormalizeWorkspacePath(target.WorkspaceRoot);
-        WorkspaceBindingService.Bind(root, target.AccountProfileId, target.AccountProfileName);
-        var added = WorkspaceQueueService.AddProjectsToQueue(
-            root,
-            request.ProjectDirs,
-            target.AccountProfileId,
-            target.AccountProfileName);
+        StatusMessage = $"正在加入「{target.AccountProfileName}」上传队列…";
+        var importResult = await Task.Run(() =>
+        {
+            WorkspaceBindingService.Bind(root, target.AccountProfileId, target.AccountProfileName);
+            var added = WorkspaceQueueService.AddProjectsToQueue(
+                root,
+                request.ProjectDirs,
+                target.AccountProfileId,
+                target.AccountProfileName);
+            var snapshot = WorkspaceQueueService.LoadPersistedSnapshot(root);
+            return (Added: added, Snapshot: snapshot);
+        }).ConfigureAwait(true);
 
         if (string.Equals(SelectedAccount?.Id, target.AccountProfileId, StringComparison.Ordinal))
         {
             WorkspacePath = root;
             SystemSettings.UpdateWorkspacePath(root);
             ArchivedProjects.SetWorkspace(root, refresh: false);
-            RefreshWorkspaceProjects(root, force: true);
+            ApplyWorkspaceScanResult(
+                root,
+                importResult.Snapshot.Items.ToList(),
+                importResult.Snapshot.Options);
         }
         else
         {
             CacheWorkspaceQueueSnapshot(
                 root,
-                WorkspaceQueueService.ScanProjects(root).ToList(),
-                WorkspaceQueueService.LoadRunOptions(root));
+                importResult.Snapshot.Items,
+                importResult.Snapshot.Options);
         }
 
-        StatusMessage = added.Count > 0
-            ? $"已导入 {added.Count} 个项目到「{target.AccountProfileName}」上传队列"
+        StatusMessage = importResult.Added.Count > 0
+            ? $"已导入 {importResult.Added.Count} 个项目到「{target.AccountProfileName}」上传队列"
             : $"没有可导入「{target.AccountProfileName}」队列的新项目";
         AppendLog(StatusMessage);
     }

@@ -78,6 +78,99 @@ public sealed class MapleleafApiServiceTests
     }
 
     [Fact]
+    public async Task Latest_Should_Merge_SameDay_Official_Detection_Cache()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"mapleleaf-cache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var cachePath = Path.Combine(tempDir, "latest-cache-ai_real.json");
+        await File.WriteAllTextAsync(
+            cachePath,
+            $$"""
+              {
+                "Date": "{{DateTime.Now:yyyyMMdd}}",
+                "FetchedAt": "{{DateTime.Now:O}}",
+                "Items": [
+                  {
+                    "BookId": "latest-1",
+                    "Title": "官方实时新版",
+                    "Author": "作者甲",
+                    "Type": "种田",
+                    "Intro": "简介",
+                    "CoverUrl": "https://img.example/1.jpg",
+                    "PlayCountStr": "1013",
+                    "ChapterCountStr": "59",
+                    "OnlineTimeStr": "{{DateTime.Now:yyyy-MM-dd}} 12:58:00"
+                  },
+                  {
+                    "BookId": "official-only",
+                    "Title": "仅官方检测可见",
+                    "ChapterCountStr": "12",
+                    "OnlineTimeStr": "{{DateTime.Now:yyyy-MM-dd}} 12:54:00"
+                  }
+                ]
+              }
+              """);
+        try
+        {
+            var handler = new MapleleafHandler();
+            var service = CreateService(handler, latestCachePathResolver: _ => cachePath);
+
+            var items = await service.GetLatestAsync(Settings(), "aiju", 1, CancellationToken.None);
+
+            items.Select(item => item.BookId).Should().Equal(
+                "mapleleaf:latest-1",
+                "mapleleaf:official-only");
+            items[0].Title.Should().Be("官方实时新版");
+            items[0].EpisodeTotal.Should().Be(59);
+            items[0].FavoriteCount.Should().Be(1013);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Latest_Should_Ignore_Stale_Official_Detection_Cache()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"mapleleaf-cache-stale-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        var cachePath = Path.Combine(tempDir, "latest-cache-ai_real.json");
+        await File.WriteAllTextAsync(
+            cachePath,
+            $$"""{"Date":"{{DateTime.Now.AddDays(-1):yyyyMMdd}}","Items":[{"BookId":"stale","Title":"昨日数据"}]}""");
+        try
+        {
+            var handler = new MapleleafHandler();
+            var service = CreateService(handler, latestCachePathResolver: _ => cachePath);
+
+            var items = await service.GetLatestAsync(Settings(), "aiju", 1, CancellationToken.None);
+
+            items.Should().ContainSingle();
+            items[0].BookId.Should().Be("mapleleaf:latest-1");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Latest_Should_Skip_Html404_Host_And_Use_Next_Api_Host()
+    {
+        var handler = new MapleleafHandler(html404Host: "missing.test");
+        var service = CreateService(
+            handler,
+            apiBases: ["https://missing.test/api", "https://maple.test/api"]);
+
+        var items = await service.GetLatestAsync(Settings(), "aiju", 1, CancellationToken.None);
+
+        items.Should().ContainSingle();
+        handler.Requests.Should().Contain(item => item.Host == "missing.test");
+        handler.Requests.Should().Contain(item => item.Host == "maple.test");
+    }
+
+    [Fact]
     public async Task Episodes_And_VideoParse_Keep_Mapleleaf_Provenance()
     {
         var handler = new MapleleafHandler();
@@ -90,6 +183,44 @@ public sealed class MapleleafApiServiceTests
         episodes[0].EpisodeNumber.Should().Be(3);
         episodes[0].VideoId.Should().Be("mapleleaf_ep:video-3");
         playback.Url.Should().Be("https://cdn.example/video-3.mp4");
+    }
+
+    [Fact]
+    public async Task VideoParse_Should_Be_Preferred_When_Local_Fallback_Is_Configured()
+    {
+        var handler = new MapleleafHandler();
+        var service = CreateService(handler);
+
+        var playback = await service.GetVideoPlaybackAsync(
+            SettingsWithLocalFallback(),
+            "mapleleaf_ep:video-3",
+            "1080P",
+            CancellationToken.None);
+
+        playback.Url.Should().Be("https://cdn.example/video-3.mp4");
+        handler.Requests.Should().Contain(item =>
+            item.Path.EndsWith("/ThirdParty/videoparse", StringComparison.Ordinal));
+        handler.Requests.Should().NotContain(item =>
+            item.Path.EndsWith("/api/hongguo/video_url", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task VideoParse_Should_Fallback_To_Local_Api_When_Official_Parser_Fails()
+    {
+        var handler = new MapleleafHandler(videoParseFails: true);
+        var service = CreateService(handler);
+
+        var playback = await service.GetVideoPlaybackAsync(
+            SettingsWithLocalFallback(),
+            "mapleleaf_ep:video-3",
+            "1080P",
+            CancellationToken.None);
+
+        playback.Url.Should().Be("https://local-cdn.example/video-3.mp4");
+        handler.Requests.Should().Contain(item =>
+            item.Path.EndsWith("/ThirdParty/videoparse", StringComparison.Ordinal));
+        handler.Requests.Should().Contain(item =>
+            item.Path.EndsWith("/api/hongguo/video_url", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -111,14 +242,18 @@ public sealed class MapleleafApiServiceTests
         Guid.TryParse(MapleleafDeviceStore.GenerateDeviceId(), out _).Should().BeTrue();
     }
 
-    private static MapleleafApiService CreateService(HttpMessageHandler handler)
+    private static MapleleafApiService CreateService(
+        HttpMessageHandler handler,
+        IReadOnlyList<string>? apiBases = null,
+        Func<string, string?>? latestCachePathResolver = null)
     {
         var http = new HttpClient(handler);
         return new MapleleafApiService(
             http,
             new HongguoLocalApiService(http),
-            ["https://maple.test/api"],
-            "https://maple.test/index.php");
+            apiBases ?? ["https://maple.test/api"],
+            "https://maple.test/index.php",
+            latestCachePathResolver ?? (_ => null));
     }
 
     private static DramaSourceSettings Settings() => new()
@@ -129,7 +264,21 @@ public sealed class MapleleafApiServiceTests
         MapleleafUdid = "device-guid"
     };
 
-    private sealed class MapleleafHandler(bool delayLogin = false, bool latestHasMore = false) : HttpMessageHandler
+    private static DramaSourceSettings SettingsWithLocalFallback() => new()
+    {
+        DramaSourceChain = "mapleleaf",
+        MapleleafAccount = "member@example.com",
+        MapleleafPassword = "secret",
+        MapleleafUdid = "device-guid",
+        HongguoLocalBaseUrl = "https://maple.test",
+        HongguoLocalApiKey = "local-key"
+    };
+
+    private sealed class MapleleafHandler(
+        bool delayLogin = false,
+        bool latestHasMore = false,
+        bool videoParseFails = false,
+        string? html404Host = null) : HttpMessageHandler
     {
         public ConcurrentBag<CapturedRequest> Requests { get; } = [];
         public int LoginCount;
@@ -141,13 +290,30 @@ public sealed class MapleleafApiServiceTests
                 item => item.Key,
                 item => string.Join(",", item.Value),
                 StringComparer.OrdinalIgnoreCase);
-            Requests.Add(new CapturedRequest(request.RequestUri!.AbsolutePath, body, headers));
+            Requests.Add(new CapturedRequest(
+                request.RequestUri!.Host,
+                request.RequestUri.AbsolutePath,
+                body,
+                headers));
+
+            if (string.Equals(request.RequestUri.Host, html404Host, StringComparison.OrdinalIgnoreCase))
+            {
+                return new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent("<html><title>404 Not Found</title></html>", Encoding.UTF8, "text/html")
+                };
+            }
 
             if (request.RequestUri.AbsolutePath.EndsWith("/User/login", StringComparison.Ordinal))
             {
                 Interlocked.Increment(ref LoginCount);
                 if (delayLogin) await Task.Delay(30, cancellationToken);
                 return Json("""{"success":true,"data":{"accessToken":"maple-token","email":"member@example.com"}}""");
+            }
+
+            if (request.RequestUri.AbsolutePath.EndsWith("/api/hongguo/video_url", StringComparison.Ordinal))
+            {
+                return Json("""{"url":"https://local-cdn.example/video-3.mp4"}""");
             }
 
             request.Headers.Authorization?.Scheme.Should().Be("Bearer");
@@ -162,7 +328,13 @@ public sealed class MapleleafApiServiceTests
                 return Json("""{"success":true,"data":{"data":[{"videoId":"video-3","title":"第3集"}]}}""");
 
             if (request.RequestUri.AbsolutePath.EndsWith("/ThirdParty/videoparse", StringComparison.Ordinal))
+            {
+                if (videoParseFails)
+                {
+                    return Json("""{"success":false,"message":"official parser unavailable"}""");
+                }
                 return Json("""{"success":true,"data":{"url":"https://cdn.example/video-3.mp4","size":"12MB"}}""");
+            }
 
             if (request.RequestUri.AbsolutePath.EndsWith("/ThirdParty/latest", StringComparison.Ordinal))
             {
@@ -185,5 +357,9 @@ public sealed class MapleleafApiServiceTests
         };
     }
 
-    private sealed record CapturedRequest(string Path, string Body, IReadOnlyDictionary<string, string> Headers);
+    private sealed record CapturedRequest(
+        string Host,
+        string Path,
+        string Body,
+        IReadOnlyDictionary<string, string> Headers);
 }
