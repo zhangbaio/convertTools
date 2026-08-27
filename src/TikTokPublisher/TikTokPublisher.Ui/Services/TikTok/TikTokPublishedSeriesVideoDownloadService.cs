@@ -14,12 +14,13 @@ public sealed record TikTokPublishedSeriesVideoDownloadResult(
     string DetailUrl = "",
     string StagingDirectory = "",
     int PlatformEpisodeCount = 0,
-    int DownloadedEpisodeCount = 0);
+    int DownloadedEpisodeCount = 0,
+    IReadOnlyDictionary<int, string>? EpisodeFiles = null);
 
 /// <summary>
-/// Downloads only the episodes needed for copyright-proof generation from an
-/// already-published TikTok series. Existing validated files are reused so a
-/// stopped recovery can continue without downloading completed episodes again.
+/// Downloads either a required prefix or an explicit episode set from an uploaded
+/// TikTok series. Existing validated files are reused so proof recovery and role
+/// reference fallback can continue without downloading completed episodes again.
 /// </summary>
 public static class TikTokPublishedSeriesVideoDownloadService
 {
@@ -41,7 +42,9 @@ public static class TikTokPublishedSeriesVideoDownloadService
         int requiredEpisodeCount,
         bool willEditTikTok,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyCollection<int>? requestedEpisodes = null,
+        string? stagingDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(account);
         var title = (newTitle ?? string.Empty).Trim();
@@ -103,22 +106,35 @@ public static class TikTokPublishedSeriesVideoDownloadService
             if (string.IsNullOrWhiteSpace(match.DetailUrl))
                 return Fail($"TikTok 项目「{title}」缺少详情页地址。");
 
-            var staging = DeletedCopyrightProofPublishedVideoRecoveryService
-                .ResolveStagingDirectory(workspaceRoot, title, match.SeriesId);
+            var staging = string.IsNullOrWhiteSpace(stagingDirectory)
+                ? DeletedCopyrightProofPublishedVideoRecoveryService
+                    .ResolveStagingDirectory(workspaceRoot, title, match.SeriesId)
+                : Path.GetFullPath(stagingDirectory);
             Directory.CreateDirectory(staging);
 
-            log?.Invoke(
-                $"平台视频恢复：已按新剧名定位可补全版权证明的 TikTok 项目「{title}」（{match.PlatformStatus}），" +
-                $"准备获取前 {required} 集。");
             await PrepareDownloadPageAsync(page, match.DetailUrl, log, ct).ConfigureAwait(false);
             var platformEpisodeCount = await ReadPlatformEpisodeCountAsync(page).ConfigureAwait(false);
-            var targetCount = platformEpisodeCount > 0
-                ? Math.Min(required, platformEpisodeCount)
-                : required;
+            var targetEpisodes = ResolveTargetEpisodes(
+                requestedEpisodes,
+                required,
+                platformEpisodeCount);
+            if (platformEpisodeCount > 0 && targetEpisodes.Any(episode => episode > platformEpisodeCount))
+            {
+                return Fail(
+                    $"TikTok 项目「{title}」仅有 {platformEpisodeCount} 集，" +
+                    $"无法恢复第 {string.Join(',', targetEpisodes.Where(episode => episode > platformEpisodeCount))} 集。");
+            }
+
+            var targetCount = targetEpisodes.Length;
+            log?.Invoke(
+                $"平台视频恢复：已按新剧名定位 TikTok 项目「{title}」（{match.PlatformStatus}），" +
+                (requestedEpisodes is { Count: > 0 }
+                    ? $"准备获取第 {string.Join(',', targetEpisodes)} 集。"
+                    : $"准备获取前 {targetCount} 集。"));
 
             var downloaded = 0;
             var pendingEpisodes = new List<int>(targetCount);
-            for (var episode = 1; episode <= targetCount; episode++)
+            foreach (var episode in targetEpisodes)
             {
                 ct.ThrowIfCancellationRequested();
                 var existing = FindExistingEpisodeFile(staging, episode);
@@ -229,18 +245,21 @@ public static class TikTokPublishedSeriesVideoDownloadService
                         match,
                         staging,
                         platformEpisodeCount,
-                        downloaded);
+                        downloaded,
+                        targetEpisodes);
                 }
             }
 
+            var episodeFiles = CollectEpisodeFiles(staging, targetEpisodes);
             return new TikTokPublishedSeriesVideoDownloadResult(
                 true,
-                $"已从 TikTok 已发布项目恢复 {downloaded} 集视频。",
+                $"已从 TikTok 已上传项目恢复 {episodeFiles.Count} 集视频。",
                 match.SeriesId,
                 match.DetailUrl,
                 staging,
                 platformEpisodeCount,
-                downloaded);
+                episodeFiles.Count,
+                episodeFiles);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -602,6 +621,41 @@ public static class TikTokPublishedSeriesVideoDownloadService
         }
     }
 
+    private static IReadOnlyDictionary<int, string> CollectEpisodeFiles(
+        string staging,
+        IEnumerable<int> episodeNumbers)
+    {
+        var result = new Dictionary<int, string>();
+        foreach (var episode in episodeNumbers.Distinct())
+        {
+            var path = FindExistingEpisodeFile(staging, episode);
+            if (!string.IsNullOrWhiteSpace(path) && IsValidVideo(path))
+                result[episode] = path;
+        }
+        return result;
+    }
+
+    internal static int[] ResolveTargetEpisodes(
+        IReadOnlyCollection<int>? requestedEpisodes,
+        int requiredEpisodeCount,
+        int platformEpisodeCount)
+    {
+        if (requestedEpisodes is { Count: > 0 })
+        {
+            return requestedEpisodes
+                .Where(episode => episode > 0)
+                .Distinct()
+                .OrderBy(episode => episode)
+                .ToArray();
+        }
+
+        var required = Math.Clamp(requiredEpisodeCount <= 0 ? 1 : requiredEpisodeCount, 1, 200);
+        var count = platformEpisodeCount > 0
+            ? Math.Min(required, platformEpisodeCount)
+            : required;
+        return Enumerable.Range(1, count).ToArray();
+    }
+
     private static TikTokPublishedSeriesVideoDownloadResult Fail(string message) =>
         new(false, message);
 
@@ -610,7 +664,8 @@ public static class TikTokPublishedSeriesVideoDownloadService
         TikTokSeriesListRow match,
         string staging,
         int platformEpisodeCount,
-        int downloaded) =>
+        int downloaded,
+        IReadOnlyCollection<int>? targetEpisodes = null) =>
         new(
             false,
             message,
@@ -618,5 +673,8 @@ public static class TikTokPublishedSeriesVideoDownloadService
             match.DetailUrl,
             staging,
             platformEpisodeCount,
-            downloaded);
+            downloaded,
+            targetEpisodes is null
+                ? new Dictionary<int, string>()
+                : CollectEpisodeFiles(staging, targetEpisodes));
 }

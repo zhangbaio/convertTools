@@ -11,6 +11,12 @@ using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Queue;
 
+public delegate Task<IReadOnlyDictionary<int, string>> RoleReferenceEpisodeFallback(
+    QueueProjectItem item,
+    IReadOnlyList<int> episodeNumbers,
+    Action<string>? log,
+    CancellationToken ct);
+
 /// <summary>队列步骤：下载 / 改写 / 海报 / 删源（对齐 Python drama + tiktok 服务）。</summary>
 public static class QueueMaterialStepService
 {
@@ -402,7 +408,8 @@ public static class QueueMaterialStepService
         ClientSettings settings,
         IReadOnlyList<int> episodeNumbers,
         Action<string> log,
-        CancellationToken ct)
+        CancellationToken ct,
+        RoleReferenceEpisodeFallback? episodeFallback = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
@@ -429,43 +436,71 @@ public static class QueueMaterialStepService
         }
 
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
-        if (string.IsNullOrWhiteSpace(metadata.BookId))
+        if (string.IsNullOrWhiteSpace(metadata.BookId) && episodeFallback is null)
             throw new InvalidOperationException(
                 $"角色素材缺少第 {FormatEpisodeSelection(missing)} 集视频，且项目缺少 bookId，无法自动补下载。");
 
-        ShortDramaDramaServices.RefreshSettings(settings);
         var displayName = FirstNonEmpty(
             item.Title,
             item.OriginalTitle,
             metadata.Title,
             Path.GetFileName(context.SourceProjectDir));
-        var maxParallelProjects = Math.Clamp(
-            settings.DramaDownloadMaxParallelProjects <= 0 ? 1 : settings.DramaDownloadMaxParallelProjects,
-            1,
-            4);
         var selection = FormatEpisodeSelection(missing);
-        var concurrent = Math.Clamp(
-            Math.Min(missing.Length, settings.DramaDownloadConcurrent <= 0 ? 1 : settings.DramaDownloadConcurrent),
-            1,
-            10);
-        log($"角色素材人物不足：批量补下载第 {selection} 集，并发 {concurrent}，不执行整剧下载。");
         DramaDownloadResult result;
-        using (await QueueDownloadSlotCoordinator.WaitAsync(
-                   maxParallelProjects,
-                   $"{displayName}（角色素材补源）",
-                   log,
-                   ct).ConfigureAwait(false))
+        if (string.IsNullOrWhiteSpace(metadata.BookId))
         {
-            var request = BuildDownloadRequest(
-                context,
-                metadata,
-                settings,
-                displayName,
-                selection,
-                concurrent);
-            result = await ShortDramaDramaServices.Downloader
-                .DownloadAsync(request, CreateDownloadProgress(log), ct)
-                .ConfigureAwait(false);
+            result = new DramaDownloadResult(
+                false,
+                context.SourceProjectDir,
+                resolved.Count,
+                "项目缺少 bookId，已跳过原下载器。");
+            log($"角色补源：项目缺少 bookId，无法使用原下载器补第 {selection} 集。");
+        }
+        else
+        {
+            ShortDramaDramaServices.RefreshSettings(settings);
+            var maxParallelProjects = Math.Clamp(
+                settings.DramaDownloadMaxParallelProjects <= 0 ? 1 : settings.DramaDownloadMaxParallelProjects,
+                1,
+                4);
+            var concurrent = Math.Clamp(
+                Math.Min(missing.Length, settings.DramaDownloadConcurrent <= 0 ? 1 : settings.DramaDownloadConcurrent),
+                1,
+                10);
+            log($"角色素材人物不足：批量补下载第 {selection} 集，并发 {concurrent}，不执行整剧下载。");
+            try
+            {
+                using (await QueueDownloadSlotCoordinator.WaitAsync(
+                           maxParallelProjects,
+                           $"{displayName}（角色素材补源）",
+                           log,
+                           ct).ConfigureAwait(false))
+                {
+                    var request = BuildDownloadRequest(
+                        context,
+                        metadata,
+                        settings,
+                        displayName,
+                        selection,
+                        concurrent);
+                    result = await ShortDramaDramaServices.Downloader
+                        .DownloadAsync(request, CreateDownloadProgress(log), ct)
+                        .ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                result = new DramaDownloadResult(
+                    false,
+                    context.SourceProjectDir,
+                    resolved.Count,
+                    $"原下载器异常：{ex.Message}");
+                log($"角色补源：原下载器异常，将尝试 TikTok 已上传视频兜底：{ex.Message}");
+            }
         }
 
         var refreshed = ResolveExistingRoleReferenceEpisodeVideos(
@@ -478,6 +513,26 @@ public static class QueueMaterialStepService
                 resolved[episode] = downloaded;
         }
         var unresolved = requested.Where(episode => !resolved.ContainsKey(episode)).ToArray();
+        if (unresolved.Length > 0 && episodeFallback is not null)
+        {
+            log(
+                $"角色补源：原下载器未取得第 {FormatEpisodeSelection(unresolved)} 集，" +
+                "切换 TikTok 已上传视频兜底。");
+            try
+            {
+                var fallbackVideos = await episodeFallback(item, unresolved, log, ct).ConfigureAwait(false);
+                MergeRoleReferenceFallbackVideos(resolved, unresolved, fallbackVideos);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                log($"角色补源：TikTok 已上传视频兜底失败，将继续后续批次：{ex.Message}");
+            }
+            unresolved = requested.Where(episode => !resolved.ContainsKey(episode)).ToArray();
+        }
         if (unresolved.Length > 0)
             log($"角色补源：第 {FormatEpisodeSelection(unresolved)} 集未取得视频，将跳过并继续后续批次。" +
                 (result.Ok ? string.Empty : $" 下载结果：{result.Message}"));
@@ -486,6 +541,27 @@ public static class QueueMaterialStepService
         else if (resolved.Count > 0)
             log($"角色补源：批次视频已准备 {resolved.Count}/{requested.Length} 集，将并行抽取人物候选帧。");
         return resolved;
+    }
+
+    internal static int MergeRoleReferenceFallbackVideos(
+        IDictionary<int, string> resolved,
+        IEnumerable<int> requestedEpisodes,
+        IReadOnlyDictionary<int, string> fallbackVideos)
+    {
+        var added = 0;
+        foreach (var episode in requestedEpisodes.Distinct())
+        {
+            if (resolved.ContainsKey(episode) ||
+                !fallbackVideos.TryGetValue(episode, out var path) ||
+                !File.Exists(path))
+            {
+                continue;
+            }
+
+            resolved[episode] = path;
+            added++;
+        }
+        return added;
     }
 
     internal static IReadOnlyDictionary<int, string> ResolveExistingRoleReferenceEpisodeVideos(

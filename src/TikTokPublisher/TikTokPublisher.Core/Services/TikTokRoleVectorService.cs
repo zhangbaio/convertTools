@@ -68,7 +68,8 @@ public static class TikTokRoleVectorService
         bool forceRerun,
         Action<string>? log,
         CancellationToken ct,
-        int minimumCharacterCount = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount)
+        int minimumCharacterCount = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount,
+        RoleReferenceEpisodeFallback? episodeFallback = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
@@ -113,7 +114,8 @@ public static class TikTokRoleVectorService
             configuredCharacterCount,
             recoverMissingRoleReferences: true,
             minimumCharacterCount: minimumCharacterCount,
-            progressTracker: progressTracker).ConfigureAwait(false);
+            progressTracker: progressTracker,
+            episodeFallback: episodeFallback).ConfigureAwait(false);
         var characters = TikTokReferenceSourcePackageService.ListCurrentCharacterImages(
             context.WorkflowProjectDir,
             configuredCharacterCount);
