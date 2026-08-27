@@ -106,7 +106,7 @@ public static class TikTokAiScriptOutlineService
         }
         catch (InvalidOperationException ex) when (!ct.IsCancellationRequested)
         {
-            log?.Invoke($"AI 剧本大纲首次返回不完整，正在自动重试：{ex.Message}");
+            log?.Invoke($"WARN AI 剧本大纲首次返回不完整，正在自动重试：{ex.Message}");
             response = await QueueWorkloadResourceScheduler.RunAsync(
                 QueueWorkloadResource.AiText,
                 () => TikTokEpisodeScriptService.RequestTextAsync(
@@ -319,6 +319,17 @@ public static class TikTokAiScriptOutlineService
             var firstLine = text.IndexOf('\n');
             var lastFence = text.LastIndexOf("```", StringComparison.Ordinal);
             if (firstLine >= 0 && lastFence > firstLine) text = text[(firstLine + 1)..lastFence].Trim();
+        }
+
+        // Some models prepend a short explanation or append a completion note even
+        // when explicitly asked for JSON. The document only consumes the JSON object,
+        // so recover that object before treating the response as malformed.
+        if (!text.StartsWith('{') || !text.EndsWith('}'))
+        {
+            var firstObject = text.IndexOf('{');
+            var lastObject = text.LastIndexOf('}');
+            if (firstObject >= 0 && lastObject > firstObject)
+                text = text[firstObject..(lastObject + 1)].Trim();
         }
         if (ContainsAiContentDisclosure(text))
             throw new InvalidOperationException("生成 AI 剧本大纲失败：模型输出包含禁止的 AI 内容标注。");

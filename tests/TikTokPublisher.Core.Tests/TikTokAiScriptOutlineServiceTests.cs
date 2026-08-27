@@ -10,6 +10,18 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokAiScriptOutlineServiceTests
 {
     [Fact]
+    public void ParseOutline_accepts_explanation_around_complete_json()
+    {
+        var json = JsonSerializer.Serialize(CreateValidOutline());
+
+        var outline = TikTokAiScriptOutlineService.ParseOutline(
+            $"以下是按要求生成的大纲：\n{json}\n以上内容已完成。",
+            1);
+
+        Assert.False(string.IsNullOrWhiteSpace(outline.Genre));
+    }
+
+    [Fact]
     public void Recovered_synopsis_is_persisted_to_source_and_workflow_metadata()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"outline-recovery-synopsis-{Guid.NewGuid():N}");
