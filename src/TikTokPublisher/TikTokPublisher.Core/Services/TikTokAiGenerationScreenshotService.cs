@@ -607,7 +607,7 @@ public static class TikTokAiGenerationScreenshotService
         try
         {
             var context = ProjectWorkspaceService.LoadContext(workflow);
-            var resolved = ProjectVideoResolver.ResolveSourceVideos(
+            var resolved = ProjectVideoResolver.ResolveMaterialVideos(
                 context.SourceProjectDir,
                 allowStagedFallback: true);
             if (resolved.Count > 0)

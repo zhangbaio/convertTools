@@ -4,12 +4,58 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokReferenceSourcePackageServiceTests
 {
+    [Fact]
+    public void RefreshMaterialVideoLinks_adds_published_cache_to_reference_package_only()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"reference-web-video-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "source");
+        var workflow = Path.Combine(workspace, "workflow", "source");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        File.WriteAllText(
+            Path.Combine(source, "shortdrama-project.json"),
+            JsonSerializer.Serialize(new
+            {
+                sourceProjectDir = source,
+                workflowProjectDir = workflow,
+            }));
+        try
+        {
+            var cache = ProjectVideoResolver.ResolvePublishedMaterialVideoDirectory(source);
+            Directory.CreateDirectory(cache);
+            File.WriteAllBytes(Path.Combine(cache, "第001集.mp4"), [1, 2, 3]);
+            var item = new QueueProjectItem
+            {
+                ProjectDir = source,
+                NewTitle = "网页补源剧",
+            };
+
+            TikTokReferenceSourcePackageService.RefreshMaterialVideoLinks(
+                    item,
+                    log: null,
+                    CancellationToken.None)
+                .Should().Be(1);
+
+            var packageRoot = TikTokReferenceSourcePackageService.GetRoot(workflow);
+            Directory.EnumerateFiles(
+                    Path.Combine(packageRoot, TikTokReferenceSourcePackageService.VideoDirectoryName))
+                .Should().ContainSingle();
+            ProjectVideoResolver.ResolveUploadVideos(source, allowStagedFallback: true)
+                .Should().BeEmpty();
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
     [Fact]
     public void ReusingCharacters_PreservesCompatibleReferencePairingManifest()
     {

@@ -58,7 +58,8 @@ public static class TikTokAiDramaProductionMaterialService
         ClientSettings settings,
         bool forceRerun,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        RoleReferenceEpisodeFallback? episodeFallback = null)
     {
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var title = string.IsNullOrWhiteSpace(item.NewTitle) ? item.Title : item.NewTitle;
@@ -97,7 +98,8 @@ public static class TikTokAiDramaProductionMaterialService
                         settings,
                         requiredEpisodes,
                         log ?? (_ => { }),
-                        ct).ConfigureAwait(false);
+                        ct,
+                        episodeFallback).ConfigureAwait(false);
                 }
 
                 await TikTokVisualEvidencePreparationService.EnsureCurrentAsync(

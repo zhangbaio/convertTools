@@ -6,6 +6,44 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class ProjectVideoResolverTests
 {
     [Fact]
+    public void Published_material_cache_is_visible_to_materials_but_never_to_uploads()
+    {
+        var workspaceDir = Path.Combine(Path.GetTempPath(), $"published-material-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(workspaceDir, "source");
+        var workflowDir = Path.Combine(workspaceDir, "workflow", "source");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(workflowDir);
+        File.WriteAllText(
+            Path.Combine(sourceDir, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sourceProjectDir = sourceDir,
+                workflowProjectDir = workflowDir,
+            }));
+        try
+        {
+            var cache = ProjectVideoResolver.ResolvePublishedMaterialVideoDirectory(sourceDir);
+            Directory.CreateDirectory(cache);
+            var restored = Path.Combine(cache, "第001集.mp4");
+            File.WriteAllBytes(restored, [1, 2, 3]);
+            var local = Path.Combine(sourceDir, "第002集.mp4");
+            File.WriteAllBytes(local, [4, 5, 6]);
+
+            ProjectVideoResolver.ResolveMaterialVideos(sourceDir)
+                .Should().Equal(restored, local);
+            ProjectVideoResolver.ResolveSourceVideos(sourceDir, allowStagedFallback: true)
+                .Should().Equal(local);
+            ProjectVideoResolver.ResolveUploadVideos(sourceDir, allowStagedFallback: true)
+                .Should().Equal(local)
+                .And.NotContain(restored);
+        }
+        finally
+        {
+            Directory.Delete(workspaceDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ResolveSourceVideos_IgnoresSilenceRepairTempFiles()
     {
         var projectDir = Path.Combine(Path.GetTempPath(), $"project-video-resolver-{Guid.NewGuid():N}");

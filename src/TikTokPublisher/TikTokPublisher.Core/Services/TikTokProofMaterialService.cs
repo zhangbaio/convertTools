@@ -100,7 +100,8 @@ public sealed class TikTokProofMaterialService
         TikTokAccountProfile? account,
         bool forceRerun,
         Action<string>? log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        RoleReferenceEpisodeFallback? episodeFallback = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
@@ -282,6 +283,22 @@ public sealed class TikTokProofMaterialService
                     "原始文件或素材文件信息缺少有效的角色矢量图，" +
                     "请先执行“生成角色矢量图”步骤；生成证明材料不会自动重新生成角色图片。");
             }
+            if (episodeFallback is not null &&
+                ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir).Count == 0)
+            {
+                _ = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
+                        item,
+                        settings,
+                        requiredEpisodeCount: 1,
+                        log ?? (_ => { }),
+                        cancellationToken,
+                        episodeFallback)
+                    .ConfigureAwait(false);
+            }
+            TikTokReferenceSourcePackageService.RefreshMaterialVideoLinks(
+                item,
+                log,
+                cancellationToken);
             log?.Invoke("[原始文件或素材文件信息] 前置校验通过，将只重新生成截图和上传包。");
             if (!TikTokAiDramaProductionMaterialService.HasCurrentOutput(context.WorkflowProjectDir))
             {
@@ -291,7 +308,8 @@ public sealed class TikTokProofMaterialService
                     settings,
                     forceRerun: false,
                     log,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    episodeFallback).ConfigureAwait(false);
             }
             log?.Invoke(
                 $"[原始文件或素材文件信息] 开始：来源={context.WorkflowProjectDir}；" +
@@ -348,7 +366,8 @@ public sealed class TikTokProofMaterialService
                     settings,
                     proofVideoEpisodeCount,
                     log ?? (_ => { }),
-                    cancellationToken)
+                    cancellationToken,
+                    episodeFallback)
                 .ConfigureAwait(false);
         }
 
@@ -496,7 +515,8 @@ public sealed class TikTokProofMaterialService
         QueueProjectItem item,
         TikTokAccountProfile? account,
         Action<string>? log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        RoleReferenceEpisodeFallback? episodeFallback = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         cancellationToken.ThrowIfCancellationRequested();
@@ -511,7 +531,8 @@ public sealed class TikTokProofMaterialService
                 account,
                 forceRerun: false,
                 log,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                episodeFallback).ConfigureAwait(false);
             var requiresAgreement = TikTokPublishConstants.RequiresGeneratedProofMaterial(
                 account?.TiktokCopyrightMaterialTypes);
             if (!requiresAgreement)

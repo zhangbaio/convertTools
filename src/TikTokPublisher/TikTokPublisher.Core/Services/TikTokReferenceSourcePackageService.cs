@@ -425,7 +425,7 @@ public static partial class TikTokReferenceSourcePackageService
         if (!manifestRewritten)
             log?.Invoke("参考格式素材包：复用现有角色定妆图时保留原人物参考图配对清单。");
 
-        var videos = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).ToArray();
+        var videos = ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir).ToArray();
         LinkVideos(videos, videoDir, materialDir, title, ct);
         await WriteProjectFilesAsync(
             root, context, title, originalTitle, intro, script, item, videos.Length, ct).ConfigureAwait(false);
@@ -468,6 +468,34 @@ public static partial class TikTokReferenceSourcePackageService
         await InstallDefaultSceneDesignTemplatesAsync(root, ct).ConfigureAwait(false);
         TrySetHidden(GetStatePath(context.WorkflowProjectDir));
         log?.Invoke("参考格式素材包：已安装内置场景设计图1/2模板，不重新生成场景设计图。");
+    }
+
+    public static int RefreshMaterialVideoLinks(
+        QueueProjectItem item,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        var root = GetRoot(context.WorkflowProjectDir);
+        var videoDir = Path.Combine(root, VideoDirectoryName);
+        var materialDir = Path.Combine(root, MaterialDirectoryName, "001");
+        Directory.CreateDirectory(videoDir);
+        Directory.CreateDirectory(materialDir);
+        var title = FirstNonEmpty(
+            item.NewTitle,
+            item.Title,
+            item.OriginalTitle,
+            Path.GetFileName(context.SourceProjectDir));
+        var videos = ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir).ToArray();
+        LinkVideos(videos, videoDir, materialDir, title, ct);
+        if (videos.Length > 0)
+        {
+            log?.Invoke(
+                $"参考格式素材包：已同步 {videos.Length} 集真实视频素材；" +
+                "其中 TikTok 网页补源文件仅用于证明材料，不参与上传。");
+        }
+        return videos.Length;
     }
 
     internal static async Task InstallDefaultSceneDesignTemplatesAsync(
@@ -702,7 +730,7 @@ public static partial class TikTokReferenceSourcePackageService
         var sceneSources = FindSceneSources(context, packageRoot).Take(8).ToList();
         if (sceneSources.Count >= 4) return sceneSources;
 
-        var videos = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).ToArray();
+        var videos = ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir).ToArray();
         return await ExtractSceneFramesAsync(packageRoot, videos, log, ct).ConfigureAwait(false);
     }
 
@@ -1013,7 +1041,7 @@ public static partial class TikTokReferenceSourcePackageService
 
     private static bool HasRoleRecoverySource(ProjectWorkspaceContext context)
     {
-        if (ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir).Count > 0) return true;
+        if (ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir).Count > 0) return true;
         var metadata = ReadMetadataObject(context);
         foreach (var key in new[] { "bookId", "book_id" })
         {

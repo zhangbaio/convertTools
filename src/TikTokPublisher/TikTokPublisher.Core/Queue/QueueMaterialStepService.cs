@@ -103,7 +103,8 @@ public static class QueueMaterialStepService
         ClientSettings settings,
         int requiredEpisodeCount,
         Action<string> log,
-        CancellationToken ct)
+        CancellationToken ct,
+        RoleReferenceEpisodeFallback? episodeFallback = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
@@ -111,7 +112,7 @@ public static class QueueMaterialStepService
 
         var required = Math.Clamp(requiredEpisodeCount, 1, 200);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
-        var existingVideos = ProjectVideoResolver.ResolveSourceVideos(
+        var existingVideos = ProjectVideoResolver.ResolveMaterialVideos(
             context.SourceProjectDir,
             allowStagedFallback: true);
         var existingEpisodeNumbers = existingVideos
@@ -134,12 +135,23 @@ public static class QueueMaterialStepService
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
         if (string.IsNullOrWhiteSpace(metadata.BookId))
         {
+            var platformCreated = await TryHydrateMaterialVideosFromEpisodeFallbackAsync(
+                    item,
+                    missingEpisodes,
+                    beforePaths: existingVideos,
+                    episodeFallback,
+                    log,
+                    ct)
+                .ConfigureAwait(false);
+            if (platformCreated.Count > 0)
+                return new ProofMaterialVideoHydrationResult(platformCreated);
+
             throw new InvalidOperationException(
                 $"证明材料缺少视频，且项目缺少 bookId，无法补下载前 {required} 集。");
         }
 
         ShortDramaDramaServices.RefreshSettings(settings);
-        var before = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir)
+        var before = ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir)
             .Select(Path.GetFullPath)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var selection = FormatEpisodeSelection(missingEpisodes);
@@ -178,12 +190,39 @@ public static class QueueMaterialStepService
                     .ConfigureAwait(false);
             }
 
-            var after = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir)
+            var after = ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir)
                 .Select(Path.GetFullPath)
                 .ToArray();
             var created = after.Where(path => !before.Contains(path)).ToArray();
             if (!downloadResult.Ok && ct.IsCancellationRequested)
                 throw new OperationCanceledException(ct);
+
+            var afterEpisodeNumbers = after
+                .Select(path => EpisodeNumberInFileName.Match(Path.GetFileName(path)))
+                .Where(match => match.Success)
+                .Select(match => int.TryParse(match.Groups[1].Value, out var parsed) ? parsed : 0)
+                .Where(number => number > 0)
+                .Distinct()
+                .ToArray();
+            var remainingEpisodes = ResolveMissingProofMaterialEpisodes(
+                afterEpisodeNumbers,
+                after.Length,
+                required);
+            if (remainingEpisodes.Count > 0)
+            {
+                _ = await TryHydrateMaterialVideosFromEpisodeFallbackAsync(
+                        item,
+                        remainingEpisodes,
+                        after,
+                        episodeFallback,
+                        log,
+                        ct)
+                    .ConfigureAwait(false);
+                after = ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir)
+                    .Select(Path.GetFullPath)
+                    .ToArray();
+                created = after.Where(path => !before.Contains(path)).ToArray();
+            }
 
             var disposition = ResolveProofMaterialHydrationDisposition(
                 downloadResult.Ok,
@@ -214,7 +253,32 @@ public static class QueueMaterialStepService
             if (ct.IsCancellationRequested)
                 throw;
 
-            var partial = ProjectVideoResolver.ResolveSourceVideos(context.SourceProjectDir)
+            var currentlyAvailable = ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir)
+                .Select(Path.GetFullPath)
+                .ToArray();
+            var currentEpisodeNumbers = currentlyAvailable
+                .Select(path => EpisodeNumberInFileName.Match(Path.GetFileName(path)))
+                .Where(match => match.Success)
+                .Select(match => int.TryParse(match.Groups[1].Value, out var parsed) ? parsed : 0)
+                .Where(number => number > 0)
+                .Distinct()
+                .ToArray();
+            var stillMissing = ResolveMissingProofMaterialEpisodes(
+                currentEpisodeNumbers,
+                currentlyAvailable.Length,
+                required);
+            var platformCreated = await TryHydrateMaterialVideosFromEpisodeFallbackAsync(
+                    item,
+                    stillMissing,
+                    currentlyAvailable,
+                    episodeFallback,
+                    log,
+                    ct)
+                .ConfigureAwait(false);
+            if (platformCreated.Count > 0)
+                return new ProofMaterialVideoHydrationResult(platformCreated);
+
+            var partial = ProjectVideoResolver.ResolveMaterialVideos(context.SourceProjectDir)
                 .Select(Path.GetFullPath)
                 .Where(path => !before.Contains(path))
                 .ToArray();
@@ -236,6 +300,55 @@ public static class QueueMaterialStepService
                 return new ProofMaterialVideoHydrationResult([fallbackVideo]);
             }
             throw;
+        }
+    }
+
+    private static async Task<IReadOnlyList<string>> TryHydrateMaterialVideosFromEpisodeFallbackAsync(
+        QueueProjectItem item,
+        IReadOnlyList<int> missingEpisodes,
+        IEnumerable<string> beforePaths,
+        RoleReferenceEpisodeFallback? episodeFallback,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        if (episodeFallback is null || missingEpisodes.Count == 0)
+            return [];
+
+        var before = beforePaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            log(
+                $"证明材料原片补源不可用，正在从 TikTok 已上传项目恢复第 " +
+                $"{FormatEpisodeSelection(missingEpisodes)} 集素材视频。");
+            var fallbackVideos = await episodeFallback(item, missingEpisodes, log, ct)
+                .ConfigureAwait(false);
+            var created = fallbackVideos
+                .Where(pair => missingEpisodes.Contains(pair.Key))
+                .Select(pair => pair.Value)
+                .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                .Select(Path.GetFullPath)
+                .Where(path => !before.Contains(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (created.Length > 0)
+            {
+                log(
+                    $"TikTok 已上传视频补源完成：获得 {created.Length} 集；" +
+                    "仅供 AI 截图、工程图和原始文件信息使用，不会加入上传视频列表。");
+            }
+            return created;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            log($"WARN TikTok 已上传视频补源失败：{ex.Message}");
+            return [];
         }
     }
 
@@ -578,7 +691,7 @@ public static class QueueMaterialStepService
             return resolved;
 
         MapExistingEpisodeVideos(
-            ProjectVideoResolver.ResolveSourceVideos(sourceProjectDirectory),
+            ProjectVideoResolver.ResolveMaterialVideos(sourceProjectDirectory),
             requested,
             expectedEpisodeCount,
             resolved);

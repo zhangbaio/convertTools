@@ -3775,12 +3775,10 @@ public partial class TikTokQueueView : UserControl
             return QueueRoleVideoFallbackResult.NotAvailable("TikTok 网页补源缺少项目新剧名。");
 
         var context = ProjectWorkspaceService.LoadContext(project.ProjectDir);
-        var staging = Path.Combine(
-            context.WorkflowProjectDir,
-            "角色补源",
-            "TikTok已上传视频");
+        var staging = ProjectVideoResolver.ResolvePublishedMaterialVideoDirectory(
+            context.SourceProjectDir);
         log(
-            $"角色补源：原下载器不可用，正在从账号「{account.DisplayName}」的 " +
+            $"素材视频补源：原下载器不可用，正在从账号「{account.DisplayName}」的 " +
             $"TikTok 项目「{title}」恢复第 {string.Join(',', requested)} 集。");
         var result = await TikTokPublishedSeriesVideoDownloadService.DownloadAsync(
                 account,
@@ -3788,7 +3786,9 @@ public partial class TikTokQueueView : UserControl
                 title,
                 workspaceRoot,
                 requested.Length,
-                willEditTikTok: false,
+                // Material fallback must only trust a remotely published/eligible
+                // project. Passing true enables the strict platform-status guard.
+                willEditTikTok: true,
                 log,
                 ct,
                 requested,
