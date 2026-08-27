@@ -6,6 +6,26 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class ProjectVideoResolverTests
 {
     [Fact]
+    public void Narrative_videos_exclude_static_frame_fallback()
+    {
+        var source = Path.Combine(Path.GetTempPath(), $"narrative-video-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(source);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(source, "证明材料抽帧兜底.mp4"), [1, 2, 3]);
+            File.WriteAllBytes(Path.Combine(source, "第001集.mp4"), [4, 5, 6]);
+
+            ProjectVideoResolver.ResolveMaterialVideos(source).Should().HaveCount(2);
+            ProjectVideoResolver.ResolveNarrativeVideos(source)
+                .Should().ContainSingle(path => Path.GetFileName(path) == "第001集.mp4");
+        }
+        finally
+        {
+            Directory.Delete(source, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Published_material_cache_is_visible_to_materials_but_never_to_uploads()
     {
         var workspaceDir = Path.Combine(Path.GetTempPath(), $"published-material-{Guid.NewGuid():N}");

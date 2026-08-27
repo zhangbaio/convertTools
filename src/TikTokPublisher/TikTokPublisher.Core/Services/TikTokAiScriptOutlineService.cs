@@ -197,20 +197,27 @@ public static class TikTokAiScriptOutlineService
         Action<string>? log,
         CancellationToken ct)
     {
-        var videos = ProjectVideoResolver.ResolveMaterialVideos(
+        var videos = ProjectVideoResolver.ResolveNarrativeVideos(
             context.SourceProjectDir,
             allowStagedFallback: true);
         if (videos.Count == 0)
         {
-            _ = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
-                    item,
-                    settings,
-                    requiredEpisodeCount: 1,
-                    log ?? (_ => { }),
-                    ct,
-                    episodeFallback)
-                .ConfigureAwait(false);
-            videos = ProjectVideoResolver.ResolveMaterialVideos(
+            try
+            {
+                _ = await QueueMaterialStepService.EnsureRoleReferenceEpisodeVideosAsync(
+                        item,
+                        settings,
+                        [1],
+                        log ?? (_ => { }),
+                        ct,
+                        episodeFallback)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log?.Invoke($"WARN AI 剧本大纲：真实分集视频补源失败：{ex.Message}");
+            }
+            videos = ProjectVideoResolver.ResolveNarrativeVideos(
                 context.SourceProjectDir,
                 allowStagedFallback: true);
         }

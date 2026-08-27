@@ -23,7 +23,7 @@ public static class TikTokEpisodeScriptService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var configuredEpisodeCount = ResolveConfiguredEpisodeCount(account);
         var availableVideoCount = ProjectVideoResolver
-            .ResolveMaterialVideos(context.SourceProjectDir, allowStagedFallback: true)
+            .ResolveNarrativeVideos(context.SourceProjectDir, allowStagedFallback: true)
             .Take(configuredEpisodeCount)
             .Count();
         var targetEpisodeCount = ResolveTargetEpisodeCount(
@@ -57,21 +57,22 @@ public static class TikTokEpisodeScriptService
     {
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var configuredEpisodeCount = ResolveConfiguredEpisodeCount(account);
-        if (ProjectVideoResolver.ResolveMaterialVideos(
+        var requestedEpisodes = Enumerable.Range(1, configuredEpisodeCount).ToArray();
+        if (ProjectVideoResolver.ResolveNarrativeVideos(
                 context.SourceProjectDir,
                 allowStagedFallback: true).Count < configuredEpisodeCount)
         {
-            _ = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
+            _ = await QueueMaterialStepService.EnsureRoleReferenceEpisodeVideosAsync(
                     item,
                     settings,
-                    configuredEpisodeCount,
+                    requestedEpisodes,
                     log ?? (_ => { }),
                     ct,
                     episodeFallback)
                 .ConfigureAwait(false);
         }
 
-        var videos = ProjectVideoResolver.ResolveMaterialVideos(
+        var videos = ProjectVideoResolver.ResolveNarrativeVideos(
                 context.SourceProjectDir,
                 allowStagedFallback: true)
             .Take(configuredEpisodeCount).ToArray();

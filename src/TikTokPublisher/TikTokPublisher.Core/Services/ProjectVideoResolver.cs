@@ -114,6 +114,17 @@ public static class ProjectVideoResolver
             path => NaturalKey(Path.GetFileName(path)));
     }
 
+    /// <summary>Material videos suitable for ASR, scripts, outlines, and character discovery.</summary>
+    public static IReadOnlyList<string> ResolveNarrativeVideos(
+        string sourceProjectDir,
+        bool allowStagedFallback = true) =>
+        ResolveMaterialVideos(sourceProjectDir, allowStagedFallback)
+            .Where(path => !string.Equals(
+                Path.GetFileName(path),
+                "证明材料抽帧兜底.mp4",
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
     public static string ResolvePublishedMaterialVideoDirectory(string sourceProjectDir)
     {
         var source = Path.GetFullPath(sourceProjectDir);
