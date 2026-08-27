@@ -37,6 +37,25 @@ public interface IQueuePublishHost
         QueueRunOptions options,
         Action<string> log,
         CancellationToken ct);
+
+    Task<QueueRoleVideoFallbackResult> DownloadRoleReferenceEpisodesAsync(
+        string workspaceRoot,
+        TikTokAccountProfile account,
+        QueueProjectItem project,
+        IReadOnlyList<int> episodeNumbers,
+        Action<string> log,
+        CancellationToken ct) =>
+        Task.FromResult(QueueRoleVideoFallbackResult.NotAvailable(
+            "当前队列宿主未提供 TikTok 已上传视频补源能力。"));
+}
+
+public sealed record QueueRoleVideoFallbackResult(
+    bool Ok,
+    string Message,
+    IReadOnlyDictionary<int, string> EpisodeFiles)
+{
+    public static QueueRoleVideoFallbackResult NotAvailable(string message) =>
+        new(false, message, new Dictionary<int, string>());
 }
 
 internal delegate Task<string> QueueProofMaterialPrerequisite(
@@ -309,6 +328,7 @@ public sealed class QueueWorkerRunner
                                 captured,
                                 itemPreUploadSteps,
                                 options,
+                                host,
                                 accountStore,
                                 onProgress,
                                 ct,
@@ -739,6 +759,7 @@ public sealed class QueueWorkerRunner
         QueueProjectItem item,
         IReadOnlyList<string> preUploadSteps,
         QueueRunOptions options,
+        IQueuePublishHost host,
         AccountStore accountStore,
         Action<QueueWorkerProgress>? onProgress,
         CancellationToken ct,
@@ -828,10 +849,12 @@ public sealed class QueueWorkerRunner
                     await QueueStepResourceScheduler.RunAsync(
                         stepKey,
                         () => RunPreUploadStepAsync(
+                            workspace,
                             item,
                             stepKey,
                             options,
                             stepAccount,
+                            host,
                             stepLog,
                             ct),
                         stepLog,
@@ -1249,10 +1272,12 @@ public sealed class QueueWorkerRunner
     }
 
     private static async Task RunPreUploadStepAsync(
+        string workspace,
         QueueProjectItem item,
         string stepKey,
         QueueRunOptions options,
         TikTokAccountProfile? account,
+        IQueuePublishHost host,
         Action<string> log,
         CancellationToken ct)
     {
@@ -1284,6 +1309,26 @@ public sealed class QueueWorkerRunner
                     item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateRoleVector:
+                RoleReferenceEpisodeFallback? roleVideoFallback = null;
+                if (account is not null &&
+                    (!string.IsNullOrWhiteSpace(item.UploadCompletedAt) ||
+                     item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Completed))
+                {
+                    roleVideoFallback = async (fallbackItem, episodeNumbers, fallbackLog, token) =>
+                    {
+                        var result = await host.DownloadRoleReferenceEpisodesAsync(
+                                workspace,
+                                account,
+                                fallbackItem,
+                                episodeNumbers,
+                                fallbackLog ?? log,
+                                token)
+                            .ConfigureAwait(false);
+                        if (!result.Ok)
+                            (fallbackLog ?? log)(result.Message);
+                        return result.EpisodeFiles;
+                    };
+                }
                 await TikTokRoleVectorService.GenerateAsync(
                     item,
                     settings,
@@ -1292,7 +1337,8 @@ public sealed class QueueWorkerRunner
                     log,
                     ct,
                     account?.TiktokRoleVectorMinimumCharacterCount ??
-                    TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount).ConfigureAwait(false);
+                    TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount,
+                    roleVideoFallback).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateProjectImages:
                 await TikTokProjectImageService.GenerateAsync(

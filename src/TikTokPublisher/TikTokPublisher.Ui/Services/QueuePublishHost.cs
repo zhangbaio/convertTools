@@ -9,13 +9,16 @@ public sealed class QueuePublishHost : IQueuePublishHost
 {
     private readonly Func<TikTokAccountProfile, Action<string>?, CancellationToken, Task<QueueBrowserReadyResult>> _ensureBrowser;
     private readonly Func<TikTokAccountProfile, QueueProjectItem, FinalAction, QueueRunOptions, Action<string>, CancellationToken, Task<PublishResult>> _publish;
+    private readonly Func<string, TikTokAccountProfile, QueueProjectItem, IReadOnlyList<int>, Action<string>, CancellationToken, Task<QueueRoleVideoFallbackResult>> _downloadRoleEpisodes;
 
     public QueuePublishHost(
         Func<TikTokAccountProfile, Action<string>?, CancellationToken, Task<QueueBrowserReadyResult>> ensureBrowser,
-        Func<TikTokAccountProfile, QueueProjectItem, FinalAction, QueueRunOptions, Action<string>, CancellationToken, Task<PublishResult>> publish)
+        Func<TikTokAccountProfile, QueueProjectItem, FinalAction, QueueRunOptions, Action<string>, CancellationToken, Task<PublishResult>> publish,
+        Func<string, TikTokAccountProfile, QueueProjectItem, IReadOnlyList<int>, Action<string>, CancellationToken, Task<QueueRoleVideoFallbackResult>> downloadRoleEpisodes)
     {
         _ensureBrowser = ensureBrowser;
         _publish = publish;
+        _downloadRoleEpisodes = downloadRoleEpisodes;
     }
 
     public Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
@@ -32,6 +35,15 @@ public sealed class QueuePublishHost : IQueuePublishHost
         Action<string> log,
         CancellationToken ct) =>
         _publish(account, project, finalAction, options, log, ct);
+
+    public Task<QueueRoleVideoFallbackResult> DownloadRoleReferenceEpisodesAsync(
+        string workspaceRoot,
+        TikTokAccountProfile account,
+        QueueProjectItem project,
+        IReadOnlyList<int> episodeNumbers,
+        Action<string> log,
+        CancellationToken ct) =>
+        _downloadRoleEpisodes(workspaceRoot, account, project, episodeNumbers, log, ct);
 
     public static PublishItem ToPublishItem(QueueProjectItem project)
     {

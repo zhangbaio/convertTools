@@ -3741,7 +3741,62 @@ public partial class TikTokQueueView : UserControl
 
     private QueuePublishHost CreateQueuePublishHost() => new(
         EnsureAccountBrowserReadyAsync,
-        PublishQueueProjectAsync);
+        PublishQueueProjectAsync,
+        DownloadRoleReferenceEpisodesAsync);
+
+    private async Task<QueueRoleVideoFallbackResult> DownloadRoleReferenceEpisodesAsync(
+        string workspaceRoot,
+        TikTokAccountProfile account,
+        QueueProjectItem project,
+        IReadOnlyList<int> episodeNumbers,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        var requested = episodeNumbers
+            .Where(episode => episode > 0)
+            .Distinct()
+            .OrderBy(episode => episode)
+            .ToArray();
+        if (requested.Length == 0)
+            return QueueRoleVideoFallbackResult.NotAvailable("角色补源没有需要恢复的 TikTok 集数。");
+
+        var ready = await EnsureAccountBrowserReadyAsync(account, log, ct).ConfigureAwait(false);
+        if (!ready.Ok)
+            return QueueRoleVideoFallbackResult.NotAvailable($"TikTok 网页补源准备失败：{ready.Message}");
+
+        IEmbeddedBrowser? browser = null;
+        if (!UsesPlaywrightUploadBrowser(account))
+            browser = _browserHost?.TryGetHost(account.Id);
+
+        var title = new[] { project.NewTitle, project.Title }
+            .Select(value => (value ?? string.Empty).Trim())
+            .FirstOrDefault(value => value.Length > 0) ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(title))
+            return QueueRoleVideoFallbackResult.NotAvailable("TikTok 网页补源缺少项目新剧名。");
+
+        var context = ProjectWorkspaceService.LoadContext(project.ProjectDir);
+        var staging = Path.Combine(
+            context.WorkflowProjectDir,
+            "角色补源",
+            "TikTok已上传视频");
+        log(
+            $"角色补源：原下载器不可用，正在从账号「{account.DisplayName}」的 " +
+            $"TikTok 项目「{title}」恢复第 {string.Join(',', requested)} 集。");
+        var result = await TikTokPublishedSeriesVideoDownloadService.DownloadAsync(
+                account,
+                browser,
+                title,
+                workspaceRoot,
+                requested.Length,
+                willEditTikTok: false,
+                log,
+                ct,
+                requested,
+                staging)
+            .ConfigureAwait(false);
+        var files = result.EpisodeFiles ?? new Dictionary<int, string>();
+        return new QueueRoleVideoFallbackResult(result.Ok, result.Message, files);
+    }
 
     private EmbeddedBrowserProvider RequireBrowserProvider()
     {

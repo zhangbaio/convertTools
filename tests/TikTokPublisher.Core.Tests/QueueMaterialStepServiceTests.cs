@@ -8,6 +8,83 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class QueueMaterialStepServiceTests
 {
+    [Fact]
+    public void Role_reference_fallback_merges_only_existing_requested_episode_files()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"role-web-fallback-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var episode10 = Path.Combine(tempDir, "第010集.mp4");
+            File.WriteAllBytes(episode10, [1, 2, 3]);
+            var resolved = new Dictionary<int, string>();
+            var fallback = new Dictionary<int, string>
+            {
+                [10] = episode10,
+                [11] = Path.Combine(tempDir, "missing.mp4"),
+                [12] = episode10,
+            };
+
+            var added = QueueMaterialStepService.MergeRoleReferenceFallbackVideos(
+                resolved,
+                [10, 11],
+                fallback);
+
+            added.Should().Be(1);
+            resolved.Should().ContainSingle().Which.Key.Should().Be(10);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Role_reference_video_lookup_uses_web_fallback_when_archived_project_has_no_book_id()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), $"role-web-no-book-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(testRoot, "source");
+        var fallbackDir = Path.Combine(testRoot, "web-fallback");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(fallbackDir);
+        try
+        {
+            var fallbackVideo = Path.Combine(fallbackDir, "web-第010集.mp4");
+            File.WriteAllBytes(fallbackVideo, [1, 2, 3]);
+            var fallbackCalls = 0;
+            var logs = new List<string>();
+            var item = new QueueProjectItem
+            {
+                ProjectDir = sourceDir,
+                NewTitle = "恢复项目",
+                EpisodeCount = 20,
+            };
+
+            var resolved = await QueueMaterialStepService.EnsureRoleReferenceEpisodeVideosAsync(
+                item,
+                new ClientSettings(),
+                [10],
+                logs.Add,
+                CancellationToken.None,
+                (_, episodes, _, _) =>
+                {
+                    fallbackCalls++;
+                    episodes.Should().Equal(10);
+                    return Task.FromResult<IReadOnlyDictionary<int, string>>(
+                        new Dictionary<int, string> { [10] = fallbackVideo });
+                });
+
+            fallbackCalls.Should().Be(1);
+            resolved[10].Should().Be(fallbackVideo);
+            logs.Should().Contain(message => message.Contains("缺少 bookId", StringComparison.Ordinal));
+            logs.Should().Contain(message => message.Contains("TikTok 已上传视频兜底", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(testRoot, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("第10集.mp4", 10)]
     [InlineData("episode-11.mp4", 11)]

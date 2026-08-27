@@ -202,7 +202,8 @@ public static partial class TikTokReferenceSourcePackageService
         int configuredCharacterCount = TikTokAccountProfile.DefaultRoleVectorCharacterCount,
         bool recoverMissingRoleReferences = false,
         int minimumCharacterCount = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount,
-        RoleVectorProgressTracker? progressTracker = null)
+        RoleVectorProgressTracker? progressTracker = null,
+        RoleReferenceEpisodeFallback? episodeFallback = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
@@ -328,7 +329,8 @@ public static partial class TikTokReferenceSourcePackageService
                 log,
                 ct,
                 minimumCharacterCount,
-                progressTracker).ConfigureAwait(false);
+                progressTracker,
+                episodeFallback).ConfigureAwait(false);
         }
         var sourceFingerprint = ComputeSourceFingerprint(
             title,
@@ -1230,7 +1232,8 @@ public static partial class TikTokReferenceSourcePackageService
         Action<string>? log,
         CancellationToken ct,
         int minimumCharacterCount,
-        RoleVectorProgressTracker? progressTracker)
+        RoleVectorProgressTracker? progressTracker,
+        RoleReferenceEpisodeFallback? episodeFallback)
     {
         minimumCharacterCount = NormalizeMinimumCharacterCount(minimumCharacterCount, profiles.Count);
         var totalEpisodes = 0;
@@ -1285,7 +1288,8 @@ public static partial class TikTokReferenceSourcePackageService
                 settings,
                 batch,
                 log ?? (_ => { }),
-                ct).ConfigureAwait(false);
+                ct,
+                episodeFallback).ConfigureAwait(false);
 
             var extractionTasks = batch
                 .Where(videos.ContainsKey)
