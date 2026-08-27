@@ -230,20 +230,9 @@ public sealed class MapleleafApiService
         if (LooksLikeHttpUrl(videoId))
             return await ParseShareUrlAsync(settings, videoId, quality, cancellationToken);
 
+        // Mapleleaf 1.6.5 can return a signed plaintext Xigua CDN URL. Prefer it so
+        // the downloader can use the full 16-way Range path without proxying or decrypting.
         Exception? lastError = null;
-        if (HasLocalParser(settings))
-        {
-            try
-            {
-                var local = await _localService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
-                return new MapleleafVideoPlayback(local.Url, 0);
-            }
-            catch (Exception ex)
-            {
-                lastError = ex;
-            }
-        }
-
         try
         {
             var inner = await SendAuthenticatedAsync(
@@ -259,6 +248,21 @@ public sealed class MapleleafApiService
         catch (Exception ex)
         {
             lastError = ex;
+        }
+
+        // Keep the local Hongguo API as a compatibility fallback for periods when
+        // the official parser is unavailable. Its URL may be a slower proxy stream.
+        if (HasLocalParser(settings))
+        {
+            try
+            {
+                var local = await _localService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
+                return new MapleleafVideoPlayback(local.Url, 0);
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+            }
         }
 
         var hint = "Mapleleaf 后端未返回播放直链";

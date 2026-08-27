@@ -93,6 +93,44 @@ public sealed class MapleleafApiServiceTests
     }
 
     [Fact]
+    public async Task VideoParse_Should_Be_Preferred_When_Local_Fallback_Is_Configured()
+    {
+        var handler = new MapleleafHandler();
+        var service = CreateService(handler);
+
+        var playback = await service.GetVideoPlaybackAsync(
+            SettingsWithLocalFallback(),
+            "mapleleaf_ep:video-3",
+            "1080P",
+            CancellationToken.None);
+
+        playback.Url.Should().Be("https://cdn.example/video-3.mp4");
+        handler.Requests.Should().Contain(item =>
+            item.Path.EndsWith("/ThirdParty/videoparse", StringComparison.Ordinal));
+        handler.Requests.Should().NotContain(item =>
+            item.Path.EndsWith("/api/hongguo/video_url", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task VideoParse_Should_Fallback_To_Local_Api_When_Official_Parser_Fails()
+    {
+        var handler = new MapleleafHandler(videoParseFails: true);
+        var service = CreateService(handler);
+
+        var playback = await service.GetVideoPlaybackAsync(
+            SettingsWithLocalFallback(),
+            "mapleleaf_ep:video-3",
+            "1080P",
+            CancellationToken.None);
+
+        playback.Url.Should().Be("https://local-cdn.example/video-3.mp4");
+        handler.Requests.Should().Contain(item =>
+            item.Path.EndsWith("/ThirdParty/videoparse", StringComparison.Ordinal));
+        handler.Requests.Should().Contain(item =>
+            item.Path.EndsWith("/api/hongguo/video_url", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Concurrent_Searches_Login_Only_Once()
     {
         var handler = new MapleleafHandler(delayLogin: true);
@@ -129,7 +167,20 @@ public sealed class MapleleafApiServiceTests
         MapleleafUdid = "device-guid"
     };
 
-    private sealed class MapleleafHandler(bool delayLogin = false, bool latestHasMore = false) : HttpMessageHandler
+    private static DramaSourceSettings SettingsWithLocalFallback() => new()
+    {
+        DramaSourceChain = "mapleleaf",
+        MapleleafAccount = "member@example.com",
+        MapleleafPassword = "secret",
+        MapleleafUdid = "device-guid",
+        HongguoLocalBaseUrl = "https://maple.test",
+        HongguoLocalApiKey = "local-key"
+    };
+
+    private sealed class MapleleafHandler(
+        bool delayLogin = false,
+        bool latestHasMore = false,
+        bool videoParseFails = false) : HttpMessageHandler
     {
         public ConcurrentBag<CapturedRequest> Requests { get; } = [];
         public int LoginCount;
@@ -150,6 +201,11 @@ public sealed class MapleleafApiServiceTests
                 return Json("""{"success":true,"data":{"accessToken":"maple-token","email":"member@example.com"}}""");
             }
 
+            if (request.RequestUri.AbsolutePath.EndsWith("/api/hongguo/video_url", StringComparison.Ordinal))
+            {
+                return Json("""{"url":"https://local-cdn.example/video-3.mp4"}""");
+            }
+
             request.Headers.Authorization?.Scheme.Should().Be("Bearer");
             request.Headers.Authorization?.Parameter.Should().Be("maple-token");
 
@@ -162,7 +218,13 @@ public sealed class MapleleafApiServiceTests
                 return Json("""{"success":true,"data":{"data":[{"videoId":"video-3","title":"第3集"}]}}""");
 
             if (request.RequestUri.AbsolutePath.EndsWith("/ThirdParty/videoparse", StringComparison.Ordinal))
+            {
+                if (videoParseFails)
+                {
+                    return Json("""{"success":false,"message":"official parser unavailable"}""");
+                }
                 return Json("""{"success":true,"data":{"url":"https://cdn.example/video-3.mp4","size":"12MB"}}""");
+            }
 
             if (request.RequestUri.AbsolutePath.EndsWith("/ThirdParty/latest", StringComparison.Ordinal))
             {
