@@ -41,7 +41,8 @@ public sealed class RoleVectorProgressTracker
         }
         if (existing is not null &&
             existing.Version == Version &&
-            string.Equals(existing.RequestFingerprint, requestFingerprint, StringComparison.OrdinalIgnoreCase))
+            string.Equals(existing.RequestFingerprint, requestFingerprint, StringComparison.OrdinalIgnoreCase) &&
+            HasReusableProgress(existing))
         {
             var tracker = new RoleVectorProgressTracker(path, existing);
             log?.Invoke(
@@ -50,6 +51,15 @@ public sealed class RoleVectorProgressTracker
                 $"已选参考人物 {tracker.GetSelectedSources().Count} 人，" +
                 $"已完成角色图 {existing.Characters.Count} 张。");
             return tracker;
+        }
+
+        if (existing is not null &&
+            existing.CheckedEpisodes.Count > 0 &&
+            !HasReusableProgress(existing))
+        {
+            log?.Invoke(
+                $"角色矢量图：上次已审核 {existing.CheckedEpisodes.Count} 集但未保留任何有效人物，" +
+                "本次将清空无效断点并重新审核。");
         }
 
         var state = new RoleVectorProgressState
@@ -63,6 +73,11 @@ public sealed class RoleVectorProgressTracker
         created.Save();
         return created;
     }
+
+    private static bool HasReusableProgress(RoleVectorProgressState state) =>
+        state.CheckedEpisodes.Count == 0 ||
+        state.SelectedSources.Count > 0 ||
+        state.Characters.Count > 0;
 
     internal static void Clear(string workflowProjectDirectory)
     {

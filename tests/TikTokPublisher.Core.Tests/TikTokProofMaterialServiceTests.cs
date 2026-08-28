@@ -668,7 +668,7 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
-    public async Task Concurrent_pdf_render_uses_wps_and_libreoffice_in_parallel_instead_of_waiting_for_wps()
+    public async Task Concurrent_pdf_render_waits_for_wps_instead_of_requiring_libreoffice()
     {
         if (!OperatingSystem.IsWindows()) return;
 
@@ -685,26 +685,34 @@ public sealed class TikTokProofMaterialServiceTests
             File.WriteAllBytes(output, "%PDF-1.4\nwps"u8.ToArray());
         });
         var wps = new WpsProofMaterialPdfRenderer(automation);
+        var libreOfficeCalls = 0;
         var libreOffice = new StubRenderer("LibreOffice", async (_, output, ct) =>
-            await File.WriteAllBytesAsync(output, "%PDF-1.7\nlibreoffice"u8.ToArray(), ct));
+        {
+            Interlocked.Increment(ref libreOfficeCalls);
+            await File.WriteAllBytesAsync(output, "%PDF-1.7\nlibreoffice"u8.ToArray(), ct);
+        });
         var service = new TikTokProofMaterialPdfRenderService(wps, libreOffice);
 
         var first = service.RenderAsync(docxPath, firstOutput);
         wpsEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        var second = service.RenderAsync(docxPath, secondOutput);
         try
         {
-            var second = await service.RenderAsync(docxPath, secondOutput);
-            second.RendererName.Should().Be("LibreOffice");
-            File.Exists(secondOutput).Should().BeTrue();
+            await Task.Delay(100);
+            second.IsCompleted.Should().BeFalse();
         }
         finally
         {
             releaseWps.Set();
         }
 
-        var firstResult = await first;
+        var results = await Task.WhenAll(first, second);
+        var firstResult = results[0];
         firstResult.RendererName.Should().Be("WPS");
+        results[1].RendererName.Should().Be("WPS");
+        libreOfficeCalls.Should().Be(0);
         File.Exists(firstOutput).Should().BeTrue();
+        File.Exists(secondOutput).Should().BeTrue();
     }
 
     [Fact]

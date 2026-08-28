@@ -2159,7 +2159,7 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
     }
 
     private static bool IsGenericPrimaryRole(CharacterProfile profile) =>
-        profile.Name is "主角1" or "主角2";
+        Regex.IsMatch(profile.Name, @"^[男女]?主角\d+$", RegexOptions.CultureInvariant);
 
     private static string RoleGenderRequirement(CharacterProfile profile)
     {
@@ -2169,6 +2169,11 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
 
     internal static string InferExpectedGender(CharacterProfile profile)
     {
+        // Numbered lead names are generated placeholders rather than reliable cast
+        // metadata. Do not reject every real candidate merely because a placeholder
+        // happens to contain 男/女; identity and clear-face checks remain mandatory.
+        if (Regex.IsMatch(profile.Name, @"^[男女]主角\d+$", RegexOptions.CultureInvariant))
+            return "unknown";
         var text = profile.Name + " " + profile.Description;
         if (Regex.IsMatch(text, "男主|男性|男人|男子|父亲|爸爸|爷爷|老爷|少爷|皇帝|王爷|公子|丈夫|老公"))
             return "male";
@@ -3082,7 +3087,8 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
         value.Contains("简介", StringComparison.Ordinal) || value.Contains("类型", StringComparison.Ordinal);
 
     private static bool IsGenericCharacterName(string value) =>
-        value is "女主" or "男主" or "主角1" or "主角2" or "主要配角" or "配角" or "主角";
+        value is "女主" or "男主" or "主要配角" or "配角" or "主角" ||
+        Regex.IsMatch(value, @"^[男女]?主角\d+$", RegexOptions.CultureInvariant);
 
     private static string SanitizeFileName(string value) =>
         string.Concat(FirstNonEmpty(value, "未命名").Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));

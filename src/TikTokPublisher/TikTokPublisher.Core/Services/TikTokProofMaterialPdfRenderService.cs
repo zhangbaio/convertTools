@@ -192,11 +192,10 @@ public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRendere
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (!RenderLock.Wait(0))
-        {
-            throw new WpsProofMaterialBusyException(
-                "WPS 正在导出另一份 PDF，当前任务将使用 LibreOffice 并行生成。");
-        }
+        // WPS COM automation is process-global and cannot safely export two
+        // documents at once. Queue parallel document jobs here instead of treating
+        // an occupied renderer as a failure and requiring LibreOffice to be installed.
+        await RenderLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             TikTokProofMaterialPdfRenderService.TryDelete(outputPdfPath);
@@ -278,8 +277,6 @@ public sealed class WpsProofMaterialPdfRenderer : ITikTokProofMaterialPdfRendere
         return completion.Task;
     }
 }
-
-internal sealed class WpsProofMaterialBusyException(string message) : InvalidOperationException(message);
 
 internal interface IWpsProofMaterialAutomation
 {
