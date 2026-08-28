@@ -17,6 +17,7 @@ public sealed class TikTokProofMaterialService
     internal const string StateSidecarFileName = ".tiktok-proof-material-state.json";
 
     private const string FingerprintVersion = "v9-editing-project-files";
+    private const string ComponentFingerprintVersion = "v1-component-checkpoints";
     private static readonly IReadOnlySet<string> SupportedSealImageExtensions =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -123,7 +124,8 @@ public sealed class TikTokProofMaterialService
             runOptions?.EnabledSteps,
             request.IncludeSourceInfoRoleSceneScreenshot);
         item.ProofMaterialStatementDate = statementDate.ToString("yyyy-MM-dd");
-        var fingerprint = ComputeFingerprint(request);
+        var fingerprints = ComputeComponentFingerprints(request, sourceInfoSelection);
+        var fingerprint = fingerprints.Aggregate;
         var outputDocxPath = GetDocxPath(context.WorkflowProjectDir);
         var selectedMaterials = new List<string>();
         if (request.GenerateProductionAgreement) selectedMaterials.Add("合作协议（核心）");
@@ -142,7 +144,7 @@ public sealed class TikTokProofMaterialService
         if (!forceRerun && HasCurrentOutput(
                 context,
                 request,
-                fingerprint,
+                fingerprints,
                 settings,
                 sourceInfoSelection))
         {
@@ -178,19 +180,56 @@ public sealed class TikTokProofMaterialService
                 new TikTokProofMaterialReplacementCounts(0, 0, 0, 0, 0));
         }
 
-        var canResume = !forceRerun &&
-                        string.Equals(
-                            GetStateString(checkpoint, "fingerprint"),
-                            fingerprint,
-                            StringComparison.OrdinalIgnoreCase);
+        var legacyFingerprintMatches = !forceRerun &&
+                                       string.Equals(
+                                           GetStateString(checkpoint, "fingerprint"),
+                                           fingerprint,
+                                           StringComparison.OrdinalIgnoreCase);
         var coreCompleted = !request.GenerateProductionAgreement ||
-                            (canResume && GetStateBool(checkpoint, "core_completed", fallback: true));
-        var sourceCompleted = canResume && GetStateBool(checkpoint, "source_file_screenshots_completed", fallback: true);
-        var aiCompleted = canResume && GetStateBool(checkpoint, "ai_generation_screenshots_completed", fallback: true);
-        var editingCompleted = canResume && GetStateBool(checkpoint, "editing_project_files_completed", fallback: true);
+                            (!forceRerun &&
+                             IsComponentCheckpointCurrent(
+                                 checkpoint, "core_fingerprint", fingerprints.Core, legacyFingerprintMatches) &&
+                             GetStateBool(checkpoint, "core_completed", fallback: true));
+        var sourceCompleted = !forceRerun &&
+                              IsComponentCheckpointCurrent(
+                                  checkpoint, "source_info_fingerprint", fingerprints.SourceInfo, legacyFingerprintMatches) &&
+                              GetStateBool(checkpoint, "source_file_screenshots_completed", fallback: true);
+        var aiCompleted = !forceRerun &&
+                          IsComponentCheckpointCurrent(
+                              checkpoint, "ai_screenshot_fingerprint", fingerprints.AiScreenshots, legacyFingerprintMatches) &&
+                          GetStateBool(checkpoint, "ai_generation_screenshots_completed", fallback: true);
+        var editingCompleted = !forceRerun &&
+                               IsComponentCheckpointCurrent(
+                                   checkpoint, "editing_project_fingerprint", fingerprints.EditingProject, legacyFingerprintMatches) &&
+                               GetStateBool(checkpoint, "editing_project_files_completed", fallback: true);
+
+        var coreReusable = !request.GenerateProductionAgreement ||
+                           (coreCompleted && IsCoreOutputCurrent(context, request));
+        var sourceReusable = !request.GenerateSourceFileScreenshots ||
+                             (sourceCompleted &&
+                              TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir) &&
+                              TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
+                                  context.WorkflowProjectDir,
+                                  request.IncludeSourceInfoRoleSceneScreenshot,
+                                  sourceInfoSelection));
+        var aiReusable = !request.GenerateAiGenerationScreenshots ||
+                         (aiCompleted &&
+                          TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir));
+        var editingReusable = !request.GenerateEditingProjectFiles ||
+                              (editingCompleted &&
+                               TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings));
+        log?.Invoke(
+            "证明材料选择性计划：" +
+            $"合作协议={DescribePlan(request.GenerateProductionAgreement, coreReusable)}；" +
+            $"原始文件信息={DescribePlan(request.GenerateSourceFileScreenshots, sourceReusable)}；" +
+            $"AI过程截图={DescribePlan(request.GenerateAiGenerationScreenshots, aiReusable)}；" +
+            $"剪辑工程文件={DescribePlan(request.GenerateEditingProjectFiles, editingReusable)}。");
 
         var service = new TikTokProofMaterialService();
         TikTokProofMaterialResult result;
+
+        static string DescribePlan(bool selected, bool reusable) =>
+            !selected ? "未选择" : reusable ? "复用" : "重新生成";
         if (!request.GenerateProductionAgreement)
         {
             result = new TikTokProofMaterialResult(
@@ -200,7 +239,7 @@ public sealed class TikTokProofMaterialService
                 new TikTokProofMaterialReplacementCounts(0, 0, 0, 0, 0));
             log?.Invoke("[合作协议（核心）] 跳过：当前账号未勾选此材料类型。");
         }
-        else if (coreCompleted && IsCoreOutputCurrent(context, request))
+        else if (coreReusable)
         {
             var renderer = GetStateString(checkpoint, "renderer");
             result = new TikTokProofMaterialResult(
@@ -224,11 +263,8 @@ public sealed class TikTokProofMaterialService
                     log,
                     cancellationToken).ConfigureAwait(false);
                 coreCompleted = true;
-                sourceCompleted = false;
-                aiCompleted = false;
-                editingCompleted = false;
                 SaveState(
-                    context, request, fingerprint, result,
+                    context, request, fingerprints, result,
                     coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
                     log);
                 log?.Invoke(
@@ -288,12 +324,7 @@ public sealed class TikTokProofMaterialService
                 return;
             }
 
-            if (sourceCompleted &&
-                TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir) &&
-                TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
-                    context.WorkflowProjectDir,
-                    request.IncludeSourceInfoRoleSceneScreenshot,
-                    sourceInfoSelection))
+            if (sourceReusable)
             {
                 LogExistingMaterial(
                     log,
@@ -360,7 +391,7 @@ public sealed class TikTokProofMaterialService
                     validateComplete: false);
                 sourceCompleted = true;
                 SaveState(
-                    context, request, fingerprint, result,
+                    context, request, fingerprints, result,
                     coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
                     log);
                 LogGeneratedMaterial(log, "原始文件或素材文件信息", outputs, timer.Elapsed);
@@ -377,8 +408,7 @@ public sealed class TikTokProofMaterialService
         async Task RunAiScreenshotBranchAsync()
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (request.GenerateAiGenerationScreenshots && aiCompleted &&
-                TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir))
+            if (request.GenerateAiGenerationScreenshots && aiReusable)
             {
                 LogExistingMaterial(
                     log,
@@ -411,7 +441,7 @@ public sealed class TikTokProofMaterialService
                 {
                     aiCompleted = true;
                     SaveState(
-                        context, request, fingerprint, result,
+                        context, request, fingerprints, result,
                         coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
                         log);
                 }
@@ -427,8 +457,7 @@ public sealed class TikTokProofMaterialService
         async Task RunEditingProjectBranchAsync()
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (request.GenerateEditingProjectFiles && editingCompleted &&
-                TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings))
+            if (request.GenerateEditingProjectFiles && editingReusable)
             {
                 LogExistingMaterial(
                     log,
@@ -460,7 +489,7 @@ public sealed class TikTokProofMaterialService
                 {
                     editingCompleted = true;
                     SaveState(
-                        context, request, fingerprint, result,
+                        context, request, fingerprints, result,
                         coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
                         log);
                 }
@@ -478,7 +507,7 @@ public sealed class TikTokProofMaterialService
         }
 
         SaveState(
-            context, request, fingerprint, result,
+            context, request, fingerprints, result,
             coreCompleted,
             !request.GenerateSourceFileScreenshots || sourceCompleted,
             !request.GenerateAiGenerationScreenshots || aiCompleted,
@@ -630,11 +659,11 @@ public sealed class TikTokProofMaterialService
                 account,
                 context.WorkflowProjectDir,
                 ResolveStatementDate(item, state));
-            var fingerprint = ComputeFingerprint(request);
             var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
                 runOptions?.EnabledSteps,
                 request.IncludeSourceInfoRoleSceneScreenshot);
-            return !HasCurrentOutput(context, request, fingerprint, settings, selection);
+            var fingerprints = ComputeComponentFingerprints(request, selection);
+            return !HasCurrentOutput(context, request, fingerprints, settings, selection);
         }
         catch
         {
@@ -649,7 +678,15 @@ public sealed class TikTokProofMaterialService
         ClientSettings settings,
         TikTokAccountProfile? account,
         QueueRunOptions? runOptions = null)
+        => GetProofMaterialReuseIssues(item, settings, account, runOptions).Count == 0;
+
+    public static IReadOnlyList<string> GetProofMaterialReuseIssues(
+        QueueProjectItem item,
+        ClientSettings settings,
+        TikTokAccountProfile? account,
+        QueueRunOptions? runOptions = null)
     {
+        var issues = new List<string>();
         try
         {
             ArgumentNullException.ThrowIfNull(item);
@@ -665,16 +702,83 @@ public sealed class TikTokProofMaterialService
             var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
                 runOptions?.EnabledSteps,
                 request.IncludeSourceInfoRoleSceneScreenshot);
-            return HasCurrentOutput(
-                context,
-                request,
-                ComputeFingerprint(request),
-                settings,
-                selection);
+            var fingerprints = ComputeComponentFingerprints(request, selection);
+            var legacyFingerprintMatches = string.Equals(
+                GetStateString(state, "fingerprint"),
+                fingerprints.Aggregate,
+                StringComparison.OrdinalIgnoreCase);
+
+            CheckComponent(
+                request.GenerateProductionAgreement,
+                "合作协议 PDF",
+                "core_fingerprint",
+                fingerprints.Core,
+                "core_completed",
+                () => IsCoreOutputCurrent(context, request));
+            CheckComponent(
+                request.GenerateSourceFileScreenshots,
+                "原始文件信息",
+                "source_info_fingerprint",
+                fingerprints.SourceInfo,
+                "source_file_screenshots_completed",
+                () => TikTokSourceFileInfoScreenshotService.HasCurrentOutput(context.WorkflowProjectDir) &&
+                      TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
+                          context.WorkflowProjectDir,
+                          request.IncludeSourceInfoRoleSceneScreenshot,
+                          selection));
+            CheckComponent(
+                request.GenerateAiGenerationScreenshots,
+                "AI 生成过程截图",
+                "ai_screenshot_fingerprint",
+                fingerprints.AiScreenshots,
+                "ai_generation_screenshots_completed",
+                () => TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir));
+            CheckComponent(
+                request.GenerateEditingProjectFiles,
+                "剪辑工程文件",
+                "editing_project_fingerprint",
+                fingerprints.EditingProject,
+                "editing_project_files_completed",
+                () => TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings));
+
+            return issues;
+
+            void CheckComponent(
+                bool selected,
+                string displayName,
+                string fingerprintKey,
+                string expectedFingerprint,
+                string completedKey,
+                Func<bool> filesAreCurrent)
+            {
+                if (!selected)
+                    return;
+                if (!IsComponentCheckpointCurrent(
+                        state,
+                        fingerprintKey,
+                        expectedFingerprint,
+                        legacyFingerprintMatches))
+                {
+                    var previousTitle = GetStateString(state, "drama_title");
+                    issues.Add(!string.IsNullOrWhiteSpace(previousTitle) &&
+                               !string.Equals(previousTitle, request.DramaTitle, StringComparison.Ordinal)
+                        ? $"{displayName}仍对应旧剧名「{previousTitle}」，当前为「{request.DramaTitle}」"
+                        : $"{displayName}的配置或输入已变化");
+                    return;
+                }
+                if (!GetStateBool(state, completedKey, fallback: true))
+                {
+                    issues.Add($"{displayName}尚未完成");
+                    return;
+                }
+                if (!filesAreCurrent())
+                    issues.Add($"{displayName}文件缺失、损坏或版本过旧");
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            return false;
+            issues.Add(ex.Message);
+            return issues;
         }
     }
 
@@ -754,6 +858,68 @@ public sealed class TikTokProofMaterialService
                 ? TikTokProjectImageService.OutputDirectoryName + ":" + "v4-dedicated-folder"
                 : "skipped",
         };
+        var json = JsonSerializer.Serialize(payload);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
+    }
+
+    internal static TikTokProofMaterialFingerprints ComputeComponentFingerprints(
+        TikTokProofMaterialRequest request,
+        TikTokSourceFileInfoPackageSelection sourceInfoSelection)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(sourceInfoSelection);
+        return new TikTokProofMaterialFingerprints(
+            Aggregate: ComputeFingerprint(request),
+            Core: HashFingerprint(new
+            {
+                version = ComponentFingerprintVersion + ":core",
+                enabled = request.GenerateProductionAgreement,
+                template_sha256 = request.GenerateProductionAgreement
+                    ? ComputeFileSha256(request.TemplateDocxPath, "证明材料 Word 模板")
+                    : "skipped",
+                copyright_company = request.CopyrightCompanyName.Trim(),
+                declarant_company = request.DeclarantCompanyName.Trim(),
+                drama_title = request.DramaTitle.Trim(),
+                statement_date = request.StatementDate.ToString("yyyy-MM-dd"),
+                seal_sha256 = !request.GenerateProductionAgreement
+                    ? "skipped"
+                    : string.IsNullOrWhiteSpace(request.SealImagePath)
+                        ? "template-seal"
+                        : ComputeFileSha256(request.SealImagePath, "证明材料印章图片"),
+                renderer = request.PreferredPdfRenderer.ToString(),
+                wps_executable_path = (request.WpsExecutablePath ?? string.Empty).Trim(),
+                keep_docx = request.KeepIntermediateDocx,
+            }),
+            SourceInfo: HashFingerprint(new
+            {
+                version = ComponentFingerprintVersion + ":source-info:" +
+                          TikTokSourceFileInfoScreenshotService.ScreenshotVersion,
+                enabled = request.GenerateSourceFileScreenshots,
+                drama_title = request.DramaTitle.Trim(),
+                copyright_company = request.CopyrightCompanyName.Trim(),
+                include_role_scene = request.IncludeSourceInfoRoleSceneScreenshot,
+                include_outline = sourceInfoSelection.IncludeOutline,
+                include_script = sourceInfoSelection.IncludeScript,
+                include_role_vector = sourceInfoSelection.IncludeRoleVector,
+            }),
+            AiScreenshots: HashFingerprint(new
+            {
+                version = ComponentFingerprintVersion + ":ai:" +
+                          TikTokAiGenerationScreenshotService.ScreenshotVersion,
+                enabled = request.GenerateAiGenerationScreenshots,
+                drama_title = request.DramaTitle.Trim(),
+            }),
+            EditingProject: HashFingerprint(new
+            {
+                version = ComponentFingerprintVersion + ":editing:" +
+                          TikTokProjectImageService.OutputDirectoryName + ":v4-dedicated-folder",
+                enabled = request.GenerateEditingProjectFiles,
+                drama_title = request.DramaTitle.Trim(),
+            }));
+    }
+
+    private static string HashFingerprint(object payload)
+    {
         var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
     }
@@ -953,23 +1119,27 @@ public sealed class TikTokProofMaterialService
     private static bool HasCurrentOutput(
         ProjectWorkspaceContext context,
         TikTokProofMaterialRequest request,
-        string fingerprint,
+        TikTokProofMaterialFingerprints fingerprints,
         ClientSettings settings,
         TikTokSourceFileInfoPackageSelection sourceInfoSelection)
     {
         var state = LoadState(context);
-        if (!string.Equals(
-                GetStateString(state, "fingerprint"),
-                fingerprint,
-                StringComparison.OrdinalIgnoreCase) ||
-            (request.GenerateProductionAgreement &&
-             !GetStateBool(state, "core_completed", fallback: true)) ||
+        var legacyFingerprintMatches = string.Equals(
+            GetStateString(state, "fingerprint"),
+            fingerprints.Aggregate,
+            StringComparison.OrdinalIgnoreCase);
+        if ((request.GenerateProductionAgreement &&
+             (!IsComponentCheckpointCurrent(state, "core_fingerprint", fingerprints.Core, legacyFingerprintMatches) ||
+              !GetStateBool(state, "core_completed", fallback: true))) ||
             (request.GenerateSourceFileScreenshots &&
-             !GetStateBool(state, "source_file_screenshots_completed", fallback: true)) ||
+             (!IsComponentCheckpointCurrent(state, "source_info_fingerprint", fingerprints.SourceInfo, legacyFingerprintMatches) ||
+              !GetStateBool(state, "source_file_screenshots_completed", fallback: true))) ||
             (request.GenerateAiGenerationScreenshots &&
-             !GetStateBool(state, "ai_generation_screenshots_completed", fallback: true)) ||
+             (!IsComponentCheckpointCurrent(state, "ai_screenshot_fingerprint", fingerprints.AiScreenshots, legacyFingerprintMatches) ||
+              !GetStateBool(state, "ai_generation_screenshots_completed", fallback: true))) ||
             (request.GenerateEditingProjectFiles &&
-             !GetStateBool(state, "editing_project_files_completed", fallback: true)))
+             (!IsComponentCheckpointCurrent(state, "editing_project_fingerprint", fingerprints.EditingProject, legacyFingerprintMatches) ||
+              !GetStateBool(state, "editing_project_files_completed", fallback: true))))
         {
             return false;
         }
@@ -1060,10 +1230,41 @@ public sealed class TikTokProofMaterialService
         bool aiGenerationScreenshotsCompleted,
         bool editingProjectFilesCompleted,
         Action<string>? log = null)
+        => SaveState(
+            context,
+            request,
+            new TikTokProofMaterialFingerprints(
+                fingerprint,
+                fingerprint,
+                fingerprint,
+                fingerprint,
+                fingerprint),
+            result,
+            coreCompleted,
+            sourceFileScreenshotsCompleted,
+            aiGenerationScreenshotsCompleted,
+            editingProjectFilesCompleted,
+            log);
+
+    internal static void SaveState(
+        ProjectWorkspaceContext context,
+        TikTokProofMaterialRequest request,
+        TikTokProofMaterialFingerprints fingerprints,
+        TikTokProofMaterialResult result,
+        bool coreCompleted,
+        bool sourceFileScreenshotsCompleted,
+        bool aiGenerationScreenshotsCompleted,
+        bool editingProjectFilesCompleted,
+        Action<string>? log = null)
     {
         var payload = new Dictionary<string, object?>
         {
-            ["fingerprint"] = fingerprint,
+            ["fingerprint"] = fingerprints.Aggregate,
+            ["component_fingerprint_version"] = ComponentFingerprintVersion,
+            ["core_fingerprint"] = fingerprints.Core,
+            ["source_info_fingerprint"] = fingerprints.SourceInfo,
+            ["ai_screenshot_fingerprint"] = fingerprints.AiScreenshots,
+            ["editing_project_fingerprint"] = fingerprints.EditingProject,
             ["pdf_path"] = string.IsNullOrWhiteSpace(result.PdfPath)
                 ? string.Empty
                 : Path.GetFullPath(result.PdfPath),
@@ -1179,6 +1380,18 @@ public sealed class TikTokProofMaterialService
         }
 
         return value.GetString()?.Trim() ?? string.Empty;
+    }
+
+    private static bool IsComponentCheckpointCurrent(
+        IReadOnlyDictionary<string, JsonElement> state,
+        string key,
+        string expectedFingerprint,
+        bool legacyAggregateMatches)
+    {
+        var componentFingerprint = GetStateString(state, key);
+        return string.IsNullOrWhiteSpace(componentFingerprint)
+            ? legacyAggregateMatches
+            : string.Equals(componentFingerprint, expectedFingerprint, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool GetStateBool(
@@ -1359,3 +1572,10 @@ public sealed class TikTokProofMaterialService
         return string.Empty;
     }
 }
+
+internal sealed record TikTokProofMaterialFingerprints(
+    string Aggregate,
+    string Core,
+    string SourceInfo,
+    string AiScreenshots,
+    string EditingProject);

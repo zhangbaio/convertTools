@@ -93,7 +93,13 @@ public sealed class TikTokProofMaterialServiceTests
             var sidecar = Path.Combine(workflow, TikTokProofMaterialService.StateSidecarFileName);
             File.Exists(sidecar).Should().BeTrue();
             using (var document = JsonDocument.Parse(File.ReadAllText(sidecar)))
+            {
                 document.RootElement.GetProperty("fingerprint").GetString().Should().Be("sidecar-fingerprint");
+                document.RootElement.GetProperty("core_fingerprint").GetString().Should().Be("sidecar-fingerprint");
+                document.RootElement.GetProperty("source_info_fingerprint").GetString().Should().Be("sidecar-fingerprint");
+                document.RootElement.GetProperty("ai_screenshot_fingerprint").GetString().Should().Be("sidecar-fingerprint");
+                document.RootElement.GetProperty("editing_project_fingerprint").GetString().Should().Be("sidecar-fingerprint");
+            }
 
             TikTokProofMaterialService.LoadState(context)["fingerprint"].GetString()
                 .Should().Be("sidecar-fingerprint");
@@ -1339,6 +1345,68 @@ public sealed class TikTokProofMaterialServiceTests
         TikTokProofMaterialService.GetChinaToday(
                 new FixedTimeProvider(new DateTimeOffset(2026, 7, 13, 16, 30, 0, TimeSpan.Zero)))
             .Should().Be(new DateOnly(2026, 7, 14));
+    }
+
+    [Fact]
+    public void Component_fingerprints_isolate_template_and_source_selection_changes()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var firstTemplate = fixture.CreateTemplate();
+        var secondTemplate = Path.Combine(fixture.DirectoryPath, "second-template.docx");
+        File.Copy(firstTemplate, secondTemplate);
+        File.AppendAllText(secondTemplate, "template-change");
+        var request = CreateRequest(firstTemplate, Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
+        {
+            GenerateSourceFileScreenshots = true,
+            GenerateAiGenerationScreenshots = true,
+            GenerateEditingProjectFiles = true,
+        };
+        var selection = new TikTokSourceFileInfoPackageSelection(
+            IncludeOutline: true,
+            IncludeScript: true,
+            IncludeRoleVector: false,
+            IncludeRoleSceneScreenshot: false);
+        var original = TikTokProofMaterialService.ComputeComponentFingerprints(request, selection);
+
+        var templateChanged = TikTokProofMaterialService.ComputeComponentFingerprints(
+            request with { TemplateDocxPath = secondTemplate },
+            selection);
+        templateChanged.Core.Should().NotBe(original.Core);
+        templateChanged.SourceInfo.Should().Be(original.SourceInfo);
+        templateChanged.AiScreenshots.Should().Be(original.AiScreenshots);
+        templateChanged.EditingProject.Should().Be(original.EditingProject);
+
+        var selectionChanged = TikTokProofMaterialService.ComputeComponentFingerprints(
+            request,
+            selection with { IncludeRoleVector = true });
+        selectionChanged.Core.Should().Be(original.Core);
+        selectionChanged.SourceInfo.Should().NotBe(original.SourceInfo);
+        selectionChanged.AiScreenshots.Should().Be(original.AiScreenshots);
+        selectionChanged.EditingProject.Should().Be(original.EditingProject);
+    }
+
+    [Fact]
+    public void Component_fingerprints_track_title_per_title_bearing_material()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var request = CreateRequest(
+            fixture.CreateTemplate(),
+            Path.Combine(fixture.DirectoryPath, "证明材料.pdf")) with
+        {
+            GenerateSourceFileScreenshots = true,
+            GenerateAiGenerationScreenshots = true,
+            GenerateEditingProjectFiles = true,
+        };
+        var selection = TikTokSourceFileInfoPackageSelection.LegacyDefault();
+        var before = TikTokProofMaterialService.ComputeComponentFingerprints(request, selection);
+        var after = TikTokProofMaterialService.ComputeComponentFingerprints(
+            request with { DramaTitle = "另一个新剧名" },
+            selection);
+
+        after.Core.Should().NotBe(before.Core);
+        after.SourceInfo.Should().NotBe(before.SourceInfo);
+        after.AiScreenshots.Should().NotBe(before.AiScreenshots);
+        after.EditingProject.Should().NotBe(before.EditingProject);
     }
 
     private static TikTokProofMaterialRequest CreateRequest(string templatePath, string outputPath) =>
