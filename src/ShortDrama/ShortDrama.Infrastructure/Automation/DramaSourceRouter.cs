@@ -22,6 +22,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private const int DefaultDownloadFileSegments = 4;
     private const int MaxDownloadFileSegments = 16;
     private const long MinSegmentedDownloadSize = 4L * 1024 * 1024;
+    private const string DownloadUserAgent = "Mozilla/5.0";
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif"];
     private static readonly ProductInfoHeaderValue UserAgentProduct = new("ShortDramaDesktop", "1.0");
@@ -445,6 +446,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
+                separateResolveConcurrency: 4,
                 registerResolvePlan: (videoIds, batchSize) =>
                 {
                     progress?.Report($"高码率播放地址启用批量解析：每批 {batchSize} 集，共 {videoIds.Count} 集");
@@ -547,6 +549,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int downloadFileSegments,
         int downloadTimeoutSeconds,
         int downloadAttempts,
+        int separateResolveConcurrency = 0,
         Func<IReadOnlyList<string>, int, IDisposable>? registerResolvePlan = null)
     {
         Directory.CreateDirectory(request.OutputDir);
@@ -571,8 +574,28 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         var failures = new List<string>();
         var concurrency = Math.Clamp(request.Concurrent, 1, 8);
-        using var resolvePlan = registerResolvePlan?.Invoke(tasks.Select(task => task.VideoId).ToArray(), concurrency);
-        using var semaphore = new SemaphoreSlim(concurrency);
+        var resolveConcurrency = Math.Clamp(separateResolveConcurrency, 0, 10);
+        var plannedVideoIds = new List<string>(tasks.Count);
+        if (registerResolvePlan is not null)
+        {
+            foreach (var task in tasks)
+            {
+                var existing = await FindExistingEpisodeVideoAsync(
+                    request.OutputDir,
+                    task.EpisodeNumber,
+                    report: null,
+                    validateVideoEncoding,
+                    cancellationToken);
+                if (string.IsNullOrWhiteSpace(existing))
+                    plannedVideoIds.Add(task.VideoId);
+            }
+        }
+
+        using var resolvePlan = registerResolvePlan?.Invoke(
+            plannedVideoIds,
+            Math.Max(concurrency, resolveConcurrency));
+        using var downloadSemaphore = new SemaphoreSlim(concurrency);
+        using var resolveSemaphore = resolveConcurrency > 0 ? new SemaphoreSlim(resolveConcurrency) : null;
 
         var downloads = tasks.Select(task => DownloadEpisodeAsync(
             request.OutputDir,
@@ -581,7 +604,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             tasks.Count,
             resolveVideo,
             progress,
-            semaphore,
+            downloadSemaphore,
+            resolveSemaphore,
             failures,
             validateVideoEncoding,
             downloadFileSegments,
@@ -625,7 +649,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int totalCount,
         Func<string, string, CancellationToken, Task<SourceVideoDetail>> resolveVideo,
         IProgress<string>? progress,
-        SemaphoreSlim semaphore,
+        SemaphoreSlim downloadSemaphore,
+        SemaphoreSlim? resolveSemaphore,
         ICollection<string> failures,
         bool validateVideoEncoding,
         int downloadFileSegments,
@@ -633,7 +658,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int downloadAttempts,
         CancellationToken cancellationToken)
     {
-        await semaphore.WaitAsync(cancellationToken);
+        var lifecycleSlotHeld = false;
+        if (resolveSemaphore is null)
+        {
+            await downloadSemaphore.WaitAsync(cancellationToken);
+            lifecycleSlotHeld = true;
+        }
         try
         {
             var finalPath = Path.Combine(outputDir, BuildEpisodeFileName(task));
@@ -658,15 +688,43 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             }
 
             CleanupDownloadArtifacts(finalPath, keepVideo: false);
-            progress?.Report($"[{task.Order:00}/{totalCount:00}] 开始下载第{task.EpisodeNumber:00}集");
+            var started = false;
 
-            var maxAttempts = Math.Clamp(downloadAttempts, 1, 20);
-            for (var attempt = 1; attempt < maxAttempts; attempt++)
+            async Task<SourceVideoDetail> ResolveAsync()
             {
+                if (resolveSemaphore is null)
+                {
+                    if (!started)
+                    {
+                        progress?.Report($"[{task.Order:00}/{totalCount:00}] 开始下载第{task.EpisodeNumber:00}集");
+                        started = true;
+                    }
+                    return await resolveVideo(task.VideoId, quality, cancellationToken);
+                }
+
+                await resolveSemaphore.WaitAsync(cancellationToken);
                 try
                 {
-                    var detail = await resolveVideo(task.VideoId, quality, cancellationToken);
-                    var stats = await DownloadVideoFileOnceAsync(
+                    if (!started)
+                    {
+                        progress?.Report($"[{task.Order:00}/{totalCount:00}] 开始下载第{task.EpisodeNumber:00}集");
+                        started = true;
+                    }
+                    return await resolveVideo(task.VideoId, quality, cancellationToken);
+                }
+                finally
+                {
+                    resolveSemaphore.Release();
+                }
+            }
+
+            async Task<DownloadFileStats> DownloadAsync(SourceVideoDetail detail)
+            {
+                if (resolveSemaphore is not null)
+                    await downloadSemaphore.WaitAsync(cancellationToken);
+                try
+                {
+                    return await DownloadVideoFileOnceAsync(
                         detail.Url,
                         tempPath,
                         finalPath,
@@ -678,6 +736,21 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         detail.EnsureWindowsCompatible,
                         detail.TranscodeEngine,
                         message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"));
+                }
+                finally
+                {
+                    if (resolveSemaphore is not null)
+                        downloadSemaphore.Release();
+                }
+            }
+
+            var maxAttempts = Math.Clamp(downloadAttempts, 1, 20);
+            for (var attempt = 1; attempt < maxAttempts; attempt++)
+            {
+                try
+                {
+                    var detail = await ResolveAsync();
+                    var stats = await DownloadAsync(detail);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s；{stats.MediaSummary}）");
                     return;
                 }
@@ -691,19 +764,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
             try
             {
-                var detail = await resolveVideo(task.VideoId, quality, cancellationToken);
-                var stats = await DownloadVideoFileOnceAsync(
-                    detail.Url,
-                    tempPath,
-                    finalPath,
-                    downloadTimeoutSeconds,
-                    cancellationToken,
-                    detail.PikachuDecryptKey,
-                    validateVideoEncoding,
-                    downloadFileSegments,
-                    detail.EnsureWindowsCompatible,
-                    detail.TranscodeEngine,
-                    message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"));
+                var detail = await ResolveAsync();
+                var stats = await DownloadAsync(detail);
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s；{stats.MediaSummary}）");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -722,7 +784,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
         finally
         {
-            semaphore.Release();
+            if (lifecycleSlotHeld)
+                downloadSemaphore.Release();
         }
     }
 
@@ -857,8 +920,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         long totalBytes = 0;
-        EntityTagHeaderValue? entityTag = null;
-        DateTimeOffset? lastModified = null;
         try
         {
             using var probeRequest = CreateDownloadRequest(url);
@@ -878,14 +939,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 }
 
                 totalBytes = contentRange.Length.Value;
-                if (probeResponse.Headers.ETag is { IsWeak: false } responseEntityTag)
-                {
-                    entityTag = responseEntityTag;
-                }
-                else
-                {
-                    lastModified = probeResponse.Content.Headers.LastModified;
-                }
             }
             else if (probeResponse.IsSuccessStatusCode)
             {
@@ -915,8 +968,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     targetPath,
                     totalBytes,
                     segmentCount,
-                    entityTag,
-                    lastModified,
                     cancellationToken);
                 return;
             }
@@ -954,8 +1005,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string targetPath,
         long totalBytes,
         int segmentCount,
-        EntityTagHeaderValue? entityTag,
-        DateTimeOffset? lastModified,
         CancellationToken cancellationToken)
     {
         await using (var file = new FileStream(
@@ -977,8 +1026,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             range.Start,
             range.End,
             totalBytes,
-            entityTag,
-            lastModified,
             cancellationToken)));
     }
 
@@ -988,20 +1035,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         long start,
         long end,
         long totalBytes,
-        EntityTagHeaderValue? entityTag,
-        DateTimeOffset? lastModified,
         CancellationToken cancellationToken)
     {
         using var request = CreateDownloadRequest(url);
         request.Headers.Range = new RangeHeaderValue(start, end);
-        if (entityTag is not null)
-        {
-            request.Headers.IfRange = new RangeConditionHeaderValue(entityTag);
-        }
-        else if (lastModified.HasValue)
-        {
-            request.Headers.IfRange = new RangeConditionHeaderValue(lastModified.Value);
-        }
 
         using var response = await _httpClient.SendAsync(
             request,
@@ -1064,8 +1101,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private static HttpRequestMessage CreateDownloadRequest(string url)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.TryAddWithoutValidation("User-Agent", MobileUserAgent);
-        request.Headers.UserAgent.Add(UserAgentProduct);
+        request.Headers.TryAddWithoutValidation("User-Agent", DownloadUserAgent);
         request.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue("identity"));
         return request;
     }

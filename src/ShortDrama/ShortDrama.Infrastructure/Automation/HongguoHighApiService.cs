@@ -391,7 +391,7 @@ public sealed class HongguoHighApiService
             throw new HongguoHighException("高码率剧集标识无效");
         }
 
-        var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
+        var timeout = ParsePlaybackTimeout(settings.HongguoDownloadTimeoutSeconds);
         var planKey = BuildBatchPlanKey(settings, bookId, quality);
         if (_batchParsePlans.TryGetValue(planKey, out var plan) &&
             plan.GroupsByVideoId.TryGetValue(rawVideoId, out var groupResolver))
@@ -401,6 +401,10 @@ public sealed class HongguoHighApiService
                 var groupResults = await groupResolver.Value.WaitAsync(cancellationToken);
                 if (groupResults.TryGetValue(rawVideoId, out var plannedPlayback))
                     return plannedPlayback;
+            }
+            catch (HongguoHighException ex) when (ex.Code == 408)
+            {
+                throw;
             }
             catch (Exception ex) when (IsRetryablePlaybackParseException(ex, cancellationToken))
             {
@@ -438,6 +442,10 @@ public sealed class HongguoHighApiService
                     return new HongguoNewApiService.HongguoVideoPlayback(url!, size);
                 }
             }
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw CreatePlaybackTimeoutException(timeout, ex);
+            }
             catch (Exception ex) when (IsRetryablePlaybackParseException(ex, cancellationToken))
             {
                 lastError = ex;
@@ -474,7 +482,7 @@ public sealed class HongguoHighApiService
         string quality,
         CancellationToken cancellationToken)
     {
-        var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
+        var timeout = ParsePlaybackTimeout(settings.HongguoDownloadTimeoutSeconds);
         var missing = episodes.ToDictionary(item => item.VideoId, StringComparer.Ordinal);
         var resolved = new Dictionary<string, HongguoNewApiService.HongguoVideoPlayback>(StringComparer.Ordinal);
 
@@ -507,6 +515,10 @@ public sealed class HongguoHighApiService
                     missing.Remove(videoId);
                 }
             }
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw CreatePlaybackTimeoutException(timeout, ex);
+            }
             catch (Exception ex) when (IsRetryablePlaybackParseException(ex, cancellationToken))
             {
                 // Retry the still-missing subset as one batch.
@@ -531,6 +543,9 @@ public sealed class HongguoHighApiService
             settings.HghighDeviceId?.Trim().ToLowerInvariant() ?? "",
             HongguoHighCrypto.StripBookPrefix(bookId),
             HongguoHighCrypto.NormalizeQuality(quality));
+
+    private static HongguoHighException CreatePlaybackTimeoutException(int timeoutSeconds, Exception innerException) =>
+        new($"高码率播放地址解析超过 {timeoutSeconds} 秒，已停止等待", 408, innerException);
 
     private static IEnumerable<JsonObject> EnumeratePlaybackItems(JsonNode? response)
     {
@@ -1555,6 +1570,9 @@ public sealed class HongguoHighApiService
 
     private static int ParseTimeout(string? value) =>
         int.TryParse(value, out var parsed) && parsed > 0 ? Math.Clamp(parsed, 10, 120) : 30;
+
+    private static int ParsePlaybackTimeout(string? value) =>
+        Math.Min(ParseTimeout(value), 15);
 
     private static byte[] RandomNumberGeneratorBytes(int length)
     {

@@ -598,6 +598,31 @@ public sealed class HongguoHighDramaChainTests
     }
 
     [Fact]
+    public async Task GetVideoPlaybackAsync_Uses_Short_Timeout_And_Does_Not_Retry_Read_Timeout()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var calls = 0;
+        service.AuthedRequestForTests = (_, path, _, timeout, _) =>
+        {
+            path.Should().Be("/video/batch-parse");
+            timeout.Should().Be(15);
+            calls++;
+            throw new TaskCanceledException("read timeout");
+        };
+
+        var act = () => service.GetVideoPlaybackAsync(
+            new DramaSourceSettings { HongguoDownloadTimeoutSeconds = "60" },
+            HongguoHighCrypto.EncodeEpisodeId("book-1", 19, "vid-19"),
+            "1080P",
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<HongguoHighException>()
+            .WithMessage("*解析超过 15 秒*");
+        calls.Should().Be(1);
+    }
+
+    [Fact]
     public async Task GetVideoPlaybackAsync_Uses_One_Batch_Request_For_Planned_Concurrent_Episodes()
     {
         using var httpClient = new HttpClient(new FailAllHandler());
