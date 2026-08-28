@@ -731,6 +731,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         downloadTimeoutSeconds,
                         cancellationToken,
                         detail.PikachuDecryptKey,
+                        detail.HongguoCdn,
                         validateVideoEncoding,
                         downloadFileSegments,
                         detail.EnsureWindowsCompatible,
@@ -759,6 +760,20 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     CleanupDownloadArtifacts(finalPath, keepVideo: false);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载重试 {attempt}/{maxAttempts}: {ex.Message}");
                     await Task.Delay(TimeSpan.FromSeconds(Math.Min(10, attempt * 2)), cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    CleanupDownloadArtifacts(finalPath, keepVideo: false);
+                    lock (failures)
+                    {
+                        failures.Add($"第{task.EpisodeNumber:00}集 {ex.Message}");
+                    }
+                    progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载失败: {ex.Message}");
+                    return;
                 }
             }
 
@@ -802,6 +817,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             timeoutSeconds,
             cancellationToken,
             pikachuDecryptKey: null,
+            hongguoCdn: null,
             validateVideoEncoding: false,
             downloadFileSegments: DefaultDownloadFileSegments,
             ensureWindowsCompatible: false,
@@ -815,6 +831,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int timeoutSeconds,
         CancellationToken cancellationToken,
         string? pikachuDecryptKey,
+        HongguoCdnDownload? hongguoCdn,
         bool validateVideoEncoding,
         int downloadFileSegments,
         bool ensureWindowsCompatible,
@@ -838,14 +855,39 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         try
         {
             var stopwatch = Stopwatch.StartNew();
-            await DownloadHttpContentAsync(
-                url,
-                downloadTargetPath,
-                downloadFileSegments,
-                message => report?.Invoke(message),
-                token);
+            var usedHongguoCdn = false;
+            if (hongguoCdn is { EncryptedUrls.Count: > 0 } && !string.IsNullOrWhiteSpace(hongguoCdn.SpadeA))
+            {
+                try
+                {
+                    report?.Invoke("使用 CDN 直连 + 本地解密（单文件最多 16 路分块）");
+                    await DownloadAndDecryptHongguoCdnAsync(
+                        hongguoCdn,
+                        tempPath,
+                        Math.Max(downloadFileSegments, 16),
+                        report,
+                        token);
+                    usedHongguoCdn = true;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    DeleteIfExists(BuildHongguoEncryptedTempPath(tempPath));
+                    DeleteIfExists(tempPath);
+                    report?.Invoke($"CDN 本地解密失败，回退服务器流：{ex.Message}");
+                }
+            }
 
-            if (hasPikachuDecryptKey)
+            if (!usedHongguoCdn)
+            {
+                await DownloadHttpContentAsync(
+                    url,
+                    downloadTargetPath,
+                    downloadFileSegments,
+                    message => report?.Invoke(message),
+                    token);
+            }
+
+            if (!usedHongguoCdn && hasPikachuDecryptKey)
             {
                 await DecryptPikachuCencVideoAsync(pikachuDecryptKey!.Trim(), downloadTargetPath, tempPath, timeoutSeconds, cancellationToken);
             }
@@ -899,7 +941,47 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             }
 
             DeleteIfExists(tempPath);
+            DeleteIfExists(BuildHongguoEncryptedTempPath(tempPath));
         }
+    }
+
+    private async Task DownloadAndDecryptHongguoCdnAsync(
+        HongguoCdnDownload cdn,
+        string outputPath,
+        int segments,
+        Action<string>? report,
+        CancellationToken cancellationToken)
+    {
+        var encryptedPath = BuildHongguoEncryptedTempPath(outputPath);
+        Exception? lastDownloadError = null;
+        var downloaded = false;
+        foreach (var candidateUrl in cdn.EncryptedUrls)
+        {
+            try
+            {
+                DeleteIfExists(encryptedPath);
+                await DownloadHttpContentAsync(candidateUrl, encryptedPath, segments, report, cancellationToken);
+                downloaded = true;
+                break;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                lastDownloadError = ex;
+            }
+        }
+
+        if (!downloaded || !HasValidVideoFile(encryptedPath))
+            throw new InvalidDataException($"加密 CDN 下载失败：{lastDownloadError?.Message ?? "文件无效"}", lastDownloadError);
+
+        if (!cdn.Encrypted)
+        {
+            await DownloadFileOperations.SafeReplaceAsync(encryptedPath, outputPath, cancellationToken);
+            return;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await Task.Run(() => HongguoCdnDecryptor.Decrypt(cdn.SpadeA, encryptedPath, outputPath), cancellationToken);
+        DeleteIfExists(encryptedPath);
     }
 
     private async Task DownloadHttpContentAsync(
@@ -1936,7 +2018,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private async Task<SourceVideoDetail> GetHghighVideoUrlAsync(string videoId, string quality, DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         var detail = await _hghighApiService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
-        return new SourceVideoDetail(detail.Url);
+        return new SourceVideoDetail(
+            detail.Url,
+            HongguoCdn: new HongguoCdnDownload(detail.EncryptedUrls, detail.SpadeA, detail.Encrypted));
     }
 
     private async Task<IReadOnlyList<SourceEpisode>> GetMapleleafEpisodesAsync(
@@ -2233,6 +2317,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     }
 
     private static string BuildEncryptedTempPath(string tempPath) => $"{tempPath}.enc.part";
+
+    private static string BuildHongguoEncryptedTempPath(string tempPath) => $"{tempPath}.hgenc";
 
     private static void DeleteIfExists(string path)
     {
@@ -2614,8 +2700,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private sealed record SourceVideoDetail(
         string Url,
         string? PikachuDecryptKey = null,
+        HongguoCdnDownload? HongguoCdn = null,
         bool EnsureWindowsCompatible = false,
         string TranscodeEngine = "auto");
+
+    private sealed record HongguoCdnDownload(
+        IReadOnlyList<string> EncryptedUrls,
+        string SpadeA,
+        bool Encrypted);
 
     internal sealed record ProcessRunResult(int ExitCode, string StandardOutput, string StandardError);
 

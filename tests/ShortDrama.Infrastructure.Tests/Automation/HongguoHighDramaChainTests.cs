@@ -432,6 +432,13 @@ public sealed class HongguoHighCalendarMapperTests
 public sealed class HongguoHighDramaChainTests
 {
     [Fact]
+    public void SpadeKey_Unwraps_Known_Hongguo_Sample()
+    {
+        HongguoSpadeKey.UnwrapCandidates("rLwi9m+PFvVZjiLebZM82HKUCN5YlhPtQqcJ6keXC+h1kz2fnw==")
+            .Should().Contain("a46cbc7ed9769356c3813c83355e3fde");
+    }
+
+    [Fact]
     public async Task EnsureTokenAsync_Coalesces_Concurrent_Initial_Logins()
     {
         using var httpClient = new HttpClient(new FailAllHandler());
@@ -598,7 +605,7 @@ public sealed class HongguoHighDramaChainTests
     }
 
     [Fact]
-    public async Task GetVideoPlaybackAsync_Uses_Short_Timeout_And_Does_Not_Retry_Read_Timeout()
+    public async Task GetVideoPlaybackAsync_Uses_Three_Short_Attempts_For_Read_Timeout()
     {
         using var httpClient = new HttpClient(new FailAllHandler());
         var service = new HongguoHighApiService(httpClient);
@@ -610,6 +617,7 @@ public sealed class HongguoHighDramaChainTests
             calls++;
             throw new TaskCanceledException("read timeout");
         };
+        service.DelayForTests = (_, _) => Task.CompletedTask;
 
         var act = () => service.GetVideoPlaybackAsync(
             new DramaSourceSettings { HongguoDownloadTimeoutSeconds = "60" },
@@ -619,7 +627,7 @@ public sealed class HongguoHighDramaChainTests
 
         await act.Should().ThrowAsync<HongguoHighException>()
             .WithMessage("*解析超过 15 秒*");
-        calls.Should().Be(1);
+        calls.Should().Be(3);
     }
 
     [Fact]
@@ -647,6 +655,9 @@ public sealed class HongguoHighDramaChainTests
                     {
                         ["episodeId"] = $"vid-{number}",
                         ["downloadUrl"] = $"https://cdn.example.com/{number}.mp4",
+                        ["encrypted_url"] = $"https://origin.example.com/{number}.mp4",
+                        ["spade_a"] = "spade-value",
+                        ["encrypt"] = true,
                         ["sizeBytes"] = number * 100L
                     })
                     .ToArray()));
@@ -661,6 +672,13 @@ public sealed class HongguoHighDramaChainTests
             "https://cdn.example.com/1.mp4",
             "https://cdn.example.com/2.mp4",
             "https://cdn.example.com/3.mp4");
+        results.Should().OnlyContain(item =>
+            item.EncryptedUrls.Count == 1 && item.SpadeA == "spade-value" && item.Encrypted);
+
+        plan.Dispose();
+        var cached = await service.GetVideoPlaybackAsync(settings, encodedIds[0], "1080P", CancellationToken.None);
+        cached.Url.Should().Be("https://cdn.example.com/1.mp4");
+        calls.Should().Be(1, "短期播放地址缓存不应重复调用慢解析接口");
     }
 
     [Fact]
