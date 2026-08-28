@@ -682,6 +682,46 @@ public sealed class HongguoHighDramaChainTests
     }
 
     [Fact]
+    public async Task GetVideoPlaybackAsync_Falls_Back_To_Single_Episode_After_Planned_Batch_Times_Out()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var settings = new DramaSourceSettings();
+        var encodedIds = Enumerable.Range(1, 2)
+            .Select(number => HongguoHighCrypto.EncodeEpisodeId("book-1", number, $"vid-{number}"))
+            .ToArray();
+        var episodeCounts = new List<int>();
+        service.AuthedRequestForTests = (_, path, payload, timeout, _) =>
+        {
+            path.Should().Be("/video/batch-parse");
+            timeout.Should().Be(15);
+            var count = payload["episodes"]!.AsArray().Count;
+            episodeCounts.Add(count);
+            if (count > 1)
+                throw new TaskCanceledException("batch read timeout");
+            return Task.FromResult<JsonNode?>(new JsonArray
+            {
+                new JsonObject
+                {
+                    ["episodeId"] = "vid-1",
+                    ["downloadUrl"] = "https://cdn.example.com/1.mp4"
+                }
+            });
+        };
+        service.DelayForTests = (_, _) => Task.CompletedTask;
+
+        using var plan = service.RegisterBatchParsePlan(settings, encodedIds, "1080P", batchSize: 2);
+        var result = await service.GetVideoPlaybackAsync(
+            settings,
+            encodedIds[0],
+            "1080P",
+            CancellationToken.None);
+
+        result.Url.Should().Be("https://cdn.example.com/1.mp4");
+        episodeCounts.Should().Equal(2, 1);
+    }
+
+    [Fact]
     public async Task GetVideoPlaybackAsync_Retries_Empty_Address_And_Matches_Episode()
     {
         using var httpClient = new HttpClient(new FailAllHandler());

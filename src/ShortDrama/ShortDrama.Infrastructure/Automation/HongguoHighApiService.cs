@@ -16,6 +16,7 @@ public sealed class HongguoHighApiService
     private const int CalendarEnrichConcurrency = 12;
     private const int LandpageMaxAttempts = 3;
     private const int PlaybackParseMaxAttempts = 3;
+    private const int AuthRequestMaxAttempts = 3;
     private static readonly HashSet<int> LandpageRetryCodes = [408, 425, 429, 500, 502, 503, 504];
     private static readonly TimeSpan CalendarCacheLifetime = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan CalendarDetailCacheLifetime = TimeSpan.FromHours(12);
@@ -411,13 +412,10 @@ public sealed class HongguoHighApiService
                     return plannedPlayback;
                 }
             }
-            catch (HongguoHighException ex) when (ex.Code == 408)
-            {
-                throw;
-            }
             catch (Exception ex) when (IsRetryablePlaybackParseException(ex, cancellationToken))
             {
-                // A partial/temporary batch failure falls back to the established single-episode path below.
+                // Match the reference client: a failed batch must fall back to the
+                // established single-episode parser instead of failing every member together.
             }
         }
 
@@ -531,13 +529,11 @@ public sealed class HongguoHighApiService
                     missing.Remove(videoId);
                 }
             }
-            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested && attempt == PlaybackParseMaxAttempts)
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
+                // A transport timeout aborts batch mode immediately. The caller then
+                // falls back to single-episode parsing, matching the reference client.
                 throw CreatePlaybackTimeoutException(timeout, ex);
-            }
-            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                // Keep the unresolved subset and retry it as one batch, matching the official client.
             }
             catch (Exception ex) when (IsRetryablePlaybackParseException(ex, cancellationToken))
             {
@@ -1382,16 +1378,21 @@ public sealed class HongguoHighApiService
         int timeoutSeconds,
         CancellationToken cancellationToken)
     {
-        await EnsureTokenAsync(settings, timeoutSeconds, cancellationToken);
-        var staleToken = ReadCurrentAccessToken();
-        try
+        for (var attempt = 1; ; attempt++)
         {
-            return await RequestAsync(LoadDevice(), _session, "POST", path, data, timeoutSeconds, cancellationToken);
-        }
-        catch (HongguoHighException ex) when (ShouldRelogin(ex))
-        {
-            await RefreshTokenAsync(settings, staleToken, cancellationToken);
-            return await RequestAsync(LoadDevice(), _session, "POST", path, data, timeoutSeconds, cancellationToken);
+            await EnsureTokenAsync(settings, timeoutSeconds, cancellationToken);
+            var staleToken = ReadCurrentAccessToken();
+            try
+            {
+                return await RequestAsync(LoadDevice(), _session, "POST", path, data, timeoutSeconds, cancellationToken);
+            }
+            catch (HongguoHighException ex) when (ShouldRelogin(ex) && attempt < AuthRequestMaxAttempts)
+            {
+                // Several requests may still be in flight with an older session.
+                // RefreshTokenAsync coalesces them; retry against the newest token
+                // generation instead of failing the episode after a second rotation.
+                await RefreshTokenAsync(settings, staleToken, cancellationToken);
+            }
         }
     }
 
