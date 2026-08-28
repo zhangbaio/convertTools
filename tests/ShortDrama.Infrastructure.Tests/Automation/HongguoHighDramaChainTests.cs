@@ -598,6 +598,47 @@ public sealed class HongguoHighDramaChainTests
     }
 
     [Fact]
+    public async Task GetVideoPlaybackAsync_Uses_One_Batch_Request_For_Planned_Concurrent_Episodes()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var settings = new DramaSourceSettings
+        {
+            HghighAccount = "batch@example.com",
+            HghighDeviceId = "device-1"
+        };
+        var encodedIds = Enumerable.Range(1, 3)
+            .Select(number => HongguoHighCrypto.EncodeEpisodeId("book-1", number, $"vid-{number}"))
+            .ToArray();
+        var calls = 0;
+        service.AuthedRequestForTests = (_, path, payload, _, _) =>
+        {
+            path.Should().Be("/video/batch-parse");
+            Interlocked.Increment(ref calls);
+            payload["episodes"]!.AsArray().Should().HaveCount(3);
+            return Task.FromResult<JsonNode?>(new JsonArray(
+                Enumerable.Range(1, 3)
+                    .Select(number => (JsonNode)new JsonObject
+                    {
+                        ["episodeId"] = $"vid-{number}",
+                        ["downloadUrl"] = $"https://cdn.example.com/{number}.mp4",
+                        ["sizeBytes"] = number * 100L
+                    })
+                    .ToArray()));
+        };
+
+        using var plan = service.RegisterBatchParsePlan(settings, encodedIds, "1080P", batchSize: 3);
+        var results = await Task.WhenAll(encodedIds.Select(id =>
+            service.GetVideoPlaybackAsync(settings, id, "1080P", CancellationToken.None)));
+
+        calls.Should().Be(1);
+        results.Select(item => item.Url).Should().Equal(
+            "https://cdn.example.com/1.mp4",
+            "https://cdn.example.com/2.mp4",
+            "https://cdn.example.com/3.mp4");
+    }
+
+    [Fact]
     public async Task GetVideoPlaybackAsync_Retries_Empty_Address_And_Matches_Episode()
     {
         using var httpClient = new HttpClient(new FailAllHandler());

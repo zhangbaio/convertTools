@@ -44,6 +44,7 @@ public sealed class HongguoHighApiService
     private readonly HongguoHighSession _session = new();
     private readonly ConcurrentDictionary<string, CalendarCacheEntry> _calendarCache = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, CalendarDetailCacheEntry> _calendarDetailCache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, BatchParsePlan> _batchParsePlans = new(StringComparer.Ordinal);
     private HongguoHighDevice? _device;
 
     internal Func<DramaSourceSettings, string, JsonObject, int, CancellationToken, Task<JsonNode?>>? AuthedRequestForTests { get; set; }
@@ -53,10 +54,51 @@ public sealed class HongguoHighApiService
 
     private sealed record CalendarCacheEntry(DateTimeOffset CreatedAt, IReadOnlyList<DramaSearchItem> Items);
     private sealed record CalendarDetailCacheEntry(DateTimeOffset CreatedAt, JsonObject BookInfo);
+    private sealed record BatchEpisode(string VideoId, int EpisodeNumber);
+    private sealed class BatchParsePlan
+    {
+        public Dictionary<string, Lazy<Task<IReadOnlyDictionary<string, HongguoNewApiService.HongguoVideoPlayback>>>> GroupsByVideoId { get; } = new(StringComparer.Ordinal);
+    }
 
     public HongguoHighApiService(HttpClient httpClient)
     {
         _httpClient = httpClient;
+    }
+
+    internal IDisposable RegisterBatchParsePlan(
+        DramaSourceSettings settings,
+        IReadOnlyList<string> encodedVideoIds,
+        string quality,
+        int batchSize)
+    {
+        var episodes = encodedVideoIds
+            .Select(id => HongguoHighCrypto.TryDecodeEpisodeId(id, out var bookId, out var number, out var videoId)
+                ? (BookId: bookId, Episode: new BatchEpisode(videoId, number))
+                : default)
+            .Where(item => !string.IsNullOrWhiteSpace(item.BookId) && item.Episode is not null)
+            .ToArray();
+        if (episodes.Length == 0)
+            return EmptyDisposable.Instance;
+
+        var rawBookId = episodes[0].BookId;
+        var planKey = BuildBatchPlanKey(settings, rawBookId, quality);
+        var plan = new BatchParsePlan();
+        var size = Math.Clamp(batchSize, 1, 10);
+        foreach (var group in episodes
+                     .Where(item => string.Equals(item.BookId, rawBookId, StringComparison.Ordinal))
+                     .Select(item => item.Episode!)
+                     .Chunk(size))
+        {
+            var captured = group.ToArray();
+            var resolver = new Lazy<Task<IReadOnlyDictionary<string, HongguoNewApiService.HongguoVideoPlayback>>>(
+                () => ResolveBatchGroupAsync(settings, rawBookId, captured, quality, CancellationToken.None),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            foreach (var episode in captured)
+                plan.GroupsByVideoId[episode.VideoId] = resolver;
+        }
+
+        _batchParsePlans[planKey] = plan;
+        return new BatchPlanLease(this, planKey, plan);
     }
 
     public async Task<HongguoLoginProbeResult> ProbeLoginAsync(
@@ -350,6 +392,22 @@ public sealed class HongguoHighApiService
         }
 
         var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
+        var planKey = BuildBatchPlanKey(settings, bookId, quality);
+        if (_batchParsePlans.TryGetValue(planKey, out var plan) &&
+            plan.GroupsByVideoId.TryGetValue(rawVideoId, out var groupResolver))
+        {
+            try
+            {
+                var groupResults = await groupResolver.Value.WaitAsync(cancellationToken);
+                if (groupResults.TryGetValue(rawVideoId, out var plannedPlayback))
+                    return plannedPlayback;
+            }
+            catch (Exception ex) when (IsRetryablePlaybackParseException(ex, cancellationToken))
+            {
+                // A partial/temporary batch failure falls back to the established single-episode path below.
+            }
+        }
+
         JsonObject? lastItem = null;
         Exception? lastError = null;
         for (var attempt = 1; attempt <= PlaybackParseMaxAttempts; attempt++)
@@ -407,6 +465,109 @@ public sealed class HongguoHighApiService
             : $"高码率解析连续 {PlaybackParseMaxAttempts} 次未返回播放地址：{detail}",
             code,
             lastError);
+    }
+
+    private async Task<IReadOnlyDictionary<string, HongguoNewApiService.HongguoVideoPlayback>> ResolveBatchGroupAsync(
+        DramaSourceSettings settings,
+        string bookId,
+        IReadOnlyList<BatchEpisode> episodes,
+        string quality,
+        CancellationToken cancellationToken)
+    {
+        var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
+        var missing = episodes.ToDictionary(item => item.VideoId, StringComparer.Ordinal);
+        var resolved = new Dictionary<string, HongguoNewApiService.HongguoVideoPlayback>(StringComparer.Ordinal);
+
+        for (var attempt = 1; attempt <= PlaybackParseMaxAttempts && missing.Count > 0; attempt++)
+        {
+            try
+            {
+                var requestData = new JsonObject
+                {
+                    ["bookId"] = bookId,
+                    ["book_id"] = bookId,
+                    ["episodes"] = new JsonArray(missing.Values
+                        .Select(item => (JsonNode)HongguoHighCrypto.BatchParseEpisodePayload(item.VideoId, item.EpisodeNumber))
+                        .ToArray()),
+                    ["quality"] = HongguoHighCrypto.NormalizeQuality(quality),
+                    ["resolution"] = HongguoHighCrypto.NormalizeQuality(quality)
+                };
+                var inner = AuthedRequestForTests is null
+                    ? await AuthedRequestAsync(settings, "/video/batch-parse", requestData, timeout, cancellationToken)
+                    : await AuthedRequestForTests(settings, "/video/batch-parse", requestData, timeout, cancellationToken);
+
+                foreach (var item in EnumeratePlaybackItems(inner))
+                {
+                    var videoId = ReadPlaybackVideoId(item);
+                    var url = ReadPlaybackUrl(item);
+                    if (string.IsNullOrWhiteSpace(videoId) || !missing.ContainsKey(videoId) || !IsHttpUrl(url))
+                        continue;
+                    var size = GetLong(item, "size") ?? GetLong(item, "size_bytes") ?? GetLong(item, "sizeBytes") ?? 0;
+                    resolved[videoId] = new HongguoNewApiService.HongguoVideoPlayback(url!, size);
+                    missing.Remove(videoId);
+                }
+            }
+            catch (Exception ex) when (IsRetryablePlaybackParseException(ex, cancellationToken))
+            {
+                // Retry the still-missing subset as one batch.
+            }
+
+            if (missing.Count > 0 && attempt < PlaybackParseMaxAttempts)
+            {
+                var delay = TimeSpan.FromSeconds(attempt);
+                if (DelayForTests is null)
+                    await Task.Delay(delay, cancellationToken);
+                else
+                    await DelayForTests(delay, cancellationToken);
+            }
+        }
+
+        return resolved;
+    }
+
+    private static string BuildBatchPlanKey(DramaSourceSettings settings, string bookId, string quality) =>
+        string.Join("\n",
+            settings.HghighAccount?.Trim().ToLowerInvariant() ?? "",
+            settings.HghighDeviceId?.Trim().ToLowerInvariant() ?? "",
+            HongguoHighCrypto.StripBookPrefix(bookId),
+            HongguoHighCrypto.NormalizeQuality(quality));
+
+    private static IEnumerable<JsonObject> EnumeratePlaybackItems(JsonNode? response)
+    {
+        if (response is JsonArray array)
+            return array.OfType<JsonObject>();
+        if (response is not JsonObject obj)
+            return [];
+        foreach (var key in new[] { "data", "items", "results", "episodes" })
+        {
+            if (obj[key] is JsonArray nested)
+                return nested.OfType<JsonObject>();
+            if (obj[key] is JsonObject nestedObject)
+                return [nestedObject];
+        }
+        return [obj];
+    }
+
+    private static string? ReadPlaybackVideoId(JsonObject item) =>
+        GetString(item, "episode_id") ?? GetString(item, "episodeId") ??
+        GetString(item, "video_id") ?? GetString(item, "videoId");
+
+    private sealed class BatchPlanLease(
+        HongguoHighApiService owner,
+        string key,
+        BatchParsePlan plan) : IDisposable
+    {
+        public void Dispose()
+        {
+            if (owner._batchParsePlans.TryGetValue(key, out var current) && ReferenceEquals(current, plan))
+                owner._batchParsePlans.TryRemove(key, out _);
+        }
+    }
+
+    private sealed class EmptyDisposable : IDisposable
+    {
+        public static EmptyDisposable Instance { get; } = new();
+        public void Dispose() { }
     }
 
     private static bool IsRetryablePlaybackParseException(Exception exception, CancellationToken cancellationToken)

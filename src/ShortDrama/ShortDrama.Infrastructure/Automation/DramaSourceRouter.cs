@@ -444,7 +444,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 validateVideoEncoding: false,
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
-                downloadAttempts: downloadAttempts);
+                downloadAttempts: downloadAttempts,
+                registerResolvePlan: (videoIds, batchSize) =>
+                {
+                    progress?.Report($"高码率播放地址启用批量解析：每批 {batchSize} 集，共 {videoIds.Count} 集");
+                    return _hghighApiService.RegisterBatchParsePlan(settings, videoIds, request.Quality, batchSize);
+                });
         }
 
         if (bookId.StartsWith(PikachuBookPrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -541,7 +546,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         bool validateVideoEncoding,
         int downloadFileSegments,
         int downloadTimeoutSeconds,
-        int downloadAttempts)
+        int downloadAttempts,
+        Func<IReadOnlyList<string>, int, IDisposable>? registerResolvePlan = null)
     {
         Directory.CreateDirectory(request.OutputDir);
         progress?.Report($"开始下载《{request.DisplayName}》...");
@@ -565,6 +571,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         var failures = new List<string>();
         var concurrency = Math.Clamp(request.Concurrent, 1, 8);
+        using var resolvePlan = registerResolvePlan?.Invoke(tasks.Select(task => task.VideoId).ToArray(), concurrency);
         using var semaphore = new SemaphoreSlim(concurrency);
 
         var downloads = tasks.Select(task => DownloadEpisodeAsync(
