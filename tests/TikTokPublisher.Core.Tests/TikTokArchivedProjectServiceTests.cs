@@ -87,6 +87,8 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         File.Exists(Path.Combine(archivedWorkflowDir, "material-clip-output", "clip", "cut.mp4")).Should().BeFalse();
         File.Exists(Path.Combine(archivedWorkflowDir, "material-clip-output", "clip", "subtitles", "caption.mp4")).Should().BeTrue();
         root.GetProperty("archiveSource").GetString().Should().Be("tiktok");
+        root.GetProperty("workspaceRootAtArchive").GetString().Should().Be(_workspaceRoot);
+        root.GetProperty("archiveLayoutVersion").GetInt32().Should().Be(2);
         root.GetProperty("deletedVideoFileCount").GetInt32().Should().Be(3);
         root.GetProperty("preservedVideoFileCount").GetInt32().Should().Be(1);
         root.GetProperty("deletedSourceVideoFileCount").GetInt32().Should().Be(1);
@@ -590,6 +592,40 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
         Directory.Exists(restoredSource).Should().BeTrue();
         Directory.Exists(restoredWorkflow).Should().BeTrue();
         File.Exists(metadataPath).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Restore_rebases_legacy_workspace_that_is_nested_under_the_current_workspace()
+    {
+        var legacyWorkspace = Path.Combine(_workspaceRoot, "workflow");
+        var legacySource = Path.Combine(legacyWorkspace, "nested-workspace-project");
+        var legacyWorkflow = Path.Combine(legacyWorkspace, "workflow", "_nested-workspace-project");
+        var restoredSource = Path.Combine(_workspaceRoot, "nested-workspace-project");
+        var restoredWorkflow = Path.Combine(_workspaceRoot, "workflow", "_nested-workspace-project");
+        var archivedSource = Path.Combine(_archiveRoot, "source", "nested-workspace-project");
+        var archivedWorkflow = Path.Combine(_archiveRoot, "workflow", "_nested-workspace-project");
+        Directory.CreateDirectory(archivedSource);
+        Directory.CreateDirectory(archivedWorkflow);
+        WriteProjectMetadata(archivedSource, legacySource, legacyWorkflow, "nested-workspace-project");
+        WriteProjectMetadata(archivedWorkflow, legacySource, legacyWorkflow, "nested-workspace-project");
+        var metadataPath = WriteArchiveMetadata(
+            "nested-workspace-project",
+            legacySource,
+            legacyWorkflow,
+            archivedSource,
+            archivedWorkflow);
+
+        TikTokArchivedProjectService.Restore(_workspaceRoot, metadataPath, _archiveRoot);
+
+        Directory.Exists(restoredSource).Should().BeTrue();
+        Directory.Exists(restoredWorkflow).Should().BeTrue();
+        Directory.Exists(legacyWorkflow).Should().BeFalse();
+        File.Exists(metadataPath).Should().BeFalse();
+
+        using var sourceMetadata = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(restoredSource, "shortdrama-project.json")));
+        sourceMetadata.RootElement.GetProperty("sourceProjectDir").GetString().Should().Be(restoredSource);
+        sourceMetadata.RootElement.GetProperty("workflowProjectDir").GetString().Should().Be(restoredWorkflow);
     }
 
     [Fact]

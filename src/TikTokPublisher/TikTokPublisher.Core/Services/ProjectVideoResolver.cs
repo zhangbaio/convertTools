@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using TikTokPublisher.Core.Queue;
+using System.Text.Json;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -104,15 +105,25 @@ public static class ProjectVideoResolver
             local = ResolveStagedUploadVideosFromWorkflow(workflow);
 
         var published = ResolvePublishedMaterialVideosFromWorkflow(workflow);
-        if (published.Count == 0)
+        var recovery = ResolvePublishedRecoveryCacheVideos(source);
+        if (published.Count == 0 && recovery.Count == 0)
             return local;
-        if (local.Count == 0)
-            return published;
 
         return DedupeAndSort(
-            local.Concat(published).ToList(),
+            local.Concat(published).Concat(recovery).ToList(),
             path => NaturalKey(Path.GetFileName(path)));
     }
+
+    /// <summary>Material videos suitable for ASR, scripts, outlines, and character discovery.</summary>
+    public static IReadOnlyList<string> ResolveNarrativeVideos(
+        string sourceProjectDir,
+        bool allowStagedFallback = true) =>
+        ResolveMaterialVideos(sourceProjectDir, allowStagedFallback)
+            .Where(path => !string.Equals(
+                Path.GetFileName(path),
+                "证明材料抽帧兜底.mp4",
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray();
 
     public static string ResolvePublishedMaterialVideoDirectory(string sourceProjectDir)
     {
@@ -191,6 +202,74 @@ public static class ProjectVideoResolver
             .ToList();
         return DedupeAndSort(candidates, path =>
             NaturalKey(Path.GetRelativePath(cacheRoot, path)));
+    }
+
+    private static List<string> ResolvePublishedRecoveryCacheVideos(string sourceProjectDir)
+    {
+        var metadataPath = Path.Combine(sourceProjectDir, "shortdrama-project.json");
+        if (!File.Exists(metadataPath)) return new List<string>();
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
+            var root = document.RootElement;
+            if (!TryGetString(root, "queueEntryDramaType", out var sourceType) ||
+                !string.Equals(
+                    sourceType,
+                    DeletedCopyrightProofPublishedVideoRecoveryService.RecoverySourceType,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return new List<string>();
+            }
+
+            var title = FirstJsonString(root, "newTitle", "title", "displayName");
+            var seriesId = FirstJsonString(root, "tiktokSeriesId");
+            var workspaceRoot = Directory.GetParent(sourceProjectDir)?.FullName;
+            if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(workspaceRoot))
+                return new List<string>();
+
+            var cacheRoot = DeletedCopyrightProofPublishedVideoRecoveryService
+                .ResolveStagingDirectory(workspaceRoot, title, seriesId);
+            if (!Directory.Exists(cacheRoot)) return new List<string>();
+
+            return DedupeAndSort(
+                Directory.EnumerateFiles(cacheRoot, "*.*", SearchOption.AllDirectories)
+                    .Where(IsCandidateVideoFile)
+                    .Select(Path.GetFullPath)
+                    .ToList(),
+                path => NaturalKey(Path.GetRelativePath(cacheRoot, path)));
+        }
+        catch (JsonException)
+        {
+            return new List<string>();
+        }
+        catch (IOException)
+        {
+            return new List<string>();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new List<string>();
+        }
+    }
+
+    private static string FirstJsonString(JsonElement root, params string[] propertyNames)
+    {
+        foreach (var propertyName in propertyNames)
+        {
+            if (TryGetString(root, propertyName, out var value) && !string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+        return string.Empty;
+    }
+
+    private static bool TryGetString(JsonElement root, string propertyName, out string value)
+    {
+        value = string.Empty;
+        if (!root.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.String)
+            return false;
+        value = property.GetString() ?? string.Empty;
+        return true;
     }
 
     internal static bool IsCompleteVideoFile(string path)

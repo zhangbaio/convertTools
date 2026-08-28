@@ -7,6 +7,13 @@ public static partial class LogMessageLevelClassifier
     public static string InferLevel(string? text)
     {
         var message = text ?? "";
+        var explicitLevel = ExplicitLevelRegex().Match(message);
+        if (explicitLevel.Success)
+        {
+            var level = explicitLevel.Groups[1].Value.ToLowerInvariant();
+            return level == "warning" ? "warn" : level;
+        }
+
         var errorScanMessage = ZeroFailureCountRegex().Replace(message, "");
         if (ContainsAny(
                 errorScanMessage,
@@ -60,4 +67,7 @@ public static partial class LogMessageLevelClassifier
 
     [GeneratedRegex(@"(?i)(?:单集)?超时(?:时间|配置)?\s*[：:=]?\s*\d+(?:\.\d+)?\s*(?:ms|s|秒|分钟)?")]
     private static partial Regex TimeoutConfigurationRegex();
+
+    [GeneratedRegex(@"(?i)^\s*\[?(ERROR|WARN|WARNING|SUCCESS|INFO)\]?\s*[:：-]?\s+")]
+    private static partial Regex ExplicitLevelRegex();
 }

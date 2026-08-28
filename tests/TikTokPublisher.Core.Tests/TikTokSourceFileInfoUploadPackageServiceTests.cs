@@ -8,6 +8,71 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokSourceFileInfoUploadPackageServiceTests
 {
     [Fact]
+    public void Generate_omits_role_vector_when_role_step_is_not_enabled()
+    {
+        var workflow = CreateWorkflow();
+        try
+        {
+            var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
+                [TikTokPublisher.Core.Queue.QueueStepRegistry.GenerateAiScriptOutline,
+                 TikTokPublisher.Core.Queue.QueueStepRegistry.GenerateEpisodeScript,
+                 TikTokPublisher.Core.Queue.QueueStepRegistry.GenerateProofMaterial],
+                includeRoleSceneScreenshot: false);
+            File.Delete(Path.Combine(
+                TikTokReferenceSourcePackageService.GetRoot(workflow),
+                TikTokReferenceSourcePackageService.CharacterWorkbenchFileName));
+
+            var files = TikTokSourceFileInfoUploadPackageService.Generate(
+                workflow,
+                selection: selection);
+
+            files.Select(Path.GetFileName).Should().Equal(
+                TikTokSourceFileInfoUploadPackageService.OutlineFileName,
+                TikTokSourceFileInfoUploadPackageService.ScriptFileName,
+                TikTokSourceFileInfoUploadPackageService.ProjectInfoImageFileName);
+            files.Should().NotContain(path =>
+                Path.GetFileName(path) == TikTokSourceFileInfoUploadPackageService.RoleVectorImageFileName);
+            TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
+                workflow,
+                selection: selection).Should().BeTrue();
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Generate_tolerates_missing_selected_file_until_material_validation()
+    {
+        var workflow = CreateWorkflow();
+        try
+        {
+            File.Delete(Path.Combine(
+                TikTokReferenceSourcePackageService.GetRoot(workflow),
+                TikTokReferenceSourcePackageService.CharacterWorkbenchFileName));
+            var logs = new List<string>();
+
+            var files = TikTokSourceFileInfoUploadPackageService.Generate(
+                workflow,
+                log: logs.Add,
+                validateComplete: false);
+
+            files.Should().HaveCount(3);
+            logs.Should().Contain(message =>
+                message.Contains("由成片检查统一校验", StringComparison.Ordinal));
+            var validate = () => TikTokSourceFileInfoUploadPackageService.Validate(workflow);
+            validate.Should().Throw<FileNotFoundException>()
+                .WithMessage("*角色矢量图.png*");
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+
+    [Fact]
     public void Generate_creates_exact_ordered_mixed_four_file_package()
     {
         var workflow = CreateWorkflow();
@@ -31,6 +96,50 @@ public sealed class TikTokSourceFileInfoUploadPackageServiceTests
                 "unexpected");
             TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(workflow)
                 .Should().BeFalse("上传目录只能包含规定的四个文件");
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Final_validation_rebuilds_partial_package_from_existing_products()
+    {
+        var workflow = CreateWorkflow();
+        try
+        {
+            var logs = new List<string>();
+
+            var repaired = TikTokSourceFileInfoUploadPackageService.EnsureCurrentFromExistingOutputs(
+                workflow,
+                log: logs.Add);
+
+            repaired.Should().BeTrue();
+            TikTokSourceFileInfoUploadPackageService.Validate(workflow);
+            logs.Should().Contain(message => message.Contains("自动修复原始文件信息上传包"));
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Final_validation_migrates_legacy_project_info_screenshot_name()
+    {
+        var workflow = CreateWorkflow();
+        var output = TikTokSourceFileInfoUploadPackageService.GetOutputDirectory(workflow);
+        var current = Path.Combine(output, TikTokSourceFileInfoUploadPackageService.ProjectInfoImageFileName);
+        var legacy = Path.Combine(output, TikTokSourceFileInfoUploadPackageService.LegacyProjectInfoImageFileName);
+        File.Move(current, legacy);
+        try
+        {
+            TikTokSourceFileInfoUploadPackageService.EnsureCurrentFromExistingOutputs(workflow);
+
+            TikTokSourceFileInfoUploadPackageService.Validate(workflow);
+            File.Exists(current).Should().BeTrue();
+            File.Exists(legacy).Should().BeFalse();
         }
         finally
         {

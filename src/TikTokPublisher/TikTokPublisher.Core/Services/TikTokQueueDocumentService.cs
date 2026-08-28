@@ -23,7 +23,7 @@ public static class TikTokEpisodeScriptService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var configuredEpisodeCount = ResolveConfiguredEpisodeCount(account);
         var availableVideoCount = ProjectVideoResolver
-            .ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
+            .ResolveNarrativeVideos(context.SourceProjectDir, allowStagedFallback: true)
             .Take(configuredEpisodeCount)
             .Count();
         var targetEpisodeCount = ResolveTargetEpisodeCount(
@@ -52,11 +52,29 @@ public static class TikTokEpisodeScriptService
         TikTokAccountProfile? account,
         bool forceRerun,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        RoleReferenceEpisodeFallback? episodeFallback = null)
     {
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var configuredEpisodeCount = ResolveConfiguredEpisodeCount(account);
-        var videos = ProjectVideoResolver.ResolveUploadVideos(context.SourceProjectDir, allowStagedFallback: true)
+        var requestedEpisodes = Enumerable.Range(1, configuredEpisodeCount).ToArray();
+        if (ProjectVideoResolver.ResolveNarrativeVideos(
+                context.SourceProjectDir,
+                allowStagedFallback: true).Count < configuredEpisodeCount)
+        {
+            _ = await QueueMaterialStepService.EnsureRoleReferenceEpisodeVideosAsync(
+                    item,
+                    settings,
+                    requestedEpisodes,
+                    log ?? (_ => { }),
+                    ct,
+                    episodeFallback)
+                .ConfigureAwait(false);
+        }
+
+        var videos = ProjectVideoResolver.ResolveNarrativeVideos(
+                context.SourceProjectDir,
+                allowStagedFallback: true)
             .Take(configuredEpisodeCount).ToArray();
 
         var title = string.IsNullOrWhiteSpace(item.NewTitle) ? item.Title : item.NewTitle.Trim();
@@ -259,7 +277,7 @@ public static class TikTokEpisodeScriptService
         {synopsis}
         """;
 
-    private static async Task<string> ResolveTranscriptAsync(
+    internal static async Task<string> ResolveTranscriptAsync(
         string video,
         ClientSettings settings,
         Action<string>? log,

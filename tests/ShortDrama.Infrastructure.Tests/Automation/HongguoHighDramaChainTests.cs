@@ -432,6 +432,13 @@ public sealed class HongguoHighCalendarMapperTests
 public sealed class HongguoHighDramaChainTests
 {
     [Fact]
+    public void SpadeKey_Unwraps_Known_Hongguo_Sample()
+    {
+        HongguoSpadeKey.UnwrapCandidates("rLwi9m+PFvVZjiLebZM82HKUCN5YlhPtQqcJ6keXC+h1kz2fnw==")
+            .Should().Contain("a46cbc7ed9769356c3813c83355e3fde");
+    }
+
+    [Fact]
     public async Task EnsureTokenAsync_Coalesces_Concurrent_Initial_Logins()
     {
         using var httpClient = new HttpClient(new FailAllHandler());
@@ -595,6 +602,83 @@ public sealed class HongguoHighDramaChainTests
         handler.LastUri!.Host.Should().Be("api-sinfonlinec.fanqiesdk.com");
         handler.LastUri.Query.Should().Contain("book_id=999");
         handler.LastUri.Query.Should().Contain("aid=1967");
+    }
+
+    [Fact]
+    public async Task GetVideoPlaybackAsync_Uses_Three_Short_Attempts_For_Read_Timeout()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var calls = 0;
+        service.AuthedRequestForTests = (_, path, _, timeout, _) =>
+        {
+            path.Should().Be("/video/batch-parse");
+            timeout.Should().Be(15);
+            calls++;
+            throw new TaskCanceledException("read timeout");
+        };
+        service.DelayForTests = (_, _) => Task.CompletedTask;
+
+        var act = () => service.GetVideoPlaybackAsync(
+            new DramaSourceSettings { HongguoDownloadTimeoutSeconds = "60" },
+            HongguoHighCrypto.EncodeEpisodeId("book-1", 19, "vid-19"),
+            "1080P",
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<HongguoHighException>()
+            .WithMessage("*解析超过 15 秒*");
+        calls.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task GetVideoPlaybackAsync_Uses_One_Batch_Request_For_Planned_Concurrent_Episodes()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var settings = new DramaSourceSettings
+        {
+            HghighAccount = "batch@example.com",
+            HghighDeviceId = "device-1"
+        };
+        var encodedIds = Enumerable.Range(1, 3)
+            .Select(number => HongguoHighCrypto.EncodeEpisodeId("book-1", number, $"vid-{number}"))
+            .ToArray();
+        var calls = 0;
+        service.AuthedRequestForTests = (_, path, payload, _, _) =>
+        {
+            path.Should().Be("/video/batch-parse");
+            Interlocked.Increment(ref calls);
+            payload["episodes"]!.AsArray().Should().HaveCount(3);
+            return Task.FromResult<JsonNode?>(new JsonArray(
+                Enumerable.Range(1, 3)
+                    .Select(number => (JsonNode)new JsonObject
+                    {
+                        ["episodeId"] = $"vid-{number}",
+                        ["downloadUrl"] = $"https://cdn.example.com/{number}.mp4",
+                        ["encrypted_url"] = $"https://origin.example.com/{number}.mp4",
+                        ["spade_a"] = "spade-value",
+                        ["encrypt"] = true,
+                        ["sizeBytes"] = number * 100L
+                    })
+                    .ToArray()));
+        };
+
+        using var plan = service.RegisterBatchParsePlan(settings, encodedIds, "1080P", batchSize: 3);
+        var results = await Task.WhenAll(encodedIds.Select(id =>
+            service.GetVideoPlaybackAsync(settings, id, "1080P", CancellationToken.None)));
+
+        calls.Should().Be(1);
+        results.Select(item => item.Url).Should().Equal(
+            "https://cdn.example.com/1.mp4",
+            "https://cdn.example.com/2.mp4",
+            "https://cdn.example.com/3.mp4");
+        results.Should().OnlyContain(item =>
+            item.EncryptedUrls.Count == 1 && item.SpadeA == "spade-value" && item.Encrypted);
+
+        plan.Dispose();
+        var cached = await service.GetVideoPlaybackAsync(settings, encodedIds[0], "1080P", CancellationToken.None);
+        cached.Url.Should().Be("https://cdn.example.com/1.mp4");
+        calls.Should().Be(1, "短期播放地址缓存不应重复调用慢解析接口");
     }
 
     [Fact]

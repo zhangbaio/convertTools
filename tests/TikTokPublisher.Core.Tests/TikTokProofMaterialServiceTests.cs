@@ -136,43 +136,23 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
-    public async Task Source_information_generation_requires_existing_outline_without_hidden_generation()
+    public void Source_information_does_not_require_unchecked_outline_step()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"proof-source-preflight-{Guid.NewGuid():N}");
-        var source = Path.Combine(workspace, "source-project");
-        Directory.CreateDirectory(source);
-        var item = new QueueProjectItem
-        {
-            ProjectDir = source,
-            OriginalTitle = "原剧名",
-            NewTitle = "新剧名",
-            Description = "测试简介",
-            EpisodeCount = 3,
-        };
-        var account = new TikTokAccountProfile
-        {
-            TiktokCopyrightMaterialTypes = [TikTokPublishConstants.SourceFileInformationMaterialType],
-        };
-        var workflow = ProjectWorkspaceService.LoadContext(source).WorkflowProjectDir;
+        Directory.CreateDirectory(workspace);
 
         try
         {
-            Func<Task> action = async () => await TikTokProofMaterialService.GenerateAsync(
-                item,
-                new ClientSettings(),
-                account,
-                forceRerun: true,
-                log: null,
-                CancellationToken.None);
+            var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
+                [QueueStepRegistry.GenerateProofMaterial],
+                includeRoleSceneScreenshot: false);
+            var prerequisites = TikTokSourceFileInfoUploadPackageService.ValidateExistingPrerequisites(
+                workspace,
+                selection);
 
-            await action.Should().ThrowAsync<FileNotFoundException>()
-                .WithMessage("*AI 大纲 PDF*生成AI大纲*步骤*");
-            File.Exists(Path.Combine(workflow, TikTokAiScriptOutlineService.OutputFileName))
-                .Should().BeFalse("证明材料步骤不得隐式生成 AI 大纲");
-            TikTokSourceFileInfoUploadPackageService.FindScriptPdf(workflow)
-                .Should().BeNull("证明材料步骤不得隐式生成剧本");
-            Directory.Exists(TikTokReferenceSourcePackageService.GetRoot(workflow))
-                .Should().BeFalse("前置校验失败时不得创建角色参考包");
+            prerequisites.OutlinePdf.Should().BeNull();
+            prerequisites.ScriptPdf.Should().BeNull();
+            prerequisites.RoleVectorImage.Should().BeNull();
         }
         finally
         {
@@ -181,46 +161,23 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
-    public async Task Source_information_generation_requires_existing_role_package_without_hidden_generation()
+    public void Source_information_does_not_require_unchecked_role_step()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"proof-role-preflight-{Guid.NewGuid():N}");
-        var source = Path.Combine(workspace, "source-project");
-        Directory.CreateDirectory(source);
-        var item = new QueueProjectItem
-        {
-            ProjectDir = source,
-            OriginalTitle = "原剧名",
-            NewTitle = "新剧名",
-            Description = "测试简介",
-            EpisodeCount = 3,
-        };
-        var account = new TikTokAccountProfile
-        {
-            TiktokCopyrightMaterialTypes = [TikTokPublishConstants.SourceFileInformationMaterialType],
-        };
-        var workflow = ProjectWorkspaceService.LoadContext(source).WorkflowProjectDir;
-        Directory.CreateDirectory(workflow);
-        File.WriteAllBytes(
-            Path.Combine(workflow, TikTokAiScriptOutlineService.OutputFileName),
-            "%PDF-1.7\nexisting outline"u8.ToArray());
-        File.WriteAllBytes(
-            Path.Combine(workflow, "新剧名前5集剧本.pdf"),
-            "%PDF-1.7\nexisting script"u8.ToArray());
+        Directory.CreateDirectory(workspace);
 
         try
         {
-            Func<Task> action = async () => await TikTokProofMaterialService.GenerateAsync(
-                item,
-                new ClientSettings(),
-                account,
-                forceRerun: true,
-                log: null,
-                CancellationToken.None);
+            var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
+                [QueueStepRegistry.GenerateProofMaterial],
+                includeRoleSceneScreenshot: false);
+            var prerequisites = TikTokSourceFileInfoUploadPackageService.ValidateExistingPrerequisites(
+                workspace,
+                selection);
 
-            await action.Should().ThrowAsync<FileNotFoundException>()
-                .WithMessage("*角色矢量图*生成角色矢量图*步骤*");
-            Directory.Exists(TikTokReferenceSourcePackageService.GetRoot(workflow))
-                .Should().BeFalse("证明材料步骤不得隐式创建或生成角色参考包");
+            prerequisites.RoleVectorImage.Should().BeNull();
+            Directory.Exists(TikTokReferenceSourcePackageService.GetRoot(workspace))
+                .Should().BeFalse("未启用角色矢量图步骤时不得隐式创建角色参考包");
         }
         finally
         {
@@ -711,7 +668,7 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
-    public async Task Concurrent_pdf_render_uses_wps_and_libreoffice_in_parallel_instead_of_waiting_for_wps()
+    public async Task Concurrent_pdf_render_waits_for_wps_instead_of_requiring_libreoffice()
     {
         if (!OperatingSystem.IsWindows()) return;
 
@@ -728,26 +685,34 @@ public sealed class TikTokProofMaterialServiceTests
             File.WriteAllBytes(output, "%PDF-1.4\nwps"u8.ToArray());
         });
         var wps = new WpsProofMaterialPdfRenderer(automation);
+        var libreOfficeCalls = 0;
         var libreOffice = new StubRenderer("LibreOffice", async (_, output, ct) =>
-            await File.WriteAllBytesAsync(output, "%PDF-1.7\nlibreoffice"u8.ToArray(), ct));
+        {
+            Interlocked.Increment(ref libreOfficeCalls);
+            await File.WriteAllBytesAsync(output, "%PDF-1.7\nlibreoffice"u8.ToArray(), ct);
+        });
         var service = new TikTokProofMaterialPdfRenderService(wps, libreOffice);
 
         var first = service.RenderAsync(docxPath, firstOutput);
         wpsEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        var second = service.RenderAsync(docxPath, secondOutput);
         try
         {
-            var second = await service.RenderAsync(docxPath, secondOutput);
-            second.RendererName.Should().Be("LibreOffice");
-            File.Exists(secondOutput).Should().BeTrue();
+            await Task.Delay(100);
+            second.IsCompleted.Should().BeFalse();
         }
         finally
         {
             releaseWps.Set();
         }
 
-        var firstResult = await first;
+        var results = await Task.WhenAll(first, second);
+        var firstResult = results[0];
         firstResult.RendererName.Should().Be("WPS");
+        results[1].RendererName.Should().Be("WPS");
+        libreOfficeCalls.Should().Be(0);
         File.Exists(firstOutput).Should().BeTrue();
+        File.Exists(secondOutput).Should().BeTrue();
     }
 
     [Fact]

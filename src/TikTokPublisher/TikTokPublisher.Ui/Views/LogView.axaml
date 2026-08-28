@@ -43,19 +43,23 @@
                 </ListBox.ItemTemplate>
             </ListBox>
 
-            <Border Grid.Column="1" BorderBrush="#DFD1C0" BorderThickness="1" CornerRadius="6" Padding="8">
-                <TextBox x:Name="LogTextBox"
-                         IsReadOnly="True"
-                         AcceptsReturn="True"
-                         TextWrapping="Wrap"
-                         FontFamily="Consolas,Courier New,monospace"
-                         FontSize="12"
-                         Background="Transparent"
-                         BorderThickness="0"
-                         Padding="2"
-                         VerticalContentAlignment="Top"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+            <Border Grid.Column="1"
+                    Background="Transparent"
+                    BorderBrush="#DFD1C0"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="10,8">
+                <ScrollViewer x:Name="LogScrollViewer"
+                              Background="Transparent"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <SelectableTextBlock x:Name="LogTextBlock"
+                                         TextWrapping="Wrap"
+                                         FontFamily="Consolas,Courier New,monospace"
+                                         FontSize="12"
+                                         Background="Transparent"
+                                         Padding="2" />
+                </ScrollViewer>
             </Border>
         </Grid>
     </DockPanel>

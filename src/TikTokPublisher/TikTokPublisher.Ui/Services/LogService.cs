@@ -412,6 +412,10 @@ public sealed class LogService
         _ => Brushes.Black,
     };
 
+    public static IBrush AccentBrushForLevel(string level) => BrushForLevel(level);
+
+    public static IBrush TimestampForeground => Brushes.Gray;
+
     public static string FormatLevel(string level) => NormalizeLevel(level) switch
     {
         "error" => "ERROR",

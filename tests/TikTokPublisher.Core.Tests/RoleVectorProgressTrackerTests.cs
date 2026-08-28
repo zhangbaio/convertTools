@@ -8,6 +8,28 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class RoleVectorProgressTrackerTests
 {
     [Fact]
+    public void Open_resets_checked_episode_checkpoint_when_no_people_were_retained()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"role-progress-empty-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            var first = RoleVectorProgressTracker.Open(workflow, "same", forceRerun: false, log: null);
+            first.MarkVisionBatch([9, 10, 11], []);
+            var logs = new List<string>();
+
+            var reset = RoleVectorProgressTracker.Open(workflow, "same", forceRerun: false, logs.Add);
+
+            reset.CheckedEpisodes.Should().BeEmpty();
+            logs.Should().ContainSingle(message => message.Contains("清空无效断点"));
+        }
+        finally
+        {
+            if (Directory.Exists(workflow)) Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ProgressTracker_RestoresCompletedVisionBatchAndCharacterFile()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"role-vector-progress-{Guid.NewGuid():N}");

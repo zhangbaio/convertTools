@@ -783,15 +783,15 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
     private void ApplySearchFilter()
     {
         FilteredRows.Clear();
-        var keyword = (SearchText ?? "").Trim().ToLowerInvariant();
+        var searchTerm = (SearchText ?? "").Trim();
+        var keyword = searchTerm.ToLowerInvariant();
         var index = 1;
         foreach (var row in Rows)
         {
             if (keyword.Length > 0 &&
                 !Contains(row.DisplayName, keyword) &&
                 !Contains(row.OriginalTitle, keyword) &&
-                !Contains(row.NewTitle, keyword) &&
-                !Contains(row.ArchiveSource, keyword))
+                !Contains(row.NewTitle, keyword))
             {
                 continue;
             }
@@ -800,9 +800,9 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
             FilteredRows.Add(row);
         }
 
-        StatusMessage = FilteredRows.Count == Rows.Count
-            ? $"已归档: {Rows.Count}"
-            : $"已归档: {FilteredRows.Count} / {Rows.Count}";
+        StatusMessage = keyword.Length > 0
+            ? $"搜索结果: {FilteredRows.Count} / {Rows.Count}（关键词：{searchTerm}）"
+            : $"已归档: {Rows.Count}";
     }
 
     private ArchivedProjectRowViewModel[] TargetRowsForAction()

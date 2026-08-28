@@ -2135,13 +2135,58 @@ public partial class TikTokQueueView : UserControl
             proofAccount,
             queueProjects,
             archivedProjects);
+        var suppliedOriginalTitles = dialogResult.Entries
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.NewTitle))
+            .GroupBy(entry => entry.NewTitle.Trim(), StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => (group.First().OriginalTitle ?? string.Empty).Trim(),
+                StringComparer.Ordinal);
         var validatedMatches = new List<CopyrightProofProjectMatch>();
+        var completedExistingRecovery = false;
         var validationFailures = matches
             .Where(match => !match.CanExecute)
             .Select(match => $"「{match.NewTitle}」存在同名冲突")
             .ToList();
         foreach (var match in matches.Where(match => match.CanExecute))
         {
+            var suppliedOriginalTitle = suppliedOriginalTitles.GetValueOrDefault(match.NewTitle) ?? string.Empty;
+            if (match.Location == CopyrightProofProjectLocation.CurrentQueue &&
+                match.QueueProject is not null &&
+                !string.IsNullOrWhiteSpace(suppliedOriginalTitle) &&
+                PublishedRecoveryOriginalTitleCompletionService.CanComplete(match.QueueProject))
+            {
+                try
+                {
+                    vm.StatusMessage = $"正在验证并补全原剧资源：{suppliedOriginalTitle}";
+                    var lookup = await UploadTitleImportService.FindExactDramaAsync(
+                        suppliedOriginalTitle,
+                        0,
+                        CancellationToken.None);
+                    if (lookup.Item is null)
+                    {
+                        validationFailures.Add(
+                            $"「{match.NewTitle}」：找不到唯一原剧「{suppliedOriginalTitle}」（{lookup.Reason}）");
+                        continue;
+                    }
+
+                    PublishedRecoveryOriginalTitleCompletionService.Complete(
+                        match.QueueProject,
+                        suppliedOriginalTitle,
+                        lookup.Item,
+                        vm.AppendLog);
+                    completedExistingRecovery = true;
+                    validatedMatches.Add(match);
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    validationFailures.Add(
+                        $"「{match.NewTitle}」：补全原剧「{suppliedOriginalTitle}」失败（{ex.Message}）");
+                    continue;
+                }
+            }
+
             if (match.Location != CopyrightProofProjectLocation.DeletedHistory)
             {
                 validatedMatches.Add(match);
@@ -2176,6 +2221,16 @@ public partial class TikTokQueueView : UserControl
             {
                 validationFailures.Add($"「{match.NewTitle}」：验证原剧「{originalTitle}」失败（{ex.Message}）");
             }
+        }
+
+        if (completedExistingRecovery)
+        {
+            var persistedOptions = WorkspaceQueueService.LoadRunOptions(workspace);
+            WorkspaceQueueService.SaveRunOptions(workspace, queueProjects.ToArray(), persistedOptions);
+            await vm.ApplyPreparedWorkspaceQueueSnapshotAsync(
+                workspace,
+                queueProjects,
+                persistedOptions);
         }
 
         if (validationFailures.Count > 0)
@@ -4111,6 +4166,7 @@ public partial class TikTokQueueView : UserControl
             return PublishResult.Fail("内置浏览器未就绪或未登录，请先在「浏览器」页完成登录");
 
         var item = QueuePublishHost.ToPublishItem(project);
+        item.EnabledQueueSteps = options.EnabledSteps.ToArray();
         item.ForceEditUpload = string.Equals(options.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
         item.CopyrightProofOnly = options.IsCopyrightProofOnlyRun();
         if (!item.CopyrightProofOnly && string.IsNullOrWhiteSpace(item.VideoPath))

@@ -1,6 +1,8 @@
 using System.Reflection;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -49,7 +51,8 @@ public static class TikTokAiScriptOutlineService
         TikTokAccountProfile? account,
         bool forceRerun,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        RoleReferenceEpisodeFallback? episodeFallback = null)
     {
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var title = FirstNonEmpty(item.NewTitle, item.Title, item.DisplayName);
@@ -58,7 +61,19 @@ public static class TikTokAiScriptOutlineService
 
         var synopsis = ResolveOriginalSynopsis(item, context);
         if (string.IsNullOrWhiteSpace(synopsis))
-            throw new InvalidOperationException("生成 AI 剧本大纲失败：没有找到改写前的旧简介。");
+        {
+            synopsis = await RecoverSynopsisFromMaterialVideosAsync(
+                    item,
+                    context,
+                    settings,
+                    episodeFallback,
+                    log,
+                    ct)
+                .ConfigureAwait(false);
+        }
+        if (string.IsNullOrWhiteSpace(synopsis))
+            throw new InvalidOperationException(
+                "生成 AI 剧本大纲失败：没有找到旧简介，也无法从恢复视频提取剧情摘要。");
 
         var outputPdf = Path.Combine(context.WorkflowProjectDir, OutputFileName);
         var outputDocx = Path.ChangeExtension(outputPdf, ".docx");
@@ -91,7 +106,7 @@ public static class TikTokAiScriptOutlineService
         }
         catch (InvalidOperationException ex) when (!ct.IsCancellationRequested)
         {
-            log?.Invoke($"AI 剧本大纲首次返回不完整，正在自动重试：{ex.Message}");
+            log?.Invoke($"WARN AI 剧本大纲首次返回不完整，正在自动重试：{ex.Message}");
             response = await QueueWorkloadResourceScheduler.RunAsync(
                 QueueWorkloadResource.AiText,
                 () => TikTokEpisodeScriptService.RequestTextAsync(
@@ -174,6 +189,128 @@ public static class TikTokAiScriptOutlineService
         return item.Description.Trim();
     }
 
+    private static async Task<string> RecoverSynopsisFromMaterialVideosAsync(
+        QueueProjectItem item,
+        ProjectWorkspaceContext context,
+        ClientSettings settings,
+        RoleReferenceEpisodeFallback? episodeFallback,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var videos = ProjectVideoResolver.ResolveNarrativeVideos(
+            context.SourceProjectDir,
+            allowStagedFallback: true);
+        if (videos.Count == 0)
+        {
+            try
+            {
+                _ = await QueueMaterialStepService.EnsureRoleReferenceEpisodeVideosAsync(
+                        item,
+                        settings,
+                        [1],
+                        log ?? (_ => { }),
+                        ct,
+                        episodeFallback)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log?.Invoke($"WARN AI 剧本大纲：真实分集视频补源失败：{ex.Message}");
+            }
+            videos = ProjectVideoResolver.ResolveNarrativeVideos(
+                context.SourceProjectDir,
+                allowStagedFallback: true);
+        }
+        if (videos.Count == 0) return string.Empty;
+
+        TikTokEpisodeScriptService.EnsureAiConfigured(settings);
+        var transcripts = new List<string>();
+        foreach (var (video, index) in videos.Take(3).Select((path, index) => (path, index)))
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                log?.Invoke($"AI 剧本大纲：项目缺少旧简介，正在从恢复视频 {index + 1} 提取剧情线索…");
+                var transcript = await TikTokEpisodeScriptService.ResolveTranscriptAsync(
+                        video,
+                        settings,
+                        log,
+                        ct)
+                    .ConfigureAwait(false);
+                if (!string.IsNullOrWhiteSpace(transcript))
+                    transcripts.Add($"第{index + 1}集字幕：\n{transcript}");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log?.Invoke($"WARN AI 剧本大纲：第 {index + 1} 集字幕提取失败，继续尝试其他集：{ex.Message}");
+            }
+        }
+        if (transcripts.Count == 0) return string.Empty;
+
+        var source = string.Join("\n\n", transcripts);
+        if (source.Length > 36000) source = source[..36000];
+        var title = FirstNonEmpty(item.NewTitle, item.Title, item.DisplayName);
+        var prompt = $"""
+            请根据以下已发布短剧前几集字幕，整理一段300至600字的中文剧情简介，供后续生成完整剧本大纲使用。
+            只输出剧情简介正文，不要Markdown、标题、免责声明或分析过程。
+            必须忠于字幕中已经出现的人物、关系和冲突；结局尚未出现时不要编造确定结局。
+
+            新剧名：{title}
+            {source}
+            """;
+        log?.Invoke("AI 剧本大纲：正在根据恢复视频字幕补建旧简介…");
+        var synopsis = await TikTokEpisodeScriptService.RequestTextAsync(
+                prompt,
+                settings,
+                ct,
+                maxOutputTokens: 4096)
+            .ConfigureAwait(false);
+        PersistRecoveredSynopsis(item, context, synopsis);
+        log?.Invoke("AI 剧本大纲：已从恢复视频补建剧情简介并写回项目元数据。");
+        return synopsis;
+    }
+
+    internal static void PersistRecoveredSynopsis(
+        QueueProjectItem item,
+        ProjectWorkspaceContext context,
+        string synopsis)
+    {
+        var text = (synopsis ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(text)) return;
+        item.Description = text;
+        foreach (var directory in new[] { context.SourceProjectDir, context.WorkflowProjectDir }
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var metadataPath = Path.Combine(directory, "shortdrama-project.json");
+            JsonObject metadata;
+            try
+            {
+                metadata = File.Exists(metadataPath)
+                    ? JsonNode.Parse(File.ReadAllText(metadataPath, Encoding.UTF8)) as JsonObject ?? new JsonObject()
+                    : new JsonObject();
+            }
+            catch
+            {
+                metadata = new JsonObject();
+            }
+            metadata["intro"] = text;
+            metadata["description"] = text;
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(
+                metadataPath,
+                metadata.ToJsonString(new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                }),
+                Encoding.UTF8);
+
+            var infoPath = Path.Combine(directory, "短剧信息.txt");
+            if (File.Exists(infoPath))
+                ProjectWorkspaceService.UpdateProjectInfoFieldIfBlank(infoPath, "简介", text);
+        }
+    }
+
     internal static AiScriptOutline ParseOutline(string raw, int episodeCount)
     {
         var text = raw.Trim();
@@ -182,6 +319,17 @@ public static class TikTokAiScriptOutlineService
             var firstLine = text.IndexOf('\n');
             var lastFence = text.LastIndexOf("```", StringComparison.Ordinal);
             if (firstLine >= 0 && lastFence > firstLine) text = text[(firstLine + 1)..lastFence].Trim();
+        }
+
+        // Some models prepend a short explanation or append a completion note even
+        // when explicitly asked for JSON. The document only consumes the JSON object,
+        // so recover that object before treating the response as malformed.
+        if (!text.StartsWith('{') || !text.EndsWith('}'))
+        {
+            var firstObject = text.IndexOf('{');
+            var lastObject = text.LastIndexOf('}');
+            if (firstObject >= 0 && lastObject > firstObject)
+                text = text[firstObject..(lastObject + 1)].Trim();
         }
         if (ContainsAiContentDisclosure(text))
             throw new InvalidOperationException("生成 AI 剧本大纲失败：模型输出包含禁止的 AI 内容标注。");

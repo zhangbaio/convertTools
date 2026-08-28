@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -20,6 +21,8 @@ public delegate Task<IReadOnlyDictionary<int, string>> RoleReferenceEpisodeFallb
 /// <summary>队列步骤：下载 / 改写 / 海报 / 删源（对齐 Python drama + tiktok 服务）。</summary>
 public static class QueueMaterialStepService
 {
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> PublishedFallbackLocks =
+        new(StringComparer.OrdinalIgnoreCase);
     private const int MissingEpisodeRepairRounds = 3;
     private const string ProofMaterialFrameFallbackVideoFileName = "证明材料抽帧兜底.mp4";
     private const string AiRewriteStateDocumentType = "ai_rewrite_state";
@@ -628,13 +631,32 @@ public static class QueueMaterialStepService
         var unresolved = requested.Where(episode => !resolved.ContainsKey(episode)).ToArray();
         if (unresolved.Length > 0 && episodeFallback is not null)
         {
-            log(
-                $"角色补源：原下载器未取得第 {FormatEpisodeSelection(unresolved)} 集，" +
-                "切换 TikTok 已上传视频兜底。");
+            var fallbackLock = PublishedFallbackLocks.GetOrAdd(
+                Path.GetFullPath(context.SourceProjectDir),
+                static _ => new SemaphoreSlim(1, 1));
+            await fallbackLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                var fallbackVideos = await episodeFallback(item, unresolved, log, ct).ConfigureAwait(false);
-                MergeRoleReferenceFallbackVideos(resolved, unresolved, fallbackVideos);
+                // Other parallel steps may have downloaded the same episodes while this
+                // request waited. Re-scan before opening another browser/download batch.
+                var concurrentlyDownloaded = ResolveExistingRoleReferenceEpisodeVideos(
+                    context.SourceProjectDir,
+                    requested,
+                    item.EpisodeCount);
+                foreach (var episode in requested)
+                {
+                    if (concurrentlyDownloaded.TryGetValue(episode, out var path))
+                        resolved[episode] = path;
+                }
+                unresolved = requested.Where(episode => !resolved.ContainsKey(episode)).ToArray();
+                if (unresolved.Length > 0)
+                {
+                    log(
+                        $"角色补源：原下载器未取得第 {FormatEpisodeSelection(unresolved)} 集，" +
+                        "切换 TikTok 已上传视频兜底。");
+                    var fallbackVideos = await episodeFallback(item, unresolved, log, ct).ConfigureAwait(false);
+                    MergeRoleReferenceFallbackVideos(resolved, unresolved, fallbackVideos);
+                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -643,6 +665,10 @@ public static class QueueMaterialStepService
             catch (Exception ex)
             {
                 log($"角色补源：TikTok 已上传视频兜底失败，将继续后续批次：{ex.Message}");
+            }
+            finally
+            {
+                fallbackLock.Release();
             }
             unresolved = requested.Where(episode => !resolved.ContainsKey(episode)).ToArray();
         }
@@ -691,7 +717,7 @@ public static class QueueMaterialStepService
             return resolved;
 
         MapExistingEpisodeVideos(
-            ProjectVideoResolver.ResolveMaterialVideos(sourceProjectDirectory),
+            ProjectVideoResolver.ResolveNarrativeVideos(sourceProjectDirectory),
             requested,
             expectedEpisodeCount,
             resolved);

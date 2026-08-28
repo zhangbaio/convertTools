@@ -9,6 +9,52 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokAiScriptOutlineServiceTests
 {
+    [Fact]
+    public void ParseOutline_accepts_explanation_around_complete_json()
+    {
+        var json = JsonSerializer.Serialize(CreateValidOutline());
+
+        var outline = TikTokAiScriptOutlineService.ParseOutline(
+            $"以下是按要求生成的大纲：\n{json}\n以上内容已完成。",
+            1);
+
+        Assert.False(string.IsNullOrWhiteSpace(outline.Genre));
+    }
+
+    [Fact]
+    public void Recovered_synopsis_is_persisted_to_source_and_workflow_metadata()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"outline-recovery-synopsis-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "恢复项目_版权恢复");
+        var workflow = Path.Combine(workspace, "workflow", "_恢复项目");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            var item = new QueueProjectItem { ProjectDir = source };
+            var context = new ProjectWorkspaceContext(source, workflow, workspace);
+
+            TikTokAiScriptOutlineService.PersistRecoveredSynopsis(
+                item,
+                context,
+                "从恢复视频提炼出的剧情简介。");
+
+            Assert.Equal("从恢复视频提炼出的剧情简介。", item.Description);
+            foreach (var directory in new[] { source, workflow })
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(
+                    Path.Combine(directory, "shortdrama-project.json")));
+                Assert.Equal(
+                    "从恢复视频提炼出的剧情简介。",
+                    document.RootElement.GetProperty("intro").GetString());
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(1, "画面比例：9:16（竖屏短剧）")]
     [InlineData(0, "画面比例：16:9（横屏短剧）")]

@@ -329,9 +329,9 @@ public sealed class DramaSourceRouterDownloadTests
             handler.GetCdnRequests().Should().OnlyContain(request =>
                 request.Headers.AcceptEncoding.Any(value =>
                     string.Equals(value.Value, "identity", StringComparison.OrdinalIgnoreCase)));
-            handler.GetCdnDataRangeRequests().Should().OnlyContain(request =>
-                request.Headers.IfRange != null &&
-                string.Equals(request.Headers.IfRange.ToString(), "\"video-v1\"", StringComparison.Ordinal));
+            handler.GetCdnRequests().Should().OnlyContain(request =>
+                string.Equals(request.Headers.UserAgent.ToString(), "Mozilla/5.0", StringComparison.Ordinal));
+            handler.GetCdnDataRangeRequests().Should().OnlyContain(request => request.Headers.IfRange == null);
             progress.Messages.Should().Contain(message => message.Contains("启用 4 路分块下载", StringComparison.Ordinal));
         }
         finally

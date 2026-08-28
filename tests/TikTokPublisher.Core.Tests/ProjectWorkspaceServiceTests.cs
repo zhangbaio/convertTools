@@ -8,6 +8,30 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class ProjectWorkspaceServiceTests
 {
     [Fact]
+    public void Legacy_nested_copyright_recovery_resolves_real_workspace_and_workflow()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"legacy-recovery-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "六旬老太翠花创业记", "_版权恢复");
+        Directory.CreateDirectory(source);
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(source);
+
+            context.WorkspaceRoot.Should().Be(workspace);
+            context.WorkflowProjectDir.Should().Be(Path.Combine(
+                workspace,
+                "workflow",
+                "_六旬老太翠花创业记"));
+            var validate = () => ProjectWorkspaceService.ValidateContextOwnership(context);
+            validate.Should().NotThrow();
+        }
+        finally
+        {
+            if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ValidateContextOwnership_accepts_custom_workflow_with_matching_source_metadata()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"project-workspace-owner-{Guid.NewGuid():N}");

@@ -9,6 +9,51 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class QueueMaterialStepServiceTests
 {
     [Fact]
+    public async Task Concurrent_uploaded_episode_fallback_is_coalesced_per_project()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"coalesced-web-fallback-{Guid.NewGuid():N}");
+        var source = Path.Combine(root, "恢复项目_版权恢复");
+        Directory.CreateDirectory(source);
+        try
+        {
+            var item = new QueueProjectItem
+            {
+                ProjectDir = source,
+                NewTitle = "恢复项目",
+                EpisodeCount = 1,
+            };
+            var calls = 0;
+            RoleReferenceEpisodeFallback fallback = async (_, episodes, _, ct) =>
+            {
+                Interlocked.Increment(ref calls);
+                await Task.Delay(100, ct);
+                var cache = ProjectVideoResolver.ResolvePublishedMaterialVideoDirectory(source);
+                Directory.CreateDirectory(cache);
+                var path = Path.Combine(cache, "第001集.mp4");
+                File.WriteAllBytes(path, [1, 2, 3]);
+                return new Dictionary<int, string> { [episodes.Single()] = path };
+            };
+
+            var tasks = Enumerable.Range(0, 2).Select(_ =>
+                QueueMaterialStepService.EnsureRoleReferenceEpisodeVideosAsync(
+                    item,
+                    new ClientSettings(),
+                    [1],
+                    _ => { },
+                    CancellationToken.None,
+                    fallback));
+            var results = await Task.WhenAll(tasks);
+
+            calls.Should().Be(1);
+            results.Should().OnlyContain(result => result.ContainsKey(1));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Role_reference_fallback_merges_only_existing_requested_episode_files()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"role-web-fallback-{Guid.NewGuid():N}");

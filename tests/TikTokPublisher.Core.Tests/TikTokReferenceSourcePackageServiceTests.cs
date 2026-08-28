@@ -530,6 +530,41 @@ public sealed class TikTokReferenceSourcePackageServiceTests
     }
 
     [Fact]
+    public void Numbered_gendered_lead_placeholders_do_not_discard_clear_real_people()
+    {
+        var profiles = new[]
+        {
+            new TikTokReferenceSourcePackageService.CharacterProfile("女主角1", "自动补位角色"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("男主角2", "自动补位角色"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("主要配角", "关键人物"),
+        };
+        var candidates = new[]
+        {
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(1, "male", "person-a", true, 97),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(2, "male", "person-b", true, 94),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(3, "male", "person-c", true, 91),
+        };
+
+        TikTokReferenceSourcePackageService.AssignRoleReferenceCandidates(profiles, candidates)
+            .Should().Equal(1, 2, 3);
+    }
+
+    [Fact]
+    public void Numbered_gendered_lead_names_are_normalized_as_generic_placeholders()
+    {
+        var profiles = TikTokReferenceSourcePackageService.NormalizeCharacterProfiles(
+            [
+                new TikTokReferenceSourcePackageService.CharacterProfile("女主角1", "自动补位角色"),
+                new TikTokReferenceSourcePackageService.CharacterProfile("男主角2", "自动补位角色"),
+                new TikTokReferenceSourcePackageService.CharacterProfile("主要配角", "自动补位角色"),
+            ],
+            "林远承包废塘创业，林强多次阻挠。",
+            requiredCount: 3);
+
+        profiles.Select(profile => profile.Name).Should().Equal("主角1", "主角2", "主要配角");
+    }
+
+    [Fact]
     public void Supporting_actor_rejects_body_detail_without_visible_face()
     {
         var profiles = TikTokReferenceSourcePackageService.AddFallbackCharacters([], "古装短剧");

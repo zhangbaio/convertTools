@@ -6,6 +6,15 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class LogMessageLevelClassifierTests
 {
     [Theory]
+    [InlineData("WARN 首次解析失败，正在自动重试", "warn")]
+    [InlineData("[WARNING] 下载失败，已切换本地兜底", "warn")]
+    [InlineData("INFO 正在检查错误记录", "info")]
+    public void Explicit_level_takes_precedence_over_message_keywords(string message, string expected)
+    {
+        LogMessageLevelClassifier.InferLevel(message).Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("已同步管理系统：成功（新增 1，更新 0，失败 0）")]
     [InlineData("sync succeeded (created 1, updated 0, failed: 0)")]
     public void Zero_failure_success_summaries_are_success(string message)
