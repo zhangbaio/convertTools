@@ -1067,14 +1067,16 @@ public sealed class QueueWorkerRunner
                     if (requiresAuxiliaryGeneratedMaterial)
                     {
                         var proofSettings = ClientSettingsStore.Load();
-                        if (!TikTokProofMaterialService.HasReusableProofMaterialForCopyrightCompletion(
-                                item,
-                                proofSettings,
-                                account,
-                                options))
+                        var reuseIssues = TikTokProofMaterialService.GetProofMaterialReuseIssues(
+                            item,
+                            proofSettings,
+                            account,
+                            options);
+                        if (reuseIssues.Count > 0)
                         {
                             throw new InvalidOperationException(
-                                "生成证明材料步骤已完成，但本机缺少当前账号勾选的辅助证明材料。");
+                                "生成证明材料步骤已完成，但当前账号勾选的材料需要修复：" +
+                                string.Join("；", reuseIssues));
                         }
                     }
 
