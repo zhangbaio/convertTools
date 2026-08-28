@@ -11,6 +11,72 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokMaterialValidationServiceTests
 {
     [Fact]
+    public void Generated_material_validation_repairs_partial_source_info_package()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"material-package-repair-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "source");
+        var workflow = Path.Combine(workspace, "workflow", "source");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        File.WriteAllText(
+            Path.Combine(source, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sourceProjectDir = source,
+                workflowProjectDir = workflow,
+            }));
+        File.WriteAllBytes(
+            Path.Combine(workflow, TikTokAiScriptOutlineService.OutputFileName),
+            "%PDF-1.7\noutline"u8.ToArray());
+        File.WriteAllBytes(
+            Path.Combine(workflow, "测试剧前5集剧本.pdf"),
+            "%PDF-1.7\nscript"u8.ToArray());
+        var output = TikTokSourceFileInfoUploadPackageService.GetOutputDirectory(workflow);
+        Directory.CreateDirectory(output);
+        using (var image = new Image<Rgba32>(1280, 720))
+            image.SaveAsPng(Path.Combine(
+                output,
+                TikTokSourceFileInfoUploadPackageService.ProjectInfoImageFileName));
+        var referenceRoot = TikTokReferenceSourcePackageService.GetRoot(workflow);
+        Directory.CreateDirectory(referenceRoot);
+        using (var image = new Image<Rgba32>(2342, 1280))
+            image.SaveAsPng(Path.Combine(
+                referenceRoot,
+                TikTokReferenceSourcePackageService.CharacterWorkbenchFileName));
+        try
+        {
+            var account = new TikTokAccountProfile
+            {
+                TiktokCopyrightMaterialTypes =
+                    [TikTokPublishConstants.SourceFileInformationMaterialType],
+            };
+            var options = new TikTokMaterialValidationService.Options
+            {
+                EnabledSteps = new HashSet<string>(
+                    [
+                        QueueStepRegistry.GenerateEpisodeScript,
+                        QueueStepRegistry.GenerateAiScriptOutline,
+                        QueueStepRegistry.GenerateRoleVector,
+                        QueueStepRegistry.GenerateProofMaterial,
+                    ],
+                    StringComparer.Ordinal),
+            };
+
+            TikTokMaterialValidationService.ValidateGeneratedUploadMaterials(
+                source,
+                account,
+                options,
+                log: null);
+
+            TikTokSourceFileInfoUploadPackageService.Validate(workflow);
+        }
+        finally
+        {
+            TryDelete(workspace);
+        }
+    }
+
+    [Fact]
     public void Generated_material_validation_does_not_require_unchecked_role_vector_step()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"material-proof-validation-{Guid.NewGuid():N}");

@@ -44,6 +44,7 @@ public static class TikTokSourceFileInfoUploadPackageService
     public const string OutlineFileName = "AI剧本大纲.pdf";
     public const string ScriptFileName = "剧本.pdf";
     public const string ProjectInfoImageFileName = "01_剧本与项目资料.png";
+    internal const string LegacyProjectInfoImageFileName = "01_AI剧本与项目资料.png";
     public const string RoleSceneImageFileName = "02_角色场景或项目素材.png";
     public const string RoleVectorImageFileName = "角色矢量图.png";
 
@@ -324,6 +325,43 @@ public static class TikTokSourceFileInfoUploadPackageService
         }
     }
 
+    /// <summary>
+    /// Rebuilds a stale or partial generated upload folder exclusively from products
+    /// that already exist on disk. This is used by final material validation after
+    /// upgrades and never invokes AI, video processing, or screenshot capture.
+    /// </summary>
+    public static bool EnsureCurrentFromExistingOutputs(
+        string workflowProjectDirectory,
+        bool includeRoleSceneScreenshot = false,
+        TikTokSourceFileInfoPackageSelection? selection = null,
+        Action<string>? log = null)
+    {
+        selection ??= TikTokSourceFileInfoPackageSelection.LegacyDefault(includeRoleSceneScreenshot);
+        try
+        {
+            Validate(workflowProjectDirectory, includeRoleSceneScreenshot, selection);
+            return false;
+        }
+        catch
+        {
+            // Continue with a local-only rebuild below.
+        }
+
+        var workflow = Path.GetFullPath(workflowProjectDirectory);
+        MigrateLegacyProjectInfoScreenshot(workflow, log);
+        var prerequisites = ValidateExistingPrerequisites(workflow, selection);
+        Generate(
+            workflow,
+            prerequisites.OutlinePdf,
+            prerequisites.ScriptPdf,
+            log,
+            includeRoleSceneScreenshot,
+            selection,
+            validateComplete: true);
+        log?.Invoke("成片检查：已使用现有产物自动修复原始文件信息上传包，无需重新生成 AI 内容。");
+        return true;
+    }
+
     public static int RequiredFileCountFor(TikTokSourceFileInfoPackageSelection selection) =>
         ExpectedFileNames(selection).Count;
 
@@ -354,6 +392,37 @@ public static class TikTokSourceFileInfoUploadPackageService
         }
     }
 
+    private static void MigrateLegacyProjectInfoScreenshot(
+        string workflowProjectDirectory,
+        Action<string>? log)
+    {
+        var outputDirectory = GetOutputDirectory(workflowProjectDirectory);
+        var canonical = Path.Combine(outputDirectory, ProjectInfoImageFileName);
+        if (File.Exists(canonical)) return;
+
+        var candidates = new[]
+        {
+            Path.Combine(outputDirectory, LegacyProjectInfoImageFileName),
+            Path.Combine(workflowProjectDirectory, "原始文件或素材文件信息", LegacyProjectInfoImageFileName),
+            Path.Combine(workflowProjectDirectory, "原始文件信息截图", LegacyProjectInfoImageFileName),
+        };
+        var legacy = candidates.FirstOrDefault(File.Exists);
+        if (legacy is null) return;
+
+        Directory.CreateDirectory(outputDirectory);
+        File.Copy(legacy, canonical, overwrite: true);
+        if (string.Equals(
+                Path.GetDirectoryName(legacy),
+                outputDirectory,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            File.Delete(legacy);
+        }
+        log?.Invoke(
+            $"原始文件信息上传包：已兼容旧版截图名称 {LegacyProjectInfoImageFileName} → " +
+            ProjectInfoImageFileName + "。");
+    }
+
     internal static string? FindScriptPdf(string workflowProjectDirectory)
     {
         var workflow = Path.GetFullPath(workflowProjectDirectory);
@@ -363,7 +432,9 @@ public static class TikTokSourceFileInfoUploadPackageService
             .Where(path => !Path.GetFileName(path).Equals(
                 TikTokAiScriptOutlineService.OutputFileName,
                 StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .OrderByDescending(path => Path.GetFileNameWithoutExtension(path)
+                .EndsWith("前5集剧本", StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(File.GetLastWriteTimeUtc)
             .FirstOrDefault();
     }
 

@@ -173,10 +173,11 @@ public static class TikTokMaterialValidationService
                 account.TiktokUploadSourceInfoRoleSceneScreenshot);
             try
             {
-                TikTokSourceFileInfoUploadPackageService.Validate(
+                TikTokSourceFileInfoUploadPackageService.EnsureCurrentFromExistingOutputs(
                     workflow,
                     account.TiktokUploadSourceInfoRoleSceneScreenshot,
-                    selection);
+                    selection,
+                    log);
             }
             catch (Exception ex)
             {

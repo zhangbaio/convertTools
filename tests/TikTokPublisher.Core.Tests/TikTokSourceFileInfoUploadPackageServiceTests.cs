@@ -104,6 +104,50 @@ public sealed class TikTokSourceFileInfoUploadPackageServiceTests
     }
 
     [Fact]
+    public void Final_validation_rebuilds_partial_package_from_existing_products()
+    {
+        var workflow = CreateWorkflow();
+        try
+        {
+            var logs = new List<string>();
+
+            var repaired = TikTokSourceFileInfoUploadPackageService.EnsureCurrentFromExistingOutputs(
+                workflow,
+                log: logs.Add);
+
+            repaired.Should().BeTrue();
+            TikTokSourceFileInfoUploadPackageService.Validate(workflow);
+            logs.Should().Contain(message => message.Contains("自动修复原始文件信息上传包"));
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Final_validation_migrates_legacy_project_info_screenshot_name()
+    {
+        var workflow = CreateWorkflow();
+        var output = TikTokSourceFileInfoUploadPackageService.GetOutputDirectory(workflow);
+        var current = Path.Combine(output, TikTokSourceFileInfoUploadPackageService.ProjectInfoImageFileName);
+        var legacy = Path.Combine(output, TikTokSourceFileInfoUploadPackageService.LegacyProjectInfoImageFileName);
+        File.Move(current, legacy);
+        try
+        {
+            TikTokSourceFileInfoUploadPackageService.EnsureCurrentFromExistingOutputs(workflow);
+
+            TikTokSourceFileInfoUploadPackageService.Validate(workflow);
+            File.Exists(current).Should().BeTrue();
+            File.Exists(legacy).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Generate_optionally_includes_role_scene_screenshot()
     {
         var workflow = CreateWorkflow();
