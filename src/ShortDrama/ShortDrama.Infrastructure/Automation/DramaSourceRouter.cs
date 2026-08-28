@@ -446,7 +446,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
-                separateResolveConcurrency: 4,
+                separateResolveConcurrency: Math.Min(4, Math.Clamp(request.Concurrent, 1, 10)),
                 registerResolvePlan: (videoIds, batchSize) =>
                 {
                     progress?.Report($"高码率播放地址启用批量解析：每批 {batchSize} 集，共 {videoIds.Count} 集");
@@ -573,7 +573,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         var failures = new List<string>();
-        var concurrency = Math.Clamp(request.Concurrent, 1, 8);
+        var concurrency = Math.Clamp(request.Concurrent, 1, 10);
         var resolveConcurrency = Math.Clamp(separateResolveConcurrency, 0, 10);
         var plannedVideoIds = new List<string>(tasks.Count);
         if (registerResolvePlan is not null)
@@ -593,7 +593,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         using var resolvePlan = registerResolvePlan?.Invoke(
             plannedVideoIds,
-            Math.Max(concurrency, resolveConcurrency));
+            concurrency);
         using var downloadSemaphore = new SemaphoreSlim(concurrency);
         using var resolveSemaphore = resolveConcurrency > 0 ? new SemaphoreSlim(resolveConcurrency) : null;
 
@@ -759,7 +759,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 {
                     CleanupDownloadArtifacts(finalPath, keepVideo: false);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载重试 {attempt}/{maxAttempts}: {ex.Message}");
-                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(10, attempt * 2)), cancellationToken);
+                    await Task.Delay(ResolveDownloadRetryDelay(ex, attempt), cancellationToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -860,11 +860,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             {
                 try
                 {
-                    report?.Invoke("使用 CDN 直连 + 本地解密（单文件最多 16 路分块）");
+                    report?.Invoke($"使用 CDN 直连 + 本地解密（单文件最多 {downloadFileSegments} 路分块）");
                     await DownloadAndDecryptHongguoCdnAsync(
                         hongguoCdn,
                         tempPath,
-                        Math.Max(downloadFileSegments, 16),
+                        downloadFileSegments,
                         report,
                         token);
                     usedHongguoCdn = true;
@@ -1692,8 +1692,16 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return unit == 0 ? $"{value:0} {units[unit]}" : $"{value:0.#} {units[unit]}";
     }
 
-    private static bool ShouldRetryDownload(Exception exception)
+    internal static bool ShouldRetryDownload(Exception exception)
     {
+        if (exception is HongguoHighException highException)
+        {
+            if (highException.Code is 401 or 403)
+                return false;
+            if (highException.Code is 408 or 425 or 429 or 500 or 502 or 503 or 504)
+                return true;
+        }
+
         if (exception is TaskCanceledException or TimeoutException or IOException or HttpRequestException or InvalidDataException)
         {
             return true;
@@ -1707,7 +1715,21 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                message.Contains("502", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("503", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("504", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("timeout", StringComparison.OrdinalIgnoreCase);
+               message.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("超时", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("解析超过", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static TimeSpan ResolveDownloadRetryDelay(Exception exception, int attempt)
+    {
+        var text = exception.Message ?? string.Empty;
+        var serviceBusy = text.Contains("解析服务繁忙", StringComparison.OrdinalIgnoreCase) ||
+                          text.Contains("服务繁忙", StringComparison.OrdinalIgnoreCase) ||
+                          text.Contains("稍后重试", StringComparison.OrdinalIgnoreCase) ||
+                          text.Contains("service busy", StringComparison.OrdinalIgnoreCase);
+        if (serviceBusy)
+            return TimeSpan.FromSeconds(Math.Min(30, 5 * Math.Pow(2, Math.Max(0, attempt - 1))));
+        return TimeSpan.FromSeconds(Math.Min(5, 1.5 * Math.Max(1, attempt)));
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> SearchPikachuAsync(

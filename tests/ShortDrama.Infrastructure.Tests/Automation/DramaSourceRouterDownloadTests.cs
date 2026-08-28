@@ -12,6 +12,30 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 
 public sealed class DramaSourceRouterDownloadTests
 {
+    [Fact]
+    public void High_Playback_Timeout_Should_Be_Retryable_But_Authentication_Should_Not()
+    {
+        DramaSourceRouter.ShouldRetryDownload(
+                new HongguoHighException("高码率播放地址解析超过 15 秒，已停止等待", 408))
+            .Should().BeTrue();
+        DramaSourceRouter.ShouldRetryDownload(
+                new HongguoHighException("token 已失效", 401))
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Retry_Delay_Should_Match_Reference_Client_Backoff()
+    {
+        DramaSourceRouter.ResolveDownloadRetryDelay(
+                new HongguoHighException("高码率解析服务繁忙，请稍后重试"), 1)
+            .Should().Be(TimeSpan.FromSeconds(5));
+        DramaSourceRouter.ResolveDownloadRetryDelay(
+                new HongguoHighException("高码率解析服务繁忙，请稍后重试"), 3)
+            .Should().Be(TimeSpan.FromSeconds(20));
+        DramaSourceRouter.ResolveDownloadRetryDelay(new IOException("timeout"), 2)
+            .Should().Be(TimeSpan.FromSeconds(3));
+    }
+
     [Theory]
     [InlineData("第10集.mp4", 10, true)]
     [InlineData("第010集.mp4", 10, true)]
