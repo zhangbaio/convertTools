@@ -36,8 +36,12 @@ public static class ExplorerCaptureNative {
     [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, int data, UIntPtr extraInfo);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint flags);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int command);
+    [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int command);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool GetScrollInfo(IntPtr hWnd, int bar, ref SCROLLINFO scrollInfo);
 
@@ -73,6 +77,10 @@ public static class ExplorerCaptureNative {
     }
 }
 '@
+
+# Keep GetWindowRect, PrintWindow and crop coordinates in the same physical-pixel
+# coordinate space on computers using 125%-300% display scaling.
+try { [ExplorerCaptureNative]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null } catch {}
 
 function Reset-ExplorerNavigationPaneScroll {
     param([IntPtr]$WindowHandle)
@@ -250,29 +258,77 @@ $resolved = [IO.Path]::GetFullPath($TargetPath).TrimEnd('\')
 $before = @{}
 $shell = New-Object -ComObject Shell.Application
 foreach ($item in @($shell.Windows())) { $before[[int64]$item.HWND] = $true }
-Start-Process explorer.exe -ArgumentList @('/n,', $resolved)
+# /separate prevents an existing minimized Explorer window or tab from being reused.
+# The old window remains a last-resort fallback for Windows builds that ignore it.
+Start-Process explorer.exe -ArgumentList @('/separate,', '/e,', $resolved)
 $window = $null
 $ownsWindow = $false
+$existingWindow = $null
 for ($attempt = 0; $attempt -lt 60 -and $null -eq $window; $attempt++) {
     Start-Sleep -Milliseconds 200
     foreach ($candidate in @($shell.Windows())) {
         try {
             $location = Convert-ExplorerLocationUrlToPath ([string]$candidate.LocationURL)
             if ($location -ieq $resolved) {
-                $window = $candidate
-                $ownsWindow = -not $before.ContainsKey([int64]$candidate.HWND)
-                break
+                if (-not $before.ContainsKey([int64]$candidate.HWND)) {
+                    $window = $candidate
+                    $ownsWindow = $true
+                    break
+                }
+                if ($null -eq $existingWindow) { $existingWindow = $candidate }
             }
         } catch {}
+    }
+
+    # Some Windows 11 configurations always reuse a tab. Give the dedicated-window
+    # launch time to appear before accepting a pre-existing matching window.
+    if ($null -eq $window -and $attempt -ge 30 -and $null -ne $existingWindow) {
+        $window = $existingWindow
+        $ownsWindow = $false
     }
 }
 if ($null -eq $window) { throw "Explorer window not found: $resolved" }
 
 try {
     $hwnd = [IntPtr][int64]$window.HWND
-    [ExplorerCaptureNative]::ShowWindow($hwnd, 9) | Out-Null
-    [ExplorerCaptureNative]::MoveWindow($hwnd, 80, 60, 1280, 820, $true) | Out-Null
-    [ExplorerCaptureNative]::SetForegroundWindow($hwnd) | Out-Null
+    $windowReady = $false
+    $lastWidth = 0
+    $lastHeight = 0
+    for ($boundsAttempt = 0; $boundsAttempt -lt 12; $boundsAttempt++) {
+        # Restore both classic Explorer windows and WinUI tab-host windows before
+        # moving them. A minimized window otherwise reports bounds around 160x100.
+        try {
+            $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+            $patternObject = $null
+            if ($null -ne $root -and $root.TryGetCurrentPattern(
+                    [System.Windows.Automation.WindowPattern]::Pattern,
+                    [ref]$patternObject)) {
+                ([System.Windows.Automation.WindowPattern]$patternObject).SetWindowVisualState(
+                    [System.Windows.Automation.WindowVisualState]::Normal)
+            }
+        } catch {}
+        [ExplorerCaptureNative]::ShowWindowAsync($hwnd, 9) | Out-Null
+        [ExplorerCaptureNative]::ShowWindow($hwnd, 9) | Out-Null
+        [ExplorerCaptureNative]::SetWindowPos(
+            $hwnd, [IntPtr]::Zero, 80, 60, 1280, 820, 0x0040) | Out-Null # SWP_SHOWWINDOW
+        [ExplorerCaptureNative]::MoveWindow($hwnd, 80, 60, 1280, 820, $true) | Out-Null
+        [ExplorerCaptureNative]::SetForegroundWindow($hwnd) | Out-Null
+        Start-Sleep -Milliseconds 250
+
+        $probeRect = New-Object ExplorerCaptureNative+RECT
+        if ([ExplorerCaptureNative]::GetWindowRect($hwnd, [ref]$probeRect)) {
+            $lastWidth = $probeRect.Right - $probeRect.Left
+            $lastHeight = $probeRect.Bottom - $probeRect.Top
+            if ($lastWidth -ge 1000 -and $lastHeight -ge 650 -and
+                -not [ExplorerCaptureNative]::IsIconic($hwnd)) {
+                $windowReady = $true
+                break
+            }
+        }
+    }
+    if (-not $windowReady) {
+        throw "Explorer window bounds did not stabilize: ${lastWidth}x${lastHeight}"
+    }
     try {
         if ($View -eq 'LargeIcons') {
             $window.Document.CurrentViewMode = 1
@@ -305,14 +361,18 @@ try {
         if ($dpi -le 0) { $dpi = 96 }
         $dpiScale = $dpi / 96.0
         $cropLeft = 0
-        $cropTop = [Math]::Min(
-            [int][Math]::Round(72 * $dpiScale),
-            [Math]::Max(0, $height - 1))
+        $desiredTop = [int][Math]::Round(72 * $dpiScale)
+        $desiredBottom = [int][Math]::Round(28 * $dpiScale)
+        # Always retain at least 500 pixels of content. This also protects unusual
+        # mixed-DPI setups where Explorer and PowerShell report different scales.
+        $cropBudget = [Math]::Max(0, $height - 500)
+        $cropTop = [Math]::Min($desiredTop, [int][Math]::Floor($cropBudget * 0.72))
+        $cropBottom = [Math]::Min($desiredBottom, $cropBudget - $cropTop)
         $cropRect = [Drawing.Rectangle]::new(
             $cropLeft,
             $cropTop,
             [Math]::Max(1, $width - $cropLeft),
-            [Math]::Max(1, $height - $cropTop - [int][Math]::Round(28 * $dpiScale)))
+            [Math]::Max(1, $height - $cropTop - $cropBottom))
         $cropped = $bitmap.Clone($cropRect, [Drawing.Imaging.PixelFormat]::Format32bppArgb)
         $outputFull = [IO.Path]::GetFullPath($OutputPath)
         [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($outputFull)) | Out-Null

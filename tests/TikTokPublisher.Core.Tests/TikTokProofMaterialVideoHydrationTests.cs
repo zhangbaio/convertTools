@@ -10,6 +10,21 @@ public sealed class TikTokProofMaterialVideoHydrationTests
     private static readonly byte[] OnePixelPng = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
+    [Theory]
+    [InlineData(160, 1, false)]
+    [InlineData(799, 500, false)]
+    [InlineData(800, 499, false)]
+    [InlineData(800, 500, true)]
+    [InlineData(1280, 720, true)]
+    public void Explorer_capture_requires_uploadable_evidence_dimensions(
+        int width,
+        int height,
+        bool expected)
+    {
+        WindowsExplorerScreenshotService.IsValidCaptureSize(width, height)
+            .Should().Be(expected);
+    }
+
     [Fact]
     public void ResolveTemporaryVideoEpisodeCount_UsesNoVideos_WhenOutputsDoNotNeedGeneration()
     {

@@ -9,6 +9,7 @@ internal static class WindowsExplorerScreenshotService
 {
     private const string ScriptResourceName =
         "TikTokPublisher.Core.Resources.CaptureExplorerWindow.ps1";
+    private const int CaptureAttempts = 3;
 
     internal sealed record CaptureRequest(string Directory, string OutputPath, bool LargeIcons);
 
@@ -41,13 +42,43 @@ internal static class WindowsExplorerScreenshotService
                 log?.Invoke(
                     $"原始文件信息/资源管理器截图 {index + 1}/{requests.Count}：" +
                     $"{request.Directory}。");
-                CaptureOne(scriptPath, request, cancellationToken);
-                using var image = Image.Load(request.OutputPath);
-                if (image.Width < 800 || image.Height < 500)
+                Exception? lastError = null;
+                var captured = false;
+                for (var attempt = 1; attempt <= CaptureAttempts; attempt++)
                 {
-                    throw new InvalidDataException(
-                        $"资源管理器截图尺寸异常：{image.Width}×{image.Height}");
+                    cancellationToken.ThrowIfCancellationRequested();
+                    TryDelete(request.OutputPath);
+                    try
+                    {
+                        CaptureOne(scriptPath, request, cancellationToken);
+                        using var image = Image.Load(request.OutputPath);
+                        if (!IsValidCaptureSize(image.Width, image.Height))
+                        {
+                            throw new InvalidDataException(
+                                $"资源管理器截图尺寸异常：{image.Width}×{image.Height}");
+                        }
+
+                        captured = true;
+                        break;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        lastError = ex;
+                        if (attempt >= CaptureAttempts) break;
+                        log?.Invoke(
+                            $"WARN 资源管理器截图异常，正在重建独立窗口重试 " +
+                            $"{attempt + 1}/{CaptureAttempts}：{ex.Message}");
+                        if (cancellationToken.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(700)))
+                            cancellationToken.ThrowIfCancellationRequested();
+                    }
                 }
+
+                if (!captured)
+                    throw lastError ?? new InvalidOperationException("资源管理器截图失败。");
             }
 
             return requests.All(request => File.Exists(request.OutputPath));
@@ -70,6 +101,9 @@ internal static class WindowsExplorerScreenshotService
             TryDelete(scriptPath);
         }
     }
+
+    internal static bool IsValidCaptureSize(int width, int height) =>
+        width >= 800 && height >= 500;
 
     private static void CaptureOne(
         string scriptPath,
