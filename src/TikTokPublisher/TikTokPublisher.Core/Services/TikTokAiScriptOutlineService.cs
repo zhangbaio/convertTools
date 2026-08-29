@@ -321,16 +321,9 @@ public static class TikTokAiScriptOutlineService
             if (firstLine >= 0 && lastFence > firstLine) text = text[(firstLine + 1)..lastFence].Trim();
         }
 
-        // Some models prepend a short explanation or append a completion note even
-        // when explicitly asked for JSON. The document only consumes the JSON object,
-        // so recover that object before treating the response as malformed.
-        if (!text.StartsWith('{') || !text.EndsWith('}'))
-        {
-            var firstObject = text.IndexOf('{');
-            var lastObject = text.LastIndexOf('}');
-            if (firstObject >= 0 && lastObject > firstObject)
-                text = text[firstObject..(lastObject + 1)].Trim();
-        }
+        // Always isolate the first balanced object. Looking only at the first/last
+        // character misses a common model error such as "{...}}".
+        text = ExtractFirstBalancedJsonObject(text);
         if (ContainsAiContentDisclosure(text))
             throw new InvalidOperationException("生成 AI 剧本大纲失败：模型输出包含禁止的 AI 内容标注。");
 
@@ -342,9 +335,22 @@ public static class TikTokAiScriptOutlineService
                 PropertyNameCaseInsensitive = true,
             });
         }
-        catch (JsonException ex)
+        catch (JsonException firstError)
         {
-            throw new InvalidOperationException($"生成 AI 剧本大纲失败：模型返回的 JSON 无法解析。{ex.Message}");
+            var repaired = RepairBareStringPropertyValues(text);
+            try
+            {
+                outline = JsonSerializer.Deserialize<AiScriptOutline>(repaired, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                });
+            }
+            catch (JsonException repairedError)
+            {
+                throw new InvalidOperationException(
+                    $"生成 AI 剧本大纲失败：模型返回的 JSON 无法解析。" +
+                    $"首次错误={firstError.Message}；修复后错误={repairedError.Message}");
+            }
         }
 
         if (outline is null ||
@@ -366,6 +372,124 @@ public static class TikTokAiScriptOutlineService
             throw new InvalidOperationException("生成 AI 剧本大纲失败：模型输出包含禁止的 AI 内容标注。");
         return outline;
     }
+
+    internal static string ExtractFirstBalancedJsonObject(string value)
+    {
+        var text = (value ?? string.Empty).Trim();
+        var start = text.IndexOf('{');
+        if (start < 0)
+            return text;
+
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+        for (var index = start; index < text.Length; index++)
+        {
+            var ch = text[index];
+            if (inString)
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                    continue;
+                }
+                if (ch == '\\')
+                {
+                    escaped = true;
+                    continue;
+                }
+                if (ch == '"')
+                    inString = false;
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                inString = true;
+                continue;
+            }
+            if (ch == '{')
+            {
+                depth++;
+                continue;
+            }
+            if (ch != '}')
+                continue;
+            depth--;
+            if (depth == 0)
+                return text[start..(index + 1)].Trim();
+        }
+        return text[start..].Trim();
+    }
+
+    internal static string RepairBareStringPropertyValues(string value)
+    {
+        var text = value ?? string.Empty;
+        var output = new StringBuilder(text.Length + 32);
+        var inString = false;
+        var escaped = false;
+        for (var index = 0; index < text.Length; index++)
+        {
+            var ch = text[index];
+            output.Append(ch);
+            if (inString)
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (ch == '\\')
+                {
+                    escaped = true;
+                }
+                else if (ch == '"')
+                {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                inString = true;
+                continue;
+            }
+            if (ch != ':')
+                continue;
+
+            var valueStart = index + 1;
+            while (valueStart < text.Length && char.IsWhiteSpace(text[valueStart]))
+            {
+                output.Append(text[valueStart]);
+                valueStart++;
+            }
+            if (valueStart >= text.Length || IsValidJsonValueStart(text[valueStart]))
+            {
+                index = valueStart - 1;
+                continue;
+            }
+
+            var valueEnd = valueStart;
+            while (valueEnd < text.Length &&
+                   text[valueEnd] is not (',' or '}' or ']' or '\r' or '\n'))
+            {
+                valueEnd++;
+            }
+            var bareValue = text[valueStart..valueEnd].Trim();
+            if (bareValue.Length == 0)
+            {
+                index = valueStart - 1;
+                continue;
+            }
+
+            output.Append(JsonSerializer.Serialize(bareValue));
+            index = valueEnd - 1;
+        }
+        return output.ToString();
+    }
+
+    private static bool IsValidJsonValueStart(char value) =>
+        value is '"' or '{' or '[' or '-' or >= '0' and <= '9' or 't' or 'f' or 'n';
 
     private static void ValidateEpisodeCoverage(AiScriptOutline outline, int episodeCount)
     {
