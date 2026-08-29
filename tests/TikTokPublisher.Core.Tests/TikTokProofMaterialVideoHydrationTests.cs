@@ -117,6 +117,56 @@ public sealed class TikTokProofMaterialVideoHydrationTests
     }
 
     [Fact]
+    public async Task Published_recovery_prefers_uploaded_series_even_when_migrated_metadata_has_book_id()
+    {
+        using var temp = new TemporaryDirectory();
+        var source = Path.Combine(temp.Path, "恢复项目_版权恢复");
+        var workflow = Path.Combine(temp.Path, "workflow", "恢复项目_版权恢复");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        File.WriteAllText(
+            Path.Combine(source, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sourceProjectDir = source,
+                workflowProjectDir = workflow,
+                bookId = "migrated-book-id",
+                tiktokPublishedRecovery = true,
+                queueEntryDramaType = DeletedCopyrightProofPublishedVideoRecoveryService.RecoverySourceType,
+                tiktokSeriesId = "series-123",
+            }));
+        var item = new QueueProjectItem
+        {
+            ProjectDir = source,
+            NewTitle = "已上传项目",
+            OriginalTitle = DeletedCopyrightProofPublishedVideoRecoveryService.UnknownOriginalTitle,
+            QueueEntryDramaType = DeletedCopyrightProofPublishedVideoRecoveryService.RecoverySourceType,
+        };
+        var calls = 0;
+
+        var result = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
+            item,
+            new ClientSettings(),
+            requiredEpisodeCount: 1,
+            _ => { },
+            CancellationToken.None,
+            (_, episodes, _, _) =>
+            {
+                calls++;
+                episodes.Should().Equal(1);
+                var cache = ProjectVideoResolver.ResolvePublishedMaterialVideoDirectory(source);
+                Directory.CreateDirectory(cache);
+                var path = Path.Combine(cache, "第001集.mp4");
+                File.WriteAllBytes(path, [1, 2, 3]);
+                return Task.FromResult<IReadOnlyDictionary<int, string>>(
+                    new Dictionary<int, string> { [1] = path });
+            });
+
+        calls.Should().Be(1);
+        result.CreatedVideoPaths.Should().ContainSingle();
+    }
+
+    [Fact]
     public void FindProofMaterialFallbackFrame_PrefersRetainedAiFrame()
     {
         using var temp = new TemporaryDirectory();

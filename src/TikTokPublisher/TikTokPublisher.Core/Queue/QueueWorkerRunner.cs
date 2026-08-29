@@ -1459,9 +1459,14 @@ public sealed class QueueWorkerRunner
         IQueuePublishHost host,
         Action<string> log)
     {
-        if (account is null ||
-            (string.IsNullOrWhiteSpace(item.UploadCompletedAt) &&
-             item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) != QueueStepStatus.Completed))
+        if (account is null)
+            return null;
+
+        var isPublishedRecovery =
+            PublishedRecoveryOriginalTitleCompletionService.CanComplete(item);
+        if (!isPublishedRecovery &&
+            string.IsNullOrWhiteSpace(item.UploadCompletedAt) &&
+            item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) != QueueStepStatus.Completed)
         {
             return null;
         }
