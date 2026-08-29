@@ -22,6 +22,43 @@ public sealed class TikTokAiScriptOutlineServiceTests
     }
 
     [Fact]
+    public void ParseOutline_accepts_extra_closing_brace_after_complete_json()
+    {
+        var json = JsonSerializer.Serialize(CreateValidOutline());
+
+        var outline = TikTokAiScriptOutlineService.ParseOutline(json + "}", 1);
+
+        Assert.Equal("都市短剧", outline.Genre);
+    }
+
+    [Fact]
+    public void ParseOutline_repairs_unquoted_chinese_scalar_value()
+    {
+        var json = JsonSerializer.Serialize(CreateValidOutline());
+        var malformed = json.Replace(
+            "\"Genre\":\"都市短剧\"",
+            "\"Genre\":都市短剧",
+            StringComparison.Ordinal);
+
+        var outline = TikTokAiScriptOutlineService.ParseOutline(malformed, 1);
+
+        Assert.Equal("都市短剧", outline.Genre);
+    }
+
+    [Fact]
+    public void Balanced_json_extraction_ignores_braces_inside_strings()
+    {
+        var model = CreateValidOutline();
+        model.Theme = "守住真相，即使线索形如 {误导}。";
+        var json = JsonSerializer.Serialize(model);
+
+        var extracted = TikTokAiScriptOutlineService.ExtractFirstBalancedJsonObject(
+            "说明：" + json + "}\n完成");
+
+        Assert.Equal(json, extracted);
+    }
+
+    [Fact]
     public void Recovered_synopsis_is_persisted_to_source_and_workflow_metadata()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"outline-recovery-synopsis-{Guid.NewGuid():N}");
