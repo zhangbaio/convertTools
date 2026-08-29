@@ -136,8 +136,13 @@ public static class QueueMaterialStepService
         }
 
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
-        if (string.IsNullOrWhiteSpace(metadata.BookId))
+        var isPublishedRecovery =
+            PublishedRecoveryOriginalTitleCompletionService.CanComplete(item);
+        if (isPublishedRecovery && episodeFallback is not null)
         {
+            log(
+                "检测到 TikTok 已发布视频恢复项目，优先从原平台剧集补充证明材料视频，" +
+                "避免使用跨电脑迁移后可能失效的红果 bookId。");
             var platformCreated = await TryHydrateMaterialVideosFromEpisodeFallbackAsync(
                     item,
                     missingEpisodes,
@@ -149,8 +154,33 @@ public static class QueueMaterialStepService
             if (platformCreated.Count > 0)
                 return new ProofMaterialVideoHydrationResult(platformCreated);
 
+            log(
+                string.IsNullOrWhiteSpace(metadata.BookId)
+                    ? "WARN TikTok 已发布视频补源未取得文件，且项目没有可用 bookId。"
+                    : "WARN TikTok 已发布视频补源未取得文件，尝试使用已确认原剧名对应的红果源补下载。");
+        }
+
+        if (string.IsNullOrWhiteSpace(metadata.BookId))
+        {
+            if (!isPublishedRecovery)
+            {
+                var platformCreated = await TryHydrateMaterialVideosFromEpisodeFallbackAsync(
+                        item,
+                        missingEpisodes,
+                        beforePaths: existingVideos,
+                        episodeFallback,
+                        log,
+                        ct)
+                    .ConfigureAwait(false);
+                if (platformCreated.Count > 0)
+                    return new ProofMaterialVideoHydrationResult(platformCreated);
+            }
+
             throw new InvalidOperationException(
-                $"证明材料缺少视频，且项目缺少 bookId，无法补下载前 {required} 集。");
+                isPublishedRecovery
+                    ? $"TikTok 已发布视频恢复项目未能恢复前 {required} 集，且尚未补全真实原剧名/bookId。" +
+                      "请确认该电脑已登录对应 TikTok 账号，或先在项目菜单中补全原剧名。"
+                    : $"证明材料缺少视频，且项目缺少 bookId，无法补下载前 {required} 集。");
         }
 
         ShortDramaDramaServices.RefreshSettings(settings);
