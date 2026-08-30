@@ -2446,12 +2446,18 @@ public static partial class TikTokBrowserActions
         }
     }
 
-    private static async Task SelectCopyrightProofClassificationAsync(
+    internal static Task<bool> EnsureCopyrightProofClassificationAsync(
+        IPage page,
+        TikTokPublishOptions options,
+        CancellationToken ct) =>
+        SelectCopyrightProofClassificationAsync(page, options, ct);
+
+    private static async Task<bool> SelectCopyrightProofClassificationAsync(
         IPage page,
         TikTokPublishOptions options,
         CancellationToken ct)
     {
-        await SelectCopyrightRadioAsync(
+        var originalRightsHolderChanged = await SelectCopyrightRadioAsync(
             page,
             OriginalRightsHolderFieldId,
             options.IsOriginalRightsHolder ? 0 : 1,
@@ -2460,7 +2466,7 @@ public static partial class TikTokBrowserActions
             ct,
             dependentReady: () => IsCopyrightRadioFieldUnlockedAsync(page, AdaptationFieldId),
             dependentDescription: "内容原创类型仍未解锁");
-        await SelectCopyrightRadioAsync(
+        var originalityChanged = await SelectCopyrightRadioAsync(
             page,
             AdaptationFieldId,
             string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
@@ -2469,9 +2475,10 @@ public static partial class TikTokBrowserActions
             ct,
             dependentReady: () => IsCopyrightMaterialTriggerUnlockedAsync(page),
             dependentDescription: "上传材料类型仍被级联锁定");
+        return originalRightsHolderChanged || originalityChanged;
     }
 
-    internal static async Task SelectCopyrightRadioAsync(
+    internal static async Task<bool> SelectCopyrightRadioAsync(
         IPage page,
         string fieldId,
         int optionIndex,
@@ -2513,7 +2520,7 @@ public static partial class TikTokBrowserActions
             for (var attempt = 1; attempt <= 3; attempt++)
             {
                 if (await IsSelectionEffectiveAsync())
-                    return;
+                    return false;
 
                 var current = await TryResolveCopyrightRadioAsync(page, fieldId, optionIndex);
                 if (current is null)
@@ -2534,7 +2541,7 @@ public static partial class TikTokBrowserActions
                     150,
                     ct);
                 if (confirmed)
-                    return;
+                    return true;
             }
 
             var suffix = string.IsNullOrWhiteSpace(dependentDescription)
@@ -2545,7 +2552,7 @@ public static partial class TikTokBrowserActions
         }
 
         // 兼容尚未提供 x-field-id 的旧页面。
-        var selected = await page.EvaluateAsync<bool>(
+        var selectionState = await page.EvaluateAsync<int>(
             """
             ({ fieldLabel, optionLabel }) => {
               const normalize = value => (value || '').replace(/\s+/g, '').replace(/\*/g, '');
@@ -2561,16 +2568,17 @@ public static partial class TikTokBrowserActions
                     return normalize(label?.textContent) === normalize(optionLabel);
                   });
                   if (!target) continue;
-                  if (!target.checked) (target.closest('label') || target).click();
-                  return true;
+                  if (target.checked) return 1;
+                  (target.closest('label') || target).click();
+                  return 2;
                 }
               }
-              return false;
+              return 0;
             }
             """,
             new { fieldLabel = legacyFieldLabel, optionLabel = legacyOptionLabel });
         ct.ThrowIfCancellationRequested();
-        if (!selected)
+        if (selectionState == 0)
             throw new InvalidOperationException(
                 $"未找到 TikTok 版权字段「{fieldId}」（旧版「{legacyFieldLabel}」的「{legacyOptionLabel}」选项）。");
         if (dependentReady is not null)
@@ -2582,5 +2590,6 @@ public static partial class TikTokBrowserActions
                     $"{dependentDescription ?? "后续字段仍未解锁"}。");
         }
         await page.WaitForTimeoutAsync(150);
+        return selectionState == 2;
     }
 }
