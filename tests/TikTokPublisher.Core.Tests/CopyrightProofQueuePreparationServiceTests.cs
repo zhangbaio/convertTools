@@ -90,6 +90,42 @@ public sealed class CopyrightProofQueuePreparationServiceTests
             stoppedUpload.StepStates[QueueStepRegistry.GenerateProofMaterial]);
     }
 
+    [Fact]
+    public void Prepare_reopens_material_steps_that_history_previously_skipped()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"copyright-proof-planned-steps-{Guid.NewGuid():N}");
+        var project = Project(
+            Path.Combine(root, "target"),
+            QueueStepStatus.Completed,
+            QueueStepStatus.Completed);
+        project.StepStates[QueueStepRegistry.GenerateAiScriptOutline] = QueueStepStatus.Skipped;
+        project.StepStates[QueueStepRegistry.GenerateTimestampCertificate] = QueueStepStatus.Completed;
+
+        CopyrightProofQueuePreparationService.Prepare(
+            [project],
+            [project],
+            [project.ProjectDir],
+            CopyrightProofExecutionMode.GenerateAndEdit,
+            [
+                QueueStepRegistry.GenerateAiScriptOutline,
+                QueueStepRegistry.GenerateProofMaterial,
+                QueueStepRegistry.GenerateTimestampCertificate,
+            ]);
+
+        Assert.Equal(
+            QueueStepStatus.Pending,
+            project.StepStates[QueueStepRegistry.GenerateAiScriptOutline]);
+        Assert.Equal(
+            QueueStepStatus.Pending,
+            project.StepStates[QueueStepRegistry.GenerateTimestampCertificate]);
+        Assert.Equal(
+            QueueStepStatus.Completed,
+            project.StepStates[QueueStepRegistry.GenerateProofMaterial]);
+        Assert.Equal(
+            QueueStepStatus.Pending,
+            project.StepStates[QueueStepRegistry.UploadSeries]);
+    }
+
     private static QueueProjectItem Project(
         string projectDir,
         string proofStatus,

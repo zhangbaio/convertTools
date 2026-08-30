@@ -2268,10 +2268,12 @@ public partial class TikTokQueueView : UserControl
         CopyrightProofExecutionMode executionMode,
         ManualDeletedCopyrightProofInputMode? manualDeletedMode = null)
     {
+        var materialPlan = CopyrightProofMaterialPlanBuilder.Build(proofAccount, executionMode);
         var executionDescription =
             executionMode == CopyrightProofExecutionMode.GenerateMaterialOnly
                 ? "本次仅生成或复用本地证明材料，不会打开或编辑 TikTok 版权证明页面。"
                 : "本次将生成或复用证明材料，并继续编辑 TikTok 版权证明页面；不会重新上传剧集。";
+        executionDescription += Environment.NewLine + materialPlan.DescribeArtifacts();
         var archivedTargets = selectedMatches
             .Where(match => match.Location == CopyrightProofProjectLocation.Archived)
             .ToArray();
@@ -2560,20 +2562,24 @@ public partial class TikTokQueueView : UserControl
                 .ToArray();
 
             vm.StatusMessage = "正在检查匹配项目的已有证明材料…";
+            var reuseOptions = new QueueRunOptions();
+            reuseOptions.ConfigureForCopyrightProof(executionMode, materialPlan.RequiredSteps);
             var currentProofMaterialProjects = await Task.Run(() =>
                 matchedProjects
                     .Where(item => TikTokProofMaterialService
                         .HasReusableProofMaterialForCopyrightCompletion(
                             item,
                             proofSettings,
-                            proofAccount))
+                            proofAccount,
+                            reuseOptions))
                     .Select(item => Path.GetFullPath(item.ProjectDir))
                     .ToHashSet(StringComparer.OrdinalIgnoreCase), ct);
             var preparation = CopyrightProofQueuePreparationService.Prepare(
                 refreshedProjects,
                 matchedProjects,
                 currentProofMaterialProjects,
-                executionMode);
+                executionMode,
+                materialPlan.GenerationSteps);
 
             var missingAfterRestore = selectedTitles
                 .Except(matchedProjects.Select(item => item.NewTitle), StringComparer.Ordinal)
@@ -2613,7 +2619,7 @@ public partial class TikTokQueueView : UserControl
                 persistedOptions);
 
             var options = vm.CreateCurrentQueueRunOptionsSnapshot();
-            options.ConfigureForCopyrightProof(executionMode);
+            options.ConfigureForCopyrightProof(executionMode, materialPlan.RequiredSteps);
             var executionProjectDirs = matchedProjects
                 .Select(item => Path.GetFullPath(item.ProjectDir))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -2634,13 +2640,18 @@ public partial class TikTokQueueView : UserControl
                 (executionMode == CopyrightProofExecutionMode.GenerateMaterialOnly
                     ? "不会执行 TikTok 页面编辑。"
                     : $"需要编辑 TikTok 页面 {preparation.TargetCount} 个。"));
+            vm.AppendLog($"版权材料执行计划：{materialPlan.DescribeArtifacts()}");
+            vm.AppendLog(
+                "版权材料执行步骤：" +
+                string.Join(" → ", materialPlan.RequiredSteps.Select(QueueStepRegistry.LabelOf)));
             foreach (var failure in restoreFailures)
                 vm.AppendLog($"补全版权证明回退失败：{failure}");
             foreach (var title in missingAfterRestore)
                 vm.AppendLog($"补全版权证明跳过：恢复后未找到唯一的新剧名项目「{title}」");
 
             if (executionMode == CopyrightProofExecutionMode.GenerateMaterialOnly &&
-                preparation.PendingProofMaterialCount == 0)
+                preparation.PendingProofMaterialCount == 0 &&
+                !materialPlan.HasAdditionalGenerationSteps)
             {
                 vm.StatusMessage =
                     $"证明材料已全部就绪：复用 {preparation.ReusedProofMaterialCount} 个，无需重新生成";

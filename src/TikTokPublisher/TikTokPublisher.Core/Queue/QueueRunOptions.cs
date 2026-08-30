@@ -207,16 +207,24 @@ public sealed class QueueRunOptions
 
     public void ConfigureForCopyrightProof(CopyrightProofExecutionMode executionMode)
     {
-        EnabledSteps = executionMode == CopyrightProofExecutionMode.GenerateAndEdit
-            ?
-            [
-                QueueStepRegistry.GenerateProofMaterial,
-                QueueStepRegistry.UploadSeries,
-            ]
-            :
-            [
-                QueueStepRegistry.GenerateProofMaterial,
-            ];
+        ConfigureForCopyrightProof(
+            executionMode,
+            [QueueStepRegistry.GenerateProofMaterial]);
+    }
+
+    public void ConfigureForCopyrightProof(
+        CopyrightProofExecutionMode executionMode,
+        IEnumerable<string> requiredSteps)
+    {
+        ArgumentNullException.ThrowIfNull(requiredSteps);
+        var steps = requiredSteps
+            .Where(QueueStepRegistry.IsAvailable)
+            .ToHashSet(StringComparer.Ordinal);
+        if (executionMode == CopyrightProofExecutionMode.GenerateAndEdit)
+            steps.Add(QueueStepRegistry.UploadSeries);
+        else
+            steps.Remove(QueueStepRegistry.UploadSeries);
+        EnabledSteps = QueueStepRegistry.OrderEnabledSteps(steps).ToList();
         ForceRerunCompletedSteps = false;
         AutoArchiveAfterUpload = false;
         SyncManagementAfterUpload = false;
