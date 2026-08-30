@@ -99,6 +99,13 @@ public static class TikTokCopyrightProofEditService
                 }
                 L("本次为 AI 剧本大纲补传，将强制重新处理“AI 生成过程截图”材料栏。");
             }
+            var classificationChanged = await TikTokBrowserActions
+                .EnsureCopyrightProofClassificationAsync(page, options, ct)
+                .ConfigureAwait(false);
+            if (classificationChanged)
+            {
+                L("TikTok 版权证明分类已按账号配置补全：是否原始权利人、内容原创类型。");
+            }
             var coverage = await TikTokBrowserActions
                 .ProbeConfiguredCopyrightProofMaterialsAsync(
                     page,
@@ -110,15 +117,23 @@ public static class TikTokCopyrightProofEditService
                 foreach (var detail in coverage.Details)
                     L($"TikTok 版权材料逐项检查：{detail}。");
 
-                if (coverage.Plan.IsComplete && !forceAiOutlineSupplement)
+                if (coverage.Plan.IsComplete &&
+                    !forceAiOutlineSupplement &&
+                    !classificationChanged)
                 {
                     L("账号配置的版权材料均已上传，跳过重复编辑。");
                     return PublishResult.Success("TikTok 账号配置的版权材料均已上传，已跳过重复编辑");
                 }
 
+                if (coverage.Plan.IsComplete && classificationChanged)
+                {
+                    L("账号配置的版权材料均已上传，但版权分类已补选；将继续保存或提交使配置生效。");
+                }
+
                 var missingLabels = coverage.Plan.MissingMaterialTypes
                     .Select(key => TikTokPublishConstants.CopyrightMaterialLabels[key]);
-                L($"TikTok 版权材料将继续补全：{string.Join("、", missingLabels)}。");
+                if (!coverage.Plan.IsComplete)
+                    L($"TikTok 版权材料将继续补全：{string.Join("、", missingLabels)}。");
             }
             else
             {
