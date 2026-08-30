@@ -151,6 +151,27 @@ public sealed class QueueRunOptionsTests
     }
 
     [Fact]
+    public void ConfigureForCopyrightProof_preserves_planned_material_generation_steps()
+    {
+        var options = new QueueRunOptions();
+
+        options.ConfigureForCopyrightProof(
+            CopyrightProofExecutionMode.GenerateAndEdit,
+            [
+                QueueStepRegistry.GenerateAiScriptOutline,
+                QueueStepRegistry.GenerateProofMaterial,
+                QueueStepRegistry.GenerateTimestampCertificate,
+            ]);
+
+        options.EnabledSteps.Should().Equal(
+            QueueStepRegistry.GenerateAiScriptOutline,
+            QueueStepRegistry.GenerateProofMaterial,
+            QueueStepRegistry.GenerateTimestampCertificate,
+            QueueStepRegistry.UploadSeries);
+        options.IsCopyrightProofOnlyRun().Should().BeTrue();
+    }
+
+    [Fact]
     public void FromDictionary_uses_default_steps_when_option_is_missing()
     {
         var options = QueueRunOptions.FromDictionary(new Dictionary<string, object?>());

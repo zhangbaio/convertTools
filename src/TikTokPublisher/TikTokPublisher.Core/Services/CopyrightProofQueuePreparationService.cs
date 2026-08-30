@@ -17,7 +17,8 @@ public static class CopyrightProofQueuePreparationService
         IEnumerable<QueueProjectItem> allProjects,
         IEnumerable<QueueProjectItem> targetProjects,
         IEnumerable<string> reusableProofMaterialProjectDirs,
-        CopyrightProofExecutionMode executionMode = CopyrightProofExecutionMode.GenerateAndEdit)
+        CopyrightProofExecutionMode executionMode = CopyrightProofExecutionMode.GenerateAndEdit,
+        IEnumerable<string>? requiredGenerationSteps = null)
     {
         ArgumentNullException.ThrowIfNull(allProjects);
         ArgumentNullException.ThrowIfNull(targetProjects);
@@ -32,6 +33,13 @@ public static class CopyrightProofQueuePreparationService
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(Path.GetFullPath)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var plannedGenerationSteps = (requiredGenerationSteps ?? [])
+            .Where(step =>
+                QueueStepRegistry.IsAvailable(step) &&
+                !string.Equals(step, QueueStepRegistry.GenerateProofMaterial, StringComparison.Ordinal) &&
+                !string.Equals(step, QueueStepRegistry.UploadSeries, StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
         var targets = projects
             .Where(item =>
@@ -59,6 +67,11 @@ public static class CopyrightProofQueuePreparationService
                 QueueStepRegistry.UploadSeries,
                 out var previousUploadState);
             item.NormalizeStepStates();
+            // A deleted-project snapshot may say a newly selected material step was
+            // skipped. Reopen every step in this run's plan; each generator still
+            // performs its own current-output check and reuses valid local files.
+            foreach (var step in plannedGenerationSteps)
+                item.StepStates[step] = QueueStepStatus.Pending;
             var proofMaterialCurrent = reusableDirs.Contains(Path.GetFullPath(item.ProjectDir));
             item.StepStates[QueueStepRegistry.GenerateProofMaterial] = proofMaterialCurrent
                 ? QueueStepStatus.Completed
