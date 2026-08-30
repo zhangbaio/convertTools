@@ -68,10 +68,15 @@ public static class CopyrightProofQueuePreparationService
                 out var previousUploadState);
             item.NormalizeStepStates();
             // A deleted-project snapshot may say a newly selected material step was
-            // skipped. Reopen every step in this run's plan; each generator still
-            // performs its own current-output check and reuses valid local files.
+            // skipped. Reopen incomplete/skipped steps, but preserve completed steps:
+            // ShouldRunStep already validates their concrete outputs and reruns them
+            // when files are missing or stale. Resetting every completed step here
+            // caused reuse branches (notably role-vector sync) to refresh screenshots.
             foreach (var step in plannedGenerationSteps)
-                item.StepStates[step] = QueueStepStatus.Pending;
+            {
+                if (item.StepStates.GetValueOrDefault(step) != QueueStepStatus.Completed)
+                    item.StepStates[step] = QueueStepStatus.Pending;
+            }
             var proofMaterialCurrent = reusableDirs.Contains(Path.GetFullPath(item.ProjectDir));
             item.StepStates[QueueStepRegistry.GenerateProofMaterial] = proofMaterialCurrent
                 ? QueueStepStatus.Completed

@@ -91,7 +91,7 @@ public sealed class CopyrightProofQueuePreparationServiceTests
     }
 
     [Fact]
-    public void Prepare_reopens_material_steps_that_history_previously_skipped()
+    public void Prepare_reopens_skipped_material_steps_but_preserves_completed_steps()
     {
         var root = Path.Combine(Path.GetTempPath(), $"copyright-proof-planned-steps-{Guid.NewGuid():N}");
         var project = Project(
@@ -100,6 +100,7 @@ public sealed class CopyrightProofQueuePreparationServiceTests
             QueueStepStatus.Completed);
         project.StepStates[QueueStepRegistry.GenerateAiScriptOutline] = QueueStepStatus.Skipped;
         project.StepStates[QueueStepRegistry.GenerateTimestampCertificate] = QueueStepStatus.Completed;
+        project.StepStates[QueueStepRegistry.GenerateRoleVector] = QueueStepStatus.Completed;
 
         CopyrightProofQueuePreparationService.Prepare(
             [project],
@@ -108,6 +109,7 @@ public sealed class CopyrightProofQueuePreparationServiceTests
             CopyrightProofExecutionMode.GenerateAndEdit,
             [
                 QueueStepRegistry.GenerateAiScriptOutline,
+                QueueStepRegistry.GenerateRoleVector,
                 QueueStepRegistry.GenerateProofMaterial,
                 QueueStepRegistry.GenerateTimestampCertificate,
             ]);
@@ -116,8 +118,11 @@ public sealed class CopyrightProofQueuePreparationServiceTests
             QueueStepStatus.Pending,
             project.StepStates[QueueStepRegistry.GenerateAiScriptOutline]);
         Assert.Equal(
-            QueueStepStatus.Pending,
+            QueueStepStatus.Completed,
             project.StepStates[QueueStepRegistry.GenerateTimestampCertificate]);
+        Assert.Equal(
+            QueueStepStatus.Completed,
+            project.StepStates[QueueStepRegistry.GenerateRoleVector]);
         Assert.Equal(
             QueueStepStatus.Completed,
             project.StepStates[QueueStepRegistry.GenerateProofMaterial]);
