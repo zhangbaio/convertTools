@@ -28,6 +28,14 @@ internal sealed record TikTokSeriesPageScanResult(
     int VisibleRowCount,
     int SkippedRowCount);
 
+internal sealed record TikTokSeriesListEnumerationProgress(
+    string PlatformStatus,
+    int AttemptNumber,
+    int CurrentPage,
+    int? TotalPages,
+    int? CurrentPageRowCount,
+    int CollectedUniqueCount);
+
 internal static class TikTokSeriesListLookupService
 {
     private static readonly TimeSpan SearchResultTimeout = TimeSpan.FromSeconds(15);
@@ -88,7 +96,8 @@ internal static class TikTokSeriesListLookupService
         Action<string>? log,
         CancellationToken ct,
         string? statusFilter = null,
-        int? preferredPageSize = null)
+        int? preferredPageSize = null,
+        IProgress<TikTokSeriesListEnumerationProgress>? progress = null)
     {
         TikTokSeriesListEnumerationAttempt? previousAttempt = null;
         for (var attemptNumber = 1; attemptNumber <= 2; attemptNumber++)
@@ -100,7 +109,13 @@ internal static class TikTokSeriesListLookupService
                     log,
                     ct)
                 .ConfigureAwait(false);
-            var attempt = await EnumerateAllOnceAsync(page, log, ct, attemptNumber)
+            var attempt = await EnumerateAllOnceAsync(
+                    page,
+                    log,
+                    ct,
+                    attemptNumber,
+                    statusFilter,
+                    progress)
                 .ConfigureAwait(false);
             if (attempt.IsComplete)
                 return attempt.Rows;
@@ -140,7 +155,9 @@ internal static class TikTokSeriesListLookupService
         IPage page,
         Action<string>? log,
         CancellationToken ct,
-        int attemptNumber)
+        int attemptNumber,
+        string? statusFilter,
+        IProgress<TikTokSeriesListEnumerationProgress>? progress)
     {
         var search = await FindSearchInputAsync(page).ConfigureAwait(false)
             ?? throw new InvalidOperationException("原创管理页面未找到剧集搜索框。");
@@ -148,7 +165,9 @@ internal static class TikTokSeriesListLookupService
         try { await search.PressAsync("Enter").ConfigureAwait(false); }
         catch { /* 部分版本清空后会自动查询。 */ }
         await page.WaitForTimeoutAsync(500).ConfigureAwait(false);
-        await GoToFirstPageAsync(page, ct).ConfigureAwait(false);
+        var expectedTotal = await TryReadTotalCountAsync(page).ConfigureAwait(false);
+        var pageSize = await TryReadPageSizeAsync(page).ConfigureAwait(false);
+        await GoToFirstPageAsync(page, expectedTotal, pageSize, ct).ConfigureAwait(false);
 
         var collected = new List<TikTokSeriesListRow>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -156,12 +175,19 @@ internal static class TikTokSeriesListLookupService
         var rawVisibleRowCount = 0;
         var skippedRowCount = 0;
         string? previousFingerprint = null;
-        int? expectedTotal = null;
         var endReason = "达到分页安全上限";
 
         for (var pageNumber = 1; pageNumber <= 1000; pageNumber++)
         {
             ct.ThrowIfCancellationRequested();
+            var totalPages = ExpectedPageCount(expectedTotal, pageSize);
+            progress?.Report(new TikTokSeriesListEnumerationProgress(
+                statusFilter?.Trim() ?? "全部",
+                attemptNumber,
+                pageNumber,
+                totalPages,
+                CurrentPageRowCount: null,
+                collected.Count));
             var scan = await ScanCurrentPageRowsAsync(page, ct).ConfigureAwait(false);
             var pageRows = scan.Rows;
             rawVisibleRowCount += scan.VisibleRowCount;
@@ -184,6 +210,14 @@ internal static class TikTokSeriesListLookupService
                 else
                     duplicateKeyCounts[key] = duplicateKeyCounts.GetValueOrDefault(key) + 1;
             }
+
+            progress?.Report(new TikTokSeriesListEnumerationProgress(
+                statusFilter?.Trim() ?? "全部",
+                attemptNumber,
+                pageNumber,
+                totalPages,
+                scan.VisibleRowCount,
+                collected.Count));
 
             log?.Invoke(
                 $"第 {attemptNumber} 次扫描原创管理第 {pageNumber} 页：" +
@@ -210,10 +244,17 @@ internal static class TikTokSeriesListLookupService
 
             await next.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
             await next.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
-            var changed = await WaitForPageFingerprintChangeAsync(page, fingerprint, ct)
+            var nextPageNumber = pageNumber + 1;
+            var changed = await WaitForPageReadyAsync(
+                    page,
+                    nextPageNumber,
+                    ExpectedRowCount(expectedTotal, pageSize, nextPageNumber),
+                    fingerprint,
+                    ct)
                 .ConfigureAwait(false);
             if (!changed)
-                throw new InvalidOperationException("点击原创管理下一页后，列表内容未在规定时间内更新。");
+                throw new InvalidOperationException(
+                    $"点击原创管理下一页后，第 {nextPageNumber} 页未在规定时间内稳定加载。");
         }
 
         return new TikTokSeriesListEnumerationAttempt(
@@ -442,7 +483,11 @@ internal static class TikTokSeriesListLookupService
                     ? row.SeriesId
                     : $"{NormalizeTitle(row.Title)}:{row.DetailUrl}"));
 
-    private static async Task GoToFirstPageAsync(IPage page, CancellationToken ct)
+    private static async Task GoToFirstPageAsync(
+        IPage page,
+        int? expectedTotal,
+        int? pageSize,
+        CancellationToken ct)
     {
         foreach (var selector in new[]
                  {
@@ -483,16 +528,45 @@ internal static class TikTokSeriesListLookupService
                     className.Contains("selected", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(ariaCurrent, "page", StringComparison.OrdinalIgnoreCase))
                 {
-                    return;
+                    if (await WaitForPageReadyAsync(
+                            page,
+                            1,
+                            ExpectedRowCount(expectedTotal, pageSize, 1),
+                            previousFingerprint: null,
+                            ct).ConfigureAwait(false))
+                    {
+                        return;
+                    }
+
+                    throw new InvalidOperationException("原创管理第 1 页未在规定时间内稳定加载。");
                 }
 
                 await candidate.ScrollIntoViewIfNeededAsync(
                         new() { Timeout = 10000 })
                     .ConfigureAwait(false);
                 await candidate.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
-                await page.WaitForTimeoutAsync(500).ConfigureAwait(false);
-                return;
+                if (await WaitForPageReadyAsync(
+                        page,
+                        1,
+                        ExpectedRowCount(expectedTotal, pageSize, 1),
+                        previousFingerprint: null,
+                        ct).ConfigureAwait(false))
+                {
+                    return;
+                }
+
+                throw new InvalidOperationException("返回原创管理第 1 页后，列表未在规定时间内稳定加载。");
             }
+        }
+
+        if (!await WaitForPageReadyAsync(
+                page,
+                expectedPageNumber: null,
+                ExpectedRowCount(expectedTotal, pageSize, 1),
+                previousFingerprint: null,
+                ct).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("原创管理列表未在规定时间内稳定加载。");
         }
     }
 
@@ -727,6 +801,92 @@ internal static class TikTokSeriesListLookupService
         return totals.Count == 0 ? null : totals.Max();
     }
 
+    private static async Task<int?> TryReadPageSizeAsync(IPage page)
+    {
+        var combo = await FindComboboxContainingTextAsync(page, "每页条数").ConfigureAwait(false);
+        if (combo is null)
+            return null;
+        var text = await ReadInnerTextAsync(combo).ConfigureAwait(false);
+        var match = Regex.Match(text, @"每页条数[：:]?(?<count>\d+)");
+        return match.Success && int.TryParse(match.Groups["count"].Value, out var count) && count > 0
+            ? count
+            : null;
+    }
+
+    internal static int? ExpectedRowCount(
+        int? expectedTotal,
+        int? pageSize,
+        int pageNumber)
+    {
+        if (expectedTotal is not > 0 || pageSize is not > 0 || pageNumber <= 0)
+            return null;
+        var remaining = expectedTotal.Value - ((pageNumber - 1) * pageSize.Value);
+        return remaining <= 0 ? 0 : Math.Min(pageSize.Value, remaining);
+    }
+
+    internal static int? ExpectedPageCount(int? expectedTotal, int? pageSize)
+    {
+        if (expectedTotal is not > 0 || pageSize is not > 0)
+            return null;
+        return (int)Math.Ceiling(expectedTotal.Value / (double)pageSize.Value);
+    }
+
+    internal static bool IsPageReadinessSampleAcceptable(
+        int? expectedPageNumber,
+        int? activePageNumber,
+        int? expectedVisibleRowCount,
+        int actualVisibleRowCount,
+        string? previousFingerprint,
+        string currentFingerprint)
+    {
+        if (expectedPageNumber.HasValue && activePageNumber != expectedPageNumber)
+            return false;
+        if (actualVisibleRowCount <= 0 || string.IsNullOrWhiteSpace(currentFingerprint))
+            return false;
+        if (expectedVisibleRowCount.HasValue &&
+            actualVisibleRowCount != expectedVisibleRowCount.Value)
+        {
+            return false;
+        }
+
+        return string.IsNullOrWhiteSpace(previousFingerprint) ||
+               !string.Equals(previousFingerprint, currentFingerprint, StringComparison.Ordinal);
+    }
+
+    private static async Task<int?> TryReadActivePageNumberAsync(IPage page)
+    {
+        foreach (var selector in new[]
+                 {
+                     ".semi-page-item-active",
+                     ".semi-pagination-item-active",
+                     "[aria-current='page']",
+                 })
+        {
+            var candidates = page.Locator(selector);
+            var count = await candidates.CountAsync().ConfigureAwait(false);
+            for (var index = 0; index < count; index++)
+            {
+                var candidate = candidates.Nth(index);
+                try
+                {
+                    if (!await candidate.IsVisibleAsync().ConfigureAwait(false))
+                        continue;
+                    var text = (await candidate.InnerTextAsync(new() { Timeout = 1200 })
+                            .ConfigureAwait(false))
+                        .Trim();
+                    if (int.TryParse(text, out var pageNumber) && pageNumber > 0)
+                        return pageNumber;
+                }
+                catch
+                {
+                    // 页码控件可能正在重绘，继续尝试其他候选。
+                }
+            }
+        }
+
+        return null;
+    }
+
     private static async Task<bool> IsDisabledAsync(ILocator locator)
     {
         try
@@ -745,24 +905,47 @@ internal static class TikTokSeriesListLookupService
                className.Contains("disabled", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task<bool> WaitForPageFingerprintChangeAsync(
+    private static async Task<bool> WaitForPageReadyAsync(
         IPage page,
-        string previousFingerprint,
+        int? expectedPageNumber,
+        int? expectedVisibleRowCount,
+        string? previousFingerprint,
         CancellationToken ct)
     {
         var stopwatch = Stopwatch.StartNew();
+        string? stableFingerprint = null;
+        var stableSamples = 0;
+        const int requiredStableSamples = 5;
         while (stopwatch.Elapsed < TimeSpan.FromSeconds(15))
         {
             ct.ThrowIfCancellationRequested();
             var scan = await ScanCurrentPageRowsAsync(page, ct).ConfigureAwait(false);
             var rows = scan.Rows;
-            if (rows.Count > 0 &&
-                !string.Equals(
-                    BuildPageFingerprint(rows),
+            var fingerprint = BuildPageFingerprint(rows);
+            var activePageNumber = await TryReadActivePageNumberAsync(page).ConfigureAwait(false);
+            if (IsPageReadinessSampleAcceptable(
+                    expectedPageNumber,
+                    activePageNumber,
+                    expectedVisibleRowCount,
+                    scan.VisibleRowCount,
                     previousFingerprint,
-                    StringComparison.Ordinal))
+                    fingerprint))
             {
-                return true;
+                if (string.Equals(stableFingerprint, fingerprint, StringComparison.Ordinal))
+                    stableSamples++;
+                else
+                {
+                    stableFingerprint = fingerprint;
+                    stableSamples = 1;
+                }
+
+                if (stableSamples >= requiredStableSamples)
+                    return true;
+            }
+            else
+            {
+                stableFingerprint = null;
+                stableSamples = 0;
             }
 
             await page.WaitForTimeoutAsync(300).ConfigureAwait(false);

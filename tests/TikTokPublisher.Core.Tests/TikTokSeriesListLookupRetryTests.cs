@@ -52,6 +52,74 @@ public sealed class TikTokSeriesListLookupRetryTests
             .Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(214, 50, 1, 50)]
+    [InlineData(214, 50, 4, 50)]
+    [InlineData(214, 50, 5, 14)]
+    [InlineData(10, 50, 1, 10)]
+    public void Expected_row_count_matches_real_pagination(
+        int total,
+        int pageSize,
+        int pageNumber,
+        int expected)
+    {
+        TikTokSeriesListLookupService.ExpectedRowCount(total, pageSize, pageNumber)
+            .Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(214, 50, 5)]
+    [InlineData(200, 50, 4)]
+    [InlineData(1, 50, 1)]
+    [InlineData(808, 10, 81)]
+    public void Expected_page_count_matches_footer_pagination(
+        int total,
+        int pageSize,
+        int expectedPages)
+    {
+        TikTokSeriesListLookupService.ExpectedPageCount(total, pageSize)
+            .Should().Be(expectedPages);
+    }
+
+    [Fact]
+    public void Transitional_last_page_rows_are_rejected_on_a_full_page()
+    {
+        TikTokSeriesListLookupService.IsPageReadinessSampleAcceptable(
+                expectedPageNumber: 4,
+                activePageNumber: 4,
+                expectedVisibleRowCount: 50,
+                actualVisibleRowCount: 14,
+                previousFingerprint: "page-3",
+                currentFingerprint: "page-5")
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Stale_previous_page_fingerprint_is_rejected_even_after_page_number_changes()
+    {
+        TikTokSeriesListLookupService.IsPageReadinessSampleAcceptable(
+                expectedPageNumber: 5,
+                activePageNumber: 5,
+                expectedVisibleRowCount: 14,
+                actualVisibleRowCount: 14,
+                previousFingerprint: "same-14-rows",
+                currentFingerprint: "same-14-rows")
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Complete_expected_page_sample_is_accepted_for_stability_tracking()
+    {
+        TikTokSeriesListLookupService.IsPageReadinessSampleAcceptable(
+                expectedPageNumber: 5,
+                activePageNumber: 5,
+                expectedVisibleRowCount: 14,
+                actualVisibleRowCount: 14,
+                previousFingerprint: "page-4",
+                currentFingerprint: "page-5")
+            .Should().BeTrue();
+    }
+
     private static TikTokSeriesListEnumerationAttempt Attempt(
         int uniqueCount,
         int expectedTotal,
