@@ -86,11 +86,20 @@ internal static class TikTokSeriesListLookupService
     public static async Task<IReadOnlyList<TikTokSeriesListRow>> EnumerateAllAsync(
         IPage page,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? statusFilter = null,
+        int? preferredPageSize = null)
     {
         TikTokSeriesListEnumerationAttempt? previousAttempt = null;
         for (var attemptNumber = 1; attemptNumber <= 2; attemptNumber++)
         {
+            await ConfigureListAsync(
+                    page,
+                    statusFilter,
+                    preferredPageSize,
+                    log,
+                    ct)
+                .ConfigureAwait(false);
             var attempt = await EnumerateAllOnceAsync(page, log, ct, attemptNumber)
                 .ConfigureAwait(false);
             if (attempt.IsComplete)
@@ -484,6 +493,164 @@ internal static class TikTokSeriesListLookupService
                 await page.WaitForTimeoutAsync(500).ConfigureAwait(false);
                 return;
             }
+        }
+    }
+
+    private static async Task ConfigureListAsync(
+        IPage page,
+        string? statusFilter,
+        int? preferredPageSize,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(statusFilter))
+            await ApplyStatusFilterAsync(page, statusFilter.Trim(), log, ct).ConfigureAwait(false);
+
+        if (preferredPageSize is > 0)
+            await TrySetPageSizeAsync(page, preferredPageSize.Value, log, ct).ConfigureAwait(false);
+    }
+
+    private static async Task ApplyStatusFilterAsync(
+        IPage page,
+        string status,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var combo = await FindComboboxContainingTextAsync(page, "状态").ConfigureAwait(false)
+            ?? throw new InvalidOperationException("原创管理页面未找到“状态”筛选器。");
+        var currentText = await ReadInnerTextAsync(combo).ConfigureAwait(false);
+        if (currentText.Contains(status, StringComparison.Ordinal))
+            return;
+
+        await combo.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
+        var option = await FindVisibleOptionByTextAsync(page, status).ConfigureAwait(false);
+        if (option is null)
+            throw new InvalidOperationException($"原创管理状态筛选器没有“{status}”选项。");
+        await option.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
+        await page.WaitForTimeoutAsync(700).ConfigureAwait(false);
+
+        currentText = await ReadInnerTextAsync(combo).ConfigureAwait(false);
+        if (!currentText.Contains(status, StringComparison.Ordinal))
+            throw new InvalidOperationException($"原创管理未能切换到“{status}”状态。");
+        log?.Invoke($"原创管理已选择状态：{status}。");
+    }
+
+    private static async Task TrySetPageSizeAsync(
+        IPage page,
+        int pageSize,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            var combo = await FindComboboxContainingTextAsync(page, "每页条数")
+                .ConfigureAwait(false);
+            if (combo is null)
+            {
+                log?.Invoke("WARN 原创管理未找到每页条数选择器，将沿用网页当前分页数量。");
+                return;
+            }
+
+            var expected = $"每页条数：{pageSize}";
+            var currentText = await ReadInnerTextAsync(combo).ConfigureAwait(false);
+            if (currentText.Contains(expected, StringComparison.Ordinal))
+                return;
+
+            await combo.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
+            var option = await FindVisibleOptionByTextAsync(page, expected).ConfigureAwait(false);
+            if (option is null)
+            {
+                try { await combo.PressAsync("Escape").ConfigureAwait(false); }
+                catch { /* 下拉框可能已经自动关闭。 */ }
+                log?.Invoke($"WARN 原创管理没有“{expected}”选项，将沿用网页当前分页数量。");
+                return;
+            }
+
+            await option.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
+            await page.WaitForTimeoutAsync(700).ConfigureAwait(false);
+            currentText = await ReadInnerTextAsync(combo).ConfigureAwait(false);
+            log?.Invoke(currentText.Contains(expected, StringComparison.Ordinal)
+                ? $"原创管理每页条数已设置为 {pageSize}。"
+                : $"WARN 原创管理每页条数未确认切换为 {pageSize}，继续使用网页当前设置。");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"WARN 设置原创管理每页条数失败，将沿用网页当前设置：{ex.Message}");
+        }
+    }
+
+    private static async Task<ILocator?> FindComboboxContainingTextAsync(
+        IPage page,
+        string text)
+    {
+        var candidates = page.Locator("[role='combobox']");
+        var count = await candidates.CountAsync().ConfigureAwait(false);
+        for (var index = 0; index < count; index++)
+        {
+            var candidate = candidates.Nth(index);
+            try
+            {
+                if (!await candidate.IsVisibleAsync().ConfigureAwait(false))
+                    continue;
+                var candidateText = await ReadInnerTextAsync(candidate).ConfigureAwait(false);
+                if (candidateText.Contains(text, StringComparison.Ordinal))
+                    return candidate;
+            }
+            catch
+            {
+                // 下拉框可能正在重绘，继续尝试其他候选。
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<ILocator?> FindVisibleOptionByTextAsync(
+        IPage page,
+        string expectedText)
+    {
+        var options = page.Locator("[role='option']");
+        var count = await options.CountAsync().ConfigureAwait(false);
+        for (var index = 0; index < count; index++)
+        {
+            var option = options.Nth(index);
+            try
+            {
+                if (!await option.IsVisibleAsync().ConfigureAwait(false))
+                    continue;
+                var text = await ReadInnerTextAsync(option).ConfigureAwait(false);
+                if (string.Equals(text, expectedText.Replace(" ", string.Empty),
+                        StringComparison.Ordinal))
+                {
+                    return option;
+                }
+            }
+            catch
+            {
+                // 下拉选项可能正在重绘，继续尝试其他候选。
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<string> ReadInnerTextAsync(ILocator locator)
+    {
+        try
+        {
+            return (await locator.InnerTextAsync(new() { Timeout = 1500 }).ConfigureAwait(false))
+                .Replace(" ", string.Empty, StringComparison.Ordinal)
+                .Trim();
+        }
+        catch
+        {
+            return string.Empty;
         }
     }
 

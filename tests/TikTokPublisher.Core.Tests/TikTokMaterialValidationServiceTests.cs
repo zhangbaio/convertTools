@@ -68,7 +68,14 @@ public sealed class TikTokMaterialValidationServiceTests
                 options,
                 log: null);
 
-            TikTokSourceFileInfoUploadPackageService.Validate(workflow);
+            var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
+                options.EnabledSteps,
+                account.TiktokUploadSourceInfoRoleVector,
+                account.TiktokUploadSourceInfoRoleSceneScreenshot);
+            TikTokSourceFileInfoUploadPackageService.Validate(
+                workflow,
+                selection: selection);
+            selection.IncludeRoleVector.Should().BeFalse();
         }
         finally
         {
@@ -101,6 +108,7 @@ public sealed class TikTokMaterialValidationServiceTests
                     TikTokSourceFileInfoUploadPackageService.ProjectInfoImageFileName));
             var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
                 [QueueStepRegistry.GenerateProofMaterial],
+                includeRoleVector: false,
                 includeRoleSceneScreenshot: false);
             TikTokSourceFileInfoUploadPackageService.Validate(
                 workflow,

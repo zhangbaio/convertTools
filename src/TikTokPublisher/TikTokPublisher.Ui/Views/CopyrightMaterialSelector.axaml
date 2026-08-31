@@ -177,7 +177,11 @@
                         <StackPanel Classes="materialContents"
                                     IsVisible="{Binding IsChecked, ElementName=SourceInfoMaterialBox}">
                             <CheckBox Content="上传包（按生产流水线已启用步骤自动整理）" IsChecked="True" IsEnabled="False" />
-                            <TextBlock Text="固定生成01_剧本与项目资料.png；AI大纲、剧本、角色矢量图仅在对应生产步骤启用时加入上传包"
+                            <TextBlock Text="固定生成01_剧本与项目资料.png；AI大纲、剧本仅在对应生产步骤启用时加入上传包"
+                                       Classes="materialHint" Margin="28,0,0,0" />
+                            <CheckBox x:Name="UploadSourceInfoRoleVectorBox"
+                                      Content="上传：角色矢量图.png（可选）" />
+                            <TextBlock Text="使用“生成角色矢量图”步骤产出的角色图"
                                        Classes="materialHint" Margin="28,0,0,0" />
                             <CheckBox x:Name="UploadSourceInfoRoleSceneScreenshotBox"
                                       Content="同时上传 02_角色场景或项目素材.png（可选）" />

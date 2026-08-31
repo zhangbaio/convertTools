@@ -29,9 +29,17 @@ public partial class CopyrightMaterialSelector : UserControl
         set => UploadSourceInfoRoleSceneScreenshotBox.IsChecked = value;
     }
 
+    public bool UploadSourceInfoRoleVector
+    {
+        get => SourceInfoMaterialBox.IsChecked == true &&
+               UploadSourceInfoRoleVectorBox.IsChecked == true;
+        set => UploadSourceInfoRoleVectorBox.IsChecked = value;
+    }
+
     public void Load(
         IEnumerable<string>? values,
         bool uploadAiScriptOutlineWithScreenshots,
+        bool uploadSourceInfoRoleVector,
         bool uploadSourceInfoRoleSceneScreenshot)
     {
         _isLoading = true;
@@ -49,6 +57,8 @@ public partial class CopyrightMaterialSelector : UserControl
             SourceInfoMaterialBox.IsChecked = selected.Contains("source_file_information");
             UploadAiScriptOutlineWithScreenshotsBox.IsChecked =
                 AiScreenshotsMaterialBox.IsChecked == true && uploadAiScriptOutlineWithScreenshots;
+            UploadSourceInfoRoleVectorBox.IsChecked =
+                SourceInfoMaterialBox.IsChecked == true && uploadSourceInfoRoleVector;
             UploadSourceInfoRoleSceneScreenshotBox.IsChecked =
                 SourceInfoMaterialBox.IsChecked == true && uploadSourceInfoRoleSceneScreenshot;
         }
@@ -72,6 +82,7 @@ public partial class CopyrightMaterialSelector : UserControl
             EditingProjectMaterialBox.IsChecked = false;
             SourceInfoMaterialBox.IsChecked = false;
             UploadAiScriptOutlineWithScreenshotsBox.IsChecked = false;
+            UploadSourceInfoRoleVectorBox.IsChecked = false;
             UploadSourceInfoRoleSceneScreenshotBox.IsChecked = false;
         }
         finally
@@ -107,6 +118,7 @@ public partial class CopyrightMaterialSelector : UserControl
             EditingProjectMaterialBox.IsChecked = false;
             SourceInfoMaterialBox.IsChecked = false;
             UploadAiScriptOutlineWithScreenshotsBox.IsChecked = false;
+            UploadSourceInfoRoleVectorBox.IsChecked = false;
             UploadSourceInfoRoleSceneScreenshotBox.IsChecked = false;
         }
         finally
@@ -124,7 +136,10 @@ public partial class CopyrightMaterialSelector : UserControl
         if (AiScreenshotsMaterialBox.IsChecked != true)
             UploadAiScriptOutlineWithScreenshotsBox.IsChecked = false;
         if (SourceInfoMaterialBox.IsChecked != true)
+        {
+            UploadSourceInfoRoleVectorBox.IsChecked = false;
             UploadSourceInfoRoleSceneScreenshotBox.IsChecked = false;
+        }
         UpdateMinimumStatus();
     }
 

@@ -828,6 +828,8 @@ public sealed class TikTokPublishDefaultsTests
         options.IsOriginalRightsHolder.Should().BeTrue();
         options.ContentOriginalityType.Should().Be("original");
         options.CopyrightMaterialTypes.Should().Equal("production_agreement");
+        options.UploadSourceInfoRoleVector.Should().BeFalse();
+        options.SourceInfoPackageSelection.IncludeRoleVector.Should().BeFalse();
         options.PublishMode.Should().Be("auto_after_review");
         options.ZeroCostAdsEnabled.Should().BeFalse();
         options.DayZeroRoi.Should().Be(1.05);
@@ -840,6 +842,22 @@ public sealed class TikTokPublishDefaultsTests
         options.UploadBatchSize.Should().Be(3);
         options.UploadBatchStallSeconds.Should().Be(75);
         options.UploadBatchMaxRetries.Should().Be(3);
+    }
+
+    [Fact]
+    public void Publish_options_builder_only_includes_role_vector_when_account_option_is_enabled()
+    {
+        var enabledSteps = Array.Empty<string>();
+        var disabled = TikTokPublishOptionsBuilder.FromAccount(
+            new TikTokAccountProfile(),
+            enabledQueueSteps: enabledSteps);
+        var enabled = TikTokPublishOptionsBuilder.FromAccount(
+            new TikTokAccountProfile { TiktokUploadSourceInfoRoleVector = true },
+            enabledQueueSteps: enabledSteps);
+
+        disabled.SourceInfoPackageSelection.IncludeRoleVector.Should().BeFalse();
+        enabled.SourceInfoPackageSelection.IncludeRoleVector.Should().BeTrue();
+        enabled.UploadSourceInfoRoleVector.Should().BeTrue();
     }
 
     [Fact]

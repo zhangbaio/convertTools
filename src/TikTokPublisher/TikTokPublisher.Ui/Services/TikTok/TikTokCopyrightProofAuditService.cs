@@ -14,11 +14,28 @@ public sealed record TikTokCopyrightProofAuditProgress(
     TikTokCopyrightProofAuditItem? Result,
     string Stage);
 
+public sealed record TikTokCopyrightProofAuditSelection(
+    bool IncludePublished,
+    bool IncludeVideoReviewing)
+{
+    public IReadOnlyList<string> SelectedPlatformStatuses()
+    {
+        var statuses = new List<string>();
+        if (IncludePublished) statuses.Add("已发布");
+        if (IncludeVideoReviewing) statuses.Add("视频检测中");
+        return statuses;
+    }
+}
+
 public static class TikTokCopyrightProofAuditService
 {
+    public const string VideoReviewUneditableMessage =
+        "剧集正片部分集数视频文件审核中，审核期间暂不支持编辑，请耐心等待审核结果。";
+
     public static async Task<IReadOnlyList<TikTokCopyrightProofAuditItem>> AuditAsync(
         TikTokAccountProfile account,
         IEmbeddedBrowser? browser,
+        TikTokCopyrightProofAuditSelection selection,
         IProgress<TikTokCopyrightProofAuditProgress>? progress,
         Action<string>? log,
         CancellationToken ct)
@@ -55,13 +72,29 @@ public static class TikTokCopyrightProofAuditService
                     .ConfigureAwait(false);
             }
 
-            log?.Invoke("开始读取当前账号原创管理中的全部剧集。");
+            var selectedStatuses = selection.SelectedPlatformStatuses();
+            if (selectedStatuses.Count == 0)
+                throw new InvalidOperationException("请至少选择一种需要检查的剧集状态。");
+
+            log?.Invoke(
+                $"开始按状态读取当前账号原创管理剧集：{string.Join("、", selectedStatuses)}。");
             await TikTokSeriesListLookupService.OpenAsync(listPage, log, ct).ConfigureAwait(false);
-            var allRows = await TikTokSeriesListLookupService
-                .EnumerateAllAsync(listPage, log, ct)
-                .ConfigureAwait(false);
-            var publishedRows = allRows
-                .Where(row => TikTokPublishedSeriesMatchText.IsPublishedStatus(row.PlatformStatus))
+            var selectedRows = new List<TikTokSeriesListRow>();
+            foreach (var status in selectedStatuses)
+            {
+                ct.ThrowIfCancellationRequested();
+                var rows = await TikTokSeriesListLookupService
+                    .EnumerateAllAsync(
+                        listPage,
+                        log,
+                        ct,
+                        statusFilter: status,
+                        preferredPageSize: 50)
+                    .ConfigureAwait(false);
+                selectedRows.AddRange(rows);
+            }
+
+            var auditRows = selectedRows
                 .DistinctBy(row =>
                     !string.IsNullOrWhiteSpace(row.SeriesId)
                         ? $"id:{row.SeriesId}"
@@ -69,22 +102,22 @@ public static class TikTokCopyrightProofAuditService
                 .ToArray();
 
             log?.Invoke(
-                $"原创管理读取完成：全部 {allRows.Count} 个，已发布 {publishedRows.Length} 个；" +
+                $"原创管理读取完成：所选状态共 {auditRows.Length} 个唯一剧集；" +
                 "开始只读检查版权证明页面。");
             progress?.Report(new TikTokCopyrightProofAuditProgress(
                 0,
-                publishedRows.Length,
+                auditRows.Length,
                 string.Empty,
                 null,
                 "已完成列表读取"));
 
-            if (publishedRows.Length == 0)
+            if (auditRows.Length == 0)
                 return [];
 
             var results = new ConcurrentDictionary<int, TikTokCopyrightProofAuditItem>();
             var completed = 0;
             var concurrency = Math.Clamp(account.TiktokProjectConcurrency, 2, 4);
-            var indexedRows = publishedRows
+            var indexedRows = auditRows
                 .Select((row, index) => (Row: row, Order: index + 1))
                 .ToArray();
             var configuredMaterialTypes = TikTokPublishConstants
@@ -113,7 +146,7 @@ public static class TikTokCopyrightProofAuditService
                     var currentCompleted = Interlocked.Increment(ref completed);
                     progress?.Report(new TikTokCopyrightProofAuditProgress(
                         currentCompleted,
-                        publishedRows.Length,
+                        auditRows.Length,
                         entry.Row.Title,
                         result,
                         "检查版权证明"));
@@ -183,6 +216,12 @@ public static class TikTokCopyrightProofAuditService
                 return Failed(order, row, "登录状态失效");
 
             await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log).ConfigureAwait(false);
+            if (await IsUneditableDuringVideoReviewAsync(page, ct).ConfigureAwait(false))
+            {
+                var skipped = SkippedUneditable(order, row);
+                log?.Invoke($"版权证明检查跳过：{row.Title}，{VideoReviewUneditableMessage}");
+                return skipped;
+            }
             if (!await OpenCopyrightProofTabAsync(page, ct).ConfigureAwait(false))
                 return Failed(order, row, "未找到版权证明标签页");
 
@@ -203,7 +242,10 @@ public static class TikTokCopyrightProofAuditService
                 row.DetailUrl,
                 state,
                 BuildCoverageDetail(probe),
-                DateTimeOffset.Now);
+                DateTimeOffset.Now)
+            {
+                PlatformStatus = row.PlatformStatus,
+            };
 
             log?.Invoke(
                 $"版权证明检查完成：{row.Title}，" +
@@ -312,7 +354,70 @@ public static class TikTokCopyrightProofAuditService
             row.DetailUrl,
             TikTokCopyrightProofAuditState.Failed,
             detail,
-            DateTimeOffset.Now);
+            DateTimeOffset.Now)
+        {
+            PlatformStatus = row.PlatformStatus,
+        };
+
+    private static TikTokCopyrightProofAuditItem SkippedUneditable(
+        int order,
+        TikTokSeriesListRow row) =>
+        new(
+            order,
+            row.Title,
+            row.SeriesId,
+            row.DetailUrl,
+            TikTokCopyrightProofAuditState.SkippedUneditable,
+            VideoReviewUneditableMessage,
+            DateTimeOffset.Now)
+        {
+            PlatformStatus = row.PlatformStatus,
+        };
+
+    internal static bool IsUneditableDuringVideoReviewText(string? text)
+    {
+        var value = (text ?? string.Empty).Replace(" ", string.Empty, StringComparison.Ordinal);
+        return value.Contains("剧集正片部分集数视频文件审核中", StringComparison.Ordinal) &&
+               value.Contains("审核期间暂不支持编辑", StringComparison.Ordinal);
+    }
+
+    private static async Task<bool> IsUneditableDuringVideoReviewAsync(
+        IPage page,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var candidates = page.GetByText("审核期间暂不支持编辑", new() { Exact = false });
+        var count = await candidates.CountAsync().ConfigureAwait(false);
+        for (var index = 0; index < count; index++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var candidate = candidates.Nth(index);
+            try
+            {
+                if (!await candidate.IsVisibleAsync().ConfigureAwait(false))
+                    continue;
+                var text = await candidate.InnerTextAsync(new() { Timeout = 1500 })
+                    .ConfigureAwait(false);
+                if (IsUneditableDuringVideoReviewText(text))
+                    return true;
+            }
+            catch
+            {
+                // 审核提示可能随详情页加载刷新，继续检查其他候选。
+            }
+        }
+
+        try
+        {
+            var bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 })
+                .ConfigureAwait(false);
+            return IsUneditableDuringVideoReviewText(bodyText);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private static TikTokCopyrightProofAuditState Classify(
         TikTokCopyrightMaterialCompletionPlan plan)
@@ -352,6 +457,7 @@ public static class TikTokCopyrightProofAuditService
             TikTokCopyrightProofAuditState.ProductionAgreementOnly => "仅上传版权证明 PDF",
             TikTokCopyrightProofAuditState.PartialMaterial => "部分版权证明材料缺失",
             TikTokCopyrightProofAuditState.MissingMaterial => "所有版权证明均未填写",
+            TikTokCopyrightProofAuditState.SkippedUneditable => "暂不可编辑，已跳过",
             _ => "检查失败",
         };
 

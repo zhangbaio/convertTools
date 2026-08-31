@@ -3118,8 +3118,8 @@ public partial class TikTokQueueView : UserControl
         var missingTitles = await TikTokCopyrightProofAuditDialog.ShowAsync(
             owner,
             accountVm.DisplayName,
-            (progress, ct) =>
-                AuditPublishedCopyrightProofAsync(account, progress, ct));
+            (selection, progress, ct) =>
+                AuditPublishedCopyrightProofAsync(account, selection, progress, ct));
         if (missingTitles is null || missingTitles.Count == 0)
             return;
 
@@ -3213,6 +3213,7 @@ public partial class TikTokQueueView : UserControl
     private async Task<IReadOnlyList<TikTokCopyrightProofAuditItem>>
         AuditPublishedCopyrightProofAsync(
             TikTokAccountProfile account,
+            TikTokCopyrightProofAuditSelection selection,
             IProgress<TikTokCopyrightProofAuditProgress> progress,
             CancellationToken ct)
     {
@@ -3226,15 +3227,18 @@ public partial class TikTokQueueView : UserControl
         if (!UsesPlaywrightUploadBrowser(account))
             browser = _browserHost?.TryGetHost(account.Id);
 
-        vm.StatusMessage = $"正在检查账号「{account.DisplayName}」的已发布剧集版权证明…";
+        var selectedStatuses = selection.SelectedPlatformStatuses();
+        vm.StatusMessage =
+            $"正在检查账号「{account.DisplayName}」的{string.Join("、", selectedStatuses)}剧集版权证明…";
         vm.AppendLog(
-            $"开始只读检查账号「{account.DisplayName}」的已发布剧集版权证明；" +
+            $"开始只读检查账号「{account.DisplayName}」的{string.Join("、", selectedStatuses)}剧集版权证明；" +
             "不会修改或提交平台内容。");
         try
         {
             var results = await TikTokCopyrightProofAuditService.AuditAsync(
                 account,
                 browser,
+                selection,
                 progress,
                 vm.AppendLog,
                 ct);
@@ -3246,10 +3250,12 @@ public partial class TikTokQueueView : UserControl
                 item.State == TikTokCopyrightProofAuditState.MissingMaterial);
             var failed = results.Count(item =>
                 item.State == TikTokCopyrightProofAuditState.Failed);
+            var skipped = results.Count(item =>
+                item.State == TikTokCopyrightProofAuditState.SkippedUneditable);
             vm.StatusMessage =
-                $"版权证明检查完成：已发布 {results.Count} 个，" +
+                $"版权证明检查完成：共检查 {results.Count} 个，" +
                 $"仅 PDF {productionAgreementOnly} 个，部分缺失 {partial} 个，" +
-                $"全部未填 {missingAll} 个，失败 {failed} 个";
+                $"全部未填 {missingAll} 个，暂不可编辑 {skipped} 个，失败 {failed} 个";
             vm.AppendLog(vm.StatusMessage);
             return results;
         }

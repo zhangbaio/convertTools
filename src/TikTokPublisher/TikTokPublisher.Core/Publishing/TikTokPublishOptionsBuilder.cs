@@ -24,6 +24,7 @@ public static class TikTokPublishOptionsBuilder
         var options = TikTokPublishOptions.FromAccount(account);
         options.SourceInfoPackageSelection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
             enabledQueueSteps,
+            account.TiktokUploadSourceInfoRoleVector,
             account.TiktokUploadSourceInfoRoleSceneScreenshot);
         options.CopyrightMaterialTypes = TikTokPublishConstants.ValidateCopyrightMaterialTypes(
             options.CopyrightMaterialTypes);

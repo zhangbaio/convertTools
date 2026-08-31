@@ -122,6 +122,7 @@ public sealed class TikTokProofMaterialService
             statementDate);
         var sourceInfoSelection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
             runOptions?.EnabledSteps,
+            request.IncludeSourceInfoRoleVector,
             request.IncludeSourceInfoRoleSceneScreenshot);
         item.ProofMaterialStatementDate = statementDate.ToString("yyyy-MM-dd");
         var fingerprints = ComputeComponentFingerprints(request, sourceInfoSelection);
@@ -661,6 +662,7 @@ public sealed class TikTokProofMaterialService
                 ResolveStatementDate(item, state));
             var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
                 runOptions?.EnabledSteps,
+                request.IncludeSourceInfoRoleVector,
                 request.IncludeSourceInfoRoleSceneScreenshot);
             var fingerprints = ComputeComponentFingerprints(request, selection);
             return !HasCurrentOutput(context, request, fingerprints, settings, selection);
@@ -701,6 +703,7 @@ public sealed class TikTokProofMaterialService
                 ResolveStatementDate(item, state));
             var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
                 runOptions?.EnabledSteps,
+                request.IncludeSourceInfoRoleVector,
                 request.IncludeSourceInfoRoleSceneScreenshot);
             var fingerprints = ComputeComponentFingerprints(request, selection);
             var legacyFingerprintMatches = string.Equals(
@@ -846,6 +849,7 @@ public sealed class TikTokProofMaterialService
                 : "skipped",
             generate_source_file_screenshots = request.GenerateSourceFileScreenshots,
             include_source_info_role_scene_screenshot = request.IncludeSourceInfoRoleSceneScreenshot,
+            include_source_info_role_vector = request.IncludeSourceInfoRoleVector,
             generate_ai_generation_screenshots = request.GenerateAiGenerationScreenshots,
             generate_editing_project_files = request.GenerateEditingProjectFiles,
             source_file_screenshots = request.GenerateSourceFileScreenshots
@@ -987,6 +991,7 @@ public sealed class TikTokProofMaterialService
                 TikTokPublishConstants.SourceFileInformationMaterialType,
                 StringComparer.Ordinal),
             IncludeSourceInfoRoleSceneScreenshot = account.TiktokUploadSourceInfoRoleSceneScreenshot,
+            IncludeSourceInfoRoleVector = account.TiktokUploadSourceInfoRoleVector,
             GenerateAiGenerationScreenshots = materialTypes.Contains(
                 TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
                 StringComparer.Ordinal),
