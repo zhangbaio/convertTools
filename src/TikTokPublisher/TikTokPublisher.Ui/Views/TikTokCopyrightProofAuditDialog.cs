@@ -80,8 +80,13 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         {
             Minimum = 2,
             Maximum = 8,
+            Increment = 1,
+            FormatString = "0",
             Value = Math.Clamp(defaultConcurrency, 2, 8),
-            Width = 72,
+            Width = 96,
+            Foreground = Brushes.Black,
+            Background = Brushes.White,
+            BorderBrush = Brush.Parse("#AFC2D5"),
             VerticalAlignment = VerticalAlignment.Center,
         };
         _startButton = BuildButton("开始检测", StartAudit, primary: true, minWidth: 104);
