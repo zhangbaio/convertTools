@@ -120,6 +120,27 @@ public sealed class TikTokSeriesListLookupRetryTests
             .Should().BeTrue();
     }
 
+    [Fact]
+    public void Status_filter_requires_exactly_one_selected_option()
+    {
+        TikTokSeriesListLookupService.IsExclusiveStatusSelection(
+                ["视频检测中"],
+                "视频检测中")
+            .Should().BeTrue();
+        TikTokSeriesListLookupService.IsExclusiveStatusSelection(
+                ["已发布", "视频检测中"],
+                "视频检测中")
+            .Should().BeFalse("多选控件折叠为 +1 时仍包含两个筛选状态");
+        TikTokSeriesListLookupService.IsExclusiveStatusSelection(
+                ["已发布"],
+                "视频检测中")
+            .Should().BeFalse();
+        TikTokSeriesListLookupService.IsExclusiveStatusSelection(
+                [],
+                "视频检测中")
+            .Should().BeFalse();
+    }
+
     private static TikTokSeriesListEnumerationAttempt Attempt(
         int uniqueCount,
         int expectedTotal,

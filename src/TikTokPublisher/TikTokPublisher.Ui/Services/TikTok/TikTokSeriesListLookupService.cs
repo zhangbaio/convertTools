@@ -591,23 +591,50 @@ internal static class TikTokSeriesListLookupService
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var combo = await FindComboboxContainingTextAsync(page, "状态").ConfigureAwait(false)
-            ?? throw new InvalidOperationException("原创管理页面未找到“状态”筛选器。");
-        var currentText = await ReadInnerTextAsync(combo).ConfigureAwait(false);
-        if (currentText.Contains(status, StringComparison.Ordinal))
-            return;
+        for (var attempt = 1; attempt <= 20; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var combo = await FindComboboxContainingTextAsync(page, "状态").ConfigureAwait(false)
+                ?? throw new InvalidOperationException("原创管理页面未找到“状态”筛选器。");
+            if (!string.Equals(
+                    await combo.GetAttributeAsync("aria-expanded").ConfigureAwait(false),
+                    "true",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                await combo.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
+                await page.WaitForTimeoutAsync(200).ConfigureAwait(false);
+                combo = await FindComboboxContainingTextAsync(page, "状态").ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("原创管理状态筛选器在展开后丢失。");
+            }
 
-        await combo.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
-        var option = await FindVisibleOptionByTextAsync(page, status).ConfigureAwait(false);
-        if (option is null)
-            throw new InvalidOperationException($"原创管理状态筛选器没有“{status}”选项。");
-        await option.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
-        await page.WaitForTimeoutAsync(700).ConfigureAwait(false);
+            var selected = await ReadSelectedStatusOptionTextsAsync(page, combo)
+                .ConfigureAwait(false);
+            if (IsExclusiveStatusSelection(selected, status))
+            {
+                try { await combo.PressAsync("Escape").ConfigureAwait(false); }
+                catch { /* 下拉框可能已自动关闭。 */ }
+                log?.Invoke($"原创管理已独占选择状态：{status}。");
+                return;
+            }
 
-        currentText = await ReadInnerTextAsync(combo).ConfigureAwait(false);
-        if (!currentText.Contains(status, StringComparison.Ordinal))
-            throw new InvalidOperationException($"原创管理未能切换到“{status}”状态。");
-        log?.Invoke($"原创管理已选择状态：{status}。");
+            var extra = selected.FirstOrDefault(value =>
+                !string.Equals(value, status, StringComparison.Ordinal));
+            var optionText = extra ?? status;
+            var option = await FindStatusOptionByTextAsync(page, combo, optionText)
+                .ConfigureAwait(false);
+            if (option is null)
+                throw new InvalidOperationException($"原创管理状态筛选器没有“{optionText}”选项。");
+            await option.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
+            await page.WaitForTimeoutAsync(250).ConfigureAwait(false);
+        }
+
+        var finalCombo = await FindComboboxContainingTextAsync(page, "状态").ConfigureAwait(false);
+        var finalSelected = finalCombo is null
+            ? []
+            : await ReadSelectedStatusOptionTextsAsync(page, finalCombo).ConfigureAwait(false);
+        throw new InvalidOperationException(
+            $"原创管理未能独占切换到“{status}”状态；" +
+            $"当前选中：{(finalSelected.Count == 0 ? "无" : string.Join("、", finalSelected))}。");
     }
 
     private static async Task TrySetPageSizeAsync(
@@ -679,6 +706,97 @@ internal static class TikTokSeriesListLookupService
             catch
             {
                 // 下拉框可能正在重绘，继续尝试其他候选。
+            }
+        }
+
+        return null;
+    }
+
+    internal static bool IsExclusiveStatusSelection(
+        IEnumerable<string> selectedStatuses,
+        string expectedStatus)
+    {
+        var selected = selectedStatuses
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return selected.Length == 1 &&
+               string.Equals(selected[0], expectedStatus.Trim(), StringComparison.Ordinal);
+    }
+
+    private static async Task<ILocator> ResolveStatusOptionsAsync(
+        IPage page,
+        ILocator combo)
+    {
+        var controlId = await combo.GetAttributeAsync("aria-controls").ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(controlId))
+        {
+            var escaped = controlId.Replace("'", "\\'", StringComparison.Ordinal);
+            var scoped = page.Locator($"[id='{escaped}'] [role='option']");
+            if (await scoped.CountAsync().ConfigureAwait(false) > 0)
+                return scoped;
+        }
+
+        return page.Locator("[role='option']");
+    }
+
+    private static async Task<IReadOnlyList<string>> ReadSelectedStatusOptionTextsAsync(
+        IPage page,
+        ILocator combo)
+    {
+        var options = await ResolveStatusOptionsAsync(page, combo).ConfigureAwait(false);
+        var selected = new List<string>();
+        var count = await options.CountAsync().ConfigureAwait(false);
+        for (var index = 0; index < count; index++)
+        {
+            var option = options.Nth(index);
+            try
+            {
+                if (!await option.IsVisibleAsync().ConfigureAwait(false) ||
+                    !string.Equals(
+                        await option.GetAttributeAsync("aria-selected").ConfigureAwait(false),
+                        "true",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                selected.Add((await option.InnerTextAsync(new() { Timeout = 1200 })
+                        .ConfigureAwait(false))
+                    .Trim());
+            }
+            catch
+            {
+                // 选项可能正在重绘，下一轮会重新读取完整状态。
+            }
+        }
+
+        return selected;
+    }
+
+    private static async Task<ILocator?> FindStatusOptionByTextAsync(
+        IPage page,
+        ILocator combo,
+        string expectedText)
+    {
+        var options = await ResolveStatusOptionsAsync(page, combo).ConfigureAwait(false);
+        var count = await options.CountAsync().ConfigureAwait(false);
+        for (var index = 0; index < count; index++)
+        {
+            var option = options.Nth(index);
+            try
+            {
+                if (!await option.IsVisibleAsync().ConfigureAwait(false))
+                    continue;
+                var text = (await option.InnerTextAsync(new() { Timeout = 1200 })
+                        .ConfigureAwait(false))
+                    .Trim();
+                if (string.Equals(text, expectedText, StringComparison.Ordinal))
+                    return option;
+            }
+            catch
+            {
+                // 选项可能正在重绘，继续尝试其他候选。
             }
         }
 
