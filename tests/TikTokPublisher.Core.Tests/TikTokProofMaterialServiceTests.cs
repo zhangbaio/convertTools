@@ -151,6 +151,7 @@ public sealed class TikTokProofMaterialServiceTests
         {
             var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
                 [QueueStepRegistry.GenerateProofMaterial],
+                includeRoleVector: false,
                 includeRoleSceneScreenshot: false);
             var prerequisites = TikTokSourceFileInfoUploadPackageService.ValidateExistingPrerequisites(
                 workspace,
@@ -176,6 +177,7 @@ public sealed class TikTokProofMaterialServiceTests
         {
             var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
                 [QueueStepRegistry.GenerateProofMaterial],
+                includeRoleVector: false,
                 includeRoleSceneScreenshot: false);
             var prerequisites = TikTokSourceFileInfoUploadPackageService.ValidateExistingPrerequisites(
                 workspace,
@@ -852,6 +854,7 @@ public sealed class TikTokProofMaterialServiceTests
             new DateOnly(2026, 7, 14));
 
         request.GenerateSourceFileScreenshots.Should().BeTrue();
+        request.IncludeSourceInfoRoleVector.Should().BeFalse();
         request.IncludeSourceInfoRoleSceneScreenshot.Should().BeFalse();
         request.GenerateAiGenerationScreenshots.Should().BeFalse();
         request.GenerateEditingProjectFiles.Should().BeFalse();
@@ -874,6 +877,17 @@ public sealed class TikTokProofMaterialServiceTests
         both.GenerateEditingProjectFiles.Should().BeTrue();
 
         TikTokProofMaterialService.ComputeFingerprint(request)
+            .Should().NotBe(TikTokProofMaterialService.ComputeFingerprint(both));
+
+        account.TiktokUploadSourceInfoRoleVector = true;
+        var withRoleVector = TikTokProofMaterialService.CreateQueueRequest(
+            item,
+            settings,
+            account,
+            Path.GetTempPath(),
+            new DateOnly(2026, 7, 14));
+        withRoleVector.IncludeSourceInfoRoleVector.Should().BeTrue();
+        TikTokProofMaterialService.ComputeFingerprint(withRoleVector)
             .Should().NotBe(TikTokProofMaterialService.ComputeFingerprint(both));
 
         account.TiktokUploadSourceInfoRoleSceneScreenshot = true;

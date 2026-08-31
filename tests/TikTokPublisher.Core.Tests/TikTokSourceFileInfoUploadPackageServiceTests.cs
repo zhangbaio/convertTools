@@ -8,7 +8,7 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokSourceFileInfoUploadPackageServiceTests
 {
     [Fact]
-    public void Generate_omits_role_vector_when_role_step_is_not_enabled()
+    public void Generate_omits_role_vector_when_upload_option_is_not_enabled()
     {
         var workflow = CreateWorkflow();
         try
@@ -17,6 +17,7 @@ public sealed class TikTokSourceFileInfoUploadPackageServiceTests
                 [TikTokPublisher.Core.Queue.QueueStepRegistry.GenerateAiScriptOutline,
                  TikTokPublisher.Core.Queue.QueueStepRegistry.GenerateEpisodeScript,
                  TikTokPublisher.Core.Queue.QueueStepRegistry.GenerateProofMaterial],
+                includeRoleVector: false,
                 includeRoleSceneScreenshot: false);
             File.Delete(Path.Combine(
                 TikTokReferenceSourcePackageService.GetRoot(workflow),
@@ -35,6 +36,37 @@ public sealed class TikTokSourceFileInfoUploadPackageServiceTests
             TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
                 workflow,
                 selection: selection).Should().BeTrue();
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Generate_removes_stale_role_vector_when_upload_option_is_disabled()
+    {
+        var workflow = CreateWorkflow();
+        try
+        {
+            TikTokSourceFileInfoUploadPackageService.Generate(workflow);
+            var roleVectorCopy = Path.Combine(
+                TikTokSourceFileInfoUploadPackageService.GetOutputDirectory(workflow),
+                TikTokSourceFileInfoUploadPackageService.RoleVectorImageFileName);
+            File.Exists(roleVectorCopy).Should().BeTrue();
+
+            var selection = new TikTokSourceFileInfoPackageSelection(
+                IncludeOutline: true,
+                IncludeScript: true,
+                IncludeRoleVector: false,
+                IncludeRoleSceneScreenshot: false);
+            var files = TikTokSourceFileInfoUploadPackageService.Generate(
+                workflow,
+                selection: selection);
+
+            files.Should().NotContain(path =>
+                Path.GetFileName(path) == TikTokSourceFileInfoUploadPackageService.RoleVectorImageFileName);
+            File.Exists(roleVectorCopy).Should().BeFalse();
         }
         finally
         {

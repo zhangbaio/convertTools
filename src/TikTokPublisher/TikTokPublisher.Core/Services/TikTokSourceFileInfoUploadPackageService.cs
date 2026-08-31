@@ -15,15 +15,17 @@ public sealed record TikTokSourceFileInfoPackageSelection(
 
     public static TikTokSourceFileInfoPackageSelection FromEnabledSteps(
         IEnumerable<string>? enabledSteps,
+        bool includeRoleVector,
         bool includeRoleSceneScreenshot)
     {
         if (enabledSteps is null)
-            return LegacyDefault(includeRoleSceneScreenshot);
+            return new TikTokSourceFileInfoPackageSelection(
+                true, true, includeRoleVector, includeRoleSceneScreenshot);
         var enabled = enabledSteps.ToHashSet(StringComparer.Ordinal);
         return new TikTokSourceFileInfoPackageSelection(
             enabled.Contains(QueueStepRegistry.GenerateAiScriptOutline),
             enabled.Contains(QueueStepRegistry.GenerateEpisodeScript),
-            enabled.Contains(QueueStepRegistry.GenerateRoleVector),
+            includeRoleVector,
             includeRoleSceneScreenshot);
     }
 }
@@ -34,8 +36,8 @@ internal sealed record TikTokSourceFileInfoPrerequisites(
     string? RoleVectorImage);
 
 /// <summary>
-/// 为 TikTok「原始文件或素材文件信息」整理上传包：四个必传文件，
-/// 以及账号可选的角色场景素材截图。
+/// 为 TikTok「原始文件或素材文件信息」整理上传包：固定项目资料截图，
+/// 以及按账号和生产步骤选择的剧本、AI 大纲、角色矢量图和角色场景素材截图。
 /// </summary>
 public static class TikTokSourceFileInfoUploadPackageService
 {
@@ -257,12 +259,18 @@ public static class TikTokSourceFileInfoUploadPackageService
         var roleVectorSource = Path.Combine(
             TikTokReferenceSourcePackageService.GetRoot(workflow),
             TikTokReferenceSourcePackageService.CharacterWorkbenchFileName);
-        ValidatePng(roleVectorSource, "角色矢量图", requireRoleVectorSize: true);
-        SyncRoleVectorCopy(roleVectorSource, Path.Combine(outputDirectory, RoleVectorImageFileName));
+        var roleVectorDestination = Path.Combine(outputDirectory, RoleVectorImageFileName);
+        if (File.Exists(roleVectorDestination))
+        {
+            ValidatePng(roleVectorSource, "角色矢量图", requireRoleVectorSize: true);
+            SyncRoleVectorCopy(roleVectorSource, roleVectorDestination);
+        }
         cancellationToken.ThrowIfCancellationRequested();
         TikTokSourceFileInfoScreenshotService.RefreshRoleSceneScreenshot(
             workflow, log, cancellationToken);
-        log?.Invoke("原始文件信息上传：角色矢量图与角色场景截图已同步更新。");
+        log?.Invoke(File.Exists(roleVectorDestination)
+            ? "原始文件信息上传：角色矢量图与角色场景截图已同步更新。"
+            : "原始文件信息上传：未选择上传角色矢量图，仅同步角色场景截图。");
     }
 
     internal static void SyncRoleVectorCopy(string source, string destination)

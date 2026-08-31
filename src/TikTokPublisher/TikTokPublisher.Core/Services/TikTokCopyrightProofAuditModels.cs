@@ -10,6 +10,7 @@ public enum TikTokCopyrightProofAuditState
     ProductionAgreementOnly,
     PartialMaterial,
     MissingMaterial,
+    SkippedUneditable,
     Failed,
 }
 
@@ -28,7 +29,10 @@ public sealed record TikTokCopyrightProofAuditItem(
     string DetailUrl,
     TikTokCopyrightProofAuditState State,
     string Detail,
-    DateTimeOffset CheckedAt);
+    DateTimeOffset CheckedAt)
+{
+    public string PlatformStatus { get; init; } = string.Empty;
+}
 
 public static class TikTokCopyrightProofAuditText
 {
@@ -54,6 +58,9 @@ public static class TikTokCopyrightProofAuditText
             .ToArray();
         var missingAll = ordered
             .Where(item => item.State == TikTokCopyrightProofAuditState.MissingMaterial)
+            .ToArray();
+        var skipped = ordered
+            .Where(item => item.State == TikTokCopyrightProofAuditState.SkippedUneditable)
             .ToArray();
         var failed = ordered
             .Where(item => item.State == TikTokCopyrightProofAuditState.Failed)
@@ -86,6 +93,18 @@ public static class TikTokCopyrightProofAuditText
                 string.Join(Environment.NewLine, missingAll.Select(item => item.Title)));
         }
 
+        if (skipped.Length > 0)
+        {
+            sections.Add(
+                $"【暂不可编辑，已跳过（{skipped.Length}）】{Environment.NewLine}" +
+                string.Join(
+                    Environment.NewLine,
+                    skipped.Select(item =>
+                        string.IsNullOrWhiteSpace(item.Detail)
+                            ? item.Title
+                            : $"{item.Title}　[{item.Detail}]")));
+        }
+
         if (failed.Length > 0)
         {
             sections.Add(
@@ -99,7 +118,7 @@ public static class TikTokCopyrightProofAuditText
         }
 
         return sections.Count == 0
-            ? "全部已发布剧集均检测到版权证明材料。"
+            ? "所选剧集均检测到版权证明材料。"
             : string.Join(Environment.NewLine + Environment.NewLine, sections);
     }
 
@@ -150,16 +169,18 @@ public static class TikTokCopyrightProofAuditExcelService
             new Columns(
                 new Column { Min = 1, Max = 1, Width = 8, CustomWidth = true },
                 new Column { Min = 2, Max = 2, Width = 42, CustomWidth = true },
-                new Column { Min = 3, Max = 3, Width = 16, CustomWidth = true },
-                new Column { Min = 4, Max = 4, Width = 48, CustomWidth = true },
-                new Column { Min = 5, Max = 5, Width = 24, CustomWidth = true },
-                new Column { Min = 6, Max = 6, Width = 56, CustomWidth = true },
-                new Column { Min = 7, Max = 7, Width = 24, CustomWidth = true }),
+                new Column { Min = 3, Max = 3, Width = 18, CustomWidth = true },
+                new Column { Min = 4, Max = 4, Width = 16, CustomWidth = true },
+                new Column { Min = 5, Max = 5, Width = 48, CustomWidth = true },
+                new Column { Min = 6, Max = 6, Width = 24, CustomWidth = true },
+                new Column { Min = 7, Max = 7, Width = 56, CustomWidth = true },
+                new Column { Min = 8, Max = 8, Width = 24, CustomWidth = true }),
             sheetData);
 
         sheetData.Append(BuildRow(
             "序号",
             "剧集名称",
+            "平台状态",
             "检查结果",
             "说明",
             "剧集 ID",
@@ -171,6 +192,7 @@ public static class TikTokCopyrightProofAuditExcelService
             sheetData.Append(BuildRow(
                 item.Order.ToString(),
                 item.Title,
+                item.PlatformStatus,
                 StateText(item.State),
                 item.Detail,
                 item.SeriesId,
@@ -212,6 +234,7 @@ public static class TikTokCopyrightProofAuditExcelService
             TikTokCopyrightProofAuditState.ProductionAgreementOnly => "仅上传版权证明 PDF",
             TikTokCopyrightProofAuditState.PartialMaterial => "部分版权证明材料缺失",
             TikTokCopyrightProofAuditState.MissingMaterial => "所有版权证明均未填写",
+            TikTokCopyrightProofAuditState.SkippedUneditable => "暂不可编辑，已跳过",
             _ => "检查失败",
         };
 

@@ -61,7 +61,7 @@ public static class CopyrightProofMaterialPlanBuilder
         var includeScript = includeSourceInfo &&
                             normalQueueSteps.Contains(QueueStepRegistry.GenerateEpisodeScript);
         var includeRoleVector = includeSourceInfo &&
-                                normalQueueSteps.Contains(QueueStepRegistry.GenerateRoleVector);
+                                account.TiktokUploadSourceInfoRoleVector;
         var includeRoleScene = includeSourceInfo &&
                                account.TiktokUploadSourceInfoRoleSceneScreenshot;
 
@@ -76,7 +76,8 @@ public static class CopyrightProofMaterialPlanBuilder
             steps.Add(QueueStepRegistry.GenerateEpisodeScript);
         if (includeRoleVector)
         {
-            // Role-vector generation consumes the AI drama material package.
+            // The explicit upload checkbox is authoritative. Role-vector generation
+            // consumes the AI drama material package, so recovery runs add both steps.
             steps.Add(QueueStepRegistry.GenerateAiDramaMaterials);
             steps.Add(QueueStepRegistry.GenerateRoleVector);
         }

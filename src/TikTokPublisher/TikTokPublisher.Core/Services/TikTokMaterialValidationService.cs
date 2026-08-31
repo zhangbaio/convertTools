@@ -170,6 +170,7 @@ public static class TikTokMaterialValidationService
         {
             var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
                 enabled,
+                account.TiktokUploadSourceInfoRoleVector,
                 account.TiktokUploadSourceInfoRoleSceneScreenshot);
             try
             {

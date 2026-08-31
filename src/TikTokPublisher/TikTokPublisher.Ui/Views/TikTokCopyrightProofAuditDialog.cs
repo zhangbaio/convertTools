@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using TikTokPublisher.Core.Services;
@@ -11,9 +12,13 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
 {
     private readonly string _accountName;
     private readonly Func<
+        TikTokCopyrightProofAuditSelection,
         IProgress<TikTokCopyrightProofAuditProgress>,
         CancellationToken,
         Task<IReadOnlyList<TikTokCopyrightProofAuditItem>>> _audit;
+    private readonly CheckBox _publishedBox;
+    private readonly CheckBox _videoReviewingBox;
+    private readonly Button _startButton;
     private readonly TextBlock _summary;
     private readonly ProgressBar _progress;
     private readonly TextBox _output;
@@ -24,11 +29,11 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
     private readonly Button _completeButton;
     private readonly Dictionary<int, TikTokCopyrightProofAuditItem> _results = [];
     private CancellationTokenSource? _auditCts;
-    private bool _started;
 
     private TikTokCopyrightProofAuditDialog(
         string accountName,
         Func<
+            TikTokCopyrightProofAuditSelection,
             IProgress<TikTokCopyrightProofAuditProgress>,
             CancellationToken,
             Task<IReadOnlyList<TikTokCopyrightProofAuditItem>>> audit)
@@ -45,24 +50,56 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         var root = new Grid
         {
             Margin = new Thickness(18),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,*,Auto"),
             RowSpacing = 10,
         };
         root.Children.Add(new TextBlock
         {
             Text =
-                $"当前账号：{accountName}。系统将只读检查全部已发布剧集的版权证明页面，" +
+                $"当前账号：{accountName}。系统将按所选状态只读检查剧集版权证明页面，" +
                 "不会修改或提交任何平台内容。",
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeight.SemiBold,
         });
 
+        _publishedBox = new CheckBox
+        {
+            Content = "已发布",
+            IsChecked = true,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _videoReviewingBox = new CheckBox
+        {
+            Content = "视频检测中",
+            IsChecked = false,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _startButton = BuildButton("开始检测", StartAudit, primary: true, minWidth: 104);
+        _publishedBox.IsCheckedChanged += OnSelectionChanged;
+        _videoReviewingBox.IsCheckedChanged += OnSelectionChanged;
+        var selectionPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 14,
+        };
+        selectionPanel.Children.Add(new TextBlock
+        {
+            Text = "检测剧集状态：",
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        selectionPanel.Children.Add(_publishedBox);
+        selectionPanel.Children.Add(_videoReviewingBox);
+        selectionPanel.Children.Add(_startButton);
+        Grid.SetRow(selectionPanel, 1);
+        root.Children.Add(selectionPanel);
+
         _summary = new TextBlock
         {
-            Text = "正在准备检查…",
+            Text = "请选择需要检查的剧集状态，然后点击“开始检测”。",
             TextWrapping = TextWrapping.Wrap,
         };
-        Grid.SetRow(_summary, 1);
+        Grid.SetRow(_summary, 2);
         root.Children.Add(_summary);
 
         _progress = new ProgressBar
@@ -72,7 +109,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             Value = 0,
             Height = 8,
         };
-        Grid.SetRow(_progress, 2);
+        Grid.SetRow(_progress, 3);
         root.Children.Add(_progress);
 
         _output = new TextBox
@@ -80,7 +117,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             IsReadOnly = true,
             AcceptsReturn = true,
             TextWrapping = TextWrapping.NoWrap,
-            Text = "正在读取原创管理列表…",
+            Text = "等待开始检测…",
         };
         ScrollViewer.SetHorizontalScrollBarVisibility(
             _output,
@@ -88,7 +125,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         ScrollViewer.SetVerticalScrollBarVisibility(
             _output,
             Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
-        Grid.SetRow(_output, 3);
+        Grid.SetRow(_output, 4);
         root.Children.Add(_output);
 
         var footer = new Grid
@@ -111,6 +148,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         _copyFailedButton.IsEnabled = false;
         _exportButton.IsEnabled = false;
         _completeButton.IsEnabled = false;
+        _stopButton.IsEnabled = false;
 
         footer.Children.Add(_stopButton);
         Grid.SetColumn(_copyMissingButton, 1);
@@ -123,11 +161,10 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         footer.Children.Add(_completeButton);
         Grid.SetColumn(closeButton, 6);
         footer.Children.Add(closeButton);
-        Grid.SetRow(footer, 4);
+        Grid.SetRow(footer, 5);
         root.Children.Add(footer);
 
         Content = root;
-        Opened += OnOpened;
         Closed += (_, _) =>
         {
             _auditCts?.Cancel();
@@ -140,6 +177,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         Window owner,
         string accountName,
         Func<
+            TikTokCopyrightProofAuditSelection,
             IProgress<TikTokCopyrightProofAuditProgress>,
             CancellationToken,
             Task<IReadOnlyList<TikTokCopyrightProofAuditItem>>> audit)
@@ -148,16 +186,39 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         return dialog.ShowDialog<IReadOnlyList<string>?>(owner);
     }
 
-    private async void OnOpened(object? sender, EventArgs e)
+    private void OnSelectionChanged(object? sender, RoutedEventArgs e)
     {
-        if (_started)
+        if (_auditCts is null)
+            _startButton.IsEnabled = HasSelectedStatus();
+    }
+
+    private bool HasSelectedStatus() =>
+        _publishedBox.IsChecked == true || _videoReviewingBox.IsChecked == true;
+
+    private TikTokCopyrightProofAuditSelection CurrentSelection() =>
+        new(
+            _publishedBox.IsChecked == true,
+            _videoReviewingBox.IsChecked == true);
+
+    private async void StartAudit()
+    {
+        if (_auditCts is not null || !HasSelectedStatus())
             return;
-        _started = true;
         await StartAuditAsync();
     }
 
     private async Task StartAuditAsync()
     {
+        var selection = CurrentSelection();
+        _results.Clear();
+        RenderResults();
+        _publishedBox.IsEnabled = false;
+        _videoReviewingBox.IsEnabled = false;
+        _startButton.IsEnabled = false;
+        _stopButton.IsEnabled = true;
+        _summary.Foreground = Brushes.Black;
+        _summary.Text =
+            $"正在读取原创管理列表；检测范围：{string.Join("、", selection.SelectedPlatformStatuses())}。";
         _auditCts = new CancellationTokenSource();
         var progress = new Progress<TikTokCopyrightProofAuditProgress>(update =>
         {
@@ -178,14 +239,14 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
 
         try
         {
-            var results = await _audit(progress, _auditCts.Token);
+            var results = await _audit(selection, progress, _auditCts.Token);
             _results.Clear();
             foreach (var result in results)
                 _results[result.Order] = result;
             RenderResults();
             _progress.Maximum = Math.Max(1, results.Count);
             _progress.Value = results.Count;
-            _summary.Text = $"检查完成：已发布 {results.Count} 个{BuildCountsSuffix()}";
+            _summary.Text = $"检查完成：共检查 {results.Count} 个{BuildCountsSuffix()}";
             _summary.Foreground = Brushes.Black;
         }
         catch (OperationCanceledException)
@@ -205,6 +266,10 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             _auditCts?.Dispose();
             _auditCts = null;
             _stopButton.IsEnabled = false;
+            _publishedBox.IsEnabled = true;
+            _videoReviewingBox.IsEnabled = true;
+            _startButton.Content = "重新检测";
+            _startButton.IsEnabled = HasSelectedStatus();
             UpdateButtons();
         }
     }
@@ -268,7 +333,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
     {
         var results = OrderedResults();
         _output.Text = results.Count == 0
-            ? "正在读取并检查已发布剧集…"
+            ? "正在读取并检查所选剧集…"
             : TikTokCopyrightProofAuditText.BuildDisplayText(results);
         UpdateButtons();
     }
@@ -305,6 +370,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
                $"仅 PDF {values.Count(item => item.State == TikTokCopyrightProofAuditState.ProductionAgreementOnly)}，" +
                $"部分缺失 {values.Count(item => item.State == TikTokCopyrightProofAuditState.PartialMaterial)}，" +
                $"全部未填 {values.Count(item => item.State == TikTokCopyrightProofAuditState.MissingMaterial)}，" +
+               $"暂不可编辑 {values.Count(item => item.State == TikTokCopyrightProofAuditState.SkippedUneditable)}，" +
                $"失败 {values.Count(item => item.State == TikTokCopyrightProofAuditState.Failed)}";
     }
 
