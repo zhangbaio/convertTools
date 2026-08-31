@@ -18,6 +18,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         Task<IReadOnlyList<TikTokCopyrightProofAuditItem>>> _audit;
     private readonly CheckBox _publishedBox;
     private readonly CheckBox _videoReviewingBox;
+    private readonly NumericUpDown _concurrencyBox;
     private readonly Button _startButton;
     private readonly TextBlock _summary;
     private readonly ProgressBar _progress;
@@ -32,6 +33,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
 
     private TikTokCopyrightProofAuditDialog(
         string accountName,
+        int defaultConcurrency,
         Func<
             TikTokCopyrightProofAuditSelection,
             IProgress<TikTokCopyrightProofAuditProgress>,
@@ -74,6 +76,14 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             IsChecked = false,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        _concurrencyBox = new NumericUpDown
+        {
+            Minimum = 2,
+            Maximum = 8,
+            Value = Math.Clamp(defaultConcurrency, 2, 8),
+            Width = 72,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
         _startButton = BuildButton("开始检测", StartAudit, primary: true, minWidth: 104);
         _publishedBox.IsCheckedChanged += OnSelectionChanged;
         _videoReviewingBox.IsCheckedChanged += OnSelectionChanged;
@@ -90,6 +100,13 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         });
         selectionPanel.Children.Add(_publishedBox);
         selectionPanel.Children.Add(_videoReviewingBox);
+        selectionPanel.Children.Add(new TextBlock
+        {
+            Text = "检测并发：",
+            FontWeight = FontWeight.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        selectionPanel.Children.Add(_concurrencyBox);
         selectionPanel.Children.Add(_startButton);
         Grid.SetRow(selectionPanel, 1);
         root.Children.Add(selectionPanel);
@@ -176,13 +193,14 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
     public static Task<IReadOnlyList<string>?> ShowAsync(
         Window owner,
         string accountName,
+        int defaultConcurrency,
         Func<
             TikTokCopyrightProofAuditSelection,
             IProgress<TikTokCopyrightProofAuditProgress>,
             CancellationToken,
             Task<IReadOnlyList<TikTokCopyrightProofAuditItem>>> audit)
     {
-        var dialog = new TikTokCopyrightProofAuditDialog(accountName, audit);
+        var dialog = new TikTokCopyrightProofAuditDialog(accountName, defaultConcurrency, audit);
         return dialog.ShowDialog<IReadOnlyList<string>?>(owner);
     }
 
@@ -198,7 +216,8 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
     private TikTokCopyrightProofAuditSelection CurrentSelection() =>
         new(
             _publishedBox.IsChecked == true,
-            _videoReviewingBox.IsChecked == true);
+            _videoReviewingBox.IsChecked == true,
+            (int)(_concurrencyBox.Value ?? 6));
 
     private async void StartAudit()
     {
@@ -214,11 +233,13 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         RenderResults();
         _publishedBox.IsEnabled = false;
         _videoReviewingBox.IsEnabled = false;
+        _concurrencyBox.IsEnabled = false;
         _startButton.IsEnabled = false;
         _stopButton.IsEnabled = true;
         _summary.Foreground = Brushes.Black;
         _summary.Text =
-            $"正在读取原创管理列表；检测范围：{string.Join("、", selection.SelectedPlatformStatuses())}。";
+            $"正在读取原创管理列表；检测范围：{string.Join("、", selection.SelectedPlatformStatuses())}；" +
+            $"并发：{selection.NormalizedConcurrency}。";
         _auditCts = new CancellationTokenSource();
         var progress = new Progress<TikTokCopyrightProofAuditProgress>(update =>
         {
@@ -268,6 +289,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             _stopButton.IsEnabled = false;
             _publishedBox.IsEnabled = true;
             _videoReviewingBox.IsEnabled = true;
+            _concurrencyBox.IsEnabled = true;
             _startButton.Content = "重新检测";
             _startButton.IsEnabled = HasSelectedStatus();
             UpdateButtons();
@@ -370,6 +392,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
                $"仅 PDF {values.Count(item => item.State == TikTokCopyrightProofAuditState.ProductionAgreementOnly)}，" +
                $"部分缺失 {values.Count(item => item.State == TikTokCopyrightProofAuditState.PartialMaterial)}，" +
                $"全部未填 {values.Count(item => item.State == TikTokCopyrightProofAuditState.MissingMaterial)}，" +
+               $"版权通过 {values.Count(item => item.State == TikTokCopyrightProofAuditState.SkippedApproved)}，" +
                $"暂不可编辑 {values.Count(item => item.State == TikTokCopyrightProofAuditState.SkippedUneditable)}，" +
                $"失败 {values.Count(item => item.State == TikTokCopyrightProofAuditState.Failed)}";
     }
