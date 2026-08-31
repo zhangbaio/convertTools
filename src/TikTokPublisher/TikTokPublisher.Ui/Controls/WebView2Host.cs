@@ -1,5 +1,6 @@
 ﻿using System.Drawing;
 using Avalonia;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Platform;
@@ -27,6 +28,9 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     private const int MaxLoggedDialogMessageLength = 120;
 
     private CoreWebView2Controller? _controller;
+    private readonly EventHandler<SizeChangedEventArgs> _sizeChangedHandler;
+    private int _lifecycleGeneration;
+    private bool _closed;
     private string? _pendingUrl;
     private string? _lastInitError;
     private string? _lastProcessFailure;
@@ -78,8 +82,11 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     public WebView2Host()
     {
-        SizeChanged += (_, _) => UpdateBounds();
+        _sizeChangedHandler = OnSizeChanged;
+        SizeChanged += _sizeChangedHandler;
     }
+
+    private void OnSizeChanged(object? sender, SizeChangedEventArgs args) => UpdateBounds();
 
     private bool _renderedStateApplied;
 
@@ -107,17 +114,23 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     private void ApplyRenderedState()
     {
+        var controller = Volatile.Read(ref _controller);
         try
         {
             // 宿主 HWND 已销毁时禁止调用 controller（同步 COM 调用可能挂死 UI 线程）。
-            if (_controller is null || !_nativeHandleAlive)
+            if (controller is null || !_nativeHandleAlive || _closed)
                 return;
 
-            _controller.IsVisible = true;
+            controller.IsVisible = true;
             if (_renderedVisible)
                 UpdateBounds();
             else
-                _controller.Bounds = HiddenViewportBounds;
+                controller.Bounds = HiddenViewportBounds;
+        }
+        catch (Exception ex) when (IsDisposedControllerException(ex))
+        {
+            if (controller is not null)
+                InvalidateDisposedController(controller, ex);
         }
         catch { /* ignore */ }
     }
@@ -268,8 +281,11 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     public void CloseBrowser()
     {
-        try { _controller?.Close(); } catch { /* ignore */ }
-        _controller = null;
+        _closed = true;
+        _nativeHandleAlive = false;
+        Interlocked.Increment(ref _lifecycleGeneration);
+        SizeChanged -= _sizeChangedHandler;
+        SafeCloseController(Interlocked.Exchange(ref _controller, null));
         _pendingUrl = null;
         _lastProcessFailure = null;
     }
@@ -280,11 +296,22 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         if (!OperatingSystem.IsWindows())
             return handle;
 
+        if (_closed)
+            return handle;
+
         _nativeHandleAlive = true;
+        var generation = Interlocked.Increment(ref _lifecycleGeneration);
         if (_controller is null)
-            _ = InitAsync(handle.Handle);
+            _ = InitAsync(handle.Handle, generation);
         else
+        {
             ApplyRenderedState();
+            // The preserved controller may have been disposed together with the old
+            // native parent. ApplyRenderedState atomically invalidates it; recreate it
+            // immediately for the newly attached HWND instead of leaving a blank host.
+            if (_controller is null && IsLifecycleCurrent(generation))
+                _ = InitAsync(handle.Handle, generation);
+        }
 
         return handle;
     }
@@ -300,11 +327,13 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         catch { /* ignore */ }
 
         _nativeHandleAlive = false;
+        Interlocked.Increment(ref _lifecycleGeneration);
         base.DestroyNativeControlCore(control);
     }
 
-    private async Task InitAsync(IntPtr hwnd)
+    private async Task InitAsync(IntPtr hwnd, int generation)
     {
+        CoreWebView2Controller? createdController = null;
         try
         {
             _lastInitError = null;
@@ -336,33 +365,53 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
             var udf = string.IsNullOrWhiteSpace(UserDataFolder) ? null : UserDataFolder;
             var env = await CoreWebView2Environment.CreateAsync(null, udf, options);
-            _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
+            createdController = await env.CreateCoreWebView2ControllerAsync(hwnd);
+            if (!IsLifecycleCurrent(generation))
+            {
+                SafeCloseController(createdController);
+                return;
+            }
+
+            var previousController = Interlocked.Exchange(ref _controller, createdController);
+            if (previousController is not null && !ReferenceEquals(previousController, createdController))
+                SafeCloseController(previousController);
+            if (!IsLifecycleCurrent(generation))
+            {
+                if (ReferenceEquals(
+                        Interlocked.CompareExchange(ref _controller, null, createdController),
+                        createdController))
+                {
+                    SafeCloseController(createdController);
+                }
+                return;
+            }
+
             ApplyRenderedState();
 
-            if (_controller.CoreWebView2 is not null)
+            if (createdController.CoreWebView2 is not null)
             {
-                WebView2ProcessRecovery.SaveMarker(UserDataFolder, _controller.CoreWebView2.BrowserProcessId);
-                _controller.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = false;
-                _controller.CoreWebView2.ScriptDialogOpening += OnScriptDialogOpening;
+                WebView2ProcessRecovery.SaveMarker(UserDataFolder, createdController.CoreWebView2.BrowserProcessId);
+                createdController.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = false;
+                createdController.CoreWebView2.ScriptDialogOpening += OnScriptDialogOpening;
 
                 if (!string.IsNullOrWhiteSpace(ProxyUsername) || !string.IsNullOrWhiteSpace(ProxyPassword))
                 {
-                    _controller.CoreWebView2.BasicAuthenticationRequested += (_, args) =>
+                    createdController.CoreWebView2.BasicAuthenticationRequested += (_, args) =>
                     {
                         args.Response.UserName = ProxyUsername;
                         args.Response.Password = ProxyPassword;
                     };
                 }
 
-                _controller.CoreWebView2.NavigationCompleted += (_, args) =>
+                createdController.CoreWebView2.NavigationCompleted += (_, args) =>
                 {
                     if (args.IsSuccess)
-                        NavigationCompleted?.Invoke(_controller.CoreWebView2.Source);
+                        NavigationCompleted?.Invoke(createdController.CoreWebView2.Source);
                     else
                         Log($"navigation-failed udf={UserDataFolder} port={RemoteDebuggingPort} " +
-                            $"status={args.WebErrorStatus} uri={_controller.CoreWebView2.Source}");
+                            $"status={args.WebErrorStatus} uri={createdController.CoreWebView2.Source}");
                 };
-                _controller.CoreWebView2.ProcessFailed += (_, args) =>
+                createdController.CoreWebView2.ProcessFailed += (_, args) =>
                 {
                     var message = $"WebView2 进程异常：{args.ProcessFailedKind}";
                     _lastProcessFailure = message;
@@ -374,14 +423,17 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             Log($"ready udf={udf} port={RemoteDebuggingPort} proxy={ProxyServer} cdp={CdpEndpoint}");
             Ready?.Invoke();
 
-            if (_pendingUrl != null && _controller.CoreWebView2 is not null)
+            if (_pendingUrl != null && createdController.CoreWebView2 is not null &&
+                IsLifecycleCurrent(generation))
             {
-                _controller.CoreWebView2.Navigate(_pendingUrl);
+                createdController.CoreWebView2.Navigate(_pendingUrl);
                 _pendingUrl = null;
             }
         }
         catch (WebView2RuntimeNotFoundException ex)
         {
+            if (!IsLifecycleCurrent(generation))
+                return;
             // 新装机器常见：未安装 Edge WebView2 Runtime，CreateAsync 直接抛此异常，
             // 原生宿主窗口只剩黑屏。标记状态并通知 UI 显示安装引导。
             IsRuntimeMissing = true;
@@ -391,6 +443,18 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         }
         catch (Exception ex)
         {
+            if (!IsLifecycleCurrent(generation))
+            {
+                if (createdController is not null && ReferenceEquals(
+                        Interlocked.CompareExchange(ref _controller, null, createdController),
+                        createdController))
+                {
+                    SafeCloseController(createdController);
+                }
+                return;
+            }
+            if (createdController is not null && IsDisposedControllerException(ex))
+                InvalidateDisposedController(createdController, ex);
             _lastInitError = $"{ex.GetType().Name}: {ex.Message}";
             Log($"FAILED udf={UserDataFolder} port={RemoteDebuggingPort} :: {_lastInitError}");
         }
@@ -481,32 +545,78 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     private void UpdateBounds()
     {
-        if (_controller is null || !_nativeHandleAlive)
+        var controller = Volatile.Read(ref _controller);
+        if (controller is null || !_nativeHandleAlive || _closed)
             return;
-
-        if (!_renderedVisible)
+        try
         {
-            _controller.Bounds = HiddenViewportBounds;
-            return;
-        }
+            if (!_renderedVisible)
+            {
+                controller.Bounds = HiddenViewportBounds;
+                return;
+            }
 
-        var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-        var w = Math.Max(0, (int)(Bounds.Width * scaling));
-        var h = Math.Max(0, (int)(Bounds.Height * scaling));
-        if (w <= 1 || h <= 1)
+            var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+            var w = Math.Max(0, (int)(Bounds.Width * scaling));
+            var h = Math.Max(0, (int)(Bounds.Height * scaling));
+            if (w <= 1 || h <= 1)
+            {
+                // 挂载层折叠成 1×1 时保持虚拟视口，避免布局塌缩破坏后台自动化。
+                controller.Bounds = HiddenViewportBounds;
+                return;
+            }
+
+            controller.Bounds = new Rectangle(0, 0, w, h);
+            NotifyParentWindowPositionChanged(controller);
+        }
+        catch (Exception ex) when (IsDisposedControllerException(ex))
         {
-            // 挂载层折叠成 1×1 时保持虚拟视口，避免布局塌缩破坏后台自动化。
-            _controller.Bounds = HiddenViewportBounds;
-            return;
+            InvalidateDisposedController(controller, ex);
         }
-
-        _controller.Bounds = new Rectangle(0, 0, w, h);
-        NotifyParentWindowPositionChanged();
     }
 
-    private void NotifyParentWindowPositionChanged()
+    private static void NotifyParentWindowPositionChanged(CoreWebView2Controller controller)
     {
-        try { _controller?.NotifyParentWindowPositionChanged(); }
+        try { controller.NotifyParentWindowPositionChanged(); }
+        catch { /* ignore */ }
+    }
+
+    private bool IsLifecycleCurrent(int generation) =>
+        !_closed && _nativeHandleAlive && generation == Volatile.Read(ref _lifecycleGeneration);
+
+    private void InvalidateDisposedController(CoreWebView2Controller controller, Exception exception)
+    {
+        if (!ReferenceEquals(
+                Interlocked.CompareExchange(ref _controller, null, controller),
+                controller))
+        {
+            return;
+        }
+
+        _lastProcessFailure = "WebView2 Controller 已失效，下次使用时将自动重建。";
+        Log($"controller-invalidated udf={UserDataFolder} port={RemoteDebuggingPort} :: " +
+            $"{exception.GetType().Name}: {exception.Message}");
+        SafeCloseController(controller);
+        ProcessFailed?.Invoke(_lastProcessFailure);
+    }
+
+    private static bool IsDisposedControllerException(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is InvalidOperationException &&
+                current.Message.Contains("disposed", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (current is COMException comException && comException.HResult == unchecked((int)0x8007139F))
+                return true;
+        }
+        return false;
+    }
+
+    private static void SafeCloseController(CoreWebView2Controller? controller)
+    {
+        if (controller is null) return;
+        try { controller.Close(); }
         catch { /* ignore */ }
     }
 
