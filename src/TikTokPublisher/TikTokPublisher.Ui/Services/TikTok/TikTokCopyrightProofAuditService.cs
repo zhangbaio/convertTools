@@ -83,13 +83,29 @@ public static class TikTokCopyrightProofAuditService
             foreach (var status in selectedStatuses)
             {
                 ct.ThrowIfCancellationRequested();
+                var pageProgress = new Progress<TikTokSeriesListEnumerationProgress>(update =>
+                {
+                    var totalPages = update.TotalPages ?? Math.Max(1, update.CurrentPage);
+                    var retryLabel = update.AttemptNumber > 1 ? "（重试）" : string.Empty;
+                    var detail = update.CurrentPageRowCount.HasValue
+                        ? $"当前页 {update.CurrentPageRowCount.Value} 条，" +
+                          $"累计 {update.CollectedUniqueCount} 个剧集"
+                        : $"正在等待第 {update.CurrentPage} 页稳定加载…";
+                    progress?.Report(new TikTokCopyrightProofAuditProgress(
+                        update.CurrentPage,
+                        totalPages,
+                        detail,
+                        null,
+                        $"读取“{update.PlatformStatus}”列表{retryLabel}"));
+                });
                 var rows = await TikTokSeriesListLookupService
                     .EnumerateAllAsync(
                         listPage,
                         log,
                         ct,
                         statusFilter: status,
-                        preferredPageSize: 50)
+                        preferredPageSize: 50,
+                        progress: pageProgress)
                     .ConfigureAwait(false);
                 selectedRows.AddRange(rows);
             }
