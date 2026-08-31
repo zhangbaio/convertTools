@@ -905,7 +905,10 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var request = new CancellationTokenSource();
         _newReleaseCts = request;
         IsSearching = true;
-        SearchPageText = $"{label} · 加载中...";
+        var days = Math.Clamp(QueryDays, 1, 30);
+        var dateWindowText = ShortDramaDramaServices.GetHighNewReleaseDateWindowDisplay(days);
+        var datedLabel = $"{label} · {dateWindowText}";
+        SearchPageText = $"{datedLabel} · 加载中...";
         var pagesDisplayed = 0;
         var latestNetworkStatus = "正在获取第 1 页";
         var scheduledDetailIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -929,7 +932,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 return;
             var pageLabel = pagesDisplayed > 0 ? $"第 {pagesDisplayed} 页" : "等待第 1 页";
             SearchPageText =
-                $"{label} · {pageLabel} · 已显示 {SearchResults.Count} 条 · " +
+                $"{datedLabel} · {pageLabel} · 已显示 {SearchResults.Count} 条 · " +
                 $"指标 {processedDetailIds.Count}/{_allSearchResults.Count} · {latestNetworkStatus}";
         }
 
@@ -951,20 +954,23 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                     progress: null,
                     cancellationToken: request.Token,
                     detailResults: null);
+                var filtered = ShortDramaDramaServices.FilterEnrichedHighNewReleaseItems(
+                    enriched,
+                    days);
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     if (generation != _searchGeneration || request.IsCancellationRequested)
                         return;
-                    AppendLoadedSearchItems(enriched, sourceMode);
+                    AppendLoadedSearchItems(filtered, sourceMode);
                     pagesDisplayed++;
-                    foreach (var item in enriched)
+                    foreach (var item in filtered)
                     {
                         if (HasRequiredMetrics(item))
                             processedDetailIds.Add(item.BookId);
                         else
                             processedDetailIds.Remove(item.BookId);
                     }
-                    ApplyFilteredSearchResults(label);
+                    ApplyFilteredSearchResults(datedLabel);
                     UpdateProgressText();
                     firstPageShown.TrySetResult(true);
                 });
@@ -982,7 +988,6 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         });
         try
         {
-            var days = Math.Clamp(QueryDays, 1, 30);
             var listTask = Task.Run(
                 async () => isAi
                     ? await ShortDramaDramaServices.GetAiTodayAsync(
@@ -1000,6 +1005,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             }
             _ = CompleteHighNewReleaseAsync(
                 label,
+                datedLabel,
                 generation,
                 request,
                 listTask,
@@ -1030,6 +1036,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     private async Task CompleteHighNewReleaseAsync(
         string label,
+        string datedLabel,
         long generation,
         CancellationTokenSource request,
         Task<IReadOnlyList<DramaSearchItem>> listTask,
@@ -1051,9 +1058,9 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             pipelineAwaited = true;
             if (generation != _searchGeneration || request.IsCancellationRequested)
                 return;
-            ApplyFilteredSearchResults(label);
-            SearchPageText = $"{label} · 共 {SearchResults.Count} 条";
-            LogRequested?.Invoke($"{label}：{SearchResults.Count} 条");
+            ApplyFilteredSearchResults(datedLabel);
+            SearchPageText = $"{datedLabel} · 共 {SearchResults.Count} 条";
+            LogRequested?.Invoke($"{datedLabel}：{SearchResults.Count} 条");
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested)
         {

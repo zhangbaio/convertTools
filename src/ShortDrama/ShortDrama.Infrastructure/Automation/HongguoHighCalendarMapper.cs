@@ -6,6 +6,13 @@ using ShortDrama.Core.Models;
 
 namespace ShortDrama.Infrastructure.Automation;
 
+public readonly record struct HongguoHighDateWindow(DateOnly StartDate, DateOnly EndDate)
+{
+    public string DisplayText => StartDate == EndDate
+        ? EndDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+        : $"{StartDate:yyyy-MM-dd} ~ {EndDate:yyyy-MM-dd}";
+}
+
 public static class HongguoHighCalendarMapper
 {
     private static readonly Regex LastChapterNumberRegex =
@@ -282,12 +289,45 @@ public static class HongguoHighCalendarMapper
     }
 
     public static IReadOnlyList<DramaSearchItem> FilterByRecentDays(IEnumerable<DramaSearchItem> items, int days)
+        => FilterByDateWindow(items, ResolveRecentDateWindow(days), keepUnknownDate: true);
+
+    /// <summary>
+    /// Applies the authoritative date filter after directory details have supplied
+    /// publish timestamps. Unknown dates are excluded at this stage so a one-day
+    /// query cannot keep an item that cannot be proven to belong to today.
+    /// </summary>
+    public static IReadOnlyList<DramaSearchItem> FilterEnrichedByRecentDays(
+        IEnumerable<DramaSearchItem> items,
+        int days)
+        => FilterByDateWindow(items, ResolveRecentDateWindow(days), keepUnknownDate: false);
+
+    public static IReadOnlyList<DramaSearchItem> FilterByDateWindow(
+        IEnumerable<DramaSearchItem> items,
+        HongguoHighDateWindow window,
+        bool keepUnknownDate)
+    {
+        return items
+            .Where(item =>
+            {
+                if (!TryParsePublishDate(item.PublishTime, out var publishedAt))
+                    return keepUnknownDate;
+                var date = DateOnly.FromDateTime(publishedAt);
+                return date >= window.StartDate && date <= window.EndDate;
+            })
+            .ToArray();
+    }
+
+    public static HongguoHighDateWindow ResolveRecentDateWindow(int days)
     {
         var windowDays = Math.Clamp(days, 1, 30);
-        var cutoff = DateTime.Today.AddDays(-(windowDays - 1));
-        return items
-            .Where(item => !TryParsePublishDate(item.PublishTime, out var publishedAt) || publishedAt.Date >= cutoff)
-            .ToArray();
+        var today = DateOnly.FromDateTime(GetChinaNow().DateTime);
+        return new HongguoHighDateWindow(today.AddDays(-(windowDays - 1)), today);
+    }
+
+    public static HongguoHighDateWindow ResolveRecentDateWindow(int days, DateOnly today)
+    {
+        var windowDays = Math.Clamp(days, 1, 30);
+        return new HongguoHighDateWindow(today.AddDays(-(windowDays - 1)), today);
     }
 
     public static string NormalizePublishTime(params string?[] values) =>
@@ -373,6 +413,20 @@ public static class HongguoHighCalendarMapper
         }
 
         return null;
+    }
+
+    private static DateTimeOffset GetChinaNow()
+    {
+        TimeZoneInfo zone;
+        try
+        {
+            zone = TimeZoneInfo.FindSystemTimeZoneById("China Standard Time");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            zone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
+        }
+        return TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone);
     }
 
     /// <summary>

@@ -31,15 +31,20 @@ public sealed class DramaNewReleaseOptimizationTests
         source.Should().Contain("SingleReader = true");
         source.Should().Contain("await foreach (var pageItems in pageQueue.Reader.ReadAllAsync");
         source.Should().Contain("await ShortDramaDramaServices.EnrichHighNewReleaseItemsAsync");
-        source.Should().Contain("AppendLoadedSearchItems(enriched, sourceMode)");
+        source.Should().Contain("FilterEnrichedHighNewReleaseItems");
+        source.Should().Contain("AppendLoadedSearchItems(filtered, sourceMode)");
         source.Should().Contain("foreach (var page in pageItems.Chunk(20))");
         source.Should().Contain("await pagePipelineTask");
         source.Should().NotContain("ConcurrentBag<Task<IReadOnlyList<DramaSearchItem>>>");
 
         source.IndexOf("await ShortDramaDramaServices.EnrichHighNewReleaseItemsAsync", StringComparison.Ordinal)
             .Should().BeLessThan(
-                source.IndexOf("AppendLoadedSearchItems(enriched, sourceMode)", StringComparison.Ordinal),
+                source.IndexOf("FilterEnrichedHighNewReleaseItems", StringComparison.Ordinal),
                 "a page must be enriched before it becomes visible");
+        source.IndexOf("FilterEnrichedHighNewReleaseItems", StringComparison.Ordinal)
+            .Should().BeLessThan(
+                source.IndexOf("AppendLoadedSearchItems(filtered, sourceMode)", StringComparison.Ordinal),
+                "the authoritative date window must be applied before display");
     }
 
     [Fact]

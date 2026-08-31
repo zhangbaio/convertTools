@@ -143,6 +143,17 @@ public static class ShortDramaDramaServices
         return Router.Value.IsHighSourceSelected();
     }
 
+    public static string GetHighNewReleaseDateWindowDisplay(int days) =>
+        HongguoHighCalendarMapper.ResolveRecentDateWindow(days).DisplayText;
+
+    public static IReadOnlyList<DramaSearchItem> FilterEnrichedHighNewReleaseItems(
+        IEnumerable<DramaSearchItem> items,
+        int days) =>
+        HongguoHighCalendarMapper
+            .FilterEnrichedByRecentDays(items.Select(ToCore), days)
+            .Select(FromCore)
+            .ToArray();
+
     public static async Task<IReadOnlyList<DramaSearchItem>> GetHistoryAsync(int days, CancellationToken cancellationToken)
     {
         RefreshSettings();

@@ -1034,7 +1034,7 @@ public sealed class HongguoHighApiService
 
     private static bool PageIsBeforeWindow(IReadOnlyList<DramaSearchItem> items, int days)
     {
-        var cutoff = DateTimeOffset.Now.Date.AddDays(-Math.Clamp(days, 1, 30) + 1);
+        var cutoff = HongguoHighCalendarMapper.ResolveRecentDateWindow(days).StartDate;
         var parsed = items
             .Select(item => DateTimeOffset.TryParse(item.PublishTime, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var value)
                 ? value
@@ -1042,11 +1042,20 @@ public sealed class HongguoHighApiService
             .Where(value => value.HasValue)
             .Select(value => value!.Value)
             .ToArray();
-        return parsed.Length > 0 && parsed.Max().Date < cutoff;
+        return parsed.Length > 0 &&
+               DateOnly.FromDateTime(parsed.Max().Date) < cutoff;
     }
 
     private static string CalendarCacheKey(string kind, int days, string phase, DramaSourceSettings settings) =>
-        string.Join('|', kind, days, phase, DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), (settings.HghighAccount ?? "").Trim());
+        string.Join(
+            '|',
+            kind,
+            days,
+            phase,
+            HongguoHighCalendarMapper.ResolveRecentDateWindow(days).EndDate.ToString(
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture),
+            (settings.HghighAccount ?? "").Trim());
 
     private bool TryReadCalendarCache(string key, out IReadOnlyList<DramaSearchItem> items)
     {
