@@ -45,6 +45,7 @@ public static class TikTokCopyrightProofAuditService
         "版权审核已通过，平台不再允许编辑版权证明。";
     public const string CopyrightUneditableMessage =
         "版权证明页面当前不可编辑，已跳过检查。";
+    internal const bool DefaultHeadless = true;
 
     public static async Task<IReadOnlyList<TikTokCopyrightProofAuditItem>> AuditAsync(
         TikTokAccountProfile account,
@@ -58,33 +59,22 @@ public static class TikTokCopyrightProofAuditService
         IBrowser? chromium = null;
         try
         {
-            var useLaunch = string.Equals(
-                (account.TiktokUploadBrowserMode ?? string.Empty).Trim(),
-                "playwright",
-                StringComparison.OrdinalIgnoreCase);
+            _ = browser; // 保留参数兼容现有调用；版权检查始终使用独立无头浏览器。
+            var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
+            if (!File.Exists(authPath))
+                throw new InvalidOperationException("未找到当前账号的 TikTok 登录态，请先登录账号后再检查。");
 
+            log?.Invoke("检查未补版权证明：默认使用无头浏览器并复用当前账号登录态。");
             IPage listPage;
-            if (useLaunch)
-            {
-                var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
-                (playwright, chromium, listPage) = await EmbeddedBrowserAutomationBridge
-                    .LaunchPageAsync(
-                        account,
-                        TikTokUrls.DefaultSeriesListUrl,
-                        authPath,
-                        account.TiktokPlaywrightUploadHeadless,
-                        log,
-                        ct)
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                if (browser is null)
-                    throw new InvalidOperationException("当前账号的内置浏览器尚未就绪或未登录。");
-                (playwright, chromium, listPage) = await EmbeddedBrowserAutomationBridge
-                    .ConnectPageAsync(browser, TikTokUrls.DefaultSeriesListUrl, log, ct)
-                    .ConfigureAwait(false);
-            }
+            (playwright, chromium, listPage) = await EmbeddedBrowserAutomationBridge
+                .LaunchPageAsync(
+                    account,
+                    TikTokUrls.DefaultSeriesListUrl,
+                    authPath,
+                    DefaultHeadless,
+                    log,
+                    ct)
+                .ConfigureAwait(false);
 
             var selectedStatuses = selection.SelectedPlatformStatuses();
             if (selectedStatuses.Count == 0)
