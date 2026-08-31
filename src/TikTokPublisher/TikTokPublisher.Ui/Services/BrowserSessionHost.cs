@@ -398,7 +398,7 @@ public sealed class BrowserSessionHost
         return new EmbeddedAuthSaveResult(authPath, 0, 0, savedAt);
     }
 
-    private async Task<bool> TryExportAuthFromLoggedInBrowserAsync(
+    public async Task<bool> TryExportAuthFromLoggedInBrowserAsync(
         AccountItemViewModel account,
         Action<string>? log,
         CancellationToken ct)

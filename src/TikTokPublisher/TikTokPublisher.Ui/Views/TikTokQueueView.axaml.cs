@@ -3226,7 +3226,23 @@ public partial class TikTokQueueView : UserControl
 
         IEmbeddedBrowser? browser = null;
         if (!UsesPlaywrightUploadBrowser(account))
+        {
+            var accountVm = vm.FindAccount(account.Id) ?? vm.FindAccount(account.DisplayName);
+            if (_browserHost is not null && accountVm is not null)
+            {
+                var exported = await _browserHost
+                    .TryExportAuthFromLoggedInBrowserAsync(accountVm, vm.AppendLog, ct)
+                    .ConfigureAwait(false);
+                if (!exported)
+                {
+                    vm.AppendLog(
+                        $"未能从账号「{account.DisplayName}」的内置浏览器刷新授权文件，" +
+                        "将尝试使用已有登录态。");
+                }
+            }
+
             browser = _browserHost?.TryGetHost(account.Id);
+        }
 
         var selectedStatuses = selection.SelectedPlatformStatuses();
         vm.StatusMessage =
