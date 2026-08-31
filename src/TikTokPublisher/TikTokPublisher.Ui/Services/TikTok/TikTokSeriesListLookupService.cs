@@ -12,6 +12,22 @@ internal sealed record TikTokSeriesListRow(
     string DetailUrl,
     string RawText);
 
+internal sealed record TikTokSeriesListEnumerationAttempt(
+    IReadOnlyList<TikTokSeriesListRow> Rows,
+    int? ExpectedTotal,
+    int RawVisibleRowCount,
+    int SkippedRowCount,
+    IReadOnlyDictionary<string, int> DuplicateKeyCounts,
+    string EndReason)
+{
+    public bool IsComplete => ExpectedTotal is null or <= 0 || Rows.Count >= ExpectedTotal.Value;
+}
+
+internal sealed record TikTokSeriesPageScanResult(
+    IReadOnlyList<TikTokSeriesListRow> Rows,
+    int VisibleRowCount,
+    int SkippedRowCount);
+
 internal static class TikTokSeriesListLookupService
 {
     private static readonly TimeSpan SearchResultTimeout = TimeSpan.FromSeconds(15);
@@ -72,6 +88,51 @@ internal static class TikTokSeriesListLookupService
         Action<string>? log,
         CancellationToken ct)
     {
+        TikTokSeriesListEnumerationAttempt? previousAttempt = null;
+        for (var attemptNumber = 1; attemptNumber <= 2; attemptNumber++)
+        {
+            var attempt = await EnumerateAllOnceAsync(page, log, ct, attemptNumber)
+                .ConfigureAwait(false);
+            if (attempt.IsComplete)
+                return attempt.Rows;
+
+            if (attemptNumber == 1)
+            {
+                log?.Invoke(
+                    "原创管理分页首次读取不完整，等待列表稳定后自动从第 1 页重试：" +
+                    DescribeAttempt(attempt));
+                previousAttempt = attempt;
+                await page.WaitForTimeoutAsync(1200).ConfigureAwait(false);
+                // Reload the SPA before retrying. This obtains a fresh, stable
+                // pagination snapshot and avoids driving the stale page-73 React
+                // component back to page 1 after the underlying list has changed.
+                await OpenAsync(page, log, ct).ConfigureAwait(false);
+                continue;
+            }
+
+            if (previousAttempt is not null &&
+                HasStableDuplicateOnlyShortfall(previousAttempt, attempt))
+            {
+                log?.Invoke(
+                    "原创管理连续两次读取到相同的稳定重复行；将按唯一剧集继续检查：" +
+                    DescribeAttempt(attempt));
+                return attempt.Rows;
+            }
+
+            throw new InvalidOperationException(
+                "原创管理分页读取不完整：" + DescribeAttempt(attempt) +
+                "。已自动重试 1 次，仍无法确认全部剧集，本次检查已停止，避免遗漏剧集。");
+        }
+
+        return [];
+    }
+
+    private static async Task<TikTokSeriesListEnumerationAttempt> EnumerateAllOnceAsync(
+        IPage page,
+        Action<string>? log,
+        CancellationToken ct,
+        int attemptNumber)
+    {
         var search = await FindSearchInputAsync(page).ConfigureAwait(false)
             ?? throw new InvalidOperationException("原创管理页面未找到剧集搜索框。");
         await search.FillAsync(string.Empty).ConfigureAwait(false);
@@ -82,17 +143,25 @@ internal static class TikTokSeriesListLookupService
 
         var collected = new List<TikTokSeriesListRow>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var duplicateKeyCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var rawVisibleRowCount = 0;
+        var skippedRowCount = 0;
         string? previousFingerprint = null;
         int? expectedTotal = null;
+        var endReason = "达到分页安全上限";
 
         for (var pageNumber = 1; pageNumber <= 1000; pageNumber++)
         {
             ct.ThrowIfCancellationRequested();
-            var pageRows = await ScanCurrentPageRowsAsync(page, ct).ConfigureAwait(false);
+            var scan = await ScanCurrentPageRowsAsync(page, ct).ConfigureAwait(false);
+            var pageRows = scan.Rows;
+            rawVisibleRowCount += scan.VisibleRowCount;
+            skippedRowCount += scan.SkippedRowCount;
             if (pageRows.Count == 0)
             {
                 if (pageNumber == 1)
                     throw new InvalidOperationException("原创管理列表没有读取到任何剧集行。");
+                endReason = "当前页没有可解析剧集行";
                 break;
             }
 
@@ -103,10 +172,15 @@ internal static class TikTokSeriesListLookupService
                     : $"url:{row.DetailUrl}|title:{NormalizeTitle(row.Title)}";
                 if (seen.Add(key))
                     collected.Add(row);
+                else
+                    duplicateKeyCounts[key] = duplicateKeyCounts.GetValueOrDefault(key) + 1;
             }
 
             log?.Invoke(
-                $"已读取原创管理第 {pageNumber} 页：本页 {pageRows.Count} 个，累计 {collected.Count} 个。");
+                $"第 {attemptNumber} 次扫描原创管理第 {pageNumber} 页：" +
+                $"可见 {scan.VisibleRowCount} 行，解析 {pageRows.Count} 个，" +
+                $"累计唯一 {collected.Count} 个，重复 {duplicateKeyCounts.Values.Sum()} 个，" +
+                $"跳过 {skippedRowCount} 行。");
 
             expectedTotal ??= await TryReadTotalCountAsync(page).ConfigureAwait(false);
             var fingerprint = BuildPageFingerprint(pageRows);
@@ -119,15 +193,9 @@ internal static class TikTokSeriesListLookupService
                              await IsDisabledAsync(next).ConfigureAwait(false);
             if (next is null || isLastPage)
             {
-                if (expectedTotal is > 0 && collected.Count < expectedTotal.Value)
-                {
-                    var reason = next is null
-                        ? "未找到“下一页”按钮"
-                        : "“下一页”按钮已禁用";
-                    throw new InvalidOperationException(
-                        $"原创管理分页读取不完整：页面显示共 {expectedTotal.Value} 个，" +
-                        $"当前只读取到 {collected.Count} 个，且{reason}。本次检查已停止，避免遗漏剧集。");
-                }
+                endReason = next is null
+                    ? "未找到“下一页”按钮"
+                    : "“下一页”按钮已禁用";
                 break;
             }
 
@@ -139,8 +207,58 @@ internal static class TikTokSeriesListLookupService
                 throw new InvalidOperationException("点击原创管理下一页后，列表内容未在规定时间内更新。");
         }
 
-        return collected;
+        return new TikTokSeriesListEnumerationAttempt(
+            collected,
+            expectedTotal,
+            rawVisibleRowCount,
+            skippedRowCount,
+            duplicateKeyCounts,
+            endReason);
     }
+
+    internal static bool HasStableDuplicateOnlyShortfall(
+        TikTokSeriesListEnumerationAttempt first,
+        TikTokSeriesListEnumerationAttempt second)
+    {
+        if (first.ExpectedTotal is not > 0 ||
+            second.ExpectedTotal != first.ExpectedTotal ||
+            first.SkippedRowCount != 0 || second.SkippedRowCount != 0 ||
+            first.RawVisibleRowCount < first.ExpectedTotal ||
+            second.RawVisibleRowCount < second.ExpectedTotal ||
+            first.DuplicateKeyCounts.Count == 0 ||
+            first.Rows.Count != second.Rows.Count)
+        {
+            return false;
+        }
+
+        var duplicateCount = second.DuplicateKeyCounts.Values.Sum();
+        if (second.Rows.Count + duplicateCount < second.ExpectedTotal)
+            return false;
+
+        return first.DuplicateKeyCounts.Count == second.DuplicateKeyCounts.Count &&
+               first.DuplicateKeyCounts.All(pair =>
+                   second.DuplicateKeyCounts.TryGetValue(pair.Key, out var count) &&
+                   count == pair.Value);
+    }
+
+    private static string DescribeAttempt(TikTokSeriesListEnumerationAttempt attempt)
+    {
+        var duplicateSample = attempt.DuplicateKeyCounts.Keys
+            .Take(3)
+            .Select(DescribeSeriesKey)
+            .ToArray();
+        var duplicateText = duplicateSample.Length == 0
+            ? "无"
+            : string.Join("、", duplicateSample);
+        return
+            $"页面显示共 {attempt.ExpectedTotal?.ToString() ?? "未知"} 个，" +
+            $"扫描可见行 {attempt.RawVisibleRowCount} 个，唯一剧集 {attempt.Rows.Count} 个，" +
+            $"重复 {attempt.DuplicateKeyCounts.Values.Sum()} 个（{duplicateText}），" +
+            $"跳过 {attempt.SkippedRowCount} 行，结束原因：{attempt.EndReason}";
+    }
+
+    private static string DescribeSeriesKey(string key) =>
+        key.StartsWith("id:", StringComparison.Ordinal) ? key[3..] : key;
 
     public static async Task<IReadOnlyList<TikTokSeriesListRow>> SearchExactAsync(
         IPage page,
@@ -200,7 +318,7 @@ internal static class TikTokSeriesListLookupService
         return [];
     }
 
-    private static async Task<IReadOnlyList<TikTokSeriesListRow>> ScanCurrentPageRowsAsync(
+    private static async Task<TikTokSeriesPageScanResult> ScanCurrentPageRowsAsync(
         IPage page,
         CancellationToken ct)
     {
@@ -215,9 +333,11 @@ internal static class TikTokSeriesListLookupService
         }
 
         if (rows is null)
-            return [];
+            return new TikTokSeriesPageScanResult([], 0, 0);
 
         var results = new List<TikTokSeriesListRow>();
+        var visibleRowCount = 0;
+        var skippedRowCount = 0;
         var count = Math.Min(await rows.CountAsync().ConfigureAwait(false), 200);
         for (var index = 0; index < count; index++)
         {
@@ -228,10 +348,12 @@ internal static class TikTokSeriesListLookupService
             {
                 if (!await row.IsVisibleAsync().ConfigureAwait(false))
                     continue;
+                visibleRowCount++;
                 rawText = await row.InnerTextAsync(new() { Timeout = 1500 }).ConfigureAwait(false);
             }
             catch
             {
+                skippedRowCount++;
                 continue;
             }
 
@@ -239,7 +361,10 @@ internal static class TikTokSeriesListLookupService
                 .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var title = ExtractTitle(lines, rawText);
             if (string.IsNullOrWhiteSpace(title))
+            {
+                skippedRowCount++;
                 continue;
+            }
 
             var urls = await FindSeriesUrlsAsync(page, row).ConfigureAwait(false);
             var ids = urls
@@ -257,13 +382,18 @@ internal static class TikTokSeriesListLookupService
                 rawText));
         }
 
-        return results
+        var distinctRows = results
             .DistinctBy(row => string.Join(
                 "\n",
                 row.Title,
                 row.SeriesId,
                 row.DetailUrl))
             .ToArray();
+        skippedRowCount += results.Count - distinctRows.Length;
+        return new TikTokSeriesPageScanResult(
+            distinctRows,
+            visibleRowCount,
+            skippedRowCount);
     }
 
     private static string ExtractTitle(IReadOnlyList<string> lines, string rawText)
@@ -457,7 +587,8 @@ internal static class TikTokSeriesListLookupService
         while (stopwatch.Elapsed < TimeSpan.FromSeconds(15))
         {
             ct.ThrowIfCancellationRequested();
-            var rows = await ScanCurrentPageRowsAsync(page, ct).ConfigureAwait(false);
+            var scan = await ScanCurrentPageRowsAsync(page, ct).ConfigureAwait(false);
+            var rows = scan.Rows;
             if (rows.Count > 0 &&
                 !string.Equals(
                     BuildPageFingerprint(rows),
