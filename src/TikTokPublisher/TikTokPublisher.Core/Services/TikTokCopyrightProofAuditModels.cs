@@ -10,6 +10,7 @@ public enum TikTokCopyrightProofAuditState
     ProductionAgreementOnly,
     PartialMaterial,
     MissingMaterial,
+    SkippedApproved,
     SkippedUneditable,
     Failed,
 }
@@ -62,6 +63,9 @@ public static class TikTokCopyrightProofAuditText
         var skipped = ordered
             .Where(item => item.State == TikTokCopyrightProofAuditState.SkippedUneditable)
             .ToArray();
+        var approved = ordered
+            .Where(item => item.State == TikTokCopyrightProofAuditState.SkippedApproved)
+            .ToArray();
         var failed = ordered
             .Where(item => item.State == TikTokCopyrightProofAuditState.Failed)
             .ToArray();
@@ -100,6 +104,18 @@ public static class TikTokCopyrightProofAuditText
                 string.Join(
                     Environment.NewLine,
                     skipped.Select(item =>
+                        string.IsNullOrWhiteSpace(item.Detail)
+                            ? item.Title
+                            : $"{item.Title}　[{item.Detail}]")));
+        }
+
+        if (approved.Length > 0)
+        {
+            sections.Add(
+                $"【版权审核通过，已跳过（{approved.Length}）】{Environment.NewLine}" +
+                string.Join(
+                    Environment.NewLine,
+                    approved.Select(item =>
                         string.IsNullOrWhiteSpace(item.Detail)
                             ? item.Title
                             : $"{item.Title}　[{item.Detail}]")));
@@ -234,6 +250,7 @@ public static class TikTokCopyrightProofAuditExcelService
             TikTokCopyrightProofAuditState.ProductionAgreementOnly => "仅上传版权证明 PDF",
             TikTokCopyrightProofAuditState.PartialMaterial => "部分版权证明材料缺失",
             TikTokCopyrightProofAuditState.MissingMaterial => "所有版权证明均未填写",
+            TikTokCopyrightProofAuditState.SkippedApproved => "版权审核通过，已跳过",
             TikTokCopyrightProofAuditState.SkippedUneditable => "暂不可编辑，已跳过",
             _ => "检查失败",
         };

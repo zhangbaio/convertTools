@@ -119,7 +119,7 @@ public partial class TikTokQueueView : UserControl
                 ? "等待停止"
                 : startBusy
                     ? "执行中"
-                    : "开始生产";
+                    : "执行勾选队列";
             StartQueueButton.IsEnabled = !startBusy;
         }
         if (StartAllQueuesButton is not null) StartAllQueuesButton.IsEnabled = !anyRunning;
@@ -280,7 +280,7 @@ public partial class TikTokQueueView : UserControl
                 new TextBlock
                 {
                     Text = request.ErrorMessage,
-                    Foreground = new SolidColorBrush(Color.Parse("#FF9EAA")),
+                    Foreground = Brushes.Firebrick,
                     TextWrapping = TextWrapping.Wrap,
                 },
                 new TextBlock
@@ -1169,7 +1169,7 @@ public partial class TikTokQueueView : UserControl
                 {
                     Text = "移动后 TikTok 上传状态会重置，避免沿用原账号的草稿或已上传记录；本地处理步骤会保留。",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-                    Foreground = new SolidColorBrush(Color.Parse("#B8C8D8")),
+                    Foreground = Brushes.Gray,
                 },
                 new StackPanel
                 {
@@ -1188,7 +1188,7 @@ public partial class TikTokQueueView : UserControl
     {
         var dialog = new Window
         {
-            Title = "创建发布单",
+            Title = "上传短剧 - TikTok",
             Width = 560,
             Height = 460,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -3118,6 +3118,7 @@ public partial class TikTokQueueView : UserControl
         var missingTitles = await TikTokCopyrightProofAuditDialog.ShowAsync(
             owner,
             accountVm.DisplayName,
+            Math.Clamp(Math.Max(6, account.TiktokProjectConcurrency), 2, 8),
             (selection, progress, ct) =>
                 AuditPublishedCopyrightProofAsync(account, selection, progress, ct));
         if (missingTitles is null || missingTitles.Count == 0)
@@ -3225,7 +3226,23 @@ public partial class TikTokQueueView : UserControl
 
         IEmbeddedBrowser? browser = null;
         if (!UsesPlaywrightUploadBrowser(account))
+        {
+            var accountVm = vm.FindAccount(account.Id) ?? vm.FindAccount(account.DisplayName);
+            if (_browserHost is not null && accountVm is not null)
+            {
+                var exported = await _browserHost
+                    .TryExportAuthFromLoggedInBrowserAsync(accountVm, vm.AppendLog, ct)
+                    .ConfigureAwait(false);
+                if (!exported)
+                {
+                    vm.AppendLog(
+                        $"未能从账号「{account.DisplayName}」的内置浏览器刷新授权文件，" +
+                        "将尝试使用已有登录态。");
+                }
+            }
+
             browser = _browserHost?.TryGetHost(account.Id);
+        }
 
         var selectedStatuses = selection.SelectedPlatformStatuses();
         vm.StatusMessage =
@@ -3252,10 +3269,13 @@ public partial class TikTokQueueView : UserControl
                 item.State == TikTokCopyrightProofAuditState.Failed);
             var skipped = results.Count(item =>
                 item.State == TikTokCopyrightProofAuditState.SkippedUneditable);
+            var approved = results.Count(item =>
+                item.State == TikTokCopyrightProofAuditState.SkippedApproved);
             vm.StatusMessage =
                 $"版权证明检查完成：共检查 {results.Count} 个，" +
                 $"仅 PDF {productionAgreementOnly} 个，部分缺失 {partial} 个，" +
-                $"全部未填 {missingAll} 个，暂不可编辑 {skipped} 个，失败 {failed} 个";
+                $"全部未填 {missingAll} 个，版权通过 {approved} 个，" +
+                $"暂不可编辑 {skipped} 个，失败 {failed} 个";
             vm.AppendLog(vm.StatusMessage);
             return results;
         }
@@ -3851,7 +3871,7 @@ public partial class TikTokQueueView : UserControl
     {
         if (StartQueueButton is not null)
         {
-            StartQueueButton.Content = running ? "生产中" : "开始生产";
+            StartQueueButton.Content = running ? "执行中" : "执行勾选队列";
             StartQueueButton.IsEnabled = !running;
         }
         if (StopQueueButton is not null) StopQueueButton.IsEnabled = running;

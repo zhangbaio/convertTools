@@ -120,6 +120,46 @@ public sealed class TikTokSeriesListLookupRetryTests
             .Should().BeTrue();
     }
 
+    [Fact]
+    public void Status_filter_requires_selected_set_to_match_requested_categories()
+    {
+        TikTokSeriesListLookupService.IsExactStatusSelection(
+                ["视频检测中", "已发布"],
+                ["已发布", "视频检测中"])
+            .Should().BeTrue();
+        TikTokSeriesListLookupService.IsExactStatusSelection(
+                ["已发布", "视频检测中", "审核中"],
+                ["已发布", "视频检测中"])
+            .Should().BeFalse("存在未请求的额外分类");
+        TikTokSeriesListLookupService.IsExactStatusSelection(
+                ["已发布"],
+                ["已发布", "视频检测中"])
+            .Should().BeFalse("缺少用户请求的分类");
+        TikTokSeriesListLookupService.IsExactStatusSelection(
+                [],
+                ["视频检测中"])
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Page_readiness_snapshot_deserializes_browser_json_object()
+    {
+        var snapshot = TikTokSeriesListLookupService.ParsePageReadinessSnapshot(
+            """
+            {
+              "activePageNumber": 2,
+              "visibleRowCount": 43,
+              "fingerprint": "id-1|id-2",
+              "rangeText": "显示第 51 条-第 93 条，共 93 条"
+            }
+            """);
+
+        snapshot.ActivePageNumber.Should().Be(2);
+        snapshot.VisibleRowCount.Should().Be(43);
+        snapshot.Fingerprint.Should().Be("id-1|id-2");
+        snapshot.RangeText.Should().Contain("51 条-第 93 条");
+    }
+
     private static TikTokSeriesListEnumerationAttempt Attempt(
         int uniqueCount,
         int expectedTotal,

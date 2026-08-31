@@ -19,7 +19,9 @@ public sealed class TikTokCopyrightProofAuditTextTests
             Item(5, "审核锁定", TikTokCopyrightProofAuditState.SkippedUneditable,
                 detail: TikTokCopyrightProofAuditService.VideoReviewUneditableMessage,
                 platformStatus: "视频检测中"),
-            Item(6, "检查失败", TikTokCopyrightProofAuditState.Failed, "7650000000000000005", "标签页未加载"),
+            Item(6, "版权通过", TikTokCopyrightProofAuditState.SkippedApproved,
+                detail: TikTokCopyrightProofAuditService.CopyrightApprovedMessage),
+            Item(7, "检查失败", TikTokCopyrightProofAuditState.Failed, "7650000000000000005", "标签页未加载"),
         };
 
         var text = TikTokCopyrightProofAuditText.BuildDisplayText(items);
@@ -32,6 +34,8 @@ public sealed class TikTokCopyrightProofAuditTextTests
         Assert.Contains("全部未填", text);
         Assert.Contains("【暂不可编辑，已跳过（1）】", text);
         Assert.Contains("审核锁定　[剧集正片部分集数视频文件审核中", text);
+        Assert.Contains("【版权审核通过，已跳过（1）】", text);
+        Assert.Contains("版权通过　[版权审核已通过", text);
         Assert.Contains("【检查失败（1）】", text);
         Assert.Contains("检查失败　[标签页未加载]", text);
         Assert.DoesNotContain("已有证明", text);
@@ -49,6 +53,7 @@ public sealed class TikTokCopyrightProofAuditTextTests
             Item(3, "剧集丙", TikTokCopyrightProofAuditState.PartialMaterial),
             Item(4, "已有证明", TikTokCopyrightProofAuditState.HasMaterial),
             Item(5, "审核锁定", TikTokCopyrightProofAuditState.SkippedUneditable),
+            Item(6, "版权通过", TikTokCopyrightProofAuditState.SkippedApproved),
         };
 
         var text = TikTokCopyrightProofAuditText.BuildMissingTitlesCopyText(items);
@@ -57,19 +62,34 @@ public sealed class TikTokCopyrightProofAuditTextTests
             $"剧集甲{Environment.NewLine}剧集丙{Environment.NewLine}剧集乙",
             text);
         Assert.DoesNotContain("审核锁定", text);
+        Assert.DoesNotContain("版权通过", text);
     }
 
     [Fact]
     public void Selection_returns_only_explicitly_selected_platform_statuses()
     {
-        new TikTokCopyrightProofAuditSelection(true, false)
+        new TikTokCopyrightProofAuditSelection(true, false, 6)
             .SelectedPlatformStatuses().Should().Equal("已发布");
-        new TikTokCopyrightProofAuditSelection(false, true)
+        new TikTokCopyrightProofAuditSelection(false, true, 6)
             .SelectedPlatformStatuses().Should().Equal("视频检测中");
-        new TikTokCopyrightProofAuditSelection(true, true)
+        new TikTokCopyrightProofAuditSelection(true, true, 6)
             .SelectedPlatformStatuses().Should().Equal("已发布", "视频检测中");
-        new TikTokCopyrightProofAuditSelection(false, false)
+        new TikTokCopyrightProofAuditSelection(false, false, 6)
             .SelectedPlatformStatuses().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(1, 2)]
+    [InlineData(4, 4)]
+    [InlineData(6, 6)]
+    [InlineData(8, 8)]
+    [InlineData(20, 8)]
+    public void Selection_clamps_audit_concurrency_to_safe_range(
+        int configured,
+        int expected)
+    {
+        new TikTokCopyrightProofAuditSelection(true, false, configured)
+            .NormalizedConcurrency.Should().Be(expected);
     }
 
     [Fact]
@@ -81,6 +101,17 @@ public sealed class TikTokCopyrightProofAuditTextTests
         TikTokCopyrightProofAuditService.IsUneditableDuringVideoReviewText(
                 "剧集正片部分集数视频文件审核中")
             .Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("contentPartnerHub_seriesEditPage_copyrightReview_passed")]
+    [InlineData("版权审核通过")]
+    [InlineData("版权证明审核通过")]
+    [InlineData("Copyright review passed")]
+    public void Copyright_review_passed_recognizes_localized_and_token_text(string text)
+    {
+        TikTokCopyrightProofAuditService.IsCopyrightReviewPassedText(text)
+            .Should().BeTrue();
     }
 
     [Fact]
@@ -99,7 +130,9 @@ public sealed class TikTokCopyrightProofAuditTextTests
                     Item(3, "审核锁定", TikTokCopyrightProofAuditState.SkippedUneditable,
                         detail: TikTokCopyrightProofAuditService.VideoReviewUneditableMessage,
                         platformStatus: "视频检测中"),
-                    Item(4, "检查失败", TikTokCopyrightProofAuditState.Failed, detail: "页面超时"),
+                    Item(4, "版权通过", TikTokCopyrightProofAuditState.SkippedApproved,
+                        detail: TikTokCopyrightProofAuditService.CopyrightApprovedMessage),
+                    Item(5, "检查失败", TikTokCopyrightProofAuditState.Failed, detail: "页面超时"),
                 ],
                 outputPath);
 
@@ -117,6 +150,7 @@ public sealed class TikTokCopyrightProofAuditTextTests
             Assert.Contains("页面超时", text);
             Assert.Contains("视频检测中", text);
             Assert.Contains("暂不可编辑，已跳过", text);
+            Assert.Contains("版权审核通过，已跳过", text);
         }
         finally
         {
