@@ -1165,6 +1165,27 @@ public sealed class QueueWorkerRunner
         mutate(() => MarkRunning(item, QueueStepRegistry.UploadSeries));
         Report(onProgress, workspace, item, $"[{account.DisplayName}] 准备内置浏览器…", QueueStepRegistry.UploadSeries);
 
+        var recordsCopyrightProofCompletion = string.Equals(
+            options.UploadEntryMode,
+            QueueRunOptions.CopyrightProofOnlyEntryMode,
+            StringComparison.OrdinalIgnoreCase);
+        if (recordsCopyrightProofCompletion)
+        {
+            try
+            {
+                TikTokUploadStateStore.MarkCopyrightProofStepStarted(item.ProjectDir);
+            }
+            catch (Exception ex)
+            {
+                Report(
+                    onProgress,
+                    workspace,
+                    item,
+                    $"记录版权证明补全状态失败：{ex.Message}",
+                    QueueStepRegistry.UploadSeries);
+            }
+        }
+
         var failureMessage = "";
         var stopQueue = false;
         var skipManualIntervention = false;
@@ -1203,6 +1224,24 @@ public sealed class QueueWorkerRunner
                         item.AccountProfileId = account.Id;
                         item.AccountProfileName = account.DisplayName;
                     });
+                    if (recordsCopyrightProofCompletion)
+                    {
+                        try
+                        {
+                            TikTokUploadStateStore.MarkCopyrightProofStepCompleted(
+                                item.ProjectDir,
+                                account.Id);
+                        }
+                        catch (Exception ex)
+                        {
+                            Report(
+                                onProgress,
+                                workspace,
+                                item,
+                                $"保存版权证明补全成功标记失败：{ex.Message}",
+                                QueueStepRegistry.UploadSeries);
+                        }
+                    }
                     Report(onProgress, workspace, item, result.Message, QueueStepRegistry.UploadSeries);
                     await SyncManagementAfterUploadIfEnabledAsync(
                         options, workspace, item, account, onProgress, ct).ConfigureAwait(false);
@@ -1294,6 +1333,24 @@ public sealed class QueueWorkerRunner
                         item.AccountProfileId = account.Id;
                         item.AccountProfileName = account.DisplayName;
                     });
+                    if (recordsCopyrightProofCompletion)
+                    {
+                        try
+                        {
+                            TikTokUploadStateStore.MarkCopyrightProofStepCompleted(
+                                item.ProjectDir,
+                                account.Id);
+                        }
+                        catch (Exception ex)
+                        {
+                            Report(
+                                onProgress,
+                                workspace,
+                                item,
+                                $"保存版权证明补全成功标记失败：{ex.Message}",
+                                QueueStepRegistry.UploadSeries);
+                        }
+                    }
                     Report(onProgress, workspace, item, "人工介入：已标记上传成功", QueueStepRegistry.UploadSeries);
                     await SyncManagementAfterUploadIfEnabledAsync(
                         options, workspace, item, account, onProgress, ct).ConfigureAwait(false);

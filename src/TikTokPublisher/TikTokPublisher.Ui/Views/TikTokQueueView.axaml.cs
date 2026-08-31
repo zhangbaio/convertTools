@@ -2905,6 +2905,27 @@ public partial class TikTokQueueView : UserControl
             .Where(pair => !matchedDirs.Contains(pair.Key))
             .Select(pair => pair.Value)
             .ToArray();
+        var completedCopyrightProofProjects = matchedProjects
+            .Where(item => TikTokUploadStateStore.HasCopyrightProofCompleted(
+                item.ProjectDir,
+                proofAccount.Id))
+            .ToArray();
+        var completedCopyrightProofDirs = completedCopyrightProofProjects
+            .Select(item => Path.GetFullPath(item.ProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var executionProjects = matchedProjects
+            .Where(item => !completedCopyrightProofDirs.Contains(Path.GetFullPath(item.ProjectDir)))
+            .ToArray();
+        foreach (var item in completedCopyrightProofProjects)
+            vm.AppendLog($"继续补全勾选项目跳过：已补全成功「{item.NewTitle}」");
+        if (executionProjects.Length == 0)
+        {
+            vm.StatusMessage =
+                $"勾选项目均已补全成功，已自动跳过 {completedCopyrightProofProjects.Length} 个";
+            vm.AppendLog(vm.StatusMessage);
+            return;
+        }
+
         var proofSettings = ClientSettingsStore.Load();
         var previewMaterialPlan = CopyrightProofMaterialPlanBuilder.Build(
             proofAccount,
@@ -2914,7 +2935,7 @@ public partial class TikTokQueueView : UserControl
             CopyrightProofExecutionMode.GenerateMaterialOnly,
             previewMaterialPlan.RequiredSteps);
         var reusableProofMaterialProjects = await Task.Run(() =>
-            matchedProjects
+            executionProjects
                 .Where(item => TikTokProofMaterialService
                     .HasReusableProofMaterialForCopyrightCompletion(
                         item,
@@ -2924,21 +2945,27 @@ public partial class TikTokQueueView : UserControl
                 .Select(item => Path.GetFullPath(item.ProjectDir))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase));
         var pendingProofMaterialCount =
-            matchedProjects.Length - reusableProofMaterialProjects.Count;
+            executionProjects.Length - reusableProofMaterialProjects.Count;
         var previewNames = string.Join(
             Environment.NewLine,
-            matchedProjects
+            executionProjects
                 .Take(12)
                 .Select(item => $"• {item.NewTitle}"));
-        if (matchedProjects.Length > 12)
-            previewNames += $"{Environment.NewLine}• …另有 {matchedProjects.Length - 12} 个项目";
+        if (executionProjects.Length > 12)
+            previewNames += $"{Environment.NewLine}• …另有 {executionProjects.Length - 12} 个项目";
 
         var modePrompt =
-            $"已勾选 {selectedTitlesByDir.Count} 个项目，准备执行 {matchedProjects.Length} 个。" +
+            $"已勾选 {selectedTitlesByDir.Count} 个项目，准备执行 {executionProjects.Length} 个。" +
             $"{Environment.NewLine}{Environment.NewLine}" +
             $"可复用证明材料：{reusableProofMaterialProjects.Count} 个" +
             $"{Environment.NewLine}" +
             $"需要继续生成材料：{pendingProofMaterialCount} 个";
+        if (completedCopyrightProofProjects.Length > 0)
+        {
+            modePrompt +=
+                $"{Environment.NewLine}" +
+                $"已补全成功、自动跳过：{completedCopyrightProofProjects.Length} 个";
+        }
         if (missingTitles.Length > 0)
         {
             modePrompt +=
@@ -2967,7 +2994,7 @@ public partial class TikTokQueueView : UserControl
             executionMode.Value);
         var preparation = CopyrightProofQueuePreparationService.Prepare(
             refreshedProjects,
-            matchedProjects,
+            executionProjects,
             reusableProofMaterialProjects,
             executionMode.Value,
             materialPlan.GenerationSteps);
@@ -2980,7 +3007,7 @@ public partial class TikTokQueueView : UserControl
 
         var options = vm.CreateCurrentQueueRunOptionsSnapshot();
         options.ConfigureForCopyrightProof(executionMode.Value, materialPlan.RequiredSteps);
-        var executionProjectDirs = matchedProjects
+        var executionProjectDirs = executionProjects
             .Select(item => Path.GetFullPath(item.ProjectDir))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
