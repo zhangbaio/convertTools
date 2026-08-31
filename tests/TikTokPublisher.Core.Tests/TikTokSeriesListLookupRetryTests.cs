@@ -121,24 +121,43 @@ public sealed class TikTokSeriesListLookupRetryTests
     }
 
     [Fact]
-    public void Status_filter_requires_exactly_one_selected_option()
+    public void Status_filter_requires_selected_set_to_match_requested_categories()
     {
-        TikTokSeriesListLookupService.IsExclusiveStatusSelection(
-                ["视频检测中"],
-                "视频检测中")
+        TikTokSeriesListLookupService.IsExactStatusSelection(
+                ["视频检测中", "已发布"],
+                ["已发布", "视频检测中"])
             .Should().BeTrue();
-        TikTokSeriesListLookupService.IsExclusiveStatusSelection(
-                ["已发布", "视频检测中"],
-                "视频检测中")
-            .Should().BeFalse("多选控件折叠为 +1 时仍包含两个筛选状态");
-        TikTokSeriesListLookupService.IsExclusiveStatusSelection(
+        TikTokSeriesListLookupService.IsExactStatusSelection(
+                ["已发布", "视频检测中", "审核中"],
+                ["已发布", "视频检测中"])
+            .Should().BeFalse("存在未请求的额外分类");
+        TikTokSeriesListLookupService.IsExactStatusSelection(
                 ["已发布"],
-                "视频检测中")
-            .Should().BeFalse();
-        TikTokSeriesListLookupService.IsExclusiveStatusSelection(
+                ["已发布", "视频检测中"])
+            .Should().BeFalse("缺少用户请求的分类");
+        TikTokSeriesListLookupService.IsExactStatusSelection(
                 [],
-                "视频检测中")
+                ["视频检测中"])
             .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Page_readiness_snapshot_deserializes_browser_json_object()
+    {
+        var snapshot = TikTokSeriesListLookupService.ParsePageReadinessSnapshot(
+            """
+            {
+              "activePageNumber": 2,
+              "visibleRowCount": 43,
+              "fingerprint": "id-1|id-2",
+              "rangeText": "显示第 51 条-第 93 条，共 93 条"
+            }
+            """);
+
+        snapshot.ActivePageNumber.Should().Be(2);
+        snapshot.VisibleRowCount.Should().Be(43);
+        snapshot.Fingerprint.Should().Be("id-1|id-2");
+        snapshot.RangeText.Should().Contain("51 条-第 93 条");
     }
 
     private static TikTokSeriesListEnumerationAttempt Attempt(

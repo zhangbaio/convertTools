@@ -95,36 +95,30 @@ public static class TikTokCopyrightProofAuditService
                 $"开始按状态读取当前账号原创管理剧集：{string.Join("、", selectedStatuses)}；" +
                 $"版权证明检测并发数：{concurrency}。");
             await TikTokSeriesListLookupService.OpenAsync(listPage, log, ct).ConfigureAwait(false);
-            var selectedRows = new List<TikTokSeriesListRow>();
-            foreach (var status in selectedStatuses)
+            var pageProgress = new Progress<TikTokSeriesListEnumerationProgress>(update =>
             {
-                ct.ThrowIfCancellationRequested();
-                var pageProgress = new Progress<TikTokSeriesListEnumerationProgress>(update =>
-                {
-                    var totalPages = update.TotalPages ?? Math.Max(1, update.CurrentPage);
-                    var retryLabel = update.AttemptNumber > 1 ? "（重试）" : string.Empty;
-                    var detail = update.CurrentPageRowCount.HasValue
-                        ? $"当前页 {update.CurrentPageRowCount.Value} 条，" +
-                          $"累计 {update.CollectedUniqueCount} 个剧集"
-                        : $"正在等待第 {update.CurrentPage} 页稳定加载…";
-                    progress?.Report(new TikTokCopyrightProofAuditProgress(
-                        update.CurrentPage,
-                        totalPages,
-                        detail,
-                        null,
-                        $"读取“{update.PlatformStatus}”列表{retryLabel}"));
-                });
-                var rows = await TikTokSeriesListLookupService
-                    .EnumerateAllAsync(
-                        listPage,
-                        log,
-                        ct,
-                        statusFilter: status,
-                        preferredPageSize: 50,
-                        progress: pageProgress)
-                    .ConfigureAwait(false);
-                selectedRows.AddRange(rows);
-            }
+                var totalPages = update.TotalPages ?? Math.Max(1, update.CurrentPage);
+                var retryLabel = update.AttemptNumber > 1 ? "（重试）" : string.Empty;
+                var detail = update.CurrentPageRowCount.HasValue
+                    ? $"当前页 {update.CurrentPageRowCount.Value} 条，" +
+                      $"累计 {update.CollectedUniqueCount} 个剧集"
+                    : $"正在等待第 {update.CurrentPage} 页稳定加载…";
+                progress?.Report(new TikTokCopyrightProofAuditProgress(
+                    update.CurrentPage,
+                    totalPages,
+                    detail,
+                    null,
+                    $"读取“{update.PlatformStatus}”列表{retryLabel}"));
+            });
+            var selectedRows = await TikTokSeriesListLookupService
+                .EnumerateAllAsync(
+                    listPage,
+                    log,
+                    ct,
+                    statusFilters: selectedStatuses,
+                    preferredPageSize: 50,
+                    progress: pageProgress)
+                .ConfigureAwait(false);
 
             var auditRows = selectedRows
                 .DistinctBy(row =>

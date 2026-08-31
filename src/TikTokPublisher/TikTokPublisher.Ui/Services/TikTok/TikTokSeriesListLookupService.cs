@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Models;
@@ -27,6 +28,12 @@ internal sealed record TikTokSeriesPageScanResult(
     IReadOnlyList<TikTokSeriesListRow> Rows,
     int VisibleRowCount,
     int SkippedRowCount);
+
+internal sealed record TikTokSeriesPageReadinessSnapshot(
+    int? ActivePageNumber,
+    int VisibleRowCount,
+    string Fingerprint,
+    string RangeText);
 
 internal sealed record TikTokSeriesListEnumerationProgress(
     string PlatformStatus,
@@ -95,7 +102,7 @@ internal static class TikTokSeriesListLookupService
         IPage page,
         Action<string>? log,
         CancellationToken ct,
-        string? statusFilter = null,
+        IReadOnlyList<string>? statusFilters = null,
         int? preferredPageSize = null,
         IProgress<TikTokSeriesListEnumerationProgress>? progress = null)
     {
@@ -104,7 +111,7 @@ internal static class TikTokSeriesListLookupService
         {
             await ConfigureListAsync(
                     page,
-                    statusFilter,
+                    statusFilters,
                     preferredPageSize,
                     log,
                     ct)
@@ -114,7 +121,7 @@ internal static class TikTokSeriesListLookupService
                     log,
                     ct,
                     attemptNumber,
-                    statusFilter,
+                    statusFilters,
                     progress)
                 .ConfigureAwait(false);
             if (attempt.IsComplete)
@@ -156,7 +163,7 @@ internal static class TikTokSeriesListLookupService
         Action<string>? log,
         CancellationToken ct,
         int attemptNumber,
-        string? statusFilter,
+        IReadOnlyList<string>? statusFilters,
         IProgress<TikTokSeriesListEnumerationProgress>? progress)
     {
         var search = await FindSearchInputAsync(page).ConfigureAwait(false)
@@ -182,7 +189,7 @@ internal static class TikTokSeriesListLookupService
             ct.ThrowIfCancellationRequested();
             var totalPages = ExpectedPageCount(expectedTotal, pageSize);
             progress?.Report(new TikTokSeriesListEnumerationProgress(
-                statusFilter?.Trim() ?? "全部",
+                FormatStatusFilters(statusFilters),
                 attemptNumber,
                 pageNumber,
                 totalPages,
@@ -212,7 +219,7 @@ internal static class TikTokSeriesListLookupService
             }
 
             progress?.Report(new TikTokSeriesListEnumerationProgress(
-                statusFilter?.Trim() ?? "全部",
+                FormatStatusFilters(statusFilters),
                 attemptNumber,
                 pageNumber,
                 totalPages,
@@ -572,26 +579,39 @@ internal static class TikTokSeriesListLookupService
 
     private static async Task ConfigureListAsync(
         IPage page,
-        string? statusFilter,
+        IReadOnlyList<string>? statusFilters,
         int? preferredPageSize,
         Action<string>? log,
         CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(statusFilter))
-            await ApplyStatusFilterAsync(page, statusFilter.Trim(), log, ct).ConfigureAwait(false);
+        if (statusFilters is { Count: > 0 })
+            await ApplyStatusFiltersAsync(page, statusFilters, log, ct).ConfigureAwait(false);
 
         if (preferredPageSize is > 0)
             await TrySetPageSizeAsync(page, preferredPageSize.Value, log, ct).ConfigureAwait(false);
     }
 
-    private static async Task ApplyStatusFilterAsync(
+    private static string FormatStatusFilters(IReadOnlyList<string>? statuses) =>
+        statuses is { Count: > 0 }
+            ? string.Join("、", statuses.Where(value => !string.IsNullOrWhiteSpace(value)))
+            : "全部";
+
+    private static async Task ApplyStatusFiltersAsync(
         IPage page,
-        string status,
+        IReadOnlyList<string> statuses,
         Action<string>? log,
         CancellationToken ct)
     {
+        var expected = statuses
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (expected.Length == 0)
+            return;
+
         ct.ThrowIfCancellationRequested();
-        for (var attempt = 1; attempt <= 20; attempt++)
+        for (var attempt = 1; attempt <= 30; attempt++)
         {
             ct.ThrowIfCancellationRequested();
             var combo = await FindComboboxContainingTextAsync(page, "状态").ConfigureAwait(false)
@@ -609,17 +629,21 @@ internal static class TikTokSeriesListLookupService
 
             var selected = await ReadSelectedStatusOptionTextsAsync(page, combo)
                 .ConfigureAwait(false);
-            if (IsExclusiveStatusSelection(selected, status))
+            if (IsExactStatusSelection(selected, expected))
             {
                 try { await combo.PressAsync("Escape").ConfigureAwait(false); }
                 catch { /* 下拉框可能已自动关闭。 */ }
-                log?.Invoke($"原创管理已独占选择状态：{status}。");
+                log?.Invoke($"原创管理已选择状态：{string.Join("、", expected)}。");
                 return;
             }
 
             var extra = selected.FirstOrDefault(value =>
-                !string.Equals(value, status, StringComparison.Ordinal));
-            var optionText = extra ?? status;
+                !expected.Contains(value, StringComparer.Ordinal));
+            var missing = expected.FirstOrDefault(value =>
+                !selected.Contains(value, StringComparer.Ordinal));
+            var optionText = extra ?? missing;
+            if (string.IsNullOrWhiteSpace(optionText))
+                continue;
             var option = await FindStatusOptionByTextAsync(page, combo, optionText)
                 .ConfigureAwait(false);
             if (option is null)
@@ -633,7 +657,7 @@ internal static class TikTokSeriesListLookupService
             ? []
             : await ReadSelectedStatusOptionTextsAsync(page, finalCombo).ConfigureAwait(false);
         throw new InvalidOperationException(
-            $"原创管理未能独占切换到“{status}”状态；" +
+            $"原创管理未能切换到状态“{string.Join("、", expected)}”；" +
             $"当前选中：{(finalSelected.Count == 0 ? "无" : string.Join("、", finalSelected))}。");
     }
 
@@ -712,17 +736,22 @@ internal static class TikTokSeriesListLookupService
         return null;
     }
 
-    internal static bool IsExclusiveStatusSelection(
+    internal static bool IsExactStatusSelection(
         IEnumerable<string> selectedStatuses,
-        string expectedStatus)
+        IEnumerable<string> expectedStatuses)
     {
         var selected = selectedStatuses
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value.Trim())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        return selected.Length == 1 &&
-               string.Equals(selected[0], expectedStatus.Trim(), StringComparison.Ordinal);
+        var expected = expectedStatuses
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return selected.Length == expected.Length &&
+               selected.All(value => expected.Contains(value, StringComparer.Ordinal));
     }
 
     private static async Task<ILocator> ResolveStatusOptionsAsync(
@@ -971,40 +1000,6 @@ internal static class TikTokSeriesListLookupService
                !string.Equals(previousFingerprint, currentFingerprint, StringComparison.Ordinal);
     }
 
-    private static async Task<int?> TryReadActivePageNumberAsync(IPage page)
-    {
-        foreach (var selector in new[]
-                 {
-                     ".semi-page-item-active",
-                     ".semi-pagination-item-active",
-                     "[aria-current='page']",
-                 })
-        {
-            var candidates = page.Locator(selector);
-            var count = await candidates.CountAsync().ConfigureAwait(false);
-            for (var index = 0; index < count; index++)
-            {
-                var candidate = candidates.Nth(index);
-                try
-                {
-                    if (!await candidate.IsVisibleAsync().ConfigureAwait(false))
-                        continue;
-                    var text = (await candidate.InnerTextAsync(new() { Timeout = 1200 })
-                            .ConfigureAwait(false))
-                        .Trim();
-                    if (int.TryParse(text, out var pageNumber) && pageNumber > 0)
-                        return pageNumber;
-                }
-                catch
-                {
-                    // 页码控件可能正在重绘，继续尝试其他候选。
-                }
-            }
-        }
-
-        return null;
-    }
-
     private static async Task<bool> IsDisabledAsync(ILocator locator)
     {
         try
@@ -1023,6 +1018,60 @@ internal static class TikTokSeriesListLookupService
                className.Contains("disabled", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static async Task<TikTokSeriesPageReadinessSnapshot>
+        ReadPageReadinessSnapshotAsync(IPage page)
+    {
+        var json = await page.EvaluateAsync<string>(
+            """
+            () => {
+              const visible = element => {
+                if (!(element instanceof HTMLElement)) return false;
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden' &&
+                  Number(style.opacity || '1') > 0 && rect.width > 0 && rect.height > 0;
+              };
+              let rows = [...document.querySelectorAll('tbody tr')].filter(visible);
+              if (rows.length === 0)
+                rows = [...document.querySelectorAll('[role="rowgroup"] [role="row"]')]
+                  .filter(visible);
+              if (rows.length === 0)
+                rows = [...document.querySelectorAll('tr')].filter(visible);
+              const keys = rows.map(row => {
+                const text = (row.innerText || row.textContent || '').trim();
+                const id = text.match(/\b\d{16,20}\b/)?.[0];
+                return id || text.replace(/\s+/g, ' ').slice(0, 160);
+              });
+              const active = [...document.querySelectorAll(
+                '.semi-page-item-active, .semi-pagination-item-active, [aria-current="page"]')]
+                .find(visible);
+              const activeText = (active?.innerText || active?.textContent || '').trim();
+              const activePageNumber = /^\d+$/.test(activeText) ? Number(activeText) : null;
+              const bodyText = document.body?.innerText || '';
+              const rangeText = bodyText.match(
+                /显示第\s*\d+\s*条-第\s*\d+\s*条，?共\s*\d+\s*条/)?.[0] || '';
+              return JSON.stringify({
+                activePageNumber,
+                visibleRowCount: rows.length,
+                fingerprint: keys.join('|'),
+                rangeText,
+              });
+            }
+            """).ConfigureAwait(false);
+        return ParsePageReadinessSnapshot(json);
+    }
+
+    internal static TikTokSeriesPageReadinessSnapshot ParsePageReadinessSnapshot(
+        string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            throw new InvalidDataException("原创管理分页就绪快照为空。");
+        return JsonSerializer.Deserialize<TikTokSeriesPageReadinessSnapshot>(
+                   json,
+                   new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+               ?? throw new InvalidDataException("原创管理分页就绪快照无法解析。");
+    }
+
     private static async Task<bool> WaitForPageReadyAsync(
         IPage page,
         int? expectedPageNumber,
@@ -1033,19 +1082,17 @@ internal static class TikTokSeriesListLookupService
         var stopwatch = Stopwatch.StartNew();
         string? stableFingerprint = null;
         var stableSamples = 0;
-        const int requiredStableSamples = 5;
-        while (stopwatch.Elapsed < TimeSpan.FromSeconds(15))
+        const int requiredStableSamples = 2;
+        while (stopwatch.Elapsed < TimeSpan.FromSeconds(20))
         {
             ct.ThrowIfCancellationRequested();
-            var scan = await ScanCurrentPageRowsAsync(page, ct).ConfigureAwait(false);
-            var rows = scan.Rows;
-            var fingerprint = BuildPageFingerprint(rows);
-            var activePageNumber = await TryReadActivePageNumberAsync(page).ConfigureAwait(false);
+            var snapshot = await ReadPageReadinessSnapshotAsync(page).ConfigureAwait(false);
+            var fingerprint = snapshot.Fingerprint;
             if (IsPageReadinessSampleAcceptable(
                     expectedPageNumber,
-                    activePageNumber,
+                    snapshot.ActivePageNumber,
                     expectedVisibleRowCount,
-                    scan.VisibleRowCount,
+                    snapshot.VisibleRowCount,
                     previousFingerprint,
                     fingerprint))
             {
@@ -1066,7 +1113,7 @@ internal static class TikTokSeriesListLookupService
                 stableSamples = 0;
             }
 
-            await page.WaitForTimeoutAsync(300).ConfigureAwait(false);
+            await page.WaitForTimeoutAsync(250).ConfigureAwait(false);
         }
 
         return false;
