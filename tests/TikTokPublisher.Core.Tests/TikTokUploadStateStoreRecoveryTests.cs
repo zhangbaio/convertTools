@@ -7,6 +7,37 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokUploadStateStoreRecoveryTests
 {
     [Fact]
+    public void Copyright_proof_completion_marker_is_persisted_and_cleared_on_retry()
+    {
+        var workflow = Path.Combine(
+            Path.GetTempPath(),
+            $"tiktok-proof-completion-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(workflow);
+
+            TikTokUploadStateStore.MarkCopyrightProofStepCompleted(workflow, "acct-1");
+
+            TikTokUploadStateStore.HasCopyrightProofCompleted(workflow, "acct-1").Should().BeTrue();
+            TikTokUploadStateStore.HasCopyrightProofCompleted(workflow, "acct-2").Should().BeFalse();
+            TikTokUploadStateStore.LoadState(workflow)
+                .Should().ContainKey("copyright_proof_completed_at");
+
+            TikTokUploadStateStore.MarkCopyrightProofStepStarted(workflow);
+
+            TikTokUploadStateStore.HasCopyrightProofCompleted(workflow, "acct-1").Should().BeFalse();
+            var state = TikTokUploadStateStore.LoadState(workflow);
+            state.Should().ContainKey("copyright_proof_started_at");
+            state.Should().NotContainKey("copyright_proof_completed_at");
+        }
+        finally
+        {
+            if (Directory.Exists(workflow))
+                Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Recovers_the_latest_confirmed_detail_url_from_failure_snapshots()
     {
         var workflow = CreateWorkflow();

@@ -8,6 +8,9 @@ namespace TikTokPublisher.Core.Services;
 public static class TikTokUploadStateStore
 {
     public const string StateFileName = "tiktok-upload-state.json";
+    private const string CopyrightProofCompletedAtKey = "copyright_proof_completed_at";
+    private const string CopyrightProofCompletedAccountIdKey = "copyright_proof_completed_account_id";
+    private const string CopyrightProofStartedAtKey = "copyright_proof_started_at";
     private static readonly Regex SeriesIdPattern = new(@"/series/draft/(\d{16,20})", RegexOptions.Compiled);
 
     public static string StateFilePath(string workflowProjectDir) =>
@@ -131,6 +134,63 @@ public static class TikTokUploadStateStore
             return "";
 
         return lookup.TryGetProperty("detail_url", out var urlEl) ? (urlEl.GetString() ?? "").Trim() : "";
+    }
+
+    public static bool HasCopyrightProofCompleted(
+        string projectDir,
+        string? accountProfileId = null)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir))
+            return false;
+
+        try
+        {
+            var workflowProjectDir = ResolveWorkflowProjectDir(projectDir);
+            var state = LoadState(workflowProjectDir);
+            if (!state.TryGetValue(CopyrightProofCompletedAtKey, out var value) ||
+                string.IsNullOrWhiteSpace(value.ToString()))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(accountProfileId))
+                return true;
+
+            return state.TryGetValue(CopyrightProofCompletedAccountIdKey, out var accountValue) &&
+                   string.Equals(
+                       accountValue.ToString(),
+                       accountProfileId.Trim(),
+                       StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static void MarkCopyrightProofStepStarted(string projectDir)
+    {
+        var workflowProjectDir = ResolveWorkflowProjectDir(projectDir);
+        var state = LoadStateObject(workflowProjectDir);
+        state[CopyrightProofStartedAtKey] = NowText();
+        state.Remove(CopyrightProofCompletedAtKey);
+        state.Remove(CopyrightProofCompletedAccountIdKey);
+        SaveState(workflowProjectDir, state);
+    }
+
+    public static void MarkCopyrightProofStepCompleted(
+        string projectDir,
+        string? accountProfileId = null)
+    {
+        var workflowProjectDir = ResolveWorkflowProjectDir(projectDir);
+        var state = LoadStateObject(workflowProjectDir);
+        state[CopyrightProofCompletedAtKey] = NowText();
+        if (!string.IsNullOrWhiteSpace(accountProfileId))
+            state[CopyrightProofCompletedAccountIdKey] = accountProfileId.Trim();
+        else
+            state.Remove(CopyrightProofCompletedAccountIdKey);
+        state.Remove(CopyrightProofStartedAtKey);
+        SaveState(workflowProjectDir, state);
     }
 
     /// <summary>
