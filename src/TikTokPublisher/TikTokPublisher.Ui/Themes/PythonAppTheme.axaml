@@ -1,5 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:themes="using:TikTokPublisher.Ui.Themes">
 
     <Styles.Resources>
     <!-- 对齐 Python tiktok_uploader_client/theme.py -->
@@ -50,6 +51,7 @@
         <Setter Property="FontSize" Value="14" />
         <Setter Property="FontFamily" Value="Inter, Microsoft YaHei UI, Segoe UI" />
         <Setter Property="Foreground" Value="{StaticResource PythonTextBrush}" />
+        <Setter Property="themes:NativeWindowTheme.UseDeepOceanTitleBar" Value="True" />
     </Style>
 
     <Style Selector="UserControl">

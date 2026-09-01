@@ -13,6 +13,10 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
 {
     private const string SuspectedMode = "suspected";
     private const string StatusMode = "status";
+    private static readonly IBrush DefaultTextBrush = new SolidColorBrush(Color.Parse("#F7FBFF"));
+    private static readonly IBrush SuccessTextBrush = new SolidColorBrush(Color.Parse("#4BD69A"));
+    private static readonly IBrush WarningTextBrush = new SolidColorBrush(Color.Parse("#F5C66B"));
+    private static readonly IBrush FailureTextBrush = new SolidColorBrush(Color.Parse("#FF6473"));
 
     private readonly string _accountName;
     private readonly Func<
@@ -343,7 +347,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         _concurrencyBox.IsEnabled = false;
         _startButton.IsEnabled = false;
         _stopButton.IsEnabled = true;
-        _summary.Foreground = Brushes.Black;
+        _summary.Foreground = DefaultTextBrush;
         _summary.Text =
             $"正在读取原创管理列表；检测范围：{string.Join("、", selection.SelectedPlatformStatusLabels())}；" +
             $"并发：{selection.NormalizedConcurrency}。";
@@ -375,19 +379,19 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             _progress.Maximum = Math.Max(1, results.Count);
             _progress.Value = results.Count;
             _summary.Text = $"检查完成：共检查 {results.Count} 个{BuildCountsSuffix()}";
-            _summary.Foreground = Brushes.Black;
+            _summary.Foreground = DefaultTextBrush;
         }
         catch (OperationCanceledException)
         {
             RenderResults();
             _summary.Text = $"检查已停止：已完成 {_results.Count} 个{BuildCountsSuffix()}";
-            _summary.Foreground = Brushes.DarkOrange;
+            _summary.Foreground = WarningTextBrush;
         }
         catch (Exception ex)
         {
             RenderResults();
             _summary.Text = $"检查失败：{ex.Message}";
-            _summary.Foreground = Brushes.IndianRed;
+            _summary.Foreground = FailureTextBrush;
         }
         finally
         {
@@ -414,7 +418,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             return;
         await clipboard.SetTextAsync(text);
         _summary.Text = $"已复制 {MissingResults().Length} 个未补版权证明剧名。";
-        _summary.Foreground = Brushes.SeaGreen;
+        _summary.Foreground = SuccessTextBrush;
     }
 
     private async void CopyFailedAsync()
@@ -427,7 +431,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             return;
         await clipboard.SetTextAsync(text);
         _summary.Text = $"已复制 {FailedResults().Length} 个检查失败剧名。";
-        _summary.Foreground = Brushes.SeaGreen;
+        _summary.Foreground = SuccessTextBrush;
     }
 
     private void ExportResults()
@@ -438,12 +442,12 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
                 _accountName,
                 OrderedResults());
             _summary.Text = $"检查结果已导出：{path}";
-            _summary.Foreground = Brushes.SeaGreen;
+            _summary.Foreground = SuccessTextBrush;
         }
         catch (Exception ex)
         {
             _summary.Text = $"导出失败：{ex.Message}";
-            _summary.Foreground = Brushes.IndianRed;
+            _summary.Foreground = FailureTextBrush;
         }
     }
 
