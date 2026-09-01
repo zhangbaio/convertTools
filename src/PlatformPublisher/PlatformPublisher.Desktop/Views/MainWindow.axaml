@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:PlatformPublisher.Desktop.ViewModels"
         xmlns:tiktokViews="using:TikTokPublisher.Ui.Views"
+        xmlns:channelsViews="using:ChannelsPublisher.Desktop.Views"
         x:Class="PlatformPublisher.Desktop.Views.MainWindow"
         Width="1496"
         Height="860"
@@ -19,17 +20,16 @@
                                Foreground="#0B74D1" />
                 </Border>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10,0">
-                    <Button x:Name="PipelineNavButton" Classes="nav navActive" Content="生产流水线" Click="OnPipelineNavClick" />
-                    <Button Classes="nav" Content="发布账号" IsHitTestVisible="False" />
-                    <Button Classes="nav" Content="网页工具" IsHitTestVisible="False" />
-                    <Button Classes="nav" Content="查看报告" IsHitTestVisible="False" />
+                    <Button x:Name="WeixinNavButton" Classes="nav navActive" Content="视频号助手" Click="OnWeixinNavClick" />
+                    <Button x:Name="KuaishouPersonalNavButton" Classes="nav" Content="快手分账 · 个人" Click="OnKuaishouPersonalNavClick" />
+                    <Button x:Name="KuaishouEnterpriseNavButton" Classes="nav" Content="快手分账 · 企业" Click="OnKuaishouEnterpriseNavClick" />
                     <Button x:Name="SettingsNavButton" Classes="nav" Content="系统设置" Click="OnSettingsNavClick" />
                 </StackPanel>
             </Grid>
         </Border>
 
         <Grid Grid.Row="1" ColumnDefinitions="230,*">
-        <Grid x:Name="PipelinePage" Grid.ColumnSpan="2" Classes="platformPipeline" ColumnDefinitions="230,*">
+        <Grid x:Name="PipelinePage" Grid.ColumnSpan="2" Classes="platformPipeline" ColumnDefinitions="230,*" IsVisible="False">
             <Border Grid.Column="0" Classes="platformSidebar" Background="#FBFCFE" BorderBrush="#D8E2EC" BorderThickness="0,0,1,0" Padding="12">
                 <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
                     <StackPanel Spacing="4" Margin="4,4,4,8">
@@ -344,6 +344,7 @@
                 </Border>
             </Grid>
         </Grid>
+        <channelsViews:MaterialPublishView x:Name="WeixinPublisherView" Grid.ColumnSpan="2" />
         <tiktokViews:SystemSettingsView x:Name="SharedSettingsView" Grid.Column="1" IsVisible="False" />
         </Grid>
 

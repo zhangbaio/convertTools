@@ -21,10 +21,15 @@ PlatformPublisher.Kuaishou
 └─ 快手分账企业适配器
 
 PlatformPublisher.Desktop
-└─ 只负责页面、命令和依赖组合
+├─ 顶部平台导航与依赖组合
+├─ 视频号页面直接承载 `ChannelsPublisher.Ui.MaterialPublishView`
+├─ 快手个人/企业独立任务页面
+└─ 公共系统设置页面
 ```
 
 短剧下载、工程图、成本报表和数据链路继续由现有 `ShortDrama.Core` / `ShortDrama.Infrastructure` 提供。平台模块只能依赖公共模块；公共模块不反向引用视频号、快手或 TikTok。
+
+视频号账号栏、WebView2 多账号会话、素材队列、并发发布和断点续传不再在 `PlatformPublisher.Desktop` 重复实现，统一复用 `ChannelsPublisher.Ui`。`PlatformPublisher.Weixin` 保留剧集上架、系统高光、高级配置覆盖和 AI/ASR 注入等扩展服务，后续通过适配层接入这套现有视频号页面。
 
 ## 当前能力
 

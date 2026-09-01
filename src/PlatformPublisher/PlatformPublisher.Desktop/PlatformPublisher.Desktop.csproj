@@ -24,5 +24,6 @@
     <ProjectReference Include="..\PlatformPublisher.Weixin\PlatformPublisher.Weixin.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Kuaishou\PlatformPublisher.Kuaishou.csproj" />
     <ProjectReference Include="..\..\TikTokPublisher\TikTokPublisher.Ui\TikTokPublisher.Ui.csproj" />
+    <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Ui\ChannelsPublisher.Ui.csproj" />
   </ItemGroup>
 </Project>

@@ -170,6 +170,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public string QueueSummary =>
         $"当前平台 {VisibleJobs.Count} 条任务、{VisibleAccounts.Count} 个账号，共 {_jobs.Count} 条独立任务";
 
+    public void SelectPlatform(PublishPlatform platform)
+    {
+        var option = Platforms.FirstOrDefault(item => item.Value == platform);
+        if (option is not null)
+            SelectedPlatform = option;
+    }
+
     public bool IsSystemHighlightKind => SelectedJobKind.Value == PublishJobKind.SystemHighlight;
     public bool IsWeixinPlatform => SelectedPlatform.Value == PublishPlatform.WeixinChannel;
     public bool IsCustomVideoKind => SelectedJobKind.Value == PublishJobKind.CustomVideos;

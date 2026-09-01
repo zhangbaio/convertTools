@@ -10,7 +10,11 @@ namespace PlatformPublisher.Desktop.Views;
 
 public partial class MainWindow : Window
 {
-    public MainWindow() => InitializeComponent();
+    public MainWindow()
+    {
+        InitializeComponent();
+        Opened += (_, _) => ShowWeixinPage();
+    }
 
     public void BindSettings(SystemSettingsViewModel viewModel)
     {
@@ -20,16 +24,58 @@ public partial class MainWindow : Window
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
 
-    private void OnPipelineNavClick(object? sender, RoutedEventArgs e) => ShowPage(showSettings: false);
+    private void OnWeixinNavClick(object? sender, RoutedEventArgs e) => ShowWeixinPage();
 
-    private void OnSettingsNavClick(object? sender, RoutedEventArgs e) => ShowPage(showSettings: true);
+    private void OnKuaishouPersonalNavClick(object? sender, RoutedEventArgs e) =>
+        ShowKuaishouPage(PublishPlatform.KuaishouPersonalRevenue);
 
-    private void ShowPage(bool showSettings)
+    private void OnKuaishouEnterpriseNavClick(object? sender, RoutedEventArgs e) =>
+        ShowKuaishouPage(PublishPlatform.KuaishouEnterpriseRevenue);
+
+    private void OnSettingsNavClick(object? sender, RoutedEventArgs e) => ShowSettingsPage();
+
+    private void ShowWeixinPage()
     {
-        PipelineContent.IsVisible = !showSettings;
-        SharedSettingsView.IsVisible = showSettings;
-        SetActiveNav(PipelineNavButton, !showSettings);
-        SetActiveNav(SettingsNavButton, showSettings);
+        ViewModel?.SelectPlatform(PublishPlatform.WeixinChannel);
+        WeixinPublisherView.IsVisible = true;
+        PipelinePage.IsVisible = false;
+        SharedSettingsView.IsVisible = false;
+        SetActiveNavigation(WeixinNavButton);
+    }
+
+    private void ShowKuaishouPage(PublishPlatform platform)
+    {
+        ViewModel?.SelectPlatform(platform);
+        WeixinPublisherView.IsVisible = false;
+        PipelinePage.IsVisible = true;
+        PipelineContent.IsVisible = true;
+        SharedSettingsView.IsVisible = false;
+        SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
+            ? KuaishouPersonalNavButton
+            : KuaishouEnterpriseNavButton);
+    }
+
+    private void ShowSettingsPage()
+    {
+        WeixinPublisherView.IsVisible = false;
+        PipelinePage.IsVisible = true;
+        PipelineContent.IsVisible = false;
+        SharedSettingsView.IsVisible = true;
+        SetActiveNavigation(SettingsNavButton);
+    }
+
+    private void SetActiveNavigation(Button activeButton)
+    {
+        foreach (var button in new[]
+                 {
+                     WeixinNavButton,
+                     KuaishouPersonalNavButton,
+                     KuaishouEnterpriseNavButton,
+                     SettingsNavButton,
+                 })
+        {
+            SetActiveNav(button, ReferenceEquals(button, activeButton));
+        }
     }
 
     private static void SetActiveNav(Button button, bool active)
