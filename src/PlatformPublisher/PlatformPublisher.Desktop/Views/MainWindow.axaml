@@ -79,24 +79,38 @@
 
             <Grid Grid.Column="1" Margin="16,14" RowDefinitions="Auto,Auto,*" RowSpacing="10">
                 <Border Classes="panel" Padding="14">
-                    <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
-                        <TextBlock Text="项目目录" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1"
-                                 Text="{Binding DraftProjectDirectory}"
-                                 Watermark="选择已有短剧项目目录" />
-                        <Button Grid.Column="2" Click="PickProjectDirectory_Click" Content="选择目录" />
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
+                        <TextBlock Text="任务类型" VerticalAlignment="Center" />
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding JobKinds}"
+                                  SelectedItem="{Binding SelectedJobKind}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PublishJobKindOptionViewModel">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Description}" Foreground="#91AEC3" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
 
-                        <TextBlock Grid.Row="1" Text="视频号配置" VerticalAlignment="Center" />
+                        <TextBlock Grid.Row="1" Text="项目目录" VerticalAlignment="Center" />
                         <TextBox Grid.Row="1" Grid.Column="1"
-                                 Text="{Binding DraftConfigPath}"
-                                 Watermark="可选；留空时从项目目录自动定位配置" />
-                        <Button Grid.Row="1" Grid.Column="2" Click="PickConfigFile_Click" Content="选择配置" />
+                                 Text="{Binding DraftProjectDirectory}"
+                                 Watermark="剧集上传选择项目；目录发表选择包含多个素材子目录的根目录" />
+                        <Button Grid.Row="1" Grid.Column="2" Click="PickProjectDirectory_Click" Content="选择目录" />
 
-                        <TextBlock Grid.Row="2" Text="账号备注" VerticalAlignment="Center" />
+                        <TextBlock Grid.Row="2" Text="视频号配置" VerticalAlignment="Center" />
                         <TextBox Grid.Row="2" Grid.Column="1"
+                                 Text="{Binding DraftConfigPath}"
+                                 Watermark="可选；目录发表会继承其中的授权文件和浏览器目录" />
+                        <Button Grid.Row="2" Grid.Column="2" Click="PickConfigFile_Click" Content="选择配置" />
+
+                        <TextBlock Grid.Row="3" Text="账号备注" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="3" Grid.Column="1"
                                  Text="{Binding DraftAccountName}"
                                  Watermark="例如：视频号主账号" />
-                        <Button Grid.Row="2" Grid.Column="2"
+                        <Button Grid.Row="3" Grid.Column="2"
                                 Classes="primary"
                                 Command="{Binding AddJobCommand}"
                                 Content="加入当前平台" />
@@ -131,12 +145,13 @@
                 <Border Grid.Row="2" Classes="panel" ClipToBounds="True">
                     <Grid RowDefinitions="42,*">
                         <Border Background="#173E5E" BorderBrush="#28546F" BorderThickness="0,0,0,1" Padding="12,0">
-                            <Grid ColumnDefinitions="170,1.3*,1.7*,120,2*" ColumnSpacing="12">
+                            <Grid ColumnDefinitions="150,130,1.2*,1.7*,110,2*" ColumnSpacing="12">
                                 <TextBlock Text="平台" VerticalAlignment="Center" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="项目" VerticalAlignment="Center" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="2" Text="目录" VerticalAlignment="Center" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="3" Text="状态" VerticalAlignment="Center" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="4" Text="当前信息" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="任务类型" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="2" Text="项目" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="3" Text="目录" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="4" Text="状态" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="5" Text="当前信息" VerticalAlignment="Center" FontWeight="SemiBold" />
                             </Grid>
                         </Border>
 
@@ -157,22 +172,23 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
                                     <Border BorderBrush="#28546F" BorderThickness="0,0,0,1" Padding="12,9">
-                                        <Grid ColumnDefinitions="170,1.3*,1.7*,120,2*" ColumnSpacing="12">
+                                        <Grid ColumnDefinitions="150,130,1.2*,1.7*,110,2*" ColumnSpacing="12">
                                             <TextBlock Text="{Binding PlatformName}" VerticalAlignment="Center" />
-                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Grid.Column="1" Text="{Binding KindName}" VerticalAlignment="Center" />
+                                            <StackPanel Grid.Column="2" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding ProjectName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Text="{Binding AccountName}" FontSize="11" Foreground="#91AEC3" />
                                             </StackPanel>
-                                            <TextBlock Grid.Column="2"
+                                            <TextBlock Grid.Column="3"
                                                        Text="{Binding ProjectDirectory}"
                                                        VerticalAlignment="Center"
                                                        TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="3"
+                                            <TextBlock Grid.Column="4"
                                                        Text="{Binding StatusText}"
                                                        VerticalAlignment="Center"
                                                        Foreground="#61D7B0"
                                                        FontWeight="SemiBold" />
-                                            <TextBlock Grid.Column="4"
+                                            <TextBlock Grid.Column="5"
                                                        Text="{Binding StatusMessage}"
                                                        VerticalAlignment="Center"
                                                        TextWrapping="Wrap"

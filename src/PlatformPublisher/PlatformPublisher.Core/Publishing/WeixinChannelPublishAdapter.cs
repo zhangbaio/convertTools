@@ -8,13 +8,16 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
 {
     private readonly IWeixinChannelUploader _uploader;
     private readonly IWeixinBrowserSessionLauncher _browserSessionLauncher;
+    private readonly WeixinDirectoryMaterialPublishService _directoryMaterialPublishService;
 
     public WeixinChannelPublishAdapter(
         IWeixinChannelUploader uploader,
-        IWeixinBrowserSessionLauncher browserSessionLauncher)
+        IWeixinBrowserSessionLauncher browserSessionLauncher,
+        WeixinDirectoryMaterialPublishService directoryMaterialPublishService)
     {
         _uploader = uploader;
         _browserSessionLauncher = browserSessionLauncher;
+        _directoryMaterialPublishService = directoryMaterialPublishService;
     }
 
     public PublishPlatform Platform => PublishPlatform.WeixinChannel;
@@ -27,6 +30,12 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         CancellationToken cancellationToken)
     {
         ValidateProject(job);
+        if (job.Kind == PublishJobKind.DirectoryMaterials)
+        {
+            await _directoryMaterialPublishService.PublishAsync(job, progress, cancellationToken);
+            return;
+        }
+
         var result = await _uploader.UploadAsync(
             new WeixinUploadRequest(
                 job.Id,

@@ -25,7 +25,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             new(PublishPlatform.KuaishouPersonalRevenue, "快手分账 · 个人", "独立个人分账任务通道"),
             new(PublishPlatform.KuaishouEnterpriseRevenue, "快手分账 · 企业", "独立企业分账任务通道"),
         ];
+        JobKinds =
+        [
+            new(PublishJobKind.Series, "剧集上传", "使用项目内剧集配置创建并上传分集"),
+            new(PublishJobKind.DirectoryMaterials, "目录批量发表", "每个一级子目录发表一条视频"),
+        ];
         _selectedPlatform = Platforms[0];
+        _selectedJobKind = JobKinds[0];
         AddJobCommand = new AsyncRelayCommand(AddJobAsync, CanAddJob);
         RunSelectedCommand = new AsyncRelayCommand(RunSelectedAsync, CanRunSelected);
         OpenLoginCommand = new AsyncRelayCommand(OpenLoginAsync, CanOpenLogin);
@@ -35,6 +41,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     public IReadOnlyList<PlatformOptionViewModel> Platforms { get; }
+    public IReadOnlyList<PublishJobKindOptionViewModel> JobKinds { get; }
     public ObservableCollection<PublishJobRowViewModel> VisibleJobs { get; } = [];
     public IAsyncRelayCommand AddJobCommand { get; }
     public IAsyncRelayCommand RunSelectedCommand { get; }
@@ -44,6 +51,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private PlatformOptionViewModel _selectedPlatform;
+
+    [ObservableProperty]
+    private PublishJobKindOptionViewModel _selectedJobKind;
 
     [ObservableProperty]
     private PublishJobRowViewModel? _selectedJob;
@@ -100,6 +110,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var job = new PublishJob
         {
             Platform = SelectedPlatform.Value,
+            Kind = SelectedJobKind.Value,
             ProjectName = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
             ProjectDirectory = directory,
             ConfigPath = DraftConfigPath.Trim(),

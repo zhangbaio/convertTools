@@ -11,6 +11,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string Id => Model.Id;
     public PublishPlatform Platform => Model.Platform;
     public string PlatformName => Model.Platform.DisplayName();
+    public string KindName => Model.Kind.DisplayName();
     public string ProjectName => Model.ProjectName;
     public string ProjectDirectory => Model.ProjectDirectory;
     public string AccountName => string.IsNullOrWhiteSpace(Model.AccountName) ? "默认账号" : Model.AccountName;
