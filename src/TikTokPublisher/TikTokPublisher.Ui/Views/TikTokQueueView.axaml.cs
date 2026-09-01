@@ -3246,7 +3246,7 @@ public partial class TikTokQueueView : UserControl
             browser = _browserHost?.TryGetHost(account.Id);
         }
 
-        var selectedStatuses = selection.SelectedPlatformStatuses();
+        var selectedStatuses = selection.SelectedPlatformStatusLabels();
         vm.StatusMessage =
             $"正在检查账号「{account.DisplayName}」的{string.Join("、", selectedStatuses)}剧集版权证明…";
         vm.AppendLog(

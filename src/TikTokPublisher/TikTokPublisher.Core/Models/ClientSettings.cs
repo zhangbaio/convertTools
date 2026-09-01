@@ -51,6 +51,9 @@ public sealed class ClientSettings
     public int TiktokDocumentConcurrency { get; set; } = 2;
     public string TiktokAsrLanguage { get; set; } = "zh-CN";
     public bool TiktokManualInterventionOnSingleFailure { get; set; } = true;
+    public bool TiktokCopyrightProofAuditIncludePublished { get; set; }
+    public bool TiktokCopyrightProofAuditIncludeVideoReviewing { get; set; }
+    public bool TiktokCopyrightProofAuditIncludeCopyrightSuspected { get; set; } = true;
 
     public string VideoTranslateEngine { get; set; } = "volc";
     public string VideoTranslateSourceLanguage { get; set; } = "en";
@@ -207,6 +210,9 @@ public sealed class ClientSettings
         TiktokDocumentConcurrency = TiktokDocumentConcurrency,
         TiktokAsrLanguage = TiktokAsrLanguage,
         TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure,
+        TiktokCopyrightProofAuditIncludePublished = TiktokCopyrightProofAuditIncludePublished,
+        TiktokCopyrightProofAuditIncludeVideoReviewing = TiktokCopyrightProofAuditIncludeVideoReviewing,
+        TiktokCopyrightProofAuditIncludeCopyrightSuspected = TiktokCopyrightProofAuditIncludeCopyrightSuspected,
         VideoTranslateEngine = VideoTranslateEngine,
         VideoTranslateSourceLanguage = VideoTranslateSourceLanguage,
         VideoTranslateTargetLanguage = VideoTranslateTargetLanguage,

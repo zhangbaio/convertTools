@@ -141,6 +141,21 @@ public sealed class TikTokSeriesListLookupRetryTests
             .Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(
+        "疑似版权问题",
+        TikTokCopyrightProofAuditSelection.CopyrightSuspectedStatus)]
+    [InlineData(
+        TikTokCopyrightProofAuditSelection.CopyrightSuspectedStatus,
+        "疑似版权问题")]
+    public void Copyright_suspected_filter_accepts_localized_label_and_platform_token(
+        string selected,
+        string expected)
+    {
+        TikTokSeriesListLookupService.IsExactStatusSelection([selected], [expected])
+            .Should().BeTrue();
+    }
+
     [Fact]
     public void Page_readiness_snapshot_deserializes_browser_json_object()
     {
