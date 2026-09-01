@@ -65,6 +65,61 @@ public sealed class TikTokFileUploadTransportTests
         TikTokBatchUploadService.ShouldUseBatchedUpload(options, 1).Should().BeTrue();
     }
 
+    [Fact]
+    public void Edit_video_alignment_stops_before_the_first_duplicate_episode()
+    {
+        var rows = new[]
+        {
+            new TikTokBrowserActions.EditVideoRow(1, 1),
+            new TikTokBrowserActions.EditVideoRow(2, 1),
+            new TikTokBrowserActions.EditVideoRow(3, 2),
+        };
+
+        TikTokBrowserActions.FindAlignedEditVideoPrefixCount(rows).Should().Be(1);
+    }
+
+    [Theory]
+    [MemberData(nameof(DisorderedVideoRows))]
+    public void Edit_video_alignment_stops_before_disorder_or_slot_gaps(
+        TikTokBrowserActions.EditVideoRow[] rows,
+        int expectedAligned)
+    {
+        TikTokBrowserActions.FindAlignedEditVideoPrefixCount(rows).Should().Be(expectedAligned);
+    }
+
+    public static IEnumerable<object[]> DisorderedVideoRows()
+    {
+        yield return
+        [
+            new[]
+            {
+                new TikTokBrowserActions.EditVideoRow(1, 1),
+                new TikTokBrowserActions.EditVideoRow(2, 3),
+                new TikTokBrowserActions.EditVideoRow(3, 2),
+            },
+            1,
+        ];
+        yield return
+        [
+            new[]
+            {
+                new TikTokBrowserActions.EditVideoRow(1, 1),
+                new TikTokBrowserActions.EditVideoRow(3, 3),
+            },
+            1,
+        ];
+        yield return
+        [
+            new[]
+            {
+                new TikTokBrowserActions.EditVideoRow(1, 1),
+                new TikTokBrowserActions.EditVideoRow(2, 2),
+                new TikTokBrowserActions.EditVideoRow(3, 3),
+            },
+            3,
+        ];
+    }
+
     [Theory]
     [InlineData("TikTok 平台暂时性提交失败：操作失败请重试。")]
     [InlineData("TikTok 提交后平台仍显示草稿，未标记为完成。")]
