@@ -12,7 +12,6 @@ public static class WorkspaceQueueService
         var root = Path.GetFullPath(workspaceRoot);
         if (!Directory.Exists(root)) return Array.Empty<QueueProjectItem>();
 
-        var binding = WorkspaceBindingService.Load(root);
         var state = WorkspaceQueueDatabase.Load(root);
         var clientSettings = new Lazy<ClientSettings>(
             () => ClientSettingsStore.Load(),
@@ -30,7 +29,7 @@ public static class WorkspaceQueueService
         {
             var normalized = Path.GetFullPath(scanned.ProjectDir);
             persistedByDir.TryGetValue(normalized, out var persisted);
-            discovered[normalized] = MergeScanned(scanned, persisted, binding, clientSettings);
+            discovered[normalized] = MergeScanned(scanned, persisted, clientSettings);
         }
 
         var results = new List<QueueProjectItem>();
@@ -46,7 +45,7 @@ public static class WorkspaceQueueService
                     continue;
                 }
                 if (!WorkspaceProjectScanner.IsValidProjectDirectory(normalized)) continue;
-                item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), persisted, binding, clientSettings);
+                item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), persisted, clientSettings);
             }
             results.Add(item);
             seen.Add(normalized);
@@ -72,7 +71,6 @@ public static class WorkspaceQueueService
         if (!Directory.Exists(root))
             return (Array.Empty<QueueProjectItem>(), new QueueRunOptions());
 
-        var binding = WorkspaceBindingService.Load(root);
         var state = WorkspaceQueueDatabase.Load(root);
         var items = new List<QueueProjectItem>();
         foreach (var item in state.Items)
@@ -80,7 +78,6 @@ public static class WorkspaceQueueService
             if (string.IsNullOrWhiteSpace(item.ProjectDir) || !Directory.Exists(item.ProjectDir))
                 continue;
 
-            ApplyWorkspaceBinding(item, binding);
             item.NormalizeStepStates();
             RecoverInterruptedRunningSteps(item);
             ApplyManualUploadStatus(item);
@@ -126,7 +123,6 @@ public static class WorkspaceQueueService
         string? accountProfileName = null)
     {
         var normalized = Path.GetFullPath(projectDir);
-        var binding = WorkspaceBindingService.Load(workspaceRoot);
         var items = ScanProjects(workspaceRoot).ToList();
         var item = items.FirstOrDefault(i =>
             string.Equals(Path.GetFullPath(i.ProjectDir), normalized, StringComparison.OrdinalIgnoreCase));
@@ -135,7 +131,7 @@ public static class WorkspaceQueueService
         {
             if (!WorkspaceProjectScanner.IsValidProjectDirectory(normalized))
                 return;
-            item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), null, binding);
+            item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), null);
             items.Add(item);
         }
 
@@ -160,16 +156,8 @@ public static class WorkspaceQueueService
         string? accountProfileName = null)
     {
         var root = Path.GetFullPath(workspaceRoot);
-        var binding = WorkspaceBindingService.Load(root);
         var explicitAccountId = (accountProfileId ?? "").Trim();
         var explicitAccountName = (accountProfileName ?? "").Trim();
-        if (!string.IsNullOrWhiteSpace(explicitAccountId) &&
-            !string.IsNullOrWhiteSpace(binding?.AccountProfileId) &&
-            !string.Equals(binding.AccountProfileId.Trim(), explicitAccountId, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"工作目录已绑定其他账号：{binding.AccountProfileName} ({binding.AccountProfileId})。");
-        }
         var items = ScanProjects(root).ToList();
         var options = LoadRunOptions(root);
         var existing = items.ToDictionary(i => Path.GetFullPath(i.ProjectDir), StringComparer.OrdinalIgnoreCase);
@@ -194,7 +182,7 @@ public static class WorkspaceQueueService
                 continue;
             }
 
-            var item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), null, binding);
+            var item = MergeScanned(WorkspaceProjectScanner.BuildProject(normalized), null);
             item.Enabled = true;
             item.QueuedAt = NextQueuedAt(ref lastQueuedAt);
             ApplyExplicitAccountBinding(item);
@@ -295,9 +283,6 @@ public static class WorkspaceQueueService
         foreach (var plan in plans)
             entries.Add(QueueProjectMoveService.ExecuteMove(plan, targetAccount));
 
-        if (!sameWorkspace)
-            WorkspaceBindingService.Bind(targetRoot, targetAccount.Id, targetAccount.DisplayName);
-
         var removeDirs = entries
             .SelectMany(entry => new[] { entry.OriginalProjectDir })
             .Concat(plans.Select(plan => plan.SourceItem.ProjectDir))
@@ -341,7 +326,6 @@ public static class WorkspaceQueueService
     private static QueueProjectItem MergeScanned(
         WorkspaceProjectScanner.WorkspaceProject scanned,
         QueueProjectItem? persisted,
-        WorkspaceBindingService.WorkspaceBinding? binding = null,
         Lazy<ClientSettings>? clientSettings = null)
     {
         var item = persisted is null
@@ -379,8 +363,6 @@ public static class WorkspaceQueueService
             item.VideoVertical = scanned.VideoVertical;
         item.PrimaryVideoPath = scanned.PrimaryVideoPath;
         item.CoverPath = scanned.CoverPath;
-        ApplyWorkspaceBinding(item, binding);
-
         if (string.IsNullOrWhiteSpace(item.QueuedAt))
             item.QueuedAt = ResolveInitialQueuedAt(scanned);
 
@@ -414,29 +396,6 @@ public static class WorkspaceQueueService
             item.UploadCompletedAt = "";
             if (string.IsNullOrWhiteSpace(item.LastError))
                 item.LastError = "手动标记上传失败";
-        }
-    }
-
-    private static void ApplyWorkspaceBinding(
-        QueueProjectItem item,
-        WorkspaceBindingService.WorkspaceBinding? binding)
-    {
-        var accountProfileId = (binding?.AccountProfileId ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(accountProfileId))
-            return;
-
-        var accountProfileName = (binding?.AccountProfileName ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(item.AccountProfileId))
-        {
-            item.AccountProfileId = accountProfileId;
-            item.AccountProfileName = accountProfileName;
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(item.AccountProfileName) &&
-            string.Equals(item.AccountProfileId.Trim(), accountProfileId, StringComparison.Ordinal))
-        {
-            item.AccountProfileName = accountProfileName;
         }
     }
 

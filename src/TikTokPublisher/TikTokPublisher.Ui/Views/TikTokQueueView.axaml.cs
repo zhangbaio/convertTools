@@ -396,16 +396,6 @@ public partial class TikTokQueueView : UserControl
         if (folder is null) return;
 
         var path = folder.Path.LocalPath;
-        var boundId = WorkspaceBindingService.ResolveAccountProfileId(path);
-        if (!string.IsNullOrWhiteSpace(boundId))
-        {
-            var bound = _vm.FindAccount(boundId);
-            if (bound is not null && bound.Id != _vm.SelectedAccount?.Id)
-            {
-                _vm.SelectedAccount = bound;
-            }
-        }
-
         _vm.SetWorkspacePath(path);
     }
 
@@ -614,21 +604,7 @@ public partial class TikTokQueueView : UserControl
     }
 
     private AccountItemViewModel? ResolveManualExternalBrowserAccount(MainViewModel vm)
-    {
-        var workspace = (vm.WorkspacePath ?? "").Trim();
-        if (!string.IsNullOrWhiteSpace(workspace))
-        {
-            var boundId = WorkspaceBindingService.ResolveAccountProfileId(workspace);
-            if (!string.IsNullOrWhiteSpace(boundId))
-            {
-                var bound = vm.FindAccount(boundId);
-                if (bound is not null)
-                    return bound;
-            }
-        }
-
-        return vm.SelectedAccount;
-    }
+        => vm.SelectedAccount;
 
     private async Task CloseManualExternalBrowserSessionsAsync()
     {

@@ -40,8 +40,11 @@ public sealed class LocalManualDramaImportServiceTests
             File.Exists(Path.Combine(source, "海报原图.jpg")).Should().BeTrue();
             File.Exists(Path.Combine(result.WorkflowProjectDir, "海报原图.jpg")).Should().BeTrue();
 
-            WorkspaceBindingService.Bind(workspace, "acct-current", "当前账号");
-            WorkspaceQueueService.AddProjectsToQueue(workspace, [source]).Should().ContainSingle();
+            WorkspaceQueueService.AddProjectsToQueue(
+                workspace,
+                [source],
+                "acct-current",
+                "当前账号").Should().ContainSingle();
 
             var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
             item.ProjectDir.Should().Be(Path.GetFullPath(source));
