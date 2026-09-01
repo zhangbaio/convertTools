@@ -7,7 +7,8 @@ namespace TikTokPublisher.Core.Services;
 public sealed record DeletedCopyrightProofProjectRecoveryResult(
     bool Ok,
     string Message,
-    QueueProjectItem? Project = null);
+    QueueProjectItem? Project = null,
+    bool CanFallbackToPublishedVideo = false);
 
 /// <summary>
 /// Rebuilds a locally deleted, previously uploaded project from its durable execution snapshot.
@@ -117,7 +118,7 @@ public static class DeletedCopyrightProofProjectRecoveryService
         }
         if (lookup.Item is null)
         {
-            return Fail(
+            return SourceUnavailable(
                 $"无法按历史原剧名「{originalTitle}」重新找到下载源：{lookup.Reason}。" +
                 "请重新导入该原剧或提供原视频目录后再补全。");
         }
@@ -157,16 +158,29 @@ public static class DeletedCopyrightProofProjectRecoveryService
                 item => Path.GetFullPath(item.ProjectDir),
                 StringComparer.OrdinalIgnoreCase);
 
-        var projectDir = await ShortDramaDramaServices.BootstrapAsync(
-                workspace,
-                lookup.Item,
-                "all",
-                quality,
-                concurrent,
-                episodeNumberMode,
-                history.QueueEntryDramaType,
-                ct)
-            .ConfigureAwait(false);
+        string projectDir;
+        try
+        {
+            projectDir = await ShortDramaDramaServices.BootstrapAsync(
+                    workspace,
+                    lookup.Item,
+                    "all",
+                    quality,
+                    concurrent,
+                    episodeNumberMode,
+                    history.QueueEntryDramaType,
+                    ct)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return SourceUnavailable(
+                $"原片源恢复失败：{ex.Message}");
+        }
         projectDir = Path.GetFullPath(projectDir);
 
         if (beforeBootstrap.TryGetValue(projectDir, out var occupied) &&
@@ -279,4 +293,7 @@ public static class DeletedCopyrightProofProjectRecoveryService
 
     private static DeletedCopyrightProofProjectRecoveryResult Fail(string message) =>
         new(false, message);
+
+    internal static DeletedCopyrightProofProjectRecoveryResult SourceUnavailable(string message) =>
+        new(false, message, CanFallbackToPublishedVideo: true);
 }

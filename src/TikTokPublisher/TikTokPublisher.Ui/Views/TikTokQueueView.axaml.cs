@@ -2409,6 +2409,76 @@ public partial class TikTokQueueView : UserControl
             }
 
             var proofSettings = ClientSettingsStore.Load();
+
+            async Task<DeletedCopyrightProofProjectRecoveryResult> RecoverFromTikTokAsync(
+                CopyrightProofProjectMatch match,
+                TikTokExecutionProjectSnapshot historySnapshot,
+                Action<string> preparationLog,
+                string? fallbackReason = null)
+            {
+                var requiredEpisodes =
+                    DeletedCopyrightProofPublishedVideoRecoveryService.ResolveRequiredEpisodeCount(
+                        proofSettings,
+                        proofAccount);
+                requiredEpisodes = Math.Max(1, requiredEpisodes);
+                vm.StatusMessage =
+                    $"正在从 TikTok 原创管理项目恢复视频：{match.NewTitle}（需要 {requiredEpisodes} 集）";
+                if (!string.IsNullOrWhiteSpace(fallbackReason))
+                {
+                    preparationLog(
+                        $"原片源恢复失败，自动改用 TikTok 网页视频兜底：{fallbackReason}");
+                }
+                preparationLog(
+                    $"准备从 TikTok 原创管理项目恢复视频：计划获取前 {requiredEpisodes} 集。");
+
+                var ready = await EnsureAccountBrowserReadyAsync(
+                    proofAccount,
+                    preparationLog,
+                    ct);
+                if (!ready.Ok)
+                {
+                    preparationLog($"浏览器准备失败：{ready.Message}");
+                    return new DeletedCopyrightProofProjectRecoveryResult(false, ready.Message);
+                }
+
+                IEmbeddedBrowser? browser = null;
+                if (!UsesPlaywrightUploadBrowser(proofAccount))
+                    browser = _browserHost?.TryGetHost(proofAccount.Id);
+                var download = await TikTokPublishedSeriesVideoDownloadService.DownloadAsync(
+                        proofAccount,
+                        browser,
+                        match.NewTitle,
+                        workspace,
+                        requiredEpisodes,
+                        // 手动补已删除证明按剧名恢复视频，不限制平台状态。
+                        requireCopyrightProofEligibleStatus: false,
+                        preparationLog,
+                        ct)
+                    .ConfigureAwait(false);
+                if (!download.Ok)
+                {
+                    preparationLog($"平台视频恢复失败：{download.Message}");
+                    return new DeletedCopyrightProofProjectRecoveryResult(false, download.Message);
+                }
+                preparationLog(download.Message);
+
+                var recoverySource = new TikTokPublishedVideoRecoverySource(
+                    download.SeriesId,
+                    download.DetailUrl,
+                    download.StagingDirectory,
+                    download.PlatformEpisodeCount,
+                    download.DownloadedEpisodeCount);
+                // 恢复过程会复制多集视频、导入本地项目并扫描队列，属于重文件 I/O。
+                return await Task.Run(
+                    () => DeletedCopyrightProofPublishedVideoRecoveryService.Recover(
+                        workspace,
+                        historySnapshot,
+                        recoverySource,
+                        proofAccount,
+                        preparationLog),
+                    ct);
+            }
+
             foreach (var match in deletedTargets)
             {
                 try
@@ -2416,71 +2486,14 @@ public partial class TikTokQueueView : UserControl
                     ct.ThrowIfCancellationRequested();
                     var historySnapshot = match.HistorySnapshot!;
                     var originalTitle = (historySnapshot.Item.OriginalTitle ?? string.Empty).Trim();
+                    var preparationLog = CreatePreparationLog(match.NewTitle);
                     DeletedCopyrightProofProjectRecoveryResult recovery;
                     if (string.IsNullOrWhiteSpace(originalTitle))
                     {
-                        var preparationLog = CreatePreparationLog(match.NewTitle);
-                        var requiredEpisodes =
-                            DeletedCopyrightProofPublishedVideoRecoveryService.ResolveRequiredEpisodeCount(
-                                proofSettings,
-                                proofAccount);
-                        requiredEpisodes = Math.Max(1, requiredEpisodes);
-                        vm.StatusMessage =
-                            $"正在从 TikTok 原创管理项目恢复视频：{match.NewTitle}（需要 {requiredEpisodes} 集）";
-                        preparationLog(
-                            $"准备从 TikTok 原创管理项目恢复视频：计划获取前 {requiredEpisodes} 集。");
-                        var ready = await EnsureAccountBrowserReadyAsync(
-                            proofAccount,
-                            preparationLog,
-                            ct);
-                        if (!ready.Ok)
-                        {
-                            preparationLog($"浏览器准备失败：{ready.Message}");
-                            restoreFailures.Add($"{match.NewTitle}：{ready.Message}");
-                            selectedTitles.Remove(match.NewTitle);
-                            continue;
-                        }
-
-                        IEmbeddedBrowser? browser = null;
-                        if (!UsesPlaywrightUploadBrowser(proofAccount))
-                            browser = _browserHost?.TryGetHost(proofAccount.Id);
-                        var download =
-                            await TikTokPublishedSeriesVideoDownloadService.DownloadAsync(
-                                proofAccount,
-                                browser,
-                                match.NewTitle,
-                                workspace,
-                                requiredEpisodes,
-                                // 手动补已删除证明按剧名恢复视频，不限制平台状态。
-                                // “视频检测中”等状态也交由后续详情页/证明编辑流程实际处理。
-                                requireCopyrightProofEligibleStatus: false,
-                                preparationLog,
-                                ct);
-                        if (!download.Ok)
-                        {
-                            preparationLog($"平台视频恢复失败：{download.Message}");
-                            restoreFailures.Add($"{match.NewTitle}：{download.Message}");
-                            selectedTitles.Remove(match.NewTitle);
-                            continue;
-                        }
-                        preparationLog(download.Message);
-
-                        var recoverySource = new TikTokPublishedVideoRecoverySource(
-                            download.SeriesId,
-                            download.DetailUrl,
-                            download.StagingDirectory,
-                            download.PlatformEpisodeCount,
-                            download.DownloadedEpisodeCount);
-                        // 恢复过程会复制多集视频、导入本地项目并扫描队列，属于重文件 I/O。
-                        // 放在 UI 线程会造成窗口短暂卡死，同时期间产生的日志只能在结束后集中渲染。
-                        recovery = await Task.Run(
-                            () => DeletedCopyrightProofPublishedVideoRecoveryService.Recover(
-                                workspace,
-                                historySnapshot,
-                                recoverySource,
-                                proofAccount,
-                                preparationLog),
-                            ct);
+                        recovery = await RecoverFromTikTokAsync(
+                            match,
+                            historySnapshot,
+                            preparationLog);
                     }
                     else
                     {
@@ -2492,6 +2505,14 @@ public partial class TikTokQueueView : UserControl
                             proofAccount,
                             vm.AppendLog,
                             ct);
+                        if (!recovery.Ok && recovery.CanFallbackToPublishedVideo)
+                        {
+                            recovery = await RecoverFromTikTokAsync(
+                                match,
+                                historySnapshot,
+                                preparationLog,
+                                recovery.Message);
+                        }
                     }
 
                     if (!recovery.Ok)
