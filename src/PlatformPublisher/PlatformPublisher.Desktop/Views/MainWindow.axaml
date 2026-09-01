@@ -11,7 +11,7 @@
         Title="云帆多平台发布助手">
     <Grid RowDefinitions="58,*,30">
         <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="230,*">
+            <Grid ColumnDefinitions="198,*">
                 <Border BorderBrush="#D8E2EC" BorderThickness="0,0,1,0" Padding="18,0">
                     <TextBlock Text="云帆多平台发布助手"
                                VerticalAlignment="Center"
@@ -28,8 +28,8 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1" ColumnDefinitions="230,*">
-        <Grid x:Name="PipelinePage" Grid.ColumnSpan="2" Classes="platformPipeline" ColumnDefinitions="230,*" IsVisible="False">
+        <Grid Grid.Row="1" ColumnDefinitions="198,*">
+        <Grid x:Name="PipelinePage" Grid.ColumnSpan="2" Classes="platformPipeline" ColumnDefinitions="198,*" IsVisible="False">
             <Border Grid.Column="0" Classes="platformSidebar" Background="#FBFCFE" BorderBrush="#D8E2EC" BorderThickness="0,0,1,0" Padding="12">
                 <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
                     <StackPanel Spacing="4" Margin="4,4,4,8">
