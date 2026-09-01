@@ -5,6 +5,8 @@ using CommunityToolkit.Mvvm.Input;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Common.Services;
+using ShortDrama.Core.Interfaces;
+using ShortDrama.Core.Models;
 
 namespace PlatformPublisher.Desktop.ViewModels;
 
@@ -13,20 +15,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly PublishJobStore _store;
     private readonly PublishAccountStore _accountStore;
     private readonly PlatformPublishCoordinator _coordinator;
+    private readonly IWorkflowInteractionService _interactionService;
     private readonly List<PublishJob> _jobs = [];
     private readonly List<PublishAccount> _accounts = [];
     private readonly DispatcherTimer _scheduleTimer;
     private CancellationTokenSource? _operationCts;
     private bool _scheduleTickRunning;
+    private WorkflowInteractionRequest? _currentInteractionRequest;
 
     public MainWindowViewModel(
         PublishJobStore store,
         PublishAccountStore accountStore,
-        PlatformPublishCoordinator coordinator)
+        PlatformPublishCoordinator coordinator,
+        IWorkflowInteractionService interactionService)
     {
         _store = store;
         _accountStore = accountStore;
         _coordinator = coordinator;
+        _interactionService = interactionService;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -47,12 +53,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AddJobCommand = new AsyncRelayCommand(AddJobAsync, CanAddJob);
         RunSelectedCommand = new AsyncRelayCommand(RunSelectedAsync, CanRunSelected);
         RunRunnableCommand = new AsyncRelayCommand(RunRunnableAsync, CanRunRunnable);
+        RetryFailedCommand = new AsyncRelayCommand(RetryFailedAsync, CanRetryFailed);
         NewAccountCommand = new RelayCommand(BeginNewAccount, () => !IsBusy);
         SaveAccountCommand = new AsyncRelayCommand(SaveAccountAsync, CanSaveAccount);
         DeleteAccountCommand = new AsyncRelayCommand(DeleteAccountAsync, () => SelectedAccount is not null && !IsBusy);
         OpenLoginCommand = new AsyncRelayCommand(OpenLoginAsync, CanOpenLogin);
         RemoveSelectedCommand = new AsyncRelayCommand(RemoveSelectedAsync, () => SelectedJob is not null && !IsBusy);
         StopCommand = new RelayCommand(Stop, () => IsBusy);
+        TakeoverInteractionCommand = new RelayCommand(() => ResolveInteraction("manual"), () => CanResolveInteraction("manual"));
+        ResumeInteractionCommand = new RelayCommand(() => ResolveInteraction("resume"), () => CanResolveInteraction("resume"));
+        SkipCurrentVideoCommand = new RelayCommand(() => ResolveInteraction("skip_video"), () => CanResolveInteraction("skip_video"));
+        SkipCurrentProjectCommand = new RelayCommand(() => ResolveInteraction("skip_project"), () => CanResolveInteraction("skip_project"));
+        StopInteractionCommand = new RelayCommand(() => ResolveInteraction("stop"), () => CanResolveInteraction("stop"));
+        _interactionService.RequestChanged += OnInteractionRequestChanged;
         _scheduleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _scheduleTimer.Tick += OnScheduleTimerTick;
         _scheduleTimer.Start();
@@ -66,12 +79,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public IAsyncRelayCommand AddJobCommand { get; }
     public IAsyncRelayCommand RunSelectedCommand { get; }
     public IAsyncRelayCommand RunRunnableCommand { get; }
+    public IAsyncRelayCommand RetryFailedCommand { get; }
     public IRelayCommand NewAccountCommand { get; }
     public IAsyncRelayCommand SaveAccountCommand { get; }
     public IAsyncRelayCommand DeleteAccountCommand { get; }
     public IAsyncRelayCommand OpenLoginCommand { get; }
     public IAsyncRelayCommand RemoveSelectedCommand { get; }
     public IRelayCommand StopCommand { get; }
+    public IRelayCommand TakeoverInteractionCommand { get; }
+    public IRelayCommand ResumeInteractionCommand { get; }
+    public IRelayCommand SkipCurrentVideoCommand { get; }
+    public IRelayCommand SkipCurrentProjectCommand { get; }
+    public IRelayCommand StopInteractionCommand { get; }
 
     [ObservableProperty]
     private PlatformOptionViewModel _selectedPlatform;
@@ -135,6 +154,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isBusy;
+
+    [ObservableProperty]
+    private bool _hasInteractionRequest;
+
+    [ObservableProperty]
+    private string _interactionTitle = "人工介入";
+
+    [ObservableProperty]
+    private string _interactionMessage = string.Empty;
 
     public string SelectedPlatformCapability =>
         _coordinator.GetAdapter(SelectedPlatform.Value).AvailabilityMessage;
@@ -281,6 +309,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool CanRunRunnable() => !IsBusy && VisibleJobs.Any(row =>
         PublishSchedulePolicy.CanRunNow(row.Model, DateTimeOffset.Now) &&
         _coordinator.GetAdapter(row.Platform).IsAvailable);
+    private bool CanRetryFailed() => !IsBusy && VisibleJobs.Any(row => row.Model.Status == PublishJobStatus.Failed);
     private bool CanOpenLogin() => SelectedJob is not null && !IsBusy;
 
     private bool CanSaveAccount() => !IsBusy && !string.IsNullOrWhiteSpace(DraftAccountName);
@@ -344,6 +373,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await RunRowsAsync(rows, clearSchedule: true);
     }
 
+    private async Task RetryFailedAsync()
+    {
+        var rows = VisibleJobs.Where(row => row.Model.Status == PublishJobStatus.Failed).ToArray();
+        await RunRowsAsync(rows, clearSchedule: true);
+    }
+
     private async Task RunRowsAsync(IReadOnlyList<PublishJobRowViewModel> rows, bool clearSchedule)
     {
         if (rows.Count == 0)
@@ -386,6 +421,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         if (clearSchedule)
             job.ScheduledAt = null;
+        job.AttemptCount++;
+        job.LastStartedAt = DateTimeOffset.Now;
         job.Status = PublishJobStatus.Running;
         job.StatusMessage = "正在启动发布流程…";
         job.UpdatedAt = DateTimeOffset.Now;
@@ -421,6 +458,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         finally
         {
             job.UpdatedAt = DateTimeOffset.Now;
+            job.LastCompletedAt = DateTimeOffset.Now;
             row.Refresh();
             await PersistAsync();
         }
@@ -496,7 +534,40 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public void Shutdown()
     {
         _scheduleTimer.Stop();
+        _interactionService.RequestChanged -= OnInteractionRequestChanged;
         Stop();
+    }
+
+    private void OnInteractionRequestChanged(WorkflowInteractionRequest? request)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            _currentInteractionRequest = request;
+            HasInteractionRequest = request is not null;
+            InteractionTitle = request is null ? "人工介入" : $"人工介入 · {request.DisplayName}";
+            InteractionMessage = request?.Message ?? string.Empty;
+            if (request is not null)
+                StatusMessage = $"等待人工处理：{request.DisplayName}";
+            NotifyCommands();
+        });
+    }
+
+    private bool CanResolveInteraction(string decision) =>
+        _currentInteractionRequest?.Options.Contains(decision, StringComparer.Ordinal) == true;
+
+    private void ResolveInteraction(string decision)
+    {
+        if (!_interactionService.TryResolve(decision))
+            return;
+        StatusMessage = decision switch
+        {
+            "manual" => "已切换到人工接管，请在浏览器完成处理后点击继续。",
+            "resume" => "已提交继续执行。",
+            "skip_video" => "已提交跳过当前视频。",
+            "skip_project" => "已提交跳过当前项目。",
+            "stop" => "已提交停止任务。",
+            _ => $"已提交人工处理决策：{decision}",
+        };
     }
 
     private async void OnScheduleTimerTick(object? sender, EventArgs e)
@@ -582,11 +653,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AddJobCommand.NotifyCanExecuteChanged();
         RunSelectedCommand.NotifyCanExecuteChanged();
         RunRunnableCommand.NotifyCanExecuteChanged();
+        RetryFailedCommand.NotifyCanExecuteChanged();
         NewAccountCommand.NotifyCanExecuteChanged();
         SaveAccountCommand.NotifyCanExecuteChanged();
         DeleteAccountCommand.NotifyCanExecuteChanged();
         OpenLoginCommand.NotifyCanExecuteChanged();
         RemoveSelectedCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();
+        TakeoverInteractionCommand.NotifyCanExecuteChanged();
+        ResumeInteractionCommand.NotifyCanExecuteChanged();
+        SkipCurrentVideoCommand.NotifyCanExecuteChanged();
+        SkipCurrentProjectCommand.NotifyCanExecuteChanged();
+        StopInteractionCommand.NotifyCanExecuteChanged();
     }
 }

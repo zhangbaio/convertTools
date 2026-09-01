@@ -107,7 +107,7 @@
                 </Grid>
             </Border>
 
-            <Grid x:Name="PipelineContent" Grid.Column="1" Margin="16,14" RowDefinitions="Auto,Auto,*" RowSpacing="10">
+            <Grid x:Name="PipelineContent" Grid.Column="1" Margin="16,14" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
                 <Border Classes="panel" Padding="14">
                     <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
                         <TextBlock Text="任务类型" VerticalAlignment="Center" />
@@ -243,6 +243,9 @@
                                     Command="{Binding RunRunnableCommand}"
                                     Content="执行当前平台待办" />
                             <Button Margin="0,0,8,0"
+                                    Command="{Binding RetryFailedCommand}"
+                                    Content="重试失败" />
+                            <Button Margin="0,0,8,0"
                                     Command="{Binding StopCommand}"
                                     Content="停止" />
                             <Button Command="{Binding RemoveSelectedCommand}"
@@ -251,17 +254,40 @@
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="2" Classes="panel" ClipToBounds="True">
+                <Border Grid.Row="2"
+                        Background="#38234F"
+                        BorderBrush="#A78BFA"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="12"
+                        IsVisible="{Binding HasInteractionRequest}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{Binding InteractionTitle}" FontWeight="Bold" Foreground="#E9D5FF" />
+                            <TextBlock Text="{Binding InteractionMessage}" TextWrapping="Wrap" Foreground="#F5F3FF" />
+                        </StackPanel>
+                        <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Margin="0,0,8,0" Command="{Binding TakeoverInteractionCommand}" Content="人工接管" />
+                            <Button Margin="0,0,8,0" Classes="primary" Command="{Binding ResumeInteractionCommand}" Content="继续执行" />
+                            <Button Margin="0,0,8,0" Command="{Binding SkipCurrentVideoCommand}" Content="跳过当前视频" />
+                            <Button Margin="0,0,8,0" Command="{Binding SkipCurrentProjectCommand}" Content="跳过项目" />
+                            <Button Command="{Binding StopInteractionCommand}" Content="停止任务" />
+                        </WrapPanel>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="3" Classes="panel" ClipToBounds="True">
                     <Grid RowDefinitions="42,*">
                         <Border Background="#173E5E" BorderBrush="#28546F" BorderThickness="0,0,0,1" Padding="12,0">
-                            <Grid ColumnDefinitions="130,120,1.1*,1.5*,130,100,1.8*" ColumnSpacing="12">
+                            <Grid ColumnDefinitions="120,110,1.1*,1.4*,120,70,90,1.7*" ColumnSpacing="12">
                                 <TextBlock Text="平台" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="1" Text="任务类型" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="2" Text="项目" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="3" Text="目录" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="4" Text="计划时间" VerticalAlignment="Center" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="5" Text="状态" VerticalAlignment="Center" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="6" Text="当前信息" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="5" Text="尝试" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="6" Text="状态" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="7" Text="当前信息" VerticalAlignment="Center" FontWeight="SemiBold" />
                             </Grid>
                         </Border>
 
@@ -282,7 +308,7 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
                                     <Border BorderBrush="#28546F" BorderThickness="0,0,0,1" Padding="12,9">
-                                        <Grid ColumnDefinitions="130,120,1.1*,1.5*,130,100,1.8*" ColumnSpacing="12">
+                                        <Grid ColumnDefinitions="120,110,1.1*,1.4*,120,70,90,1.7*" ColumnSpacing="12">
                                             <TextBlock Text="{Binding PlatformName}" VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="1" Text="{Binding KindName}" VerticalAlignment="Center" />
                                             <StackPanel Grid.Column="2" VerticalAlignment="Center">
@@ -297,11 +323,14 @@
                                                        Text="{Binding ScheduleText}"
                                                        VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="5"
+                                                       Text="{Binding AttemptSummary}"
+                                                       VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="6"
                                                        Text="{Binding StatusText}"
                                                        VerticalAlignment="Center"
                                                        Foreground="#61D7B0"
                                                        FontWeight="SemiBold" />
-                                            <TextBlock Grid.Column="6"
+                                            <TextBlock Grid.Column="7"
                                                        Text="{Binding StatusMessage}"
                                                        VerticalAlignment="Center"
                                                        TextWrapping="Wrap"

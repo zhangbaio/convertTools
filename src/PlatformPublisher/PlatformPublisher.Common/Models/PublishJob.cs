@@ -54,6 +54,9 @@ public sealed class PublishJob
     public List<string> CustomVideoFiles { get; set; } = [];
     public string PlatformOptionsJson { get; set; } = string.Empty;
     public DateTimeOffset? ScheduledAt { get; set; }
+    public int AttemptCount { get; set; }
+    public DateTimeOffset? LastStartedAt { get; set; }
+    public DateTimeOffset? LastCompletedAt { get; set; }
     public PublishJobStatus Status { get; set; } = PublishJobStatus.Pending;
     public string StatusMessage { get; set; } = "等待执行";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;

@@ -21,6 +21,9 @@ public sealed class PublishJobStoreTests
                     Platform = PublishPlatform.WeixinChannel,
                     ProjectName = "测试剧",
                     ProjectDirectory = Path.Combine(tempRoot, "project"),
+                    AttemptCount = 3,
+                    LastStartedAt = new DateTimeOffset(2026, 9, 1, 20, 0, 0, TimeSpan.FromHours(8)),
+                    LastCompletedAt = new DateTimeOffset(2026, 9, 1, 20, 5, 0, TimeSpan.FromHours(8)),
                 },
                 new PublishJob
                 {
@@ -37,6 +40,10 @@ public sealed class PublishJobStoreTests
 
             Assert.Equal(2, loaded.Count);
             Assert.Contains(loaded, job => job.Id == "weixin-job" && job.Platform == PublishPlatform.WeixinChannel);
+            var weixin = Assert.Single(loaded, job => job.Id == "weixin-job");
+            Assert.Equal(3, weixin.AttemptCount);
+            Assert.NotNull(weixin.LastStartedAt);
+            Assert.NotNull(weixin.LastCompletedAt);
             Assert.Contains(loaded, job => job.Id == "kuaishou-personal-job" && job.Platform == PublishPlatform.KuaishouPersonalRevenue);
         }
         finally

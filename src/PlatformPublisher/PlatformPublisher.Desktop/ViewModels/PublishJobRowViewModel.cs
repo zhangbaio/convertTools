@@ -28,11 +28,15 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string ScheduleText => Model.ScheduledAt is { } value
         ? value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
         : "立即/手动";
+    public string AttemptSummary => Model.AttemptCount == 0
+        ? "未执行"
+        : $"{Model.AttemptCount} 次";
 
     public void Refresh()
     {
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(StatusMessage));
         OnPropertyChanged(nameof(ScheduleText));
+        OnPropertyChanged(nameof(AttemptSummary));
     }
 }
