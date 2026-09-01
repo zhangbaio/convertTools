@@ -101,7 +101,7 @@ public static class ManualDeletedCopyrightProofService
                 Enabled = true,
                 StatusText = QueueStepStatus.Completed,
                 Remark = string.IsNullOrWhiteSpace(originalTitle)
-                    ? "原剧名未知，将从 TikTok 已发布项目恢复视频并补全版权证明"
+                    ? "原剧名未知，将从 TikTok 原创管理项目恢复视频并补全版权证明"
                     : "用户手动指定原剧名，用于重建已删除项目并补全版权证明",
                 StepStates = new Dictionary<string, string>
                 {

@@ -49,14 +49,18 @@ public sealed class TikTokPublishedSeriesMatchTextTests
     [InlineData("未发布", true, false)]
     [InlineData("分发受限", true, true)]
     [InlineData("已发布", true, true)]
-    public void CanUseForCopyrightProofVideoRecovery_AllowsAnyStatusForMaterialOnly(
+    [InlineData("视频检测中", false, true)]
+    [InlineData("视频检测中", true, false)]
+    public void CanUseForCopyrightProofVideoRecovery_OnlyRestrictsStatusWhenRequested(
         string status,
-        bool willEditTikTok,
+        bool requireCopyrightProofEligibleStatus,
         bool expected)
     {
         Assert.Equal(
             expected,
-            TikTokPublishedSeriesMatchText.CanUseForCopyrightProofVideoRecovery(status, willEditTikTok));
+            TikTokPublishedSeriesMatchText.CanUseForCopyrightProofVideoRecovery(
+                status,
+                requireCopyrightProofEligibleStatus));
     }
 
     [Fact]

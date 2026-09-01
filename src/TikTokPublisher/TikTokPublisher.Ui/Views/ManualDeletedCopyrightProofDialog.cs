@@ -189,7 +189,7 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
         _unknownTitles.IsVisible = !known;
         _instructions.Text = known
             ? "输入已删除剧集的新剧名和原剧名。系统优先复用当前队列或归档项目，否则按原剧名重新查找片源；不会重新上传剧集。"
-            : "输入已删除剧集的新剧名，一行一个。系统会从当前账号的 TikTok 已发布项目精确匹配并下载生成证明材料所需的视频；不会重新上传剧集。";
+            : "输入已删除剧集的新剧名，一行一个。系统会从当前账号的 TikTok 原创管理项目精确匹配并下载生成证明材料所需的视频，不限制剧集状态；不会重新上传剧集。";
         UpdateSummary();
         if (focus && IsVisible)
             FocusCurrentInput();
@@ -339,7 +339,7 @@ public sealed class ManualDeletedCopyrightProofDialog : Window
             var entries = ManualDeletedCopyrightProofService
                 .ParseUnknownOriginalTitles(_unknownTitles.Text);
             _summary.Text = entries.Count > 0
-                ? $"已输入 {entries.Count} 个新剧名；将逐个从当前账号的 TikTok 已发布项目恢复视频。"
+                ? $"已输入 {entries.Count} 个新剧名；将逐个从当前账号的 TikTok 原创管理项目恢复视频。"
                 : "请至少填写一个新剧名。";
             _summary.Foreground = entries.Count > 0 ? Brushes.SeaGreen : Brushes.DimGray;
             return;

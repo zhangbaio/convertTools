@@ -2308,7 +2308,7 @@ public partial class TikTokQueueView : UserControl
                     var episodeText = item?.EpisodeCount > 0 ? $"，{item.EpisodeCount} 集" : string.Empty;
                     var originalTitle = (item?.OriginalTitle ?? string.Empty).Trim();
                     return string.IsNullOrWhiteSpace(originalTitle)
-                        ? $"• {match.NewTitle}（从 TikTok 已发布项目恢复视频）"
+                        ? $"• {match.NewTitle}（从 TikTok 原创管理项目恢复视频）"
                         : $"• {match.NewTitle}（原剧：{originalTitle}{episodeText}）";
                 }));
             var recoverySource = manualDeletedMode switch
@@ -2316,7 +2316,7 @@ public partial class TikTokQueueView : UserControl
                 ManualDeletedCopyrightProofInputMode.KnownOriginalTitle =>
                     "将根据你填写的新剧名和原剧名恢复项目，并优先使用原片源，",
                 ManualDeletedCopyrightProofInputMode.UnknownOriginalTitle =>
-                    "将根据你批量填写的新剧名恢复项目，并从当前账号的 TikTok 已发布项目下载必要视频，",
+                    "将根据你批量填写的新剧名恢复项目，并从当前账号的 TikTok 原创管理项目下载必要视频，不限制剧集状态，",
                 _ => "将根据历史记录重新建立项目，",
             };
             var confirmed = await ConfirmAsync(
@@ -2414,9 +2414,9 @@ public partial class TikTokQueueView : UserControl
                                 proofAccount);
                         requiredEpisodes = Math.Max(1, requiredEpisodes);
                         vm.StatusMessage =
-                            $"正在从 TikTok 已发布项目恢复视频：{match.NewTitle}（需要 {requiredEpisodes} 集）";
+                            $"正在从 TikTok 原创管理项目恢复视频：{match.NewTitle}（需要 {requiredEpisodes} 集）";
                         preparationLog(
-                            $"准备从 TikTok 已发布项目恢复视频：计划获取前 {requiredEpisodes} 集。");
+                            $"准备从 TikTok 原创管理项目恢复视频：计划获取前 {requiredEpisodes} 集。");
                         var ready = await EnsureAccountBrowserReadyAsync(
                             proofAccount,
                             preparationLog,
@@ -2439,7 +2439,9 @@ public partial class TikTokQueueView : UserControl
                                 match.NewTitle,
                                 workspace,
                                 requiredEpisodes,
-                                executionMode == CopyrightProofExecutionMode.GenerateAndEdit,
+                                // 手动补已删除证明按剧名恢复视频，不限制平台状态。
+                                // “视频检测中”等状态也交由后续详情页/证明编辑流程实际处理。
+                                requireCopyrightProofEligibleStatus: false,
                                 preparationLog,
                                 ct);
                         if (!download.Ok)
@@ -3924,9 +3926,8 @@ public partial class TikTokQueueView : UserControl
                 title,
                 workspaceRoot,
                 requested.Length,
-                // Material fallback must only trust a remotely published/eligible
-                // project. Passing true enables the strict platform-status guard.
-                willEditTikTok: true,
+                // Material fallback must only trust a remotely published/eligible project.
+                requireCopyrightProofEligibleStatus: true,
                 log,
                 ct,
                 requested,
