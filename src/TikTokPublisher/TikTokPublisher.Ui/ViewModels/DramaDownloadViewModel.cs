@@ -222,12 +222,18 @@ public sealed partial class DramaQueueRowViewModel : ViewModelBase
 
 public sealed partial class DramaDownloadViewModel : ViewModelBase
 {
+    private readonly string? _stateDatabasePath;
     private readonly DramaDownloadRunner _runner = new();
     private readonly List<DramaSearchItem> _allSearchResults = new();
     private CancellationTokenSource? _downloadCts;
     private CancellationTokenSource? _newReleaseCts;
     private long _searchGeneration;
     private bool _isLoadingState;
+
+    public DramaDownloadViewModel(string? stateDatabasePath = null)
+    {
+        _stateDatabasePath = stateDatabasePath;
+    }
 
     public ObservableCollection<DramaSearchRowViewModel> SearchResults { get; } = new();
     public ObservableCollection<DramaQueueRowViewModel> QueueRows { get; } = new();
@@ -258,6 +264,16 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     [ObservableProperty] private string _searchPageText = "第 1 页";
     [ObservableProperty] private string _queueStatsText = "待下载：0 | 下载中：0 | 完成：0 | 失败：0";
     [ObservableProperty] private string _tikTokQueueTargetText = "目标账号：未选择";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AddToQueueButtonText))]
+    private string _queuePlatformLabel = "TIKTOK";
+
+    public string AddToQueueButtonText => $"加入{QueuePlatformLabel}队列";
+
+    public void ConfigureQueuePlatform(string label)
+    {
+        QueuePlatformLabel = string.IsNullOrWhiteSpace(label) ? "TIKTOK" : label.Trim();
+    }
 
     public bool IsListView => !string.Equals(SearchViewMode, "封面视图", StringComparison.Ordinal);
     public bool IsPosterView => !IsListView;
@@ -278,7 +294,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         _isLoadingState = true;
         try
         {
-            var state = DramaDownloadQueueStore.Load();
+            var state = DramaDownloadQueueStore.Load(_stateDatabasePath);
             DownloadWorkspace = state.WorkspacePath;
             AutoGenerateMaterials = state.AutoGenerateMaterials;
             DownloadConcurrent = state.DownloadConcurrent;
@@ -293,7 +309,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 QueueRows.Add(new DramaQueueRowViewModel(item));
             RefreshQueueStats();
 
-            var clientSettings = ClientSettingsStore.Load();
+            var clientSettings = ClientSettingsStore.Load(_stateDatabasePath);
             ApplyClientSettings(clientSettings, preferSavedWorkspace: string.IsNullOrWhiteSpace(DownloadWorkspace));
         }
         finally
@@ -337,7 +353,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             AuthorExclude = AuthorExclude,
             QueueItems = QueueRows.Select(r => r.Item).ToList(),
         };
-        DramaDownloadQueueStore.Save(state);
+        DramaDownloadQueueStore.Save(state, _stateDatabasePath);
     }
 
     partial void OnDownloadConcurrentChanged(int value) => SaveState();
@@ -490,11 +506,11 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var selected = SelectedSearchItems();
         if (selected.Count == 0)
         {
-            LogRequested?.Invoke("请先勾选要加入 TikTok 队列的短剧");
+            LogRequested?.Invoke($"请先勾选要加入 {QueuePlatformLabel} 队列的短剧");
             return;
         }
 
-        selected = FilterAuthorExcludedItems(selected, "TikTok 队列");
+        selected = FilterAuthorExcludedItems(selected, $"{QueuePlatformLabel} 队列");
         if (selected.Count == 0) return;
 
         var target = CaptureTikTokQueueTarget();
@@ -506,7 +522,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
         if (!await Task.Run(() => Directory.Exists(uploadWorkspace)))
         {
-            LogRequested?.Invoke($"TikTok 上传工作目录不存在：{uploadWorkspace}");
+            LogRequested?.Invoke($"{QueuePlatformLabel}工作目录不存在：{uploadWorkspace}");
             return;
         }
 
@@ -533,14 +549,14 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 .ConfigureAwait(true);
             dirs.Add(projectDir);
             item.Selected = false;
-            LogRequested?.Invoke($"已准备 TikTok 队列项目：{item.Title}");
+            LogRequested?.Invoke($"已准备{QueuePlatformLabel}队列项目：{item.Title}");
         }
 
         UpdateSelectedCount();
         var importHandler = ImportToQueueRequested;
         if (importHandler is not null)
             await importHandler(new TikTokQueueImportRequest(target, dirs));
-        LogRequested?.Invoke($"已加入 {dirs.Count} 个剧目到「{target.AccountProfileName}」TikTok 队列");
+        LogRequested?.Invoke($"已加入 {dirs.Count} 个剧目到「{target.AccountProfileName}」{QueuePlatformLabel}队列");
     }
 
     [RelayCommand]

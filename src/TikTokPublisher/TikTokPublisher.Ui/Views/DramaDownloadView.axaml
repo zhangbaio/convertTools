@@ -82,7 +82,7 @@
                         <ComboBox Width="92" ItemsSource="{Binding EpisodeRangeOptions}" SelectedItem="{Binding EpisodeRangeMode}" Margin="0,0,8,8" />
                         <TextBox Width="360" Watermark="例如: 1-5 或 1,3,5" Text="{Binding EpisodeCustomRange, Mode=TwoWay}" Margin="0,0,8,8" />
                         <Button Content="下载选中" Command="{Binding DownloadSelectedCommand}" Classes="primaryAction" Margin="0,0,8,8" />
-                        <Button Content="加入TIKTOK队列" Command="{Binding AddSelectedToTikTokQueueCommand}" Margin="0,0,8,8" />
+                        <Button Content="{Binding AddToQueueButtonText}" Command="{Binding AddSelectedToTikTokQueueCommand}" Margin="0,0,8,8" />
                         <Button Content="全选" Command="{Binding SelectAllResultsCommand}" Margin="0,0,8,8" />
                         <Button Content="取消全选" Command="{Binding ClearSelectionCommand}" Margin="0,0,8,8" />
                         <TextBlock Text="{Binding SelectedCountText}" VerticalAlignment="Center" Classes="pageSummary" Margin="0,0,8,8" />

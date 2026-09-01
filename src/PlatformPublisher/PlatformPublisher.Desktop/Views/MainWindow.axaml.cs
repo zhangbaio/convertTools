@@ -4,9 +4,9 @@ using Avalonia.Platform.Storage;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
+using PlatformPublisher.Common.Services;
 using PlatformPublisher.Weixin.Publishing;
 using TikTokPublisher.Ui.ViewModels;
-using ShortDrama.Core.Interfaces;
 
 namespace PlatformPublisher.Desktop.Views;
 
@@ -40,17 +40,39 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetArchivedProjectsContent(new WeixinArchivedProjectsView { DataContext = viewModel });
     }
 
-    public void BindWeixinDownload(
-        IDramaSearchService searchService,
-        IDramaProjectBootstrapper bootstrapper,
-        IWorkService workService,
-        MainWindowViewModel mainViewModel)
+    public void BindWeixinDownload(MainWindowViewModel mainViewModel)
     {
-        var viewModel = new WeixinDramaDownloadViewModel(searchService, bootstrapper, workService, mainViewModel)
+        var viewModel = new TikTokPublisher.Ui.ViewModels.DramaDownloadViewModel(PlatformPublisherPaths.SettingsDatabasePath);
+        viewModel.ConfigureQueuePlatform("视频号");
+        viewModel.TikTokQueueTargetRequested += () =>
         {
-            RootDirectory = mainViewModel.DraftProjectDirectory,
+            var account = WeixinPublisherView.SelectedAccountProfile;
+            var workspace = viewModel.DownloadWorkspace;
+            if (account is null || string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace)) return null;
+            return new TikTokPublisher.Ui.ViewModels.TikTokQueueImportTarget(account.Id, account.Name, workspace);
         };
-        WeixinPublisherView.SetDramaDownloadContent(new WeixinDramaDownloadView { DataContext = viewModel });
+        viewModel.ImportToQueueRequested += async request =>
+        {
+            await mainViewModel.ImportLocalProjectDirectoriesAsync(request.ProjectDirs);
+        };
+        var view = new TikTokPublisher.Ui.Views.DramaDownloadView();
+        view.Bind(viewModel, message => mainViewModel.StatusMessage = message);
+        viewModel.SearchViewMode = "封面视图";
+        void RefreshTarget()
+        {
+            var account = WeixinPublisherView.SelectedAccountProfile;
+            viewModel.UpdateTikTokQueueTarget(account is null || string.IsNullOrWhiteSpace(viewModel.DownloadWorkspace)
+                ? null
+                : new TikTokPublisher.Ui.ViewModels.TikTokQueueImportTarget(account.Id, account.Name, viewModel.DownloadWorkspace));
+        }
+        WeixinPublisherView.SelectedAccountChanged += _ => RefreshTarget();
+        viewModel.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(TikTokPublisher.Ui.ViewModels.DramaDownloadViewModel.DownloadWorkspace))
+                RefreshTarget();
+        };
+        RefreshTarget();
+        WeixinPublisherView.SetDramaDownloadContent(view);
     }
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;

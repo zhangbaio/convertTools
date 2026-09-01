@@ -1,6 +1,6 @@
 # Platform Publisher Visual QA
 
-Reference: `codex-clipboard-39690a9d-b454-4114-b3e5-835f14dccb55.png`
+References: `codex-clipboard-39690a9d-b454-4114-b3e5-835f14dccb55.png`, `codex-clipboard-7beca1e4-460f-499d-b057-86d7c629942e.png`
 
 Implementation: `PlatformPublisher.Desktop` with embedded `ChannelsPublisher.Ui.MaterialPublishView`
 
@@ -20,6 +20,9 @@ Implementation: `PlatformPublisher.Desktop` with embedded `ChannelsPublisher.Ui.
 - Kuaishou personal and enterprise pages now use the same white cards, pale-blue headers, dark text, blue primary actions, muted helper text, and white empty table surfaces as the video-channel and settings pages.
 - Manual-intervention state uses a light lavender notice card instead of the retired dark panel styling.
 - The video-channel page preserves its required embedded WebView2 browser workspace; the reference TikTok screen uses that area for a production table, so content structure intentionally differs while visual language matches.
+- The video-channel `短剧下载` tab now embeds the same `TikTokPublisher.Ui.DramaDownloadView` used by the TikTok assistant, preserving search filters, new-release sources, paging, list/poster views, download queue, and settings without a visual fork.
+- The embedded view uses the platform assistant's independent settings database and changes only the queue label/target to `视频号`, so the TikTok screen remains unchanged.
+- Visual verification at the 1496×860 desktop window confirmed the shared download toolbar, three secondary tabs, filter rows, queue target text, and table layout render without clipping. Poster mode uses the same source component and card template shown in the reference.
 
 ## Remaining P3 polish
 

@@ -12,7 +12,6 @@ using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Desktop.Views;
 using ShortDrama.Infrastructure.DependencyInjection;
-using ShortDrama.Core.Interfaces;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace PlatformPublisher.Desktop;
@@ -35,11 +34,7 @@ public partial class App : Application
             mainWindow.BindSettings(settingsViewModel);
             mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
             mainWindow.BindWeixinWorkflow(viewModel);
-            mainWindow.BindWeixinDownload(
-                _services.GetRequiredService<IDramaSearchService>(),
-                _services.GetRequiredService<IDramaProjectBootstrapper>(),
-                _services.GetRequiredService<IWorkService>(),
-                viewModel);
+            mainWindow.BindWeixinDownload(viewModel);
             desktop.MainWindow = mainWindow;
             desktop.Exit += (_, _) => viewModel.Shutdown();
         }
