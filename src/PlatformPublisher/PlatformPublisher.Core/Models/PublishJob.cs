@@ -34,6 +34,9 @@ public sealed class PublishJob
     public string ProjectDirectory { get; set; } = string.Empty;
     public string ConfigPath { get; set; } = string.Empty;
     public string AccountName { get; set; } = string.Empty;
+    public bool DeclareOriginal { get; set; } = true;
+    public bool HideLocation { get; set; } = true;
+    public bool AllowDuplicatePublish { get; set; }
     public PublishJobStatus Status { get; set; } = PublishJobStatus.Pending;
     public string StatusMessage { get; set; } = "等待执行";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;

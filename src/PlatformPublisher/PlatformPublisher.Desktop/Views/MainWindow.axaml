@@ -79,7 +79,7 @@
 
             <Grid Grid.Column="1" Margin="16,14" RowDefinitions="Auto,Auto,*" RowSpacing="10">
                 <Border Classes="panel" Padding="14">
-                    <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
                         <TextBlock Text="任务类型" VerticalAlignment="Center" />
                         <ComboBox Grid.Column="1"
                                   ItemsSource="{Binding JobKinds}"
@@ -114,6 +114,18 @@
                                 Classes="primary"
                                 Command="{Binding AddJobCommand}"
                                 Content="加入当前平台" />
+
+                        <TextBlock Grid.Row="4" Text="发表选项" VerticalAlignment="Center" />
+                        <WrapPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+                            <CheckBox Margin="0,0,18,0"
+                                      IsChecked="{Binding DraftDeclareOriginal}"
+                                      Content="声明原创" />
+                            <CheckBox Margin="0,0,18,0"
+                                      IsChecked="{Binding DraftHideLocation}"
+                                      Content="不显示位置" />
+                            <CheckBox IsChecked="{Binding DraftAllowDuplicatePublish}"
+                                      Content="允许重复发表" />
+                        </WrapPanel>
                     </Grid>
                 </Border>
 

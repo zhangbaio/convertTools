@@ -31,6 +31,9 @@ public sealed class WeixinDirectoryMaterialPublishServiceTests
                 Kind = PublishJobKind.DirectoryMaterials,
                 ProjectDirectory = sourceRoot,
                 ProjectName = "素材目录",
+                DeclareOriginal = false,
+                HideLocation = false,
+                AllowDuplicatePublish = true,
             });
 
             Assert.Equal(2, plan.Items.Count);
@@ -43,7 +46,10 @@ public sealed class WeixinDirectoryMaterialPublishServiceTests
             var root = document.RootElement;
             Assert.Equal("publish_videos", root.GetProperty("task_type").GetString());
             Assert.Equal(2, root.GetProperty("video_publish").GetProperty("publish_count").GetInt32());
-            Assert.True(root.GetProperty("video_publish").GetProperty("declare_original").GetBoolean());
+            var publish = root.GetProperty("video_publish");
+            Assert.False(publish.GetProperty("declare_original").GetBoolean());
+            Assert.Equal(string.Empty, publish.GetProperty("location_option_text").GetString());
+            Assert.True(publish.GetProperty("allow_duplicate_publish").GetBoolean());
         }
         finally
         {
