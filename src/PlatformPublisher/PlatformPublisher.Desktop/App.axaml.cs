@@ -25,7 +25,7 @@ public partial class App : Application
             _services = BuildServices();
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
             desktop.MainWindow = new MainWindow { DataContext = viewModel };
-            desktop.Exit += (_, _) => viewModel.Stop();
+            desktop.Exit += (_, _) => viewModel.Shutdown();
         }
 
         base.OnFrameworkInitializationCompleted();

@@ -13,7 +13,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly PublishJobStore _store;
     private readonly PlatformPublishCoordinator _coordinator;
     private readonly List<PublishJob> _jobs = [];
+    private readonly DispatcherTimer _scheduleTimer;
     private CancellationTokenSource? _operationCts;
+    private bool _scheduleTickRunning;
 
     public MainWindowViewModel(PublishJobStore store, PlatformPublishCoordinator coordinator)
     {
@@ -34,9 +36,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _selectedJobKind = JobKinds[0];
         AddJobCommand = new AsyncRelayCommand(AddJobAsync, CanAddJob);
         RunSelectedCommand = new AsyncRelayCommand(RunSelectedAsync, CanRunSelected);
+        RunRunnableCommand = new AsyncRelayCommand(RunRunnableAsync, CanRunRunnable);
         OpenLoginCommand = new AsyncRelayCommand(OpenLoginAsync, CanOpenLogin);
         RemoveSelectedCommand = new AsyncRelayCommand(RemoveSelectedAsync, () => SelectedJob is not null && !IsBusy);
         StopCommand = new RelayCommand(Stop, () => IsBusy);
+        _scheduleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _scheduleTimer.Tick += OnScheduleTimerTick;
+        _scheduleTimer.Start();
         _ = LoadAsync();
     }
 
@@ -45,6 +51,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<PublishJobRowViewModel> VisibleJobs { get; } = [];
     public IAsyncRelayCommand AddJobCommand { get; }
     public IAsyncRelayCommand RunSelectedCommand { get; }
+    public IAsyncRelayCommand RunRunnableCommand { get; }
     public IAsyncRelayCommand OpenLoginCommand { get; }
     public IAsyncRelayCommand RemoveSelectedCommand { get; }
     public IRelayCommand StopCommand { get; }
@@ -77,6 +84,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool _draftAllowDuplicatePublish;
 
     [ObservableProperty]
+    private bool _draftScheduleEnabled;
+
+    [ObservableProperty]
+    private string _draftScheduleText = DateTime.Now.AddHours(1).ToString("yyyy-MM-dd HH:mm");
+
+    [ObservableProperty]
     private string _statusMessage = "多平台发布助手已启动，数据与 TikTok 助手完全隔离。";
 
     [ObservableProperty]
@@ -96,12 +109,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     partial void OnSelectedJobChanged(PublishJobRowViewModel? value) => NotifyCommands();
     partial void OnDraftProjectDirectoryChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
+    partial void OnDraftScheduleEnabledChanged(bool value) => AddJobCommand.NotifyCanExecuteChanged();
+    partial void OnDraftScheduleTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
 
     private async Task LoadAsync()
     {
         try
         {
             _jobs.AddRange(await _store.LoadAsync());
+            var recovered = PublishSchedulePolicy.RecoverInterrupted(_jobs);
+            if (recovered > 0)
+            {
+                await PersistAsync();
+                StatusMessage = $"已恢复 {recovered} 条上次意外中断的任务。";
+            }
             RefreshVisibleJobs();
         }
         catch (Exception ex)
@@ -110,12 +131,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private bool CanAddJob() => !IsBusy && Directory.Exists(DraftProjectDirectory);
+    private bool CanAddJob() =>
+        !IsBusy &&
+        Directory.Exists(DraftProjectDirectory) &&
+        (!DraftScheduleEnabled || PublishSchedulePolicy.TryParseLocal(DraftScheduleText, out _));
 
     private async Task AddJobAsync()
     {
         var directory = Path.GetFullPath(DraftProjectDirectory);
         var adapter = _coordinator.GetAdapter(SelectedPlatform.Value);
+        DateTimeOffset? scheduledAt = null;
+        if (DraftScheduleEnabled)
+        {
+            if (!PublishSchedulePolicy.TryParseLocal(DraftScheduleText, out var parsedSchedule))
+            {
+                StatusMessage = "定时时间格式无效，请使用 yyyy-MM-dd HH:mm。";
+                return;
+            }
+
+            scheduledAt = parsedSchedule;
+        }
+
         var job = new PublishJob
         {
             Platform = SelectedPlatform.Value,
@@ -127,8 +163,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             DeclareOriginal = DraftDeclareOriginal,
             HideLocation = DraftHideLocation,
             AllowDuplicatePublish = DraftAllowDuplicatePublish,
+            ScheduledAt = scheduledAt,
             Status = adapter.IsAvailable ? PublishJobStatus.Pending : PublishJobStatus.Blocked,
-            StatusMessage = adapter.IsAvailable ? "等待执行" : adapter.AvailabilityMessage,
+            StatusMessage = adapter.IsAvailable
+                ? scheduledAt is null ? "等待执行" : $"计划于 {scheduledAt:yyyy-MM-dd HH:mm} 执行"
+                : adapter.AvailabilityMessage,
         };
         _jobs.Add(job);
         await PersistAsync();
@@ -137,6 +176,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     private bool CanRunSelected() => SelectedJob is not null && !IsBusy;
+    private bool CanRunRunnable() => !IsBusy && VisibleJobs.Any(row =>
+        PublishSchedulePolicy.CanRunNow(row.Model, DateTimeOffset.Now) &&
+        _coordinator.GetAdapter(row.Platform).IsAvailable);
     private bool CanOpenLogin() => SelectedJob is not null && !IsBusy;
 
     private async Task RunSelectedAsync()
@@ -144,7 +186,47 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (SelectedJob is null)
             return;
 
-        var row = SelectedJob;
+        await RunRowsAsync([SelectedJob], clearSchedule: true);
+    }
+
+    private async Task RunRunnableAsync()
+    {
+        var now = DateTimeOffset.Now;
+        var rows = VisibleJobs
+            .Where(row => PublishSchedulePolicy.CanRunNow(row.Model, now))
+            .Where(row => _coordinator.GetAdapter(row.Platform).IsAvailable)
+            .ToArray();
+        await RunRowsAsync(rows, clearSchedule: true);
+    }
+
+    private async Task RunRowsAsync(IReadOnlyList<PublishJobRowViewModel> rows, bool clearSchedule)
+    {
+        if (rows.Count == 0)
+            return;
+
+        await RunBusyAsync(async cancellationToken =>
+        {
+            try
+            {
+                for (var index = 0; index < rows.Count; index++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    StatusMessage = $"批量执行 {index + 1}/{rows.Count}：{rows[index].ProjectName}";
+                    await ExecuteJobAsync(rows[index], clearSchedule, cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                StatusMessage = "批量执行已停止，未开始的任务仍保留在队列中。";
+            }
+        });
+    }
+
+    private async Task ExecuteJobAsync(
+        PublishJobRowViewModel row,
+        bool clearSchedule,
+        CancellationToken cancellationToken)
+    {
         var job = row.Model;
         var adapter = _coordinator.GetAdapter(job.Platform);
         if (!adapter.IsAvailable)
@@ -153,51 +235,50 @@ public sealed partial class MainWindowViewModel : ObservableObject
             job.StatusMessage = adapter.AvailabilityMessage;
             row.Refresh();
             StatusMessage = adapter.AvailabilityMessage;
-            await PersistAsync();
+            await PersistAsync(cancellationToken);
             return;
         }
 
-        await RunBusyAsync(async cancellationToken =>
+        if (clearSchedule)
+            job.ScheduledAt = null;
+        job.Status = PublishJobStatus.Running;
+        job.StatusMessage = "正在启动发布流程…";
+        job.UpdatedAt = DateTimeOffset.Now;
+        row.Refresh();
+        await PersistAsync(cancellationToken);
+
+        var progress = new Progress<string>(message =>
         {
-            job.Status = PublishJobStatus.Running;
-            job.StatusMessage = "正在启动发布流程…";
+            job.StatusMessage = message;
+            row.Refresh();
+            StatusMessage = $"[{job.ProjectName}] {message}";
+        });
+
+        try
+        {
+            await adapter.RunAsync(job, progress, cancellationToken);
+            job.Status = PublishJobStatus.Succeeded;
+            job.StatusMessage = "发布流程执行完成";
+            StatusMessage = $"[{job.ProjectName}] 发布完成";
+        }
+        catch (OperationCanceledException)
+        {
+            job.Status = PublishJobStatus.Pending;
+            job.StatusMessage = "已停止，可继续执行";
+            StatusMessage = $"[{job.ProjectName}] 已停止";
+        }
+        catch (Exception ex)
+        {
+            job.Status = PublishJobStatus.Failed;
+            job.StatusMessage = ex.Message;
+            StatusMessage = $"[{job.ProjectName}] 发布失败：{ex.Message}";
+        }
+        finally
+        {
             job.UpdatedAt = DateTimeOffset.Now;
             row.Refresh();
-            await PersistAsync(cancellationToken);
-
-            var progress = new Progress<string>(message =>
-            {
-                job.StatusMessage = message;
-                row.Refresh();
-                StatusMessage = $"[{job.ProjectName}] {message}";
-            });
-
-            try
-            {
-                await adapter.RunAsync(job, progress, cancellationToken);
-                job.Status = PublishJobStatus.Succeeded;
-                job.StatusMessage = "发布流程执行完成";
-                StatusMessage = $"[{job.ProjectName}] 发布完成";
-            }
-            catch (OperationCanceledException)
-            {
-                job.Status = PublishJobStatus.Pending;
-                job.StatusMessage = "已停止，可继续执行";
-                StatusMessage = $"[{job.ProjectName}] 已停止";
-            }
-            catch (Exception ex)
-            {
-                job.Status = PublishJobStatus.Failed;
-                job.StatusMessage = ex.Message;
-                StatusMessage = $"[{job.ProjectName}] 发布失败：{ex.Message}";
-            }
-            finally
-            {
-                job.UpdatedAt = DateTimeOffset.Now;
-                row.Refresh();
-                await PersistAsync();
-            }
-        });
+            await PersistAsync();
+        }
     }
 
     private async Task OpenLoginAsync()
@@ -267,6 +348,39 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public void Stop() => _operationCts?.Cancel();
 
+    public void Shutdown()
+    {
+        _scheduleTimer.Stop();
+        Stop();
+    }
+
+    private async void OnScheduleTimerTick(object? sender, EventArgs e)
+    {
+        if (_scheduleTickRunning || IsBusy)
+            return;
+
+        var dueJobs = _jobs
+            .Where(job => PublishSchedulePolicy.IsDue(job, DateTimeOffset.Now))
+            .OrderBy(job => job.ScheduledAt)
+            .ToArray();
+        if (dueJobs.Length == 0)
+            return;
+
+        _scheduleTickRunning = true;
+        try
+        {
+            var rows = dueJobs.Select(job =>
+                VisibleJobs.FirstOrDefault(row => row.Id == job.Id) ?? new PublishJobRowViewModel(job)).ToArray();
+            StatusMessage = $"检测到 {rows.Length} 条到期任务，开始自动执行。";
+            await RunRowsAsync(rows, clearSchedule: true);
+            RefreshVisibleJobs(SelectedJob?.Id);
+        }
+        finally
+        {
+            _scheduleTickRunning = false;
+        }
+    }
+
     private async Task PersistAsync(CancellationToken cancellationToken = default) =>
         await _store.SaveAsync(_jobs, cancellationToken);
 
@@ -298,6 +412,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         AddJobCommand.NotifyCanExecuteChanged();
         RunSelectedCommand.NotifyCanExecuteChanged();
+        RunRunnableCommand.NotifyCanExecuteChanged();
         OpenLoginCommand.NotifyCanExecuteChanged();
         RemoveSelectedCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();

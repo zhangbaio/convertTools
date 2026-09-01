@@ -37,6 +37,7 @@ public sealed class PublishJob
     public bool DeclareOriginal { get; set; } = true;
     public bool HideLocation { get; set; } = true;
     public bool AllowDuplicatePublish { get; set; }
+    public DateTimeOffset? ScheduledAt { get; set; }
     public PublishJobStatus Status { get; set; } = PublishJobStatus.Pending;
     public string StatusMessage { get; set; } = "等待执行";
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
