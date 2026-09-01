@@ -64,4 +64,28 @@ public partial class MainWindow : Window
         if (files.Count > 0 && ViewModel is not null)
             ViewModel.DraftConfigPath = files[0].Path.LocalPath;
     }
+
+    private async void PickCustomVideoFiles_Click(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择要发表的视频",
+            AllowMultiple = true,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("视频文件")
+                {
+                    Patterns = ["*.mp4", "*.mov", "*.m4v", "*.mkv", "*.avi", "*.flv", "*.ts", "*.wmv", "*.webm"],
+                },
+                FilePickerFileTypes.All,
+            ],
+        });
+        if (files.Count == 0 || ViewModel is null)
+            return;
+
+        var paths = files.Select(file => file.Path.LocalPath).ToArray();
+        ViewModel.DraftCustomVideoFilesText = string.Join(Environment.NewLine, paths);
+        if (!Directory.Exists(ViewModel.DraftProjectDirectory))
+            ViewModel.DraftProjectDirectory = Path.GetDirectoryName(paths[0]) ?? string.Empty;
+    }
 }

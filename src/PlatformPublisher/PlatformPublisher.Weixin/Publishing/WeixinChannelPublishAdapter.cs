@@ -11,17 +11,20 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
     private readonly IWeixinBrowserSessionLauncher _browserSessionLauncher;
     private readonly WeixinDirectoryMaterialPublishService _directoryMaterialPublishService;
     private readonly WeixinSystemHighlightPublishService _systemHighlightPublishService;
+    private readonly WeixinLocalVideoPublishService _localVideoPublishService;
 
     public WeixinChannelPublishAdapter(
         IWeixinChannelUploader uploader,
         IWeixinBrowserSessionLauncher browserSessionLauncher,
         WeixinDirectoryMaterialPublishService directoryMaterialPublishService,
-        WeixinSystemHighlightPublishService systemHighlightPublishService)
+        WeixinSystemHighlightPublishService systemHighlightPublishService,
+        WeixinLocalVideoPublishService localVideoPublishService)
     {
         _uploader = uploader;
         _browserSessionLauncher = browserSessionLauncher;
         _directoryMaterialPublishService = directoryMaterialPublishService;
         _systemHighlightPublishService = systemHighlightPublishService;
+        _localVideoPublishService = localVideoPublishService;
     }
 
     public PublishPlatform Platform => PublishPlatform.WeixinChannel;
@@ -43,6 +46,12 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         if (job.Kind == PublishJobKind.SystemHighlight)
         {
             await _systemHighlightPublishService.PublishAsync(job, progress, cancellationToken);
+            return;
+        }
+
+        if (job.Kind is PublishJobKind.ProjectMaterials or PublishJobKind.LocalVideos or PublishJobKind.CustomVideos)
+        {
+            await _localVideoPublishService.PublishAsync(job, progress, cancellationToken);
             return;
         }
 

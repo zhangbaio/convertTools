@@ -38,6 +38,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             new(PublishJobKind.Series, "剧集上传", "使用项目内剧集配置创建并上传分集"),
             new(PublishJobKind.DirectoryMaterials, "目录批量发表", "每个一级子目录发表一条视频"),
             new(PublishJobKind.SystemHighlight, "系统高光发表", "按剧名选择平台系统高光并发表"),
+            new(PublishJobKind.ProjectMaterials, "项目素材发表", "从 material-videos 或 videos 目录发表"),
+            new(PublishJobKind.LocalVideos, "本地视频发表", "发表所选目录顶层的视频"),
+            new(PublishJobKind.CustomVideos, "自选视频发表", "手工选择一个或多个视频文件"),
         ];
         _selectedPlatform = Platforms[0];
         _selectedJobKind = JobKinds[0];
@@ -119,6 +122,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool _draftRegenerateHighlightsAfterPublish;
 
     [ObservableProperty]
+    private string _draftPublishDescription = "热门短剧，精彩内容持续更新。";
+
+    [ObservableProperty]
+    private string _draftCustomVideoFilesText = string.Empty;
+
+    [ObservableProperty]
     private string _statusMessage = "多平台发布助手已启动，数据与 TikTok 助手完全隔离。";
 
     [ObservableProperty]
@@ -129,6 +138,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public string QueueSummary =>
         $"当前平台 {VisibleJobs.Count} 条任务、{VisibleAccounts.Count} 个账号，共 {_jobs.Count} 条独立任务";
+
+    public bool IsSystemHighlightKind => SelectedJobKind.Value == PublishJobKind.SystemHighlight;
+    public bool IsCustomVideoKind => SelectedJobKind.Value == PublishJobKind.CustomVideos;
+    public bool IsStandardMaterialKind => SelectedJobKind.Value is
+        PublishJobKind.ProjectMaterials or PublishJobKind.LocalVideos or PublishJobKind.CustomVideos;
 
     partial void OnSelectedPlatformChanged(PlatformOptionViewModel value)
     {
@@ -148,12 +162,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         NotifyCommands();
     }
-    partial void OnSelectedJobKindChanged(PublishJobKindOptionViewModel value) => AddJobCommand.NotifyCanExecuteChanged();
+    partial void OnSelectedJobKindChanged(PublishJobKindOptionViewModel value)
+    {
+        OnPropertyChanged(nameof(IsSystemHighlightKind));
+        OnPropertyChanged(nameof(IsCustomVideoKind));
+        OnPropertyChanged(nameof(IsStandardMaterialKind));
+        AddJobCommand.NotifyCanExecuteChanged();
+    }
     partial void OnDraftProjectDirectoryChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftDramaTitleChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftAccountNameChanged(string value) => SaveAccountCommand.NotifyCanExecuteChanged();
     partial void OnDraftScheduleEnabledChanged(bool value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftScheduleTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
+    partial void OnDraftCustomVideoFilesTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
 
     private async Task LoadAsync()
     {
@@ -181,13 +202,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private bool CanAddJob() =>
         !IsBusy &&
-        Directory.Exists(DraftProjectDirectory) &&
+        HasValidDraftSource() &&
         (SelectedJobKind.Value != PublishJobKind.SystemHighlight || !string.IsNullOrWhiteSpace(DraftDramaTitle)) &&
         (!DraftScheduleEnabled || PublishSchedulePolicy.TryParseLocal(DraftScheduleText, out _));
 
+    private bool HasValidDraftSource()
+    {
+        if (SelectedJobKind.Value != PublishJobKind.CustomVideos)
+            return Directory.Exists(DraftProjectDirectory);
+
+        return ParseCustomVideoFiles().Any(File.Exists);
+    }
+
     private async Task AddJobAsync()
     {
-        var directory = Path.GetFullPath(DraftProjectDirectory);
+        var customVideoFiles = ParseCustomVideoFiles().Where(File.Exists).Select(Path.GetFullPath).ToList();
+        var directory = Directory.Exists(DraftProjectDirectory)
+            ? Path.GetFullPath(DraftProjectDirectory)
+            : Path.GetDirectoryName(customVideoFiles.First())!;
         var adapter = _coordinator.GetAdapter(SelectedPlatform.Value);
         DateTimeOffset? scheduledAt = null;
         if (DraftScheduleEnabled)
@@ -219,6 +251,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             PublishCount = Math.Clamp(DraftPublishCount, 1, 100),
             PublishVideoTypes = DraftPublishVideoTypes.Trim(),
             RegenerateHighlightsAfterPublish = DraftRegenerateHighlightsAfterPublish,
+            PublishDescription = DraftPublishDescription.Trim(),
+            CustomVideoFiles = customVideoFiles,
             ScheduledAt = scheduledAt,
             Status = adapter.IsAvailable ? PublishJobStatus.Pending : PublishJobStatus.Blocked,
             StatusMessage = adapter.IsAvailable
@@ -230,6 +264,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         RefreshVisibleJobs(job.Id);
         StatusMessage = $"已加入{job.Platform.DisplayName()}任务：{job.ProjectName}";
     }
+
+    private IReadOnlyList<string> ParseCustomVideoFiles() =>
+        DraftCustomVideoFilesText
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     private bool CanRunSelected() => SelectedJob is not null && !IsBusy;
     private bool CanRunRunnable() => !IsBusy && VisibleJobs.Any(row =>

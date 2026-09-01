@@ -109,7 +109,7 @@
 
             <Grid x:Name="PipelineContent" Grid.Column="1" Margin="16,14" RowDefinitions="Auto,Auto,*" RowSpacing="10">
                 <Border Classes="panel" Padding="14">
-                    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
                         <TextBlock Text="任务类型" VerticalAlignment="Center" />
                         <ComboBox Grid.Column="1"
                                   ItemsSource="{Binding JobKinds}"
@@ -117,8 +117,8 @@
                             <ComboBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobKindOptionViewModel">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                        <TextBlock Text="{Binding Description}" Foreground="#91AEC3" />
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="#111827" />
+                                        <TextBlock Text="{Binding Description}" Foreground="#64748B" />
                                     </StackPanel>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
@@ -172,9 +172,11 @@
                                        Text="应用保持运行时，到期任务会自动顺序执行" />
                         </Grid>
 
-                        <TextBlock Grid.Row="6" Text="系统高光" VerticalAlignment="Center" />
+                        <TextBlock Grid.Row="6" Text="系统高光" VerticalAlignment="Center"
+                                   IsVisible="{Binding IsSystemHighlightKind}" />
                         <Grid Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2"
-                              ColumnDefinitions="1.2*,Auto,90,Auto,1.1*,Auto" ColumnSpacing="8">
+                              ColumnDefinitions="1.2*,Auto,90,Auto,1.1*,Auto" ColumnSpacing="8"
+                              IsVisible="{Binding IsSystemHighlightKind}">
                             <TextBox Text="{Binding DraftDramaTitle}" Watermark="剧名（系统高光任务必填）" />
                             <TextBlock Grid.Column="1" Text="数量" VerticalAlignment="Center" />
                             <TextBox Grid.Column="2" Text="{Binding DraftPublishCount}" />
@@ -186,6 +188,32 @@
                                       IsChecked="{Binding DraftRegenerateHighlightsAfterPublish}"
                                       VerticalAlignment="Center"
                                       Content="发表后重新生成" />
+                        </Grid>
+
+                        <TextBlock Grid.Row="7" Text="发表描述" VerticalAlignment="Top" Margin="0,7,0,0"
+                                   IsVisible="{Binding IsStandardMaterialKind}" />
+                        <TextBox Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2"
+                                 Text="{Binding DraftPublishDescription}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="54"
+                                 Watermark="视频号发表描述"
+                                 IsVisible="{Binding IsStandardMaterialKind}" />
+
+                        <TextBlock Grid.Row="8" Text="自选视频" VerticalAlignment="Top" Margin="0,7,0,0"
+                                   IsVisible="{Binding IsCustomVideoKind}" />
+                        <Grid Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2"
+                              ColumnDefinitions="*,Auto" ColumnSpacing="8"
+                              IsVisible="{Binding IsCustomVideoKind}">
+                            <TextBox Text="{Binding DraftCustomVideoFilesText}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     MinHeight="64"
+                                     Watermark="每行一个视频文件路径" />
+                            <Button Grid.Column="1"
+                                    VerticalAlignment="Top"
+                                    Click="PickCustomVideoFiles_Click"
+                                    Content="选择视频文件" />
                         </Grid>
                     </Grid>
                 </Border>

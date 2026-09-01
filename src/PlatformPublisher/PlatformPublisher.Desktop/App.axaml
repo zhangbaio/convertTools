@@ -48,9 +48,12 @@
             <Setter Property="Foreground" Value="#F4FAFF" />
         </Style>
         <Style Selector="Grid.platformPipeline ComboBox">
-            <Setter Property="Background" Value="#0D2B42" />
-            <Setter Property="BorderBrush" Value="#315E78" />
-            <Setter Property="Foreground" Value="#F4FAFF" />
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="Grid.platformPipeline ComboBox TextBlock">
+            <Setter Property="Foreground" Value="#111827" />
         </Style>
         <Style Selector="Grid.platformPipeline TextBlock">
             <Setter Property="Foreground" Value="#F4FAFF" />

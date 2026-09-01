@@ -14,6 +14,9 @@ public enum PublishJobKind
     Series,
     DirectoryMaterials,
     SystemHighlight,
+    ProjectMaterials,
+    LocalVideos,
+    CustomVideos,
 }
 
 public static class PublishJobKindExtensions
@@ -23,6 +26,9 @@ public static class PublishJobKindExtensions
         PublishJobKind.Series => "剧集上传",
         PublishJobKind.DirectoryMaterials => "目录批量发表",
         PublishJobKind.SystemHighlight => "系统高光发表",
+        PublishJobKind.ProjectMaterials => "项目素材发表",
+        PublishJobKind.LocalVideos => "本地视频发表",
+        PublishJobKind.CustomVideos => "自选视频发表",
         _ => kind.ToString(),
     };
 }
@@ -44,6 +50,8 @@ public sealed class PublishJob
     public int PublishCount { get; set; } = 1;
     public string PublishVideoTypes { get; set; } = "混剪,解说,切片";
     public bool RegenerateHighlightsAfterPublish { get; set; }
+    public string PublishDescription { get; set; } = "热门短剧，精彩内容持续更新。";
+    public List<string> CustomVideoFiles { get; set; } = [];
     public DateTimeOffset? ScheduledAt { get; set; }
     public PublishJobStatus Status { get; set; } = PublishJobStatus.Pending;
     public string StatusMessage { get; set; } = "等待执行";

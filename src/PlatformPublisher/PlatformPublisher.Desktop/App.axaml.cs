@@ -46,6 +46,7 @@ public partial class App : Application
         services.AddSingleton<PublishAccountStore>();
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();
         services.AddSingleton<WeixinSystemHighlightPublishService>();
+        services.AddSingleton<WeixinLocalVideoPublishService>();
         services.AddSingleton<IPlatformPublishAdapter, WeixinChannelPublishAdapter>();
         services.AddSingleton<IPlatformPublishAdapter>(
             _ => new UnavailableKuaishouPublishAdapter(PublishPlatform.KuaishouPersonalRevenue));
