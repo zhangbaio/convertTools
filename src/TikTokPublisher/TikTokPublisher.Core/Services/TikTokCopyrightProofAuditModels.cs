@@ -60,9 +60,6 @@ public static class TikTokCopyrightProofAuditText
         var missingAll = ordered
             .Where(item => item.State == TikTokCopyrightProofAuditState.MissingMaterial)
             .ToArray();
-        var skipped = ordered
-            .Where(item => item.State == TikTokCopyrightProofAuditState.SkippedUneditable)
-            .ToArray();
         var approved = ordered
             .Where(item => item.State == TikTokCopyrightProofAuditState.SkippedApproved)
             .ToArray();
@@ -97,18 +94,6 @@ public static class TikTokCopyrightProofAuditText
                 string.Join(Environment.NewLine, missingAll.Select(item => item.Title)));
         }
 
-        if (skipped.Length > 0)
-        {
-            sections.Add(
-                $"【暂不可编辑，已跳过（{skipped.Length}）】{Environment.NewLine}" +
-                string.Join(
-                    Environment.NewLine,
-                    skipped.Select(item =>
-                        string.IsNullOrWhiteSpace(item.Detail)
-                            ? item.Title
-                            : $"{item.Title}　[{item.Detail}]")));
-        }
-
         if (approved.Length > 0)
         {
             sections.Add(
@@ -134,7 +119,7 @@ public static class TikTokCopyrightProofAuditText
         }
 
         return sections.Count == 0
-            ? "所选剧集均检测到版权证明材料。"
+            ? "未发现需要补全或检查失败的剧集。"
             : string.Join(Environment.NewLine + Environment.NewLine, sections);
     }
 

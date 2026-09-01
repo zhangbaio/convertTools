@@ -53,6 +53,8 @@ internal static class TikTokSeriesListLookupService
 
     private static readonly string[] StatusMarkers =
     [
+        TikTokCopyrightProofAuditSelection.CopyrightSuspectedStatus,
+        "疑似版权问题",
         "视频检测中",
         "检测中",
         "待审核",
@@ -103,6 +105,7 @@ internal static class TikTokSeriesListLookupService
         Action<string>? log,
         CancellationToken ct,
         IReadOnlyList<string>? statusFilters = null,
+        IReadOnlyList<string>? pendingFilters = null,
         int? preferredPageSize = null,
         IProgress<TikTokSeriesListEnumerationProgress>? progress = null)
     {
@@ -112,6 +115,7 @@ internal static class TikTokSeriesListLookupService
             await ConfigureListAsync(
                     page,
                     statusFilters,
+                    pendingFilters,
                     preferredPageSize,
                     log,
                     ct)
@@ -122,6 +126,7 @@ internal static class TikTokSeriesListLookupService
                     ct,
                     attemptNumber,
                     statusFilters,
+                    pendingFilters,
                     progress)
                 .ConfigureAwait(false);
             if (attempt.IsComplete)
@@ -164,6 +169,7 @@ internal static class TikTokSeriesListLookupService
         CancellationToken ct,
         int attemptNumber,
         IReadOnlyList<string>? statusFilters,
+        IReadOnlyList<string>? pendingFilters,
         IProgress<TikTokSeriesListEnumerationProgress>? progress)
     {
         var search = await FindSearchInputAsync(page).ConfigureAwait(false)
@@ -189,7 +195,7 @@ internal static class TikTokSeriesListLookupService
             ct.ThrowIfCancellationRequested();
             var totalPages = ExpectedPageCount(expectedTotal, pageSize);
             progress?.Report(new TikTokSeriesListEnumerationProgress(
-                FormatStatusFilters(statusFilters),
+                FormatFilters(statusFilters, pendingFilters),
                 attemptNumber,
                 pageNumber,
                 totalPages,
@@ -219,7 +225,7 @@ internal static class TikTokSeriesListLookupService
             }
 
             progress?.Report(new TikTokSeriesListEnumerationProgress(
-                FormatStatusFilters(statusFilters),
+                FormatFilters(statusFilters, pendingFilters),
                 attemptNumber,
                 pageNumber,
                 totalPages,
@@ -580,24 +586,59 @@ internal static class TikTokSeriesListLookupService
     private static async Task ConfigureListAsync(
         IPage page,
         IReadOnlyList<string>? statusFilters,
+        IReadOnlyList<string>? pendingFilters,
         int? preferredPageSize,
         Action<string>? log,
         CancellationToken ct)
     {
-        if (statusFilters is { Count: > 0 })
-            await ApplyStatusFiltersAsync(page, statusFilters, log, ct).ConfigureAwait(false);
+        if (statusFilters is { Count: > 0 } && pendingFilters is { Count: > 0 })
+            throw new InvalidOperationException("“状态”和“待处理”筛选不能同时生效。");
+
+        if (statusFilters is not null || pendingFilters is not null)
+        {
+            if (statusFilters is { Count: > 0 })
+            {
+                await ApplyFilterOptionsAsync(page, "待处理", [], log, ct)
+                    .ConfigureAwait(false);
+                await ApplyFilterOptionsAsync(page, "状态", statusFilters, log, ct)
+                    .ConfigureAwait(false);
+            }
+            else if (pendingFilters is { Count: > 0 })
+            {
+                await ApplyFilterOptionsAsync(page, "状态", [], log, ct)
+                    .ConfigureAwait(false);
+                await ApplyFilterOptionsAsync(page, "待处理", pendingFilters, log, ct)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                if (statusFilters is not null)
+                    await ApplyFilterOptionsAsync(page, "状态", [], log, ct)
+                        .ConfigureAwait(false);
+                if (pendingFilters is not null)
+                    await ApplyFilterOptionsAsync(page, "待处理", [], log, ct)
+                        .ConfigureAwait(false);
+            }
+        }
 
         if (preferredPageSize is > 0)
             await TrySetPageSizeAsync(page, preferredPageSize.Value, log, ct).ConfigureAwait(false);
     }
 
-    private static string FormatStatusFilters(IReadOnlyList<string>? statuses) =>
-        statuses is { Count: > 0 }
+    private static string FormatFilters(
+        IReadOnlyList<string>? statuses,
+        IReadOnlyList<string>? pendingFilters)
+    {
+        if (pendingFilters is { Count: > 0 })
+            return "待处理：疑似版权问题";
+        return statuses is { Count: > 0 }
             ? string.Join("、", statuses.Where(value => !string.IsNullOrWhiteSpace(value)))
             : "全部";
+    }
 
-    private static async Task ApplyStatusFiltersAsync(
+    private static async Task ApplyFilterOptionsAsync(
         IPage page,
+        string filterLabel,
         IReadOnlyList<string> statuses,
         Action<string>? log,
         CancellationToken ct)
@@ -607,24 +648,21 @@ internal static class TikTokSeriesListLookupService
             .Select(value => value.Trim())
             .Distinct(StringComparer.Ordinal)
             .ToArray();
-        if (expected.Length == 0)
-            return;
-
         ct.ThrowIfCancellationRequested();
         for (var attempt = 1; attempt <= 30; attempt++)
         {
             ct.ThrowIfCancellationRequested();
-            var combo = await FindComboboxContainingTextAsync(page, "状态").ConfigureAwait(false)
-                ?? throw new InvalidOperationException("原创管理页面未找到“状态”筛选器。");
+            var combo = await FindComboboxContainingTextAsync(page, filterLabel).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"原创管理页面未找到“{filterLabel}”筛选器。");
             if (!string.Equals(
                     await combo.GetAttributeAsync("aria-expanded").ConfigureAwait(false),
                     "true",
                     StringComparison.OrdinalIgnoreCase))
             {
                 await combo.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
-                await page.WaitForTimeoutAsync(200).ConfigureAwait(false);
-                combo = await FindComboboxContainingTextAsync(page, "状态").ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("原创管理状态筛选器在展开后丢失。");
+                await page.WaitForTimeoutAsync(500).ConfigureAwait(false);
+                combo = await FindComboboxContainingTextAsync(page, filterLabel).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException($"原创管理“{filterLabel}”筛选器在展开后丢失。");
             }
 
             var selected = await ReadSelectedStatusOptionTextsAsync(page, combo)
@@ -633,7 +671,9 @@ internal static class TikTokSeriesListLookupService
             {
                 try { await combo.PressAsync("Escape").ConfigureAwait(false); }
                 catch { /* 下拉框可能已自动关闭。 */ }
-                log?.Invoke($"原创管理已选择状态：{string.Join("、", expected)}。");
+                log?.Invoke(expected.Length == 0
+                    ? $"原创管理已清空“{filterLabel}”筛选。"
+                    : $"原创管理已选择“{filterLabel}”：{string.Join("、", expected)}。");
                 return;
             }
 
@@ -647,17 +687,21 @@ internal static class TikTokSeriesListLookupService
             var option = await FindStatusOptionByTextAsync(page, combo, optionText)
                 .ConfigureAwait(false);
             if (option is null)
-                throw new InvalidOperationException($"原创管理状态筛选器没有“{optionText}”选项。");
+            {
+                // Semi Select 的弹层选项是异步挂载的，首次展开时可能尚未进入 DOM。
+                await page.WaitForTimeoutAsync(300).ConfigureAwait(false);
+                continue;
+            }
             await option.ClickAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
             await page.WaitForTimeoutAsync(250).ConfigureAwait(false);
         }
 
-        var finalCombo = await FindComboboxContainingTextAsync(page, "状态").ConfigureAwait(false);
+        var finalCombo = await FindComboboxContainingTextAsync(page, filterLabel).ConfigureAwait(false);
         var finalSelected = finalCombo is null
             ? []
             : await ReadSelectedStatusOptionTextsAsync(page, finalCombo).ConfigureAwait(false);
         throw new InvalidOperationException(
-            $"原创管理未能切换到状态“{string.Join("、", expected)}”；" +
+            $"原创管理未能切换“{filterLabel}”为“{string.Join("、", expected)}”；" +
             $"当前选中：{(finalSelected.Count == 0 ? "无" : string.Join("、", finalSelected))}。");
     }
 
@@ -742,22 +786,46 @@ internal static class TikTokSeriesListLookupService
     {
         var selected = selectedStatuses
             .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => value.Trim())
+            .Select(NormalizeFilterValue)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         var expected = expectedStatuses
             .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => value.Trim())
+            .Select(NormalizeFilterValue)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         return selected.Length == expected.Length &&
                selected.All(value => expected.Contains(value, StringComparer.Ordinal));
     }
 
+    internal static string NormalizeFilterValue(string value)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        return normalized switch
+        {
+            "疑似版权问题" =>
+                TikTokCopyrightProofAuditSelection.CopyrightSuspectedStatus,
+            _ => normalized,
+        };
+    }
+
     private static async Task<ILocator> ResolveStatusOptionsAsync(
         IPage page,
         ILocator combo)
     {
+        // 真实 DOM 中 Semi Select 的选项 ID 使用“下拉框 ID-option-序号”，
+        // aria-controls 则指向另一个弹层容器 ID。优先按选项 ID 前缀定位，
+        // 避免读到其他下拉框的隐藏或残留选项。
+        var comboId = await combo.GetAttributeAsync("id").ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(comboId))
+        {
+            var escapedComboId = comboId.Replace("'", "\\'", StringComparison.Ordinal);
+            var byOptionId = page.Locator(
+                $"[role='option'][id^='{escapedComboId}-option-']");
+            if (await byOptionId.CountAsync().ConfigureAwait(false) > 0)
+                return byOptionId;
+        }
+
         var controlId = await combo.GetAttributeAsync("aria-controls").ConfigureAwait(false);
         if (!string.IsNullOrWhiteSpace(controlId))
         {
@@ -774,6 +842,33 @@ internal static class TikTokSeriesListLookupService
         IPage page,
         ILocator combo)
     {
+        // Semi Select 会把真实选中值渲染到下拉框内的 tag；弹层关闭、
+        // 重绘或分页刷新时，option 的 aria-selected 可能短暂不可读。
+        // 优先从 combo 自身读取，这也是用户在页面上实际看到的选中值。
+        var selectedTags = combo.Locator(".semi-tag-content");
+        var selectedTagTexts = new List<string>();
+        var selectedTagCount = await selectedTags.CountAsync().ConfigureAwait(false);
+        for (var index = 0; index < selectedTagCount; index++)
+        {
+            try
+            {
+                var text = (await selectedTags.Nth(index)
+                        .TextContentAsync(new() { Timeout = 1200 })
+                        .ConfigureAwait(false) ?? string.Empty)
+                    .Trim();
+                if (!string.IsNullOrWhiteSpace(text))
+                    selectedTagTexts.Add(text);
+            }
+            catch
+            {
+                // tag 可能正在重绘，继续读取其他 tag。
+            }
+        }
+
+        var hasCollapsedSummary = HasCollapsedSelectionSummary(selectedTagTexts);
+        if (selectedTagTexts.Count > 0 && !hasCollapsedSummary)
+            return selectedTagTexts.Distinct(StringComparer.Ordinal).ToArray();
+
         var options = await ResolveStatusOptionsAsync(page, combo).ConfigureAwait(false);
         var selected = new List<string>();
         var count = await options.CountAsync().ConfigureAwait(false);
@@ -800,8 +895,20 @@ internal static class TikTokSeriesListLookupService
             }
         }
 
-        return selected;
+        if (selected.Count > 0)
+            return selected.Distinct(StringComparer.Ordinal).ToArray();
+
+        return selectedTagTexts
+            .Where(text => !IsCollapsedSelectionSummary(text))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     }
+
+    internal static bool HasCollapsedSelectionSummary(IEnumerable<string> values) =>
+        values.Any(IsCollapsedSelectionSummary);
+
+    private static bool IsCollapsedSelectionSummary(string value) =>
+        Regex.IsMatch((value ?? string.Empty).Trim(), @"^\+\d+$");
 
     private static async Task<ILocator?> FindStatusOptionByTextAsync(
         IPage page,
@@ -820,7 +927,10 @@ internal static class TikTokSeriesListLookupService
                 var text = (await option.InnerTextAsync(new() { Timeout = 1200 })
                         .ConfigureAwait(false))
                     .Trim();
-                if (string.Equals(text, expectedText, StringComparison.Ordinal))
+                if (string.Equals(
+                        NormalizeFilterValue(text),
+                        NormalizeFilterValue(expectedText),
+                        StringComparison.Ordinal))
                     return option;
             }
             catch

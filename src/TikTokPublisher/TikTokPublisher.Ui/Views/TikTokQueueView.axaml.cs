@@ -396,16 +396,6 @@ public partial class TikTokQueueView : UserControl
         if (folder is null) return;
 
         var path = folder.Path.LocalPath;
-        var boundId = WorkspaceBindingService.ResolveAccountProfileId(path);
-        if (!string.IsNullOrWhiteSpace(boundId))
-        {
-            var bound = _vm.FindAccount(boundId);
-            if (bound is not null && bound.Id != _vm.SelectedAccount?.Id)
-            {
-                _vm.SelectedAccount = bound;
-            }
-        }
-
         _vm.SetWorkspacePath(path);
     }
 
@@ -614,21 +604,7 @@ public partial class TikTokQueueView : UserControl
     }
 
     private AccountItemViewModel? ResolveManualExternalBrowserAccount(MainViewModel vm)
-    {
-        var workspace = (vm.WorkspacePath ?? "").Trim();
-        if (!string.IsNullOrWhiteSpace(workspace))
-        {
-            var boundId = WorkspaceBindingService.ResolveAccountProfileId(workspace);
-            if (!string.IsNullOrWhiteSpace(boundId))
-            {
-                var bound = vm.FindAccount(boundId);
-                if (bound is not null)
-                    return bound;
-            }
-        }
-
-        return vm.SelectedAccount;
-    }
+        => vm.SelectedAccount;
 
     private async Task CloseManualExternalBrowserSessionsAsync()
     {
@@ -2358,6 +2334,41 @@ public partial class TikTokQueueView : UserControl
             var restoredCount = 0;
             var recoveredCount = 0;
             var preparationLogStartedAt = DateTime.Now;
+            var revealedTitles = new HashSet<string>(StringComparer.Ordinal);
+
+            async Task RevealRecoveredProjectsAsync(string newTitle)
+            {
+                revealedTitles.Add((newTitle ?? string.Empty).Trim());
+                try
+                {
+                    var snapshot = await Task.Run(() =>
+                    {
+                        var items = WorkspaceQueueService.ScanProjects(workspace)
+                            .Select((item, index) => new { Item = item, Index = index })
+                            .OrderBy(entry => revealedTitles.Contains(
+                                (entry.Item.NewTitle ?? string.Empty).Trim()) ? 0 : 1)
+                            .ThenBy(entry => entry.Index)
+                            .Select(entry => entry.Item)
+                            .ToArray();
+                        var options = WorkspaceQueueService.LoadRunOptions(workspace);
+                        return (Items: items, Options: options);
+                    }, ct);
+                    await vm.ApplyPreparedWorkspaceQueueSnapshotAsync(
+                        workspace,
+                        snapshot.Items,
+                        snapshot.Options);
+                    vm.AppendLog($"已在上传列表优先显示恢复项目目录：「{newTitle}」。");
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // 显示刷新失败不应中断已经成功的目录恢复；最终准备阶段还会完整刷新一次。
+                    vm.AppendLog($"恢复项目「{newTitle}」已完成，但立即刷新上传列表失败：{ex.Message}");
+                }
+            }
 
             Action<string> CreatePreparationLog(string newTitle)
             {
@@ -2384,6 +2395,7 @@ public partial class TikTokQueueView : UserControl
                         match.ArchivedProject!.ArchiveProjectDir,
                         proofAccount.ResolveArchiveRootPath(workspace)), ct);
                     restoredCount++;
+                    await RevealRecoveredProjectsAsync(match.NewTitle);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -2397,6 +2409,76 @@ public partial class TikTokQueueView : UserControl
             }
 
             var proofSettings = ClientSettingsStore.Load();
+
+            async Task<DeletedCopyrightProofProjectRecoveryResult> RecoverFromTikTokAsync(
+                CopyrightProofProjectMatch match,
+                TikTokExecutionProjectSnapshot historySnapshot,
+                Action<string> preparationLog,
+                string? fallbackReason = null)
+            {
+                var requiredEpisodes =
+                    DeletedCopyrightProofPublishedVideoRecoveryService.ResolveRequiredEpisodeCount(
+                        proofSettings,
+                        proofAccount);
+                requiredEpisodes = Math.Max(1, requiredEpisodes);
+                vm.StatusMessage =
+                    $"正在从 TikTok 原创管理项目恢复视频：{match.NewTitle}（需要 {requiredEpisodes} 集）";
+                if (!string.IsNullOrWhiteSpace(fallbackReason))
+                {
+                    preparationLog(
+                        $"原片源恢复失败，自动改用 TikTok 网页视频兜底：{fallbackReason}");
+                }
+                preparationLog(
+                    $"准备从 TikTok 原创管理项目恢复视频：计划获取前 {requiredEpisodes} 集。");
+
+                var ready = await EnsureAccountBrowserReadyAsync(
+                    proofAccount,
+                    preparationLog,
+                    ct);
+                if (!ready.Ok)
+                {
+                    preparationLog($"浏览器准备失败：{ready.Message}");
+                    return new DeletedCopyrightProofProjectRecoveryResult(false, ready.Message);
+                }
+
+                IEmbeddedBrowser? browser = null;
+                if (!UsesPlaywrightUploadBrowser(proofAccount))
+                    browser = _browserHost?.TryGetHost(proofAccount.Id);
+                var download = await TikTokPublishedSeriesVideoDownloadService.DownloadAsync(
+                        proofAccount,
+                        browser,
+                        match.NewTitle,
+                        workspace,
+                        requiredEpisodes,
+                        // 手动补已删除证明按剧名恢复视频，不限制平台状态。
+                        requireCopyrightProofEligibleStatus: false,
+                        preparationLog,
+                        ct)
+                    .ConfigureAwait(false);
+                if (!download.Ok)
+                {
+                    preparationLog($"平台视频恢复失败：{download.Message}");
+                    return new DeletedCopyrightProofProjectRecoveryResult(false, download.Message);
+                }
+                preparationLog(download.Message);
+
+                var recoverySource = new TikTokPublishedVideoRecoverySource(
+                    download.SeriesId,
+                    download.DetailUrl,
+                    download.StagingDirectory,
+                    download.PlatformEpisodeCount,
+                    download.DownloadedEpisodeCount);
+                // 恢复过程会复制多集视频、导入本地项目并扫描队列，属于重文件 I/O。
+                return await Task.Run(
+                    () => DeletedCopyrightProofPublishedVideoRecoveryService.Recover(
+                        workspace,
+                        historySnapshot,
+                        recoverySource,
+                        proofAccount,
+                        preparationLog),
+                    ct);
+            }
+
             foreach (var match in deletedTargets)
             {
                 try
@@ -2404,71 +2486,14 @@ public partial class TikTokQueueView : UserControl
                     ct.ThrowIfCancellationRequested();
                     var historySnapshot = match.HistorySnapshot!;
                     var originalTitle = (historySnapshot.Item.OriginalTitle ?? string.Empty).Trim();
+                    var preparationLog = CreatePreparationLog(match.NewTitle);
                     DeletedCopyrightProofProjectRecoveryResult recovery;
                     if (string.IsNullOrWhiteSpace(originalTitle))
                     {
-                        var preparationLog = CreatePreparationLog(match.NewTitle);
-                        var requiredEpisodes =
-                            DeletedCopyrightProofPublishedVideoRecoveryService.ResolveRequiredEpisodeCount(
-                                proofSettings,
-                                proofAccount);
-                        requiredEpisodes = Math.Max(1, requiredEpisodes);
-                        vm.StatusMessage =
-                            $"正在从 TikTok 原创管理项目恢复视频：{match.NewTitle}（需要 {requiredEpisodes} 集）";
-                        preparationLog(
-                            $"准备从 TikTok 原创管理项目恢复视频：计划获取前 {requiredEpisodes} 集。");
-                        var ready = await EnsureAccountBrowserReadyAsync(
-                            proofAccount,
-                            preparationLog,
-                            ct);
-                        if (!ready.Ok)
-                        {
-                            preparationLog($"浏览器准备失败：{ready.Message}");
-                            restoreFailures.Add($"{match.NewTitle}：{ready.Message}");
-                            selectedTitles.Remove(match.NewTitle);
-                            continue;
-                        }
-
-                        IEmbeddedBrowser? browser = null;
-                        if (!UsesPlaywrightUploadBrowser(proofAccount))
-                            browser = _browserHost?.TryGetHost(proofAccount.Id);
-                        var download =
-                            await TikTokPublishedSeriesVideoDownloadService.DownloadAsync(
-                                proofAccount,
-                                browser,
-                                match.NewTitle,
-                                workspace,
-                                requiredEpisodes,
-                                // 手动补已删除证明按剧名恢复视频，不限制平台状态。
-                                // “视频检测中”等状态也交由后续详情页/证明编辑流程实际处理。
-                                requireCopyrightProofEligibleStatus: false,
-                                preparationLog,
-                                ct);
-                        if (!download.Ok)
-                        {
-                            preparationLog($"平台视频恢复失败：{download.Message}");
-                            restoreFailures.Add($"{match.NewTitle}：{download.Message}");
-                            selectedTitles.Remove(match.NewTitle);
-                            continue;
-                        }
-                        preparationLog(download.Message);
-
-                        var recoverySource = new TikTokPublishedVideoRecoverySource(
-                            download.SeriesId,
-                            download.DetailUrl,
-                            download.StagingDirectory,
-                            download.PlatformEpisodeCount,
-                            download.DownloadedEpisodeCount);
-                        // 恢复过程会复制多集视频、导入本地项目并扫描队列，属于重文件 I/O。
-                        // 放在 UI 线程会造成窗口短暂卡死，同时期间产生的日志只能在结束后集中渲染。
-                        recovery = await Task.Run(
-                            () => DeletedCopyrightProofPublishedVideoRecoveryService.Recover(
-                                workspace,
-                                historySnapshot,
-                                recoverySource,
-                                proofAccount,
-                                preparationLog),
-                            ct);
+                        recovery = await RecoverFromTikTokAsync(
+                            match,
+                            historySnapshot,
+                            preparationLog);
                     }
                     else
                     {
@@ -2480,6 +2505,14 @@ public partial class TikTokQueueView : UserControl
                             proofAccount,
                             vm.AppendLog,
                             ct);
+                        if (!recovery.Ok && recovery.CanFallbackToPublishedVideo)
+                        {
+                            recovery = await RecoverFromTikTokAsync(
+                                match,
+                                historySnapshot,
+                                preparationLog,
+                                recovery.Message);
+                        }
                     }
 
                     if (!recovery.Ok)
@@ -2490,6 +2523,7 @@ public partial class TikTokQueueView : UserControl
                     }
 
                     recoveredCount++;
+                    await RevealRecoveredProjectsAsync(match.NewTitle);
                     try
                     {
                         TikTokExecutionHistoryService.PersistDeletionSnapshot(
@@ -3246,7 +3280,7 @@ public partial class TikTokQueueView : UserControl
             browser = _browserHost?.TryGetHost(account.Id);
         }
 
-        var selectedStatuses = selection.SelectedPlatformStatuses();
+        var selectedStatuses = selection.SelectedPlatformStatusLabels();
         vm.StatusMessage =
             $"正在检查账号「{account.DisplayName}」的{string.Join("、", selectedStatuses)}剧集版权证明…";
         vm.AppendLog(
@@ -3926,8 +3960,9 @@ public partial class TikTokQueueView : UserControl
                 title,
                 workspaceRoot,
                 requested.Length,
-                // Material fallback must only trust a remotely published/eligible project.
-                requireCopyrightProofEligibleStatus: true,
+                // 网页视频下载不按平台状态或待处理标签拦截；
+                // 只要剧名唯一匹配且页面提供下载按钮就尝试恢复。
+                requireCopyrightProofEligibleStatus: false,
                 log,
                 ct,
                 requested,

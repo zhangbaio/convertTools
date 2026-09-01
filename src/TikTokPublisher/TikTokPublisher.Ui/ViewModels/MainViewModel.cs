@@ -66,7 +66,8 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private sealed record WorkspaceQueueExecutionContext(
         string BatchId,
-        TikTokAccountProfile? Account);
+        TikTokAccountProfile? Account,
+        string UploadEntryMode);
 
     private readonly AccountStore _store;
     private readonly AccountContextService _context;
@@ -783,23 +784,9 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void UpdateWorkspaceBindingSummary(string root)
     {
-        if (string.IsNullOrWhiteSpace(root))
-        {
-            WorkspaceBindingSummary = "账号绑定：未绑定";
-            return;
-        }
-
-        var boundId = WorkspaceBindingService.ResolveAccountProfileId(root);
-        if (string.IsNullOrWhiteSpace(boundId))
-        {
-            WorkspaceBindingSummary = "账号绑定：未绑定";
-            return;
-        }
-
-        var account = FindAccountById(boundId);
-        WorkspaceBindingSummary = account is null
-            ? $"账号绑定：{boundId}"
-            : $"账号绑定：{account.DisplayName}（{boundId}）";
+        WorkspaceBindingSummary = SelectedAccount is null
+            ? "当前账号：未选择"
+            : $"当前账号：{SelectedAccount.DisplayName}";
     }
 
     private void UpdateQueueSummaryText(bool refreshTodayUploadCount = true)
@@ -900,7 +887,6 @@ public sealed partial class MainViewModel : ViewModelBase
 
         active.LastWorkspace = workspace;
         active.TiktokUploadProfilePath = workspace;
-        WorkspaceBindingService.Bind(workspace, active.Id, active.DisplayName);
         SaveAccountProfile(active);
         StatusMessage = $"工作目录已同步到「{active.DisplayName}」基础设置并自动保存：{workspace}";
     }
@@ -966,7 +952,6 @@ public sealed partial class MainViewModel : ViewModelBase
             return;
         }
 
-        BindWorkspaceToSelectedAccountIfMissing(root);
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (generation != _workspaceRefreshGeneration) return;
@@ -1249,12 +1234,16 @@ public sealed partial class MainViewModel : ViewModelBase
     private void SetWorkspaceQueueExecutionContext(
         string workspaceRoot,
         string batchId,
-        TikTokAccountProfile? account)
+        TikTokAccountProfile? account,
+        string uploadEntryMode)
     {
         var root = NormalizeWorkspaceRootKey(workspaceRoot);
         if (string.IsNullOrWhiteSpace(root)) return;
         lock (_queueExecutionContextsLock)
-            _queueExecutionContexts[root] = new WorkspaceQueueExecutionContext(batchId, account);
+            _queueExecutionContexts[root] = new WorkspaceQueueExecutionContext(
+                batchId,
+                account,
+                uploadEntryMode);
     }
 
     private WorkspaceQueueExecutionContext? GetWorkspaceQueueExecutionContext(string workspaceRoot)
@@ -1826,10 +1815,8 @@ public sealed partial class MainViewModel : ViewModelBase
             return null;
         }
 
-        // 并行多账号时 SelectedAccount 会随 UI 切换，故优先使用本次执行目标账号，
-        // 其次使用工作目录绑定；只有当前页面直接执行时才回退到当前选中账号。
-        var boundId = WorkspaceBindingService.ResolveAccountProfileId(root);
-        var boundAccount = FindAccountById(boundId);
+        // 并行多账号时 SelectedAccount 会随 UI 切换，故优先使用本次执行目标账号；
+        // 只有当前页面直接执行时才回退到当前选中账号。
         var requestedTargetAccountId = (target.AccountProfileId ?? "").Trim();
         var targetAccount = FindAccountById(requestedTargetAccountId);
         if (!string.IsNullOrWhiteSpace(requestedTargetAccountId) && targetAccount is null)
@@ -1838,18 +1825,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 $"本次队列指定的账号已删除或不存在：{requestedTargetAccountId}。请重新选择账号后执行。");
         }
 
-        var effectiveAccount = targetAccount ?? boundAccount ?? (isDisplayedWorkspace ? SelectedAccount : null);
-        if (effectiveAccount is not null)
-        {
-            if (string.IsNullOrWhiteSpace(boundId) ||
-                boundAccount is null ||
-                (targetAccount is not null && boundAccount.Id != targetAccount.Id))
-            {
-                WorkspaceBindingService.Bind(root, effectiveAccount.Id, effectiveAccount.DisplayName);
-                if (isDisplayedWorkspace)
-                    UpdateWorkspaceBindingSummary(root);
-            }
-        }
+        var effectiveAccount = targetAccount ?? (isDisplayedWorkspace ? SelectedAccount : null);
 
         var runOptions = optionsOverride?.Clone() ?? (isDisplayedWorkspace
             ? BuildQueueRunOptionsFromUi()
@@ -1930,7 +1906,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var label = string.IsNullOrWhiteSpace(target.DisplayLabel)
             ? $"{effectiveAccount?.DisplayName ?? "当前账号"} · {root}"
             : target.DisplayLabel;
-        SetWorkspaceQueueExecutionContext(root, batchId, account);
+        SetWorkspaceQueueExecutionContext(root, batchId, account, uploadEntryMode);
         _ = Task.Run(() => TikTokExecutionHistoryService.AppendEvent(
             "run_started",
             "running",
@@ -2076,7 +2052,12 @@ public sealed partial class MainViewModel : ViewModelBase
         foreach (var target in targets)
         {
             var account = FindAccountById(target.AccountProfileId)?.Model;
-            SetWorkspaceQueueExecutionContext(target.WorkspaceRoot, batchId, account);
+            var targetOptions = targetOptionsByRoot[Path.GetFullPath(target.WorkspaceRoot)];
+            SetWorkspaceQueueExecutionContext(
+                target.WorkspaceRoot,
+                batchId,
+                account,
+                targetOptions.UploadEntryMode);
             TikTokExecutionHistoryService.AppendEvent(
                 "run_started",
                 "running",
@@ -2351,8 +2332,6 @@ public sealed partial class MainViewModel : ViewModelBase
         var finalAction = SelectedFinalAction?.Value ?? FinalAction.None;
         var runQueueRequested = RemoteQueueRunRequested;
         ActivateRemoteWorkspace(targetWorkspace);
-        if (targetAccount is not null)
-            WorkspaceBindingService.Bind(targetWorkspace, targetAccount.Id, targetAccount.DisplayName);
 
         var options = SystemServices.BuildRemoteUploadRunOptions(command);
         options.ProjectConcurrency = Math.Clamp(targetAccount?.TiktokProjectConcurrency ?? options.ProjectConcurrency, 1, 20);
@@ -2772,8 +2751,6 @@ public sealed partial class MainViewModel : ViewModelBase
             selected = profileName;
         else if (!string.IsNullOrWhiteSpace(selector))
             selected = selector;
-        else if (!string.IsNullOrWhiteSpace(workspace))
-            selected = WorkspaceBindingService.ResolveAccountProfileId(workspace) ?? "";
 
         if (string.IsNullOrWhiteSpace(selected))
         {
@@ -2974,6 +2951,10 @@ public sealed partial class MainViewModel : ViewModelBase
                     progress.Message,
                     progress.Item?.LastError ?? "",
                     batchId,
+                    metadata: new Dictionary<string, object?>
+                    {
+                        ["upload_entry_mode"] = executionContext?.UploadEntryMode ?? "",
+                    },
                     account: executionContext?.Account));
             }
 
@@ -3004,6 +2985,10 @@ public sealed partial class MainViewModel : ViewModelBase
             progress.Message,
             progress.Item?.LastError ?? "",
             activeBatchId,
+            metadata: new Dictionary<string, object?>
+            {
+                ["upload_entry_mode"] = executionContext?.UploadEntryMode ?? "",
+            },
             account: account));
     }
 
@@ -3577,43 +3562,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return false;
         }
 
-        var duplicate = Accounts
-            .Select(item => item.Model)
-            .FirstOrDefault(other =>
-                !string.Equals(other.Id, target.AccountProfileId, StringComparison.Ordinal) &&
-                string.Equals(
-                    NormalizeWorkspacePath(other.ResolveWorkspacePath()),
-                    root,
-                    StringComparison.OrdinalIgnoreCase));
-        if (duplicate is not null)
-        {
-            error = $"工作目录已同时配置给账号「{target.AccountProfileName}」和「{duplicate.DisplayName}」，" +
-                    "为避免串队列，请为每个账号配置独立目录。";
-            return false;
-        }
-
-        var binding = WorkspaceBindingService.Load(root);
-        if (!string.IsNullOrWhiteSpace(binding?.AccountProfileId) &&
-            !string.Equals(binding.AccountProfileId, target.AccountProfileId, StringComparison.Ordinal))
-        {
-            error = $"工作目录已绑定其他账号：{binding.AccountProfileName} ({binding.AccountProfileId})，" +
-                    $"不能加入「{target.AccountProfileName}」队列。";
-            return false;
-        }
         return true;
-    }
-
-    private void BindWorkspaceToSelectedAccountIfMissing(string workspace)
-    {
-        var account = SelectedAccount?.Model;
-        if (account is null || string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
-            return;
-
-        var boundId = WorkspaceBindingService.ResolveAccountProfileId(workspace);
-        if (!string.IsNullOrWhiteSpace(boundId) && FindAccountById(boundId) is not null)
-            return;
-
-        WorkspaceBindingService.Bind(workspace, account.Id, account.DisplayName);
     }
 
     public void ReloadAccounts()
@@ -3657,7 +3606,6 @@ public sealed partial class MainViewModel : ViewModelBase
         StatusMessage = $"正在加入「{target.AccountProfileName}」上传队列…";
         var importResult = await Task.Run(() =>
         {
-            WorkspaceBindingService.Bind(root, target.AccountProfileId, target.AccountProfileName);
             var added = WorkspaceQueueService.AddProjectsToQueue(
                 root,
                 request.ProjectDirs,
@@ -3702,8 +3650,6 @@ public sealed partial class MainViewModel : ViewModelBase
 
         var account = SelectedAccount?.Model;
         Directory.CreateDirectory(root);
-        if (account is not null)
-            WorkspaceBindingService.Bind(root, account.Id, account.DisplayName);
 
         if (!string.Equals(NormalizeWorkspacePath(WorkspacePath), root, StringComparison.OrdinalIgnoreCase))
         {
@@ -3790,8 +3736,6 @@ public sealed partial class MainViewModel : ViewModelBase
 
         var account = SelectedAccount?.Model;
         Directory.CreateDirectory(root);
-        if (account is not null)
-            WorkspaceBindingService.Bind(root, account.Id, account.DisplayName);
 
         if (!string.Equals(NormalizeWorkspacePath(WorkspacePath), root, StringComparison.OrdinalIgnoreCase))
         {
@@ -4068,8 +4012,6 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var root = Path.GetFullPath(workspaceRoot);
         var orderedProjectDirs = BuildOrderedDistinctProjectDirs(result.ProjectDirs);
-        if (account is not null)
-            WorkspaceBindingService.Bind(root, account.Id, account.DisplayName);
 
         // orchestrator 的运行快照会早于 UI finally 的最终刷新/落盘结束；这段收尾期间
         // 也必须走 running 分支，避免旧 terminalItems 随后覆盖刚导入的新项目。
@@ -4368,11 +4310,9 @@ public sealed partial class MainViewModel : ViewModelBase
         ForceRerunCompletedSteps = false;
         OnPropertyChanged(nameof(ForceRerunCompletedSteps));
 
-        // 导入短剧是明确的“用当前账号处理这批短剧”操作：强制把工作目录与导入项目绑定到当前账号，
-        // 覆盖此前用其它账号跑过留下的残留绑定，避免账号槽错乱、上传到错误账号。
+        // 导入短剧是明确的“用当前账号处理这批短剧”操作；
+        // 账号写入队列项目本身，工作目录不再绑定账号。
         var importAccount = SelectedAccount?.Model;
-        if (importAccount is not null)
-            WorkspaceBindingService.Bind(root, importAccount.Id, importAccount.DisplayName);
 
         if (queueRunning)
         {

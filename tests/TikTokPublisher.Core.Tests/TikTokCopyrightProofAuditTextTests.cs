@@ -8,6 +8,65 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokCopyrightProofAuditTextTests
 {
     [Fact]
+    public void AuditSelectionPreferences_DefaultToCopyrightSuspected_AndPersistChanges()
+    {
+        var databasePath = Path.Combine(
+            Path.GetTempPath(),
+            $"copyright-proof-audit-settings-{Guid.NewGuid():N}.db");
+        try
+        {
+            var defaults = ClientSettingsStore.Load(databasePath);
+            defaults.TiktokCopyrightProofAuditIncludePublished.Should().BeFalse();
+            defaults.TiktokCopyrightProofAuditIncludeVideoReviewing.Should().BeFalse();
+            defaults.TiktokCopyrightProofAuditIncludeCopyrightSuspected.Should().BeTrue();
+            defaults.TiktokCopyrightProofAuditMode.Should().BeEmpty();
+
+            defaults.TiktokCopyrightProofAuditIncludePublished = true;
+            defaults.TiktokCopyrightProofAuditIncludeVideoReviewing = true;
+            defaults.TiktokCopyrightProofAuditIncludeCopyrightSuspected = false;
+            defaults.TiktokCopyrightProofAuditMode = "status";
+            ClientSettingsStore.Save(defaults, databasePath);
+
+            var restored = ClientSettingsStore.Load(databasePath);
+            restored.TiktokCopyrightProofAuditIncludePublished.Should().BeTrue();
+            restored.TiktokCopyrightProofAuditIncludeVideoReviewing.Should().BeTrue();
+            restored.TiktokCopyrightProofAuditIncludeCopyrightSuspected.Should().BeFalse();
+            restored.TiktokCopyrightProofAuditMode.Should().Be("status");
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (var path in new[] { databasePath, databasePath + "-wal", databasePath + "-shm" })
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("embedded", true, false, false)]
+    [InlineData("playwright", false, true, false)]
+    [InlineData("playwright", true, true, true)]
+    public void Copyright_edit_browser_matches_publish_configuration(
+        string browserMode,
+        bool configuredHeadless,
+        bool expectedPlaywright,
+        bool expectedHeadless)
+    {
+        var account = new TikTokPublisher.Core.Models.TikTokAccountProfile
+        {
+            TiktokUploadBrowserMode = browserMode,
+            TiktokPlaywrightUploadHeadless = configuredHeadless,
+        };
+
+        var plan = TikTokCopyrightProofEditService.ResolveBrowserPlan(account);
+
+        plan.UsePlaywright.Should().Be(expectedPlaywright);
+        plan.Headless.Should().Be(expectedHeadless);
+    }
+
+    [Fact]
     public void BuildDisplayText_OnlyListsMissingAndFailedTitlesWithoutPlatformIds()
     {
         var items = new[]
@@ -32,14 +91,26 @@ public sealed class TikTokCopyrightProofAuditTextTests
         Assert.Contains("部分缺失　[缺少：AI 生成过程截图]", text);
         Assert.Contains("【所有版权证明均未填写（1）】", text);
         Assert.Contains("全部未填", text);
-        Assert.Contains("【暂不可编辑，已跳过（1）】", text);
-        Assert.Contains("审核锁定　[剧集正片部分集数视频文件审核中", text);
+        Assert.DoesNotContain("暂不可编辑", text);
+        Assert.DoesNotContain("审核锁定", text);
         Assert.Contains("【版权审核通过，已跳过（1）】", text);
         Assert.Contains("版权通过　[版权审核已通过", text);
         Assert.Contains("【检查失败（1）】", text);
         Assert.Contains("检查失败　[标签页未加载]", text);
         Assert.DoesNotContain("已有证明", text);
         Assert.DoesNotContain("7650000000000000002", text);
+    }
+
+    [Fact]
+    public void BuildDisplayText_DoesNotPrintUneditableTitles()
+    {
+        var text = TikTokCopyrightProofAuditText.BuildDisplayText(
+        [
+            Item(1, "不可编辑剧集", TikTokCopyrightProofAuditState.SkippedUneditable),
+        ]);
+
+        Assert.Equal("未发现需要补全或检查失败的剧集。", text);
+        Assert.DoesNotContain("不可编辑剧集", text);
     }
 
     [Fact]
@@ -76,6 +147,20 @@ public sealed class TikTokCopyrightProofAuditTextTests
             .SelectedPlatformStatuses().Should().Equal("已发布", "视频检测中");
         new TikTokCopyrightProofAuditSelection(false, false, 6)
             .SelectedPlatformStatuses().Should().BeEmpty();
+        new TikTokCopyrightProofAuditSelection(false, false, 6, true)
+            .SelectedPlatformStatuses().Should().Equal(
+                TikTokCopyrightProofAuditSelection.CopyrightSuspectedStatus);
+        new TikTokCopyrightProofAuditSelection(true, true, 6, true)
+            .SelectedStatusFilters().Should().Equal("已发布", "视频检测中");
+        new TikTokCopyrightProofAuditSelection(true, true, 6, true)
+            .SelectedPendingFilters().Should().Equal(
+                TikTokCopyrightProofAuditSelection.CopyrightSuspectedStatus);
+        new TikTokCopyrightProofAuditSelection(false, true, 6, true)
+            .SelectedPlatformStatusLabels().Should().Equal("视频检测中", "疑似版权问题");
+        new TikTokCopyrightProofAuditSelection(true, false, 6, true)
+            .HasMixedFilterModes.Should().BeTrue();
+        new TikTokCopyrightProofAuditSelection(true, true, 6, false)
+            .HasMixedFilterModes.Should().BeFalse();
     }
 
     [Theory]
@@ -112,6 +197,24 @@ public sealed class TikTokCopyrightProofAuditTextTests
     {
         TikTokCopyrightProofAuditService.IsCopyrightReviewPassedText(text)
             .Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("editable", false, "Editable")]
+    [InlineData("editable", true, "Approved")]
+    [InlineData("uneditable", false, "Uneditable")]
+    [InlineData("uneditable", true, "Approved")]
+    [InlineData("missing", false, "Missing")]
+    [InlineData("missing", true, "Approved")]
+    public void Copyright_review_passed_takes_priority_then_actual_controls_override_review_notice(
+        string domState,
+        bool copyrightReviewPassed,
+        string expected)
+    {
+        TikTokCopyrightProofAuditService.ResolvePageAccessState(
+                domState,
+                copyrightReviewPassed)
+            .ToString().Should().Be(expected);
     }
 
     [Fact]

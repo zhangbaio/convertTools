@@ -5,7 +5,7 @@
 ## 目标
 
 - 多账号 + 每账号独立 WebView2 会话（切换账号只改 `IsVisible`，不重启浏览器）
-- 工作目录 ↔ 账号绑定（`.tiktok-uploader-workspace.json`）
+- 每个账号可独立选择任意工作目录，队列项目自身记录执行账号
 - Playwright CDP / 内嵌 WebView2 驱动 TikTok 上传
 - 红果下载、AI 改写、海报等由本仓库 `ShortDrama.Infrastructure`（C#）实现
 
@@ -42,7 +42,7 @@ dotnet run --project src\TikTokPublisher\TikTokPublisher.Desktop
 
 | 文件 | 说明 |
 |---|---|
-| `.tiktok-uploader-workspace.json` | 工作目录 ↔ 账号绑定 |
+| `.tiktok-uploader-workspace.json` | 旧版遗留文件，当前版本不再读写 |
 | `.tiktok-task-queue.db` | 队列状态 SQLite |
 | `{project}/workflow/tiktok-upload-state.json` | 编辑草稿 URL 缓存 |
 

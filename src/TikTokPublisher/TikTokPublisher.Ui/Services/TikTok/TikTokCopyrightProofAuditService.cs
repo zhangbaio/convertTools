@@ -17,15 +17,41 @@ public sealed record TikTokCopyrightProofAuditProgress(
 public sealed record TikTokCopyrightProofAuditSelection(
     bool IncludePublished,
     bool IncludeVideoReviewing,
-    int Concurrency)
+    int Concurrency,
+    bool IncludeCopyrightSuspected = false)
 {
+    public const string CopyrightSuspectedStatus =
+        "contentPartnerHub_seriesPage_copyrightSuspected";
+
     public int NormalizedConcurrency => Math.Clamp(Concurrency, 2, 8);
 
+    public bool HasMixedFilterModes =>
+        IncludeCopyrightSuspected && (IncludePublished || IncludeVideoReviewing);
+
     public IReadOnlyList<string> SelectedPlatformStatuses()
+    {
+        return SelectedStatusFilters()
+            .Concat(SelectedPendingFilters())
+            .ToArray();
+    }
+
+    public IReadOnlyList<string> SelectedStatusFilters()
     {
         var statuses = new List<string>();
         if (IncludePublished) statuses.Add("已发布");
         if (IncludeVideoReviewing) statuses.Add("视频检测中");
+        return statuses;
+    }
+
+    public IReadOnlyList<string> SelectedPendingFilters() =>
+        IncludeCopyrightSuspected ? [CopyrightSuspectedStatus] : [];
+
+    public IReadOnlyList<string> SelectedPlatformStatusLabels()
+    {
+        var statuses = new List<string>();
+        if (IncludePublished) statuses.Add("已发布");
+        if (IncludeVideoReviewing) statuses.Add("视频检测中");
+        if (IncludeCopyrightSuspected) statuses.Add("疑似版权问题");
         return statuses;
     }
 }
@@ -35,6 +61,7 @@ internal enum TikTokCopyrightProofPageAccessState
     Editable,
     Approved,
     Uneditable,
+    Missing,
 }
 
 public static class TikTokCopyrightProofAuditService
@@ -44,7 +71,9 @@ public static class TikTokCopyrightProofAuditService
     public const string CopyrightApprovedMessage =
         "版权审核已通过，平台不再允许编辑版权证明。";
     public const string CopyrightUneditableMessage =
-        "版权证明页面当前不可编辑，已跳过检查。";
+        "版权证明表单已加载，但关键控件均不可操作，已跳过检查。";
+    public const string CopyrightFormUncertainMessage =
+        "版权证明表单未稳定加载，无法确认是否可编辑；已标记为检查失败，避免误判跳过。";
     internal const bool DefaultHeadless = true;
 
     public static async Task<IReadOnlyList<TikTokCopyrightProofAuditItem>> AuditAsync(
@@ -60,6 +89,17 @@ public static class TikTokCopyrightProofAuditService
         try
         {
             _ = browser; // 保留参数兼容现有调用；版权检查始终使用独立无头浏览器。
+            var selectedStatuses = selection.SelectedStatusFilters();
+            var selectedPendingFilters = selection.SelectedPendingFilters();
+            var selectedStatusLabels = selection.SelectedPlatformStatusLabels();
+            if (selection.HasMixedFilterModes)
+            {
+                throw new InvalidOperationException(
+                    "“疑似版权问题”与“已发布/视频检测中”不能同时检测。");
+            }
+            if (selectedStatuses.Count == 0 && selectedPendingFilters.Count == 0)
+                throw new InvalidOperationException("请至少选择一种需要检查的剧集状态。");
+
             var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
             if (!File.Exists(authPath))
                 throw new InvalidOperationException("未找到当前账号的 TikTok 登录态，请先登录账号后再检查。");
@@ -76,13 +116,10 @@ public static class TikTokCopyrightProofAuditService
                     ct)
                 .ConfigureAwait(false);
 
-            var selectedStatuses = selection.SelectedPlatformStatuses();
-            if (selectedStatuses.Count == 0)
-                throw new InvalidOperationException("请至少选择一种需要检查的剧集状态。");
             var concurrency = selection.NormalizedConcurrency;
 
             log?.Invoke(
-                $"开始按状态读取当前账号原创管理剧集：{string.Join("、", selectedStatuses)}；" +
+                $"开始按状态读取当前账号原创管理剧集：{string.Join("、", selectedStatusLabels)}；" +
                 $"版权证明检测并发数：{concurrency}。");
             await TikTokSeriesListLookupService.OpenAsync(listPage, log, ct).ConfigureAwait(false);
             var pageProgress = new Progress<TikTokSeriesListEnumerationProgress>(update =>
@@ -100,15 +137,34 @@ public static class TikTokCopyrightProofAuditService
                     null,
                     $"读取“{update.PlatformStatus}”列表{retryLabel}"));
             });
-            var selectedRows = await TikTokSeriesListLookupService
-                .EnumerateAllAsync(
-                    listPage,
-                    log,
-                    ct,
-                    statusFilters: selectedStatuses,
-                    preferredPageSize: 50,
-                    progress: pageProgress)
-                .ConfigureAwait(false);
+            var selectedRows = new List<TikTokSeriesListRow>();
+            if (selectedStatuses.Count > 0)
+            {
+                selectedRows.AddRange(await TikTokSeriesListLookupService
+                    .EnumerateAllAsync(
+                        listPage,
+                        log,
+                        ct,
+                        statusFilters: selectedStatuses,
+                        pendingFilters: [],
+                        preferredPageSize: 50,
+                        progress: pageProgress)
+                    .ConfigureAwait(false));
+            }
+
+            if (selectedPendingFilters.Count > 0)
+            {
+                selectedRows.AddRange(await TikTokSeriesListLookupService
+                    .EnumerateAllAsync(
+                        listPage,
+                        log,
+                        ct,
+                        statusFilters: [],
+                        pendingFilters: selectedPendingFilters,
+                        preferredPageSize: 50,
+                        progress: pageProgress)
+                    .ConfigureAwait(false));
+            }
 
             var auditRows = selectedRows
                 .DistinctBy(row =>
@@ -231,12 +287,8 @@ public static class TikTokCopyrightProofAuditService
                 return Failed(order, row, "登录状态失效");
 
             await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log).ConfigureAwait(false);
-            if (await IsUneditableDuringVideoReviewAsync(page, ct).ConfigureAwait(false))
-            {
-                var skipped = SkippedUneditable(order, row, VideoReviewUneditableMessage);
-                log?.Invoke($"版权证明检查跳过：{row.Title}，{VideoReviewUneditableMessage}");
-                return skipped;
-            }
+            var hasVideoReviewNotice = await IsUneditableDuringVideoReviewAsync(page, ct)
+                .ConfigureAwait(false);
             if (!await OpenCopyrightProofTabAsync(page, ct).ConfigureAwait(false))
                 return Failed(order, row, "未找到版权证明标签页");
 
@@ -249,9 +301,19 @@ public static class TikTokCopyrightProofAuditService
             }
             if (pageAccess == TikTokCopyrightProofPageAccessState.Uneditable)
             {
-                log?.Invoke($"版权证明检查跳过：{row.Title}，{CopyrightUneditableMessage}");
                 return SkippedUneditable(order, row, CopyrightUneditableMessage);
             }
+            if (pageAccess == TikTokCopyrightProofPageAccessState.Missing)
+            {
+                var detail = hasVideoReviewNotice
+                    ? $"检测到正片审核提示；{CopyrightFormUncertainMessage}"
+                    : CopyrightFormUncertainMessage;
+                log?.Invoke($"版权证明检查失败：{row.Title}，{detail}");
+                return Failed(order, row, detail);
+            }
+
+            if (hasVideoReviewNotice)
+                log?.Invoke($"正片仍在审核，但版权证明表单实际可编辑：{row.Title}。");
 
             var probe = await TikTokBrowserActions
                 .ProbeConfiguredCopyrightProofMaterialsAsync(
@@ -263,13 +325,16 @@ public static class TikTokCopyrightProofAuditService
                 return Failed(order, row, string.Join("；", probe.Details));
 
             var state = Classify(probe.Plan);
+            var coverageDetail = BuildCoverageDetail(probe);
+            if (hasVideoReviewNotice)
+                coverageDetail = $"正片审核提示不影响版权证明编辑；{coverageDetail}";
             var result = new TikTokCopyrightProofAuditItem(
                 order,
                 row.Title,
                 row.SeriesId,
                 row.DetailUrl,
                 state,
-                BuildCoverageDetail(probe),
+                coverageDetail,
                 DateTimeOffset.Now)
             {
                 PlatformStatus = row.PlatformStatus,
@@ -477,59 +542,100 @@ public static class TikTokCopyrightProofAuditService
     private static async Task<TikTokCopyrightProofPageAccessState>
         ProbeCopyrightProofPageAccessAsync(IPage page, CancellationToken ct)
     {
-        ct.ThrowIfCancellationRequested();
-        string bodyText;
-        try
+        var lastDomState = "missing";
+        var approved = false;
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
-            bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 })
-                .ConfigureAwait(false);
-        }
-        catch
-        {
-            bodyText = string.Empty;
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 })
+                    .ConfigureAwait(false);
+                approved |= IsCopyrightReviewPassedText(bodyText);
+            }
+            catch
+            {
+                // DOM 仍在重绘，继续进行控件能力探测。
+            }
+
+            try
+            {
+                lastDomState = await page.EvaluateAsync<string>(
+                    """
+                    () => {
+                      const visible = element => {
+                        if (!(element instanceof HTMLElement)) return false;
+                        const style = getComputedStyle(element);
+                        const rect = element.getBoundingClientRect();
+                        return style.display !== 'none' && style.visibility !== 'hidden' &&
+                          Number(style.opacity || '1') > 0 && rect.width > 0 && rect.height > 0;
+                      };
+                      const disabled = element => {
+                        if (element.disabled) return true;
+                        if (element.getAttribute('aria-disabled') === 'true') return true;
+                        return Boolean(element.closest(
+                          '[aria-disabled="true"], .semi-disabled, [class*="-disabled"]'));
+                      };
+                      const controlSelector =
+                        'input, textarea, select, button, [role="radio"], [role="checkbox"], ' +
+                        '[role="combobox"], [contenteditable="true"]';
+                      const roots = [...document.querySelectorAll(
+                        '[x-field-id^="copyrightProof."]')].filter(visible);
+                      if (roots.length === 0) {
+                        const labels = ['是否原始权利人', '内容原创类型', '上传材料类型'];
+                        for (const element of document.querySelectorAll('label, span, div, p')) {
+                          if (!visible(element)) continue;
+                          const text = (element.textContent || '').replace(/\s+/g, '');
+                          if (!labels.some(label => text.includes(label))) continue;
+                          const root = element.closest(
+                            '[x-field-id], .semi-form-field, [class*="form-item"], ' +
+                            '[class*="FormField"], form') || element.parentElement;
+                          if (root && visible(root)) roots.push(root);
+                        }
+                      }
+                      const controls = [...new Set(roots.flatMap(root =>
+                        [...root.querySelectorAll(controlSelector)]))];
+                      if (controls.length === 0) return 'missing';
+                      const actionable = control => {
+                        if (disabled(control)) return false;
+                        if (visible(control)) return true;
+                        if (!(control instanceof HTMLInputElement) ||
+                            !['radio', 'checkbox'].includes(control.type)) return false;
+                        const surface = control.closest(
+                          'label, [role="radio"], [role="checkbox"], .semi-radio, ' +
+                          '.semi-checkbox, [class*="-radio"], [class*="-checkbox"]');
+                        return Boolean(surface && visible(surface) && !disabled(surface));
+                      };
+                      return controls.some(actionable)
+                        ? 'editable'
+                        : 'uneditable';
+                    }
+                    """).ConfigureAwait(false);
+            }
+            catch
+            {
+                lastDomState = "missing";
+            }
+
+            if (string.Equals(lastDomState, "editable", StringComparison.Ordinal))
+                return ResolvePageAccessState(lastDomState, approved);
+            if (attempt < 3)
+                await page.WaitForTimeoutAsync(800).ConfigureAwait(false);
         }
 
-        if (IsCopyrightReviewPassedText(bodyText))
-            return TikTokCopyrightProofPageAccessState.Approved;
+        return ResolvePageAccessState(lastDomState, approved);
+    }
 
-        try
-        {
-            var state = await page.EvaluateAsync<string>(
-                """
-                () => {
-                  const visible = element => {
-                    if (!(element instanceof HTMLElement)) return false;
-                    const style = getComputedStyle(element);
-                    const rect = element.getBoundingClientRect();
-                    return style.display !== 'none' && style.visibility !== 'hidden' &&
-                      Number(style.opacity || '1') > 0 && rect.width > 0 && rect.height > 0;
-                  };
-                  const disabled = element => {
-                    if (element.disabled) return true;
-                    if (element.getAttribute('aria-disabled') === 'true') return true;
-                    return Boolean(element.closest(
-                      '[aria-disabled="true"], .semi-disabled, [class*="-disabled"]'));
-                  };
-                  const fields = [...document.querySelectorAll(
-                    '[x-field-id^="copyrightProof."]')].filter(visible);
-                  if (fields.length === 0) return 'missing';
-                  const controls = fields.flatMap(field => [...field.querySelectorAll(
-                    'input, textarea, select, button, [role="radio"], [role="checkbox"], ' +
-                    '[role="combobox"], [contenteditable="true"]')]);
-                  return controls.some(control => visible(control) && !disabled(control))
-                    ? 'editable'
-                    : 'uneditable';
-                }
-                """).ConfigureAwait(false);
-            return string.Equals(state, "uneditable", StringComparison.Ordinal)
-                ? TikTokCopyrightProofPageAccessState.Uneditable
-                : TikTokCopyrightProofPageAccessState.Editable;
-        }
-        catch
-        {
-            // DOM 仍在重绘时由后续材料探测负责给出明确失败原因。
-            return TikTokCopyrightProofPageAccessState.Editable;
-        }
+    internal static TikTokCopyrightProofPageAccessState ResolvePageAccessState(
+        string? domState,
+        bool copyrightReviewPassed)
+    {
+        var state = (domState ?? string.Empty).Trim().ToLowerInvariant();
+        if (copyrightReviewPassed) return TikTokCopyrightProofPageAccessState.Approved;
+        if (state == "editable") return TikTokCopyrightProofPageAccessState.Editable;
+        return state == "uneditable"
+            ? TikTokCopyrightProofPageAccessState.Uneditable
+            : TikTokCopyrightProofPageAccessState.Missing;
     }
 
     private static TikTokCopyrightProofAuditState Classify(

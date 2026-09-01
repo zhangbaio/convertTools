@@ -51,6 +51,10 @@ public sealed class ClientSettings
     public int TiktokDocumentConcurrency { get; set; } = 2;
     public string TiktokAsrLanguage { get; set; } = "zh-CN";
     public bool TiktokManualInterventionOnSingleFailure { get; set; } = true;
+    public bool TiktokCopyrightProofAuditIncludePublished { get; set; }
+    public bool TiktokCopyrightProofAuditIncludeVideoReviewing { get; set; }
+    public bool TiktokCopyrightProofAuditIncludeCopyrightSuspected { get; set; } = true;
+    public string TiktokCopyrightProofAuditMode { get; set; } = "";
 
     public string VideoTranslateEngine { get; set; } = "volc";
     public string VideoTranslateSourceLanguage { get; set; } = "en";
@@ -113,6 +117,7 @@ public sealed class ClientSettings
     public string TiktokProjectImageTemplateId { get; set; } = ClientSettingsDefaults.TiktokProjectImageTemplateId;
     public int TiktokProjectImageCount { get; set; } = ClientSettingsDefaults.TiktokProjectImageCount;
     public int TiktokProjectImageRenderEpisodeLimit { get; set; } = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
+    public bool TiktokProjectImageRenderEpisodeLimitDefaultMigrated { get; set; } = true;
     public string TiktokProjectImageSubtitleAiMode { get; set; } = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
     public string TiktokProjectImageFableCutRoot { get; set; } = ClientSettingsDefaults.TiktokProjectImageFableCutRoot;
     public int TiktokProjectImageFableCutClipCount { get; set; } = ClientSettingsDefaults.TiktokProjectImageFableCutClipCount;
@@ -207,6 +212,10 @@ public sealed class ClientSettings
         TiktokDocumentConcurrency = TiktokDocumentConcurrency,
         TiktokAsrLanguage = TiktokAsrLanguage,
         TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure,
+        TiktokCopyrightProofAuditIncludePublished = TiktokCopyrightProofAuditIncludePublished,
+        TiktokCopyrightProofAuditIncludeVideoReviewing = TiktokCopyrightProofAuditIncludeVideoReviewing,
+        TiktokCopyrightProofAuditIncludeCopyrightSuspected = TiktokCopyrightProofAuditIncludeCopyrightSuspected,
+        TiktokCopyrightProofAuditMode = TiktokCopyrightProofAuditMode,
         VideoTranslateEngine = VideoTranslateEngine,
         VideoTranslateSourceLanguage = VideoTranslateSourceLanguage,
         VideoTranslateTargetLanguage = VideoTranslateTargetLanguage,
@@ -264,6 +273,7 @@ public sealed class ClientSettings
         TiktokProjectImageTemplateId = TiktokProjectImageTemplateId,
         TiktokProjectImageCount = TiktokProjectImageCount,
         TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit,
+        TiktokProjectImageRenderEpisodeLimitDefaultMigrated = TiktokProjectImageRenderEpisodeLimitDefaultMigrated,
         TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode,
         TiktokProjectImageFableCutRoot = TiktokProjectImageFableCutRoot,
         TiktokProjectImageFableCutClipCount = TiktokProjectImageFableCutClipCount,

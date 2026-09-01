@@ -3,7 +3,8 @@ using System.Text.Json;
 namespace TikTokPublisher.Core.Services;
 
 /// <summary>
-/// 工作目录 ↔ 账号绑定。对齐 Python <c>.tiktok-uploader-workspace.json</c> 契约。
+/// 旧版工作目录 ↔ 账号绑定文件读写器。
+/// 当前生产流程不再使用目录绑定；仅保留用于兼容性测试和识别旧文件。
 /// </summary>
 public static class WorkspaceBindingService
 {

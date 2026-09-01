@@ -6,12 +6,40 @@ using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services.TikTok;
 
+internal sealed record TikTokCopyrightProofEditBrowserPlan(
+    bool UsePlaywright,
+    bool Headless,
+    string Description);
+
 /// <summary>
 /// Updates only the copyright-proof tab of an existing TikTok series.
 /// It never invokes the general create/edit form filler.
 /// </summary>
 public static class TikTokCopyrightProofEditService
 {
+    internal static TikTokCopyrightProofEditBrowserPlan ResolveBrowserPlan(
+        TikTokAccountProfile account)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        var usePlaywright = string.Equals(
+            (account.TiktokUploadBrowserMode ?? string.Empty).Trim(),
+            "playwright",
+            StringComparison.OrdinalIgnoreCase);
+        if (!usePlaywright)
+        {
+            return new TikTokCopyrightProofEditBrowserPlan(
+                UsePlaywright: false,
+                Headless: false,
+                "内置浏览器（WebView2）");
+        }
+
+        var headless = account.TiktokPlaywrightUploadHeadless;
+        return new TikTokCopyrightProofEditBrowserPlan(
+            UsePlaywright: true,
+            headless,
+            $"程序自动打开的 Playwright 浏览器（{(headless ? "无头" : "有头")}）");
+    }
+
     public static async Task<PublishResult> UpdateAsync(
         TikTokAccountProfile account,
         PublishItem item,
@@ -29,21 +57,21 @@ public static class TikTokCopyrightProofEditService
         IBrowser? chromium = null;
         try
         {
-            var useLaunch = string.Equals(
-                (account.TiktokUploadBrowserMode ?? "").Trim(),
-                "playwright",
-                StringComparison.OrdinalIgnoreCase);
+            var browserPlan = ResolveBrowserPlan(account);
+            L($"版权证明编辑浏览器：{browserPlan.Description}（与账号发布配置一致）。");
 
             IPage page;
-            if (useLaunch)
+            if (browserPlan.UsePlaywright)
             {
                 var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
+                if (!File.Exists(authPath))
+                    return PublishResult.Fail("TikTok 登录态文件不存在，请先重新登录当前账号。");
                 (playwright, chromium, page) = await EmbeddedBrowserAutomationBridge
                     .LaunchPageAsync(
                         account,
                         TikTokUrls.DefaultSeriesListUrl,
                         authPath,
-                        account.TiktokPlaywrightUploadHeadless,
+                        browserPlan.Headless,
                         L,
                         ct)
                     .ConfigureAwait(false);

@@ -334,7 +334,6 @@ public sealed class WorkspaceQueueServiceTests
         try
         {
             CreateProject(project);
-            WorkspaceBindingService.Bind(workspace, "acct-target", "Target Account");
             WorkspaceQueueService.SaveProjects(
                 workspace,
                 [
@@ -363,7 +362,7 @@ public sealed class WorkspaceQueueServiceTests
     }
 
     [Fact]
-    public void AddProjectsToQueue_Rejects_Explicit_Target_When_Workspace_Belongs_To_Another_Account()
+    public void AddProjectsToQueue_Ignores_Legacy_Workspace_Binding_And_Uses_Explicit_Target()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"workspace-target-conflict-{Guid.NewGuid():N}");
         var project = Path.Combine(workspace, "first");
@@ -372,14 +371,15 @@ public sealed class WorkspaceQueueServiceTests
             CreateProject(project);
             WorkspaceBindingService.Bind(workspace, "acct-a", "Account A");
 
-            var action = () => WorkspaceQueueService.AddProjectsToQueue(
+            WorkspaceQueueService.AddProjectsToQueue(
                 workspace,
                 [project],
                 "acct-b",
                 "Account B");
 
-            action.Should().Throw<InvalidOperationException>()
-                .WithMessage("*Account A*acct-a*");
+            var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+            item.AccountProfileId.Should().Be("acct-b");
+            item.AccountProfileName.Should().Be("Account B");
         }
         finally
         {
@@ -398,15 +398,13 @@ public sealed class WorkspaceQueueServiceTests
         {
             Directory.CreateDirectory(workspace);
             CreateProject(externalProject);
-            WorkspaceBindingService.Bind(workspace, "acct-current", "Current Account");
-
             var added = WorkspaceQueueService.AddProjectsToQueue(workspace, [externalProject]);
             added.Should().ContainSingle(item => item.ProjectDir == externalProject);
 
             var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
             item.ProjectDir.Should().Be(externalProject);
-            item.AccountProfileId.Should().Be("acct-current");
-            item.AccountProfileName.Should().Be("Current Account");
+            item.AccountProfileId.Should().BeEmpty();
+            item.AccountProfileName.Should().BeEmpty();
         }
         finally
         {
@@ -416,7 +414,7 @@ public sealed class WorkspaceQueueServiceTests
     }
 
     [Fact]
-    public void ScanProjects_Applies_Workspace_Binding_To_Unbound_Items()
+    public void ScanProjects_Ignores_Legacy_Workspace_Binding_For_Unbound_Items()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");
         var project = Path.Combine(workspace, "first");
@@ -428,8 +426,8 @@ public sealed class WorkspaceQueueServiceTests
 
             var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
 
-            item.AccountProfileId.Should().Be("acct-current");
-            item.AccountProfileName.Should().Be("Current Account");
+            item.AccountProfileId.Should().BeEmpty();
+            item.AccountProfileName.Should().BeEmpty();
         }
         finally
         {
@@ -467,8 +465,8 @@ public sealed class WorkspaceQueueServiceTests
             var second = items.Single(item => item.ProjectDir == secondProject);
             first.AccountProfileId.Should().Be("acct-other");
             first.AccountProfileName.Should().Be("Other Account");
-            second.AccountProfileId.Should().Be("acct-current");
-            second.AccountProfileName.Should().Be("Current Account");
+            second.AccountProfileId.Should().BeEmpty();
+            second.AccountProfileName.Should().BeEmpty();
         }
         finally
         {
@@ -632,7 +630,7 @@ public sealed class WorkspaceQueueServiceTests
     }
 
     [Fact]
-    public void MoveProjectsToAccountWorkspace_Moves_Files_Queue_State_And_Rebinds_Account()
+    public void MoveProjectsToAccountWorkspace_Moves_Files_And_Queue_State_Without_Directory_Binding()
     {
         var sourceWorkspace = Path.Combine(Path.GetTempPath(), $"workspace-source-{Guid.NewGuid():N}");
         var targetWorkspace = Path.Combine(Path.GetTempPath(), $"workspace-target-{Guid.NewGuid():N}");
@@ -651,9 +649,6 @@ public sealed class WorkspaceQueueServiceTests
             File.WriteAllText(Path.Combine(sourceWorkflow, "upload", "01.mp4"), "video");
             WriteProjectMetadata(sourceProject, sourceProject, sourceWorkflow);
             WriteProjectMetadata(sourceWorkflow, sourceProject, sourceWorkflow);
-            WorkspaceBindingService.Bind(sourceWorkspace, "acct-a", "Account A");
-            WorkspaceBindingService.Bind(targetWorkspace, "acct-old", "Old Account");
-
             ProjectStateDocumentStore.SaveDocument(
                 sourceWorkspace,
                 sourceProject,
@@ -719,7 +714,7 @@ public sealed class WorkspaceQueueServiceTests
             Directory.Exists(sourceWorkflow).Should().BeFalse();
             Directory.Exists(targetProject).Should().BeTrue();
             Directory.Exists(targetWorkflow).Should().BeTrue();
-            WorkspaceBindingService.ResolveAccountProfileId(targetWorkspace).Should().Be("acct-b");
+            WorkspaceBindingService.ResolveAccountProfileId(targetWorkspace).Should().BeNull();
 
             WorkspaceQueueService.ScanProjects(sourceWorkspace).Should().BeEmpty();
             var moved = WorkspaceQueueService.ScanProjects(targetWorkspace).Should().ContainSingle().Subject;

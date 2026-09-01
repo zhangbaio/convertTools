@@ -225,7 +225,7 @@ public sealed class LogService
         var list = rows.ToList();
         var running = list.Count(r => r.StatusText is QueueStepStatus.Running);
         var uploadDone = list.Count(r => r.UploadStatus == QueueStepStatus.Completed);
-        var failed = list.Count(r => r.StatusText == QueueStepStatus.Failed || r.LastError.Length > 0);
+        var failed = list.Count(r => r.HasFailure);
         var completed = list.Count(r => r.StatusText == QueueStepStatus.Completed);
         var pending = list.Count(r => r.IsPendingUpload);
         SummaryText =
@@ -484,25 +484,18 @@ public sealed class LogService
 
     private static string ToneForRow(QueueProjectRowViewModel row)
     {
-        if (row.IsUploadCompleted)
-            return "ok";
+        if (row.HasFailure)
+            return "failed";
         if (IsUploadRunning(row))
             return "running";
-        if (IsFailedRow(row))
-            return "failed";
         if (row.StatusText == QueueStepStatus.Running)
             return "running";
+        if (row.IsUploadCompleted)
+            return "ok";
         if (row.StatusText == QueueStepStatus.WaitingUploadSlot || row.IsPendingUpload)
             return "waiting";
         return "none";
     }
-
-    private static bool IsFailedRow(QueueProjectRowViewModel row) =>
-        !row.IsUploadCompleted &&
-        (row.UploadStatus == QueueStepStatus.Failed ||
-         row.StatusText == QueueStepStatus.Failed ||
-         !string.IsNullOrWhiteSpace(row.LastError) ||
-         row.Item.StepStates.Values.Any(status => status == QueueStepStatus.Failed));
 
     private static bool IsUploadRunning(QueueProjectRowViewModel row) =>
         string.Equals(row.Item.CurrentStep, QueueStepRegistry.UploadSeries, StringComparison.Ordinal)

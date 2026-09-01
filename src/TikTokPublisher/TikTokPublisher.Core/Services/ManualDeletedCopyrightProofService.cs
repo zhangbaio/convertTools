@@ -97,7 +97,9 @@ public static class ManualDeletedCopyrightProofService
                 AccountProfileId = account.Id,
                 AccountProfileName = account.DisplayName,
                 QueuedAt = timestamp,
-                UploadCompletedAt = timestamp,
+                // The TikTok series already exists, but its real upload time is unknown.
+                // Leaving this empty prevents a proof-only recovery from counting as today's upload.
+                UploadCompletedAt = string.Empty,
                 Enabled = true,
                 StatusText = QueueStepStatus.Completed,
                 Remark = string.IsNullOrWhiteSpace(originalTitle)

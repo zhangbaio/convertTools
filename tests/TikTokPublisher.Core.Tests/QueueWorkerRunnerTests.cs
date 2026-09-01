@@ -283,6 +283,8 @@ public sealed class QueueWorkerRunnerTests
         };
         var store = CreateAccountStore(account);
         var completed = CreateCompletedItem(1, account);
+        const string historicalUploadTime = "2026-01-02T03:04:05+08:00";
+        completed.UploadCompletedAt = historicalUploadTime;
         var host = new ImmediatePublishHost();
         var options = new QueueRunOptions();
         options.ConfigureForCopyrightProofCompletion();
@@ -307,6 +309,9 @@ public sealed class QueueWorkerRunnerTests
         host.BrowserReadyCalls.Should().Be(1, progressText);
         host.PublishedProjectDirs.Should().Equal([completed.ProjectDir], progressText);
         completed.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
+        completed.UploadCompletedAt.Should().Be(
+            historicalUploadTime,
+            "editing copyright proof is not a new series upload");
     }
 
     [Fact]

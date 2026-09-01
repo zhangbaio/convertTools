@@ -17,6 +17,10 @@ public sealed record TikTokPublishedSeriesVideoDownloadResult(
     int DownloadedEpisodeCount = 0,
     IReadOnlyDictionary<int, string>? EpisodeFiles = null);
 
+internal sealed record TikTokWebVideoBrowserLaunchPlan(
+    string AuthPath,
+    bool Headless);
+
 /// <summary>
 /// Downloads either a required prefix or an explicit episode set from an uploaded
 /// TikTok series. Existing validated files are reused so proof recovery and role
@@ -24,6 +28,7 @@ public sealed record TikTokPublishedSeriesVideoDownloadResult(
 /// </summary>
 public static class TikTokPublishedSeriesVideoDownloadService
 {
+    internal const bool DefaultHeadless = true;
     private const int DownloadAttempts = 3;
     private const long MinimumVideoBytes = 64 * 1024;
     private static readonly TimeSpan EpisodeLookupTimeout = TimeSpan.FromSeconds(35);
@@ -33,6 +38,18 @@ public static class TikTokPublishedSeriesVideoDownloadService
 
     private static readonly Regex EpisodeCountPattern =
         new(@"(?:共\s*)?(\d{1,4})\s*集", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    internal static TikTokWebVideoBrowserLaunchPlan ResolveBrowserLaunchPlan(
+        TikTokAccountProfile account) =>
+        new(
+            EmbeddedBrowserLoginHelper.ResolveAuthPath(account),
+            DefaultHeadless);
+
+    internal static bool CanDownloadFromWeb(string? platformStatus)
+    {
+        _ = platformStatus;
+        return true;
+    }
 
     public static async Task<TikTokPublishedSeriesVideoDownloadResult> DownloadAsync(
         TikTokAccountProfile account,
@@ -47,6 +64,7 @@ public static class TikTokPublishedSeriesVideoDownloadService
         string? stagingDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(account);
+        _ = requireCopyrightProofEligibleStatus; // 保留参数兼容旧调用；网页下载不再按状态或待处理标签拦截。
         var title = (newTitle ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(title))
             return Fail("新剧名不能为空。");
@@ -57,37 +75,24 @@ public static class TikTokPublishedSeriesVideoDownloadService
         List<IPage> extraPages = [];
         try
         {
-            var useLaunch = string.Equals(
-                (account.TiktokUploadBrowserMode ?? string.Empty).Trim(),
-                "playwright",
-                StringComparison.OrdinalIgnoreCase);
+            _ = browser; // 保留参数兼容现有调用；网页视频下载固定使用独立无头浏览器。
+            var launchPlan = ResolveBrowserLaunchPlan(account);
+            if (!File.Exists(launchPlan.AuthPath))
+                return Fail("未找到当前账号的 TikTok 登录态，请先登录账号后再下载网页视频。");
 
+            log?.Invoke(
+                $"平台视频恢复：使用独立无头浏览器，" +
+                $"已复用当前账号登录状态：{launchPlan.AuthPath}");
             IPage page;
-            if (useLaunch)
-            {
-                var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
-                (playwright, chromium, page) = await EmbeddedBrowserAutomationBridge
-                    .LaunchPageAsync(
-                        account,
-                        TikTokUrls.DefaultSeriesListUrl,
-                        authPath,
-                        account.TiktokPlaywrightUploadHeadless,
-                        log,
-                        ct)
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                if (browser is null)
-                    return Fail("当前账号的内置浏览器尚未就绪或未登录。");
-                (playwright, chromium, page) = await EmbeddedBrowserAutomationBridge
-                    .ConnectPageAsync(
-                        browser,
-                        TikTokUrls.DefaultSeriesListUrl,
-                        log,
-                        ct)
-                    .ConfigureAwait(false);
-            }
+            (playwright, chromium, page) = await EmbeddedBrowserAutomationBridge
+                .LaunchPageAsync(
+                    account,
+                    TikTokUrls.DefaultSeriesListUrl,
+                    launchPlan.AuthPath,
+                    launchPlan.Headless,
+                    log,
+                    ct)
+                .ConfigureAwait(false);
 
             await TikTokSeriesListLookupService.OpenAsync(page, log, ct).ConfigureAwait(false);
             var exactRows = await TikTokSeriesListLookupService
@@ -99,10 +104,8 @@ public static class TikTokPublishedSeriesVideoDownloadService
                 return Fail($"TikTok 原创管理中存在 {exactRows.Count} 个同名项目：{title}");
 
             var match = exactRows[0];
-            if (!TikTokPublishedSeriesMatchText.CanUseForCopyrightProofVideoRecovery(
-                    match.PlatformStatus,
-                    requireCopyrightProofEligibleStatus))
-                return Fail($"TikTok 项目「{title}」当前状态不支持补全版权证明：{match.PlatformStatus}");
+            if (!CanDownloadFromWeb(match.PlatformStatus))
+                return Fail($"TikTok 项目「{title}」不允许网页视频恢复。");
             if (string.IsNullOrWhiteSpace(match.DetailUrl))
                 return Fail($"TikTok 项目「{title}」缺少详情页地址。");
 

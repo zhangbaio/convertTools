@@ -32,7 +32,7 @@ public static class ClientSettingsDefaults
     public const string TiktokProjectImageTemplateId = "image-template-project-image-3";
     public const string TiktokProjectImageTemplateName = "图片模板工程图3";
     public const int TiktokProjectImageCount = 4;
-    public const int TiktokProjectImageRenderEpisodeLimit = 16;
+    public const int TiktokProjectImageRenderEpisodeLimit = 6;
     public const string TiktokProjectImageSubtitleAiMode = "fast";
     public const string TiktokProjectImageFableCutRoot = "";
     public const int TiktokProjectImageFableCutClipCount = 24;
