@@ -21,6 +21,17 @@ public sealed class PublishJobStoreTests
                     Platform = PublishPlatform.WeixinChannel,
                     ProjectName = "测试剧",
                     ProjectDirectory = Path.Combine(tempRoot, "project"),
+                    IsChecked = true,
+                    StepStates = new Dictionary<string, PublishJobStepState>
+                    {
+                        ["transcode"] = new()
+                        {
+                            Key = "transcode",
+                            Label = "素材转码",
+                            Status = PublishJobStepStatus.Failed,
+                            Message = "测试失败",
+                        },
+                    },
                     AttemptCount = 3,
                     LastStartedAt = new DateTimeOffset(2026, 9, 1, 20, 0, 0, TimeSpan.FromHours(8)),
                     LastCompletedAt = new DateTimeOffset(2026, 9, 1, 20, 5, 0, TimeSpan.FromHours(8)),
@@ -42,6 +53,10 @@ public sealed class PublishJobStoreTests
             Assert.Contains(loaded, job => job.Id == "weixin-job" && job.Platform == PublishPlatform.WeixinChannel);
             var weixin = Assert.Single(loaded, job => job.Id == "weixin-job");
             Assert.Equal(3, weixin.AttemptCount);
+            Assert.True(weixin.IsChecked);
+            var transcode = Assert.Contains("transcode", weixin.StepStates);
+            Assert.Equal(PublishJobStepStatus.Failed, transcode.Status);
+            Assert.Equal("测试失败", transcode.Message);
             Assert.NotNull(weixin.LastStartedAt);
             Assert.NotNull(weixin.LastCompletedAt);
             Assert.Contains(loaded, job => job.Id == "kuaishou-personal-job" && job.Platform == PublishPlatform.KuaishouPersonalRevenue);

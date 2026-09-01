@@ -7,6 +7,7 @@ using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Common.Services;
 using PlatformPublisher.Desktop.Services;
+using PlatformPublisher.Weixin.Publishing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 
@@ -14,6 +15,21 @@ namespace PlatformPublisher.Desktop.ViewModels;
 
 public sealed partial class MainWindowViewModel : ObservableObject
 {
+    private static readonly (string Key, string Label)[] WorkflowStepDefinitions =
+    [
+        ("download", "下载剧集"),
+        ("rewrite", "改写信息"),
+        ("poster-rename", "生成海报"),
+        ("transcode", "素材转码"),
+        ("material-auto-repair", "一键修复"),
+        ("auto-fill-info", "补齐字段"),
+        ("cost-report", "成本报表"),
+        ("project-image", "工程图"),
+        ("upload-remux", "无损重封装"),
+        ("material-validate", "素材校验"),
+        ("weixin-upload", "上传剧集"),
+        ("shelf", "上架"),
+    ];
     private readonly PublishJobStore _store;
     private readonly PublishAccountStore _accountStore;
     private readonly PlatformPublishCoordinator _coordinator;
@@ -23,6 +39,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly IProjectScanner _projectScanner;
     private readonly IProjectArchiveService _projectArchiveService;
     private readonly WeixinWorkflowSettingsStore _workflowSettingsStore;
+    private readonly WeixinAutoShelfService _autoShelfService;
     private readonly List<PublishJob> _jobs = [];
     private readonly List<PublishAccount> _accounts = [];
     private readonly DispatcherTimer _scheduleTimer;
@@ -41,7 +58,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IMaterialValidationService materialValidationService,
         IProjectScanner projectScanner,
         IProjectArchiveService projectArchiveService,
-        WeixinWorkflowSettingsStore workflowSettingsStore)
+        WeixinWorkflowSettingsStore workflowSettingsStore,
+        WeixinAutoShelfService autoShelfService)
     {
         _store = store;
         _accountStore = accountStore;
@@ -52,6 +70,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _projectScanner = projectScanner;
         _projectArchiveService = projectArchiveService;
         _workflowSettingsStore = workflowSettingsStore;
+        _autoShelfService = autoShelfService;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -67,8 +86,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
             new(PublishJobKind.LocalVideos, "本地视频发表", "发表所选目录顶层的视频"),
             new(PublishJobKind.CustomVideos, "自选视频发表", "手工选择一个或多个视频文件"),
         ];
+        JobStatusChoices =
+        [
+            new(PublishJobStatus.Pending, "待执行"),
+            new(PublishJobStatus.Succeeded, "已完成"),
+            new(PublishJobStatus.Failed, "失败"),
+            new(PublishJobStatus.Blocked, "已阻止"),
+        ];
         _selectedPlatform = Platforms[0];
         _selectedJobKind = JobKinds[0];
+        _selectedJobStatusChoice = JobStatusChoices[0];
         AddJobCommand = new AsyncRelayCommand(AddJobAsync, CanAddJob);
         RunSelectedCommand = new AsyncRelayCommand(RunSelectedAsync, CanRunSelected);
         RunRunnableCommand = new AsyncRelayCommand(RunRunnableAsync, CanRunRunnable);
@@ -91,6 +118,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ResetSelectedJobCommand = new AsyncRelayCommand(ResetSelectedJobAsync, () => SelectedJob is not null && !IsBusy);
         SaveWorkflowSettingsCommand = new AsyncRelayCommand(SaveWorkflowSettingsAsync, () => !IsBusy);
         CreateNamedProjectCommand = new AsyncRelayCommand(CreateNamedProjectAsync, CanCreateNamedProject);
+        RunCheckedCommand = new AsyncRelayCommand(RunCheckedAsync, () => !IsBusy);
+        CheckAllVisibleCommand = new AsyncRelayCommand(() => SetVisibleCheckedAsync(_ => true), () => !IsBusy);
+        CheckPendingCommand = new AsyncRelayCommand(() => SetVisibleCheckedAsync(row => row.Model.Status is PublishJobStatus.Pending or PublishJobStatus.Failed), () => !IsBusy);
+        UncheckAllVisibleCommand = new AsyncRelayCommand(() => SetVisibleCheckedAsync(_ => false), () => !IsBusy);
+        ResetCheckedJobsCommand = new AsyncRelayCommand(ResetCheckedJobsAsync, () => !IsBusy);
+        RemoveCheckedJobsCommand = new AsyncRelayCommand(RemoveCheckedJobsAsync, () => !IsBusy);
+        CheckToCurrentCommand = new AsyncRelayCommand(CheckToCurrentAsync, () => !IsBusy);
+        CheckCompletedCommand = new AsyncRelayCommand(() => SetVisibleCheckedAsync(row => row.Model.Status == PublishJobStatus.Succeeded), () => !IsBusy);
+        ApplyCheckedStatusCommand = new AsyncRelayCommand(ApplyCheckedStatusAsync, () => !IsBusy);
+        AssignCheckedToCurrentAccountCommand = new AsyncRelayCommand(AssignCheckedToCurrentAccountAsync, () => !IsBusy);
+        PreviousWorkflowPageCommand = new RelayCommand(PreviousWorkflowPage, () => WorkflowCurrentPage > 1);
+        NextWorkflowPageCommand = new RelayCommand(NextWorkflowPage, () => WorkflowCurrentPage < WorkflowPageCount);
+        AutoShelfCommand = new AsyncRelayCommand(AutoShelfAsync, () => SelectedJob is not null && !IsBusy);
         _interactionService.RequestChanged += OnInteractionRequestChanged;
         _scheduleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _scheduleTimer.Tick += OnScheduleTimerTick;
@@ -100,7 +140,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public IReadOnlyList<PlatformOptionViewModel> Platforms { get; }
     public IReadOnlyList<PublishJobKindOptionViewModel> JobKinds { get; }
+    public IReadOnlyList<PublishJobStatusOptionViewModel> JobStatusChoices { get; }
     public ObservableCollection<PublishJobRowViewModel> VisibleJobs { get; } = [];
+    public ObservableCollection<PublishJobRowViewModel> PagedJobs { get; } = [];
     public ObservableCollection<PublishAccountItemViewModel> VisibleAccounts { get; } = [];
     public ObservableCollection<string> ActivityLogs { get; } = [];
     public ObservableCollection<ArchivedProjectRowViewModel> ArchivedProjects { get; } = [];
@@ -126,6 +168,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public IAsyncRelayCommand ResetSelectedJobCommand { get; }
     public IAsyncRelayCommand SaveWorkflowSettingsCommand { get; }
     public IAsyncRelayCommand CreateNamedProjectCommand { get; }
+    public IAsyncRelayCommand RunCheckedCommand { get; }
+    public IAsyncRelayCommand CheckAllVisibleCommand { get; }
+    public IAsyncRelayCommand CheckPendingCommand { get; }
+    public IAsyncRelayCommand UncheckAllVisibleCommand { get; }
+    public IAsyncRelayCommand ResetCheckedJobsCommand { get; }
+    public IAsyncRelayCommand RemoveCheckedJobsCommand { get; }
+    public IAsyncRelayCommand CheckToCurrentCommand { get; }
+    public IAsyncRelayCommand CheckCompletedCommand { get; }
+    public IAsyncRelayCommand ApplyCheckedStatusCommand { get; }
+    public IAsyncRelayCommand AssignCheckedToCurrentAccountCommand { get; }
+    public IRelayCommand PreviousWorkflowPageCommand { get; }
+    public IRelayCommand NextWorkflowPageCommand { get; }
+    public IAsyncRelayCommand AutoShelfCommand { get; }
 
     [ObservableProperty]
     private PlatformOptionViewModel _selectedPlatform;
@@ -135,6 +190,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private PublishJobRowViewModel? _selectedJob;
+
+    [ObservableProperty]
+    private PublishJobStatusOptionViewModel _selectedJobStatusChoice;
 
     [ObservableProperty]
     private PublishAccountItemViewModel? _selectedAccount;
@@ -210,6 +268,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private ArchivedProjectRowViewModel? _selectedArchivedProject;
     [ObservableProperty] private string _workflowFilterText = string.Empty;
     [ObservableProperty] private string _draftNewProjectName = string.Empty;
+    [ObservableProperty] private int _workflowPageSize = 20;
+    [ObservableProperty] private int _workflowCurrentPage = 1;
+    [ObservableProperty] private int _autoShelfMaxPages = 10;
+    [ObservableProperty] private int _autoShelfMaxRounds = 20;
+
+    public int WorkflowPageCount => Math.Max(1, (int)Math.Ceiling(VisibleJobs.Count / (double)Math.Max(1, WorkflowPageSize)));
+    public string WorkflowPageSummary => $"第 {WorkflowCurrentPage}/{WorkflowPageCount} 页，共 {VisibleJobs.Count} 条";
 
     public string ArchivedProjectsSummary => $"已归档 {ArchivedProjects.Count} 个项目";
 
@@ -270,6 +335,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     partial void OnSelectedJobChanged(PublishJobRowViewModel? value) => NotifyCommands();
     partial void OnWorkflowFilterTextChanged(string value) => RefreshVisibleJobs(SelectedJob?.Id);
+    partial void OnWorkflowPageSizeChanged(int value)
+    {
+        var normalized = Math.Clamp(value, 5, 200);
+        if (normalized != value)
+        {
+            WorkflowPageSize = normalized;
+            return;
+        }
+        WorkflowCurrentPage = 1;
+        RefreshPagedJobs();
+    }
     partial void OnSelectedAccountChanged(PublishAccountItemViewModel? value)
     {
         if (value is not null)
@@ -319,13 +395,25 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var loadWorkflowSettings = _workflowSettingsStore.LoadAsync();
             await Task.WhenAll(loadJobs, loadAccounts, loadWorkflowSettings);
             _jobs.AddRange(await loadJobs);
+            var recoveredSteps = 0;
+            foreach (var job in _jobs)
+            {
+                EnsureStepStates(job);
+                foreach (var step in job.StepStates.Values.Where(step => step.Status == PublishJobStepStatus.Running))
+                {
+                    step.Status = PublishJobStepStatus.Pending;
+                    step.Message = "上次运行意外中断，已恢复为待执行";
+                    step.UpdatedAt = DateTimeOffset.Now;
+                    recoveredSteps++;
+                }
+            }
             _accounts.AddRange(await loadAccounts);
             ApplyWorkflowSettings(await loadWorkflowSettings);
             var recovered = PublishSchedulePolicy.RecoverInterrupted(_jobs);
-            if (recovered > 0)
+            if (recovered > 0 || recoveredSteps > 0)
             {
                 await PersistAsync();
-                StatusMessage = $"已恢复 {recovered} 条上次意外中断的任务。";
+                StatusMessage = $"已恢复 {recovered} 条任务、{recoveredSteps} 个中断步骤。";
             }
             RefreshVisibleJobs();
             RefreshVisibleAccounts();
@@ -404,6 +492,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ? scheduledAt is null ? "等待执行" : $"计划于 {scheduledAt:yyyy-MM-dd HH:mm} 执行"
                 : adapter.AvailabilityMessage,
         };
+        EnsureStepStates(job);
         _jobs.Add(job);
         await PersistAsync();
         RefreshVisibleJobs(job.Id);
@@ -433,6 +522,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DraftNewProjectName = string.Empty;
     }
 
+    private static void EnsureStepStates(PublishJob job)
+    {
+        job.StepStates ??= new Dictionary<string, PublishJobStepState>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, label) in WorkflowStepDefinitions)
+        {
+            if (job.StepStates.ContainsKey(key)) continue;
+            job.StepStates[key] = new PublishJobStepState { Key = key, Label = label };
+        }
+    }
+
     public async Task<int> ImportLocalProjectDirectoriesAsync(IEnumerable<string> directories)
     {
         if (!HasActiveWeixinAccount)
@@ -459,7 +558,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (string.IsNullOrWhiteSpace(rawDirectory) || !Directory.Exists(rawDirectory)) continue;
             var directory = Path.GetFullPath(rawDirectory);
             if (!existing.Add(directory)) continue;
-            _jobs.Add(new PublishJob
+            var job = new PublishJob
             {
                 Platform = PublishPlatform.WeixinChannel,
                 Kind = PublishJobKind.Series,
@@ -471,7 +570,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 AccountSessionDirectory = _activeWeixinAccountSessionDirectory,
                 Status = PublishJobStatus.Pending,
                 StatusMessage = "本地导入，等待执行",
-            });
+            };
+            EnsureStepStates(job);
+            _jobs.Add(job);
             added++;
         }
         if (added > 0)
@@ -521,7 +622,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 {
                     var sourceDirectory = Path.GetFullPath(project.SourceProjectDir);
                     if (!existing.Add(sourceDirectory)) continue;
-                    _jobs.Add(new PublishJob
+                    var job = new PublishJob
                     {
                         Platform = PublishPlatform.WeixinChannel,
                         Kind = PublishJobKind.Series,
@@ -533,7 +634,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         AccountSessionDirectory = _activeWeixinAccountSessionDirectory,
                         Status = PublishJobStatus.Pending,
                         StatusMessage = "扫描导入，等待执行",
-                    });
+                    };
+                    EnsureStepStates(job);
+                    _jobs.Add(job);
                     added++;
                 }
                 await PersistAsync(cancellationToken);
@@ -571,6 +674,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PipelineForceRerun = settings.ForceRerun;
         PipelineAutoArchiveAfterUpload = settings.AutoArchiveAfterUpload;
         PipelinePreferUploadWhenReady = settings.PreferUploadWhenReady;
+        WorkflowPageSize = Math.Clamp(settings.PageSize, 5, 200);
+        AutoShelfMaxPages = Math.Clamp(settings.AutoShelfMaxPages, 1, 100);
+        AutoShelfMaxRounds = Math.Clamp(settings.AutoShelfMaxRounds, 1, 100);
         RefreshArchivedProjects();
     }
 
@@ -593,6 +699,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ForceRerun = PipelineForceRerun,
             AutoArchiveAfterUpload = PipelineAutoArchiveAfterUpload,
             PreferUploadWhenReady = PipelinePreferUploadWhenReady,
+            PageSize = WorkflowPageSize,
+            AutoShelfMaxPages = AutoShelfMaxPages,
+            AutoShelfMaxRounds = AutoShelfMaxRounds,
         });
         StatusMessage = "视频号项目流水线设置已保存。";
         AppendActivityLog(StatusMessage);
@@ -613,6 +722,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private async Task RunSharedPipelineAsync()
     {
         var projectDirectory = Path.GetFullPath(DraftProjectDirectory);
+        var trackedJob = _jobs.FirstOrDefault(job =>
+            !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
+            string.Equals(Path.GetFullPath(job.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase));
+        if (trackedJob is not null) EnsureStepStates(trackedJob);
+        var trackedRow = trackedJob is null ? null : VisibleJobs.FirstOrDefault(row => row.Id == trackedJob.Id);
         var steps = new List<(string Key, string Label)>();
         if (PipelineDownloadEnabled) steps.Add(("download", "下载剧集"));
         if (PipelineRewriteEnabled) steps.Add(("rewrite", "改写信息"));
@@ -635,52 +749,52 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 foreach (var (key, label) in steps)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    StatusMessage = $"共享流水线：{label}";
-                    AppendActivityLog(StatusMessage);
-                    var result = await _workService.RunProjectStepAsync(
-                        projectDirectory, null, key, PipelineForceRerun, progress, cancellationToken);
-                    if (!result.Ok)
-                        throw new InvalidOperationException(result.Message ?? $"{label}执行失败。");
+                    await RunTrackedStepAsync(trackedJob, trackedRow, key, label, PipelineForceRerun, async () =>
+                    {
+                        var result = await _workService.RunProjectStepAsync(
+                            projectDirectory, null, key, PipelineForceRerun, progress, cancellationToken);
+                        if (!result.Ok)
+                            throw new InvalidOperationException(result.Message ?? $"{label}执行失败。");
+                    });
                 }
 
                 if (PipelineAutoRepairEnabled)
                 {
-                    StatusMessage = "共享流水线：一键修复";
-                    AppendActivityLog(StatusMessage);
-                    await RunMaterialAutoRepairAsync(projectDirectory, progress, cancellationToken);
+                    await RunTrackedStepAsync(trackedJob, trackedRow, "material-auto-repair", "一键修复", PipelineForceRerun,
+                        () => RunMaterialAutoRepairAsync(projectDirectory, progress, cancellationToken));
                 }
 
                 if (PipelineAutoFillEnabled)
                 {
-                    StatusMessage = "共享流水线：补齐字段";
-                    AppendActivityLog(StatusMessage);
-                    await _workService.AutoFillProjectInfoAsync(projectDirectory, null, cancellationToken);
+                    await RunTrackedStepAsync(trackedJob, trackedRow, "auto-fill-info", "补齐字段", PipelineForceRerun,
+                        async () => await _workService.AutoFillProjectInfoAsync(projectDirectory, null, cancellationToken));
                 }
 
                 if (PipelineRemuxEnabled)
                 {
-                    StatusMessage = "共享流水线：无损重封装";
-                    AppendActivityLog(StatusMessage);
-                    var remux = await _workService.RemuxUploadVideosAsync(projectDirectory, null, progress, cancellationToken);
-                    if (!remux.Ok)
-                        throw new InvalidOperationException(remux.Message);
+                    await RunTrackedStepAsync(trackedJob, trackedRow, "upload-remux", "无损重封装", PipelineForceRerun, async () =>
+                    {
+                        var remux = await _workService.RemuxUploadVideosAsync(projectDirectory, null, progress, cancellationToken);
+                        if (!remux.Ok) throw new InvalidOperationException(remux.Message);
+                    });
                 }
 
                 if (PipelineMaterialValidateEnabled)
                 {
-                    StatusMessage = "共享流水线：素材校验";
-                    AppendActivityLog(StatusMessage);
-                    var configPath = await _workService.EnsureWeixinUploadConfigAsync(projectDirectory, null, cancellationToken);
-                    var workflowDirectory = Path.GetDirectoryName(configPath)
-                                            ?? throw new InvalidOperationException("无法定位视频号工作项目目录。");
-                    var validation = await _materialValidationService.ValidateAsync(workflowDirectory, cancellationToken);
-                    if (validation.HasErrors)
+                    await RunTrackedStepAsync(trackedJob, trackedRow, "material-validate", "素材校验", PipelineForceRerun, async () =>
                     {
-                        var errors = validation.Issues.Where(item => item.Severity == "错误").Select(item => item.Message);
-                        throw new InvalidOperationException($"素材校验失败：{string.Join("；", errors)}");
-                    }
-                    foreach (var issue in validation.Issues)
-                        AppendActivityLog($"素材校验[{issue.Severity}]：{issue.Message}");
+                        var configPath = await _workService.EnsureWeixinUploadConfigAsync(projectDirectory, null, cancellationToken);
+                        var workflowDirectory = Path.GetDirectoryName(configPath)
+                                                ?? throw new InvalidOperationException("无法定位视频号工作项目目录。");
+                        var validation = await _materialValidationService.ValidateAsync(workflowDirectory, cancellationToken);
+                        if (validation.HasErrors)
+                        {
+                            var errors = validation.Issues.Where(item => item.Severity == "错误").Select(item => item.Message);
+                            throw new InvalidOperationException($"素材校验失败：{string.Join("；", errors)}");
+                        }
+                        foreach (var issue in validation.Issues)
+                            AppendActivityLog($"素材校验[{issue.Severity}]：{issue.Message}");
+                    });
                 }
 
                 StatusMessage = $"共享项目流水线完成：{Path.GetFileName(projectDirectory)}";
@@ -697,6 +811,62 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 AppendActivityLog(StatusMessage);
             }
         });
+    }
+
+    private async Task RunTrackedStepAsync(
+        PublishJob? job,
+        PublishJobRowViewModel? row,
+        string key,
+        string label,
+        bool force,
+        Func<Task> action)
+    {
+        if (job is not null && job.StepStates.TryGetValue(key, out var existing) &&
+            existing.Status == PublishJobStepStatus.Succeeded && !force)
+        {
+            AppendActivityLog($"共享流水线：{label}已完成，跳过。");
+            return;
+        }
+
+        StatusMessage = $"共享流水线：{label}";
+        AppendActivityLog(StatusMessage);
+        await UpdateStepStateAsync(job, row, key, label, PublishJobStepStatus.Running, "正在执行");
+        try
+        {
+            await action();
+            await UpdateStepStateAsync(job, row, key, label, PublishJobStepStatus.Succeeded, "执行完成");
+        }
+        catch (OperationCanceledException)
+        {
+            await UpdateStepStateAsync(job, row, key, label, PublishJobStepStatus.Pending, "已停止，可继续执行");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await UpdateStepStateAsync(job, row, key, label, PublishJobStepStatus.Failed, ex.Message);
+            throw;
+        }
+    }
+
+    private async Task UpdateStepStateAsync(
+        PublishJob? job,
+        PublishJobRowViewModel? row,
+        string key,
+        string label,
+        PublishJobStepStatus status,
+        string message)
+    {
+        if (job is null) return;
+        EnsureStepStates(job);
+        var step = job.StepStates[key];
+        step.Key = key;
+        step.Label = label;
+        step.Status = status;
+        step.Message = message;
+        step.UpdatedAt = DateTimeOffset.Now;
+        job.UpdatedAt = DateTimeOffset.Now;
+        row?.Refresh();
+        await PersistAsync();
     }
 
     private async Task RunMaterialAutoRepairAsync(
@@ -809,6 +979,156 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await RunRowsAsync([SelectedJob], clearSchedule: true);
     }
 
+    private async Task AutoShelfAsync()
+    {
+        if (SelectedJob is null) return;
+        var row = SelectedJob;
+        var job = row.Model;
+        await RunBusyAsync(async cancellationToken =>
+        {
+            await UpdateStepStateAsync(job, row, "shelf", "自动上架", PublishJobStepStatus.Running, "正在扫描未上架剧集");
+            try
+            {
+                var progress = new Progress<string>(message =>
+                {
+                    StatusMessage = $"[自动上架] {message}";
+                    AppendActivityLog(StatusMessage);
+                });
+                var result = await _autoShelfService.RunAsync(
+                    job,
+                    Math.Clamp(AutoShelfMaxPages, 1, 100),
+                    Math.Clamp(AutoShelfMaxRounds, 1, 100),
+                    progress,
+                    cancellationToken);
+                var message = $"完成：上架 {result.ShelvedCount}，失败 {result.FailedCount}，扫描 {result.ScannedRows} 行";
+                var status = result.FailedCount > 0 && result.ShelvedCount == 0
+                    ? PublishJobStepStatus.Failed
+                    : PublishJobStepStatus.Succeeded;
+                await UpdateStepStateAsync(job, row, "shelf", "自动上架", status, message);
+                StatusMessage = $"自动上架{message}";
+                AppendActivityLog(StatusMessage);
+            }
+            catch (OperationCanceledException)
+            {
+                await UpdateStepStateAsync(job, row, "shelf", "自动上架", PublishJobStepStatus.Pending, "已停止，可继续执行");
+                StatusMessage = "自动上架已停止。";
+            }
+            catch (Exception ex)
+            {
+                await UpdateStepStateAsync(job, row, "shelf", "自动上架", PublishJobStepStatus.Failed, ex.Message);
+                StatusMessage = $"自动上架失败：{ex.Message}";
+                AppendActivityLog(StatusMessage);
+            }
+        });
+    }
+
+    private async Task RunCheckedAsync()
+    {
+        var rows = VisibleJobs.Where(row => row.IsChecked).ToArray();
+        if (rows.Length == 0)
+        {
+            StatusMessage = "请先勾选要执行的任务。";
+            return;
+        }
+        await RunRowsAsync(rows, clearSchedule: true);
+    }
+
+    private async Task SetVisibleCheckedAsync(Func<PublishJobRowViewModel, bool> selector)
+    {
+        foreach (var row in VisibleJobs)
+            row.IsChecked = selector(row);
+        await PersistAsync();
+        StatusMessage = $"当前筛选结果已勾选 {VisibleJobs.Count(row => row.IsChecked)} 条。";
+    }
+
+    private async Task CheckToCurrentAsync()
+    {
+        if (SelectedJob is null)
+        {
+            StatusMessage = "请先选择当前项目。";
+            return;
+        }
+        var currentIndex = VisibleJobs.IndexOf(SelectedJob);
+        if (currentIndex < 0) return;
+        for (var index = 0; index < VisibleJobs.Count; index++)
+            VisibleJobs[index].IsChecked = index <= currentIndex;
+        await PersistAsync();
+        StatusMessage = $"已勾选到当前项目，共 {currentIndex + 1} 条。";
+    }
+
+    private async Task ApplyCheckedStatusAsync()
+    {
+        var rows = VisibleJobs.Where(row => row.IsChecked).ToArray();
+        foreach (var row in rows)
+        {
+            row.Model.Status = SelectedJobStatusChoice.Value;
+            row.Model.StatusMessage = $"手动修改为{SelectedJobStatusChoice.Label}";
+            row.Model.UpdatedAt = DateTimeOffset.Now;
+            row.Refresh();
+        }
+        if (rows.Length > 0) await PersistAsync();
+        StatusMessage = rows.Length == 0
+            ? "没有勾选任务。"
+            : $"已将 {rows.Length} 条任务修改为{SelectedJobStatusChoice.Label}。";
+        AppendActivityLog(StatusMessage);
+    }
+
+    private async Task AssignCheckedToCurrentAccountAsync()
+    {
+        if (!HasActiveWeixinAccount)
+        {
+            StatusMessage = "请先在左侧选择视频号账号。";
+            return;
+        }
+        var rows = VisibleJobs.Where(row => row.IsChecked).ToArray();
+        foreach (var row in rows)
+        {
+            row.Model.AccountId = _activeWeixinAccountId;
+            row.Model.AccountName = ActiveWeixinAccountName;
+            row.Model.AccountSessionDirectory = _activeWeixinAccountSessionDirectory;
+            row.Model.UpdatedAt = DateTimeOffset.Now;
+            row.Refresh();
+        }
+        if (rows.Length > 0)
+        {
+            await PersistAsync();
+            RefreshVisibleJobs(rows[0].Id);
+        }
+        StatusMessage = rows.Length == 0
+            ? "没有勾选任务。"
+            : $"已将 {rows.Length} 条任务归属到账号：{ActiveWeixinAccountName}。";
+        AppendActivityLog(StatusMessage);
+    }
+
+    private async Task ResetCheckedJobsAsync()
+    {
+        var rows = VisibleJobs.Where(row => row.IsChecked).ToArray();
+        foreach (var row in rows)
+        {
+            row.Model.Status = PublishJobStatus.Pending;
+            row.Model.StatusMessage = "已批量重置为待执行";
+            ResetFailedStepStates(row.Model);
+            row.Model.UpdatedAt = DateTimeOffset.Now;
+            row.Refresh();
+        }
+        if (rows.Length > 0) await PersistAsync();
+        StatusMessage = rows.Length == 0 ? "没有勾选任务。" : $"已重置 {rows.Length} 条任务。";
+        AppendActivityLog(StatusMessage);
+    }
+
+    private async Task RemoveCheckedJobsAsync()
+    {
+        var targets = VisibleJobs.Where(row => row.IsChecked).Select(row => row.Model).ToArray();
+        foreach (var job in targets)
+            _jobs.Remove(job);
+        if (targets.Length > 0) await PersistAsync();
+        RefreshVisibleJobs();
+        StatusMessage = targets.Length == 0
+            ? "没有勾选任务。"
+            : $"已从队列移出 {targets.Length} 条任务，项目文件未删除。";
+        AppendActivityLog(StatusMessage);
+    }
+
     private async Task RunRunnableAsync()
     {
         var now = DateTimeOffset.Now;
@@ -897,10 +1217,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             StatusMessage = $"[{job.ProjectName}] {message}";
             AppendActivityLog(StatusMessage);
         });
+        var uploadLabel = job.Kind == PublishJobKind.Series ? "上传剧集" : "素材发表";
 
         try
         {
+            await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Running, "正在执行");
             await adapter.RunAsync(job, progress, cancellationToken);
+            await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Succeeded, "执行完成");
             job.Status = PublishJobStatus.Succeeded;
             job.StatusMessage = "发布流程执行完成";
             StatusMessage = $"[{job.ProjectName}] 发布完成";
@@ -910,6 +1233,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
+            await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Pending, "已停止，可继续执行");
             job.Status = PublishJobStatus.Pending;
             job.StatusMessage = "已停止，可继续执行";
             StatusMessage = $"[{job.ProjectName}] 已停止";
@@ -917,6 +1241,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch (Exception ex)
         {
+            await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Failed, ex.Message);
             job.Status = PublishJobStatus.Failed;
             job.StatusMessage = ex.Message;
             StatusMessage = $"[{job.ProjectName}] 发布失败：{ex.Message}";
@@ -1011,12 +1336,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var job = SelectedJob.Model;
         job.Status = PublishJobStatus.Pending;
         job.StatusMessage = "已重置为待执行";
+        ResetFailedStepStates(job);
         job.UpdatedAt = DateTimeOffset.Now;
         SelectedJob.Refresh();
         await PersistAsync();
         StatusMessage = $"已重置任务状态：{job.ProjectName}";
         AppendActivityLog(StatusMessage);
         NotifyCommands();
+    }
+
+    private static void ResetFailedStepStates(PublishJob job)
+    {
+        EnsureStepStates(job);
+        foreach (var step in job.StepStates.Values.Where(step => step.Status is PublishJobStepStatus.Failed or PublishJobStepStatus.Running))
+        {
+            step.Status = PublishJobStepStatus.Pending;
+            step.Message = "已重置为待执行";
+            step.UpdatedAt = DateTimeOffset.Now;
+        }
     }
 
     private async Task RunBusyAsync(Func<CancellationToken, Task> action)
@@ -1216,9 +1553,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 VisibleJobs.Add(new PublishJobRowViewModel(job));
             }
 
-            SelectedJob = selectId is null
-                ? VisibleJobs.FirstOrDefault()
-                : VisibleJobs.FirstOrDefault(row => row.Id == selectId);
+            if (SelectedPlatform.Value == PublishPlatform.WeixinChannel)
+                RefreshPagedJobs(selectId);
+            else
+                SelectedJob = selectId is null
+                    ? VisibleJobs.FirstOrDefault()
+                    : VisibleJobs.FirstOrDefault(row => row.Id == selectId);
             OnPropertyChanged(nameof(QueueSummary));
         }
 
@@ -1226,6 +1566,44 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Refresh();
         else
             Dispatcher.UIThread.Post(Refresh);
+    }
+
+    private void RefreshPagedJobs(string? selectId = null)
+    {
+        if (selectId is not null)
+        {
+            var selectedIndex = VisibleJobs.ToList().FindIndex(row => row.Id == selectId);
+            if (selectedIndex >= 0)
+                WorkflowCurrentPage = selectedIndex / Math.Max(1, WorkflowPageSize) + 1;
+        }
+        WorkflowCurrentPage = Math.Clamp(WorkflowCurrentPage, 1, WorkflowPageCount);
+        PagedJobs.Clear();
+        foreach (var row in VisibleJobs
+                     .Skip((WorkflowCurrentPage - 1) * WorkflowPageSize)
+                     .Take(WorkflowPageSize))
+            PagedJobs.Add(row);
+        SelectedJob = selectId is null
+            ? PagedJobs.FirstOrDefault()
+            : PagedJobs.FirstOrDefault(row => row.Id == selectId) ?? PagedJobs.FirstOrDefault();
+        OnPropertyChanged(nameof(WorkflowPageCount));
+        OnPropertyChanged(nameof(WorkflowPageSummary));
+        PreviousWorkflowPageCommand.NotifyCanExecuteChanged();
+        NextWorkflowPageCommand.NotifyCanExecuteChanged();
+        AutoShelfCommand.NotifyCanExecuteChanged();
+    }
+
+    private void PreviousWorkflowPage()
+    {
+        if (WorkflowCurrentPage <= 1) return;
+        WorkflowCurrentPage--;
+        RefreshPagedJobs();
+    }
+
+    private void NextWorkflowPage()
+    {
+        if (WorkflowCurrentPage >= WorkflowPageCount) return;
+        WorkflowCurrentPage++;
+        RefreshPagedJobs();
     }
 
     private void RefreshVisibleAccounts(string? selectId = null)
@@ -1274,5 +1652,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ResetSelectedJobCommand.NotifyCanExecuteChanged();
         SaveWorkflowSettingsCommand.NotifyCanExecuteChanged();
         CreateNamedProjectCommand.NotifyCanExecuteChanged();
+        RunCheckedCommand.NotifyCanExecuteChanged();
+        CheckAllVisibleCommand.NotifyCanExecuteChanged();
+        CheckPendingCommand.NotifyCanExecuteChanged();
+        UncheckAllVisibleCommand.NotifyCanExecuteChanged();
+        ResetCheckedJobsCommand.NotifyCanExecuteChanged();
+        RemoveCheckedJobsCommand.NotifyCanExecuteChanged();
+        CheckToCurrentCommand.NotifyCanExecuteChanged();
+        CheckCompletedCommand.NotifyCanExecuteChanged();
+        ApplyCheckedStatusCommand.NotifyCanExecuteChanged();
+        AssignCheckedToCurrentAccountCommand.NotifyCanExecuteChanged();
+        PreviousWorkflowPageCommand.NotifyCanExecuteChanged();
+        NextWorkflowPageCommand.NotifyCanExecuteChanged();
     }
 }

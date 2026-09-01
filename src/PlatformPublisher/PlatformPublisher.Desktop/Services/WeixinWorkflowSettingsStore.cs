@@ -55,4 +55,7 @@ public sealed class WeixinWorkflowSettings
     public bool ForceRerun { get; set; }
     public bool AutoArchiveAfterUpload { get; set; }
     public bool PreferUploadWhenReady { get; set; } = true;
+    public int PageSize { get; set; } = 20;
+    public int AutoShelfMaxPages { get; set; } = 10;
+    public int AutoShelfMaxRounds { get; set; } = 20;
 }
