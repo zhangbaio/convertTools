@@ -48,6 +48,16 @@ public sealed class WeixinLocalVideoPublishServiceTests
             File.WriteAllBytes(first, [1]);
             File.WriteAllBytes(second, [1]);
             var service = new WeixinLocalVideoPublishService(new FakeUploader(), dataRoot);
+            var advanced = new WeixinPublishOptions
+            {
+                DescriptionTemplate = "自定义发表描述 #短剧",
+                EpisodeSelectionMode = "explicit",
+                EpisodeIndexes = "2",
+                FillShortTitle = true,
+                ShortTitleMaxLength = 10,
+                LinkOptionText = "视频号剧集",
+                FinalAction = "draft",
+            };
 
             var plan = service.Prepare(new PublishJob
             {
@@ -57,8 +67,8 @@ public sealed class WeixinLocalVideoPublishServiceTests
                 ProjectName = "自选素材",
                 AccountId = "account-1",
                 PublishCount = 2,
-                PublishDescription = "自定义发表描述 #短剧",
                 CustomVideoFiles = [first, second],
+                PlatformOptionsJson = advanced.ToJson(),
             });
 
             Assert.Equal("custom_files", plan.SourceMode);
@@ -71,6 +81,10 @@ public sealed class WeixinLocalVideoPublishServiceTests
             Assert.Equal("custom_files", publish.GetProperty("video_source_mode").GetString());
             Assert.Equal("自定义发表描述 #短剧", publish.GetProperty("description_template").GetString());
             Assert.Equal(2, publish.GetProperty("publish_video_custom_files").GetArrayLength());
+            Assert.Equal(1, publish.GetProperty("publish_count").GetInt32());
+            Assert.True(publish.GetProperty("fill_short_title").GetBoolean());
+            Assert.Equal("视频号剧集", publish.GetProperty("link_option_text").GetString());
+            Assert.Equal("draft", publish.GetProperty("final_action").GetString());
         }
         finally
         {

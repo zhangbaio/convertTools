@@ -52,6 +52,7 @@ public sealed class PublishJob
     public bool RegenerateHighlightsAfterPublish { get; set; }
     public string PublishDescription { get; set; } = "热门短剧，精彩内容持续更新。";
     public List<string> CustomVideoFiles { get; set; } = [];
+    public string PlatformOptionsJson { get; set; } = string.Empty;
     public DateTimeOffset? ScheduledAt { get; set; }
     public PublishJobStatus Status { get; set; } = PublishJobStatus.Pending;
     public string StatusMessage { get; set; } = "等待执行";

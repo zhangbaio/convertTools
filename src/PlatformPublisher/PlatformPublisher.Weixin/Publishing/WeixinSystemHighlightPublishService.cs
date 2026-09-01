@@ -62,6 +62,7 @@ public sealed class WeixinSystemHighlightPublishService
         Directory.CreateDirectory(outputDirectory);
         var baseSettings = ReadBaseSettings(job.ConfigPath, accountId);
         var types = NormalizeVideoTypes(job.PublishVideoTypes);
+        var options = WeixinPublishOptions.FromJob(job);
 
         File.WriteAllText(
             Path.Combine(projectDirectory, "短剧信息.txt"),
@@ -87,17 +88,28 @@ public sealed class WeixinSystemHighlightPublishService
             ["system_highlight_regenerate_video_types"] = ToJsonArray(types),
             ["merge_publish_enabled"] = false,
             ["replace_cover_with_local_image"] = false,
-            ["fill_description"] = true,
-            ["fill_short_title"] = false,
-            ["description_template"] = DefaultDescription,
-            ["prepend_hash_to_description"] = false,
-            ["location_option_text"] = job.HideLocation ? "不显示" : string.Empty,
-            ["link_option_text"] = string.Empty,
-            ["activity_option_text"] = "不参与活动",
-            ["timing_option_text"] = "不定时",
+            ["fill_description"] = options.FillDescription,
+            ["fill_short_title"] = options.FillShortTitle,
+            ["short_title_max_length"] = options.ShortTitleMaxLength,
+            ["description_template"] = string.IsNullOrWhiteSpace(options.DescriptionTemplate)
+                ? DefaultDescription
+                : options.DescriptionTemplate,
+            ["ai_description_enabled"] = options.AiDescriptionEnabled,
+            ["ai_description_use_asr"] = options.AiDescriptionUseAsr,
+            ["prepend_hash_to_description"] = options.PrependHashToDescription,
+            ["location_option_text"] = options.LocationOptionText,
+            ["link_option_text"] = options.LinkOptionText,
+            ["link_picker_button_text"] = options.LinkPickerButtonText,
+            ["link_dialog_title"] = options.LinkDialogTitle,
+            ["link_search_placeholder"] = options.LinkSearchPlaceholder,
+            ["activity_option_text"] = options.ActivityOptionText,
+            ["timing_option_text"] = options.TimingOptionText,
+            ["replace_cover_with_local_image"] = options.ReplaceCoverWithLocalImage,
+            ["cover_image_path"] = options.CoverImagePath,
             ["declare_original"] = false,
-            ["final_action"] = "publish",
-            ["pause_on_error"] = true,
+            ["final_action"] = options.FinalAction,
+            ["pause_on_error"] = options.PauseOnError,
+            ["fast_mode"] = options.FastMode,
             ["_runtime_account_profile_id"] = accountId,
             ["_runtime_account_profile_name"] = job.AccountName,
         };
@@ -108,7 +120,7 @@ public sealed class WeixinSystemHighlightPublishService
             ["base_url"] = baseSettings.BaseUrl,
             ["auth_file"] = baseSettings.AuthFile,
             ["output_dir"] = outputDirectory,
-            ["pause_on_error"] = true,
+            ["pause_on_error"] = options.PauseOnError,
             ["browser"] = new JsonObject
             {
                 ["headless"] = false,
@@ -118,8 +130,9 @@ public sealed class WeixinSystemHighlightPublishService
             },
             ["debug"] = new JsonObject
             {
-                ["save_html"] = true,
-                ["save_text"] = true,
+                ["save_html"] = options.CaptureDebugDumps,
+                ["save_text"] = options.CaptureDebugDumps,
+                ["capture_screenshots"] = options.CaptureScreenshots,
                 ["log_file"] = Path.Combine(outputDirectory, "run.log"),
             },
             ["video_publish"] = publishVideo,

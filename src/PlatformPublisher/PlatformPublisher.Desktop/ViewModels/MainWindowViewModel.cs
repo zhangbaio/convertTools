@@ -128,6 +128,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string _draftCustomVideoFilesText = string.Empty;
 
     [ObservableProperty]
+    private string _draftPlatformOptionsJson = string.Empty;
+
+    [ObservableProperty]
     private string _statusMessage = "多平台发布助手已启动，数据与 TikTok 助手完全隔离。";
 
     [ObservableProperty]
@@ -140,6 +143,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         $"当前平台 {VisibleJobs.Count} 条任务、{VisibleAccounts.Count} 个账号，共 {_jobs.Count} 条独立任务";
 
     public bool IsSystemHighlightKind => SelectedJobKind.Value == PublishJobKind.SystemHighlight;
+    public bool IsWeixinPlatform => SelectedPlatform.Value == PublishPlatform.WeixinChannel;
     public bool IsCustomVideoKind => SelectedJobKind.Value == PublishJobKind.CustomVideos;
     public bool IsStandardMaterialKind => SelectedJobKind.Value is
         PublishJobKind.ProjectMaterials or PublishJobKind.LocalVideos or PublishJobKind.CustomVideos;
@@ -149,6 +153,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         RefreshVisibleJobs();
         RefreshVisibleAccounts();
         OnPropertyChanged(nameof(SelectedPlatformCapability));
+        OnPropertyChanged(nameof(IsWeixinPlatform));
         NotifyCommands();
     }
 
@@ -253,6 +258,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             RegenerateHighlightsAfterPublish = DraftRegenerateHighlightsAfterPublish,
             PublishDescription = DraftPublishDescription.Trim(),
             CustomVideoFiles = customVideoFiles,
+            PlatformOptionsJson = DraftPlatformOptionsJson,
             ScheduledAt = scheduledAt,
             Status = adapter.IsAvailable ? PublishJobStatus.Pending : PublishJobStatus.Blocked,
             StatusMessage = adapter.IsAvailable

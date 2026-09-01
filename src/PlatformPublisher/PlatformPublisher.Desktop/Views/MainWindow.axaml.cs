@@ -2,6 +2,8 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using PlatformPublisher.Desktop.ViewModels;
+using PlatformPublisher.Common.Models;
+using PlatformPublisher.Weixin.Publishing;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace PlatformPublisher.Desktop.Views;
@@ -87,5 +89,28 @@ public partial class MainWindow : Window
         ViewModel.DraftCustomVideoFilesText = string.Join(Environment.NewLine, paths);
         if (!Directory.Exists(ViewModel.DraftProjectDirectory))
             ViewModel.DraftProjectDirectory = Path.GetDirectoryName(paths[0]) ?? string.Empty;
+    }
+
+    private async void OpenWeixinPublishConfig_Click(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null)
+            return;
+
+        var draftJob = new PublishJob
+        {
+            PlatformOptionsJson = ViewModel.DraftPlatformOptionsJson,
+            PublishDescription = ViewModel.DraftPublishDescription,
+            DeclareOriginal = ViewModel.DraftDeclareOriginal,
+            HideLocation = ViewModel.DraftHideLocation,
+        };
+        var result = await WeixinPublishConfigDialog.ShowAsync(this, WeixinPublishOptions.FromJob(draftJob));
+        if (result is null)
+            return;
+
+        ViewModel.DraftPlatformOptionsJson = result.ToJson();
+        ViewModel.DraftPublishDescription = result.DescriptionTemplate;
+        ViewModel.DraftDeclareOriginal = result.DeclareOriginal;
+        ViewModel.DraftHideLocation = !string.IsNullOrWhiteSpace(result.LocationOptionText);
+        ViewModel.StatusMessage = "视频号高级发表配置已应用到新任务。";
     }
 }

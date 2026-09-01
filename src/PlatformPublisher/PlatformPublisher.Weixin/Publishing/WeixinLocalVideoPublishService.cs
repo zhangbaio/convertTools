@@ -65,7 +65,11 @@ public sealed class WeixinLocalVideoPublishService
         if (resolvedFiles.Count == 0)
             throw new InvalidOperationException($"{job.Kind.DisplayName()}：没有找到可发表的视频文件。");
 
-        var publishCount = Math.Clamp(job.PublishCount, 1, resolvedFiles.Count);
+        var options = WeixinPublishOptions.FromJob(job);
+        var selectedIndexes = options.ResolveEpisodeIndexes(resolvedFiles.Count, job.PublishCount);
+        if (selectedIndexes.Count == 0)
+            throw new InvalidOperationException("高级发表配置没有选中有效视频。");
+        var publishCount = selectedIndexes.Count;
         var sourceMode = job.Kind switch
         {
             PublishJobKind.ProjectMaterials => "project_materials",
@@ -87,24 +91,34 @@ public sealed class WeixinLocalVideoPublishService
             ["publish_video_source_mode"] = sourceMode,
             ["video_source_mode"] = sourceMode,
             ["publish_video_custom_files"] = ToJsonArray(resolvedFiles),
-            ["episode_selection_mode"] = "range",
-            ["start_episode_index"] = 1,
+            ["episode_selection_mode"] = "explicit",
+            ["start_episode_index"] = options.StartEpisodeIndex,
             ["publish_count"] = publishCount,
-            ["episode_indexes"] = ToJsonArray(Enumerable.Range(1, publishCount)),
-            ["fill_description"] = true,
-            ["fill_short_title"] = false,
-            ["description_template"] = string.IsNullOrWhiteSpace(job.PublishDescription)
+            ["episode_indexes"] = ToJsonArray(selectedIndexes),
+            ["fill_description"] = options.FillDescription,
+            ["fill_short_title"] = options.FillShortTitle,
+            ["short_title_max_length"] = options.ShortTitleMaxLength,
+            ["description_template"] = string.IsNullOrWhiteSpace(options.DescriptionTemplate)
                 ? "热门短剧，精彩内容持续更新。"
-                : job.PublishDescription.Trim(),
-            ["prepend_hash_to_description"] = false,
-            ["location_option_text"] = job.HideLocation ? "不显示位置" : string.Empty,
-            ["link_option_text"] = string.Empty,
-            ["activity_option_text"] = string.Empty,
-            ["timing_option_text"] = "不定时",
-            ["declare_original"] = job.DeclareOriginal,
-            ["merge_publish_enabled"] = false,
-            ["final_action"] = "publish",
-            ["pause_on_error"] = true,
+                : options.DescriptionTemplate.Trim(),
+            ["ai_description_enabled"] = options.AiDescriptionEnabled,
+            ["ai_description_use_asr"] = options.AiDescriptionUseAsr,
+            ["prepend_hash_to_description"] = options.PrependHashToDescription,
+            ["location_option_text"] = options.LocationOptionText,
+            ["link_option_text"] = options.LinkOptionText,
+            ["link_picker_button_text"] = options.LinkPickerButtonText,
+            ["link_dialog_title"] = options.LinkDialogTitle,
+            ["link_search_placeholder"] = options.LinkSearchPlaceholder,
+            ["activity_option_text"] = options.ActivityOptionText,
+            ["timing_option_text"] = options.TimingOptionText,
+            ["replace_cover_with_local_image"] = options.ReplaceCoverWithLocalImage,
+            ["cover_image_path"] = options.CoverImagePath,
+            ["declare_original"] = options.DeclareOriginal,
+            ["merge_publish_enabled"] = options.MergePublishEnabled,
+            ["merge_publish_group_size"] = options.MergePublishGroupSize,
+            ["final_action"] = options.FinalAction,
+            ["pause_on_error"] = options.PauseOnError,
+            ["fast_mode"] = options.FastMode,
             ["_runtime_account_profile_id"] = accountId,
             ["_runtime_account_profile_name"] = job.AccountName,
             ["video_upload_action"] = new JsonObject
@@ -119,7 +133,7 @@ public sealed class WeixinLocalVideoPublishService
             ["base_url"] = baseSettings.BaseUrl,
             ["auth_file"] = baseSettings.AuthFile,
             ["output_dir"] = outputDirectory,
-            ["pause_on_error"] = true,
+            ["pause_on_error"] = options.PauseOnError,
             ["browser"] = new JsonObject
             {
                 ["headless"] = false,
@@ -129,8 +143,9 @@ public sealed class WeixinLocalVideoPublishService
             },
             ["debug"] = new JsonObject
             {
-                ["save_html"] = true,
-                ["save_text"] = true,
+                ["save_html"] = options.CaptureDebugDumps,
+                ["save_text"] = options.CaptureDebugDumps,
+                ["capture_screenshots"] = options.CaptureScreenshots,
                 ["log_file"] = Path.Combine(outputDirectory, "run.log"),
             },
             ["video_publish"] = publishVideo,

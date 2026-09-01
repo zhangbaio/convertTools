@@ -103,6 +103,7 @@ public sealed class WeixinDirectoryMaterialPublishService
 
         var accountId = PublishAccountStorageKey.ForJob(job);
         var baseSettings = ReadBaseSettings(job.ConfigPath, _dataRoot, accountId);
+        var options = WeixinPublishOptions.FromJob(job);
         var videoPaths = items.Select(item => item.VideoPath).ToArray();
         var descriptions = new JsonObject();
         foreach (var item in items)
@@ -126,22 +127,31 @@ public sealed class WeixinDirectoryMaterialPublishService
             ["start_episode_index"] = 1,
             ["publish_count"] = items.Count,
             ["episode_indexes"] = new JsonArray(),
-            ["fill_description"] = true,
-            ["fill_short_title"] = false,
-            ["description_template"] = "{新剧名}",
-            ["prepend_hash_to_description"] = false,
-            ["location_option_text"] = job.HideLocation ? "不显示位置" : string.Empty,
-            ["link_option_text"] = string.Empty,
-            ["activity_option_text"] = string.Empty,
-            ["timing_option_text"] = "不定时",
-            ["declare_original"] = job.DeclareOriginal,
-            ["merge_publish_enabled"] = false,
-            ["merge_publish_group_size"] = 0,
+            ["fill_description"] = options.FillDescription,
+            ["fill_short_title"] = options.FillShortTitle,
+            ["short_title_max_length"] = options.ShortTitleMaxLength,
+            ["description_template"] = options.DescriptionTemplate,
+            ["ai_description_enabled"] = options.AiDescriptionEnabled,
+            ["ai_description_use_asr"] = options.AiDescriptionUseAsr,
+            ["prepend_hash_to_description"] = options.PrependHashToDescription,
+            ["location_option_text"] = options.LocationOptionText,
+            ["link_option_text"] = options.LinkOptionText,
+            ["link_picker_button_text"] = options.LinkPickerButtonText,
+            ["link_dialog_title"] = options.LinkDialogTitle,
+            ["link_search_placeholder"] = options.LinkSearchPlaceholder,
+            ["activity_option_text"] = options.ActivityOptionText,
+            ["timing_option_text"] = options.TimingOptionText,
+            ["replace_cover_with_local_image"] = options.ReplaceCoverWithLocalImage,
+            ["cover_image_path"] = options.CoverImagePath,
+            ["declare_original"] = options.DeclareOriginal,
+            ["merge_publish_enabled"] = options.MergePublishEnabled,
+            ["merge_publish_group_size"] = options.MergePublishGroupSize,
             ["allow_empty_short_title"] = true,
             ["allow_empty_tag"] = true,
-            ["final_action"] = "publish",
+            ["final_action"] = options.FinalAction,
             ["single_test_final_action"] = "publish",
-            ["pause_on_error"] = true,
+            ["pause_on_error"] = options.PauseOnError,
+            ["fast_mode"] = options.FastMode,
             ["_runtime_account_profile_id"] = accountId,
             ["_runtime_account_profile_name"] = job.AccountName,
             ["video_upload_action"] = new JsonObject
@@ -156,7 +166,7 @@ public sealed class WeixinDirectoryMaterialPublishService
             ["base_url"] = baseSettings.BaseUrl,
             ["auth_file"] = baseSettings.AuthFile,
             ["output_dir"] = outputDirectory,
-            ["pause_on_error"] = true,
+            ["pause_on_error"] = options.PauseOnError,
             ["browser"] = new JsonObject
             {
                 ["headless"] = false,
@@ -167,8 +177,9 @@ public sealed class WeixinDirectoryMaterialPublishService
             ["debug"] = new JsonObject
             {
                 ["log_file"] = Path.Combine(outputDirectory, "run.log"),
-                ["save_html"] = true,
-                ["save_text"] = true,
+                ["save_html"] = options.CaptureDebugDumps,
+                ["save_text"] = options.CaptureDebugDumps,
+                ["capture_screenshots"] = options.CaptureScreenshots,
             },
             ["video_publish"] = videoPublish,
         };

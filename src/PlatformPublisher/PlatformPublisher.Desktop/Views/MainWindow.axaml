@@ -123,6 +123,10 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
+                        <Button Grid.Column="2"
+                                Content="高级发表配置"
+                                Click="OpenWeixinPublishConfig_Click"
+                                IsVisible="{Binding IsWeixinPlatform}" />
 
                         <TextBlock Grid.Row="1" Text="项目目录" VerticalAlignment="Center" />
                         <TextBox Grid.Row="1" Grid.Column="1"
