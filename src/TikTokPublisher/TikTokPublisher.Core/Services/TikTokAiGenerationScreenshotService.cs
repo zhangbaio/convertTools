@@ -250,9 +250,48 @@ public static class TikTokAiGenerationScreenshotService
         }
     }
 
-    public static bool HasCurrentOutput(string workflowProjectDirectory) =>
-        ListGeneratedImages(workflowProjectDirectory).Count >= RequiredImageCount &&
-        File.Exists(GetRetainedFramesManifestPath(workflowProjectDirectory));
+    public static bool HasCurrentOutput(string workflowProjectDirectory)
+    {
+        if (ListGeneratedImages(workflowProjectDirectory).Count < RequiredImageCount)
+            return false;
+
+        var retainedFrames = ListRetainedFrameImages(workflowProjectDirectory);
+        if (retainedFrames.Count == 0)
+            return false;
+
+        var manifestPath = GetRetainedFramesManifestPath(workflowProjectDirectory);
+        if (!File.Exists(manifestPath))
+            return false;
+
+        try
+        {
+            using var manifest = JsonDocument.Parse(File.ReadAllText(manifestPath));
+            var root = manifest.RootElement;
+            return root.TryGetProperty("version", out var version) &&
+                   string.Equals(version.GetString(), RetainedFramesVersion, StringComparison.Ordinal) &&
+                   root.TryGetProperty("screenshot_version", out var screenshotVersion) &&
+                   string.Equals(screenshotVersion.GetString(), ScreenshotVersion, StringComparison.Ordinal) &&
+                   root.TryGetProperty("frame_count", out var frameCount) &&
+                   frameCount.TryGetInt32(out var count) &&
+                   count > 0 &&
+                   count == retainedFrames.Count &&
+                   root.TryGetProperty("frames", out var frames) &&
+                   frames.ValueKind == JsonValueKind.Array &&
+                   frames.GetArrayLength() == count;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
     public static void TryDeleteOutput(string workflowProjectDirectory)
     {
@@ -407,96 +446,82 @@ public static class TikTokAiGenerationScreenshotService
         CancellationToken cancellationToken)
     {
         var workflow = Path.GetFullPath(workflowProjectDirectory);
-        var videos = ResolveVideoSources(workflow).Take(12).ToArray();
+        var videos = ResolveVideoSources(workflow, log).Take(12).ToArray();
         var frames = new List<Image<Rgba32>>();
         var retainedVideoFrames = new List<RetainedVideoFrame>();
 
-        if (videos.Length > 0)
+        if (videos.Length == 0)
         {
-            try
-            {
-                var ffmpeg = FfmpegLocator.ResolveFfmpeg();
-                log?.Invoke($"AI 截图：从 {videos.Length} 个视频抽帧。");
-                var ffprobe = MediaBinaryResolver.ResolveFfprobe();
-                var durations = videos.ToDictionary(
-                    path => path,
-                    path => ProbeDuration(ffprobe, path, cancellationToken),
-                    StringComparer.OrdinalIgnoreCase);
-                for (var shotIndex = 0; shotIndex < needed; shotIndex++)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var videoIndex = shotIndex % videos.Length;
-                    var video = videos[videoIndex];
-                    var duration = durations[video];
-                    var shotsForVideo = Math.Max(1, (int)Math.Ceiling(needed / (double)videos.Length));
-                    var sequenceIndex = shotIndex / videos.Length;
-                    var window = Math.Max(duration / Math.Max(4, shotsForVideo + 1), 2.0);
-                    var baseSeconds = Math.Min(
-                        Math.Max(0.4, sequenceIndex * window * 0.65),
-                        Math.Max(0.5, duration - 1.2));
+            throw new InvalidOperationException(
+                "生成 AI 截图失败：未找到可用于抽帧的真实视频；已停止生成，不会使用占位色块。");
+        }
 
-                    for (var keyframeIndex = 0; keyframeIndex < KeyframeRatios.Length; keyframeIndex++)
+        try
+        {
+            var ffmpeg = FfmpegLocator.ResolveFfmpeg();
+            log?.Invoke($"AI 截图：从 {videos.Length} 个视频抽帧。");
+            var ffprobe = MediaBinaryResolver.ResolveFfprobe();
+            var durations = videos.ToDictionary(
+                path => path,
+                path => ProbeDuration(ffprobe, path, cancellationToken),
+                StringComparer.OrdinalIgnoreCase);
+            for (var shotIndex = 0; shotIndex < needed; shotIndex++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var videoIndex = shotIndex % videos.Length;
+                var video = videos[videoIndex];
+                var duration = durations[video];
+                var shotsForVideo = Math.Max(1, (int)Math.Ceiling(needed / (double)videos.Length));
+                var sequenceIndex = shotIndex / videos.Length;
+                var window = Math.Max(duration / Math.Max(4, shotsForVideo + 1), 2.0);
+                var baseSeconds = Math.Min(
+                    Math.Max(0.4, sequenceIndex * window * 0.65),
+                    Math.Max(0.5, duration - 1.2));
+
+                for (var keyframeIndex = 0; keyframeIndex < KeyframeRatios.Length; keyframeIndex++)
+                {
+                    var ratio = KeyframeRatios[keyframeIndex];
+                    var seconds = Math.Min(
+                        Math.Max(0.05, duration - 0.05),
+                        Math.Max(0.05, baseSeconds + window * ratio));
+                    var extracted = TryExtractFacePreferredFrame(
+                        ffmpeg,
+                        video,
+                        seconds,
+                        duration,
+                        cancellationToken);
+                    if (extracted is not null)
                     {
-                        var ratio = KeyframeRatios[keyframeIndex];
-                        var seconds = Math.Min(
-                            Math.Max(0.05, duration - 0.05),
-                            Math.Max(0.05, baseSeconds + window * ratio));
-                        var extracted = TryExtractFacePreferredFrame(
-                            ffmpeg,
+                        frames.Add(extracted.Image);
+                        retainedVideoFrames.Add(new RetainedVideoFrame(
+                            extracted.Image,
                             video,
-                            seconds,
-                            duration,
-                            cancellationToken);
-                        if (extracted is not null)
-                        {
-                            frames.Add(extracted.Image);
-                            retainedVideoFrames.Add(new RetainedVideoFrame(
-                                extracted.Image,
-                                video,
-                                extracted.Seconds,
-                                shotIndex,
-                                keyframeIndex));
-                        }
+                            extracted.Seconds,
+                            shotIndex,
+                            keyframeIndex));
                     }
                 }
-                log?.Invoke($"AI 截图/抽帧：从视频成功取得 {frames.Count} 张关键帧。");
             }
-            catch (Exception ex)
-            {
-                log?.Invoke($"AI 截图：视频抽帧失败，改用项目图片：{ex.Message}");
-            }
+            log?.Invoke($"AI 截图/抽帧：从视频成功取得 {frames.Count} 张关键帧。");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"生成 AI 截图失败：视频抽帧发生异常；已停止生成，不会使用占位色块。{ex.Message}",
+                ex);
+        }
+
+        if (retainedVideoFrames.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "生成 AI 截图失败：FFmpeg 未能从真实视频提取任何有效帧；已停止生成，不会使用占位色块。");
         }
 
         var requiredFrameCount = needed * KeyframeRatios.Length;
-        if (frames.Count < requiredFrameCount)
-        {
-            foreach (var image in CollectAssetImages(workflow))
-            {
-                frames.Add(image);
-                if (frames.Count >= requiredFrameCount)
-                {
-                    break;
-                }
-            }
-        }
-
-        if (frames.Count == 0)
-        {
-            log?.Invoke("AI 截图：未找到视频/图片，使用占位色块。");
-            var palette = new[]
-            {
-                new Rgba32(212, 75, 57),
-                new Rgba32(40, 121, 199),
-                new Rgba32(58, 167, 109),
-                new Rgba32(230, 162, 60),
-            };
-            for (var i = 0; i < requiredFrameCount; i++)
-            {
-                var img = new Image<Rgba32>(540, 960, palette[i % palette.Length]);
-                frames.Add(img);
-            }
-        }
-
         FillFramePool(frames, requiredFrameCount);
 
         return new CollectedFrames(frames, retainedVideoFrames);
@@ -602,11 +627,15 @@ public static class TikTokAiGenerationScreenshotService
         }
     }
 
-    private static IReadOnlyList<string> ResolveVideoSources(string workflow)
+    internal static IReadOnlyList<string> ResolveVideoSources(
+        string workflow,
+        Action<string>? log = null)
     {
+        string? source = null;
         try
         {
             var context = ProjectWorkspaceService.LoadContext(workflow);
+            source = context.SourceProjectDir;
             var resolved = ProjectVideoResolver.ResolveMaterialVideos(
                 context.SourceProjectDir,
                 allowStagedFallback: true);
@@ -615,9 +644,32 @@ public static class TikTokAiGenerationScreenshotService
                 return resolved;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Compatibility fallback for standalone workflow folders without project metadata.
+            // A material resolver failure must not silently turn a recovery project with real
+            // videos into placeholder screenshots. The direct source scan below deliberately
+            // avoids caches and metadata-specific sorting so it remains a reliable fallback.
+            log?.Invoke($"WARN AI 截图：视频素材解析失败，改为直接扫描源项目：{ex.Message}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(source))
+        {
+            try
+            {
+                var sourceVideos = EnumerateVideos(source)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                if (sourceVideos.Length > 0)
+                {
+                    log?.Invoke(
+                        $"AI 截图：从源项目 videos 目录恢复 {sourceVideos.Length} 个视频输入。");
+                    return sourceVideos;
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"WARN AI 截图：直接扫描源项目视频失败：{ex.Message}");
+            }
         }
 
         return EnumerateVideos(workflow)

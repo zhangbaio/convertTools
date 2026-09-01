@@ -153,6 +153,59 @@ public sealed class ProjectVideoResolverTests
     }
 
     [Fact]
+    public void Ai_screenshot_video_resolution_falls_back_to_recovery_source_videos_when_material_resolution_fails()
+    {
+        var workspaceDir = Path.Combine(Path.GetTempPath(), $"ai-recovery-video-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(workspaceDir, "恢复剧名_版权恢复");
+        var workflowDir = Path.Combine(workspaceDir, "workflow", "_恢复剧名");
+        var videosDir = Path.Combine(sourceDir, "videos");
+        Directory.CreateDirectory(videosDir);
+        Directory.CreateDirectory(workflowDir);
+        File.WriteAllText(
+            Path.Combine(sourceDir, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sourceProjectDir = sourceDir,
+                workflowProjectDir = workflowDir,
+                queueEntryDramaType = DeletedCopyrightProofPublishedVideoRecoveryService.RecoverySourceType,
+                newTitle = "恢复剧名",
+                tiktokSeriesId = "series-123",
+            }));
+        File.WriteAllText(
+            Path.Combine(workflowDir, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sourceProjectDir = sourceDir,
+                workflowProjectDir = workflowDir,
+            }));
+        var sourceVideo = Path.Combine(videosDir, "第001集.mp4");
+        File.WriteAllBytes(sourceVideo, [1, 2, 3]);
+
+        // A differently shaped natural-sort key reproduces a resolver-side exception while
+        // merging the local recovery copy and the durable download cache.
+        var recoveryCache = DeletedCopyrightProofPublishedVideoRecoveryService.ResolveStagingDirectory(
+            workspaceDir,
+            "恢复剧名",
+            "series-123");
+        Directory.CreateDirectory(recoveryCache);
+        File.WriteAllBytes(Path.Combine(recoveryCache, "001.mp4"), [1, 2, 3]);
+
+        try
+        {
+            var logs = new List<string>();
+
+            TikTokAiGenerationScreenshotService.ResolveVideoSources(workflowDir, logs.Add)
+                .Should().Equal(sourceVideo);
+            logs.Should().Contain(message =>
+                message.Contains("直接扫描源项目", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(workspaceDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ResolveUploadVideos_UsesStagingAsCanonicalSet_WhenSourceCountDiffers()
     {
         var workspaceDir = Path.Combine(Path.GetTempPath(), $"project-video-resolver-{Guid.NewGuid():N}");
