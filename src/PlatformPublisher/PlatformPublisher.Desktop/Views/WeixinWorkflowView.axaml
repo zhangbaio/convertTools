@@ -6,7 +6,7 @@
              Background="#F3F6FA">
     <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,150,30" RowSpacing="10">
         <Border Grid.Row="0" Classes="panel" Padding="12">
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
                 <TextBlock Text="当前账号" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Text="{Binding ActiveWeixinAccountName}"
                            Foreground="#0B74D1" FontWeight="SemiBold" VerticalAlignment="Center" />
@@ -30,6 +30,7 @@
                          Watermark="选择剧集项目、素材目录或批量发表根目录" />
                 <WrapPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal">
                     <Button Content="选择目录" Click="OnPickProjectDirectoryClick" Classes="secondaryAction" Margin="0,0,6,0" />
+                    <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="secondaryAction" Margin="0,0,6,0" />
                     <Button Content="扫描根目录" Command="{Binding ScanWorkspaceCommand}" Classes="secondaryAction"
                             ToolTip.Tip="扫描所选根目录下的短剧项目并加入剧集任务队列" />
                 </WrapPanel>
@@ -45,8 +46,14 @@
                 <Button Grid.Row="4" Grid.Column="2" Content="选择视频" Click="OnPickCustomVideosClick"
                         Classes="secondaryAction" IsVisible="{Binding IsCustomVideoKind}" />
 
-                <TextBlock Grid.Row="5" Text="执行选项" VerticalAlignment="Center" />
-                <WrapPanel Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
+                <TextBlock Grid.Row="5" Text="按剧名创建" VerticalAlignment="Center" />
+                <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding DraftNewProjectName}"
+                         Watermark="输入剧名，在当前工作根目录创建项目" />
+                <Button Grid.Row="5" Grid.Column="2" Content="创建目录并加入队列"
+                        Command="{Binding CreateNamedProjectCommand}" Classes="secondaryAction" />
+
+                <TextBlock Grid.Row="6" Text="执行选项" VerticalAlignment="Center" />
+                <WrapPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
                     <CheckBox Content="声明原创" IsChecked="{Binding DraftDeclareOriginal}" Margin="0,0,16,0" />
                     <CheckBox Content="不显示位置" IsChecked="{Binding DraftHideLocation}" Margin="0,0,16,0" />
                     <CheckBox Content="允许重复发表" IsChecked="{Binding DraftAllowDuplicatePublish}" Margin="0,0,16,0" />
@@ -72,9 +79,10 @@
 
         <Border Grid.Row="2" Classes="panel" Padding="10">
             <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
-                <Grid ColumnDefinitions="*,Auto">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                     <TextBlock Text="共享项目处理步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
                     <Button Grid.Column="1" Content="执行勾选步骤" Command="{Binding RunSharedPipelineCommand}" Classes="primaryAction" />
+                    <Button Grid.Column="2" Content="保存设置" Command="{Binding SaveWorkflowSettingsCommand}" Classes="secondaryAction" />
                 </Grid>
                 <WrapPanel Grid.Row="1" Orientation="Horizontal">
                     <CheckBox Content="下载剧集" IsChecked="{Binding PipelineDownloadEnabled}" Margin="0,0,16,6" />

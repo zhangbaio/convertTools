@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Common.Services;
+using PlatformPublisher.Desktop.Services;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 
@@ -21,6 +22,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly IMaterialValidationService _materialValidationService;
     private readonly IProjectScanner _projectScanner;
     private readonly IProjectArchiveService _projectArchiveService;
+    private readonly WeixinWorkflowSettingsStore _workflowSettingsStore;
     private readonly List<PublishJob> _jobs = [];
     private readonly List<PublishAccount> _accounts = [];
     private readonly DispatcherTimer _scheduleTimer;
@@ -38,7 +40,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IWorkService workService,
         IMaterialValidationService materialValidationService,
         IProjectScanner projectScanner,
-        IProjectArchiveService projectArchiveService)
+        IProjectArchiveService projectArchiveService,
+        WeixinWorkflowSettingsStore workflowSettingsStore)
     {
         _store = store;
         _accountStore = accountStore;
@@ -48,6 +51,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _materialValidationService = materialValidationService;
         _projectScanner = projectScanner;
         _projectArchiveService = projectArchiveService;
+        _workflowSettingsStore = workflowSettingsStore;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -85,6 +89,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ScanWorkspaceCommand = new AsyncRelayCommand(ScanWorkspaceAsync, CanScanWorkspace);
         RefreshArchivedProjectsCommand = new RelayCommand(RefreshArchivedProjects);
         ResetSelectedJobCommand = new AsyncRelayCommand(ResetSelectedJobAsync, () => SelectedJob is not null && !IsBusy);
+        SaveWorkflowSettingsCommand = new AsyncRelayCommand(SaveWorkflowSettingsAsync, () => !IsBusy);
+        CreateNamedProjectCommand = new AsyncRelayCommand(CreateNamedProjectAsync, CanCreateNamedProject);
         _interactionService.RequestChanged += OnInteractionRequestChanged;
         _scheduleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _scheduleTimer.Tick += OnScheduleTimerTick;
@@ -118,6 +124,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public IAsyncRelayCommand ScanWorkspaceCommand { get; }
     public IRelayCommand RefreshArchivedProjectsCommand { get; }
     public IAsyncRelayCommand ResetSelectedJobCommand { get; }
+    public IAsyncRelayCommand SaveWorkflowSettingsCommand { get; }
+    public IAsyncRelayCommand CreateNamedProjectCommand { get; }
 
     [ObservableProperty]
     private PlatformOptionViewModel _selectedPlatform;
@@ -201,6 +209,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _archiveRootDirectory = string.Empty;
     [ObservableProperty] private ArchivedProjectRowViewModel? _selectedArchivedProject;
     [ObservableProperty] private string _workflowFilterText = string.Empty;
+    [ObservableProperty] private string _draftNewProjectName = string.Empty;
 
     public string ArchivedProjectsSummary => $"已归档 {ArchivedProjects.Count} 个项目";
 
@@ -241,6 +250,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(HasActiveWeixinAccount));
         AddJobCommand.NotifyCanExecuteChanged();
         ScanWorkspaceCommand.NotifyCanExecuteChanged();
+        CreateNamedProjectCommand.NotifyCanExecuteChanged();
     }
 
     public bool IsSystemHighlightKind => SelectedJobKind.Value == PublishJobKind.SystemHighlight;
@@ -281,12 +291,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AddJobCommand.NotifyCanExecuteChanged();
         RunSharedPipelineCommand.NotifyCanExecuteChanged();
         ScanWorkspaceCommand.NotifyCanExecuteChanged();
+        CreateNamedProjectCommand.NotifyCanExecuteChanged();
     }
     partial void OnDraftDramaTitleChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftAccountNameChanged(string value) => SaveAccountCommand.NotifyCanExecuteChanged();
     partial void OnDraftScheduleEnabledChanged(bool value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftScheduleTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftCustomVideoFilesTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
+    partial void OnDraftNewProjectNameChanged(string value) => CreateNamedProjectCommand.NotifyCanExecuteChanged();
     partial void OnPipelineDownloadEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineRewriteEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelinePosterEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
@@ -304,9 +316,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             var loadJobs = _store.LoadAsync();
             var loadAccounts = _accountStore.LoadAsync();
-            await Task.WhenAll(loadJobs, loadAccounts);
+            var loadWorkflowSettings = _workflowSettingsStore.LoadAsync();
+            await Task.WhenAll(loadJobs, loadAccounts, loadWorkflowSettings);
             _jobs.AddRange(await loadJobs);
             _accounts.AddRange(await loadAccounts);
+            ApplyWorkflowSettings(await loadWorkflowSettings);
             var recovered = PublishSchedulePolicy.RecoverInterrupted(_jobs);
             if (recovered > 0)
             {
@@ -403,6 +417,79 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+    private bool CanCreateNamedProject() =>
+        !IsBusy && HasActiveWeixinAccount && Directory.Exists(DraftProjectDirectory) &&
+        IsValidProjectDirectoryName(DraftNewProjectName);
+
+    private async Task CreateNamedProjectAsync()
+    {
+        var directory = Path.Combine(Path.GetFullPath(DraftProjectDirectory), DraftNewProjectName.Trim());
+        Directory.CreateDirectory(directory);
+        var added = await AddImportedProjectJobsAsync([directory]);
+        StatusMessage = added > 0
+            ? $"已按剧名创建项目：{DraftNewProjectName.Trim()}"
+            : $"项目已存在于队列：{DraftNewProjectName.Trim()}";
+        AppendActivityLog(StatusMessage);
+        DraftNewProjectName = string.Empty;
+    }
+
+    public async Task<int> ImportLocalProjectDirectoriesAsync(IEnumerable<string> directories)
+    {
+        if (!HasActiveWeixinAccount)
+        {
+            StatusMessage = "请先在左侧选择视频号账号。";
+            return 0;
+        }
+        var added = await AddImportedProjectJobsAsync(directories);
+        StatusMessage = $"导入本地项目完成：新增 {added} 个任务。";
+        AppendActivityLog(StatusMessage);
+        return added;
+    }
+
+    private async Task<int> AddImportedProjectJobsAsync(IEnumerable<string> directories)
+    {
+        var existing = _jobs
+            .Where(job => job.Platform == PublishPlatform.WeixinChannel && job.Kind == PublishJobKind.Series)
+            .Where(job => !string.IsNullOrWhiteSpace(job.ProjectDirectory))
+            .Select(job => Path.GetFullPath(job.ProjectDirectory))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var added = 0;
+        foreach (var rawDirectory in directories)
+        {
+            if (string.IsNullOrWhiteSpace(rawDirectory) || !Directory.Exists(rawDirectory)) continue;
+            var directory = Path.GetFullPath(rawDirectory);
+            if (!existing.Add(directory)) continue;
+            _jobs.Add(new PublishJob
+            {
+                Platform = PublishPlatform.WeixinChannel,
+                Kind = PublishJobKind.Series,
+                ProjectName = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+                ProjectDirectory = directory,
+                ConfigPath = ResolveScannedWeixinConfig(directory),
+                AccountId = _activeWeixinAccountId,
+                AccountName = ActiveWeixinAccountName,
+                AccountSessionDirectory = _activeWeixinAccountSessionDirectory,
+                Status = PublishJobStatus.Pending,
+                StatusMessage = "本地导入，等待执行",
+            });
+            added++;
+        }
+        if (added > 0)
+        {
+            await PersistAsync();
+            RefreshVisibleJobs();
+        }
+        return added;
+    }
+
+    private static bool IsValidProjectDirectoryName(string? value)
+    {
+        var name = value?.Trim();
+        return !string.IsNullOrWhiteSpace(name) && name is not "." and not ".." &&
+               name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
+               !name.Contains(Path.DirectorySeparatorChar) && !name.Contains(Path.AltDirectorySeparatorChar);
+    }
+
     private bool CanRunSharedPipeline() =>
         !IsBusy &&
         Directory.Exists(DraftProjectDirectory) &&
@@ -465,6 +552,50 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 AppendActivityLog(StatusMessage);
             }
         });
+    }
+
+    private void ApplyWorkflowSettings(WeixinWorkflowSettings settings)
+    {
+        DraftProjectDirectory = settings.LastWorkspaceDirectory;
+        ArchiveRootDirectory = settings.ArchiveRootDirectory;
+        PipelineDownloadEnabled = settings.DownloadEnabled;
+        PipelineRewriteEnabled = settings.RewriteEnabled;
+        PipelinePosterEnabled = settings.PosterEnabled;
+        PipelineTranscodeEnabled = settings.TranscodeEnabled;
+        PipelineAutoRepairEnabled = settings.AutoRepairEnabled;
+        PipelineAutoFillEnabled = settings.AutoFillEnabled;
+        PipelineCostReportEnabled = settings.CostReportEnabled;
+        PipelineProjectImageEnabled = settings.ProjectImageEnabled;
+        PipelineMaterialValidateEnabled = settings.MaterialValidateEnabled;
+        PipelineRemuxEnabled = settings.RemuxEnabled;
+        PipelineForceRerun = settings.ForceRerun;
+        PipelineAutoArchiveAfterUpload = settings.AutoArchiveAfterUpload;
+        PipelinePreferUploadWhenReady = settings.PreferUploadWhenReady;
+        RefreshArchivedProjects();
+    }
+
+    private async Task SaveWorkflowSettingsAsync()
+    {
+        await _workflowSettingsStore.SaveAsync(new WeixinWorkflowSettings
+        {
+            LastWorkspaceDirectory = DraftProjectDirectory,
+            ArchiveRootDirectory = ArchiveRootDirectory,
+            DownloadEnabled = PipelineDownloadEnabled,
+            RewriteEnabled = PipelineRewriteEnabled,
+            PosterEnabled = PipelinePosterEnabled,
+            TranscodeEnabled = PipelineTranscodeEnabled,
+            AutoRepairEnabled = PipelineAutoRepairEnabled,
+            AutoFillEnabled = PipelineAutoFillEnabled,
+            CostReportEnabled = PipelineCostReportEnabled,
+            ProjectImageEnabled = PipelineProjectImageEnabled,
+            MaterialValidateEnabled = PipelineMaterialValidateEnabled,
+            RemuxEnabled = PipelineRemuxEnabled,
+            ForceRerun = PipelineForceRerun,
+            AutoArchiveAfterUpload = PipelineAutoArchiveAfterUpload,
+            PreferUploadWhenReady = PipelinePreferUploadWhenReady,
+        });
+        StatusMessage = "视频号项目流水线设置已保存。";
+        AppendActivityLog(StatusMessage);
     }
 
     private static string ResolveScannedWeixinConfig(string? workflowProjectDirectory)
@@ -1141,5 +1272,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         RunSharedPipelineCommand.NotifyCanExecuteChanged();
         ScanWorkspaceCommand.NotifyCanExecuteChanged();
         ResetSelectedJobCommand.NotifyCanExecuteChanged();
+        SaveWorkflowSettingsCommand.NotifyCanExecuteChanged();
+        CreateNamedProjectCommand.NotifyCanExecuteChanged();
     }
 }

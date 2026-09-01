@@ -48,6 +48,7 @@ public partial class App : Application
         services.AddShortDramaServices();
         services.AddSingleton<PublishJobStore>();
         services.AddSingleton<PublishAccountStore>();
+        services.AddSingleton<WeixinWorkflowSettingsStore>();
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();
         services.AddSingleton<WeixinSystemHighlightPublishService>();
         services.AddSingleton<WeixinLocalVideoPublishService>();

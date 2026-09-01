@@ -44,6 +44,19 @@ public partial class WeixinWorkflowView : UserControl
             ViewModel.DraftProjectDirectory = folders[0].Path.LocalPath;
     }
 
+    private async void OnImportLocalProjectsClick(object? sender, RoutedEventArgs e)
+    {
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (storage is null || ViewModel is null) return;
+        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "选择要导入的视频号短剧项目",
+            AllowMultiple = true,
+        });
+        if (folders.Count > 0)
+            await ViewModel.ImportLocalProjectDirectoriesAsync(folders.Select(folder => folder.Path.LocalPath));
+    }
+
     private async void OnPickConfigClick(object? sender, RoutedEventArgs e)
     {
         var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
