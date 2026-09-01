@@ -7,6 +7,17 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokCopyrightProofAuditTextTests
 {
+    [Theory]
+    [InlineData(false, "FullRebuild")]
+    [InlineData(true, "AiOutlineOnly")]
+    public void CopyrightProofEdit_resolves_expected_material_refresh_mode(
+        bool forceAiOutlineSupplement,
+        string expected)
+    {
+        TikTokCopyrightProofEditService.ResolveMaterialRefreshMode(forceAiOutlineSupplement)
+            .ToString().Should().Be(expected);
+    }
+
     [Fact]
     public void AuditSelectionPreferences_DefaultToCopyrightSuspected_AndPersistChanges()
     {

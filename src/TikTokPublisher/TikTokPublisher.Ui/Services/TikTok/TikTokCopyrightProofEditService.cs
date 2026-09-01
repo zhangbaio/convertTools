@@ -11,12 +11,24 @@ internal sealed record TikTokCopyrightProofEditBrowserPlan(
     bool Headless,
     string Description);
 
+internal enum TikTokCopyrightProofMaterialRefreshMode
+{
+    FullRebuild,
+    AiOutlineOnly,
+}
+
 /// <summary>
 /// Updates only the copyright-proof tab of an existing TikTok series.
 /// It never invokes the general create/edit form filler.
 /// </summary>
 public static class TikTokCopyrightProofEditService
 {
+    internal static TikTokCopyrightProofMaterialRefreshMode ResolveMaterialRefreshMode(
+        bool forceAiOutlineSupplement) =>
+        forceAiOutlineSupplement
+            ? TikTokCopyrightProofMaterialRefreshMode.AiOutlineOnly
+            : TikTokCopyrightProofMaterialRefreshMode.FullRebuild;
+
     internal static TikTokCopyrightProofEditBrowserPlan ResolveBrowserPlan(
         TikTokAccountProfile account)
     {
@@ -127,66 +139,61 @@ public static class TikTokCopyrightProofEditService
                 }
                 L("本次为 AI 剧本大纲补传，将强制重新处理“AI 生成过程截图”材料栏。");
             }
-            var classificationChanged = await TikTokBrowserActions
-                .EnsureCopyrightProofClassificationAsync(page, options, ct)
-                .ConfigureAwait(false);
-            if (classificationChanged)
+            var materialRefreshMode = ResolveMaterialRefreshMode(forceAiOutlineSupplement);
+            if (materialRefreshMode == TikTokCopyrightProofMaterialRefreshMode.FullRebuild)
             {
-                L("TikTok 版权证明分类已按账号配置补全：是否原始权利人、内容原创类型。");
-            }
-            var coverage = await TikTokBrowserActions
-                .ProbeConfiguredCopyrightProofMaterialsAsync(
-                    page,
-                    options.CopyrightMaterialTypes,
-                    ct)
-                .ConfigureAwait(false);
-            if (coverage.FormAvailable)
-            {
-                foreach (var detail in coverage.Details)
-                    L($"TikTok 版权材料逐项检查：{detail}。");
-
-                if (coverage.Plan.IsComplete &&
-                    !forceAiOutlineSupplement &&
-                    !classificationChanged)
-                {
-                    L("账号配置的版权材料均已上传，跳过重复编辑。");
-                    return PublishResult.Success("TikTok 账号配置的版权材料均已上传，已跳过重复编辑");
-                }
-
-                if (coverage.Plan.IsComplete && classificationChanged)
-                {
-                    L("账号配置的版权材料均已上传，但版权分类已补选；将继续保存或提交使配置生效。");
-                }
-
-                var missingLabels = coverage.Plan.MissingMaterialTypes
-                    .Select(key => TikTokPublishConstants.CopyrightMaterialLabels[key]);
-                if (!coverage.Plan.IsComplete)
-                    L($"TikTok 版权材料将继续补全：{string.Join("、", missingLabels)}。");
+                L("补全版权证明将先清空平台现有自动管理材料，再按本地最新文件全量上传。");
+                await TikTokBrowserActions.ConfigureCopyrightProofForEditAsync(
+                        page,
+                        options,
+                        L,
+                        ct)
+                    .ConfigureAwait(false);
             }
             else
             {
-                L("未能在预检阶段识别版权材料字段，将按账号配置执行完整填写。");
-            }
+                // “补全 AI 大纲（仅 PDF）”是明确的单栏补传操作，不能因为补一份
+                // AI 大纲而清空并重传账号配置的全部版权材料。
+                var classificationChanged = await TikTokBrowserActions
+                    .EnsureCopyrightProofClassificationAsync(page, options, ct)
+                    .ConfigureAwait(false);
+                if (classificationChanged)
+                {
+                    L("TikTok 版权证明分类已按账号配置补全：是否原始权利人、内容原创类型。");
+                }
 
-            var existingMaterialTypes = coverage.Plan.ExistingMaterialTypes;
-            if (forceAiOutlineSupplement)
-            {
-                existingMaterialTypes = existingMaterialTypes
+                var coverage = await TikTokBrowserActions
+                    .ProbeConfiguredCopyrightProofMaterialsAsync(
+                        page,
+                        options.CopyrightMaterialTypes,
+                        ct)
+                    .ConfigureAwait(false);
+                if (coverage.FormAvailable)
+                {
+                    foreach (var detail in coverage.Details)
+                        L($"TikTok 版权材料逐项检查：{detail}。");
+                }
+                else
+                {
+                    L("未能在预检阶段识别版权材料字段，将按账号配置执行 AI 大纲补传。");
+                }
+
+                var existingMaterialTypes = coverage.Plan.ExistingMaterialTypes
                     .Where(key => !string.Equals(
                         key,
                         TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
                         StringComparison.Ordinal))
                     .ToArray();
-            }
 
-            await TikTokBrowserActions.ConfigureCopyrightProofAsync(
-                    page,
-                    options,
-                    existingMaterialTypes,
-                    L,
-                    ct,
-                    uploadAiScriptOutlineOnly: forceAiOutlineSupplement)
-                .ConfigureAwait(false);
+                await TikTokBrowserActions.ConfigureCopyrightProofAsync(
+                        page,
+                        options,
+                        existingMaterialTypes,
+                        L,
+                        ct,
+                        uploadAiScriptOutlineOnly: true)
+                    .ConfigureAwait(false);
+            }
 
             if (finalAction == FinalAction.None)
                 return PublishResult.Success("版权证明页已填写完成（账号配置为只填不提交）");
@@ -207,7 +214,9 @@ public static class TikTokCopyrightProofEditService
                     detailUrl,
                     options.CopyrightMaterialTypes,
                     L,
-                    ct)
+                    ct,
+                    requireFullRebuildVerification:
+                        materialRefreshMode == TikTokCopyrightProofMaterialRefreshMode.FullRebuild)
                 .ConfigureAwait(false);
 
             return PublishResult.Success(
@@ -263,7 +272,8 @@ public static class TikTokCopyrightProofEditService
         string detailUrl,
         IEnumerable<string>? configuredMaterialTypes,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool requireFullRebuildVerification)
     {
         var configured = TikTokPublishConstants
             .NormalizeCopyrightMaterialTypes(configuredMaterialTypes)
@@ -302,6 +312,19 @@ public static class TikTokCopyrightProofEditService
                     Timeout = 30000,
                 }).ConfigureAwait(false);
                 await copyrightTab.ClickAsync(new() { Timeout = 15000 }).ConfigureAwait(false);
+
+                if (requireFullRebuildVerification)
+                {
+                    await TikTokBrowserActions.VerifyCopyrightProofRebuildAsync(
+                            page,
+                            configured,
+                            log,
+                            ct)
+                        .ConfigureAwait(false);
+                    log?.Invoke(
+                        "TikTok 版权证明提交后全量复查通过：最新配置材料均已保存，旧材料无残留。");
+                    return;
+                }
 
                 var coverage = await TikTokBrowserActions
                     .ProbeConfiguredCopyrightProofMaterialsAsync(page, configured, ct)
