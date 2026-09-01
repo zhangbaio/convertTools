@@ -86,6 +86,13 @@
                 </Grid>
                 <WrapPanel Grid.Row="1" Orientation="Horizontal">
                     <CheckBox Content="下载剧集" IsChecked="{Binding PipelineDownloadEnabled}" Margin="0,0,16,6" />
+                    <CheckBox Content="智能重剪" IsChecked="{Binding PipelineSmartRecutEnabled}" Margin="0,0,16,6" />
+                    <TextBlock Text="输出集数(0=自动)" VerticalAlignment="Center" Margin="0,0,4,6" />
+                    <NumericUpDown Width="72" Value="{Binding SmartRecutEpisodeCount}" Minimum="0" Maximum="100" Margin="0,0,12,6" />
+                    <TextBlock Text="每集秒数" VerticalAlignment="Center" Margin="0,0,4,6" />
+                    <NumericUpDown Width="76" Value="{Binding SmartRecutMinSeconds}" Minimum="30" Maximum="1800" Margin="0,0,4,6" />
+                    <TextBlock Text="-" VerticalAlignment="Center" Margin="0,0,4,6" />
+                    <NumericUpDown Width="76" Value="{Binding SmartRecutMaxSeconds}" Minimum="30" Maximum="3600" Margin="0,0,12,6" />
                     <CheckBox Content="改写信息" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="生成海报" IsChecked="{Binding PipelinePosterEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="素材转码" IsChecked="{Binding PipelineTranscodeEnabled}" Margin="0,0,16,6" />
@@ -167,35 +174,36 @@
                     </Grid>
                 </Border>
                 <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                    <Grid MinWidth="2010" RowDefinitions="Auto,*">
+                    <Grid MinWidth="2090" RowDefinitions="Auto,*">
                         <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,7">
-                            <Grid ColumnDefinitions="44,110,190,240,64,64,64,64,64,64,64,64,64,72,64,120,70,90,240" ColumnSpacing="8">
+                            <Grid ColumnDefinitions="44,110,190,240,64,72,64,64,64,64,64,64,64,64,72,64,120,70,90,240" ColumnSpacing="8">
                                 <TextBlock Text="勾选" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="1" Text="任务类型" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="2" Text="项目" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="3" Text="目录" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="4" Text="下载" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="5" Text="改写" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="6" Text="海报" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="7" Text="转码" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="8" Text="修复" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="9" Text="补齐" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="10" Text="报表" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="11" Text="工程图" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="12" Text="校验" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="13" Text="上传" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="14" Text="上架" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="15" Text="计划时间" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="16" Text="尝试" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="17" Text="状态" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="18" Text="当前信息" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="5" Text="智能重剪" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="6" Text="改写" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="7" Text="海报" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="8" Text="转码" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="9" Text="修复" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="10" Text="补齐" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="11" Text="报表" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="12" Text="工程图" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="13" Text="校验" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="14" Text="上传" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="15" Text="上架" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="16" Text="计划时间" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="17" Text="尝试" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="18" Text="状态" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="19" Text="当前信息" FontWeight="SemiBold" />
                             </Grid>
                         </Border>
                         <ListBox Grid.Row="1" ItemsSource="{Binding PagedJobs}" SelectedItem="{Binding SelectedJob}"
                                  Background="#FFFFFF" BorderThickness="0">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
-                                    <Grid ColumnDefinitions="44,110,190,240,64,64,64,64,64,64,64,64,64,72,64,120,70,90,240" ColumnSpacing="8" Margin="10,7">
+                                    <Grid ColumnDefinitions="44,110,190,240,64,72,64,64,64,64,64,64,64,64,72,64,120,70,90,240" ColumnSpacing="8" Margin="10,7">
                                         <CheckBox IsChecked="{Binding IsChecked}" />
                                         <TextBlock Grid.Column="1" Text="{Binding KindName}" />
                                         <StackPanel Grid.Column="2">
@@ -204,20 +212,21 @@
                                         </StackPanel>
                                         <TextBlock Grid.Column="3" Text="{Binding ProjectDirectory}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="4" Text="{Binding DownloadStepStatus}" />
-                                        <TextBlock Grid.Column="5" Text="{Binding RewriteStepStatus}" />
-                                        <TextBlock Grid.Column="6" Text="{Binding PosterStepStatus}" />
-                                        <TextBlock Grid.Column="7" Text="{Binding TranscodeStepStatus}" />
-                                        <TextBlock Grid.Column="8" Text="{Binding RepairStepStatus}" />
-                                        <TextBlock Grid.Column="9" Text="{Binding AutoFillStepStatus}" />
-                                        <TextBlock Grid.Column="10" Text="{Binding CostReportStepStatus}" />
-                                        <TextBlock Grid.Column="11" Text="{Binding ProjectImageStepStatus}" />
-                                        <TextBlock Grid.Column="12" Text="{Binding ValidateStepStatus}" />
-                                        <TextBlock Grid.Column="13" Text="{Binding UploadStepStatus}" />
-                                        <TextBlock Grid.Column="14" Text="{Binding ShelfStepStatus}" />
-                                        <TextBlock Grid.Column="15" Text="{Binding ScheduleText}" />
-                                        <TextBlock Grid.Column="16" Text="{Binding AttemptSummary}" />
-                                        <TextBlock Grid.Column="17" Text="{Binding StatusText}" Foreground="#047857" FontWeight="SemiBold" />
-                                        <TextBlock Grid.Column="18" Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="5" Text="{Binding SmartRecutStepStatus}" />
+                                        <TextBlock Grid.Column="6" Text="{Binding RewriteStepStatus}" />
+                                        <TextBlock Grid.Column="7" Text="{Binding PosterStepStatus}" />
+                                        <TextBlock Grid.Column="8" Text="{Binding TranscodeStepStatus}" />
+                                        <TextBlock Grid.Column="9" Text="{Binding RepairStepStatus}" />
+                                        <TextBlock Grid.Column="10" Text="{Binding AutoFillStepStatus}" />
+                                        <TextBlock Grid.Column="11" Text="{Binding CostReportStepStatus}" />
+                                        <TextBlock Grid.Column="12" Text="{Binding ProjectImageStepStatus}" />
+                                        <TextBlock Grid.Column="13" Text="{Binding ValidateStepStatus}" />
+                                        <TextBlock Grid.Column="14" Text="{Binding UploadStepStatus}" />
+                                        <TextBlock Grid.Column="15" Text="{Binding ShelfStepStatus}" />
+                                        <TextBlock Grid.Column="16" Text="{Binding ScheduleText}" />
+                                        <TextBlock Grid.Column="17" Text="{Binding AttemptSummary}" />
+                                        <TextBlock Grid.Column="18" Text="{Binding StatusText}" Foreground="#047857" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="19" Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" />
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>

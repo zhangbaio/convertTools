@@ -53,6 +53,7 @@ public partial class App : Application
         services.AddSingleton<WeixinSystemHighlightPublishService>();
         services.AddSingleton<WeixinLocalVideoPublishService>();
         services.AddSingleton<WeixinAutoShelfService>();
+        services.AddSingleton<WeixinSmartRecutService>();
         services.AddSingleton<WeixinSeriesConfigOverrideService>();
         services.AddSingleton<IAiRuntimeSettingsProvider, PlatformAiRuntimeSettingsProvider>();
         services.AddSingleton<IPlatformPublishAdapter, WeixinChannelPublishAdapter>();

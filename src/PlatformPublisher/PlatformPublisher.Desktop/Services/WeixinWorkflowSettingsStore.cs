@@ -58,4 +58,8 @@ public sealed class WeixinWorkflowSettings
     public int PageSize { get; set; } = 20;
     public int AutoShelfMaxPages { get; set; } = 10;
     public int AutoShelfMaxRounds { get; set; } = 20;
+    public bool SmartRecutEnabled { get; set; }
+    public int SmartRecutEpisodeCount { get; set; }
+    public int SmartRecutMinSeconds { get; set; } = 60;
+    public int SmartRecutMaxSeconds { get; set; } = 180;
 }

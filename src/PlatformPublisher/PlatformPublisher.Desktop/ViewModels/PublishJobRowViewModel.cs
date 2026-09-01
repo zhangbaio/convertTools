@@ -36,6 +36,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         ? "未执行"
         : $"{Model.AttemptCount} 次";
     public string DownloadStepStatus => StepStatus("download");
+    public string SmartRecutStepStatus => StepStatus("smart-recut");
     public string RewriteStepStatus => StepStatus("rewrite");
     public string PosterStepStatus => StepStatus("poster-rename");
     public string TranscodeStepStatus => StepStatus("transcode");
@@ -84,6 +85,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         OnPropertyChanged(nameof(ScheduleText));
         OnPropertyChanged(nameof(AttemptSummary));
         OnPropertyChanged(nameof(DownloadStepStatus));
+        OnPropertyChanged(nameof(SmartRecutStepStatus));
         OnPropertyChanged(nameof(RewriteStepStatus));
         OnPropertyChanged(nameof(PosterStepStatus));
         OnPropertyChanged(nameof(TranscodeStepStatus));

@@ -18,6 +18,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private static readonly (string Key, string Label)[] WorkflowStepDefinitions =
     [
         ("download", "下载剧集"),
+        ("smart-recut", "智能重剪"),
         ("rewrite", "改写信息"),
         ("poster-rename", "生成海报"),
         ("transcode", "素材转码"),
@@ -40,6 +41,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly IProjectArchiveService _projectArchiveService;
     private readonly WeixinWorkflowSettingsStore _workflowSettingsStore;
     private readonly WeixinAutoShelfService _autoShelfService;
+    private readonly WeixinSmartRecutService _smartRecutService;
     private readonly List<PublishJob> _jobs = [];
     private readonly List<PublishAccount> _accounts = [];
     private readonly DispatcherTimer _scheduleTimer;
@@ -59,7 +61,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IProjectScanner projectScanner,
         IProjectArchiveService projectArchiveService,
         WeixinWorkflowSettingsStore workflowSettingsStore,
-        WeixinAutoShelfService autoShelfService)
+        WeixinAutoShelfService autoShelfService,
+        WeixinSmartRecutService smartRecutService)
     {
         _store = store;
         _accountStore = accountStore;
@@ -71,6 +74,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _projectArchiveService = projectArchiveService;
         _workflowSettingsStore = workflowSettingsStore;
         _autoShelfService = autoShelfService;
+        _smartRecutService = smartRecutService;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -272,6 +276,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private int _workflowCurrentPage = 1;
     [ObservableProperty] private int _autoShelfMaxPages = 10;
     [ObservableProperty] private int _autoShelfMaxRounds = 20;
+    [ObservableProperty] private bool _pipelineSmartRecutEnabled;
+    [ObservableProperty] private int _smartRecutEpisodeCount;
+    [ObservableProperty] private int _smartRecutMinSeconds = 60;
+    [ObservableProperty] private int _smartRecutMaxSeconds = 180;
 
     public int WorkflowPageCount => Math.Max(1, (int)Math.Ceiling(VisibleJobs.Count / (double)Math.Max(1, WorkflowPageSize)));
     public string WorkflowPageSummary => $"第 {WorkflowCurrentPage}/{WorkflowPageCount} 页，共 {VisibleJobs.Count} 条";
@@ -376,6 +384,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     partial void OnDraftCustomVideoFilesTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftNewProjectNameChanged(string value) => CreateNamedProjectCommand.NotifyCanExecuteChanged();
     partial void OnPipelineDownloadEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
+    partial void OnPipelineSmartRecutEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineRewriteEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelinePosterEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineTranscodeEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
@@ -594,7 +603,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool CanRunSharedPipeline() =>
         !IsBusy &&
         Directory.Exists(DraftProjectDirectory) &&
-        (PipelineDownloadEnabled || PipelineRewriteEnabled || PipelinePosterEnabled ||
+        (PipelineDownloadEnabled || PipelineSmartRecutEnabled || PipelineRewriteEnabled || PipelinePosterEnabled ||
          PipelineTranscodeEnabled || PipelineAutoRepairEnabled || PipelineAutoFillEnabled ||
          PipelineCostReportEnabled || PipelineProjectImageEnabled || PipelineMaterialValidateEnabled ||
          PipelineRemuxEnabled);
@@ -662,6 +671,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DraftProjectDirectory = settings.LastWorkspaceDirectory;
         ArchiveRootDirectory = settings.ArchiveRootDirectory;
         PipelineDownloadEnabled = settings.DownloadEnabled;
+        PipelineSmartRecutEnabled = settings.SmartRecutEnabled;
+        SmartRecutEpisodeCount = Math.Clamp(settings.SmartRecutEpisodeCount, 0, 100);
+        SmartRecutMinSeconds = Math.Clamp(settings.SmartRecutMinSeconds, 30, 1800);
+        SmartRecutMaxSeconds = Math.Clamp(settings.SmartRecutMaxSeconds, SmartRecutMinSeconds, 3600);
         PipelineRewriteEnabled = settings.RewriteEnabled;
         PipelinePosterEnabled = settings.PosterEnabled;
         PipelineTranscodeEnabled = settings.TranscodeEnabled;
@@ -687,6 +700,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             LastWorkspaceDirectory = DraftProjectDirectory,
             ArchiveRootDirectory = ArchiveRootDirectory,
             DownloadEnabled = PipelineDownloadEnabled,
+            SmartRecutEnabled = PipelineSmartRecutEnabled,
+            SmartRecutEpisodeCount = SmartRecutEpisodeCount,
+            SmartRecutMinSeconds = SmartRecutMinSeconds,
+            SmartRecutMaxSeconds = SmartRecutMaxSeconds,
             RewriteEnabled = PipelineRewriteEnabled,
             PosterEnabled = PipelinePosterEnabled,
             TranscodeEnabled = PipelineTranscodeEnabled,
@@ -729,9 +746,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var trackedRow = trackedJob is null ? null : VisibleJobs.FirstOrDefault(row => row.Id == trackedJob.Id);
         var steps = new List<(string Key, string Label)>();
         if (PipelineDownloadEnabled) steps.Add(("download", "下载剧集"));
+        if (PipelineSmartRecutEnabled) steps.Add(("smart-recut", "智能重剪"));
         if (PipelineRewriteEnabled) steps.Add(("rewrite", "改写信息"));
         if (PipelinePosterEnabled) steps.Add(("poster-rename", "生成海报"));
-        if (PipelineTranscodeEnabled) steps.Add(("transcode", "素材转码"));
+        if (PipelineTranscodeEnabled && !PipelineSmartRecutEnabled) steps.Add(("transcode", "素材转码"));
         if (PipelineCostReportEnabled) steps.Add(("cost-report", "生成成本报表"));
         if (PipelineProjectImageEnabled) steps.Add(("project-image", "生成工程图"));
 
@@ -751,6 +769,25 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     cancellationToken.ThrowIfCancellationRequested();
                     await RunTrackedStepAsync(trackedJob, trackedRow, key, label, PipelineForceRerun, async () =>
                     {
+                        if (key == "smart-recut")
+                        {
+                            await _smartRecutService.RunAsync(
+                                projectDirectory,
+                                SmartRecutEpisodeCount,
+                                SmartRecutMinSeconds,
+                                SmartRecutMaxSeconds,
+                                PipelineForceRerun,
+                                new Progress<string>(message => AppendActivityLog($"智能重剪：{message}")),
+                                cancellationToken);
+                            await UpdateStepStateAsync(
+                                trackedJob,
+                                trackedRow,
+                                "transcode",
+                                "素材转码",
+                                PublishJobStepStatus.Skipped,
+                                "智能重剪已直接生成工作视频");
+                            return;
+                        }
                         var result = await _workService.RunProjectStepAsync(
                             projectDirectory, null, key, PipelineForceRerun, progress, cancellationToken);
                         if (!result.Ok)
