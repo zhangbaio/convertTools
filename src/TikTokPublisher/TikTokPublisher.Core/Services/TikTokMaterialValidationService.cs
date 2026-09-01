@@ -193,6 +193,8 @@ public static class TikTokMaterialValidationService
             var count = TikTokAiGenerationScreenshotService.ListGeneratedImages(workflow).Count;
             if (count < TikTokAiGenerationScreenshotService.RequiredImageCount)
                 issues.Add($"AI 生成过程截图要求 {TikTokAiGenerationScreenshotService.RequiredImageCount} 张，当前 {count} 张");
+            else if (!TikTokAiGenerationScreenshotService.HasCurrentOutput(workflow))
+                issues.Add("AI 生成过程截图无效：缺少真实视频抽帧原图或抽帧清单不完整");
         }
 
         if (proofEnabled && materialTypes.Contains(

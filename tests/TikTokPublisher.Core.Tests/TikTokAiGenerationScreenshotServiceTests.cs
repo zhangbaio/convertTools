@@ -344,11 +344,7 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
         Directory.CreateDirectory(workflow);
         try
         {
-            using (var poster = new Image<Rgba32>(240, 320))
-            {
-                poster[20, 20] = new Rgba32(200, 80, 40);
-                poster.SaveAsPng(Path.Combine(workflow, "海报图片.png"));
-            }
+            CreateSolidColorVideo(Path.Combine(workflow, "第001集.mp4"), "red");
 
             var logs = new List<string>();
             var outputs = TikTokAiGenerationScreenshotService.Generate(
@@ -374,6 +370,11 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
                 manifest.RootElement.GetProperty("frames").GetArrayLength()
                     .Should().Be(retainedFrames.Count);
             }
+
+            foreach (var retainedFrame in retainedFrames)
+                File.Delete(retainedFrame);
+            TikTokAiGenerationScreenshotService.HasCurrentOutput(workflow)
+                .Should().BeFalse("没有真实视频抽帧时，旧工作台图片不能被视为有效产物");
 
             var outputDir = TikTokAiGenerationScreenshotService.GetOutputDirectory(workflow);
             Directory.Exists(outputDir).Should().BeTrue();
@@ -403,16 +404,41 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
     }
 
     [Fact]
+    public void Generate_fails_when_no_real_video_is_available_instead_of_creating_placeholders()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-ai-no-video-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            using (var poster = new Image<Rgba32>(240, 320))
+            {
+                poster.SaveAsPng(Path.Combine(workflow, "海报图片.png"));
+            }
+
+            var action = () => TikTokAiGenerationScreenshotService.Generate(
+                workflow,
+                "禁止占位图测试",
+                settings: new ClientSettings());
+
+            action.Should().Throw<InvalidOperationException>()
+                .WithMessage("*未找到可用于抽帧的真实视频*");
+            TikTokAiGenerationScreenshotService.ListGeneratedImages(workflow)
+                .Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Generate_serializes_concurrent_runs_for_the_same_workflow()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-ai-concurrent-{Guid.NewGuid():N}");
         Directory.CreateDirectory(workflow);
         try
         {
-            using (var poster = new Image<Rgba32>(240, 320, new Rgba32(80, 120, 180)))
-            {
-                poster.SaveAsPng(Path.Combine(workflow, "海报图片.png"));
-            }
+            CreateSolidColorVideo(Path.Combine(workflow, "第001集.mp4"), "blue");
 
             var first = Task.Run(() => TikTokAiGenerationScreenshotService.Generate(
                 workflow, "并发测试一", new ClientSettings()));
@@ -472,6 +498,7 @@ public sealed class TikTokAiGenerationScreenshotServiceTests
         Directory.CreateDirectory(workflow);
         try
         {
+            CreateSolidColorVideo(Path.Combine(workflow, "第001集.mp4"), "green");
             File.WriteAllBytes(
                 TikTokProofMaterialService.GetPdfPath(workflow),
                 "%PDF-1.7\nproof"u8.ToArray());
