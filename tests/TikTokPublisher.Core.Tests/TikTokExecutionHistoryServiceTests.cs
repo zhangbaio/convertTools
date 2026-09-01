@@ -98,6 +98,28 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
         ReadScalar("SELECT COUNT(*) FROM upload_task_events").Should().Be(1);
     }
 
+    [Fact]
+    public void CopyrightProofCompletion_does_not_backfill_upload_completed_time()
+    {
+        InsertEvent(
+            "proof-completed",
+            "2026-07-05T10:00:00",
+            ProjectPayload(
+                "queue_progress",
+                "已完成",
+                "",
+                TikTokPublisher.Core.Queue.QueueRunOptions.CopyrightProofOnlyEntryMode));
+
+        TikTokExecutionHistoryService.EnsureStorageOptimized(_databasePath);
+
+        var snapshot = TikTokExecutionHistoryService
+            .LoadProjectSnapshots(_databasePath)
+            .Should()
+            .ContainSingle()
+            .Subject;
+        snapshot.Item.UploadCompletedAt.Should().BeEmpty();
+    }
+
     private void InsertEvent(string eventId, string createdAt, string payloadJson = "{}")
     {
         using var conn = new SqliteConnection($"Data Source={_databasePath}");
@@ -136,7 +158,11 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
         return Convert.ToInt64(cmd.ExecuteScalar());
     }
 
-    private static string ProjectPayload(string eventType, string status, string error) => $$"""
+    private static string ProjectPayload(
+        string eventType,
+        string status,
+        string error,
+        string uploadEntryMode = "") => $$"""
         {
           "event_type": "{{eventType}}",
           "status": "{{status}}",
@@ -149,6 +175,7 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
           "last_error": "{{error}}",
           "error": "{{error}}",
           "step_key": "upload_series",
+          "metadata": { "upload_entry_mode": "{{uploadEntryMode}}" },
           "step_states": { "upload_series": "{{status}}" }
         }
         """;

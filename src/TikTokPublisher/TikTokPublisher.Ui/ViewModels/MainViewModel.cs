@@ -66,7 +66,8 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private sealed record WorkspaceQueueExecutionContext(
         string BatchId,
-        TikTokAccountProfile? Account);
+        TikTokAccountProfile? Account,
+        string UploadEntryMode);
 
     private readonly AccountStore _store;
     private readonly AccountContextService _context;
@@ -1233,12 +1234,16 @@ public sealed partial class MainViewModel : ViewModelBase
     private void SetWorkspaceQueueExecutionContext(
         string workspaceRoot,
         string batchId,
-        TikTokAccountProfile? account)
+        TikTokAccountProfile? account,
+        string uploadEntryMode)
     {
         var root = NormalizeWorkspaceRootKey(workspaceRoot);
         if (string.IsNullOrWhiteSpace(root)) return;
         lock (_queueExecutionContextsLock)
-            _queueExecutionContexts[root] = new WorkspaceQueueExecutionContext(batchId, account);
+            _queueExecutionContexts[root] = new WorkspaceQueueExecutionContext(
+                batchId,
+                account,
+                uploadEntryMode);
     }
 
     private WorkspaceQueueExecutionContext? GetWorkspaceQueueExecutionContext(string workspaceRoot)
@@ -1901,7 +1906,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var label = string.IsNullOrWhiteSpace(target.DisplayLabel)
             ? $"{effectiveAccount?.DisplayName ?? "当前账号"} · {root}"
             : target.DisplayLabel;
-        SetWorkspaceQueueExecutionContext(root, batchId, account);
+        SetWorkspaceQueueExecutionContext(root, batchId, account, uploadEntryMode);
         _ = Task.Run(() => TikTokExecutionHistoryService.AppendEvent(
             "run_started",
             "running",
@@ -2047,7 +2052,12 @@ public sealed partial class MainViewModel : ViewModelBase
         foreach (var target in targets)
         {
             var account = FindAccountById(target.AccountProfileId)?.Model;
-            SetWorkspaceQueueExecutionContext(target.WorkspaceRoot, batchId, account);
+            var targetOptions = targetOptionsByRoot[Path.GetFullPath(target.WorkspaceRoot)];
+            SetWorkspaceQueueExecutionContext(
+                target.WorkspaceRoot,
+                batchId,
+                account,
+                targetOptions.UploadEntryMode);
             TikTokExecutionHistoryService.AppendEvent(
                 "run_started",
                 "running",
@@ -2941,6 +2951,10 @@ public sealed partial class MainViewModel : ViewModelBase
                     progress.Message,
                     progress.Item?.LastError ?? "",
                     batchId,
+                    metadata: new Dictionary<string, object?>
+                    {
+                        ["upload_entry_mode"] = executionContext?.UploadEntryMode ?? "",
+                    },
                     account: executionContext?.Account));
             }
 
@@ -2971,6 +2985,10 @@ public sealed partial class MainViewModel : ViewModelBase
             progress.Message,
             progress.Item?.LastError ?? "",
             activeBatchId,
+            metadata: new Dictionary<string, object?>
+            {
+                ["upload_entry_mode"] = executionContext?.UploadEntryMode ?? "",
+            },
             account: account));
     }
 

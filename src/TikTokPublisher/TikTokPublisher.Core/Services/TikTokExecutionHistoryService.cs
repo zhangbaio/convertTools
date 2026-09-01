@@ -453,7 +453,8 @@ public static class TikTokExecutionHistoryService
         {
             item.StepStates[QueueStepKeys.UploadSeries] = QueueStepStatus.Completed;
             item.StatusText = QueueStepStatus.Completed;
-            if (string.IsNullOrWhiteSpace(item.UploadCompletedAt))
+            if (string.IsNullOrWhiteSpace(item.UploadCompletedAt) &&
+                !IsCopyrightProofOnlyEvent(payload))
                 item.UploadCompletedAt = timestamp;
         }
 
@@ -463,6 +464,25 @@ public static class TikTokExecutionHistoryService
             timestamp,
             item);
         return true;
+    }
+
+    private static bool IsCopyrightProofOnlyEvent(IReadOnlyDictionary<string, object?> payload)
+    {
+        if (!payload.TryGetValue("metadata", out var rawMetadata) ||
+            rawMetadata is not IReadOnlyDictionary<string, object?> metadata)
+        {
+            return false;
+        }
+
+        var entryMode = GetString(metadata, "upload_entry_mode");
+        return string.Equals(
+                   entryMode,
+                   QueueRunOptions.CopyrightProofOnlyEntryMode,
+                   StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(
+                   entryMode,
+                   QueueRunOptions.AiOutlineSupplementEntryMode,
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     private static Dictionary<string, object?> Deserialize(string json)

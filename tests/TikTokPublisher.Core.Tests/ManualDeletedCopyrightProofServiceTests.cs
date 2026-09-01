@@ -35,6 +35,8 @@ public sealed class ManualDeletedCopyrightProofServiceTests
         match.HistorySnapshot.Item.OriginalTitle.Should().Be("原始短剧");
         match.HistorySnapshot.Item.AccountProfileId.Should().Be("account-1");
         match.HistorySnapshot.Item.UploadSeriesStatus.Should().Be(QueueStepStatus.Completed);
+        match.HistorySnapshot.Item.UploadCompletedAt.Should().BeEmpty(
+            "a manually recovered existing series must not count as uploaded today");
     }
 
     [Fact]

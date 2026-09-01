@@ -1220,7 +1220,10 @@ public sealed class QueueWorkerRunner
                     mutate(() =>
                     {
                         MarkCompleted(item, QueueStepRegistry.UploadSeries);
-                        item.UploadCompletedAt = DateTimeOffset.Now.ToString("o");
+                        // Copyright-proof completion edits an existing TikTok series. It is not a
+                        // new upload and must not move the historical upload time into today's count.
+                        if (!copyrightProofOnly)
+                            item.UploadCompletedAt = DateTimeOffset.Now.ToString("o");
                         item.AccountProfileId = account.Id;
                         item.AccountProfileName = account.DisplayName;
                     });
@@ -1329,7 +1332,8 @@ public sealed class QueueWorkerRunner
                     mutate(() =>
                     {
                         MarkCompleted(item, QueueStepRegistry.UploadSeries);
-                        item.UploadCompletedAt = DateTimeOffset.Now.ToString("o");
+                        if (!copyrightProofOnly)
+                            item.UploadCompletedAt = DateTimeOffset.Now.ToString("o");
                         item.AccountProfileId = account.Id;
                         item.AccountProfileName = account.DisplayName;
                     });
