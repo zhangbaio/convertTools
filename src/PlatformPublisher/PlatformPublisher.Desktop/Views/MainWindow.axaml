@@ -79,7 +79,7 @@
 
             <Grid Grid.Column="1" Margin="16,14" RowDefinitions="Auto,Auto,*" RowSpacing="10">
                 <Border Classes="panel" Padding="14">
-                    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
                         <TextBlock Text="任务类型" VerticalAlignment="Center" />
                         <ComboBox Grid.Column="1"
                                   ItemsSource="{Binding JobKinds}"
@@ -140,6 +140,22 @@
                                        VerticalAlignment="Center"
                                        Foreground="#91AEC3"
                                        Text="应用保持运行时，到期任务会自动顺序执行" />
+                        </Grid>
+
+                        <TextBlock Grid.Row="6" Text="系统高光" VerticalAlignment="Center" />
+                        <Grid Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2"
+                              ColumnDefinitions="1.2*,Auto,90,Auto,1.1*,Auto" ColumnSpacing="8">
+                            <TextBox Text="{Binding DraftDramaTitle}" Watermark="剧名（系统高光任务必填）" />
+                            <TextBlock Grid.Column="1" Text="数量" VerticalAlignment="Center" />
+                            <TextBox Grid.Column="2" Text="{Binding DraftPublishCount}" />
+                            <TextBlock Grid.Column="3" Text="类型" VerticalAlignment="Center" />
+                            <TextBox Grid.Column="4"
+                                     Text="{Binding DraftPublishVideoTypes}"
+                                     Watermark="混剪,解说,切片" />
+                            <CheckBox Grid.Column="5"
+                                      IsChecked="{Binding DraftRegenerateHighlightsAfterPublish}"
+                                      VerticalAlignment="Center"
+                                      Content="发表后重新生成" />
                         </Grid>
                     </Grid>
                 </Border>
