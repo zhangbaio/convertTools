@@ -19,16 +19,19 @@ public sealed class TikTokCopyrightProofAuditTextTests
             defaults.TiktokCopyrightProofAuditIncludePublished.Should().BeFalse();
             defaults.TiktokCopyrightProofAuditIncludeVideoReviewing.Should().BeFalse();
             defaults.TiktokCopyrightProofAuditIncludeCopyrightSuspected.Should().BeTrue();
+            defaults.TiktokCopyrightProofAuditMode.Should().BeEmpty();
 
             defaults.TiktokCopyrightProofAuditIncludePublished = true;
             defaults.TiktokCopyrightProofAuditIncludeVideoReviewing = true;
             defaults.TiktokCopyrightProofAuditIncludeCopyrightSuspected = false;
+            defaults.TiktokCopyrightProofAuditMode = "status";
             ClientSettingsStore.Save(defaults, databasePath);
 
             var restored = ClientSettingsStore.Load(databasePath);
             restored.TiktokCopyrightProofAuditIncludePublished.Should().BeTrue();
             restored.TiktokCopyrightProofAuditIncludeVideoReviewing.Should().BeTrue();
             restored.TiktokCopyrightProofAuditIncludeCopyrightSuspected.Should().BeFalse();
+            restored.TiktokCopyrightProofAuditMode.Should().Be("status");
         }
         finally
         {
@@ -132,6 +135,10 @@ public sealed class TikTokCopyrightProofAuditTextTests
                 TikTokCopyrightProofAuditSelection.CopyrightSuspectedStatus);
         new TikTokCopyrightProofAuditSelection(false, true, 6, true)
             .SelectedPlatformStatusLabels().Should().Equal("视频检测中", "疑似版权问题");
+        new TikTokCopyrightProofAuditSelection(true, false, 6, true)
+            .HasMixedFilterModes.Should().BeTrue();
+        new TikTokCopyrightProofAuditSelection(true, true, 6, false)
+            .HasMixedFilterModes.Should().BeFalse();
     }
 
     [Theory]

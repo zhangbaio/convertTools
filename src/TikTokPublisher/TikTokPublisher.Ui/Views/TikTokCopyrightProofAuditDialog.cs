@@ -11,6 +11,9 @@ namespace TikTokPublisher.Ui.Views;
 
 public sealed class TikTokCopyrightProofAuditDialog : Window
 {
+    private const string SuspectedMode = "suspected";
+    private const string StatusMode = "status";
+
     private readonly string _accountName;
     private readonly Func<
         TikTokCopyrightProofAuditSelection,
@@ -19,7 +22,8 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         Task<IReadOnlyList<TikTokCopyrightProofAuditItem>>> _audit;
     private readonly CheckBox _publishedBox;
     private readonly CheckBox _videoReviewingBox;
-    private readonly CheckBox _copyrightSuspectedBox;
+    private readonly RadioButton _copyrightSuspectedModeBox;
+    private readonly RadioButton _statusModeBox;
     private readonly NumericUpDown _concurrencyBox;
     private readonly Button _startButton;
     private readonly TextBlock _summary;
@@ -45,6 +49,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         _accountName = accountName;
         _audit = audit;
         var savedSelection = LoadSelectionPreferences();
+        var savedMode = ResolveSavedMode(savedSelection);
         Title = "检查未补版权证明";
         Width = 900;
         Height = 680;
@@ -67,6 +72,20 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             FontWeight = FontWeight.SemiBold,
         });
 
+        _copyrightSuspectedModeBox = new RadioButton
+        {
+            Content = "疑似版权问题",
+            GroupName = "CopyrightProofAuditMode",
+            IsChecked = savedMode == SuspectedMode,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _statusModeBox = new RadioButton
+        {
+            Content = "按剧集状态",
+            GroupName = "CopyrightProofAuditMode",
+            IsChecked = savedMode == StatusMode,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
         _publishedBox = new CheckBox
         {
             Content = "已发布",
@@ -77,12 +96,6 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         {
             Content = "视频检测中",
             IsChecked = savedSelection.TiktokCopyrightProofAuditIncludeVideoReviewing,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        _copyrightSuspectedBox = new CheckBox
-        {
-            Content = "疑似版权问题",
-            IsChecked = savedSelection.TiktokCopyrightProofAuditIncludeCopyrightSuspected,
             VerticalAlignment = VerticalAlignment.Center,
         };
         _concurrencyBox = new NumericUpDown
@@ -99,9 +112,12 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             VerticalAlignment = VerticalAlignment.Center,
         };
         _startButton = BuildButton("开始检测", StartAudit, primary: true, minWidth: 104);
+        _copyrightSuspectedModeBox.IsCheckedChanged += OnModeChanged;
+        _statusModeBox.IsCheckedChanged += OnModeChanged;
         _publishedBox.IsCheckedChanged += OnSelectionChanged;
         _videoReviewingBox.IsCheckedChanged += OnSelectionChanged;
-        _copyrightSuspectedBox.IsCheckedChanged += OnSelectionChanged;
+        UpdateSelectionAvailability();
+        _startButton.IsEnabled = HasSelectedStatus();
         var selectionPanel = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -109,13 +125,14 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         };
         selectionPanel.Children.Add(new TextBlock
         {
-            Text = "检测剧集状态：",
+            Text = "检测模式：",
             FontWeight = FontWeight.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
         });
+        selectionPanel.Children.Add(_copyrightSuspectedModeBox);
+        selectionPanel.Children.Add(_statusModeBox);
         selectionPanel.Children.Add(_publishedBox);
         selectionPanel.Children.Add(_videoReviewingBox);
-        selectionPanel.Children.Add(_copyrightSuspectedBox);
         selectionPanel.Children.Add(new TextBlock
         {
             Text = "检测并发：",
@@ -227,22 +244,60 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             _startButton.IsEnabled = HasSelectedStatus();
     }
 
+    private void OnModeChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_copyrightSuspectedModeBox.IsChecked != true && _statusModeBox.IsChecked != true)
+            return;
+        UpdateSelectionAvailability();
+        SaveSelectionPreferences();
+        if (_auditCts is null)
+            _startButton.IsEnabled = HasSelectedStatus();
+    }
+
     private void SaveSelectionPreferences()
     {
         try
         {
             var settings = ClientSettingsStore.Load();
+            var statusMode = _statusModeBox.IsChecked == true;
+            settings.TiktokCopyrightProofAuditMode = statusMode ? StatusMode : SuspectedMode;
             settings.TiktokCopyrightProofAuditIncludePublished = _publishedBox.IsChecked == true;
             settings.TiktokCopyrightProofAuditIncludeVideoReviewing =
                 _videoReviewingBox.IsChecked == true;
-            settings.TiktokCopyrightProofAuditIncludeCopyrightSuspected =
-                _copyrightSuspectedBox.IsChecked == true;
+            settings.TiktokCopyrightProofAuditIncludeCopyrightSuspected = !statusMode;
             ClientSettingsStore.Save(settings);
         }
         catch
         {
             // 偏好保存失败不应阻断本次检查。
         }
+    }
+
+    private static string ResolveSavedMode(ClientSettings settings)
+    {
+        var mode = (settings.TiktokCopyrightProofAuditMode ?? string.Empty)
+            .Trim()
+            .ToLowerInvariant();
+        if (mode is SuspectedMode or StatusMode)
+            return mode;
+        if (settings.TiktokCopyrightProofAuditIncludeCopyrightSuspected)
+            return SuspectedMode;
+        return settings.TiktokCopyrightProofAuditIncludePublished ||
+               settings.TiktokCopyrightProofAuditIncludeVideoReviewing
+            ? StatusMode
+            : SuspectedMode;
+    }
+
+    private void UpdateSelectionAvailability()
+    {
+        var canEdit = _auditCts is null;
+        _copyrightSuspectedModeBox.IsEnabled = canEdit;
+        _statusModeBox.IsEnabled = canEdit;
+        var statusMode = _statusModeBox.IsChecked == true;
+        _publishedBox.IsVisible = statusMode;
+        _videoReviewingBox.IsVisible = statusMode;
+        _publishedBox.IsEnabled = canEdit && statusMode;
+        _videoReviewingBox.IsEnabled = canEdit && statusMode;
     }
 
     private static ClientSettings LoadSelectionPreferences()
@@ -258,16 +313,16 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
     }
 
     private bool HasSelectedStatus() =>
-        _publishedBox.IsChecked == true ||
-        _videoReviewingBox.IsChecked == true ||
-        _copyrightSuspectedBox.IsChecked == true;
+        _copyrightSuspectedModeBox.IsChecked == true ||
+        (_statusModeBox.IsChecked == true &&
+         (_publishedBox.IsChecked == true || _videoReviewingBox.IsChecked == true));
 
     private TikTokCopyrightProofAuditSelection CurrentSelection() =>
         new(
-            _publishedBox.IsChecked == true,
-            _videoReviewingBox.IsChecked == true,
+            _statusModeBox.IsChecked == true && _publishedBox.IsChecked == true,
+            _statusModeBox.IsChecked == true && _videoReviewingBox.IsChecked == true,
             (int)(_concurrencyBox.Value ?? 6),
-            _copyrightSuspectedBox.IsChecked == true);
+            _copyrightSuspectedModeBox.IsChecked == true);
 
     private async void StartAudit()
     {
@@ -281,9 +336,10 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
         var selection = CurrentSelection();
         _results.Clear();
         RenderResults();
+        _copyrightSuspectedModeBox.IsEnabled = false;
+        _statusModeBox.IsEnabled = false;
         _publishedBox.IsEnabled = false;
         _videoReviewingBox.IsEnabled = false;
-        _copyrightSuspectedBox.IsEnabled = false;
         _concurrencyBox.IsEnabled = false;
         _startButton.IsEnabled = false;
         _stopButton.IsEnabled = true;
@@ -338,9 +394,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
             _auditCts?.Dispose();
             _auditCts = null;
             _stopButton.IsEnabled = false;
-            _publishedBox.IsEnabled = true;
-            _videoReviewingBox.IsEnabled = true;
-            _copyrightSuspectedBox.IsEnabled = true;
+            UpdateSelectionAvailability();
             _concurrencyBox.IsEnabled = true;
             _startButton.Content = "重新检测";
             _startButton.IsEnabled = HasSelectedStatus();

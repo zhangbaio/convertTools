@@ -25,6 +25,9 @@ public sealed record TikTokCopyrightProofAuditSelection(
 
     public int NormalizedConcurrency => Math.Clamp(Concurrency, 2, 8);
 
+    public bool HasMixedFilterModes =>
+        IncludeCopyrightSuspected && (IncludePublished || IncludeVideoReviewing);
+
     public IReadOnlyList<string> SelectedPlatformStatuses()
     {
         return SelectedStatusFilters()
@@ -86,6 +89,17 @@ public static class TikTokCopyrightProofAuditService
         try
         {
             _ = browser; // 保留参数兼容现有调用；版权检查始终使用独立无头浏览器。
+            var selectedStatuses = selection.SelectedStatusFilters();
+            var selectedPendingFilters = selection.SelectedPendingFilters();
+            var selectedStatusLabels = selection.SelectedPlatformStatusLabels();
+            if (selection.HasMixedFilterModes)
+            {
+                throw new InvalidOperationException(
+                    "“疑似版权问题”与“已发布/视频检测中”不能同时检测。");
+            }
+            if (selectedStatuses.Count == 0 && selectedPendingFilters.Count == 0)
+                throw new InvalidOperationException("请至少选择一种需要检查的剧集状态。");
+
             var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
             if (!File.Exists(authPath))
                 throw new InvalidOperationException("未找到当前账号的 TikTok 登录态，请先登录账号后再检查。");
@@ -102,11 +116,6 @@ public static class TikTokCopyrightProofAuditService
                     ct)
                 .ConfigureAwait(false);
 
-            var selectedStatuses = selection.SelectedStatusFilters();
-            var selectedPendingFilters = selection.SelectedPendingFilters();
-            var selectedStatusLabels = selection.SelectedPlatformStatusLabels();
-            if (selectedStatuses.Count == 0 && selectedPendingFilters.Count == 0)
-                throw new InvalidOperationException("请至少选择一种需要检查的剧集状态。");
             var concurrency = selection.NormalizedConcurrency;
 
             log?.Invoke(

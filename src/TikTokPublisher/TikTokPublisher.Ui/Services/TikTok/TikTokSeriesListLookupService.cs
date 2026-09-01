@@ -865,7 +865,8 @@ internal static class TikTokSeriesListLookupService
             }
         }
 
-        if (selectedTagTexts.Count > 0)
+        var hasCollapsedSummary = HasCollapsedSelectionSummary(selectedTagTexts);
+        if (selectedTagTexts.Count > 0 && !hasCollapsedSummary)
             return selectedTagTexts.Distinct(StringComparer.Ordinal).ToArray();
 
         var options = await ResolveStatusOptionsAsync(page, combo).ConfigureAwait(false);
@@ -894,8 +895,20 @@ internal static class TikTokSeriesListLookupService
             }
         }
 
-        return selected;
+        if (selected.Count > 0)
+            return selected.Distinct(StringComparer.Ordinal).ToArray();
+
+        return selectedTagTexts
+            .Where(text => !IsCollapsedSelectionSummary(text))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
     }
+
+    internal static bool HasCollapsedSelectionSummary(IEnumerable<string> values) =>
+        values.Any(IsCollapsedSelectionSummary);
+
+    private static bool IsCollapsedSelectionSummary(string value) =>
+        Regex.IsMatch((value ?? string.Empty).Trim(), @"^\+\d+$");
 
     private static async Task<ILocator?> FindStatusOptionByTextAsync(
         IPage page,

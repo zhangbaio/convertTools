@@ -156,6 +156,19 @@ public sealed class TikTokSeriesListLookupRetryTests
             .Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("+1", true)]
+    [InlineData("+12", true)]
+    [InlineData("已发布", false)]
+    [InlineData("contentPartnerHub_seriesPage_copyrightSuspected", false)]
+    public void Collapsed_multi_select_summary_is_not_treated_as_a_real_filter_value(
+        string value,
+        bool expected)
+    {
+        TikTokSeriesListLookupService.HasCollapsedSelectionSummary([value])
+            .Should().Be(expected);
+    }
+
     [Fact]
     public void Page_readiness_snapshot_deserializes_browser_json_object()
     {

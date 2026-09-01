@@ -54,6 +54,7 @@ public sealed class ClientSettings
     public bool TiktokCopyrightProofAuditIncludePublished { get; set; }
     public bool TiktokCopyrightProofAuditIncludeVideoReviewing { get; set; }
     public bool TiktokCopyrightProofAuditIncludeCopyrightSuspected { get; set; } = true;
+    public string TiktokCopyrightProofAuditMode { get; set; } = "";
 
     public string VideoTranslateEngine { get; set; } = "volc";
     public string VideoTranslateSourceLanguage { get; set; } = "en";
@@ -213,6 +214,7 @@ public sealed class ClientSettings
         TiktokCopyrightProofAuditIncludePublished = TiktokCopyrightProofAuditIncludePublished,
         TiktokCopyrightProofAuditIncludeVideoReviewing = TiktokCopyrightProofAuditIncludeVideoReviewing,
         TiktokCopyrightProofAuditIncludeCopyrightSuspected = TiktokCopyrightProofAuditIncludeCopyrightSuspected,
+        TiktokCopyrightProofAuditMode = TiktokCopyrightProofAuditMode,
         VideoTranslateEngine = VideoTranslateEngine,
         VideoTranslateSourceLanguage = VideoTranslateSourceLanguage,
         VideoTranslateTargetLanguage = VideoTranslateTargetLanguage,
