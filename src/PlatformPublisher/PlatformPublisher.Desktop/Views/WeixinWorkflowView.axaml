@@ -81,11 +81,15 @@
                     <CheckBox Content="改写信息" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="生成海报" IsChecked="{Binding PipelinePosterEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="素材转码" IsChecked="{Binding PipelineTranscodeEnabled}" Margin="0,0,16,6" />
+                    <CheckBox Content="一键修复" IsChecked="{Binding PipelineAutoRepairEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="补齐字段" IsChecked="{Binding PipelineAutoFillEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="生成成本报表" IsChecked="{Binding PipelineCostReportEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="生成工程图" IsChecked="{Binding PipelineProjectImageEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="素材校验" IsChecked="{Binding PipelineMaterialValidateEnabled}" Margin="0,0,16,6" />
+                    <CheckBox Content="无损重封装" IsChecked="{Binding PipelineRemuxEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding PipelineForceRerun}" Margin="0,0,16,6" />
+                    <CheckBox Content="上传完成后自动归档" IsChecked="{Binding PipelineAutoArchiveAfterUpload}" Margin="0,0,16,6" />
+                    <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding PipelinePreferUploadWhenReady}" Margin="0,0,16,6" />
                 </WrapPanel>
             </Grid>
         </Border>

@@ -19,6 +19,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly IWorkService _workService;
     private readonly IMaterialValidationService _materialValidationService;
     private readonly IProjectScanner _projectScanner;
+    private readonly IProjectArchiveService _projectArchiveService;
     private readonly List<PublishJob> _jobs = [];
     private readonly List<PublishAccount> _accounts = [];
     private readonly DispatcherTimer _scheduleTimer;
@@ -35,7 +36,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IWorkflowInteractionService interactionService,
         IWorkService workService,
         IMaterialValidationService materialValidationService,
-        IProjectScanner projectScanner)
+        IProjectScanner projectScanner,
+        IProjectArchiveService projectArchiveService)
     {
         _store = store;
         _accountStore = accountStore;
@@ -44,6 +46,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _workService = workService;
         _materialValidationService = materialValidationService;
         _projectScanner = projectScanner;
+        _projectArchiveService = projectArchiveService;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -179,11 +182,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _pipelineRewriteEnabled = true;
     [ObservableProperty] private bool _pipelinePosterEnabled = true;
     [ObservableProperty] private bool _pipelineTranscodeEnabled = true;
+    [ObservableProperty] private bool _pipelineAutoRepairEnabled = true;
     [ObservableProperty] private bool _pipelineAutoFillEnabled = true;
     [ObservableProperty] private bool _pipelineCostReportEnabled = true;
     [ObservableProperty] private bool _pipelineProjectImageEnabled = true;
     [ObservableProperty] private bool _pipelineMaterialValidateEnabled = true;
+    [ObservableProperty] private bool _pipelineRemuxEnabled;
     [ObservableProperty] private bool _pipelineForceRerun;
+    [ObservableProperty] private bool _pipelineAutoArchiveAfterUpload;
+    [ObservableProperty] private bool _pipelinePreferUploadWhenReady = true;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -271,10 +278,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     partial void OnPipelineRewriteEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelinePosterEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineTranscodeEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
+    partial void OnPipelineAutoRepairEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineAutoFillEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineCostReportEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineProjectImageEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineMaterialValidateEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
+    partial void OnPipelineRemuxEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
 
     private async Task LoadAsync()
     {
@@ -385,8 +394,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         !IsBusy &&
         Directory.Exists(DraftProjectDirectory) &&
         (PipelineDownloadEnabled || PipelineRewriteEnabled || PipelinePosterEnabled ||
-         PipelineTranscodeEnabled || PipelineAutoFillEnabled || PipelineCostReportEnabled ||
-         PipelineProjectImageEnabled || PipelineMaterialValidateEnabled);
+         PipelineTranscodeEnabled || PipelineAutoRepairEnabled || PipelineAutoFillEnabled ||
+         PipelineCostReportEnabled || PipelineProjectImageEnabled || PipelineMaterialValidateEnabled ||
+         PipelineRemuxEnabled);
 
     private bool CanScanWorkspace() =>
         !IsBusy && HasActiveWeixinAccount && Directory.Exists(DraftProjectDirectory);
@@ -488,11 +498,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         throw new InvalidOperationException(result.Message ?? $"{label}执行失败。");
                 }
 
+                if (PipelineAutoRepairEnabled)
+                {
+                    StatusMessage = "共享流水线：一键修复";
+                    AppendActivityLog(StatusMessage);
+                    await RunMaterialAutoRepairAsync(projectDirectory, progress, cancellationToken);
+                }
+
                 if (PipelineAutoFillEnabled)
                 {
                     StatusMessage = "共享流水线：补齐字段";
                     AppendActivityLog(StatusMessage);
                     await _workService.AutoFillProjectInfoAsync(projectDirectory, null, cancellationToken);
+                }
+
+                if (PipelineRemuxEnabled)
+                {
+                    StatusMessage = "共享流水线：无损重封装";
+                    AppendActivityLog(StatusMessage);
+                    var remux = await _workService.RemuxUploadVideosAsync(projectDirectory, null, progress, cancellationToken);
+                    if (!remux.Ok)
+                        throw new InvalidOperationException(remux.Message);
                 }
 
                 if (PipelineMaterialValidateEnabled)
@@ -526,6 +552,58 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 AppendActivityLog(StatusMessage);
             }
         });
+    }
+
+    private async Task RunMaterialAutoRepairAsync(
+        string projectDirectory,
+        IProgress<WorkRunEvent> progress,
+        CancellationToken cancellationToken)
+    {
+        var configPath = await _workService.EnsureWeixinUploadConfigAsync(projectDirectory, null, cancellationToken);
+        var workflowDirectory = Path.GetDirectoryName(configPath)
+                                ?? throw new InvalidOperationException("一键修复无法定位工作项目目录。");
+        var validation = await _materialValidationService.ValidateAsync(workflowDirectory, cancellationToken);
+        var codes = validation.Issues
+            .Where(issue => issue.CanAutoFix)
+            .Select(issue => issue.Code)
+            .ToHashSet(StringComparer.Ordinal);
+        if (codes.Count == 0)
+        {
+            AppendActivityLog("一键修复：未发现可自动修复的问题。");
+            return;
+        }
+
+        var repairSteps = new List<(bool Needed, string Key, string Label, bool Force)>
+        {
+            (codes.Contains("info-missing") || codes.Contains("info-invalid"), "rewrite", "改写信息", true),
+            (codes.Contains("video-bitrate-low") || codes.Contains("videos-dir-missing") || codes.Contains("video-bitrate-unreadable"), "transcode", "素材转码", PipelineForceRerun),
+            (codes.Contains("poster-missing"), "poster-rename", "生成海报", true),
+            (codes.Contains("project-images-missing"), "project-image", "生成工程图", true),
+            (codes.Contains("material-video-title-mismatch"), "material-convert", "重建素材视频", true),
+            (codes.Contains("cost-missing"), "cost-report", "生成成本报表", true),
+            (codes.Contains("video-title-mismatch"), "batch-file-rename", "修正视频文件名", true),
+        };
+        foreach (var (_, key, label, force) in repairSteps.Where(item => item.Needed))
+        {
+            AppendActivityLog($"一键修复：{label}");
+            var result = await _workService.RunProjectStepAsync(
+                projectDirectory, null, key, force, progress, cancellationToken);
+            if (!result.Ok)
+                throw new InvalidOperationException(result.Message ?? $"一键修复步骤失败：{label}");
+        }
+
+        if (codes.Contains("weixin-upload-config-missing"))
+            await _workService.EnsureWeixinUploadConfigAsync(projectDirectory, null, cancellationToken);
+        if (codes.Contains("weixin-title-mismatch"))
+            await _workService.RefreshWeixinConfigsAsync(projectDirectory, null, cancellationToken);
+
+        var after = await _materialValidationService.ValidateAsync(workflowDirectory, cancellationToken);
+        if (after.HasErrors)
+        {
+            var remaining = after.Issues.Where(issue => issue.Severity == "错误").Select(issue => issue.Message);
+            throw new InvalidOperationException($"一键修复后仍有问题：{string.Join("；", remaining)}");
+        }
+        AppendActivityLog("一键修复完成。");
     }
 
     private bool CanRunSelected() => SelectedJob is not null && !IsBusy;
@@ -592,8 +670,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var rows = VisibleJobs
             .Where(row => PublishSchedulePolicy.CanRunNow(row.Model, now))
             .Where(row => _coordinator.GetAdapter(row.Platform).IsAvailable)
+            .OrderBy(row => PipelinePreferUploadWhenReady ? ResolveUploadPriority(row.Model) : 0)
+            .ThenBy(row => row.Model.ScheduledAt ?? row.Model.CreatedAt)
             .ToArray();
         await RunRowsAsync(rows, clearSchedule: true);
+    }
+
+    private static int ResolveUploadPriority(PublishJob job)
+    {
+        if (job.Kind != PublishJobKind.Series)
+            return 1;
+        if (!string.IsNullOrWhiteSpace(job.ConfigPath) && File.Exists(job.ConfigPath))
+            return 0;
+        if (!Directory.Exists(job.ProjectDirectory))
+            return 1;
+        return new[] { "weixin-channel-autogen.json", "weixin-channel-submit.json", "weixin-channel-config.json" }
+            .Any(name => File.Exists(Path.Combine(job.ProjectDirectory, name))) ? 0 : 1;
     }
 
     private async Task RetryFailedAsync()
@@ -668,6 +760,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             job.StatusMessage = "发布流程执行完成";
             StatusMessage = $"[{job.ProjectName}] 发布完成";
             AppendActivityLog(StatusMessage);
+            if (PipelineAutoArchiveAfterUpload && job.Kind == PublishJobKind.Series)
+                await TryArchivePublishedProjectAsync(job, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -689,6 +783,34 @@ public sealed partial class MainWindowViewModel : ObservableObject
             job.LastCompletedAt = DateTimeOffset.Now;
             row.Refresh();
             await PersistAsync();
+        }
+    }
+
+    private async Task TryArchivePublishedProjectAsync(PublishJob job, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var rootDirectory = Directory.GetParent(job.ProjectDirectory)?.FullName;
+            if (string.IsNullOrWhiteSpace(rootDirectory))
+                throw new InvalidOperationException("无法确定项目根目录。");
+            var scan = await _projectScanner.ScanAsync(rootDirectory, null, cancellationToken);
+            var project = scan.Projects.FirstOrDefault(item =>
+                string.Equals(Path.GetFullPath(item.SourceProjectDir), Path.GetFullPath(job.ProjectDirectory), StringComparison.OrdinalIgnoreCase));
+            if (project is null)
+                throw new InvalidOperationException("扫描结果中未找到刚完成上传的项目。");
+            AppendActivityLog($"上传完成，开始自动归档：{job.ProjectName}");
+            var result = await _projectArchiveService.ArchiveAsync(
+                rootDirectory, project, new ProjectArchiveOptions(), cancellationToken);
+            if (!result.Ok)
+                throw new InvalidOperationException(result.Message);
+            job.ProjectDirectory = result.ArchiveProjectDir;
+            job.StatusMessage = $"发布完成并已归档：{result.Message}";
+            AppendActivityLog(job.StatusMessage);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            job.StatusMessage = $"发布完成；自动归档失败：{ex.Message}";
+            AppendActivityLog(job.StatusMessage);
         }
     }
 
