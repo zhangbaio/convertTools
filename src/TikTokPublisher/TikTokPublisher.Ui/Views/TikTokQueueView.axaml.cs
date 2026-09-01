@@ -2334,6 +2334,41 @@ public partial class TikTokQueueView : UserControl
             var restoredCount = 0;
             var recoveredCount = 0;
             var preparationLogStartedAt = DateTime.Now;
+            var revealedTitles = new HashSet<string>(StringComparer.Ordinal);
+
+            async Task RevealRecoveredProjectsAsync(string newTitle)
+            {
+                revealedTitles.Add((newTitle ?? string.Empty).Trim());
+                try
+                {
+                    var snapshot = await Task.Run(() =>
+                    {
+                        var items = WorkspaceQueueService.ScanProjects(workspace)
+                            .Select((item, index) => new { Item = item, Index = index })
+                            .OrderBy(entry => revealedTitles.Contains(
+                                (entry.Item.NewTitle ?? string.Empty).Trim()) ? 0 : 1)
+                            .ThenBy(entry => entry.Index)
+                            .Select(entry => entry.Item)
+                            .ToArray();
+                        var options = WorkspaceQueueService.LoadRunOptions(workspace);
+                        return (Items: items, Options: options);
+                    }, ct);
+                    await vm.ApplyPreparedWorkspaceQueueSnapshotAsync(
+                        workspace,
+                        snapshot.Items,
+                        snapshot.Options);
+                    vm.AppendLog($"已在上传列表优先显示恢复项目目录：「{newTitle}」。");
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // 显示刷新失败不应中断已经成功的目录恢复；最终准备阶段还会完整刷新一次。
+                    vm.AppendLog($"恢复项目「{newTitle}」已完成，但立即刷新上传列表失败：{ex.Message}");
+                }
+            }
 
             Action<string> CreatePreparationLog(string newTitle)
             {
@@ -2360,6 +2395,7 @@ public partial class TikTokQueueView : UserControl
                         match.ArchivedProject!.ArchiveProjectDir,
                         proofAccount.ResolveArchiveRootPath(workspace)), ct);
                     restoredCount++;
+                    await RevealRecoveredProjectsAsync(match.NewTitle);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -2466,6 +2502,7 @@ public partial class TikTokQueueView : UserControl
                     }
 
                     recoveredCount++;
+                    await RevealRecoveredProjectsAsync(match.NewTitle);
                     try
                     {
                         TikTokExecutionHistoryService.PersistDeletionSnapshot(
