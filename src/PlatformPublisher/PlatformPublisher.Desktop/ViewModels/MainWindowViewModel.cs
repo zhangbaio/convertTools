@@ -31,6 +31,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         [
             new(PublishJobKind.Series, "剧集上传", "使用项目内剧集配置创建并上传分集"),
             new(PublishJobKind.DirectoryMaterials, "目录批量发表", "每个一级子目录发表一条视频"),
+            new(PublishJobKind.SystemHighlight, "系统高光发表", "按剧名选择平台系统高光并发表"),
         ];
         _selectedPlatform = Platforms[0];
         _selectedJobKind = JobKinds[0];
@@ -90,6 +91,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string _draftScheduleText = DateTime.Now.AddHours(1).ToString("yyyy-MM-dd HH:mm");
 
     [ObservableProperty]
+    private string _draftDramaTitle = string.Empty;
+
+    [ObservableProperty]
+    private int _draftPublishCount = 1;
+
+    [ObservableProperty]
+    private string _draftPublishVideoTypes = "混剪,解说,切片";
+
+    [ObservableProperty]
+    private bool _draftRegenerateHighlightsAfterPublish;
+
+    [ObservableProperty]
     private string _statusMessage = "多平台发布助手已启动，数据与 TikTok 助手完全隔离。";
 
     [ObservableProperty]
@@ -108,7 +121,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     partial void OnSelectedJobChanged(PublishJobRowViewModel? value) => NotifyCommands();
+    partial void OnSelectedJobKindChanged(PublishJobKindOptionViewModel value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftProjectDirectoryChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
+    partial void OnDraftDramaTitleChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftScheduleEnabledChanged(bool value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftScheduleTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
 
@@ -134,6 +149,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool CanAddJob() =>
         !IsBusy &&
         Directory.Exists(DraftProjectDirectory) &&
+        (SelectedJobKind.Value != PublishJobKind.SystemHighlight || !string.IsNullOrWhiteSpace(DraftDramaTitle)) &&
         (!DraftScheduleEnabled || PublishSchedulePolicy.TryParseLocal(DraftScheduleText, out _));
 
     private async Task AddJobAsync()
@@ -156,13 +172,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             Platform = SelectedPlatform.Value,
             Kind = SelectedJobKind.Value,
-            ProjectName = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+            ProjectName = SelectedJobKind.Value == PublishJobKind.SystemHighlight
+                ? DraftDramaTitle.Trim()
+                : Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
             ProjectDirectory = directory,
             ConfigPath = DraftConfigPath.Trim(),
             AccountName = DraftAccountName.Trim(),
             DeclareOriginal = DraftDeclareOriginal,
             HideLocation = DraftHideLocation,
             AllowDuplicatePublish = DraftAllowDuplicatePublish,
+            DramaTitle = DraftDramaTitle.Trim(),
+            PublishCount = Math.Clamp(DraftPublishCount, 1, 100),
+            PublishVideoTypes = DraftPublishVideoTypes.Trim(),
+            RegenerateHighlightsAfterPublish = DraftRegenerateHighlightsAfterPublish,
             ScheduledAt = scheduledAt,
             Status = adapter.IsAvailable ? PublishJobStatus.Pending : PublishJobStatus.Blocked,
             StatusMessage = adapter.IsAvailable
