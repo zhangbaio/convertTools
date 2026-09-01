@@ -9,6 +9,7 @@ using PlatformPublisher.Common.Services;
 using PlatformPublisher.Kuaishou.Publishing;
 using PlatformPublisher.Weixin.Publishing;
 using PlatformPublisher.Desktop.ViewModels;
+using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Desktop.Views;
 using ShortDrama.Infrastructure.DependencyInjection;
 using TikTokPublisher.Ui.ViewModels;
@@ -47,6 +48,8 @@ public partial class App : Application
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();
         services.AddSingleton<WeixinSystemHighlightPublishService>();
         services.AddSingleton<WeixinLocalVideoPublishService>();
+        services.AddSingleton<WeixinSeriesConfigOverrideService>();
+        services.AddSingleton<IAiRuntimeSettingsProvider, PlatformAiRuntimeSettingsProvider>();
         services.AddSingleton<IPlatformPublishAdapter, WeixinChannelPublishAdapter>();
         services.AddSingleton<IPlatformPublishAdapter>(
             _ => new UnavailableKuaishouPublishAdapter(PublishPlatform.KuaishouPersonalRevenue));

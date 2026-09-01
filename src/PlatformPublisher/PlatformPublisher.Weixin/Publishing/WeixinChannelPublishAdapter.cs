@@ -12,19 +12,22 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
     private readonly WeixinDirectoryMaterialPublishService _directoryMaterialPublishService;
     private readonly WeixinSystemHighlightPublishService _systemHighlightPublishService;
     private readonly WeixinLocalVideoPublishService _localVideoPublishService;
+    private readonly WeixinSeriesConfigOverrideService _seriesConfigOverrideService;
 
     public WeixinChannelPublishAdapter(
         IWeixinChannelUploader uploader,
         IWeixinBrowserSessionLauncher browserSessionLauncher,
         WeixinDirectoryMaterialPublishService directoryMaterialPublishService,
         WeixinSystemHighlightPublishService systemHighlightPublishService,
-        WeixinLocalVideoPublishService localVideoPublishService)
+        WeixinLocalVideoPublishService localVideoPublishService,
+        WeixinSeriesConfigOverrideService seriesConfigOverrideService)
     {
         _uploader = uploader;
         _browserSessionLauncher = browserSessionLauncher;
         _directoryMaterialPublishService = directoryMaterialPublishService;
         _systemHighlightPublishService = systemHighlightPublishService;
         _localVideoPublishService = localVideoPublishService;
+        _seriesConfigOverrideService = seriesConfigOverrideService;
     }
 
     public PublishPlatform Platform => PublishPlatform.WeixinChannel;
@@ -55,13 +58,17 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
             return;
         }
 
+        var overridePlan = _seriesConfigOverrideService.Prepare(job);
+        var effectiveConfigPath = overridePlan?.OverrideConfigPath ?? NullIfWhiteSpace(job.ConfigPath);
+        if (overridePlan is not null)
+            progress?.Report($"剧集上传：已生成任务级配置，视频 {overridePlan.SelectedVideoCount}/{overridePlan.OriginalVideoCount}。 ");
         var result = await _uploader.UploadAsync(
             new WeixinUploadRequest(
                 job.Id,
                 job.ProjectDirectory,
                 job.ProjectName,
-                NullIfWhiteSpace(job.ConfigPath),
-                NullIfWhiteSpace(Path.GetFileName(job.ConfigPath))),
+                effectiveConfigPath,
+                NullIfWhiteSpace(Path.GetFileName(effectiveConfigPath))),
             progress,
             cancellationToken);
 

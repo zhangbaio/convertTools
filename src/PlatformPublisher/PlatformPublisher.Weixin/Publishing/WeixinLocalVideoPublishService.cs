@@ -32,16 +32,33 @@ public sealed class WeixinLocalVideoPublishService
 
     private readonly IWeixinChannelUploader _uploader;
     private readonly string _dataRoot;
+    private readonly IAiRuntimeSettingsProvider _aiSettingsProvider;
 
     public WeixinLocalVideoPublishService(IWeixinChannelUploader uploader)
-        : this(uploader, PlatformPublisherPaths.DataRoot)
+        : this(uploader, PlatformPublisherPaths.DataRoot, EmptyAiRuntimeSettingsProvider.Instance)
+    {
+    }
+
+    public WeixinLocalVideoPublishService(
+        IWeixinChannelUploader uploader,
+        IAiRuntimeSettingsProvider aiSettingsProvider)
+        : this(uploader, PlatformPublisherPaths.DataRoot, aiSettingsProvider)
     {
     }
 
     public WeixinLocalVideoPublishService(IWeixinChannelUploader uploader, string dataRoot)
+        : this(uploader, dataRoot, EmptyAiRuntimeSettingsProvider.Instance)
+    {
+    }
+
+    private WeixinLocalVideoPublishService(
+        IWeixinChannelUploader uploader,
+        string dataRoot,
+        IAiRuntimeSettingsProvider aiSettingsProvider)
     {
         _uploader = uploader;
         _dataRoot = Path.GetFullPath(dataRoot);
+        _aiSettingsProvider = aiSettingsProvider;
     }
 
     public async Task PublishAsync(PublishJob job, IProgress<string>? progress, CancellationToken cancellationToken)
@@ -150,6 +167,7 @@ public sealed class WeixinLocalVideoPublishService
             },
             ["video_publish"] = publishVideo,
         };
+        WeixinAiSettingsInjector.Apply(publishVideo, _aiSettingsProvider);
 
         var configPath = Path.Combine(jobRoot, "local-video-publish-config.json");
         File.WriteAllText(configPath, root.ToJsonString(JsonOptions), Encoding.UTF8);

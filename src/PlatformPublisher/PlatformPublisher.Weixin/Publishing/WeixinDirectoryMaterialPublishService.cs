@@ -39,16 +39,33 @@ public sealed class WeixinDirectoryMaterialPublishService
 
     private readonly IWeixinChannelUploader _uploader;
     private readonly string _dataRoot;
+    private readonly IAiRuntimeSettingsProvider _aiSettingsProvider;
 
     public WeixinDirectoryMaterialPublishService(IWeixinChannelUploader uploader)
-        : this(uploader, PlatformPublisherPaths.DataRoot)
+        : this(uploader, PlatformPublisherPaths.DataRoot, EmptyAiRuntimeSettingsProvider.Instance)
+    {
+    }
+
+    public WeixinDirectoryMaterialPublishService(
+        IWeixinChannelUploader uploader,
+        IAiRuntimeSettingsProvider aiSettingsProvider)
+        : this(uploader, PlatformPublisherPaths.DataRoot, aiSettingsProvider)
     {
     }
 
     public WeixinDirectoryMaterialPublishService(IWeixinChannelUploader uploader, string dataRoot)
+        : this(uploader, dataRoot, EmptyAiRuntimeSettingsProvider.Instance)
+    {
+    }
+
+    private WeixinDirectoryMaterialPublishService(
+        IWeixinChannelUploader uploader,
+        string dataRoot,
+        IAiRuntimeSettingsProvider aiSettingsProvider)
     {
         _uploader = uploader;
         _dataRoot = Path.GetFullPath(dataRoot);
+        _aiSettingsProvider = aiSettingsProvider;
     }
 
     public IReadOnlyList<WeixinDirectoryMaterialItem> Scan(string workspacePath)
@@ -183,6 +200,7 @@ public sealed class WeixinDirectoryMaterialPublishService
             },
             ["video_publish"] = videoPublish,
         };
+        WeixinAiSettingsInjector.Apply(videoPublish, _aiSettingsProvider);
 
         var configPath = Path.Combine(jobRoot, "directory-publish-config.json");
         File.WriteAllText(configPath, root.ToJsonString(JsonOptions), Encoding.UTF8);
