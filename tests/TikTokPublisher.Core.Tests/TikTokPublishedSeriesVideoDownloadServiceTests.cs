@@ -30,6 +30,18 @@ public sealed class TikTokPublishedSeriesVideoDownloadServiceTests
         plan.AuthPath.Should().Be(Path.GetFullPath(authPath));
     }
 
+    [Theory]
+    [InlineData("已发布")]
+    [InlineData("视频检测中")]
+    [InlineData("疑似版权问题")]
+    [InlineData("分发受限")]
+    [InlineData("状态未知")]
+    public void Web_video_download_does_not_filter_by_status_or_pending_label(string status)
+    {
+        TikTokPublishedSeriesVideoDownloadService.CanDownloadFromWeb(status)
+            .Should().BeTrue();
+    }
+
     [Fact]
     public void ResolveTargetEpisodes_preserves_only_distinct_positive_requested_episodes()
     {

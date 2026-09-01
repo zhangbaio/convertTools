@@ -45,6 +45,12 @@ public static class TikTokPublishedSeriesVideoDownloadService
             EmbeddedBrowserLoginHelper.ResolveAuthPath(account),
             DefaultHeadless);
 
+    internal static bool CanDownloadFromWeb(string? platformStatus)
+    {
+        _ = platformStatus;
+        return true;
+    }
+
     public static async Task<TikTokPublishedSeriesVideoDownloadResult> DownloadAsync(
         TikTokAccountProfile account,
         IEmbeddedBrowser? browser,
@@ -58,6 +64,7 @@ public static class TikTokPublishedSeriesVideoDownloadService
         string? stagingDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(account);
+        _ = requireCopyrightProofEligibleStatus; // 保留参数兼容旧调用；网页下载不再按状态或待处理标签拦截。
         var title = (newTitle ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(title))
             return Fail("新剧名不能为空。");
@@ -97,10 +104,8 @@ public static class TikTokPublishedSeriesVideoDownloadService
                 return Fail($"TikTok 原创管理中存在 {exactRows.Count} 个同名项目：{title}");
 
             var match = exactRows[0];
-            if (!TikTokPublishedSeriesMatchText.CanUseForCopyrightProofVideoRecovery(
-                    match.PlatformStatus,
-                    requireCopyrightProofEligibleStatus))
-                return Fail($"TikTok 项目「{title}」当前状态不支持补全版权证明：{match.PlatformStatus}");
+            if (!CanDownloadFromWeb(match.PlatformStatus))
+                return Fail($"TikTok 项目「{title}」不允许网页视频恢复。");
             if (string.IsNullOrWhiteSpace(match.DetailUrl))
                 return Fail($"TikTok 项目「{title}」缺少详情页地址。");
 

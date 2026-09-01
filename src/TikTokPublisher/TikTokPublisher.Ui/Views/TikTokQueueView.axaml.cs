@@ -3960,8 +3960,9 @@ public partial class TikTokQueueView : UserControl
                 title,
                 workspaceRoot,
                 requested.Length,
-                // Material fallback must only trust a remotely published/eligible project.
-                requireCopyrightProofEligibleStatus: true,
+                // 网页视频下载不按平台状态或待处理标签拦截；
+                // 只要剧名唯一匹配且页面提供下载按钮就尝试恢复。
+                requireCopyrightProofEligibleStatus: false,
                 log,
                 ct,
                 requested,
