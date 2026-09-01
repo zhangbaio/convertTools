@@ -23,5 +23,6 @@
     <ProjectReference Include="..\PlatformPublisher.Common\PlatformPublisher.Common.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Weixin\PlatformPublisher.Weixin.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Kuaishou\PlatformPublisher.Kuaishou.csproj" />
+    <ProjectReference Include="..\..\TikTokPublisher\TikTokPublisher.Ui\TikTokPublisher.Ui.csproj" />
   </ItemGroup>
 </Project>

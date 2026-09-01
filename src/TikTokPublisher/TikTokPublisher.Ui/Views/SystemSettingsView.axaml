@@ -17,7 +17,7 @@
             <TabItem Header="登录设置">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4">
-                        <TextBlock Text="短剧搜索、下载和数据链路参数为全局共享配置；TikTok 登录信息请到账号管理的登录设置中维护。"
+                        <TextBlock Text="{Binding LoginSettingsHint}"
                                    TextWrapping="Wrap" Classes="pageSummary" />
 
                         <TextBlock Text="数据链路与下载参数" FontWeight="Bold" />

@@ -16,6 +16,15 @@ namespace TikTokPublisher.Ui.ViewModels;
 public sealed partial class SystemSettingsViewModel : ViewModelBase
 {
     private static readonly HttpClient ProbeHttp = CreateProbeHttpClient();
+    private readonly string? _settingsDatabasePath;
+
+    public SystemSettingsViewModel(string? settingsDatabasePath = null)
+    {
+        _settingsDatabasePath = string.IsNullOrWhiteSpace(settingsDatabasePath)
+            ? null
+            : Path.GetFullPath(settingsDatabasePath);
+        MainDatabasePath = _settingsDatabasePath ?? ClientSettingsStore.MainDatabasePath;
+    }
 
     public event Action<ClientSettings>? SettingsSaved;
     public event Action<string>? StatusRequested;
@@ -23,6 +32,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public event Func<string, Task>? CopyToClipboardAsync;
 
     [ObservableProperty] private string _saveMessage = "";
+    [ObservableProperty] private string _loginSettingsHint =
+        "短剧搜索、下载和数据链路参数为全局共享配置；TikTok 登录信息请到账号管理的登录设置中维护。";
     [ObservableProperty] private string _hgnewProbeStatus = "";
     [ObservableProperty] private string _databaseStatsText = "";
     [ObservableProperty] private string _mainDatabasePath = ClientSettingsStore.MainDatabasePath;
@@ -186,8 +197,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     public void Load(string? workspacePath = null)
     {
-        ApplyFromSettings(ClientSettingsStore.Load());
-        MainDatabasePath = ClientSettingsStore.MainDatabasePath;
+        ApplyFromSettings(ClientSettingsStore.Load(_settingsDatabasePath));
+        MainDatabasePath = _settingsDatabasePath ?? ClientSettingsStore.MainDatabasePath;
         WorkspaceDatabasePath = ClientSettingsStore.WorkspaceDatabasePath(workspacePath);
         RefreshDatabaseStats();
     }
@@ -319,7 +330,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
                     PikachuDeviceId = result.DeviceId;
                 }
 
-                ClientSettingsStore.PatchPikachuRuntimeFields(result.FanqieCookie, result.DeviceId);
+                ClientSettingsStore.PatchPikachuRuntimeFields(
+                    result.FanqieCookie,
+                    result.DeviceId,
+                    _settingsDatabasePath);
                 PikachuProbeStatus = "已从红果客户端读取番茄 Cookie，保存设置后即可生效。";
                 StatusRequested?.Invoke("已从红果读取番茄 Cookie");
                 return;
@@ -397,7 +411,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         {
             var settings = ToSettings();
             PersistHghighMastersFromForm();
-            ClientSettingsStore.Save(settings);
+            ClientSettingsStore.Save(settings, _settingsDatabasePath);
             ApplyFromSettings(settings);
             SaveMessage = "系统设置已保存。";
             SettingsSaved?.Invoke(settings);

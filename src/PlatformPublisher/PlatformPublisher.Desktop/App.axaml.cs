@@ -11,6 +11,7 @@ using PlatformPublisher.Weixin.Publishing;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Desktop.Views;
 using ShortDrama.Infrastructure.DependencyInjection;
+using TikTokPublisher.Ui.ViewModels;
 
 namespace PlatformPublisher.Desktop;
 
@@ -26,7 +27,10 @@ public partial class App : Application
         {
             _services = BuildServices();
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
-            desktop.MainWindow = new MainWindow { DataContext = viewModel };
+            var settingsViewModel = _services.GetRequiredService<SystemSettingsViewModel>();
+            var mainWindow = new MainWindow { DataContext = viewModel };
+            mainWindow.BindSettings(settingsViewModel);
+            desktop.MainWindow = mainWindow;
             desktop.Exit += (_, _) => viewModel.Shutdown();
         }
 
@@ -49,6 +53,10 @@ public partial class App : Application
             _ => new UnavailableKuaishouPublishAdapter(PublishPlatform.KuaishouEnterpriseRevenue));
         services.AddSingleton<PlatformPublishCoordinator>();
         services.AddSingleton<MainWindowViewModel>();
+        services.AddSingleton(_ => new SystemSettingsViewModel(PlatformPublisherPaths.SettingsDatabasePath)
+        {
+            LoginSettingsHint = "短剧搜索、下载和数据链路参数为多平台助手独立配置；平台登录信息请到左侧账号档案中维护。",
+        });
         return services.BuildServiceProvider();
     }
 }

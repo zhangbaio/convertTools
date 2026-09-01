@@ -1,14 +1,11 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="PlatformPublisher.Desktop.App"
-             RequestedThemeVariant="Dark">
+             RequestedThemeVariant="Light">
     <Application.Styles>
         <FluentTheme />
-        <Style Selector="Window">
-            <Setter Property="Background" Value="#0B2438" />
-            <Setter Property="Foreground" Value="#F4FAFF" />
-        </Style>
-        <Style Selector="Button">
+        <StyleInclude Source="avares://TikTokPublisher.Ui/Themes/PythonAppTheme.axaml" />
+        <Style Selector="Grid.platformPipeline Button">
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Padding" Value="12,7" />
             <Setter Property="MinHeight" Value="34" />
@@ -22,7 +19,22 @@
         <Style Selector="Button.nav">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Foreground" Value="#A9C6DD" />
+            <Setter Property="Foreground" Value="#111827" />
+            <Setter Property="Padding" Value="20,0" />
+            <Setter Property="MinHeight" Value="56" />
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="Button.navActive">
+            <Setter Property="Foreground" Value="#0B74D1" />
+            <Setter Property="BorderBrush" Value="#0B74D1" />
+            <Setter Property="BorderThickness" Value="0,0,0,3" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="Button.nav:disabled">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#94A3B8" />
+            <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Border.panel">
             <Setter Property="Background" Value="#11334D" />
@@ -30,13 +42,28 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
         </Style>
-        <Style Selector="TextBox">
+        <Style Selector="Grid.platformPipeline TextBox">
             <Setter Property="Background" Value="#0D2B42" />
             <Setter Property="BorderBrush" Value="#315E78" />
+            <Setter Property="Foreground" Value="#F4FAFF" />
         </Style>
-        <Style Selector="ComboBox">
+        <Style Selector="Grid.platformPipeline ComboBox">
             <Setter Property="Background" Value="#0D2B42" />
             <Setter Property="BorderBrush" Value="#315E78" />
+            <Setter Property="Foreground" Value="#F4FAFF" />
+        </Style>
+        <Style Selector="Grid.platformPipeline TextBlock">
+            <Setter Property="Foreground" Value="#F4FAFF" />
+        </Style>
+        <Style Selector="Grid.platformPipeline CheckBox">
+            <Setter Property="Foreground" Value="#F4FAFF" />
+        </Style>
+        <Style Selector="Border.platformSidebar TextBlock">
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="Border.platformSidebar Border.panel">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#D8E2EC" />
         </Style>
     </Application.Styles>
 </Application>

@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:PlatformPublisher.Desktop.ViewModels"
+        xmlns:tiktokViews="using:TikTokPublisher.Ui.Views"
         x:Class="PlatformPublisher.Desktop.Views.MainWindow"
         Width="1496"
         Height="860"
@@ -8,26 +9,28 @@
         MinHeight="720"
         Title="云帆多平台发布助手">
     <Grid RowDefinitions="58,*,30">
-        <Border Grid.Row="0" Background="#0E2D45" BorderBrush="#28546F" BorderThickness="0,0,0,1">
+        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="0,0,0,1">
             <Grid ColumnDefinitions="230,*">
-                <Border BorderBrush="#28546F" BorderThickness="0,0,1,0" Padding="18,0">
+                <Border BorderBrush="#D8E2EC" BorderThickness="0,0,1,0" Padding="18,0">
                     <TextBlock Text="云帆多平台发布助手"
                                VerticalAlignment="Center"
                                FontSize="17"
-                               FontWeight="Bold" />
+                               FontWeight="Bold"
+                               Foreground="#0B74D1" />
                 </Border>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10,0">
-                    <Button Classes="nav" Content="生产流水线" FontWeight="SemiBold" />
-                    <Button Classes="nav" Content="发布账号" IsEnabled="False" />
-                    <Button Classes="nav" Content="网页工具" IsEnabled="False" />
-                    <Button Classes="nav" Content="查看报告" IsEnabled="False" />
-                    <Button Classes="nav" Content="应用配置" IsEnabled="False" />
+                    <Button x:Name="PipelineNavButton" Classes="nav navActive" Content="生产流水线" Click="OnPipelineNavClick" />
+                    <Button Classes="nav" Content="发布账号" IsHitTestVisible="False" />
+                    <Button Classes="nav" Content="网页工具" IsHitTestVisible="False" />
+                    <Button Classes="nav" Content="查看报告" IsHitTestVisible="False" />
+                    <Button x:Name="SettingsNavButton" Classes="nav" Content="系统设置" Click="OnSettingsNavClick" />
                 </StackPanel>
             </Grid>
         </Border>
 
         <Grid Grid.Row="1" ColumnDefinitions="230,*">
-            <Border Grid.Column="0" Background="#0E2D45" BorderBrush="#28546F" BorderThickness="0,0,1,0" Padding="12">
+        <Grid x:Name="PipelinePage" Grid.ColumnSpan="2" Classes="platformPipeline" ColumnDefinitions="230,*">
+            <Border Grid.Column="0" Classes="platformSidebar" Background="#FBFCFE" BorderBrush="#D8E2EC" BorderThickness="0,0,1,0" Padding="12">
                 <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
                     <StackPanel Spacing="4" Margin="4,4,4,8">
                         <TextBlock Text="发布平台" FontWeight="SemiBold" FontSize="15" />
@@ -47,7 +50,7 @@
                                 <Setter Property="CornerRadius" Value="7" />
                             </Style>
                             <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                <Setter Property="Background" Value="#17689A" />
+                                <Setter Property="Background" Value="#DCEBFF" />
                             </Style>
                         </ListBox.Styles>
                         <ListBox.ItemTemplate>
@@ -104,7 +107,7 @@
                 </Grid>
             </Border>
 
-            <Grid Grid.Column="1" Margin="16,14" RowDefinitions="Auto,Auto,*" RowSpacing="10">
+            <Grid x:Name="PipelineContent" Grid.Column="1" Margin="16,14" RowDefinitions="Auto,Auto,*" RowSpacing="10">
                 <Border Classes="panel" Padding="14">
                     <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
                         <TextBlock Text="任务类型" VerticalAlignment="Center" />
@@ -280,11 +283,14 @@
                 </Border>
             </Grid>
         </Grid>
+        <tiktokViews:SystemSettingsView x:Name="SharedSettingsView" Grid.Column="1" IsVisible="False" />
+        </Grid>
 
-        <Border Grid.Row="2" Background="#0E2D45" BorderBrush="#28546F" BorderThickness="0,1,0,0" Padding="12,0">
+        <Border Grid.Row="2" Background="#EEF3F8" BorderBrush="#D8E2EC" BorderThickness="0,1,0,0" Padding="12,0">
             <TextBlock Text="{Binding StatusMessage}"
                        VerticalAlignment="Center"
                        FontSize="12"
+                       Foreground="#475569"
                        TextTrimming="CharacterEllipsis" />
         </Border>
     </Grid>
