@@ -31,6 +31,7 @@ public sealed class WeixinDirectoryMaterialPublishServiceTests
                 Kind = PublishJobKind.DirectoryMaterials,
                 ProjectDirectory = sourceRoot,
                 ProjectName = "素材目录",
+                AccountName = "视频号主账号",
                 DeclareOriginal = false,
                 HideLocation = false,
                 AllowDuplicatePublish = true,
@@ -45,6 +46,9 @@ public sealed class WeixinDirectoryMaterialPublishServiceTests
             using var document = JsonDocument.Parse(File.ReadAllText(plan.ConfigPath));
             var root = document.RootElement;
             Assert.Equal("publish_videos", root.GetProperty("task_type").GetString());
+            var authFile = root.GetProperty("auth_file").GetString() ?? string.Empty;
+            Assert.Contains(Path.Combine("isolated-data", "accounts"), authFile, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(Path.Combine("accounts", "default"), authFile, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(2, root.GetProperty("video_publish").GetProperty("publish_count").GetInt32());
             var publish = root.GetProperty("video_publish");
             Assert.False(publish.GetProperty("declare_original").GetBoolean());
