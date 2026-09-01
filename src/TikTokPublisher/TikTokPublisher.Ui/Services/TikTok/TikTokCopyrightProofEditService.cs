@@ -315,14 +315,14 @@ public static class TikTokCopyrightProofEditService
 
                 if (requireFullRebuildVerification)
                 {
-                    await TikTokBrowserActions.VerifyCopyrightProofRebuildAsync(
+                    await TikTokBrowserActions.VerifyPersistedCopyrightProofRebuildAsync(
                             page,
                             configured,
                             log,
                             ct)
                         .ConfigureAwait(false);
                     log?.Invoke(
-                        "TikTok 版权证明提交后全量复查通过：最新配置材料均已保存，旧材料无残留。");
+                        "TikTok 版权证明提交后全量只读复查通过：最新配置材料均已保存，旧材料无残留。");
                     return;
                 }
 

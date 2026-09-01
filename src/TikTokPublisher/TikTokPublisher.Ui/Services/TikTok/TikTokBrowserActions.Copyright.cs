@@ -1007,6 +1007,50 @@ public static partial class TikTokBrowserActions
         Log(log, "TikTok 编辑页版权材料已按最新配置全量重建并通过提交前复查。");
     }
 
+    internal static async Task VerifyPersistedCopyrightProofRebuildAsync(
+        IPage page,
+        IEnumerable<string>? configuredMaterialTypes,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var configured = TikTokPublishConstants
+            .NormalizeCopyrightMaterialTypes(configuredMaterialTypes)
+            .ToHashSet(StringComparer.Ordinal);
+        var coverage = await ProbeConfiguredCopyrightProofMaterialsAsync(page, configured, ct)
+            .ConfigureAwait(false);
+        foreach (var detail in coverage.Details)
+            Log(log, $"TikTok 提交后版权材料落库复查：{detail}。");
+        if (!coverage.FormAvailable || !coverage.Plan.IsComplete)
+        {
+            var missing = coverage.Plan.MissingMaterialTypes
+                .Select(type => TikTokPublishConstants.CopyrightMaterialLabels[type]);
+            throw new InvalidOperationException(
+                "TikTok 版权材料提交后落库复查失败：" +
+                (coverage.FormAvailable
+                    ? $"仍缺少 {string.Join("、", missing)}。"
+                    : "版权证明表单不可识别。"));
+        }
+
+        // 提交后剧集通常立即进入“视频检测中”，平台会禁用材料下拉框和复选框。
+        // 此阶段只能做只读落库复查：配置材料必须有附件，未配置材料不得残留附件；
+        // 勾选状态已在提交前的 VerifyCopyrightProofRebuildAsync 中严格验证。
+        foreach (var materialType in TikTokPublishConstants.AutoManagedCopyrightMaterialTypes)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (configured.Contains(materialType)) continue;
+
+            var label = TikTokPublishConstants.CopyrightMaterialLabels[materialType];
+            var field = await TryFindCopyrightMaterialFieldAsync(page, materialType, label);
+            if (field is not null && await CountExistingCopyrightMaterialFilesAsync(field) > 0)
+            {
+                throw new InvalidOperationException(
+                    $"TikTok 版权材料提交后仍有未配置附件残留：{label}。");
+            }
+        }
+
+        Log(log, "TikTok 版权材料提交后只读复查通过：最新配置材料均已落库，旧材料无残留。");
+    }
+
     /// <summary>
     /// 仅从 workflow 下的「原始文件信息上传」目录读取配置的上传文件。
     /// </summary>
