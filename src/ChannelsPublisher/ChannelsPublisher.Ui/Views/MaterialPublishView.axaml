@@ -1,13 +1,11 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:ChannelsPublisher.Desktop.ViewModels"
-             xmlns:conv="using:Avalonia.Data.Converters"
              x:Class="ChannelsPublisher.Desktop.Views.MaterialPublishView"
              x:DataType="vm:MainViewModel"
              Background="#F3F6FA">
 
     <UserControl.Resources>
-        <SolidColorBrush x:Key="PythonPageBgBrush" Color="#F3F6FA" />
         <SolidColorBrush x:Key="PythonPanelBgBrush" Color="#FFFFFF" />
         <SolidColorBrush x:Key="PythonPanelBorderBrush" Color="#D9E2EC" />
         <SolidColorBrush x:Key="PythonMutedBrush" Color="#64748B" />
@@ -18,93 +16,44 @@
         <vm:MainViewModel />
     </Design.DataContext>
 
-    <DockPanel>
-        <!-- 底部状态栏 -->
-        <Border DockPanel.Dock="Bottom" Height="30" Background="{StaticResource PythonStatusBarBrush}" BorderBrush="{StaticResource PythonPanelBorderBrush}" BorderThickness="0,1,0,0">
-            <TextBlock Margin="12,0" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource PythonMutedBrush}"
-                       Text="{Binding StatusMessage}" />
-        </Border>
+    <Grid ColumnDefinitions="198,*"
+          RowDefinitions="Auto,*,190,150,30"
+          ColumnSpacing="12"
+          Margin="12,10,12,8">
 
-        <!-- 发布任务队列（素材→账号分配 + 结束动作 + 并发 + 进度看板） -->
-        <Border DockPanel.Dock="Bottom" Height="250" Margin="12,0,12,12"
-                Background="{StaticResource PythonPanelBgBrush}"
+        <!-- 左侧整列统一为账号区域。 -->
+        <Border Grid.Column="0" Grid.RowSpan="5"
+                Background="#FBFCFE"
                 BorderBrush="{StaticResource PythonPanelBorderBrush}"
-                BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+                BorderThickness="1"
+                CornerRadius="8"
+                ClipToBounds="True">
             <DockPanel>
-                <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="10,8,10,4">
-                    <TextBlock Text="发布任务" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <Button Content="添加素材" Click="OnAddMaterialsClick" Classes="secondaryAction" Margin="8,0,0,0"
-                            ToolTip.Tip="选视频，分配给当前选中账号" />
-                    <Button Content="导入任务(JSON)" Click="OnImportTasksClick" Classes="secondaryAction" Margin="8,0,0,0"
-                            ToolTip.Tip="导入 prep 产出的发布任务清单" />
-                    <TextBlock Text="结束动作" VerticalAlignment="Center" Margin="12,0,0,0" />
-                    <ComboBox ItemsSource="{Binding FinalActionChoices}" SelectedItem="{Binding SelectedFinalAction}" MinWidth="150">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:FinalActionChoice">
-                                <TextBlock Text="{Binding Label}" />
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
-                    <TextBlock Text="并发账号" VerticalAlignment="Center" />
-                    <NumericUpDown Value="{Binding MaxParallel}" Minimum="1" Maximum="8" Increment="1" Width="110" />
-                    <Button x:Name="StartPublishButton" Content="开始发布" Click="OnStartPublishClick" Classes="primaryAction" Margin="8,0,0,0" />
-                    <Button x:Name="StopPublishButton" Content="停止" Click="OnStopPublishClick" IsEnabled="False"
-                            Margin="8,0,0,0"
-                            ToolTip.Tip="停止发布：当前素材发完即停，已完成的保留，可再次「开始」续传" />
-                    <Button Content="清空已完成" Click="OnClearDoneClick" Classes="secondaryAction" Margin="8,0,0,0" />
-                    <Button Content="清除续传记录" Click="OnClearResumeClick" Classes="secondaryAction" Margin="8,0,0,0"
-                            ToolTip.Tip="清空断点续传的已发布记录（resume 模式下将重新发布这些素材）" />
-                    <Border Width="1" Background="{StaticResource PythonPanelBorderBrush}" Margin="8,2" />
-                    <Button Content="发表配置" Click="OnPublishConfigClick" Classes="secondaryAction"
-                            ToolTip.Tip="发表流程的全局默认（来源/集数/描述/封面/原创…）" />
-                    <Button Content="全局剪辑配置" Click="OnClipConfigClick" Classes="secondaryAction" Margin="8,0,0,0"
-                            ToolTip.Tip="一键创作的全局剪辑配置（模式/画质/编码/原创度）" />
-                </WrapPanel>
-
-                <Border DockPanel.Dock="Top" Background="#EDF3F9" BorderBrush="{StaticResource PythonPanelBorderBrush}" BorderThickness="0,1,0,1" Padding="10,6">
-                    <Grid ColumnDefinitions="140,*,150,90,*">
-                        <TextBlock Grid.Column="0" Text="账号" Foreground="{StaticResource PythonMutedBrush}" FontSize="12" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="1" Text="视频" Foreground="{StaticResource PythonMutedBrush}" FontSize="12" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="2" Text="剧集" Foreground="{StaticResource PythonMutedBrush}" FontSize="12" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="3" Text="状态" Foreground="{StaticResource PythonMutedBrush}" FontSize="12" FontWeight="SemiBold" />
-                        <TextBlock Grid.Column="4" Text="信息" Foreground="{StaticResource PythonMutedBrush}" FontSize="12" FontWeight="SemiBold" />
-                    </Grid>
+                <Border DockPanel.Dock="Top" Padding="10,9"
+                        Background="#FFFFFF"
+                        BorderBrush="{StaticResource PythonPanelBorderBrush}"
+                        BorderThickness="0,0,0,1">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="发布账号" FontWeight="SemiBold" />
+                        <WrapPanel Orientation="Horizontal">
+                            <Button Content="添加账号" Command="{Binding AddAccountCommand}"
+                                    Classes="sidebarPrimaryAction" Margin="0,0,6,6" />
+                            <Button Content="登录" Command="{Binding LoginCommand}"
+                                    Classes="secondaryAction" Margin="0,0,6,6" />
+                            <Button Content="删除" Command="{Binding RemoveAccountCommand}"
+                                    Classes="dangerAction" Margin="0,0,6,6" />
+                            <Button Content="发布测试" Click="OnPublishClick"
+                                    Classes="secondaryAction" Margin="0,0,6,6"
+                                    ToolTip.Tip="选一个视频，经该账号内嵌浏览器走发布流程（只填不发，安全）" />
+                        </WrapPanel>
+                    </StackPanel>
                 </Border>
 
-                <ListBox ItemsSource="{Binding Tasks}" Background="{StaticResource PythonPanelBgBrush}" BorderThickness="0">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate x:DataType="vm:PublishTaskItemViewModel">
-                            <Grid ColumnDefinitions="140,*,150,90,*" Margin="10,5">
-                                <TextBlock Grid.Column="0" Text="{Binding AccountName}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Grid.Column="1" Text="{Binding VideoName}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Grid.Column="2" Text="{Binding DramaName}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Grid.Column="3" Text="{Binding StatusText}" />
-                                <TextBlock Grid.Column="4" Text="{Binding Message}" TextTrimming="CharacterEllipsis" Foreground="{StaticResource PythonMutedBrush}" />
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
-        </Border>
-
-        <Grid ColumnDefinitions="198,*" Margin="12,12,12,10">
-            <!-- 左：账号列表 -->
-            <DockPanel Grid.Column="0" Classes="accountSidebarFrame" Background="#FBFCFE">
-                <Border DockPanel.Dock="Top" Padding="10,8">
-                    <WrapPanel Orientation="Horizontal">
-                        <Button Content="添加账号" Command="{Binding AddAccountCommand}" Classes="sidebarPrimaryAction" Margin="0,0,6,6" />
-                        <Button Content="登录" Command="{Binding LoginCommand}" Classes="secondaryAction" Margin="0,0,6,6" />
-                        <Button Content="删除" Command="{Binding RemoveAccountCommand}" Classes="dangerAction" Margin="0,0,6,6" />
-                        <Button Content="发布测试" Click="OnPublishClick" Classes="secondaryAction" Margin="0,0,6,6"
-                                ToolTip.Tip="选一个视频，经该账号内嵌浏览器走发布流程（只填不发，安全）" />
-                    </WrapPanel>
-                </Border>
-                <Border DockPanel.Dock="Top" Padding="12,6" Background="#F3F6FA" BorderBrush="{StaticResource PythonPanelBorderBrush}" BorderThickness="0,1,0,1">
-                    <TextBlock Text="发布账号" FontSize="12" Foreground="{StaticResource PythonMutedBrush}" FontWeight="SemiBold" />
-                </Border>
-                <ListBox x:Name="AccountList" ItemsSource="{Binding Accounts}"
+                <ListBox x:Name="AccountList"
+                         ItemsSource="{Binding Accounts}"
                          SelectedItem="{Binding SelectedAccount, Mode=TwoWay}"
-                         Background="Transparent" BorderThickness="0">
+                         Background="Transparent"
+                         BorderThickness="0">
                     <ListBox.Styles>
                         <Style Selector="ListBoxItem">
                             <Setter Property="Padding" Value="6" />
@@ -128,18 +77,152 @@
                     </ListBox.ItemTemplate>
                 </ListBox>
             </DockPanel>
+        </Border>
 
-            <!-- 右：内嵌浏览器区（每账号一个 WebView2Host，选中账号显示对应会话） -->
-            <Border Grid.Column="1" Margin="12,0,0,0" BorderBrush="{StaticResource PythonPanelBorderBrush}" BorderThickness="1" Background="White" CornerRadius="8" ClipToBounds="True">
-                <Panel x:Name="BrowserArea">
-                    <TextBlock x:Name="EmptyHint"
-                               Text="点击左上「添加账号」，选中后在此加载该账号的视频号会话（扫码登录后长期保持在线）"
-                               IsVisible="True"
-                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                               TextWrapping="Wrap" MaxWidth="480" TextAlignment="Center"
-                               Foreground="{StaticResource PythonMutedBrush}" FontSize="14" />
-                </Panel>
-            </Border>
-        </Grid>
-    </DockPanel>
+        <!-- 所有发布与配置按钮统一置于右侧顶部。 -->
+        <Border Grid.Column="1" Grid.Row="0"
+                Background="{StaticResource PythonPanelBgBrush}"
+                BorderBrush="{StaticResource PythonPanelBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="10,8"
+                Margin="0,0,0,10">
+            <WrapPanel Orientation="Horizontal">
+                <TextBlock Text="发布控制" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <Button Content="添加素材" Click="OnAddMaterialsClick" Classes="secondaryAction" Margin="0,0,8,6"
+                        ToolTip.Tip="选视频，分配给当前选中账号" />
+                <Button Content="导入任务(JSON)" Click="OnImportTasksClick" Classes="secondaryAction" Margin="0,0,8,6"
+                        ToolTip.Tip="导入 prep 产出的发布任务清单" />
+                <TextBlock Text="结束动作" VerticalAlignment="Center" Margin="4,0,6,6" />
+                <ComboBox ItemsSource="{Binding FinalActionChoices}"
+                          SelectedItem="{Binding SelectedFinalAction}"
+                          MinWidth="150" Margin="0,0,8,6">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:FinalActionChoice">
+                            <TextBlock Text="{Binding Label}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Text="并发账号" VerticalAlignment="Center" Margin="0,0,6,6" />
+                <NumericUpDown Value="{Binding MaxParallel}" Minimum="1" Maximum="8" Increment="1"
+                               Width="104" Margin="0,0,8,6" />
+                <Button x:Name="StartPublishButton" Content="开始发布" Click="OnStartPublishClick"
+                        Classes="primaryAction" Margin="0,0,8,6" />
+                <Button x:Name="StopPublishButton" Content="停止" Click="OnStopPublishClick" IsEnabled="False"
+                        Margin="0,0,8,6"
+                        ToolTip.Tip="停止发布：当前素材发完即停，已完成的保留，可再次开始续传" />
+                <Button Content="清空已完成" Click="OnClearDoneClick" Classes="secondaryAction" Margin="0,0,8,6" />
+                <Button Content="清除续传记录" Click="OnClearResumeClick" Classes="secondaryAction" Margin="0,0,8,6"
+                        ToolTip.Tip="清空断点续传的已发布记录" />
+                <Button Content="发表配置" Click="OnPublishConfigClick" Classes="secondaryAction" Margin="0,0,8,6" />
+                <Button Content="全局剪辑配置" Click="OnClipConfigClick" Classes="secondaryAction" Margin="0,0,0,6" />
+            </WrapPanel>
+        </Border>
+
+        <!-- 当前账号内嵌浏览器。 -->
+        <Border Grid.Column="1" Grid.Row="1"
+                BorderBrush="{StaticResource PythonPanelBorderBrush}"
+                BorderThickness="1"
+                Background="#FFFFFF"
+                CornerRadius="8"
+                ClipToBounds="True"
+                Margin="0,0,0,10">
+            <Panel x:Name="BrowserArea">
+                <TextBlock x:Name="EmptyHint"
+                           Text="点击左侧「添加账号」，选中后在此加载该账号的视频号会话（扫码登录后长期保持在线）"
+                           IsVisible="True"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           MaxWidth="480"
+                           TextAlignment="Center"
+                           Foreground="{StaticResource PythonMutedBrush}"
+                           FontSize="14" />
+            </Panel>
+        </Border>
+
+        <!-- 发布任务只占右侧，不再穿过账号栏。 -->
+        <Border Grid.Column="1" Grid.Row="2"
+                Background="{StaticResource PythonPanelBgBrush}"
+                BorderBrush="{StaticResource PythonPanelBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                ClipToBounds="True"
+                Margin="0,0,0,10">
+            <Grid RowDefinitions="Auto,Auto,*">
+                <TextBlock Text="发布任务" FontWeight="SemiBold" Margin="10,8,10,6" />
+                <Border Grid.Row="1" Background="#EDF3F9"
+                        BorderBrush="{StaticResource PythonPanelBorderBrush}"
+                        BorderThickness="0,1,0,1"
+                        Padding="10,6">
+                    <Grid ColumnDefinitions="140,*,150,90,*">
+                        <TextBlock Text="账号" Foreground="{StaticResource PythonMutedBrush}" FontSize="12" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="视频" Foreground="{StaticResource PythonMutedBrush}" FontSize="12" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="2" Text="剧集" Foreground="{StaticResource PythonMutedBrush}" FontSize="12" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="状态" Foreground="{StaticResource PythonMutedBrush}" FontSize="12" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="4" Text="信息" Foreground="{StaticResource PythonMutedBrush}" FontSize="12" FontWeight="SemiBold" />
+                    </Grid>
+                </Border>
+                <ListBox Grid.Row="2" ItemsSource="{Binding Tasks}"
+                         Background="{StaticResource PythonPanelBgBrush}"
+                         BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PublishTaskItemViewModel">
+                            <Grid ColumnDefinitions="140,*,150,90,*" Margin="10,5">
+                                <TextBlock Text="{Binding AccountName}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="1" Text="{Binding VideoName}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="2" Text="{Binding DramaName}" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="3" Text="{Binding StatusText}" />
+                                <TextBlock Grid.Column="4" Text="{Binding Message}" TextTrimming="CharacterEllipsis"
+                                           Foreground="{StaticResource PythonMutedBrush}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <!-- 新增运行日志面板。 -->
+        <Border Grid.Column="1" Grid.Row="3"
+                Background="{StaticResource PythonPanelBgBrush}"
+                BorderBrush="{StaticResource PythonPanelBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                ClipToBounds="True"
+                Margin="0,0,0,8">
+            <Grid RowDefinitions="Auto,*">
+                <Border Background="#EDF3F9" Padding="10,6"
+                        BorderBrush="{StaticResource PythonPanelBorderBrush}"
+                        BorderThickness="0,0,0,1">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="运行日志" FontWeight="SemiBold" />
+                        <Button Grid.Column="1" Content="清空日志"
+                                Command="{Binding ClearLogsCommand}"
+                                Classes="secondaryAction"
+                                Padding="8,3" MinHeight="26" />
+                    </Grid>
+                </Border>
+                <ListBox Grid.Row="1" ItemsSource="{Binding Logs}"
+                         Background="#FBFCFE" BorderThickness="0"
+                         FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+                         FontSize="12">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="8,3"
+                                       Foreground="#334155" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <Border Grid.Column="1" Grid.Row="4"
+                Background="{StaticResource PythonStatusBarBrush}"
+                BorderBrush="{StaticResource PythonPanelBorderBrush}"
+                BorderThickness="1,0,1,1">
+            <TextBlock Margin="10,0" VerticalAlignment="Center" FontSize="12"
+                       Foreground="{StaticResource PythonMutedBrush}"
+                       Text="{Binding StatusMessage}" />
+        </Border>
+    </Grid>
 </UserControl>

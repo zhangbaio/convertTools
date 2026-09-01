@@ -18,9 +18,20 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly AccountStore _store;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
+    public ObservableCollection<string> Logs { get; } = new();
 
     [ObservableProperty] private AccountItemViewModel? _selectedAccount;
     [ObservableProperty] private string _statusMessage = "就绪";
+
+    partial void OnStatusMessageChanged(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        var entry = $"[{DateTime.Now:HH:mm:ss}] {value.Trim()}";
+        if (Logs.FirstOrDefault() == entry) return;
+        Logs.Insert(0, entry);
+        while (Logs.Count > 500)
+            Logs.RemoveAt(Logs.Count - 1);
+    }
 
     // ── 发布任务队列（P3）──
     public ObservableCollection<PublishTaskItemViewModel> Tasks { get; } = new();
@@ -93,5 +104,12 @@ public sealed partial class MainViewModel : ViewModelBase
         SelectedAccount.Status = AccountStatus.LoggingIn;
         StatusMessage = $"[{SelectedAccount.Name}] 打开视频号登录页扫码…";
         NavigateRequested?.Invoke(SelectedAccount, ChannelsLoginUrl);
+    }
+
+    [RelayCommand]
+    private void ClearLogs()
+    {
+        Logs.Clear();
+        StatusMessage = "运行日志已清空";
     }
 }
