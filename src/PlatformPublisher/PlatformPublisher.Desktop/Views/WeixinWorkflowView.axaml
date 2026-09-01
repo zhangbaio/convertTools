@@ -101,10 +101,13 @@
                     <TextBlock Text="{Binding QueueSummary}" Foreground="#64748B" FontSize="12" />
                 </StackPanel>
                 <WrapPanel Grid.Column="1" Orientation="Horizontal">
+                    <TextBox Width="260" Text="{Binding WorkflowFilterText}"
+                             Watermark="搜索项目 / 账号 / 状态" Margin="0,0,8,0" />
                     <Button Content="执行选中任务" Command="{Binding RunSelectedCommand}" Classes="primaryAction" Margin="0,0,8,0" />
                     <Button Content="执行全部待办" Command="{Binding RunRunnableCommand}" Classes="primaryAction" Margin="0,0,8,0" />
                     <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="secondaryAction" Margin="0,0,8,0" />
                     <Button Content="停止" Command="{Binding StopCommand}" Classes="dangerAction" Margin="0,0,8,0" />
+                    <Button Content="重置为待执行" Command="{Binding ResetSelectedJobCommand}" Classes="secondaryAction" Margin="0,0,8,0" />
                     <Button Content="移出队列" Command="{Binding RemoveSelectedCommand}" Classes="secondaryAction" />
                 </WrapPanel>
             </Grid>

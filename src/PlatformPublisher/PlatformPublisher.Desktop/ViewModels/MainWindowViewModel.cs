@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -82,6 +83,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ClearActivityLogsCommand = new RelayCommand(ActivityLogs.Clear);
         RunSharedPipelineCommand = new AsyncRelayCommand(RunSharedPipelineAsync, CanRunSharedPipeline);
         ScanWorkspaceCommand = new AsyncRelayCommand(ScanWorkspaceAsync, CanScanWorkspace);
+        RefreshArchivedProjectsCommand = new RelayCommand(RefreshArchivedProjects);
+        ResetSelectedJobCommand = new AsyncRelayCommand(ResetSelectedJobAsync, () => SelectedJob is not null && !IsBusy);
         _interactionService.RequestChanged += OnInteractionRequestChanged;
         _scheduleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _scheduleTimer.Tick += OnScheduleTimerTick;
@@ -94,6 +97,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<PublishJobRowViewModel> VisibleJobs { get; } = [];
     public ObservableCollection<PublishAccountItemViewModel> VisibleAccounts { get; } = [];
     public ObservableCollection<string> ActivityLogs { get; } = [];
+    public ObservableCollection<ArchivedProjectRowViewModel> ArchivedProjects { get; } = [];
     public IAsyncRelayCommand AddJobCommand { get; }
     public IAsyncRelayCommand RunSelectedCommand { get; }
     public IAsyncRelayCommand RunRunnableCommand { get; }
@@ -112,6 +116,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public IRelayCommand ClearActivityLogsCommand { get; }
     public IAsyncRelayCommand RunSharedPipelineCommand { get; }
     public IAsyncRelayCommand ScanWorkspaceCommand { get; }
+    public IRelayCommand RefreshArchivedProjectsCommand { get; }
+    public IAsyncRelayCommand ResetSelectedJobCommand { get; }
 
     [ObservableProperty]
     private PlatformOptionViewModel _selectedPlatform;
@@ -192,6 +198,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _pipelineAutoArchiveAfterUpload;
     [ObservableProperty] private bool _pipelinePreferUploadWhenReady = true;
 
+    [ObservableProperty] private string _archiveRootDirectory = string.Empty;
+    [ObservableProperty] private ArchivedProjectRowViewModel? _selectedArchivedProject;
+    [ObservableProperty] private string _workflowFilterText = string.Empty;
+
+    public string ArchivedProjectsSummary => $"已归档 {ArchivedProjects.Count} 个项目";
+
     [ObservableProperty]
     private bool _isBusy;
 
@@ -247,6 +259,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     partial void OnSelectedJobChanged(PublishJobRowViewModel? value) => NotifyCommands();
+    partial void OnWorkflowFilterTextChanged(string value) => RefreshVisibleJobs(SelectedJob?.Id);
     partial void OnSelectedAccountChanged(PublishAccountItemViewModel? value)
     {
         if (value is not null)
@@ -404,6 +417,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private async Task ScanWorkspaceAsync()
     {
         var rootDirectory = Path.GetFullPath(DraftProjectDirectory);
+        ArchiveRootDirectory = rootDirectory;
         await RunBusyAsync(async cancellationToken =>
         {
             try
@@ -793,6 +807,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var rootDirectory = Directory.GetParent(job.ProjectDirectory)?.FullName;
             if (string.IsNullOrWhiteSpace(rootDirectory))
                 throw new InvalidOperationException("无法确定项目根目录。");
+            ArchiveRootDirectory = rootDirectory;
             var scan = await _projectScanner.ScanAsync(rootDirectory, null, cancellationToken);
             var project = scan.Projects.FirstOrDefault(item =>
                 string.Equals(Path.GetFullPath(item.SourceProjectDir), Path.GetFullPath(job.ProjectDirectory), StringComparison.OrdinalIgnoreCase));
@@ -806,6 +821,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             job.ProjectDirectory = result.ArchiveProjectDir;
             job.StatusMessage = $"发布完成并已归档：{result.Message}";
             AppendActivityLog(job.StatusMessage);
+            RefreshArchivedProjects();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -856,6 +872,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await PersistAsync();
         RefreshVisibleJobs();
         StatusMessage = $"已从独立队列移除：{name}（项目文件未删除）";
+    }
+
+    private async Task ResetSelectedJobAsync()
+    {
+        if (SelectedJob is null) return;
+        var job = SelectedJob.Model;
+        job.Status = PublishJobStatus.Pending;
+        job.StatusMessage = "已重置为待执行";
+        job.UpdatedAt = DateTimeOffset.Now;
+        SelectedJob.Refresh();
+        await PersistAsync();
+        StatusMessage = $"已重置任务状态：{job.ProjectName}";
+        AppendActivityLog(StatusMessage);
+        NotifyCommands();
     }
 
     private async Task RunBusyAsync(Func<CancellationToken, Task> action)
@@ -965,6 +995,78 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Dispatcher.UIThread.Post(Append);
     }
 
+    public void RefreshArchivedProjects()
+    {
+        var selectedKey = SelectedArchivedProject?.ProjectKey;
+        ArchivedProjects.Clear();
+        if (string.IsNullOrWhiteSpace(ArchiveRootDirectory))
+        {
+            OnPropertyChanged(nameof(ArchivedProjectsSummary));
+            SelectedArchivedProject = null;
+            return;
+        }
+
+        var archiveRoot = Path.Combine(Path.GetFullPath(ArchiveRootDirectory), "archive");
+        if (!Directory.Exists(archiveRoot))
+        {
+            OnPropertyChanged(nameof(ArchivedProjectsSummary));
+            SelectedArchivedProject = null;
+            return;
+        }
+
+        var rows = new List<ArchivedProjectRowViewModel>();
+        foreach (var directory in Directory.EnumerateDirectories(archiveRoot))
+        {
+            try
+            {
+                var metadataPath = Path.Combine(directory, "archive-meta.json");
+                using var document = File.Exists(metadataPath)
+                    ? JsonDocument.Parse(File.ReadAllText(metadataPath))
+                    : null;
+                var root = document?.RootElement;
+                var projectKey = ReadString(root, "ProjectKey") ?? Path.GetFileName(directory);
+                rows.Add(new ArchivedProjectRowViewModel(
+                    projectKey,
+                    ReadString(root, "DisplayName") ?? projectKey,
+                    directory,
+                    ReadString(root, "archivedSourceDir") ?? Path.Combine(directory, "source"),
+                    ReadString(root, "archivedWorkflowDir") ?? Path.Combine(directory, "workflow"),
+                    ReadDateTimeOffset(root, "ArchivedAt"),
+                    ReadInt32(root, "deletedVideoFileCount"),
+                    ReadInt32(root, "preservedVideoFileCount")));
+            }
+            catch (Exception ex)
+            {
+                AppendActivityLog($"读取归档项目失败：{directory}，{ex.Message}");
+            }
+        }
+
+        foreach (var row in rows.OrderByDescending(item => item.ArchivedAt))
+            ArchivedProjects.Add(row);
+        SelectedArchivedProject = selectedKey is null
+            ? ArchivedProjects.FirstOrDefault()
+            : ArchivedProjects.FirstOrDefault(item => item.ProjectKey == selectedKey) ?? ArchivedProjects.FirstOrDefault();
+        OnPropertyChanged(nameof(ArchivedProjectsSummary));
+    }
+
+    private static string? ReadString(JsonElement? root, string propertyName) =>
+        root is { ValueKind: JsonValueKind.Object } value && value.TryGetProperty(propertyName, out var property) &&
+        property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+
+    private static int ReadInt32(JsonElement? root, string propertyName) =>
+        root is { ValueKind: JsonValueKind.Object } value && value.TryGetProperty(propertyName, out var property) &&
+        property.TryGetInt32(out var result)
+            ? result
+            : 0;
+
+    private static DateTimeOffset? ReadDateTimeOffset(JsonElement? root, string propertyName) =>
+        root is { ValueKind: JsonValueKind.Object } value && value.TryGetProperty(propertyName, out var property) &&
+        property.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(property.GetString(), out var result)
+            ? result
+            : null;
+
     private void RefreshVisibleJobs(string? selectId = null)
     {
         void Refresh()
@@ -972,6 +1074,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
             VisibleJobs.Clear();
             foreach (var job in _jobs
                          .Where(job => job.Platform == SelectedPlatform.Value)
+                         .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||
+                                       string.IsNullOrWhiteSpace(WorkflowFilterText) ||
+                                       job.ProjectName.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase) ||
+                                       job.AccountName.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase) ||
+                                       job.ProjectDirectory.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase) ||
+                                       job.StatusMessage.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase))
                          .OrderByDescending(job => job.CreatedAt))
             {
                 VisibleJobs.Add(new PublishJobRowViewModel(job));
@@ -1032,5 +1140,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         StopInteractionCommand.NotifyCanExecuteChanged();
         RunSharedPipelineCommand.NotifyCanExecuteChanged();
         ScanWorkspaceCommand.NotifyCanExecuteChanged();
+        ResetSelectedJobCommand.NotifyCanExecuteChanged();
     }
 }

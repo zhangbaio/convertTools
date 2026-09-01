@@ -53,6 +53,11 @@ public partial class MaterialPublishView : UserControl
         WorkflowContentHost.Content = content;
     }
 
+    public void SetArchivedProjectsContent(Control content)
+    {
+        ArchivedProjectsContentHost.Content = content;
+    }
+
     private IStorageProvider? Storage => TopLevel.GetTopLevel(this)?.StorageProvider;
 
     private void OnLoaded(object? sender, RoutedEventArgs e)

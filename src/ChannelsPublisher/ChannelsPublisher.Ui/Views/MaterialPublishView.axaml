@@ -247,6 +247,14 @@
                            Foreground="#64748B" />
             </ContentControl>
         </TabItem>
+
+        <TabItem Header="已归档项目">
+            <ContentControl x:Name="ArchivedProjectsContentHost">
+                <TextBlock Text="当前宿主尚未绑定视频号归档项目。"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="#64748B" />
+            </ContentControl>
+        </TabItem>
         </TabControl>
     </Grid>
 </UserControl>

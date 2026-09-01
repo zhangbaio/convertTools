@@ -1,0 +1,58 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlatformPublisher.Desktop.ViewModels"
+             x:Class="PlatformPublisher.Desktop.Views.WeixinArchivedProjectsView"
+             x:DataType="vm:MainWindowViewModel"
+             Background="#F3F6FA">
+    <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
+        <Border Classes="panel" Padding="12">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                <TextBlock Text="工作根目录" VerticalAlignment="Center" />
+                <TextBox Grid.Column="1" Text="{Binding ArchiveRootDirectory}"
+                         Watermark="选择包含 archive 子目录的工作根目录" />
+                <Button Grid.Column="2" Content="选择目录" Click="OnPickRootDirectoryClick" Classes="secondaryAction" />
+                <Button Grid.Column="3" Content="刷新" Command="{Binding RefreshArchivedProjectsCommand}" Classes="primaryAction" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Classes="panel" Padding="10">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding ArchivedProjectsSummary}" Foreground="#64748B" VerticalAlignment="Center" />
+                <WrapPanel Grid.Column="1">
+                    <Button Content="打开归档目录" Click="OnOpenArchiveClick" Classes="secondaryAction" Margin="0,0,8,0" />
+                    <Button Content="打开源项目" Click="OnOpenSourceClick" Classes="secondaryAction" Margin="0,0,8,0" />
+                    <Button Content="打开工作项目" Click="OnOpenWorkflowClick" Classes="secondaryAction" />
+                </WrapPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="2" Classes="panel" ClipToBounds="True">
+            <Grid RowDefinitions="Auto,*">
+                <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,7">
+                    <Grid ColumnDefinitions="1.2*,150,130,2*" ColumnSpacing="10">
+                        <TextBlock Text="项目" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="归档时间" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="2" Text="视频清理" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="归档目录" FontWeight="SemiBold" />
+                    </Grid>
+                </Border>
+                <ListBox Grid.Row="1" ItemsSource="{Binding ArchivedProjects}" SelectedItem="{Binding SelectedArchivedProject}"
+                         Background="#FFFFFF" BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ArchivedProjectRowViewModel">
+                            <Grid ColumnDefinitions="1.2*,150,130,2*" ColumnSpacing="10" Margin="10,8">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding ProjectKey}" FontSize="11" Foreground="#64748B" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{Binding ArchivedAtText}" />
+                                <TextBlock Grid.Column="2" Text="{Binding VideoSummary}" />
+                                <TextBlock Grid.Column="3" Text="{Binding ArchiveProjectDirectory}" TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

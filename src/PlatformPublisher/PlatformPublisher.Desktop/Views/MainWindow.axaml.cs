@@ -36,6 +36,7 @@ public partial class MainWindow : Window
         workflowView.Bind(() => WeixinPublisherView.SelectedAccountProfile);
         WeixinPublisherView.SelectedAccountChanged += account => workflowView.ApplyAccount(account);
         WeixinPublisherView.SetWorkflowContent(workflowView);
+        WeixinPublisherView.SetArchivedProjectsContent(new WeixinArchivedProjectsView { DataContext = viewModel });
     }
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
