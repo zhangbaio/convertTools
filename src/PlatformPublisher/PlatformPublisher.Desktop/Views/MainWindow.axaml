@@ -36,7 +36,7 @@
                         <TextBlock Text="发布平台" FontWeight="SemiBold" FontSize="15" />
                         <TextBlock Text="各平台账号和任务相互隔离"
                                    FontSize="11"
-                                   Foreground="#8FB0C8" />
+                                   Foreground="#64748B" />
                     </StackPanel>
 
                     <ListBox Grid.Row="1"
@@ -59,7 +59,7 @@
                                     <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                                     <TextBlock Text="{Binding Description}"
                                                FontSize="11"
-                                               Foreground="#A9C6DD"
+                                               Foreground="#64748B"
                                                TextWrapping="Wrap" />
                                 </StackPanel>
                             </DataTemplate>
@@ -85,7 +85,7 @@
                                     <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                                     <TextBlock Text="{Binding ConfigSummary}"
                                                FontSize="11"
-                                               Foreground="#91AEC3"
+                                               Foreground="#64748B"
                                                TextTrimming="CharacterEllipsis" />
                                 </StackPanel>
                             </DataTemplate>
@@ -96,11 +96,11 @@
                         <StackPanel Spacing="5">
                             <TextBlock Text="隔离状态" FontWeight="SemiBold" />
                             <TextBlock Text="独立程序 / 独立队列 / 独立配置"
-                                       Foreground="#61D7B0"
+                                       Foreground="#047857"
                                        FontSize="11"
                                        TextWrapping="Wrap" />
                             <TextBlock Text="不会写入 TikTok 助手数据"
-                                       Foreground="#A9C6DD"
+                                       Foreground="#64748B"
                                        FontSize="11" />
                         </StackPanel>
                     </Border>
@@ -172,7 +172,7 @@
                                      IsEnabled="{Binding DraftScheduleEnabled}" />
                             <TextBlock Grid.Column="2"
                                        VerticalAlignment="Center"
-                                       Foreground="#91AEC3"
+                                       Foreground="#64748B"
                                        Text="应用保持运行时，到期任务会自动顺序执行" />
                         </Grid>
 
@@ -226,9 +226,9 @@
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                         <StackPanel Spacing="3">
                             <TextBlock Text="{Binding SelectedPlatformCapability}"
-                                       Foreground="#8FD5FF"
+                                       Foreground="#0B74D1"
                                        FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding QueueSummary}" Foreground="#9CB8CC" FontSize="12" />
+                            <TextBlock Text="{Binding QueueSummary}" Foreground="#64748B" FontSize="12" />
                         </StackPanel>
                         <WrapPanel Grid.Column="1" Orientation="Horizontal">
                             <Button Margin="0,0,8,0"
@@ -255,16 +255,16 @@
                 </Border>
 
                 <Border Grid.Row="2"
-                        Background="#38234F"
-                        BorderBrush="#A78BFA"
+                        Background="#F5F3FF"
+                        BorderBrush="#C4B5FD"
                         BorderThickness="1"
                         CornerRadius="8"
                         Padding="12"
                         IsVisible="{Binding HasInteractionRequest}">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                         <StackPanel Spacing="4">
-                            <TextBlock Text="{Binding InteractionTitle}" FontWeight="Bold" Foreground="#E9D5FF" />
-                            <TextBlock Text="{Binding InteractionMessage}" TextWrapping="Wrap" Foreground="#F5F3FF" />
+                            <TextBlock Text="{Binding InteractionTitle}" FontWeight="Bold" Foreground="#6D28D9" />
+                            <TextBlock Text="{Binding InteractionMessage}" TextWrapping="Wrap" Foreground="#4C1D95" />
                         </StackPanel>
                         <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                             <Button Margin="0,0,8,0" Command="{Binding TakeoverInteractionCommand}" Content="人工接管" />
@@ -278,7 +278,7 @@
 
                 <Border Grid.Row="3" Classes="panel" ClipToBounds="True">
                     <Grid RowDefinitions="42,*">
-                        <Border Background="#173E5E" BorderBrush="#28546F" BorderThickness="0,0,0,1" Padding="12,0">
+                        <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="12,0">
                             <Grid ColumnDefinitions="120,110,1.1*,1.4*,120,70,90,1.7*" ColumnSpacing="12">
                                 <TextBlock Text="平台" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="1" Text="任务类型" VerticalAlignment="Center" FontWeight="SemiBold" />
@@ -294,7 +294,7 @@
                         <ListBox Grid.Row="1"
                                  ItemsSource="{Binding VisibleJobs}"
                                  SelectedItem="{Binding SelectedJob}"
-                                 Background="#11334D"
+                                 Background="#FFFFFF"
                                  BorderThickness="0">
                             <ListBox.Styles>
                                 <Style Selector="ListBoxItem">
@@ -302,18 +302,18 @@
                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                                 </Style>
                                 <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                    <Setter Property="Background" Value="#204F72" />
+                                    <Setter Property="Background" Value="#DCEBFF" />
                                 </Style>
                             </ListBox.Styles>
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
-                                    <Border BorderBrush="#28546F" BorderThickness="0,0,0,1" Padding="12,9">
+                                    <Border BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="12,9">
                                         <Grid ColumnDefinitions="120,110,1.1*,1.4*,120,70,90,1.7*" ColumnSpacing="12">
                                             <TextBlock Text="{Binding PlatformName}" VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="1" Text="{Binding KindName}" VerticalAlignment="Center" />
                                             <StackPanel Grid.Column="2" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding ProjectName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Text="{Binding AccountName}" FontSize="11" Foreground="#91AEC3" />
+                                                <TextBlock Text="{Binding AccountName}" FontSize="11" Foreground="#64748B" />
                                             </StackPanel>
                                             <TextBlock Grid.Column="3"
                                                        Text="{Binding ProjectDirectory}"
@@ -328,7 +328,7 @@
                                             <TextBlock Grid.Column="6"
                                                        Text="{Binding StatusText}"
                                                        VerticalAlignment="Center"
-                                                       Foreground="#61D7B0"
+                                                       Foreground="#047857"
                                                        FontWeight="SemiBold" />
                                             <TextBlock Grid.Column="7"
                                                        Text="{Binding StatusMessage}"

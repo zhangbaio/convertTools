@@ -1,6 +1,6 @@
 # Platform Publisher Visual QA
 
-Reference: `codex-clipboard-bd35ed53-787d-482c-8d8c-519e38b62121.png`
+Reference: `codex-clipboard-39690a9d-b454-4114-b3e5-835f14dccb55.png`
 
 Implementation: `PlatformPublisher.Desktop` with embedded `ChannelsPublisher.Ui.MaterialPublishView`
 
@@ -17,6 +17,8 @@ Implementation: `PlatformPublisher.Desktop` with embedded `ChannelsPublisher.Ui.
 - Status bars use the same muted blue-gray surface.
 - Publish and clip configuration dialogs use the same light background and primary save action.
 - A dedicated run-log panel appears below the task list and automatically records timestamped status, progress, stop, and failure messages.
+- Kuaishou personal and enterprise pages now use the same white cards, pale-blue headers, dark text, blue primary actions, muted helper text, and white empty table surfaces as the video-channel and settings pages.
+- Manual-intervention state uses a light lavender notice card instead of the retired dark panel styling.
 - The video-channel page preserves its required embedded WebView2 browser workspace; the reference TikTok screen uses that area for a production table, so content structure intentionally differs while visual language matches.
 
 ## Remaining P3 polish
