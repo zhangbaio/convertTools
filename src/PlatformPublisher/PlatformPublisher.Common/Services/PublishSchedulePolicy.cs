@@ -1,7 +1,7 @@
 using System.Globalization;
-using PlatformPublisher.Core.Models;
+using PlatformPublisher.Common.Models;
 
-namespace PlatformPublisher.Core.Services;
+namespace PlatformPublisher.Common.Services;
 
 public static class PublishSchedulePolicy
 {

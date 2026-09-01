@@ -2,6 +2,30 @@
 
 这是与 `TikTokPublisher` 完全分离的桌面应用。它拥有独立的程序集、启动入口和任务存储，不读写 TikTok 助手的账号与队列数据库。
 
+## 模块边界
+
+```text
+PlatformPublisher.Common
+├─ 平台、账号、任务模型
+├─ 独立账号/任务持久化
+├─ 定时与中断恢复策略
+└─ 平台适配器接口与协调器
+
+PlatformPublisher.Weixin
+├─ 视频号登录与剧集上传适配器
+├─ 目录批量发表
+└─ 系统高光发表
+
+PlatformPublisher.Kuaishou
+├─ 快手分账个人适配器
+└─ 快手分账企业适配器
+
+PlatformPublisher.Desktop
+└─ 只负责页面、命令和依赖组合
+```
+
+短剧下载、工程图、成本报表和数据链路继续由现有 `ShortDrama.Core` / `ShortDrama.Infrastructure` 提供。平台模块只能依赖公共模块；公共模块不反向引用视频号、快手或 TikTok。
+
 ## 当前能力
 
 - 视频号：复用 `ShortDrama.Infrastructure` 的正式登录和剧集上传链路。

@@ -1,11 +1,11 @@
 using System.Text.Json;
-using PlatformPublisher.Core.Models;
-using PlatformPublisher.Core.Publishing;
+using PlatformPublisher.Common.Models;
+using PlatformPublisher.Weixin.Publishing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using Xunit;
 
-namespace PlatformPublisher.Core.Tests;
+namespace PlatformPublisher.Weixin.Tests;
 
 public sealed class WeixinSystemHighlightPublishServiceTests
 {

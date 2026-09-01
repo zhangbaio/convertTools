@@ -1,8 +1,9 @@
-using PlatformPublisher.Core.Models;
+using PlatformPublisher.Common.Models;
+using PlatformPublisher.Common.Publishing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 
-namespace PlatformPublisher.Core.Publishing;
+namespace PlatformPublisher.Weixin.Publishing;
 
 public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
 {

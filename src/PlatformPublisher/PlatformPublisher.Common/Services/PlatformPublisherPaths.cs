@@ -1,4 +1,4 @@
-namespace PlatformPublisher.Core.Services;
+namespace PlatformPublisher.Common.Services;
 
 public static class PlatformPublisherPaths
 {

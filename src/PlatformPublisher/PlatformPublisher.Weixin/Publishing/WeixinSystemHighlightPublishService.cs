@@ -3,12 +3,12 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
-using PlatformPublisher.Core.Models;
-using PlatformPublisher.Core.Services;
+using PlatformPublisher.Common.Models;
+using PlatformPublisher.Common.Services;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 
-namespace PlatformPublisher.Core.Publishing;
+namespace PlatformPublisher.Weixin.Publishing;
 
 public sealed record WeixinSystemHighlightPlan(string ProjectDirectory, string ConfigPath, string Title, int PublishCount);
 

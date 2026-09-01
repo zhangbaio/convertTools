@@ -1,4 +1,4 @@
-namespace PlatformPublisher.Core.Models;
+namespace PlatformPublisher.Common.Models;
 
 public enum PublishJobStatus
 {

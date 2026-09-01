@@ -15,6 +15,6 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\PlatformPublisher\PlatformPublisher.Core\PlatformPublisher.Core.csproj" />
+    <ProjectReference Include="..\..\src\PlatformPublisher\PlatformPublisher.Common\PlatformPublisher.Common.csproj" />
   </ItemGroup>
 </Project>

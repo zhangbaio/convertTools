@@ -1,6 +1,6 @@
-using PlatformPublisher.Core.Models;
+using PlatformPublisher.Common.Models;
 
-namespace PlatformPublisher.Core.Publishing;
+namespace PlatformPublisher.Common.Publishing;
 
 public sealed class PlatformPublishCoordinator
 {

@@ -1,6 +1,7 @@
-using PlatformPublisher.Core.Models;
+using PlatformPublisher.Common.Models;
+using PlatformPublisher.Common.Publishing;
 
-namespace PlatformPublisher.Core.Publishing;
+namespace PlatformPublisher.Kuaishou.Publishing;
 
 public sealed class UnavailableKuaishouPublishAdapter : IPlatformPublishAdapter
 {

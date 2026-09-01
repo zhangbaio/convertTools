@@ -1,8 +1,8 @@
-using PlatformPublisher.Core.Models;
-using PlatformPublisher.Core.Services;
+using PlatformPublisher.Common.Models;
+using PlatformPublisher.Common.Services;
 using Xunit;
 
-namespace PlatformPublisher.Core.Tests;
+namespace PlatformPublisher.Common.Tests;
 
 public sealed class PublishSchedulePolicyTests
 {

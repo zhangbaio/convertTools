@@ -1,9 +1,9 @@
 using System.Text.Json;
-using PlatformPublisher.Core.Models;
+using PlatformPublisher.Common.Models;
 
-namespace PlatformPublisher.Core.Services;
+namespace PlatformPublisher.Common.Services;
 
-public sealed class PublishJobStore
+public sealed class PublishAccountStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -13,25 +13,24 @@ public sealed class PublishJobStore
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public PublishJobStore(string? storePath = null)
+    public PublishAccountStore(string? storePath = null)
     {
         StorePath = string.IsNullOrWhiteSpace(storePath)
-            ? PlatformPublisherPaths.JobStorePath
+            ? PlatformPublisherPaths.AccountStorePath
             : Path.GetFullPath(storePath);
     }
 
     public string StorePath { get; }
 
-    public async Task<IReadOnlyList<PublishJob>> LoadAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<PublishAccount>> LoadAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
             if (!File.Exists(StorePath))
                 return [];
-
             await using var stream = File.OpenRead(StorePath);
-            return await JsonSerializer.DeserializeAsync<List<PublishJob>>(stream, JsonOptions, cancellationToken)
+            return await JsonSerializer.DeserializeAsync<List<PublishAccount>>(stream, JsonOptions, cancellationToken)
                    ?? [];
         }
         finally
@@ -40,20 +39,16 @@ public sealed class PublishJobStore
         }
     }
 
-    public async Task SaveAsync(IEnumerable<PublishJob> jobs, CancellationToken cancellationToken = default)
+    public async Task SaveAsync(IEnumerable<PublishAccount> accounts, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(StorePath)!);
-            var destination = StorePath;
-            var temporary = destination + ".tmp";
+            var temporary = StorePath + ".tmp";
             await using (var stream = File.Create(temporary))
-            {
-                await JsonSerializer.SerializeAsync(stream, jobs.ToArray(), JsonOptions, cancellationToken);
-            }
-
-            File.Move(temporary, destination, overwrite: true);
+                await JsonSerializer.SerializeAsync(stream, accounts.ToArray(), JsonOptions, cancellationToken);
+            File.Move(temporary, StorePath, overwrite: true);
         }
         finally
         {

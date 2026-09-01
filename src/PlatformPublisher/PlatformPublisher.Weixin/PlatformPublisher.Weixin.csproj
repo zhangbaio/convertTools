@@ -6,6 +6,7 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\PlatformPublisher.Common\PlatformPublisher.Common.csproj" />
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Core\ShortDrama.Core.csproj" />
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
   </ItemGroup>
