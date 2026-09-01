@@ -40,7 +40,7 @@ public static class TikTokPublishedSeriesVideoDownloadService
         string newTitle,
         string workspaceRoot,
         int requiredEpisodeCount,
-        bool willEditTikTok,
+        bool requireCopyrightProofEligibleStatus,
         Action<string>? log,
         CancellationToken ct,
         IReadOnlyCollection<int>? requestedEpisodes = null,
@@ -101,7 +101,7 @@ public static class TikTokPublishedSeriesVideoDownloadService
             var match = exactRows[0];
             if (!TikTokPublishedSeriesMatchText.CanUseForCopyrightProofVideoRecovery(
                     match.PlatformStatus,
-                    willEditTikTok))
+                    requireCopyrightProofEligibleStatus))
                 return Fail($"TikTok 项目「{title}」当前状态不支持补全版权证明：{match.PlatformStatus}");
             if (string.IsNullOrWhiteSpace(match.DetailUrl))
                 return Fail($"TikTok 项目「{title}」缺少详情页地址。");
@@ -267,7 +267,7 @@ public static class TikTokPublishedSeriesVideoDownloadService
         }
         catch (Exception ex)
         {
-            return Fail($"从 TikTok 已发布项目下载视频失败：{ex.Message}");
+            return Fail($"从 TikTok 原创管理项目下载视频失败：{ex.Message}");
         }
         finally
         {

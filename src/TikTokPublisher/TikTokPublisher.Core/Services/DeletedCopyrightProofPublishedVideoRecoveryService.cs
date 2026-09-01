@@ -117,7 +117,7 @@ public static class DeletedCopyrightProofPublishedVideoRecoveryService
 
         var stagedVideos = EnumerateVideos(staging);
         if (stagedVideos.Count == 0)
-            return Fail($"TikTok 已发布项目「{newTitle}」没有下载到可用视频。");
+            return Fail($"TikTok 原创管理项目「{newTitle}」没有下载到可用视频。");
 
         var projectDir = Path.Combine(
             workspace,
