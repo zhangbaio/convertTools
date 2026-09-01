@@ -101,7 +101,8 @@ public sealed class WeixinDirectoryMaterialPublishService
         var outputDirectory = Path.Combine(jobRoot, "output");
         Directory.CreateDirectory(outputDirectory);
 
-        var baseSettings = ReadBaseSettings(job.ConfigPath, _dataRoot);
+        var accountId = StableAccountId(job);
+        var baseSettings = ReadBaseSettings(job.ConfigPath, _dataRoot, accountId);
         var videoPaths = items.Select(item => item.VideoPath).ToArray();
         var descriptions = new JsonObject();
         foreach (var item in items)
@@ -141,7 +142,7 @@ public sealed class WeixinDirectoryMaterialPublishService
             ["final_action"] = "publish",
             ["single_test_final_action"] = "publish",
             ["pause_on_error"] = true,
-            ["_runtime_account_profile_id"] = StableAccountId(job),
+            ["_runtime_account_profile_id"] = accountId,
             ["_runtime_account_profile_name"] = job.AccountName,
             ["video_upload_action"] = new JsonObject
             {
@@ -179,11 +180,13 @@ public sealed class WeixinDirectoryMaterialPublishService
 
     private static (string BaseUrl, string AuthFile, string BrowserProfileDirectory) ReadBaseSettings(
         string configPath,
-        string dataRoot)
+        string dataRoot,
+        string accountId)
     {
         var baseUrl = "https://channels.weixin.qq.com";
-        var authFile = Path.Combine(dataRoot, "accounts", "default", "weixin-auth.json");
-        var profileDirectory = Path.Combine(dataRoot, "accounts", "default", "browser");
+        var accountRoot = Path.Combine(dataRoot, "accounts", accountId);
+        var authFile = Path.Combine(accountRoot, "weixin-auth.json");
+        var profileDirectory = Path.Combine(accountRoot, "browser");
 
         if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
             return (baseUrl, authFile, profileDirectory);
