@@ -1,10 +1,35 @@
 using FluentAssertions;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Ui.Services.TikTok;
 
 namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokPublishedSeriesVideoDownloadServiceTests
 {
+    [Fact]
+    public void Web_video_download_uses_headless_browser_by_default()
+    {
+        TikTokPublishedSeriesVideoDownloadService.DefaultHeadless.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Web_video_download_reuses_current_account_storage_state()
+    {
+        var authPath = Path.Combine(
+            Path.GetTempPath(),
+            $"web-video-auth-{Guid.NewGuid():N}.json");
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-web-video",
+            TiktokStorageStatePath = authPath,
+        };
+
+        var plan = TikTokPublishedSeriesVideoDownloadService.ResolveBrowserLaunchPlan(account);
+
+        plan.Headless.Should().BeTrue();
+        plan.AuthPath.Should().Be(Path.GetFullPath(authPath));
+    }
+
     [Fact]
     public void ResolveTargetEpisodes_preserves_only_distinct_positive_requested_episodes()
     {

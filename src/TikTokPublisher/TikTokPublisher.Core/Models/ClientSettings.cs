@@ -117,6 +117,7 @@ public sealed class ClientSettings
     public string TiktokProjectImageTemplateId { get; set; } = ClientSettingsDefaults.TiktokProjectImageTemplateId;
     public int TiktokProjectImageCount { get; set; } = ClientSettingsDefaults.TiktokProjectImageCount;
     public int TiktokProjectImageRenderEpisodeLimit { get; set; } = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
+    public bool TiktokProjectImageRenderEpisodeLimitDefaultMigrated { get; set; } = true;
     public string TiktokProjectImageSubtitleAiMode { get; set; } = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
     public string TiktokProjectImageFableCutRoot { get; set; } = ClientSettingsDefaults.TiktokProjectImageFableCutRoot;
     public int TiktokProjectImageFableCutClipCount { get; set; } = ClientSettingsDefaults.TiktokProjectImageFableCutClipCount;
@@ -272,6 +273,7 @@ public sealed class ClientSettings
         TiktokProjectImageTemplateId = TiktokProjectImageTemplateId,
         TiktokProjectImageCount = TiktokProjectImageCount,
         TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit,
+        TiktokProjectImageRenderEpisodeLimitDefaultMigrated = TiktokProjectImageRenderEpisodeLimitDefaultMigrated,
         TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode,
         TiktokProjectImageFableCutRoot = TiktokProjectImageFableCutRoot,
         TiktokProjectImageFableCutClipCount = TiktokProjectImageFableCutClipCount,

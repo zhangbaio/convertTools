@@ -46,6 +46,7 @@ public sealed class TikTokPublishDefaultsTests
         settings.FrameExtractFallbackPercents.Should().Be(ClientSettingsDefaults.FrameExtractFallbackPercents);
         settings.TiktokAllowOverLimitUploadImport.Should().Be(ClientSettingsDefaults.TiktokAllowOverLimitUploadImport);
         settings.TiktokOverLimitDownloadEpisodeCount.Should().Be(ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
+        settings.TiktokProjectImageRenderEpisodeLimit.Should().Be(6);
         settings.TiktokProofTemplateDocxPath.Should().Be(ClientSettingsDefaults.TiktokProofTemplateDocxPath);
         ClientSettingsDefaults.TiktokProofTemplateDocxPath.Should().BeEmpty();
         settings.TiktokProofDeclarantCompanyName.Should().BeEmpty();
@@ -90,6 +91,42 @@ public sealed class TikTokPublishDefaultsTests
                 prompt.Should().Contain("作者");
                 prompt.Should().Contain("水印");
             }
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Client_settings_store_migrates_legacy_project_image_episode_default_to_six_once()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"project-image-limit-migration-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            AppSettingStore.SaveJson(
+                ClientSettingsStore.SettingsKey,
+                new Dictionary<string, object?>
+                {
+                    ["tiktok_project_image_render_episode_limit"] = 16,
+                },
+                databasePath);
+
+            var migrated = ClientSettingsStore.Load(databasePath);
+            migrated.TiktokProjectImageRenderEpisodeLimit.Should().Be(6);
+            migrated.TiktokProjectImageRenderEpisodeLimitDefaultMigrated.Should().BeTrue();
+
+            migrated.TiktokProjectImageRenderEpisodeLimit = 16;
+            ClientSettingsStore.Save(migrated, databasePath);
+
+            ClientSettingsStore.Load(databasePath)
+                .TiktokProjectImageRenderEpisodeLimit.Should().Be(
+                    16,
+                    "迁移后用户主动设置的数值必须保留");
         }
         finally
         {

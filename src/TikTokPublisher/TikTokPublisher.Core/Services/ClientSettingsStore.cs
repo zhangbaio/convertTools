@@ -103,6 +103,7 @@ public static class ClientSettingsStore
         }
 
         MigrateSharedAsrSettings(raw);
+        MigrateProjectImageRenderEpisodeLimitDefault(raw);
         var json = raw.ToJsonString();
         var settings = JsonSerializer.Deserialize<ClientSettings>(json, JsonOptions) ?? new ClientSettings();
         return Normalize(settings);
@@ -186,6 +187,34 @@ public static class ClientSettingsStore
                 return;
             settings[currentKey] = legacyValue?.DeepClone();
         }
+    }
+
+    private static void MigrateProjectImageRenderEpisodeLimitDefault(JsonObject settings)
+    {
+        const string valueKey = "tiktok_project_image_render_episode_limit";
+        const string markerKey = "tiktok_project_image_render_episode_limit_default_migrated";
+        const int legacyDefault = 16;
+
+        if (settings[markerKey] is JsonValue marker &&
+            marker.TryGetValue<bool>(out var migrated) &&
+            migrated)
+        {
+            return;
+        }
+
+        var configured = 0;
+        if (settings[valueKey] is JsonValue value)
+        {
+            if (!value.TryGetValue<int>(out configured) &&
+                value.TryGetValue<string>(out var text))
+            {
+                _ = int.TryParse(text, out configured);
+            }
+        }
+
+        if (configured == legacyDefault)
+            settings[valueKey] = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
+        settings[markerKey] = true;
     }
 
     private static JsonObject? LoadRawObject(string? databasePath = null)
