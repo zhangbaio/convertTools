@@ -945,7 +945,7 @@ public static partial class TikTokBrowserActions
         }
     }
 
-    private static async Task VerifyCopyrightProofRebuildAsync(
+    internal static async Task VerifyCopyrightProofRebuildAsync(
         IPage page,
         IEnumerable<string>? configuredMaterialTypes,
         Action<string>? log,
