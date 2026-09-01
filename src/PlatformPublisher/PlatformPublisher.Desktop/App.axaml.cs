@@ -37,6 +37,7 @@ public partial class App : Application
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Information));
         services.AddShortDramaServices();
         services.AddSingleton<PublishJobStore>();
+        services.AddSingleton<PublishAccountStore>();
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();
         services.AddSingleton<WeixinSystemHighlightPublishService>();
         services.AddSingleton<IPlatformPublishAdapter, WeixinChannelPublishAdapter>();
