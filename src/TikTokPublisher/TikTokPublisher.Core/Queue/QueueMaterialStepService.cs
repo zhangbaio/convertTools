@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ShortDrama.Core.Models;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Media;
@@ -50,6 +51,15 @@ public static class QueueMaterialStepService
         var attempts = Math.Clamp(settings.HongguoEpisodeDownloadAttempts, 1, 20);
         var fileSegments = Math.Clamp(settings.DownloadFileSegments <= 0 ? 4 : settings.DownloadFileSegments, 1, 8);
         var displayName = FirstNonEmpty(item.Title, item.OriginalTitle, metadata.Title, Path.GetFileName(context.SourceProjectDir));
+        var effectiveBookId = await ResolveDownloadBookIdAsync(
+                context.SourceProjectDir,
+                item,
+                metadata,
+                settings,
+                log,
+                ct)
+            .ConfigureAwait(false);
+        metadata = metadata with { BookId = effectiveBookId };
         log($"分集下载并发: {concurrent}，单集分块连接数: {fileSegments}，同时下载剧数: {maxParallelProjects}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
 
         using var downloadSlot = await QueueDownloadSlotCoordinator.WaitAsync(
@@ -830,6 +840,173 @@ public static class QueueMaterialStepService
             Quality: FirstNonEmpty(metadata.Quality, settings.DramaDownloadDefaultQuality, "1080P"),
             Concurrent: Math.Clamp(concurrent, 1, 10),
             EpisodeNumberMode: FirstNonEmpty(metadata.EpisodeNumberMode, "source"));
+    }
+
+    private static async Task<string> ResolveDownloadBookIdAsync(
+        string sourceProjectDir,
+        QueueProjectItem item,
+        DownloadMetadata metadata,
+        ClientSettings settings,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        var selectedSource = NormalizeDramaSource(settings.DramaSourceChain);
+        var selectedLabel = DramaSourceLabel(selectedSource);
+        var metadataBookId = FirstNonEmpty(metadata.BookId);
+        var metadataSource = InferBookIdSource(metadataBookId);
+        log($"当前下载数据链路：{selectedLabel}。");
+
+        if (IsBookIdForSource(metadataBookId, selectedSource))
+            return metadataBookId;
+
+        var cachedBookId = ReadCachedBookId(sourceProjectDir, selectedSource);
+        if (IsBookIdForSource(cachedBookId, selectedSource))
+        {
+            log($"复用已缓存的 {selectedLabel} 剧集标识：{cachedBookId}");
+            return cachedBookId;
+        }
+
+        var lookupTitle = FirstNonEmpty(
+            metadata.Title,
+            item.OriginalTitle,
+            item.DisplayName,
+            item.Title);
+        if (string.IsNullOrWhiteSpace(lookupTitle))
+        {
+            throw new InvalidOperationException(
+                $"项目原数据链路为{DramaSourceLabel(metadataSource)}，已切换到{selectedLabel}，" +
+                "但项目缺少可用于重新匹配的原剧名。");
+        }
+
+        log(
+            $"检测到数据链路切换：{DramaSourceLabel(metadataSource)} → {selectedLabel}；" +
+            $"正在按原剧名《{lookupTitle}》重新匹配 book_id。");
+        var lookup = await UploadTitleImportService.FindExactDramaAsync(
+                lookupTitle,
+                Math.Max(0, item.EpisodeCount),
+                ct)
+            .ConfigureAwait(false);
+        if (lookup.Item is null)
+        {
+            throw new InvalidOperationException(
+                $"切换到{selectedLabel}后，未能按原剧名《{lookupTitle}》找到唯一剧集：{lookup.Reason}。" +
+                "请在短剧下载页使用当前链路确认该剧可被搜索到。");
+        }
+
+        var resolvedBookId = FirstNonEmpty(lookup.Item.BookId);
+        if (!IsBookIdForSource(resolvedBookId, selectedSource))
+        {
+            throw new InvalidOperationException(
+                $"{selectedLabel} 返回了不属于当前链路的 book_id：{resolvedBookId}。" +
+                "已停止下载，避免误用其他数据源。");
+        }
+
+        PersistBookReference(sourceProjectDir, metadataSource, metadataBookId, lookupTitle);
+        PersistBookReference(sourceProjectDir, selectedSource, resolvedBookId, lookup.Item.Title);
+        log(
+            $"已匹配并缓存 {selectedLabel} 剧集标识：" +
+            $"{metadataBookId} → {resolvedBookId}");
+        return resolvedBookId;
+    }
+
+    internal static string NormalizeDramaSource(string? source)
+    {
+        var value = (source ?? string.Empty).Trim().ToLowerInvariant();
+        return value is "hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf"
+            ? value
+            : "hgnew";
+    }
+
+    internal static string InferBookIdSource(string? bookId)
+    {
+        var id = (bookId ?? string.Empty).Trim();
+        if (id.StartsWith("mapleleaf:", StringComparison.OrdinalIgnoreCase) ||
+            id.StartsWith("mapleleaf_ep:", StringComparison.OrdinalIgnoreCase)) return "mapleleaf";
+        if (id.StartsWith("hglocal:", StringComparison.OrdinalIgnoreCase) ||
+            id.StartsWith("hglocal_ep:", StringComparison.OrdinalIgnoreCase)) return "hglocal";
+        if (id.StartsWith("hghigh:", StringComparison.OrdinalIgnoreCase) ||
+            id.StartsWith("hghigh_ep:", StringComparison.OrdinalIgnoreCase)) return "hghigh";
+        if (id.StartsWith("pikachu:", StringComparison.OrdinalIgnoreCase)) return "pikachu";
+        return "hgnew";
+    }
+
+    internal static bool IsBookIdForSource(string? bookId, string? source)
+    {
+        var id = (bookId ?? string.Empty).Trim();
+        return id.Length > 0 &&
+               string.Equals(
+                   InferBookIdSource(id),
+                   NormalizeDramaSource(source),
+                   StringComparison.Ordinal);
+    }
+
+    private static string DramaSourceLabel(string? source) =>
+        NormalizeDramaSource(source) switch
+        {
+            "hghigh" => "红果高码率",
+            "mapleleaf" => "Mapleleaf",
+            "hglocal" => "本地直连",
+            "pikachu" => "皮卡丘",
+            _ => "红果新接口",
+        };
+
+    internal static string ReadCachedBookId(string sourceProjectDir, string source)
+    {
+        var path = Path.Combine(sourceProjectDir, "shortdrama-project.json");
+        if (!File.Exists(path)) return string.Empty;
+        try
+        {
+            var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+            var references = root?["sourceReferences"] as JsonObject;
+            var reference = references?[NormalizeDramaSource(source)] as JsonObject;
+            return reference?["bookId"]?.GetValue<string>()?.Trim() ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    internal static void PersistBookReference(
+        string sourceProjectDir,
+        string source,
+        string bookId,
+        string title)
+    {
+        var path = Path.Combine(sourceProjectDir, "shortdrama-project.json");
+        if (!File.Exists(path)) return;
+
+        var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject
+                   ?? throw new InvalidDataException("shortdrama-project.json 不是有效对象。");
+        var references = root["sourceReferences"] as JsonObject;
+        if (references is null)
+        {
+            references = new JsonObject();
+            root["sourceReferences"] = references;
+        }
+
+        if (!string.IsNullOrWhiteSpace(bookId))
+        {
+            references[NormalizeDramaSource(source)] = new JsonObject
+            {
+                ["bookId"] = bookId.Trim(),
+                ["title"] = (title ?? string.Empty).Trim(),
+                ["resolvedAt"] = DateTimeOffset.Now.ToString("o"),
+            };
+        }
+
+        var temporary = path + ".source-references.tmp";
+        try
+        {
+            File.WriteAllText(
+                temporary,
+                root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
     }
 
     private static bool ShouldLogDownloadProgress(string? message)
@@ -2231,4 +2408,5 @@ public static class QueueMaterialStepService
         string Title,
         string EpisodeNumberMode,
         string Intro);
+
 }

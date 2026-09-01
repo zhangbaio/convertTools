@@ -8,6 +8,44 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class QueueMaterialStepServiceTests
 {
+    [Theory]
+    [InlineData("123456", "hgnew")]
+    [InlineData("hghigh:123456", "hghigh")]
+    [InlineData("hglocal:123456", "hglocal")]
+    [InlineData("pikachu:123456", "pikachu")]
+    [InlineData("mapleleaf:123456", "mapleleaf")]
+    public void Book_id_source_is_inferred_without_cross_source_conversion(
+        string bookId,
+        string expectedSource)
+    {
+        QueueMaterialStepService.InferBookIdSource(bookId).Should().Be(expectedSource);
+        QueueMaterialStepService.IsBookIdForSource(bookId, expectedSource).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Source_book_id_cache_preserves_each_data_source_mapping()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"source-book-cache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var metadataPath = Path.Combine(root, "shortdrama-project.json");
+            File.WriteAllText(metadataPath, """{"title":"测试剧","bookId":"hghigh:100"}""");
+
+            QueueMaterialStepService.PersistBookReference(root, "hghigh", "hghigh:100", "测试剧");
+            QueueMaterialStepService.PersistBookReference(root, "mapleleaf", "mapleleaf:200", "测试剧");
+
+            QueueMaterialStepService.ReadCachedBookId(root, "hghigh").Should().Be("hghigh:100");
+            QueueMaterialStepService.ReadCachedBookId(root, "mapleleaf").Should().Be("mapleleaf:200");
+            using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
+            document.RootElement.GetProperty("bookId").GetString().Should().Be("hghigh:100");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Concurrent_uploaded_episode_fallback_is_coalesced_per_project()
     {

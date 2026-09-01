@@ -279,9 +279,13 @@ public sealed class XingeRemoteCommandService
         TikTokRemoteCommandResult result,
         CancellationToken ct)
     {
-        var status = string.Equals(result.Status, "failed", StringComparison.OrdinalIgnoreCase)
-            ? "failed"
-            : "success";
+        var status = (result.Status ?? "").Trim().ToLowerInvariant() switch
+        {
+            "failed" => "failed",
+            "accepted" => "accepted",
+            "success" => "success",
+            _ => "failed",
+        };
         var body = new
         {
             client_id = config.ClientId,
