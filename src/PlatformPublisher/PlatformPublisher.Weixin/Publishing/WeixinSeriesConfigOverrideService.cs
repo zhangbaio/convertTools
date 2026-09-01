@@ -61,6 +61,13 @@ public sealed class WeixinSeriesConfigOverrideService
         var outputDirectory = Path.Combine(jobRoot, "output");
         Directory.CreateDirectory(outputDirectory);
         root["output_dir"] = outputDirectory;
+        if (!string.IsNullOrWhiteSpace(job.AccountSessionDirectory))
+        {
+            var sessionDirectory = Path.GetFullPath(job.AccountSessionDirectory);
+            Directory.CreateDirectory(sessionDirectory);
+            root["auth_file"] = Path.Combine(sessionDirectory, "weixin-series-auth.json");
+            EnsureObject(root, "browser")["user_data_dir"] = sessionDirectory;
+        }
         var debug = EnsureObject(root, "debug");
         var publishOptions = WeixinPublishOptions.FromJob(job);
         debug["log_file"] = Path.Combine(outputDirectory, "run.log");

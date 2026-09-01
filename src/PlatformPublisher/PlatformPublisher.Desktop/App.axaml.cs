@@ -29,8 +29,10 @@ public partial class App : Application
             _services = BuildServices();
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
             var settingsViewModel = _services.GetRequiredService<SystemSettingsViewModel>();
+            var publishCoordinator = _services.GetRequiredService<PlatformPublishCoordinator>();
             var mainWindow = new MainWindow { DataContext = viewModel };
             mainWindow.BindSettings(settingsViewModel);
+            mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
             desktop.MainWindow = mainWindow;
             desktop.Exit += (_, _) => viewModel.Shutdown();
         }

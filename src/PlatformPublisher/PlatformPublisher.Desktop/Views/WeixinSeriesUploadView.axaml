@@ -1,0 +1,63 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PlatformPublisher.Desktop.Views.WeixinSeriesUploadView"
+             Background="#F3F6FA">
+    <Grid Margin="14" RowDefinitions="Auto,Auto,*" RowSpacing="10">
+        <Border Background="#FFFFFF" BorderBrush="#D9E2EC" BorderThickness="1" CornerRadius="8" Padding="14">
+            <Grid ColumnDefinitions="130,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                <TextBlock Text="当前账号" VerticalAlignment="Center" />
+                <TextBlock x:Name="AccountSummary" Grid.Column="1" VerticalAlignment="Center"
+                           Foreground="#0B74D1" FontWeight="SemiBold" Text="请先在左侧选择账号" />
+                <Button Grid.Column="2" Content="刷新账号" Click="OnRefreshAccountClick" Classes="secondaryAction" />
+
+                <TextBlock Grid.Row="1" Text="项目目录" VerticalAlignment="Center" />
+                <TextBox x:Name="ProjectDirectoryInput" Grid.Row="1" Grid.Column="1"
+                         Watermark="选择包含视频号剧集配置的项目目录" />
+                <Button Grid.Row="1" Grid.Column="2" Content="选择目录" Click="OnPickProjectDirectoryClick" Classes="secondaryAction" />
+
+                <TextBlock Grid.Row="2" Text="剧集配置" VerticalAlignment="Center" />
+                <TextBox x:Name="ConfigPathInput" Grid.Row="2" Grid.Column="1"
+                         Watermark="可选：weixin-channel-submit.json；留空时自动定位" />
+                <Button Grid.Row="2" Grid.Column="2" Content="选择配置" Click="OnPickConfigClick" Classes="secondaryAction" />
+
+                <TextBlock Grid.Row="3" Text="执行控制" VerticalAlignment="Center" />
+                <WrapPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2">
+                    <Button Content="高级发表配置" Click="OnAdvancedConfigClick" Classes="secondaryAction" Margin="0,0,8,0" />
+                    <Button x:Name="StartButton" Content="开始剧集上架" Click="OnStartClick" Classes="primaryAction" Margin="0,0,8,0" />
+                    <Button x:Name="StopButton" Content="停止" Click="OnStopClick" IsEnabled="False" Margin="0,0,8,0" />
+                    <TextBlock x:Name="OptionsSummary" VerticalAlignment="Center" Foreground="#64748B"
+                               Text="全部配置使用项目默认值" />
+                </WrapPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#D9E2EC" BorderThickness="1" CornerRadius="8" Padding="12,8">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <TextBlock Text="当前状态" FontWeight="SemiBold" />
+                <TextBlock x:Name="StatusText" Grid.Column="1" Text="等待执行" Foreground="#64748B" TextWrapping="Wrap" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="#D9E2EC" BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+            <Grid RowDefinitions="Auto,*">
+                <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,7">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="剧集上架日志" FontWeight="SemiBold" />
+                        <Button Grid.Column="1" Content="清空日志" Click="OnClearLogsClick"
+                                Classes="secondaryAction" Padding="8,3" MinHeight="26" />
+                    </Grid>
+                </Border>
+                <ListBox Grid.Row="1" ItemsSource="{Binding Logs}"
+                         Background="#FBFCFE" BorderThickness="0"
+                         FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
+                         FontSize="12">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="8,3" Foreground="#334155" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

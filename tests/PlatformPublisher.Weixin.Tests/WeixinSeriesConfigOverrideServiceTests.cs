@@ -54,6 +54,7 @@ public sealed class WeixinSeriesConfigOverrideServiceTests
                 AiDescriptionEnabled = true,
             };
             var service = new WeixinSeriesConfigOverrideService(dataRoot, new FakeAiProvider());
+            var accountSessionDirectory = Path.Combine(tempRoot, "account-profile");
             var plan = service.Prepare(new PublishJob
             {
                 Id = "series-job",
@@ -62,6 +63,7 @@ public sealed class WeixinSeriesConfigOverrideServiceTests
                 ConfigPath = sourcePath,
                 PublishCount = 4,
                 PlatformOptionsJson = options.ToJson(),
+                AccountSessionDirectory = accountSessionDirectory,
             });
 
             Assert.NotNull(plan);
@@ -78,6 +80,7 @@ public sealed class WeixinSeriesConfigOverrideServiceTests
             Assert.EndsWith("episode-4.mp4", paths[1].GetString(), StringComparison.OrdinalIgnoreCase);
             Assert.True(Path.IsPathRooted(root.GetProperty("first_page").GetProperty("actions")[0].GetProperty("paths")[0].GetString()));
             Assert.False(root.GetProperty("debug").GetProperty("save_html").GetBoolean());
+            Assert.StartsWith(Path.GetFullPath(accountSessionDirectory), root.GetProperty("auth_file").GetString(), StringComparison.OrdinalIgnoreCase);
             Assert.Equal("https://ai.example/v1", root.GetProperty("video_publish").GetProperty("ai_text_endpoint").GetString());
             Assert.Equal("local", root.GetProperty("video_publish").GetProperty("ai_description_asr_engine").GetString());
         }

@@ -79,8 +79,12 @@
             </DockPanel>
         </Border>
 
+        <TabControl Grid.Column="1" Grid.RowSpan="5" Classes="secondaryTabs" SelectedIndex="0">
+        <TabItem Header="多账号素材发布">
+        <Grid RowDefinitions="Auto,*,190,150,30">
+
         <!-- 所有发布与配置按钮统一置于右侧顶部。 -->
-        <Border Grid.Column="1" Grid.Row="0"
+        <Border Grid.Row="0"
                 Background="{StaticResource PythonPanelBgBrush}"
                 BorderBrush="{StaticResource PythonPanelBorderBrush}"
                 BorderThickness="1"
@@ -120,7 +124,7 @@
         </Border>
 
         <!-- 当前账号内嵌浏览器。 -->
-        <Border Grid.Column="1" Grid.Row="1"
+        <Border Grid.Row="1"
                 BorderBrush="{StaticResource PythonPanelBorderBrush}"
                 BorderThickness="1"
                 Background="#FFFFFF"
@@ -142,7 +146,7 @@
         </Border>
 
         <!-- 发布任务只占右侧，不再穿过账号栏。 -->
-        <Border Grid.Column="1" Grid.Row="2"
+        <Border Grid.Row="2"
                 Background="{StaticResource PythonPanelBgBrush}"
                 BorderBrush="{StaticResource PythonPanelBorderBrush}"
                 BorderThickness="1"
@@ -183,7 +187,7 @@
         </Border>
 
         <!-- 新增运行日志面板。 -->
-        <Border Grid.Column="1" Grid.Row="3"
+        <Border Grid.Row="3"
                 Background="{StaticResource PythonPanelBgBrush}"
                 BorderBrush="{StaticResource PythonPanelBorderBrush}"
                 BorderThickness="1"
@@ -216,7 +220,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Column="1" Grid.Row="4"
+        <Border Grid.Row="4"
                 Background="{StaticResource PythonStatusBarBrush}"
                 BorderBrush="{StaticResource PythonPanelBorderBrush}"
                 BorderThickness="1,0,1,1">
@@ -224,5 +228,17 @@
                        Foreground="{StaticResource PythonMutedBrush}"
                        Text="{Binding StatusMessage}" />
         </Border>
+
+        </Grid>
+        </TabItem>
+
+        <TabItem Header="剧集上架">
+            <ContentControl x:Name="SeriesPublishContentHost">
+                <TextBlock Text="当前宿主尚未绑定视频号剧集上架服务。"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="#64748B" />
+            </ContentControl>
+        </TabItem>
+        </TabControl>
     </Grid>
 </UserControl>

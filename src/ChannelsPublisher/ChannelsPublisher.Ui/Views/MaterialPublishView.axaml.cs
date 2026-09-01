@@ -39,6 +39,13 @@ public partial class MaterialPublishView : UserControl
         Loaded += OnLoaded;
     }
 
+    public PublishAccount? SelectedAccountProfile => _vm?.SelectedAccount?.Model;
+
+    public void SetSeriesPublishContent(Control content)
+    {
+        SeriesPublishContentHost.Content = content;
+    }
+
     private IStorageProvider? Storage => TopLevel.GetTopLevel(this)?.StorageProvider;
 
     private void OnLoaded(object? sender, RoutedEventArgs e)

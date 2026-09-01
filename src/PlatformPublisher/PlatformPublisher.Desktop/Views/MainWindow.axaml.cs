@@ -3,6 +3,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Common.Models;
+using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Weixin.Publishing;
 using TikTokPublisher.Ui.ViewModels;
 
@@ -20,6 +21,13 @@ public partial class MainWindow : Window
     {
         SharedSettingsView.Bind(viewModel);
         viewModel.Load();
+    }
+
+    public void BindWeixinSeries(IPlatformPublishAdapter adapter)
+    {
+        var seriesView = new WeixinSeriesUploadView();
+        seriesView.Bind(adapter, () => WeixinPublisherView.SelectedAccountProfile);
+        WeixinPublisherView.SetSeriesPublishContent(seriesView);
     }
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
