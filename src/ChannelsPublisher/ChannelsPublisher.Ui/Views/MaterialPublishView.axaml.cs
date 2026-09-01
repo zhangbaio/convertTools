@@ -58,6 +58,11 @@ public partial class MaterialPublishView : UserControl
         ArchivedProjectsContentHost.Content = content;
     }
 
+    public void SetDramaDownloadContent(Control content)
+    {
+        DramaDownloadContentHost.Content = content;
+    }
+
     private IStorageProvider? Storage => TopLevel.GetTopLevel(this)?.StorageProvider;
 
     private void OnLoaded(object? sender, RoutedEventArgs e)

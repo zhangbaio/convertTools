@@ -6,6 +6,7 @@ using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Weixin.Publishing;
 using TikTokPublisher.Ui.ViewModels;
+using ShortDrama.Core.Interfaces;
 
 namespace PlatformPublisher.Desktop.Views;
 
@@ -37,6 +38,19 @@ public partial class MainWindow : Window
         WeixinPublisherView.SelectedAccountChanged += account => workflowView.ApplyAccount(account);
         WeixinPublisherView.SetWorkflowContent(workflowView);
         WeixinPublisherView.SetArchivedProjectsContent(new WeixinArchivedProjectsView { DataContext = viewModel });
+    }
+
+    public void BindWeixinDownload(
+        IDramaSearchService searchService,
+        IDramaProjectBootstrapper bootstrapper,
+        IWorkService workService,
+        MainWindowViewModel mainViewModel)
+    {
+        var viewModel = new WeixinDramaDownloadViewModel(searchService, bootstrapper, workService, mainViewModel)
+        {
+            RootDirectory = mainViewModel.DraftProjectDirectory,
+        };
+        WeixinPublisherView.SetDramaDownloadContent(new WeixinDramaDownloadView { DataContext = viewModel });
     }
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;

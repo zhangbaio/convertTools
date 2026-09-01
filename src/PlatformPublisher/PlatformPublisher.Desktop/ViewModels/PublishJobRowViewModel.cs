@@ -45,8 +45,11 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string CostReportStepStatus => StepStatus("cost-report");
     public string ProjectImageStepStatus => StepStatus("project-image");
     public string ValidateStepStatus => StepStatus("material-validate");
+    public string AiProofStepStatus => StepStatus("ai-proof");
+    public string TimestampStepStatus => StepStatus("timestamp-certificate");
     public string UploadStepStatus => StepStatus("weixin-upload");
     public string ShelfStepStatus => StepStatus("shelf");
+    public string ManagementSyncStepStatus => StepStatus("management-sync");
     public string StepProgressSummary
     {
         get
@@ -94,8 +97,11 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         OnPropertyChanged(nameof(CostReportStepStatus));
         OnPropertyChanged(nameof(ProjectImageStepStatus));
         OnPropertyChanged(nameof(ValidateStepStatus));
+        OnPropertyChanged(nameof(AiProofStepStatus));
+        OnPropertyChanged(nameof(TimestampStepStatus));
         OnPropertyChanged(nameof(UploadStepStatus));
         OnPropertyChanged(nameof(ShelfStepStatus));
+        OnPropertyChanged(nameof(ManagementSyncStepStatus));
         OnPropertyChanged(nameof(StepProgressSummary));
     }
 }

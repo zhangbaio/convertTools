@@ -62,4 +62,7 @@ public sealed class WeixinWorkflowSettings
     public int SmartRecutEpisodeCount { get; set; }
     public int SmartRecutMinSeconds { get; set; } = 60;
     public int SmartRecutMaxSeconds { get; set; } = 180;
+    public bool SyncManagementAfterUpload { get; set; }
+    public bool GenerateAiProofEnabled { get; set; }
+    public bool GenerateTimestampCertificateEnabled { get; set; }
 }

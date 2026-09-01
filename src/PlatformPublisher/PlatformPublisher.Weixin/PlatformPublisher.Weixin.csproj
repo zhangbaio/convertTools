@@ -10,5 +10,6 @@
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Core\ShortDrama.Core.csproj" />
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
     <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Clip\ChannelsPublisher.Clip.csproj" />
+    <ProjectReference Include="..\..\TikTokPublisher\TikTokPublisher.Core\TikTokPublisher.Core.csproj" />
   </ItemGroup>
 </Project>

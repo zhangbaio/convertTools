@@ -10,6 +10,7 @@ using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Weixin.Publishing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using TikTokPublisher.Core.Services;
 
 namespace PlatformPublisher.Desktop.ViewModels;
 
@@ -26,10 +27,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ("auto-fill-info", "补齐字段"),
         ("cost-report", "成本报表"),
         ("project-image", "工程图"),
+        ("ai-proof", "AI制作证明"),
+        ("timestamp-certificate", "可信时间戳"),
         ("upload-remux", "无损重封装"),
         ("material-validate", "素材校验"),
         ("weixin-upload", "上传剧集"),
         ("shelf", "上架"),
+        ("management-sync", "管理同步"),
     ];
     private readonly PublishJobStore _store;
     private readonly PublishAccountStore _accountStore;
@@ -42,6 +46,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly WeixinWorkflowSettingsStore _workflowSettingsStore;
     private readonly WeixinAutoShelfService _autoShelfService;
     private readonly WeixinSmartRecutService _smartRecutService;
+    private readonly WeixinManagementSyncService _managementSyncService;
+    private readonly WeixinProofArtifactsService _proofArtifactsService;
     private readonly List<PublishJob> _jobs = [];
     private readonly List<PublishAccount> _accounts = [];
     private readonly DispatcherTimer _scheduleTimer;
@@ -62,7 +68,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IProjectArchiveService projectArchiveService,
         WeixinWorkflowSettingsStore workflowSettingsStore,
         WeixinAutoShelfService autoShelfService,
-        WeixinSmartRecutService smartRecutService)
+        WeixinSmartRecutService smartRecutService,
+        WeixinManagementSyncService managementSyncService,
+        WeixinProofArtifactsService proofArtifactsService)
     {
         _store = store;
         _accountStore = accountStore;
@@ -75,6 +83,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _workflowSettingsStore = workflowSettingsStore;
         _autoShelfService = autoShelfService;
         _smartRecutService = smartRecutService;
+        _managementSyncService = managementSyncService;
+        _proofArtifactsService = proofArtifactsService;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -135,6 +145,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PreviousWorkflowPageCommand = new RelayCommand(PreviousWorkflowPage, () => WorkflowCurrentPage > 1);
         NextWorkflowPageCommand = new RelayCommand(NextWorkflowPage, () => WorkflowCurrentPage < WorkflowPageCount);
         AutoShelfCommand = new AsyncRelayCommand(AutoShelfAsync, () => SelectedJob is not null && !IsBusy);
+        SyncCheckedManagementCommand = new AsyncRelayCommand(SyncCheckedManagementAsync, () => !IsBusy);
         _interactionService.RequestChanged += OnInteractionRequestChanged;
         _scheduleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _scheduleTimer.Tick += OnScheduleTimerTick;
@@ -185,6 +196,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public IRelayCommand PreviousWorkflowPageCommand { get; }
     public IRelayCommand NextWorkflowPageCommand { get; }
     public IAsyncRelayCommand AutoShelfCommand { get; }
+    public IAsyncRelayCommand SyncCheckedManagementCommand { get; }
 
     [ObservableProperty]
     private PlatformOptionViewModel _selectedPlatform;
@@ -280,6 +292,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private int _smartRecutEpisodeCount;
     [ObservableProperty] private int _smartRecutMinSeconds = 60;
     [ObservableProperty] private int _smartRecutMaxSeconds = 180;
+    [ObservableProperty] private bool _pipelineSyncManagementAfterUpload;
+    [ObservableProperty] private bool _pipelineGenerateAiProofEnabled;
+    [ObservableProperty] private bool _pipelineGenerateTimestampCertificateEnabled;
 
     public int WorkflowPageCount => Math.Max(1, (int)Math.Ceiling(VisibleJobs.Count / (double)Math.Max(1, WorkflowPageSize)));
     public string WorkflowPageSummary => $"第 {WorkflowCurrentPage}/{WorkflowPageCount} 页，共 {VisibleJobs.Count} 条";
@@ -392,6 +407,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     partial void OnPipelineAutoFillEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineCostReportEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineProjectImageEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
+    partial void OnPipelineGenerateAiProofEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
+    partial void OnPipelineGenerateTimestampCertificateEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineMaterialValidateEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineRemuxEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
 
@@ -605,7 +622,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         Directory.Exists(DraftProjectDirectory) &&
         (PipelineDownloadEnabled || PipelineSmartRecutEnabled || PipelineRewriteEnabled || PipelinePosterEnabled ||
          PipelineTranscodeEnabled || PipelineAutoRepairEnabled || PipelineAutoFillEnabled ||
-         PipelineCostReportEnabled || PipelineProjectImageEnabled || PipelineMaterialValidateEnabled ||
+         PipelineCostReportEnabled || PipelineProjectImageEnabled || PipelineGenerateAiProofEnabled ||
+         PipelineGenerateTimestampCertificateEnabled || PipelineMaterialValidateEnabled ||
          PipelineRemuxEnabled);
 
     private bool CanScanWorkspace() =>
@@ -687,6 +705,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PipelineForceRerun = settings.ForceRerun;
         PipelineAutoArchiveAfterUpload = settings.AutoArchiveAfterUpload;
         PipelinePreferUploadWhenReady = settings.PreferUploadWhenReady;
+        PipelineSyncManagementAfterUpload = settings.SyncManagementAfterUpload;
+        PipelineGenerateAiProofEnabled = settings.GenerateAiProofEnabled;
+        PipelineGenerateTimestampCertificateEnabled = settings.GenerateTimestampCertificateEnabled;
         WorkflowPageSize = Math.Clamp(settings.PageSize, 5, 200);
         AutoShelfMaxPages = Math.Clamp(settings.AutoShelfMaxPages, 1, 100);
         AutoShelfMaxRounds = Math.Clamp(settings.AutoShelfMaxRounds, 1, 100);
@@ -716,6 +737,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ForceRerun = PipelineForceRerun,
             AutoArchiveAfterUpload = PipelineAutoArchiveAfterUpload,
             PreferUploadWhenReady = PipelinePreferUploadWhenReady,
+            SyncManagementAfterUpload = PipelineSyncManagementAfterUpload,
+            GenerateAiProofEnabled = PipelineGenerateAiProofEnabled,
+            GenerateTimestampCertificateEnabled = PipelineGenerateTimestampCertificateEnabled,
             PageSize = WorkflowPageSize,
             AutoShelfMaxPages = AutoShelfMaxPages,
             AutoShelfMaxRounds = AutoShelfMaxRounds,
@@ -752,6 +776,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (PipelineTranscodeEnabled && !PipelineSmartRecutEnabled) steps.Add(("transcode", "素材转码"));
         if (PipelineCostReportEnabled) steps.Add(("cost-report", "生成成本报表"));
         if (PipelineProjectImageEnabled) steps.Add(("project-image", "生成工程图"));
+        if (PipelineGenerateAiProofEnabled) steps.Add(("ai-proof", "生成AI制作证明"));
+        if (PipelineGenerateTimestampCertificateEnabled) steps.Add(("timestamp-certificate", "生成可信时间戳"));
 
         await RunBusyAsync(async cancellationToken =>
         {
@@ -786,6 +812,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
                                 "素材转码",
                                 PublishJobStepStatus.Skipped,
                                 "智能重剪已直接生成工作视频");
+                            return;
+                        }
+                        if (key == "ai-proof" || key == "timestamp-certificate")
+                        {
+                            var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                            var artifactProgress = new Progress<string>(message => AppendActivityLog($"证明材料：{message}"));
+                            if (key == "ai-proof")
+                                await _proofArtifactsService.GenerateAiProofAsync(
+                                    trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
+                                    settings,
+                                    PipelineForceRerun,
+                                    artifactProgress,
+                                    cancellationToken);
+                            else
+                                await _proofArtifactsService.GenerateTimestampCertificateAsync(
+                                    trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
+                                    settings,
+                                    PipelineForceRerun,
+                                    artifactProgress,
+                                    cancellationToken);
                             return;
                         }
                         var result = await _workService.RunProjectStepAsync(
@@ -1059,6 +1105,71 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
     }
 
+    private async Task SyncCheckedManagementAsync()
+    {
+        var rows = VisibleJobs.Where(row => row.IsChecked).ToArray();
+        if (rows.Length == 0 && SelectedJob is not null) rows = [SelectedJob];
+        if (rows.Length == 0)
+        {
+            StatusMessage = "请先勾选或选择要同步的任务。";
+            return;
+        }
+        await RunBusyAsync(async cancellationToken =>
+        {
+            var succeeded = 0;
+            var failed = 0;
+            foreach (var row in rows)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var uploaded = row.Model.Status == PublishJobStatus.Succeeded ||
+                               row.Model.StepStates.GetValueOrDefault("weixin-upload")?.Status == PublishJobStepStatus.Succeeded
+                    ? "是"
+                    : "否";
+                if (await TrySyncManagementAsync(row.Model, row, uploaded, cancellationToken)) succeeded++;
+                else failed++;
+            }
+            StatusMessage = $"管理系统同步结束：成功 {succeeded}，失败 {failed}。";
+            AppendActivityLog(StatusMessage);
+        });
+    }
+
+    private async Task<bool> TrySyncManagementAsync(
+        PublishJob job,
+        PublishJobRowViewModel row,
+        string uploaded,
+        CancellationToken cancellationToken)
+    {
+        await UpdateStepStateAsync(job, row, "management-sync", "管理同步", PublishJobStepStatus.Running, "正在同步");
+        try
+        {
+            var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+            var credentials = new WeixinManagementCredentials(
+                settings.AuthServerUrl,
+                settings.AuthAccount,
+                settings.AuthPassword);
+            var result = await _managementSyncService.SyncAsync(
+                job,
+                credentials,
+                uploaded,
+                job.AccountName,
+                cancellationToken);
+            await UpdateStepStateAsync(job, row, "management-sync", "管理同步", PublishJobStepStatus.Succeeded, result.Message);
+            AppendActivityLog($"[{job.ProjectName}] {result.Message}");
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            await UpdateStepStateAsync(job, row, "management-sync", "管理同步", PublishJobStepStatus.Pending, "已停止，可继续同步");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            await UpdateStepStateAsync(job, row, "management-sync", "管理同步", PublishJobStepStatus.Failed, ex.Message);
+            AppendActivityLog($"[{job.ProjectName}] 管理系统同步失败：{ex.Message}");
+            return false;
+        }
+    }
+
     private async Task RunCheckedAsync()
     {
         var rows = VisibleJobs.Where(row => row.IsChecked).ToArray();
@@ -1265,6 +1376,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             job.StatusMessage = "发布流程执行完成";
             StatusMessage = $"[{job.ProjectName}] 发布完成";
             AppendActivityLog(StatusMessage);
+            if (PipelineSyncManagementAfterUpload)
+                await TrySyncManagementAsync(job, row, "是", CancellationToken.None);
             if (PipelineAutoArchiveAfterUpload && job.Kind == PublishJobKind.Series)
                 await TryArchivePublishedProjectAsync(job, cancellationToken);
         }
@@ -1627,6 +1740,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PreviousWorkflowPageCommand.NotifyCanExecuteChanged();
         NextWorkflowPageCommand.NotifyCanExecuteChanged();
         AutoShelfCommand.NotifyCanExecuteChanged();
+        SyncCheckedManagementCommand.NotifyCanExecuteChanged();
     }
 
     private void PreviousWorkflowPage()

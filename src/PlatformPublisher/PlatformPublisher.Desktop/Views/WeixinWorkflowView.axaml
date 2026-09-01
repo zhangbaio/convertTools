@@ -100,11 +100,14 @@
                     <CheckBox Content="补齐字段" IsChecked="{Binding PipelineAutoFillEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="生成成本报表" IsChecked="{Binding PipelineCostReportEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="生成工程图" IsChecked="{Binding PipelineProjectImageEnabled}" Margin="0,0,16,6" />
+                    <CheckBox Content="生成AI制作证明" IsChecked="{Binding PipelineGenerateAiProofEnabled}" Margin="0,0,16,6" />
+                    <CheckBox Content="生成可信时间戳（本地模板，非TSA认证）" IsChecked="{Binding PipelineGenerateTimestampCertificateEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="素材校验" IsChecked="{Binding PipelineMaterialValidateEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="无损重封装" IsChecked="{Binding PipelineRemuxEnabled}" Margin="0,0,16,6" />
                     <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding PipelineForceRerun}" Margin="0,0,16,6" />
                     <CheckBox Content="上传完成后自动归档" IsChecked="{Binding PipelineAutoArchiveAfterUpload}" Margin="0,0,16,6" />
                     <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding PipelinePreferUploadWhenReady}" Margin="0,0,16,6" />
+                    <CheckBox Content="上传成功后同步管理系统" IsChecked="{Binding PipelineSyncManagementAfterUpload}" Margin="0,0,16,6" />
                 </WrapPanel>
             </Grid>
         </Border>
@@ -145,6 +148,7 @@
                     </ComboBox>
                     <Button Content="修改勾选状态" Command="{Binding ApplyCheckedStatusCommand}" Classes="secondaryAction" Margin="0,0,8,0" />
                     <Button Content="归属当前账号" Command="{Binding AssignCheckedToCurrentAccountCommand}" Classes="secondaryAction" Margin="0,0,8,0" />
+                    <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="secondaryAction" Margin="0,0,8,0" />
                     <Button Content="批量移出" Command="{Binding RemoveCheckedJobsCommand}" Classes="dangerAction" Margin="0,0,8,0" />
                     <TextBlock Text="每页" VerticalAlignment="Center" Margin="0,0,4,0" />
                     <NumericUpDown Width="76" Value="{Binding WorkflowPageSize}" Minimum="5" Maximum="200" Increment="5" Margin="0,0,8,0" />
@@ -174,9 +178,9 @@
                     </Grid>
                 </Border>
                 <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                    <Grid MinWidth="2090" RowDefinitions="Auto,*">
+                    <Grid MinWidth="2330" RowDefinitions="Auto,*">
                         <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,7">
-                            <Grid ColumnDefinitions="44,110,190,240,64,72,64,64,64,64,64,64,64,64,72,64,120,70,90,240" ColumnSpacing="8">
+                            <Grid ColumnDefinitions="44,110,190,240,64,72,64,64,64,64,64,64,64,80,80,64,72,64,64,120,70,90,240" ColumnSpacing="8">
                                 <TextBlock Text="勾选" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="1" Text="任务类型" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="2" Text="项目" FontWeight="SemiBold" />
@@ -190,20 +194,23 @@
                                 <TextBlock Grid.Column="10" Text="补齐" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="11" Text="报表" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="12" Text="工程图" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="13" Text="校验" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="14" Text="上传" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="15" Text="上架" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="16" Text="计划时间" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="17" Text="尝试" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="18" Text="状态" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="19" Text="当前信息" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="13" Text="AI证明" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="14" Text="时间戳" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="15" Text="校验" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="16" Text="上传" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="17" Text="上架" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="18" Text="管理同步" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="19" Text="计划时间" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="20" Text="尝试" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="21" Text="状态" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="22" Text="当前信息" FontWeight="SemiBold" />
                             </Grid>
                         </Border>
                         <ListBox Grid.Row="1" ItemsSource="{Binding PagedJobs}" SelectedItem="{Binding SelectedJob}"
                                  Background="#FFFFFF" BorderThickness="0">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
-                                    <Grid ColumnDefinitions="44,110,190,240,64,72,64,64,64,64,64,64,64,64,72,64,120,70,90,240" ColumnSpacing="8" Margin="10,7">
+                                    <Grid ColumnDefinitions="44,110,190,240,64,72,64,64,64,64,64,64,64,80,80,64,72,64,64,120,70,90,240" ColumnSpacing="8" Margin="10,7">
                                         <CheckBox IsChecked="{Binding IsChecked}" />
                                         <TextBlock Grid.Column="1" Text="{Binding KindName}" />
                                         <StackPanel Grid.Column="2">
@@ -220,13 +227,16 @@
                                         <TextBlock Grid.Column="10" Text="{Binding AutoFillStepStatus}" />
                                         <TextBlock Grid.Column="11" Text="{Binding CostReportStepStatus}" />
                                         <TextBlock Grid.Column="12" Text="{Binding ProjectImageStepStatus}" />
-                                        <TextBlock Grid.Column="13" Text="{Binding ValidateStepStatus}" />
-                                        <TextBlock Grid.Column="14" Text="{Binding UploadStepStatus}" />
-                                        <TextBlock Grid.Column="15" Text="{Binding ShelfStepStatus}" />
-                                        <TextBlock Grid.Column="16" Text="{Binding ScheduleText}" />
-                                        <TextBlock Grid.Column="17" Text="{Binding AttemptSummary}" />
-                                        <TextBlock Grid.Column="18" Text="{Binding StatusText}" Foreground="#047857" FontWeight="SemiBold" />
-                                        <TextBlock Grid.Column="19" Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="13" Text="{Binding AiProofStepStatus}" />
+                                        <TextBlock Grid.Column="14" Text="{Binding TimestampStepStatus}" />
+                                        <TextBlock Grid.Column="15" Text="{Binding ValidateStepStatus}" />
+                                        <TextBlock Grid.Column="16" Text="{Binding UploadStepStatus}" />
+                                        <TextBlock Grid.Column="17" Text="{Binding ShelfStepStatus}" />
+                                        <TextBlock Grid.Column="18" Text="{Binding ManagementSyncStepStatus}" />
+                                        <TextBlock Grid.Column="19" Text="{Binding ScheduleText}" />
+                                        <TextBlock Grid.Column="20" Text="{Binding AttemptSummary}" />
+                                        <TextBlock Grid.Column="21" Text="{Binding StatusText}" Foreground="#047857" FontWeight="SemiBold" />
+                                        <TextBlock Grid.Column="22" Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" />
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
