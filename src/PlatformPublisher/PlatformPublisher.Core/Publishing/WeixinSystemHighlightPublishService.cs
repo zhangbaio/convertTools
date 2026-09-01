@@ -56,7 +56,7 @@ public sealed class WeixinSystemHighlightPublishService
             throw new InvalidOperationException("系统高光发表必须填写剧名。");
 
         var count = Math.Clamp(job.PublishCount, 1, 100);
-        var accountId = StableAccountId(job.AccountName);
+        var accountId = PublishAccountStorageKey.ForJob(job);
         var projectDirectory = Path.Combine(_dataRoot, "jobs", job.Id, "system-highlight");
         var outputDirectory = Path.Combine(projectDirectory, "output");
         Directory.CreateDirectory(outputDirectory);
@@ -188,9 +188,4 @@ public sealed class WeixinSystemHighlightPublishService
         return array;
     }
 
-    private static string StableAccountId(string accountName)
-    {
-        var source = string.IsNullOrWhiteSpace(accountName) ? "default" : accountName.Trim();
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source)))[..12].ToLowerInvariant();
-    }
 }

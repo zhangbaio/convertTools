@@ -11,15 +11,21 @@ namespace PlatformPublisher.Desktop.ViewModels;
 public sealed partial class MainWindowViewModel : ObservableObject
 {
     private readonly PublishJobStore _store;
+    private readonly PublishAccountStore _accountStore;
     private readonly PlatformPublishCoordinator _coordinator;
     private readonly List<PublishJob> _jobs = [];
+    private readonly List<PublishAccount> _accounts = [];
     private readonly DispatcherTimer _scheduleTimer;
     private CancellationTokenSource? _operationCts;
     private bool _scheduleTickRunning;
 
-    public MainWindowViewModel(PublishJobStore store, PlatformPublishCoordinator coordinator)
+    public MainWindowViewModel(
+        PublishJobStore store,
+        PublishAccountStore accountStore,
+        PlatformPublishCoordinator coordinator)
     {
         _store = store;
+        _accountStore = accountStore;
         _coordinator = coordinator;
         Platforms =
         [
@@ -38,6 +44,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AddJobCommand = new AsyncRelayCommand(AddJobAsync, CanAddJob);
         RunSelectedCommand = new AsyncRelayCommand(RunSelectedAsync, CanRunSelected);
         RunRunnableCommand = new AsyncRelayCommand(RunRunnableAsync, CanRunRunnable);
+        NewAccountCommand = new RelayCommand(BeginNewAccount, () => !IsBusy);
+        SaveAccountCommand = new AsyncRelayCommand(SaveAccountAsync, CanSaveAccount);
+        DeleteAccountCommand = new AsyncRelayCommand(DeleteAccountAsync, () => SelectedAccount is not null && !IsBusy);
         OpenLoginCommand = new AsyncRelayCommand(OpenLoginAsync, CanOpenLogin);
         RemoveSelectedCommand = new AsyncRelayCommand(RemoveSelectedAsync, () => SelectedJob is not null && !IsBusy);
         StopCommand = new RelayCommand(Stop, () => IsBusy);
@@ -50,9 +59,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public IReadOnlyList<PlatformOptionViewModel> Platforms { get; }
     public IReadOnlyList<PublishJobKindOptionViewModel> JobKinds { get; }
     public ObservableCollection<PublishJobRowViewModel> VisibleJobs { get; } = [];
+    public ObservableCollection<PublishAccountItemViewModel> VisibleAccounts { get; } = [];
     public IAsyncRelayCommand AddJobCommand { get; }
     public IAsyncRelayCommand RunSelectedCommand { get; }
     public IAsyncRelayCommand RunRunnableCommand { get; }
+    public IRelayCommand NewAccountCommand { get; }
+    public IAsyncRelayCommand SaveAccountCommand { get; }
+    public IAsyncRelayCommand DeleteAccountCommand { get; }
     public IAsyncRelayCommand OpenLoginCommand { get; }
     public IAsyncRelayCommand RemoveSelectedCommand { get; }
     public IRelayCommand StopCommand { get; }
@@ -65,6 +78,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private PublishJobRowViewModel? _selectedJob;
+
+    [ObservableProperty]
+    private PublishAccountItemViewModel? _selectedAccount;
 
     [ObservableProperty]
     private string _draftProjectDirectory = string.Empty;
@@ -111,19 +127,31 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public string SelectedPlatformCapability =>
         _coordinator.GetAdapter(SelectedPlatform.Value).AvailabilityMessage;
 
-    public string QueueSummary => $"当前平台 {VisibleJobs.Count} 条任务，共 {_jobs.Count} 条独立任务";
+    public string QueueSummary =>
+        $"当前平台 {VisibleJobs.Count} 条任务、{VisibleAccounts.Count} 个账号，共 {_jobs.Count} 条独立任务";
 
     partial void OnSelectedPlatformChanged(PlatformOptionViewModel value)
     {
         RefreshVisibleJobs();
+        RefreshVisibleAccounts();
         OnPropertyChanged(nameof(SelectedPlatformCapability));
         NotifyCommands();
     }
 
     partial void OnSelectedJobChanged(PublishJobRowViewModel? value) => NotifyCommands();
+    partial void OnSelectedAccountChanged(PublishAccountItemViewModel? value)
+    {
+        if (value is not null)
+        {
+            DraftAccountName = value.Model.Name;
+            DraftConfigPath = value.Model.BaseConfigPath;
+        }
+        NotifyCommands();
+    }
     partial void OnSelectedJobKindChanged(PublishJobKindOptionViewModel value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftProjectDirectoryChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftDramaTitleChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
+    partial void OnDraftAccountNameChanged(string value) => SaveAccountCommand.NotifyCanExecuteChanged();
     partial void OnDraftScheduleEnabledChanged(bool value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftScheduleTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
 
@@ -131,7 +159,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         try
         {
-            _jobs.AddRange(await _store.LoadAsync());
+            var loadJobs = _store.LoadAsync();
+            var loadAccounts = _accountStore.LoadAsync();
+            await Task.WhenAll(loadJobs, loadAccounts);
+            _jobs.AddRange(await loadJobs);
+            _accounts.AddRange(await loadAccounts);
             var recovered = PublishSchedulePolicy.RecoverInterrupted(_jobs);
             if (recovered > 0)
             {
@@ -139,6 +171,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 StatusMessage = $"已恢复 {recovered} 条上次意外中断的任务。";
             }
             RefreshVisibleJobs();
+            RefreshVisibleAccounts();
         }
         catch (Exception ex)
         {
@@ -177,6 +210,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 : Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
             ProjectDirectory = directory,
             ConfigPath = DraftConfigPath.Trim(),
+            AccountId = SelectedAccount?.Model.Id ?? string.Empty,
             AccountName = DraftAccountName.Trim(),
             DeclareOriginal = DraftDeclareOriginal,
             HideLocation = DraftHideLocation,
@@ -202,6 +236,49 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PublishSchedulePolicy.CanRunNow(row.Model, DateTimeOffset.Now) &&
         _coordinator.GetAdapter(row.Platform).IsAvailable);
     private bool CanOpenLogin() => SelectedJob is not null && !IsBusy;
+
+    private bool CanSaveAccount() => !IsBusy && !string.IsNullOrWhiteSpace(DraftAccountName);
+
+    private void BeginNewAccount()
+    {
+        SelectedAccount = null;
+        DraftAccountName = string.Empty;
+        DraftConfigPath = string.Empty;
+        StatusMessage = $"正在新增{SelectedPlatform.Name}账号档案。";
+    }
+
+    private async Task SaveAccountAsync()
+    {
+        var account = SelectedAccount?.Model;
+        if (account is null || account.Platform != SelectedPlatform.Value)
+        {
+            account = new PublishAccount
+            {
+                Platform = SelectedPlatform.Value,
+                CreatedAt = DateTimeOffset.Now,
+            };
+            _accounts.Add(account);
+        }
+
+        account.Name = DraftAccountName.Trim();
+        account.BaseConfigPath = DraftConfigPath.Trim();
+        account.UpdatedAt = DateTimeOffset.Now;
+        await _accountStore.SaveAsync(_accounts);
+        RefreshVisibleAccounts(account.Id);
+        StatusMessage = $"已保存{account.Platform.DisplayName()}账号：{account.Name}";
+    }
+
+    private async Task DeleteAccountAsync()
+    {
+        if (SelectedAccount is null)
+            return;
+
+        var account = SelectedAccount.Model;
+        _accounts.Remove(account);
+        await _accountStore.SaveAsync(_accounts);
+        RefreshVisibleAccounts();
+        StatusMessage = $"已删除账号档案：{account.Name}；授权文件和历史任务均未删除。";
+    }
 
     private async Task RunSelectedAsync()
     {
@@ -430,11 +507,38 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Dispatcher.UIThread.Post(Refresh);
     }
 
+    private void RefreshVisibleAccounts(string? selectId = null)
+    {
+        void Refresh()
+        {
+            VisibleAccounts.Clear();
+            foreach (var account in _accounts
+                         .Where(account => account.Platform == SelectedPlatform.Value)
+                         .OrderBy(account => account.Name, StringComparer.CurrentCultureIgnoreCase))
+            {
+                VisibleAccounts.Add(new PublishAccountItemViewModel(account));
+            }
+
+            SelectedAccount = selectId is null
+                ? VisibleAccounts.FirstOrDefault()
+                : VisibleAccounts.FirstOrDefault(account => account.Id == selectId);
+            OnPropertyChanged(nameof(QueueSummary));
+        }
+
+        if (Dispatcher.UIThread.CheckAccess())
+            Refresh();
+        else
+            Dispatcher.UIThread.Post(Refresh);
+    }
+
     private void NotifyCommands()
     {
         AddJobCommand.NotifyCanExecuteChanged();
         RunSelectedCommand.NotifyCanExecuteChanged();
         RunRunnableCommand.NotifyCanExecuteChanged();
+        NewAccountCommand.NotifyCanExecuteChanged();
+        SaveAccountCommand.NotifyCanExecuteChanged();
+        DeleteAccountCommand.NotifyCanExecuteChanged();
         OpenLoginCommand.NotifyCanExecuteChanged();
         RemoveSelectedCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();

@@ -35,6 +35,7 @@ public sealed class PublishJob
     public string ProjectName { get; set; } = string.Empty;
     public string ProjectDirectory { get; set; } = string.Empty;
     public string ConfigPath { get; set; } = string.Empty;
+    public string AccountId { get; set; } = string.Empty;
     public string AccountName { get; set; } = string.Empty;
     public bool DeclareOriginal { get; set; } = true;
     public bool HideLocation { get; set; } = true;

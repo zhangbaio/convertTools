@@ -101,7 +101,7 @@ public sealed class WeixinDirectoryMaterialPublishService
         var outputDirectory = Path.Combine(jobRoot, "output");
         Directory.CreateDirectory(outputDirectory);
 
-        var accountId = StableAccountId(job);
+        var accountId = PublishAccountStorageKey.ForJob(job);
         var baseSettings = ReadBaseSettings(job.ConfigPath, _dataRoot, accountId);
         var videoPaths = items.Select(item => item.VideoPath).ToArray();
         var descriptions = new JsonObject();
@@ -279,10 +279,4 @@ public sealed class WeixinDirectoryMaterialPublishService
             : throw new DirectoryNotFoundException($"目录批量发表：工作目录不存在：{root}");
     }
 
-    private static string StableAccountId(PublishJob job)
-    {
-        var source = string.IsNullOrWhiteSpace(job.AccountName) ? "default" : job.AccountName.Trim();
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(source));
-        return Convert.ToHexString(bytes)[..12].ToLowerInvariant();
-    }
 }

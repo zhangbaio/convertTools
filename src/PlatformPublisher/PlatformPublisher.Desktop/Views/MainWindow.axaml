@@ -28,7 +28,7 @@
 
         <Grid Grid.Row="1" ColumnDefinitions="230,*">
             <Border Grid.Column="0" Background="#0E2D45" BorderBrush="#28546F" BorderThickness="0,0,1,0" Padding="12">
-                <Grid RowDefinitions="Auto,*,Auto" RowSpacing="10">
+                <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
                     <StackPanel Spacing="4" Margin="4,4,4,8">
                         <TextBlock Text="发布平台" FontWeight="SemiBold" FontSize="15" />
                         <TextBlock Text="各平台账号和任务相互隔离"
@@ -38,7 +38,8 @@
 
                     <ListBox Grid.Row="1"
                              ItemsSource="{Binding Platforms}"
-                             SelectedItem="{Binding SelectedPlatform}">
+                             SelectedItem="{Binding SelectedPlatform}"
+                             MaxHeight="210">
                         <ListBox.Styles>
                             <Style Selector="ListBoxItem">
                                 <Setter Property="Padding" Value="10" />
@@ -62,7 +63,33 @@
                         </ListBox.ItemTemplate>
                     </ListBox>
 
-                    <Border Grid.Row="2" Classes="panel" Padding="10">
+                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="5">
+                        <TextBlock Text="账号档案" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <Button Grid.Column="1" Padding="7,4" MinHeight="28"
+                                Command="{Binding NewAccountCommand}" Content="新增" />
+                        <Button Grid.Column="2" Padding="7,4" MinHeight="28"
+                                Command="{Binding SaveAccountCommand}" Content="保存" />
+                        <Button Grid.Column="3" Padding="7,4" MinHeight="28"
+                                Command="{Binding DeleteAccountCommand}" Content="删除" />
+                    </Grid>
+
+                    <ListBox Grid.Row="3"
+                             ItemsSource="{Binding VisibleAccounts}"
+                             SelectedItem="{Binding SelectedAccount}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PublishAccountItemViewModel">
+                                <StackPanel Spacing="3" Margin="4">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding ConfigSummary}"
+                                               FontSize="11"
+                                               Foreground="#91AEC3"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <Border Grid.Row="4" Classes="panel" Padding="10">
                         <StackPanel Spacing="5">
                             <TextBlock Text="隔离状态" FontWeight="SemiBold" />
                             <TextBlock Text="独立程序 / 独立队列 / 独立配置"
