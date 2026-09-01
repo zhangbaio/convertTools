@@ -44,6 +44,28 @@ public sealed class TikTokCopyrightProofAuditTextTests
         }
     }
 
+    [Theory]
+    [InlineData("embedded", true, false, false)]
+    [InlineData("playwright", false, true, false)]
+    [InlineData("playwright", true, true, true)]
+    public void Copyright_edit_browser_matches_publish_configuration(
+        string browserMode,
+        bool configuredHeadless,
+        bool expectedPlaywright,
+        bool expectedHeadless)
+    {
+        var account = new TikTokPublisher.Core.Models.TikTokAccountProfile
+        {
+            TiktokUploadBrowserMode = browserMode,
+            TiktokPlaywrightUploadHeadless = configuredHeadless,
+        };
+
+        var plan = TikTokCopyrightProofEditService.ResolveBrowserPlan(account);
+
+        plan.UsePlaywright.Should().Be(expectedPlaywright);
+        plan.Headless.Should().Be(expectedHeadless);
+    }
+
     [Fact]
     public void BuildDisplayText_OnlyListsMissingAndFailedTitlesWithoutPlatformIds()
     {
