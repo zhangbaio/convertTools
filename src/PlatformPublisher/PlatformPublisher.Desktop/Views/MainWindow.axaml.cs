@@ -30,6 +30,14 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetSeriesPublishContent(seriesView);
     }
 
+    public void BindWeixinWorkflow(MainWindowViewModel viewModel)
+    {
+        var workflowView = new WeixinWorkflowView { DataContext = viewModel };
+        workflowView.Bind(() => WeixinPublisherView.SelectedAccountProfile);
+        WeixinPublisherView.SelectedAccountChanged += account => workflowView.ApplyAccount(account);
+        WeixinPublisherView.SetWorkflowContent(workflowView);
+    }
+
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
 
     private void OnWeixinNavClick(object? sender, RoutedEventArgs e) => ShowWeixinPage();

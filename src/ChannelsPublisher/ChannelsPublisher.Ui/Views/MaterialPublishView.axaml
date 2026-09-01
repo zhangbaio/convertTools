@@ -239,6 +239,14 @@
                            Foreground="#64748B" />
             </ContentControl>
         </TabItem>
+
+        <TabItem Header="项目流水线">
+            <ContentControl x:Name="WorkflowContentHost">
+                <TextBlock Text="当前宿主尚未绑定视频号项目流水线。"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="#64748B" />
+            </ContentControl>
+        </TabItem>
         </TabControl>
     </Grid>
 </UserControl>

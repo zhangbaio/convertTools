@@ -33,6 +33,7 @@ public partial class App : Application
             var mainWindow = new MainWindow { DataContext = viewModel };
             mainWindow.BindSettings(settingsViewModel);
             mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
+            mainWindow.BindWeixinWorkflow(viewModel);
             desktop.MainWindow = mainWindow;
             desktop.Exit += (_, _) => viewModel.Shutdown();
         }

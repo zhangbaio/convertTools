@@ -41,9 +41,16 @@ public partial class MaterialPublishView : UserControl
 
     public PublishAccount? SelectedAccountProfile => _vm?.SelectedAccount?.Model;
 
+    public event Action<PublishAccount?>? SelectedAccountChanged;
+
     public void SetSeriesPublishContent(Control content)
     {
         SeriesPublishContentHost.Content = content;
+    }
+
+    public void SetWorkflowContent(Control content)
+    {
+        WorkflowContentHost.Content = content;
     }
 
     private IStorageProvider? Storage => TopLevel.GetTopLevel(this)?.StorageProvider;
@@ -108,7 +115,10 @@ public partial class MaterialPublishView : UserControl
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_ready && e.PropertyName == nameof(MainViewModel.SelectedAccount))
+        {
             ShowAccount(_vm?.SelectedAccount);
+            SelectedAccountChanged?.Invoke(_vm?.SelectedAccount?.Model);
+        }
     }
 
     private void OnNavigateRequested(AccountItemViewModel account, string url)
