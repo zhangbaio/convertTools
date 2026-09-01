@@ -149,36 +149,7 @@ public static partial class TikTokBrowserActions
         var tableRowCount = await ReadEditVideoTableRowCountAsync(page);
         if (rows.Count > 0)
         {
-            if (tableRowCount > expectedCount && rows.Count < tableRowCount)
-            {
-                throw new InvalidOperationException(
-                    $"TikTok 草稿正片已有 {tableRowCount} 行，超过总集数 {expectedCount}，且只解析到 {rows.Count} 行。" +
-                    "为避免误删或重复补传，请先在页面删除多余视频后重试。");
-            }
-
-            if (rows.Count > expectedCount)
-            {
-                Log(log, $"TikTok 草稿正片已有 {rows.Count}/{expectedCount} 行，删除第 {expectedCount + 1} 集及其后的多余行。");
-                await DeleteEditVideoRowsFromSlotAsync(page, expectedCount, log, ct);
-                return;
-            }
-
-            if (tableRowCount >= expectedCount && rows.Count < expectedCount)
-            {
-                Log(log,
-                    $"TikTok 草稿正片表格行数已达 {tableRowCount}/{expectedCount}，但当前只解析到 {rows.Count} 行；" +
-                    "跳过自动补传，避免把未解析到的现有视频重复上传。");
-                return;
-            }
-
-            var aligned = 0;
-            foreach (var row in rows)
-            {
-                if (row.Slot == row.Real)
-                    aligned = row.Slot;
-                else
-                    break;
-            }
+            var aligned = FindAlignedEditVideoPrefixCount(rows);
 
             List<string> missingPaths;
             if (aligned < rows.Count)
@@ -189,6 +160,28 @@ public static partial class TikTokBrowserActions
                     $"删除第{firstBad}集及其后所有行并从第{firstBad}集起重传补齐。");
                 await DeleteEditVideoRowsFromSlotAsync(page, aligned, log, ct);
                 missingPaths = uploadPaths.Skip(aligned).ToList();
+            }
+            else if (tableRowCount > expectedCount)
+            {
+                if (aligned < expectedCount)
+                {
+                    throw new InvalidOperationException(
+                        $"TikTok 草稿正片已有 {tableRowCount} 行，超过总集数 {expectedCount}，" +
+                        $"但只完整核对到前 {aligned} 集。为避免误删，请刷新页面后重试。");
+                }
+
+                Log(log,
+                    $"TikTok 草稿正片已有 {tableRowCount}/{expectedCount} 行，" +
+                    $"删除第 {expectedCount + 1} 行及其后的重复或多余视频。");
+                await DeleteEditVideoRowsFromSlotAsync(page, expectedCount, log, ct);
+                return;
+            }
+            else if (tableRowCount >= expectedCount && rows.Count < expectedCount)
+            {
+                throw new InvalidOperationException(
+                    $"TikTok 草稿正片表格有 {tableRowCount}/{expectedCount} 行，" +
+                    $"但本次只完整解析到 {rows.Count} 行，无法确认是否存在重复或乱序。" +
+                    "已停止编辑，请刷新页面后重试，避免带着异常视频继续提交。");
             }
             else if (rows.Count >= expectedCount)
             {
@@ -508,13 +501,25 @@ public static partial class TikTokBrowserActions
                     });
                   };
                   body.scrollTop = 0;
-                  let last = -1, stable = 0;
-                  for (let i = 0; i < 100 && stable < 4; i++) {
+                  const table = body.querySelector('table');
+                  const expected = Number.parseInt(table?.getAttribute('aria-rowcount') || '0', 10) || 0;
+                  let bottomStable = 0;
+                  for (let i = 0; i < 200; i++) {
                     grab();
-                    const n = Object.keys(collected).length;
-                    if (n === last) stable++; else { stable = 0; last = n; }
-                    body.scrollTop = body.scrollTop + 350;
-                    await new Promise((r) => setTimeout(r, 120));
+                    if (expected > 0 && Object.keys(collected).length >= expected) break;
+
+                    const maxTop = Math.max(0, body.scrollHeight - body.clientHeight);
+                    const before = body.scrollTop;
+                    const step = Math.max(350, Math.floor(body.clientHeight * 0.8));
+                    body.scrollTop = Math.min(maxTop, before + step);
+                    try { body.dispatchEvent(new Event('scroll', { bubbles: true })); } catch {}
+                    await new Promise((r) => setTimeout(r, 180));
+                    grab();
+
+                    const atBottom = body.scrollTop >= maxTop - 2;
+                    if (atBottom && body.scrollTop === before) bottomStable++;
+                    else bottomStable = 0;
+                    if (bottomStable >= 5) break;
                   }
                   body.scrollTop = 0;
                   return Object.values(collected).sort((a, b) => a.slot - b.slot);
@@ -600,6 +605,26 @@ public static partial class TikTokBrowserActions
         }
 
         return bySlot.Values.OrderBy(row => row.Slot).ToList();
+    }
+
+    internal static int FindAlignedEditVideoPrefixCount(IEnumerable<EditVideoRow> rows)
+    {
+        var aligned = 0;
+        var seenRealEpisodes = new HashSet<int>();
+        foreach (var row in rows.OrderBy(item => item.Slot))
+        {
+            var expected = aligned + 1;
+            if (row.Slot != expected ||
+                row.Real != expected ||
+                !seenRealEpisodes.Add(row.Real))
+            {
+                break;
+            }
+
+            aligned = expected;
+        }
+
+        return aligned;
     }
 
     private static bool TryReadIntProperty(JsonElement item, string name, out int value)

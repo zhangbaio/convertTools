@@ -152,7 +152,13 @@ public static class TikTokBatchUploadService
                 }
                 else
                 {
-                    log?.Invoke($"⚠️ 第 {batchIndex + 1} 批未被页面接收，直接重新选择文件（第 {attempt}/{maxRetries} 次）。");
+                    // 文件选择命令成功返回后，页面可能只是延迟渲染视频行。此时再次选择
+                    // 同一批会把已经被平台接收的文件重复加入列表。状态不确定时必须失败
+                    // 关闭，交给下一次编辑流程先核对并修复列表，不能盲目重传。
+                    throw new InvalidOperationException(
+                        $"TikTok 分批上传状态不确定：第 {batchIndex + 1} 批（{labels}）" +
+                        "执行文件选择后，页面未在确认时间内显示对应视频行。" +
+                        "已停止自动重选，避免重复上传；请重新执行编辑，程序会先检查并修复重复或乱序集数。");
                 }
                 if (attempt >= maxRetries)
                 {
