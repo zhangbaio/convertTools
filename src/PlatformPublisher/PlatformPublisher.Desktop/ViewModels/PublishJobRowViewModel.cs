@@ -25,10 +25,14 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         _ => Model.Status.ToString(),
     };
     public string StatusMessage => Model.StatusMessage;
+    public string ScheduleText => Model.ScheduledAt is { } value
+        ? value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+        : "立即/手动";
 
     public void Refresh()
     {
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(StatusMessage));
+        OnPropertyChanged(nameof(ScheduleText));
     }
 }
