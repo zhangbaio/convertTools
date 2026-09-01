@@ -68,6 +68,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string _draftAccountName = string.Empty;
 
     [ObservableProperty]
+    private bool _draftDeclareOriginal = true;
+
+    [ObservableProperty]
+    private bool _draftHideLocation = true;
+
+    [ObservableProperty]
+    private bool _draftAllowDuplicatePublish;
+
+    [ObservableProperty]
     private string _statusMessage = "多平台发布助手已启动，数据与 TikTok 助手完全隔离。";
 
     [ObservableProperty]
@@ -115,6 +124,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ProjectDirectory = directory,
             ConfigPath = DraftConfigPath.Trim(),
             AccountName = DraftAccountName.Trim(),
+            DeclareOriginal = DraftDeclareOriginal,
+            HideLocation = DraftHideLocation,
+            AllowDuplicatePublish = DraftAllowDuplicatePublish,
             Status = adapter.IsAvailable ? PublishJobStatus.Pending : PublishJobStatus.Blocked,
             StatusMessage = adapter.IsAvailable ? "等待执行" : adapter.AvailabilityMessage,
         };
