@@ -12,6 +12,20 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 
 public sealed class DramaSourceRouterDownloadTests
 {
+    [Theory]
+    [InlineData("mapleleaf", 60, 900)]
+    [InlineData("MAPLELEAF", 600, 900)]
+    [InlineData("hghigh", 60, 60)]
+    [InlineData("hgnew", 5, 10)]
+    public void Provider_download_timeout_prevents_mapleleaf_slow_cdn_restart_loops(
+        string source,
+        int configuredSeconds,
+        int expectedSeconds)
+    {
+        DramaSourceRouter.ResolveProviderDownloadTimeoutSeconds(source, configuredSeconds)
+            .Should().Be(expectedSeconds);
+    }
+
     [Fact]
     public void High_Playback_Timeout_Should_Be_Retryable_But_Authentication_Should_Not()
     {

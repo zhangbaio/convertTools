@@ -21,6 +21,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private const int DownloadBufferSize = 128 * 1024;
     private const int DefaultDownloadFileSegments = 4;
     private const int MaxDownloadFileSegments = 16;
+    private const int MapleleafMinimumDownloadTimeoutSeconds = 15 * 60;
     private const long MinSegmentedDownloadSize = 4L * 1024 * 1024;
     private const string DownloadUserAgent = "Mozilla/5.0";
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
@@ -402,6 +403,15 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             string.Equals(settings.DramaSourceChain?.Trim(), "mapleleaf", StringComparison.OrdinalIgnoreCase))
         {
             var mapleleafBookId = MapleleafApiService.EnsureBookPrefix(bookId);
+            var mapleleafTimeoutSeconds = ResolveProviderDownloadTimeoutSeconds(
+                "mapleleaf",
+                downloadTimeoutSeconds);
+            if (mapleleafTimeoutSeconds > downloadTimeoutSeconds)
+            {
+                progress?.Report(
+                    $"Mapleleaf 慢速 CDN 保护：整集下载时限由 {downloadTimeoutSeconds} 秒" +
+                    $"延长到 {mapleleafTimeoutSeconds} 秒；继续使用最多 16 路分块。");
+            }
             return await DownloadWithProviderAsync(
                 request,
                 progress,
@@ -411,7 +421,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 posterPrefix: MapleleafApiService.BookPrefix,
                 validateVideoEncoding: false,
                 downloadFileSegments: Math.Max(downloadFileSegments, 16),
-                downloadTimeoutSeconds: downloadTimeoutSeconds,
+                downloadTimeoutSeconds: mapleleafTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
         }
 
@@ -500,6 +510,19 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
             return await _hgnewDownloader.DownloadAsync(request, progress, cancellationToken);
         }
+    }
+
+    internal static int ResolveProviderDownloadTimeoutSeconds(
+        string? source,
+        int configuredTimeoutSeconds)
+    {
+        var configured = Math.Clamp(configuredTimeoutSeconds, 10, 600);
+        return string.Equals(
+            (source ?? string.Empty).Trim(),
+            "mapleleaf",
+            StringComparison.OrdinalIgnoreCase)
+            ? Math.Max(configured, MapleleafMinimumDownloadTimeoutSeconds)
+            : configured;
     }
 
     internal static Task<DramaDownloadResult?> TryBuildSuccessfulResultWhenVideosExistAsync(
