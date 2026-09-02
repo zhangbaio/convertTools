@@ -42,9 +42,10 @@ public sealed class KuaishouPersonalEpisodeUploadService
 
         if (string.Equals(config.FinalAction, "submit_review", StringComparison.OrdinalIgnoreCase))
         {
-            if (!await ClickVisibleAsync(page, ["提交审核"], 15_000))
+            if (!await ClickVisibleEnabledButtonAsync(page, "提交审核", 30_000, cancellationToken))
                 throw new InvalidOperationException("剧集上传完成，但未找到“提交审核”按钮。");
             await ConfirmDialogAsync(page);
+            await WaitForReviewSubmissionAsync(page, data.Title, cancellationToken);
             if (stageChanged is not null) await stageChanged("review_submitted");
             progress?.Report("快手分账个人版：已提交审核。 ");
         }
@@ -197,6 +198,86 @@ public sealed class KuaishouPersonalEpisodeUploadService
     {
         try { await ClickDialogConfirmAsync(await VisibleDialogAsync(page, 5_000)); }
         catch (TimeoutException) { /* 部分提交动作没有二次确认。 */ }
+    }
+
+    private static async Task<bool> ClickVisibleEnabledButtonAsync(
+        IPage page,
+        string text,
+        int timeout,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddMilliseconds(timeout);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var buttons = page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = text, Exact = false });
+            var count = Math.Min(await buttons.CountAsync(), 20);
+            for (var index = 0; index < count; index++)
+            {
+                var button = buttons.Nth(index);
+                if (!await button.IsVisibleAsync() || !await button.IsEnabledAsync()) continue;
+                await button.ClickAsync();
+                return true;
+            }
+            await page.WaitForTimeoutAsync(300);
+        }
+        return false;
+    }
+
+    private static async Task WaitForReviewSubmissionAsync(
+        IPage page,
+        string title,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(45);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var body = await ReadAllBodyTextAsync(page);
+            if (new[] { "提交成功", "发布成功", "已提交审核" }.Any(body.Contains) ||
+                !page.Url.Contains("content-management/edit", StringComparison.OrdinalIgnoreCase) &&
+                await HasReviewingRowAsync(page, title))
+                return;
+            if (new[] { "提交失败", "发布失败", "审核提交失败" }.Any(body.Contains))
+                throw new InvalidOperationException("快手个人版提交审核失败，平台页面返回失败提示。");
+            await page.WaitForTimeoutAsync(500);
+        }
+        throw new TimeoutException("点击提交审核后，未检测到“提交成功/审核中”等平台最终状态；任务不会标记为完成。");
+    }
+
+    private static async Task<bool> HasReviewingRowAsync(IPage page, string title)
+    {
+        if (await RowsContainReviewingAsync(
+                page.Locator("tr, [class*=table-row], [class*=list-item]"), title)) return true;
+        foreach (var frame in page.Frames.Where(frame => frame != page.MainFrame))
+            if (await RowsContainReviewingAsync(
+                    frame.Locator("tr, [class*=table-row], [class*=list-item]"), title)) return true;
+        return false;
+    }
+
+    private static async Task<bool> RowsContainReviewingAsync(ILocator candidates, string title)
+    {
+        var rows = candidates
+            .Filter(new LocatorFilterOptions { HasTextString = title });
+        var count = Math.Min(await rows.CountAsync(), 20);
+        for (var index = 0; index < count; index++)
+        {
+            var row = rows.Nth(index);
+            if (await row.IsVisibleAsync() &&
+                (await row.InnerTextAsync()).Contains("审核中", StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    private static async Task<string> ReadAllBodyTextAsync(IPage page)
+    {
+        var parts = new List<string> { await page.Locator("body").InnerTextAsync() };
+        foreach (var frame in page.Frames.Where(frame => frame != page.MainFrame))
+        {
+            try { parts.Add(await frame.Locator("body").InnerTextAsync()); }
+            catch (PlaywrightException) { /* 子框架导航中的瞬时读取失败，下轮重试。 */ }
+        }
+        return Normalize(string.Join(' ', parts));
     }
 
     private static async Task HandleCropDialogAsync(IPage page, int shrinkClicks, CancellationToken cancellationToken)

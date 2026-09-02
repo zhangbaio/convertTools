@@ -87,18 +87,46 @@ public sealed class KuaishouPersonalProjectDataService
         return result;
     }
 
-    private static IReadOnlyList<string> EnumerateVideos(string directory) =>
-        Directory.Exists(directory)
-            ? Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)
-                .Where(path => VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
-                .OrderBy(path => EpisodeNumber(path)).ThenBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray()
-            : [];
+    private static IReadOnlyList<string> EnumerateVideos(string directory)
+    {
+        if (!Directory.Exists(directory)) return [];
+        var paths = Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)
+            .Where(path => VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        if (paths.Length == 0) return [];
+        var numbered = paths.Select(path => (Path: path, Episode: EpisodeNumber(path))).ToArray();
+        if (numbered.All(item => item.Episode is null))
+            return paths.OrderBy(NaturalSortKey, StringComparer.OrdinalIgnoreCase).ToArray();
+        var missingNumbers = numbered.Where(item => item.Episode is null).Select(item => Path.GetFileName(item.Path)).Take(5).ToArray();
+        if (missingNumbers.Length > 0)
+            throw new InvalidOperationException(
+                $"剧集视频命名不一致，以下文件无法确定集号：{string.Join('、', missingNumbers)}。请统一使用“第N集”命名。");
+        var duplicates = numbered.GroupBy(item => item.Episode!.Value).Where(group => group.Count() > 1).Select(group => group.Key).ToArray();
+        if (duplicates.Length > 0)
+            throw new InvalidOperationException($"剧集视频集号重复：{string.Join('、', duplicates.Select(value => $"第{value}集"))}。");
+        var ordered = numbered.OrderBy(item => item.Episode).ToArray();
+        var actual = ordered.Select(item => item.Episode!.Value).ToArray();
+        var expected = Enumerable.Range(1, actual.Length).ToArray();
+        if (!actual.SequenceEqual(expected))
+        {
+            var missing = Enumerable.Range(1, actual.Max()).Except(actual).Select(value => $"第{value}集");
+            throw new InvalidOperationException(
+                $"剧集集号必须从第1集开始连续，当前缺少 {string.Join('、', missing)}；为避免批量上传错位已停止任务。");
+        }
+        return ordered.Select(item => item.Path).ToArray();
+    }
 
-    private static int EpisodeNumber(string path)
+    private static int? EpisodeNumber(string path)
     {
         var match = System.Text.RegularExpressions.Regex.Match(Path.GetFileNameWithoutExtension(path), @"第\s*0*(\d+)\s*集");
-        return match.Success && int.TryParse(match.Groups[1].Value, out var value) ? value : int.MaxValue;
+        return match.Success && int.TryParse(match.Groups[1].Value, out var value) && value > 0 ? value : null;
     }
+
+    private static string NaturalSortKey(string path) =>
+        System.Text.RegularExpressions.Regex.Replace(
+            Path.GetFileName(path),
+            @"\d+",
+            match => match.Value.PadLeft(20, '0'));
 
     private static string FindFirst(string directory, params string[] patterns)
     {

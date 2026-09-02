@@ -58,13 +58,7 @@ public sealed class KuaishouPersonalUploadService
                 var resume = ShouldResume(effectiveConfig, state);
                 if (resume)
                 {
-                    var editUrl = BuildEditUrl(state.MiniSeriesId);
-                    progress?.Report($"快手分账个人版：从已保存的剧集 {state.MiniSeriesId} 继续视频步骤。 ");
-                    await page.GotoAsync(editUrl, new PageGotoOptions
-                    {
-                        WaitUntil = WaitUntilState.DOMContentLoaded,
-                        Timeout = 60_000,
-                    });
+                    await NavigateToExistingSeriesAsync(page, data.Title, state, progress, ct);
                 }
                 else
                 {
@@ -127,10 +121,115 @@ public sealed class KuaishouPersonalUploadService
     private static bool ShouldResume(KuaishouPersonalConfig config, KuaishouPersonalUploadState state)
     {
         if (string.Equals(config.RunMode, "create", StringComparison.OrdinalIgnoreCase)) return false;
-        if (string.Equals(config.RunMode, "edit", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(state.MiniSeriesId))
-            throw new InvalidOperationException("runMode=edit，但状态文件中没有 miniSeriesId，无法打开编辑页。");
         if (string.Equals(config.RunMode, "edit", StringComparison.OrdinalIgnoreCase)) return true;
-        return state.FirstPageCompleted && !string.IsNullOrWhiteSpace(state.MiniSeriesId);
+        return state.FirstPageCompleted;
+    }
+
+    private static async Task NavigateToExistingSeriesAsync(
+        IPage page,
+        string title,
+        KuaishouPersonalUploadState state,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(state.MiniSeriesId))
+        {
+            progress?.Report($"快手分账个人版：从已保存的剧集 {state.MiniSeriesId} 继续视频步骤。 ");
+            await page.GotoAsync(BuildEditUrl(state.MiniSeriesId), new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 60_000,
+            });
+            return;
+        }
+
+        progress?.Report($"快手分账个人版：状态中没有短剧 ID，正在按剧名《{title}》查找已有剧集。 ");
+        var opened = await SearchAndOpenEditAsync(page, title, cancellationToken);
+        if (!opened)
+            throw new InvalidOperationException($"runMode=edit，但内容管理列表中未找到《{title}》，为避免重复创建已停止任务。");
+        CaptureMiniSeriesId(page, state);
+        progress?.Report(string.IsNullOrWhiteSpace(state.MiniSeriesId)
+            ? $"快手分账个人版：已按剧名打开《{title}》编辑页。 "
+            : $"快手分账个人版：已找到《{title}》，短剧 ID：{state.MiniSeriesId}。 ");
+    }
+
+    private static async Task<bool> SearchAndOpenEditAsync(
+        IPage page,
+        string title,
+        CancellationToken cancellationToken)
+    {
+        if (await SearchAndOpenEditInPageAsync(page, title, cancellationToken)) return true;
+        foreach (var frame in page.Frames.Where(frame => frame != page.MainFrame))
+            if (await SearchAndOpenEditInFrameAsync(frame, title, cancellationToken)) return true;
+        return false;
+    }
+
+    private static async Task<bool> SearchAndOpenEditInPageAsync(
+        IPage page,
+        string title,
+        CancellationToken cancellationToken)
+    {
+        var input = page.Locator("input[placeholder*='短剧名称'], input[placeholder*='剧名'], input[placeholder*='请输入']").First;
+        if (!await FillSearchInputAsync(input, title)) return false;
+        if (!await ClickSearchAsync(page.GetByText("查询", new PageGetByTextOptions { Exact = true }),
+                                    page.GetByText("搜索", new PageGetByTextOptions { Exact = true }))) return false;
+        await page.WaitForTimeoutAsync(1000);
+        cancellationToken.ThrowIfCancellationRequested();
+        var row = page.Locator("tr, [class*=table-row], [class*=list-item]")
+            .Filter(new LocatorFilterOptions { HasTextString = title }).First;
+        return await ClickEditInRowAsync(row, page);
+    }
+
+    private static async Task<bool> SearchAndOpenEditInFrameAsync(
+        IFrame frame,
+        string title,
+        CancellationToken cancellationToken)
+    {
+        var input = frame.Locator("input[placeholder*='短剧名称'], input[placeholder*='剧名'], input[placeholder*='请输入']").First;
+        if (!await FillSearchInputAsync(input, title)) return false;
+        if (!await ClickSearchAsync(frame.GetByText("查询", new FrameGetByTextOptions { Exact = true }),
+                                    frame.GetByText("搜索", new FrameGetByTextOptions { Exact = true }))) return false;
+        await frame.Page.WaitForTimeoutAsync(1000);
+        cancellationToken.ThrowIfCancellationRequested();
+        var row = frame.Locator("tr, [class*=table-row], [class*=list-item]")
+            .Filter(new LocatorFilterOptions { HasTextString = title }).First;
+        return await ClickEditInRowAsync(row, frame.Page);
+    }
+
+    private static async Task<bool> FillSearchInputAsync(ILocator input, string title)
+    {
+        if (await input.CountAsync() == 0 || !await input.IsVisibleAsync()) return false;
+        await input.FillAsync(title);
+        return string.Equals(await input.InputValueAsync(), title, StringComparison.Ordinal);
+    }
+
+    private static async Task<bool> ClickSearchAsync(params ILocator[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (await candidate.CountAsync() == 0 || !await candidate.First.IsVisibleAsync()) continue;
+            await candidate.First.ClickAsync();
+            return true;
+        }
+        return false;
+    }
+
+    private static async Task<bool> ClickEditInRowAsync(ILocator row, IPage page)
+    {
+        if (await row.CountAsync() == 0 || !await row.IsVisibleAsync()) return false;
+        var edit = row.GetByText("编辑", new LocatorGetByTextOptions { Exact = true }).Last;
+        if (await edit.CountAsync() == 0 || !await edit.IsVisibleAsync()) return false;
+        await edit.ClickAsync();
+        try
+        {
+            await page.WaitForURLAsync(url => url.Contains("content-management/edit", StringComparison.OrdinalIgnoreCase),
+                new PageWaitForURLOptions { Timeout = 20_000 });
+        }
+        catch (TimeoutException)
+        {
+            return false;
+        }
+        return true;
     }
 
     private static string BuildEditUrl(string miniSeriesId) =>
