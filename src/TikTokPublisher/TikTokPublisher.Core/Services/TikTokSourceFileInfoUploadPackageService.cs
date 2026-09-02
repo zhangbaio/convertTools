@@ -19,14 +19,28 @@ public sealed record TikTokSourceFileInfoPackageSelection(
         bool includeRoleSceneScreenshot)
     {
         if (enabledSteps is null)
-            return new TikTokSourceFileInfoPackageSelection(
-                true, true, includeRoleVector, includeRoleSceneScreenshot);
+            return WithPlatformMinimum(new TikTokSourceFileInfoPackageSelection(
+                true, true, includeRoleVector, includeRoleSceneScreenshot));
         var enabled = enabledSteps.ToHashSet(StringComparer.Ordinal);
-        return new TikTokSourceFileInfoPackageSelection(
+        return WithPlatformMinimum(new TikTokSourceFileInfoPackageSelection(
             enabled.Contains(QueueStepRegistry.GenerateAiScriptOutline),
             enabled.Contains(QueueStepRegistry.GenerateEpisodeScript),
             includeRoleVector,
-            includeRoleSceneScreenshot);
+            includeRoleSceneScreenshot));
+    }
+
+    internal static TikTokSourceFileInfoPackageSelection WithPlatformMinimum(
+        TikTokSourceFileInfoPackageSelection selection)
+    {
+        var count = 1 +
+                    (selection.IncludeOutline ? 1 : 0) +
+                    (selection.IncludeScript ? 1 : 0) +
+                    (selection.IncludeRoleVector ? 1 : 0) +
+                    (selection.IncludeRoleSceneScreenshot ? 1 : 0);
+        return count >= TikTokSourceFileInfoUploadPackageService.RequiredFileCount ||
+               selection.IncludeRoleSceneScreenshot
+            ? selection
+            : selection with { IncludeRoleSceneScreenshot = true };
     }
 }
 
@@ -73,6 +87,7 @@ public static class TikTokSourceFileInfoUploadPackageService
         TikTokSourceFileInfoPackageSelection selection)
     {
         ArgumentNullException.ThrowIfNull(selection);
+        selection = NormalizeAndValidateSelection(selection);
         var outputDirectory = GetOutputDirectory(workflowProjectDirectory);
         var names = ExpectedFileNames(selection);
         return names.Select(name => Path.Combine(outputDirectory, name)).ToArray();
@@ -92,7 +107,8 @@ public static class TikTokSourceFileInfoUploadPackageService
         string workflowProjectDirectory,
         TikTokSourceFileInfoPackageSelection? selection = null)
     {
-        selection ??= TikTokSourceFileInfoPackageSelection.LegacyDefault();
+        selection = NormalizeAndValidateSelection(
+            selection ?? TikTokSourceFileInfoPackageSelection.LegacyDefault());
         var workflow = Path.GetFullPath(workflowProjectDirectory);
         var outline = selection.IncludeOutline
             ? ResolveRequiredFile(
@@ -128,6 +144,7 @@ public static class TikTokSourceFileInfoUploadPackageService
         string workflowProjectDirectory,
         TikTokSourceFileInfoPackageSelection selection)
     {
+        selection = NormalizeAndValidateSelection(selection);
         var workflow = Path.GetFullPath(workflowProjectDirectory);
         return new TikTokSourceFileInfoPrerequisites(
             selection.IncludeOutline
@@ -166,7 +183,8 @@ public static class TikTokSourceFileInfoUploadPackageService
         TikTokSourceFileInfoPackageSelection? selection = null,
         bool validateComplete = true)
     {
-        selection ??= TikTokSourceFileInfoPackageSelection.LegacyDefault(includeRoleSceneScreenshot);
+        selection = NormalizeAndValidateSelection(
+            selection ?? TikTokSourceFileInfoPackageSelection.LegacyDefault(includeRoleSceneScreenshot));
         var workflow = Path.GetFullPath(workflowProjectDirectory);
         var outline = selection.IncludeOutline
             ? validateComplete
@@ -298,7 +316,8 @@ public static class TikTokSourceFileInfoUploadPackageService
         bool includeRoleSceneScreenshot = false,
         TikTokSourceFileInfoPackageSelection? selection = null)
     {
-        selection ??= TikTokSourceFileInfoPackageSelection.LegacyDefault(includeRoleSceneScreenshot);
+        selection = NormalizeAndValidateSelection(
+            selection ?? TikTokSourceFileInfoPackageSelection.LegacyDefault(includeRoleSceneScreenshot));
         var files = GetExpectedOutputPaths(workflowProjectDirectory, selection);
         var outputDirectory = GetOutputDirectory(workflowProjectDirectory);
         var actualFiles = Directory.Exists(outputDirectory)
@@ -344,7 +363,8 @@ public static class TikTokSourceFileInfoUploadPackageService
         TikTokSourceFileInfoPackageSelection? selection = null,
         Action<string>? log = null)
     {
-        selection ??= TikTokSourceFileInfoPackageSelection.LegacyDefault(includeRoleSceneScreenshot);
+        selection = NormalizeAndValidateSelection(
+            selection ?? TikTokSourceFileInfoPackageSelection.LegacyDefault(includeRoleSceneScreenshot));
         try
         {
             Validate(workflowProjectDirectory, includeRoleSceneScreenshot, selection);
@@ -371,7 +391,23 @@ public static class TikTokSourceFileInfoUploadPackageService
     }
 
     public static int RequiredFileCountFor(TikTokSourceFileInfoPackageSelection selection) =>
-        ExpectedFileNames(selection).Count;
+        ExpectedFileNames(NormalizeAndValidateSelection(selection)).Count;
+
+    private static TikTokSourceFileInfoPackageSelection NormalizeAndValidateSelection(
+        TikTokSourceFileInfoPackageSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        var normalized = TikTokSourceFileInfoPackageSelection.WithPlatformMinimum(selection);
+        var count = ExpectedFileNames(normalized).Count;
+        if (count < RequiredFileCount)
+        {
+            throw new InvalidOperationException(
+                $"TikTok“原始文件或素材文件信息”至少需要 {RequiredFileCount} 个文件，" +
+                $"当前上传材料配置只能生成 {count} 个。请启用“生成AI大纲”和“生成剧本”，" +
+                "或启用角色矢量图等可上传素材。");
+        }
+        return normalized;
+    }
 
     private static IReadOnlyList<string> ExpectedFileNames(TikTokSourceFileInfoPackageSelection selection)
     {

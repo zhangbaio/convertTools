@@ -39,9 +39,6 @@ public static class CopyrightProofMaterialPlanBuilder
             .NormalizeCopyrightMaterialTypes(account.TiktokCopyrightMaterialTypes)
             .ToArray();
         var selected = materialTypes.ToHashSet(StringComparer.Ordinal);
-        var normalQueueSteps = (account.TiktokQueueEnabledSteps ?? [])
-            .Where(QueueStepRegistry.IsAvailable)
-            .ToHashSet(StringComparer.Ordinal);
         var steps = new HashSet<string>(StringComparer.Ordinal);
         var artifacts = new List<string>();
 
@@ -56,10 +53,11 @@ public static class CopyrightProofMaterialPlanBuilder
         var includeSourceInfo = selected.Contains(
             TikTokPublishConstants.SourceFileInformationMaterialType);
 
-        var includeOutline = includeSourceInfo &&
-                             normalQueueSteps.Contains(QueueStepRegistry.GenerateAiScriptOutline);
-        var includeScript = includeSourceInfo &&
-                            normalQueueSteps.Contains(QueueStepRegistry.GenerateEpisodeScript);
+        // TikTok requires at least four files in the source-information field. Once this
+        // material is selected, the outline and script become required package components
+        // even when the ordinary production queue did not explicitly enable those steps.
+        var includeOutline = includeSourceInfo;
+        var includeScript = includeSourceInfo;
         var includeRoleVector = includeSourceInfo &&
                                 account.TiktokUploadSourceInfoRoleVector;
         var includeRoleScene = includeSourceInfo &&
@@ -69,6 +67,19 @@ public static class CopyrightProofMaterialPlanBuilder
         // normal production queue does not enable the outline step.
         if (includeAiScreenshots && account.TiktokUploadAiScriptOutlineWithScreenshots)
             includeOutline = true;
+
+        if (includeSourceInfo)
+        {
+            var normalized = TikTokSourceFileInfoPackageSelection.WithPlatformMinimum(new(
+                includeOutline,
+                includeScript,
+                includeRoleVector,
+                includeRoleScene));
+            includeOutline = normalized.IncludeOutline;
+            includeScript = normalized.IncludeScript;
+            includeRoleVector = normalized.IncludeRoleVector;
+            includeRoleScene = normalized.IncludeRoleSceneScreenshot;
+        }
 
         if (includeOutline)
             steps.Add(QueueStepRegistry.GenerateAiScriptOutline);
