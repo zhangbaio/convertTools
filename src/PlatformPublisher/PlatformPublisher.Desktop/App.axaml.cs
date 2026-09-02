@@ -61,6 +61,11 @@ public partial class App : Application
         services.AddSingleton<IAiRuntimeSettingsProvider, PlatformAiRuntimeSettingsProvider>();
         services.AddSingleton<IPlatformPublishAdapter, WeixinChannelPublishAdapter>();
         services.AddSingleton<KuaishouPersonalSessionService>();
+        services.AddSingleton<KuaishouPersonalProjectDataService>();
+        services.AddSingleton<KuaishouPersonalFirstPageService>();
+        services.AddSingleton<KuaishouPersonalEpisodeUploadService>();
+        services.AddSingleton<KuaishouPersonalUploadStateStore>();
+        services.AddSingleton<KuaishouPersonalUploadService>();
         services.AddSingleton<IPlatformPublishAdapter, KuaishouPersonalPublishAdapter>();
         services.AddSingleton<IPlatformPublishAdapter>(
             _ => new UnavailableKuaishouPublishAdapter(PublishPlatform.KuaishouEnterpriseRevenue));

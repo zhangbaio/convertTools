@@ -11,6 +11,33 @@ public sealed class KuaishouPersonalConfig
     public string BrowserProfileDirectory { get; set; } = string.Empty;
     public bool Headless { get; set; }
     public bool KeepBrowserOpenOnFailure { get; set; } = true;
+    public string CommitmentPdfPath { get; set; } = string.Empty;
+    public string RealName { get; set; } = string.Empty;
+    public string Gender { get; set; } = "男";
+    public string KuaishouNickname { get; set; } = string.Empty;
+    public string KuaishouId { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string ContentType { get; set; } = "漫剧";
+    public string ProductionMethod { get; set; } = "AIGC剧";
+    public string ProductionForm { get; set; } = "竖屏";
+    public string ProductionYear { get; set; } = DateTime.Now.Year.ToString();
+    public string ProductionCost { get; set; } = "10";
+    public string AverageEpisodeMinutes { get; set; } = "2";
+    public bool Finished { get; set; } = true;
+    public bool HasRecordNumber { get; set; }
+    public string BroadcastPlatform { get; set; } = "快手";
+    public string BroadcastChannel { get; set; } = "小屏小程序";
+    public string BroadcastDate { get; set; } = DateTime.Today.ToString("yyyy-MM-dd");
+    public string SaleType { get; set; } = "观看广告解锁";
+    public int FreeEpisodeCount { get; set; } = 3;
+    public int UnlockEpisodeCount { get; set; } = 1;
+    public string EpisodePrice { get; set; } = "1";
+    public string Actors { get; set; } = "演员A:男:男主;演员B:女:女主";
+    public string FirstPageAction { get; set; } = "draft";
+    public string FinalAction { get; set; } = "keep";
+    public int UploadTimeoutMinutes { get; set; } = 60;
+    public bool ForceRerun { get; set; }
+    public string RunMode { get; set; } = "auto";
 
     public static KuaishouPersonalConfig Load(PublishJob job)
     {
@@ -39,6 +66,8 @@ public sealed class KuaishouPersonalConfig
             : config.EntryUrl.Trim();
         config.AuthStatePath = Resolve(config.AuthStatePath, accountRoot, "kuaishou_personal_kdj_auth_state.json");
         config.BrowserProfileDirectory = Resolve(config.BrowserProfileDirectory, accountRoot, "browser-profile");
+        if (!string.IsNullOrWhiteSpace(config.CommitmentPdfPath))
+            config.CommitmentPdfPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(config.CommitmentPdfPath));
         Directory.CreateDirectory(Path.GetDirectoryName(config.AuthStatePath)!);
         Directory.CreateDirectory(config.BrowserProfileDirectory);
         return config;

@@ -35,6 +35,22 @@ public sealed class KuaishouPersonalSessionService
         }, cancellationToken);
     }
 
+    public async Task ExecuteAuthenticatedAsync(
+        PublishJob job,
+        Func<IPage, KuaishouPersonalConfig, CancellationToken, Task> action,
+        CancellationToken cancellationToken)
+    {
+        var config = KuaishouPersonalConfig.Load(job);
+        await RunBrowserAsync(config, config.Headless, async (page, _, ct) =>
+        {
+            await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60_000 });
+            await page.WaitForTimeoutAsync(1200);
+            if (!await IsLoggedInAsync(page))
+                throw new InvalidOperationException("快手分账个人版登录态无效，请先扫码登录。");
+            await action(page, config, ct);
+        }, cancellationToken);
+    }
+
     private async Task RunBrowserAsync(
         KuaishouPersonalConfig config,
         bool headless,
