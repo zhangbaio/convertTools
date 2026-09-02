@@ -22,6 +22,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private const int DefaultDownloadFileSegments = 4;
     private const int MaxDownloadFileSegments = 16;
     private const int MapleleafMinimumDownloadTimeoutSeconds = 15 * 60;
+    private const int DefaultPlayUrlTimeoutSeconds = 15;
+    private const int DefaultPlayUrlResolveConcurrency = 4;
     private const long MinSegmentedDownloadSize = 4L * 1024 * 1024;
     private const string DownloadUserAgent = "Mozilla/5.0";
     private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
@@ -406,6 +408,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             var mapleleafTimeoutSeconds = ResolveProviderDownloadTimeoutSeconds(
                 "mapleleaf",
                 downloadTimeoutSeconds);
+            var mapleleafPlayUrlTimeoutSeconds = ResolvePlayUrlTimeoutSeconds(downloadTimeoutSeconds);
             if (mapleleafTimeoutSeconds > downloadTimeoutSeconds)
             {
                 progress?.Report(
@@ -417,12 +420,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 progress,
                 cancellationToken,
                 resolveEpisodes: ct => GetMapleleafEpisodesAsync(mapleleafBookId, settings, ct),
-                resolveVideo: (videoId, quality, ct) => GetMapleleafVideoUrlAsync(videoId, quality, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetMapleleafVideoUrlAsync(
+                    videoId,
+                    quality,
+                    settings,
+                    mapleleafPlayUrlTimeoutSeconds,
+                    ct),
                 posterPrefix: MapleleafApiService.BookPrefix,
                 validateVideoEncoding: false,
                 downloadFileSegments: Math.Max(downloadFileSegments, 16),
                 downloadTimeoutSeconds: mapleleafTimeoutSeconds,
-                downloadAttempts: downloadAttempts);
+                downloadAttempts: downloadAttempts,
+                separateResolveConcurrency: DefaultPlayUrlResolveConcurrency);
         }
 
         if (bookId.StartsWith(HongguoLocalBookPrefix, StringComparison.OrdinalIgnoreCase))
@@ -523,6 +532,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             StringComparison.OrdinalIgnoreCase)
             ? Math.Max(configured, MapleleafMinimumDownloadTimeoutSeconds)
             : configured;
+    }
+
+    internal static int ResolvePlayUrlTimeoutSeconds(int configuredSeconds)
+    {
+        var configured = configuredSeconds <= 0 ? DefaultPlayUrlTimeoutSeconds : configuredSeconds;
+        return Math.Clamp(configured, 5, DefaultPlayUrlTimeoutSeconds);
     }
 
     internal static Task<DramaDownloadResult?> TryBuildSuccessfulResultWhenVideosExistAsync(
@@ -2085,10 +2100,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string videoId,
         string quality,
         DramaSourceSettings settings,
+        int playUrlTimeoutSeconds,
         CancellationToken cancellationToken)
     {
-        var detail = await _mapleleafApiService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
-        return new SourceVideoDetail(detail.Url);
+        var detail = await _mapleleafApiService.GetVideoPlaybackAsync(
+            settings,
+            videoId,
+            quality,
+            playUrlTimeoutSeconds,
+            cancellationToken).ConfigureAwait(false);
+        return new SourceVideoDetail(
+            detail.Url,
+            HongguoCdn: new HongguoCdnDownload(detail.CdnUrls, detail.SpadeA, detail.Encrypted));
     }
 
     private async Task<SourceVideoDetail> GetPikachuVideoUrlAsync(string prefixedVideoId, string quality, DramaSourceSettings settings, CancellationToken cancellationToken)

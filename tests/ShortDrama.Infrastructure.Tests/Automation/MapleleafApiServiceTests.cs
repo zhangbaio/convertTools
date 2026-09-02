@@ -171,6 +171,26 @@ public sealed class MapleleafApiServiceTests
     }
 
     [Fact]
+    public async Task VideoParse_Should_Fail_Over_When_One_Host_Times_Out()
+    {
+        var handler = new MapleleafHandler(timeoutHost: "slow.test");
+        var service = CreateService(
+            handler,
+            apiBases: ["https://slow.test/api", "https://maple.test/api"]);
+
+        var playback = await service.GetVideoPlaybackAsync(
+            Settings(),
+            "mapleleaf_ep:video-3",
+            "1080P",
+            requestTimeoutSeconds: 15,
+            CancellationToken.None);
+
+        playback.Url.Should().Be("https://cdn.example/video-3.mp4");
+        handler.Requests.Should().Contain(item => item.Host == "slow.test");
+        handler.Requests.Should().Contain(item => item.Host == "maple.test");
+    }
+
+    [Fact]
     public async Task Episodes_And_VideoParse_Keep_Mapleleaf_Provenance()
     {
         var handler = new MapleleafHandler();
@@ -217,6 +237,11 @@ public sealed class MapleleafApiServiceTests
             CancellationToken.None);
 
         playback.Url.Should().Be("https://local-cdn.example/video-3.mp4");
+        playback.CdnUrls.Should().Equal(
+            "https://origin.example/video-3.mp4",
+            "https://backup.example/video-3.mp4");
+        playback.SpadeA.Should().Be("spade-value");
+        playback.Encrypted.Should().BeTrue();
         handler.Requests.Should().Contain(item =>
             item.Path.EndsWith("/ThirdParty/videoparse", StringComparison.Ordinal));
         handler.Requests.Should().Contain(item =>
@@ -278,7 +303,8 @@ public sealed class MapleleafApiServiceTests
         bool delayLogin = false,
         bool latestHasMore = false,
         bool videoParseFails = false,
-        string? html404Host = null) : HttpMessageHandler
+        string? html404Host = null,
+        string? timeoutHost = null) : HttpMessageHandler
     {
         public ConcurrentBag<CapturedRequest> Requests { get; } = [];
         public int LoginCount;
@@ -295,6 +321,11 @@ public sealed class MapleleafApiServiceTests
                 request.RequestUri.AbsolutePath,
                 body,
                 headers));
+
+            if (string.Equals(request.RequestUri.Host, timeoutHost, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new TaskCanceledException("simulated per-host timeout");
+            }
 
             if (string.Equals(request.RequestUri.Host, html404Host, StringComparison.OrdinalIgnoreCase))
             {
@@ -313,7 +344,15 @@ public sealed class MapleleafApiServiceTests
 
             if (request.RequestUri.AbsolutePath.EndsWith("/api/hongguo/video_url", StringComparison.Ordinal))
             {
-                return Json("""{"url":"https://local-cdn.example/video-3.mp4"}""");
+                return Json("""
+                    {
+                      "url":"https://local-cdn.example/video-3.mp4",
+                      "encrypted_url":"https://origin.example/video-3.mp4",
+                      "backup":"https://backup.example/video-3.mp4",
+                      "spade_a":"spade-value",
+                      "encrypt":true
+                    }
+                    """);
             }
 
             request.Headers.Authorization?.Scheme.Should().Be("Bearer");
