@@ -330,14 +330,33 @@ public sealed class MapleleafApiService
         DramaSourceSettings settings,
         string prefixedOrRawVideoId,
         string quality,
+        CancellationToken cancellationToken) =>
+        await GetVideoPlaybackAsync(
+            settings,
+            prefixedOrRawVideoId,
+            quality,
+            requestTimeoutSeconds: 15,
+            cancellationToken).ConfigureAwait(false);
+
+    public async Task<MapleleafVideoPlayback> GetVideoPlaybackAsync(
+        DramaSourceSettings settings,
+        string prefixedOrRawVideoId,
+        string quality,
+        int requestTimeoutSeconds,
         CancellationToken cancellationToken)
     {
+        requestTimeoutSeconds = Math.Clamp(requestTimeoutSeconds, 5, 60);
         var videoId = StripPrefix(prefixedOrRawVideoId, EpisodePrefix);
         if (videoId.Length == 0)
             throw new MapleleafException("video_id 不能为空");
 
         if (LooksLikeHttpUrl(videoId))
-            return await ParseShareUrlAsync(settings, videoId, quality, cancellationToken);
+            return await ParseShareUrlAsync(
+                settings,
+                videoId,
+                quality,
+                requestTimeoutSeconds,
+                cancellationToken).ConfigureAwait(false);
 
         // Mapleleaf 1.6.5 can return a signed plaintext Xigua CDN URL. Prefer it so
         // the downloader can use the full 16-way Range path without proxying or decrypting.
@@ -348,7 +367,8 @@ public sealed class MapleleafApiService
                 settings,
                 "/ThirdParty/videoparse",
                 new JsonObject { ["videoId"] = videoId, ["level"] = NormalizeQuality(quality) },
-                cancellationToken);
+                cancellationToken,
+                requestTimeoutSeconds).ConfigureAwait(false);
             var url = ExtractPlayUrl(inner);
             if (url.Length > 0)
                 return new MapleleafVideoPlayback(url, ReadSize(inner));
@@ -365,8 +385,26 @@ public sealed class MapleleafApiService
         {
             try
             {
-                var local = await _localService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
-                return new MapleleafVideoPlayback(local.Url, 0);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(requestTimeoutSeconds));
+                var local = await _localService.GetVideoPlaybackAsync(
+                    settings,
+                    videoId,
+                    quality,
+                    timeoutCts.Token).ConfigureAwait(false);
+                return new MapleleafVideoPlayback(
+                    local.Url,
+                    0,
+                    local.EncryptedUrls,
+                    local.SpadeA,
+                    local.Encrypted);
+            }
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                lastError = new MapleleafException(
+                    $"本地红果解析超过 {requestTimeoutSeconds} 秒，已停止等待",
+                    408,
+                    ex);
             }
             catch (Exception ex)
             {
@@ -386,16 +424,23 @@ public sealed class MapleleafApiService
         DramaSourceSettings settings,
         string url,
         string quality,
+        int requestTimeoutSeconds,
         CancellationToken cancellationToken)
     {
         var credentials = ResolveCredentials(settings);
-        var token = await EnsureTokenAsync(credentials, false, cancellationToken);
+        var token = await EnsureTokenAsync(
+            credentials,
+            false,
+            cancellationToken,
+            requestTimeoutSeconds: requestTimeoutSeconds).ConfigureAwait(false);
         using var request = new HttpRequestMessage(
             HttpMethod.Get,
             $"{_phpParseUrl}?url={Uri.EscapeDataString(url)}&level={Uri.EscapeDataString(NormalizeQuality(quality))}");
         ApplyHeaders(request, credentials.DeviceId, token, hasJsonBody: false);
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        var node = await ReadResponseAsync(response, cancellationToken);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(requestTimeoutSeconds));
+        using var response = await _httpClient.SendAsync(request, timeoutCts.Token).ConfigureAwait(false);
+        var node = await ReadResponseAsync(response, timeoutCts.Token).ConfigureAwait(false);
         var inner = Unwrap(node);
         var playUrl = ExtractPlayUrl(inner);
         if (playUrl.Length == 0)
@@ -407,14 +452,20 @@ public sealed class MapleleafApiService
         DramaSourceSettings settings,
         string path,
         JsonObject body,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? requestTimeoutSeconds = null)
     {
         Exception? lastError = null;
         foreach (var baseUrl in _apiBases)
         {
             try
             {
-                return await SendAuthenticatedUrlAsync(settings, baseUrl.TrimEnd('/') + "/" + path.TrimStart('/'), body, cancellationToken);
+                return await SendAuthenticatedUrlAsync(
+                    settings,
+                    baseUrl.TrimEnd('/') + "/" + path.TrimStart('/'),
+                    body,
+                    cancellationToken,
+                    requestTimeoutSeconds).ConfigureAwait(false);
             }
             catch (MapleleafException ex) when (IsHostFailoverError(ex))
             {
@@ -428,18 +479,40 @@ public sealed class MapleleafApiService
         DramaSourceSettings settings,
         string url,
         JsonObject body,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? requestTimeoutSeconds = null)
     {
         var credentials = ResolveCredentials(settings);
-        var token = await EnsureTokenAsync(credentials, false, cancellationToken);
+        var token = await EnsureTokenAsync(
+            credentials,
+            false,
+            cancellationToken,
+            requestTimeoutSeconds: requestTimeoutSeconds).ConfigureAwait(false);
         try
         {
-            return await SendJsonAsync(url, credentials.DeviceId, token, body, cancellationToken);
+            return await SendJsonAsync(
+                url,
+                credentials.DeviceId,
+                token,
+                body,
+                cancellationToken,
+                requestTimeoutSeconds: requestTimeoutSeconds).ConfigureAwait(false);
         }
         catch (MapleleafException ex) when (ShouldRefreshToken(ex))
         {
-            token = await EnsureTokenAsync(credentials, true, cancellationToken, token);
-            return await SendJsonAsync(url, credentials.DeviceId, token, body, cancellationToken);
+            token = await EnsureTokenAsync(
+                credentials,
+                true,
+                cancellationToken,
+                token,
+                requestTimeoutSeconds).ConfigureAwait(false);
+            return await SendJsonAsync(
+                url,
+                credentials.DeviceId,
+                token,
+                body,
+                cancellationToken,
+                requestTimeoutSeconds: requestTimeoutSeconds).ConfigureAwait(false);
         }
     }
 
@@ -447,7 +520,8 @@ public sealed class MapleleafApiService
         Credentials credentials,
         bool forceRefresh,
         CancellationToken cancellationToken,
-        string? staleToken = null)
+        string? staleToken = null,
+        int? requestTimeoutSeconds = null)
     {
         if (!forceRefresh && TokenMatches(credentials))
             return _token;
@@ -462,7 +536,7 @@ public sealed class MapleleafApiService
             if (forceRefresh && staleToken is not null && TokenMatches(credentials) &&
                 !string.Equals(_token, staleToken, StringComparison.Ordinal))
                 return _token;
-            var data = await LoginAsync(credentials, cancellationToken);
+            var data = await LoginAsync(credentials, cancellationToken, requestTimeoutSeconds).ConfigureAwait(false);
             var token = ReadString(data, "accessToken", "token");
             if (token.Length == 0)
                 throw new MapleleafException("登录响应中未找到 accessToken");
@@ -482,7 +556,10 @@ public sealed class MapleleafApiService
         string.Equals(_tokenAccount, credentials.Account, StringComparison.Ordinal) &&
         string.Equals(_tokenDevice, credentials.DeviceId, StringComparison.Ordinal);
 
-    private async Task<JsonNode?> LoginAsync(Credentials credentials, CancellationToken cancellationToken)
+    private async Task<JsonNode?> LoginAsync(
+        Credentials credentials,
+        CancellationToken cancellationToken,
+        int? requestTimeoutSeconds = null)
     {
         Exception? lastError = null;
         var body = new JsonObject
@@ -502,7 +579,8 @@ public sealed class MapleleafApiService
                     null,
                     body,
                     cancellationToken,
-                    unwrap: false);
+                    unwrap: false,
+                    requestTimeoutSeconds: requestTimeoutSeconds).ConfigureAwait(false);
             }
             catch (MapleleafException ex) when (IsHostFailoverError(ex))
             {
@@ -518,26 +596,40 @@ public sealed class MapleleafApiService
         string? token,
         JsonObject body,
         CancellationToken cancellationToken,
-        bool unwrap = true)
+        bool unwrap = true,
+        int? requestTimeoutSeconds = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, url)
         {
             Content = JsonContent.Create(body)
         };
         ApplyHeaders(request, deviceId, token, hasJsonBody: true);
+        using var timeoutCts = requestTimeoutSeconds is > 0
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+            : null;
+        if (timeoutCts is not null)
+        {
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(requestTimeoutSeconds!.Value, 5, 60)));
+        }
+        var requestToken = timeoutCts?.Token ?? cancellationToken;
         try
         {
-            using var response = await _httpClient.SendAsync(request, cancellationToken);
-            var outer = await ReadResponseAsync(response, cancellationToken);
+            using var response = await _httpClient.SendAsync(request, requestToken).ConfigureAwait(false);
+            var outer = await ReadResponseAsync(response, requestToken).ConfigureAwait(false);
             return unwrap ? Unwrap(outer) : outer?["data"] ?? outer;
         }
         catch (HttpRequestException ex)
         {
             throw new MapleleafException($"Mapleleaf 网络异常：{ex.Message}", inner: ex);
         }
-        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (
+            !cancellationToken.IsCancellationRequested &&
+            (timeoutCts?.IsCancellationRequested == true || ex is TaskCanceledException))
         {
-            throw new MapleleafException("Mapleleaf 网络请求超时", inner: ex);
+            var seconds = requestTimeoutSeconds is > 0
+                ? Math.Clamp(requestTimeoutSeconds.Value, 5, 60)
+                : Math.Max(1, (int)_httpClient.Timeout.TotalSeconds);
+            throw new MapleleafException($"Mapleleaf 网络请求超过 {seconds} 秒", 408, ex);
         }
     }
 
@@ -803,5 +895,13 @@ public sealed class MapleleafApiService
     private sealed record Credentials(string Account, string Password, string DeviceId);
     public sealed record MapleleafLoginProbeResult(string Token, string Email, string VipExpiresAt);
     public sealed record MapleleafEpisodeInfo(int EpisodeNumber, string Title, string VideoId, string PosterUrl);
-    public sealed record MapleleafVideoPlayback(string Url, long Size);
+    public sealed record MapleleafVideoPlayback(
+        string Url,
+        long Size,
+        IReadOnlyList<string>? EncryptedUrls = null,
+        string SpadeA = "",
+        bool Encrypted = false)
+    {
+        public IReadOnlyList<string> CdnUrls => EncryptedUrls ?? [];
+    }
 }

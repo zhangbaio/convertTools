@@ -235,7 +235,24 @@ public sealed class HongguoLocalApiService
             throw new InvalidOperationException("本地直连服务未返回可用播放链接。");
         }
 
-        return new LocalVideoPlayback(url, url);
+        var encryptedUrls = new[]
+            {
+                "encrypted_url", "encryptedUrl", "main_url", "mainUrl",
+                "cdn_url", "cdnUrl", "backup", "backup_url", "backupUrl"
+            }
+            .Select(key => GetString(root, key))
+            .Where(value => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
+            .Select(value => value!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var spadeA = GetString(root, "spade_a")
+                     ?? GetString(root, "spadeA")
+                     ?? string.Empty;
+        var encrypted = GetBool(root, "encrypt")
+                        ?? GetBool(root, "encrypted")
+                        ?? false;
+
+        return new LocalVideoPlayback(url, encryptedUrls, spadeA, encrypted);
     }
 
     private async Task<IReadOnlyList<JsonElement>> FetchLatestItemsAsync(
@@ -455,7 +472,31 @@ public sealed class HongguoLocalApiService
             : null;
     }
 
+    private static bool? GetBool(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        if (property.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            return property.GetBoolean();
+        }
+
+        return property.ValueKind == JsonValueKind.String && bool.TryParse(property.GetString(), out var value)
+            ? value
+            : null;
+    }
+
     public sealed record LocalEpisodeInfo(int EpisodeNumber, string Title, string VideoId, string PosterUrl);
 
-    public sealed record LocalVideoPlayback(string Url, string EncryptedUrl);
+    public sealed record LocalVideoPlayback(
+        string Url,
+        IReadOnlyList<string> EncryptedUrls,
+        string SpadeA,
+        bool Encrypted)
+    {
+        public string EncryptedUrl => EncryptedUrls.FirstOrDefault() ?? Url;
+    }
 }

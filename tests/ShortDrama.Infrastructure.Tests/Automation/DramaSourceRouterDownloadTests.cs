@@ -26,6 +26,19 @@ public sealed class DramaSourceRouterDownloadTests
             .Should().Be(expectedSeconds);
     }
 
+    [Theory]
+    [InlineData(0, 15)]
+    [InlineData(60, 15)]
+    [InlineData(10, 10)]
+    [InlineData(2, 5)]
+    public void Play_url_resolution_uses_reference_client_short_timeout(
+        int configuredSeconds,
+        int expectedSeconds)
+    {
+        DramaSourceRouter.ResolvePlayUrlTimeoutSeconds(configuredSeconds)
+            .Should().Be(expectedSeconds);
+    }
+
     [Fact]
     public void High_Playback_Timeout_Should_Be_Retryable_But_Authentication_Should_Not()
     {
