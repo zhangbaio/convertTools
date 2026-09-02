@@ -192,10 +192,11 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             request,
             rewriteSynopsis,
             cancellationToken);
+        var preservedFields = ReadPreservedFields(request.OutputFilePath);
 
         await File.WriteAllTextAsync(
             request.OutputFilePath,
-            BuildOutputText(project with { OriginalTitle = canonicalOriginalTitle }, normalized.Title, normalized.Tagline, normalized.Synopsis),
+            BuildOutputText(project with { OriginalTitle = canonicalOriginalTitle }, normalized.Title, normalized.Tagline, normalized.Synopsis, preservedFields),
             Encoding.UTF8,
             cancellationToken);
 
@@ -264,19 +265,40 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         return template.Replace("{items_json}", itemsJson, StringComparison.Ordinal);
     }
 
-    private static string BuildOutputText(ProjectInfo project, string title, string tagline, string synopsis)
+    private static string BuildOutputText(
+        ProjectInfo project,
+        string title,
+        string tagline,
+        string synopsis,
+        IReadOnlyDictionary<string, string> preservedFields)
     {
         var originalTitleLine = string.IsNullOrWhiteSpace(project.OriginalTitle)
             ? string.Empty
             : $"原剧名: {project.OriginalTitle}\n";
 
-        return
+        var text =
             $"{originalTitleLine}" +
             $"新剧名: {title}\n" +
             $"推荐语: {tagline}\n" +
             $"简介: {synopsis}\n" +
             $"集数: {project.EpisodeCount}\n" +
             $"制作公司: {project.CompanyName}\n";
+        foreach (var key in new[] { "短标题", "标签", "时长", "成本" })
+            if (preservedFields.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
+                text += $"{key}: {value.Trim()}\n";
+        return text;
+    }
+
+    private static IReadOnlyDictionary<string, string> ReadPreservedFields(string path)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!File.Exists(path)) return result;
+        foreach (var line in File.ReadLines(path))
+        {
+            var index = line.IndexOfAny([':', '：']);
+            if (index > 0) result[line[..index].Trim()] = line[(index + 1)..].Trim();
+        }
+        return result;
     }
 
     private async Task<NormalizedRewrite> RewriteWithRetryAsync(

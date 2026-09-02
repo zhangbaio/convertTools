@@ -57,7 +57,8 @@ public sealed partial class WeixinSmartRecutService
         {
             Width = 1080,
             Height = 1920,
-            Modes = ["mashup"],
+            // 剧集上架要求保持分集数量；连续切片模式按单集时间轴输出，不能使用会把整剧压成少量视频的 mashup。
+            Modes = ["slice"],
             ClipCount = expectedCount,
             ClipMinSeconds = Math.Clamp(minSeconds, 30, 1800),
             ClipMaxSeconds = Math.Clamp(Math.Max(minSeconds, maxSeconds), 30, 3600),
@@ -86,6 +87,9 @@ public sealed partial class WeixinSmartRecutService
             cancellationToken);
         if (!result.Ok)
             throw new InvalidOperationException(result.Error ?? "智能重剪失败。");
+        if (result.Outputs.Count != expectedCount)
+            throw new InvalidOperationException(
+                $"智能重剪产物数量不一致：要求 {expectedCount} 集，实际 {result.Outputs.Count} 集。为避免上传集数缩水，未写入 workflow/videos。");
 
         var outputs = new List<string>();
         for (var index = 0; index < result.Outputs.Count; index++)

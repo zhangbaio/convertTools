@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -11,6 +12,7 @@ using PlatformPublisher.Weixin.Publishing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using TikTokPublisher.Core.Services;
+using TikTokPublisher.Core.Queue;
 
 namespace PlatformPublisher.Desktop.ViewModels;
 
@@ -791,121 +793,219 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (PipelineGenerateAiProofEnabled) steps.Add(("ai-proof", "生成AI制作证明"));
         if (PipelineGenerateTimestampCertificateEnabled) steps.Add(("timestamp-certificate", "生成可信时间戳"));
 
-        await RunBusyAsync(async cancellationToken =>
-        {
-            var progress = new Progress<WorkRunEvent>(item =>
-            {
-                if (string.IsNullOrWhiteSpace(item.Message)) return;
-                StatusMessage = $"[{item.DisplayName}] {item.Message}";
-                AppendActivityLog(StatusMessage);
-            });
+        var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+        var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, projectDirectory, ActiveWeixinAccountName);
 
+        try
+        {
+            await RunBusyAsync(async cancellationToken =>
+            {
+                var progress = new Progress<WorkRunEvent>(item =>
+                {
+                    if (string.IsNullOrWhiteSpace(item.Message)) return;
+                    StatusMessage = $"[{item.DisplayName}] {item.Message}";
+                    AppendActivityLog(StatusMessage);
+                });
+
+                try
+                {
+                    foreach (var (key, label) in steps)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await RunTrackedStepAsync(trackedJob, trackedRow, key, label, PipelineForceRerun, async () =>
+                        {
+                            if (key == "smart-recut")
+                            {
+                                await _smartRecutService.RunAsync(
+                                    projectDirectory,
+                                    SmartRecutEpisodeCount,
+                                    SmartRecutMinSeconds,
+                                    SmartRecutMaxSeconds,
+                                    PipelineForceRerun,
+                                    new Progress<string>(message => AppendActivityLog($"智能重剪：{message}")),
+                                    cancellationToken);
+                                await UpdateStepStateAsync(
+                                    trackedJob,
+                                    trackedRow,
+                                    "transcode",
+                                    "素材转码",
+                                    PublishJobStepStatus.Skipped,
+                                    "智能重剪已直接生成工作视频");
+                                return;
+                            }
+                            if (key == "ai-proof" || key == "timestamp-certificate")
+                            {
+                                var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                                var artifactProgress = new Progress<string>(message => AppendActivityLog($"证明材料：{message}"));
+                                if (key == "ai-proof")
+                                    await _proofArtifactsService.GenerateAiProofAsync(
+                                        trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
+                                        settings,
+                                        PipelineForceRerun,
+                                        artifactProgress,
+                                        cancellationToken);
+                                else
+                                    await _proofArtifactsService.GenerateTimestampCertificateAsync(
+                                        trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
+                                        settings,
+                                        PipelineForceRerun,
+                                        artifactProgress,
+                                        cancellationToken);
+                                return;
+                            }
+                            var result = await _workService.RunProjectStepAsync(
+                                projectDirectory, null, key, PipelineForceRerun, progress, cancellationToken, runtimeConfigPath);
+                            if (!result.Ok)
+                                throw new InvalidOperationException(result.Message ?? $"{label}执行失败。");
+                        });
+                    }
+
+                    if (PipelineAutoRepairEnabled)
+                    {
+                        await RunTrackedStepAsync(trackedJob, trackedRow, "material-auto-repair", "一键修复", PipelineForceRerun,
+                            () => RunMaterialAutoRepairAsync(projectDirectory, runtimeConfigPath, progress, cancellationToken));
+                    }
+
+                    if (PipelineAutoFillEnabled)
+                    {
+                        await RunTrackedStepAsync(trackedJob, trackedRow, "auto-fill-info", "补齐字段", PipelineForceRerun,
+                            async () => await _workService.AutoFillProjectInfoAsync(projectDirectory, null, cancellationToken));
+                    }
+
+                    if (PipelineRemuxEnabled)
+                    {
+                        await RunTrackedStepAsync(trackedJob, trackedRow, "upload-remux", "无损重封装", PipelineForceRerun, async () =>
+                        {
+                            var remux = await _workService.RemuxUploadVideosAsync(projectDirectory, null, progress, cancellationToken);
+                            if (!remux.Ok) throw new InvalidOperationException(remux.Message);
+                        });
+                    }
+
+                    if (PipelineMaterialValidateEnabled)
+                    {
+                        await RunTrackedStepAsync(trackedJob, trackedRow, "material-validate", "素材校验", PipelineForceRerun, async () =>
+                        {
+                            var configPath = await _workService.EnsureWeixinUploadConfigAsync(projectDirectory, null, cancellationToken);
+                            var workflowDirectory = Path.GetDirectoryName(configPath)
+                                                    ?? throw new InvalidOperationException("无法定位视频号工作项目目录。");
+                            var validation = await _materialValidationService.ValidateAsync(workflowDirectory, cancellationToken);
+                            if (validation.HasErrors)
+                            {
+                                var errors = validation.Issues.Where(item => item.Severity == "错误").Select(item => item.Message);
+                                throw new InvalidOperationException($"素材校验失败：{string.Join("；", errors)}");
+                            }
+                            foreach (var issue in validation.Issues)
+                                AppendActivityLog($"素材校验[{issue.Severity}]：{issue.Message}");
+                        });
+                    }
+
+                    StatusMessage = $"共享项目流水线完成：{Path.GetFileName(projectDirectory)}";
+                    AppendActivityLog(StatusMessage);
+                }
+                catch (OperationCanceledException)
+                {
+                    StatusMessage = "共享项目流水线已停止。";
+                    AppendActivityLog(StatusMessage);
+                }
+                catch (Exception ex)
+                {
+                    StatusMessage = $"共享项目流水线失败：{ex.Message}";
+                    AppendActivityLog(StatusMessage);
+                }
+            });
+        }
+        finally
+        {
             try
             {
-                foreach (var (key, label) in steps)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    await RunTrackedStepAsync(trackedJob, trackedRow, key, label, PipelineForceRerun, async () =>
-                    {
-                        if (key == "smart-recut")
-                        {
-                            await _smartRecutService.RunAsync(
-                                projectDirectory,
-                                SmartRecutEpisodeCount,
-                                SmartRecutMinSeconds,
-                                SmartRecutMaxSeconds,
-                                PipelineForceRerun,
-                                new Progress<string>(message => AppendActivityLog($"智能重剪：{message}")),
-                                cancellationToken);
-                            await UpdateStepStateAsync(
-                                trackedJob,
-                                trackedRow,
-                                "transcode",
-                                "素材转码",
-                                PublishJobStepStatus.Skipped,
-                                "智能重剪已直接生成工作视频");
-                            return;
-                        }
-                        if (key == "ai-proof" || key == "timestamp-certificate")
-                        {
-                            var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
-                            var artifactProgress = new Progress<string>(message => AppendActivityLog($"证明材料：{message}"));
-                            if (key == "ai-proof")
-                                await _proofArtifactsService.GenerateAiProofAsync(
-                                    trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
-                                    settings,
-                                    PipelineForceRerun,
-                                    artifactProgress,
-                                    cancellationToken);
-                            else
-                                await _proofArtifactsService.GenerateTimestampCertificateAsync(
-                                    trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
-                                    settings,
-                                    PipelineForceRerun,
-                                    artifactProgress,
-                                    cancellationToken);
-                            return;
-                        }
-                        var result = await _workService.RunProjectStepAsync(
-                            projectDirectory, null, key, PipelineForceRerun, progress, cancellationToken);
-                        if (!result.Ok)
-                            throw new InvalidOperationException(result.Message ?? $"{label}执行失败。");
-                    });
-                }
-
-                if (PipelineAutoRepairEnabled)
-                {
-                    await RunTrackedStepAsync(trackedJob, trackedRow, "material-auto-repair", "一键修复", PipelineForceRerun,
-                        () => RunMaterialAutoRepairAsync(projectDirectory, progress, cancellationToken));
-                }
-
-                if (PipelineAutoFillEnabled)
-                {
-                    await RunTrackedStepAsync(trackedJob, trackedRow, "auto-fill-info", "补齐字段", PipelineForceRerun,
-                        async () => await _workService.AutoFillProjectInfoAsync(projectDirectory, null, cancellationToken));
-                }
-
-                if (PipelineRemuxEnabled)
-                {
-                    await RunTrackedStepAsync(trackedJob, trackedRow, "upload-remux", "无损重封装", PipelineForceRerun, async () =>
-                    {
-                        var remux = await _workService.RemuxUploadVideosAsync(projectDirectory, null, progress, cancellationToken);
-                        if (!remux.Ok) throw new InvalidOperationException(remux.Message);
-                    });
-                }
-
-                if (PipelineMaterialValidateEnabled)
-                {
-                    await RunTrackedStepAsync(trackedJob, trackedRow, "material-validate", "素材校验", PipelineForceRerun, async () =>
-                    {
-                        var configPath = await _workService.EnsureWeixinUploadConfigAsync(projectDirectory, null, cancellationToken);
-                        var workflowDirectory = Path.GetDirectoryName(configPath)
-                                                ?? throw new InvalidOperationException("无法定位视频号工作项目目录。");
-                        var validation = await _materialValidationService.ValidateAsync(workflowDirectory, cancellationToken);
-                        if (validation.HasErrors)
-                        {
-                            var errors = validation.Issues.Where(item => item.Severity == "错误").Select(item => item.Message);
-                            throw new InvalidOperationException($"素材校验失败：{string.Join("；", errors)}");
-                        }
-                        foreach (var issue in validation.Issues)
-                            AppendActivityLog($"素材校验[{issue.Severity}]：{issue.Message}");
-                    });
-                }
-
-                StatusMessage = $"共享项目流水线完成：{Path.GetFileName(projectDirectory)}";
-                AppendActivityLog(StatusMessage);
+                var runtimeDir = Path.GetDirectoryName(runtimeConfigPath);
+                if (runtimeDir is not null && Path.GetFileName(runtimeDir).StartsWith("weixin-runtime-", StringComparison.Ordinal))
+                    Directory.Delete(runtimeDir, true);
+                else
+                    File.Delete(runtimeConfigPath);
             }
-            catch (OperationCanceledException)
+            catch { /* 临时配置清理由下次系统临时目录维护。 */ }
+        }
+    }
+
+    private static string PrepareWeixinRuntimeConfig(
+        TikTokPublisher.Core.Models.ClientSettings settings,
+        string projectDirectory,
+        string accountName)
+    {
+        var generated = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
+        var runtimeDir = Path.Combine(PlatformPublisherPaths.DataRoot, "runtime", "weixin-runtime-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(runtimeDir);
+        var configPath = Path.Combine(runtimeDir, "config.json");
+        var payload = JsonNode.Parse(File.ReadAllText(generated))?.AsObject() ?? new JsonObject();
+        try { File.Delete(generated); } catch { }
+
+        var info = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var infoPath = Path.Combine(projectDirectory, "短剧信息.txt");
+        if (File.Exists(infoPath))
+        {
+            foreach (var line in File.ReadLines(infoPath))
             {
-                StatusMessage = "共享项目流水线已停止。";
-                AppendActivityLog(StatusMessage);
+                var index = line.IndexOfAny([':', '：']);
+                if (index > 0) info[line[..index].Trim()] = line[(index + 1)..].Trim();
             }
-            catch (Exception ex)
+        }
+        var company = info.GetValueOrDefault("制作公司", string.Empty);
+        var legacyPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".weixin_channel_tool",
+            "settings.json");
+        if (File.Exists(legacyPath))
+        {
+            try
             {
-                StatusMessage = $"共享项目流水线失败：{ex.Message}";
-                AppendActivityLog(StatusMessage);
+                var legacy = JsonNode.Parse(File.ReadAllText(legacyPath))?.AsObject();
+                var profilesText = legacy?["account_profiles_json"]?.GetValue<string>() ?? "[]";
+                var profiles = JsonNode.Parse(profilesText)?.AsArray();
+                var selected = profiles?.OfType<JsonObject>().FirstOrDefault(profile =>
+                                   !string.IsNullOrWhiteSpace(company) &&
+                                   string.Equals(profile["cost_report_company_name"]?.ToString(), company, StringComparison.Ordinal))
+                               ?? profiles?.OfType<JsonObject>().FirstOrDefault(profile =>
+                                   !string.IsNullOrWhiteSpace(accountName) &&
+                                   string.Equals(profile["name"]?.ToString(), accountName, StringComparison.Ordinal));
+                if (selected is not null)
+                {
+                    CopyLegacyAsset(selected, "cost_report_sign_path", Path.Combine(runtimeDir, "sign.png"));
+                    CopyLegacyAsset(selected, "cost_report_seal_path", Path.Combine(runtimeDir, "seal.png"));
+                    var template = selected["cost_report_template_docx_path"]?.ToString();
+                    if (string.IsNullOrWhiteSpace(template) || !File.Exists(template))
+                        template = new[]
+                        {
+                            @"D:\Program Files\shortdrama-assistant\_internal\成本报表模板示例.docx",
+                            @"D:\code\weixin-channel-tool\成本报表模板示例.docx",
+                        }.FirstOrDefault(File.Exists);
+                    if (!string.IsNullOrWhiteSpace(template) && File.Exists(template))
+                    {
+                        var target = Path.Combine(runtimeDir, "成本报表模板.docx");
+                        File.Copy(template, target, true);
+                        payload["TemplateDocxPath"] = target;
+                        payload["CostReportTemplatePath"] = target;
+                    }
+                    payload["CompanyName"] = string.IsNullOrWhiteSpace(company)
+                        ? selected["cost_report_company_name"]?.ToString()
+                        : company;
+                    payload["CostReportActorPayRatio"] = selected["cost_report_actor_pay_ratio"]?.DeepClone();
+                    payload["CostReportLegalRepresentative"] = selected["cost_report_legal_representative"]?.DeepClone();
+                }
             }
-        });
+            catch
+            {
+                // 旧配置不可用时仍保留独立运行时配置，具体缺失资源由对应步骤报告。
+            }
+        }
+        File.WriteAllText(configPath, payload.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        return configPath;
+    }
+
+    private static void CopyLegacyAsset(JsonObject profile, string key, string target)
+    {
+        var source = profile[key]?.ToString();
+        if (!string.IsNullOrWhiteSpace(source) && File.Exists(source)) File.Copy(source, target, true);
     }
 
     private async Task RunTrackedStepAsync(
@@ -966,6 +1066,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task RunMaterialAutoRepairAsync(
         string projectDirectory,
+        string runtimeConfigPath,
         IProgress<WorkRunEvent> progress,
         CancellationToken cancellationToken)
     {
@@ -997,7 +1098,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             AppendActivityLog($"一键修复：{label}");
             var result = await _workService.RunProjectStepAsync(
-                projectDirectory, null, key, force, progress, cancellationToken);
+                projectDirectory, null, key, force, progress, cancellationToken, runtimeConfigPath);
             if (!result.Ok)
                 throw new InvalidOperationException(result.Message ?? $"一键修复步骤失败：{label}");
         }
