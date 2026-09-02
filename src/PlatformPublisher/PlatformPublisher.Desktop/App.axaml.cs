@@ -60,8 +60,8 @@ public partial class App : Application
         services.AddSingleton<WeixinSeriesConfigOverrideService>();
         services.AddSingleton<IAiRuntimeSettingsProvider, PlatformAiRuntimeSettingsProvider>();
         services.AddSingleton<IPlatformPublishAdapter, WeixinChannelPublishAdapter>();
-        services.AddSingleton<IPlatformPublishAdapter>(
-            _ => new UnavailableKuaishouPublishAdapter(PublishPlatform.KuaishouPersonalRevenue));
+        services.AddSingleton<KuaishouPersonalSessionService>();
+        services.AddSingleton<IPlatformPublishAdapter, KuaishouPersonalPublishAdapter>();
         services.AddSingleton<IPlatformPublishAdapter>(
             _ => new UnavailableKuaishouPublishAdapter(PublishPlatform.KuaishouEnterpriseRevenue));
         services.AddSingleton<PlatformPublishCoordinator>();
