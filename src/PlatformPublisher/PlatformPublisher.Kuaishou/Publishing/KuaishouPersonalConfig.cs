@@ -38,6 +38,12 @@ public sealed class KuaishouPersonalConfig
     public int UnlockEpisodeCount { get; set; } = 1;
     public string EpisodePrice { get; set; } = "1";
     public string Actors { get; set; } = "演员A:男:男主;演员B:女:女主";
+    public string Directors { get; set; } = string.Empty;
+    public string Screenwriters { get; set; } = string.Empty;
+    public string ProductionOrganization { get; set; } = string.Empty;
+    public string AudienceGender { get; set; } = "男频";
+    public string PlotLabels { get; set; } = string.Empty;
+    public string TagLabels { get; set; } = string.Empty;
     public string FirstPageAction { get; set; } = "draft";
     public string FinalAction { get; set; } = "keep";
     public int UploadTimeoutMinutes { get; set; } = 60;

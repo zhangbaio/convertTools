@@ -8,6 +8,7 @@ using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Common.Services;
 using PlatformPublisher.Desktop.Services;
+using PlatformPublisher.Kuaishou.Publishing;
 using PlatformPublisher.Weixin.Publishing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
@@ -33,6 +34,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ("timestamp-certificate", "可信时间戳"),
         ("upload-remux", "无损重封装"),
         ("material-validate", "素材校验"),
+        ("kuaishou-personal-artifacts", "快手个人版产物"),
         ("weixin-upload", "上传剧集"),
         ("shelf", "上架"),
         ("management-sync", "管理同步"),
@@ -50,6 +52,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly WeixinSmartRecutService _smartRecutService;
     private readonly WeixinManagementSyncService _managementSyncService;
     private readonly WeixinProofArtifactsService _proofArtifactsService;
+    private readonly KuaishouPersonalProjectDataService _kuaishouPersonalProjectDataService;
+    private readonly KuaishouPersonalPreparationService _kuaishouPersonalPreparationService;
     private readonly List<PublishJob> _jobs = [];
     private readonly List<PublishAccount> _accounts = [];
     private readonly DispatcherTimer _scheduleTimer;
@@ -72,7 +76,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         WeixinAutoShelfService autoShelfService,
         WeixinSmartRecutService smartRecutService,
         WeixinManagementSyncService managementSyncService,
-        WeixinProofArtifactsService proofArtifactsService)
+        WeixinProofArtifactsService proofArtifactsService,
+        KuaishouPersonalProjectDataService kuaishouPersonalProjectDataService,
+        KuaishouPersonalPreparationService kuaishouPersonalPreparationService)
     {
         _store = store;
         _accountStore = accountStore;
@@ -87,6 +93,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _smartRecutService = smartRecutService;
         _managementSyncService = managementSyncService;
         _proofArtifactsService = proofArtifactsService;
+        _kuaishouPersonalProjectDataService = kuaishouPersonalProjectDataService;
+        _kuaishouPersonalPreparationService = kuaishouPersonalPreparationService;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -881,8 +889,33 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         });
                     }
 
+                    if (SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue)
+                    {
+                        await RunTrackedStepAsync(trackedJob, trackedRow, "kuaishou-personal-artifacts", "快手个人版产物", PipelineForceRerun, async () =>
+                        {
+                            var config = KuaishouPersonalConfig.Load(new PublishJob
+                            {
+                                AccountId = SelectedAccount?.Model.Id ?? string.Empty,
+                                ConfigPath = SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
+                                ProjectDirectory = projectDirectory,
+                            });
+                            var projectData = await _kuaishouPersonalProjectDataService.ResolveAsync(projectDirectory, config, cancellationToken);
+                            await _kuaishouPersonalPreparationService.PrepareAsync(projectData, config, PipelineForceRerun, cancellationToken);
+                            var issues = await _kuaishouPersonalPreparationService.ValidateAsync(projectData.WorkflowDirectory, cancellationToken);
+                            if (issues.Count > 0)
+                                throw new InvalidOperationException($"快手个人版产物校验失败：{string.Join("；", issues.Select(item => item.Message))}");
+                            AppendActivityLog("快手个人版产物：横屏封面、竖屏海报、自动补齐字段和 payload 预览已生成并通过校验。");
+                        });
+                    }
+
                     if (PipelineMaterialValidateEnabled)
                     {
+                        if (SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue)
+                        {
+                            AppendActivityLog("素材校验：快手个人版已使用其专属产物校验，跳过视频号校验器。");
+                        }
+                        else
+                        {
                         await RunTrackedStepAsync(trackedJob, trackedRow, "material-validate", "素材校验", PipelineForceRerun, async () =>
                         {
                             var configPath = await _workService.EnsureWeixinUploadConfigAsync(projectDirectory, null, cancellationToken);
@@ -897,6 +930,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             foreach (var issue in validation.Issues)
                                 AppendActivityLog($"素材校验[{issue.Severity}]：{issue.Message}");
                         });
+                        }
                     }
 
                     StatusMessage = $"共享项目流水线完成：{Path.GetFileName(projectDirectory)}";

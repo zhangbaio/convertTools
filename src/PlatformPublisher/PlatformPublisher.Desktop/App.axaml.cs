@@ -62,6 +62,7 @@ public partial class App : Application
         services.AddSingleton<IPlatformPublishAdapter, WeixinChannelPublishAdapter>();
         services.AddSingleton<KuaishouPersonalSessionService>();
         services.AddSingleton<KuaishouPersonalProjectDataService>();
+        services.AddSingleton<KuaishouPersonalPreparationService>();
         services.AddSingleton<KuaishouPersonalFirstPageService>();
         services.AddSingleton<KuaishouPersonalEpisodeUploadService>();
         services.AddSingleton<KuaishouPersonalUploadStateStore>();
