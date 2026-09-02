@@ -142,7 +142,7 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
-    public void Source_information_does_not_require_unchecked_outline_step()
+    public void Source_information_rejects_a_configuration_that_cannot_supply_four_files()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"proof-source-preflight-{Guid.NewGuid():N}");
         Directory.CreateDirectory(workspace);
@@ -153,13 +153,12 @@ public sealed class TikTokProofMaterialServiceTests
                 [QueueStepRegistry.GenerateProofMaterial],
                 includeRoleVector: false,
                 includeRoleSceneScreenshot: false);
-            var prerequisites = TikTokSourceFileInfoUploadPackageService.ValidateExistingPrerequisites(
+            var action = () => TikTokSourceFileInfoUploadPackageService.ValidateExistingPrerequisites(
                 workspace,
                 selection);
 
-            prerequisites.OutlinePdf.Should().BeNull();
-            prerequisites.ScriptPdf.Should().BeNull();
-            prerequisites.RoleVectorImage.Should().BeNull();
+            action.Should().Throw<InvalidOperationException>()
+                .WithMessage("*至少需要 4 个文件*");
         }
         finally
         {
@@ -175,8 +174,16 @@ public sealed class TikTokProofMaterialServiceTests
 
         try
         {
+            File.WriteAllBytes(
+                Path.Combine(workspace, TikTokAiScriptOutlineService.OutputFileName),
+                "%PDF-1.7\noutline"u8.ToArray());
+            File.WriteAllBytes(
+                Path.Combine(workspace, "测试剧前5集剧本.pdf"),
+                "%PDF-1.7\nscript"u8.ToArray());
             var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
-                [QueueStepRegistry.GenerateProofMaterial],
+                [QueueStepRegistry.GenerateAiScriptOutline,
+                 QueueStepRegistry.GenerateEpisodeScript,
+                 QueueStepRegistry.GenerateProofMaterial],
                 includeRoleVector: false,
                 includeRoleSceneScreenshot: false);
             var prerequisites = TikTokSourceFileInfoUploadPackageService.ValidateExistingPrerequisites(
@@ -184,6 +191,7 @@ public sealed class TikTokProofMaterialServiceTests
                 selection);
 
             prerequisites.RoleVectorImage.Should().BeNull();
+            selection.IncludeRoleSceneScreenshot.Should().BeTrue();
             Directory.Exists(TikTokReferenceSourcePackageService.GetRoot(workspace))
                 .Should().BeFalse("未启用角色矢量图步骤时不得隐式创建角色参考包");
         }

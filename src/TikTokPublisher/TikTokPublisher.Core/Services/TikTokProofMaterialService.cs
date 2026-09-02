@@ -389,7 +389,7 @@ public sealed class TikTokProofMaterialService
                     log,
                     request.IncludeSourceInfoRoleSceneScreenshot,
                     sourceInfoSelection,
-                    validateComplete: false);
+                    validateComplete: true);
                 sourceCompleted = true;
                 SaveState(
                     context, request, fingerprints, result,

@@ -37,6 +37,10 @@ public sealed class TikTokMaterialValidationServiceTests
             image.SaveAsPng(Path.Combine(
                 output,
                 TikTokSourceFileInfoUploadPackageService.ProjectInfoImageFileName));
+        using (var image = new Image<Rgba32>(1280, 720))
+            image.SaveAsPng(Path.Combine(
+                output,
+                TikTokSourceFileInfoUploadPackageService.RoleSceneImageFileName));
         var referenceRoot = TikTokReferenceSourcePackageService.GetRoot(workflow);
         Directory.CreateDirectory(referenceRoot);
         using (var image = new Image<Rgba32>(2342, 1280))
@@ -76,6 +80,7 @@ public sealed class TikTokMaterialValidationServiceTests
                 workflow,
                 selection: selection);
             selection.IncludeRoleVector.Should().BeFalse();
+            selection.IncludeRoleSceneScreenshot.Should().BeTrue();
         }
         finally
         {
@@ -84,7 +89,7 @@ public sealed class TikTokMaterialValidationServiceTests
     }
 
     [Fact]
-    public void Generated_material_validation_does_not_require_unchecked_role_vector_step()
+    public void Generated_material_validation_rejects_checked_source_info_when_configuration_cannot_supply_four_files()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"material-proof-validation-{Guid.NewGuid():N}");
         var source = Path.Combine(workspace, "source");
@@ -106,13 +111,6 @@ public sealed class TikTokMaterialValidationServiceTests
                 image.SaveAsPng(Path.Combine(
                     output,
                     TikTokSourceFileInfoUploadPackageService.ProjectInfoImageFileName));
-            var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
-                [QueueStepRegistry.GenerateProofMaterial],
-                includeRoleVector: false,
-                includeRoleSceneScreenshot: false);
-            TikTokSourceFileInfoUploadPackageService.Validate(
-                workflow,
-                selection: selection);
             var account = new TikTokAccountProfile
             {
                 TiktokCopyrightMaterialTypes =
@@ -131,7 +129,55 @@ public sealed class TikTokMaterialValidationServiceTests
                 options,
                 log: null);
 
-            action.Should().NotThrow();
+            action.Should().Throw<InvalidOperationException>()
+                .WithMessage("*原始文件信息上传包无效*至少需要 4 个文件*");
+        }
+        finally
+        {
+            TryDelete(workspace);
+        }
+    }
+
+    [Fact]
+    public void Generated_material_validation_skips_source_info_when_upload_material_is_not_checked()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"material-proof-unchecked-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "source");
+        var workflow = Path.Combine(workspace, "workflow", "source");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        File.WriteAllText(
+            Path.Combine(source, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sourceProjectDir = source,
+                workflowProjectDir = workflow,
+            }));
+        try
+        {
+            File.WriteAllBytes(
+                TikTokProofMaterialService.GetPdfPath(workflow),
+                "%PDF-1.7\nproof"u8.ToArray());
+            var account = new TikTokAccountProfile
+            {
+                TiktokCopyrightMaterialTypes =
+                    [TikTokPublishConstants.ProductionAgreementMaterialType],
+            };
+            var options = new TikTokMaterialValidationService.Options
+            {
+                EnabledSteps = new HashSet<string>(
+                    [QueueStepRegistry.GenerateProofMaterial],
+                    StringComparer.Ordinal),
+            };
+
+            var action = () => TikTokMaterialValidationService.ValidateGeneratedUploadMaterials(
+                source,
+                account,
+                options,
+                log: null);
+
+            action.Should().NotThrow(
+                "未在上传材料中勾选原始文件信息时，不应检查其目录或文件数量");
         }
         finally
         {

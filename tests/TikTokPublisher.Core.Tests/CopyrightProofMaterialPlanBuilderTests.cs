@@ -86,7 +86,7 @@ public sealed class CopyrightProofMaterialPlanBuilderTests
     }
 
     [Fact]
-    public void Build_source_information_uses_only_enabled_production_artifacts()
+    public void Build_source_information_adds_the_four_platform_required_artifacts()
     {
         var account = new TikTokAccountProfile
         {
@@ -103,13 +103,15 @@ public sealed class CopyrightProofMaterialPlanBuilderTests
             CopyrightProofExecutionMode.GenerateAndEdit);
 
         plan.SourceInfoSelection.Should().Be(
-            new TikTokSourceFileInfoPackageSelection(true, false, false, false));
+            new TikTokSourceFileInfoPackageSelection(true, true, false, true));
         plan.RequiredSteps.Should().Equal(
+            QueueStepRegistry.GenerateEpisodeScript,
             QueueStepRegistry.GenerateAiScriptOutline,
             QueueStepRegistry.GenerateProofMaterial,
             QueueStepRegistry.UploadSeries);
         plan.ArtifactDescriptions.Should().Contain("AI剧本大纲.pdf");
-        plan.ArtifactDescriptions.Should().NotContain("剧本.pdf");
+        plan.ArtifactDescriptions.Should().Contain("剧本.pdf");
+        plan.ArtifactDescriptions.Should().Contain("02_角色场景或项目素材.png");
         plan.ArtifactDescriptions.Should().NotContain("角色矢量图.png");
     }
 
@@ -133,7 +135,9 @@ public sealed class CopyrightProofMaterialPlanBuilderTests
 
         plan.SourceInfoSelection.IncludeRoleVector.Should().BeTrue();
         plan.RequiredSteps.Should().Equal(
+            QueueStepRegistry.GenerateEpisodeScript,
             QueueStepRegistry.GenerateAiDramaMaterials,
+            QueueStepRegistry.GenerateAiScriptOutline,
             QueueStepRegistry.GenerateRoleVector,
             QueueStepRegistry.GenerateProofMaterial);
         plan.ArtifactDescriptions.Should().Contain("角色矢量图.png");

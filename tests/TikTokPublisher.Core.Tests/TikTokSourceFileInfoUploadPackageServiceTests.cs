@@ -8,7 +8,7 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokSourceFileInfoUploadPackageServiceTests
 {
     [Fact]
-    public void Generate_omits_role_vector_when_upload_option_is_not_enabled()
+    public void Generate_uses_role_scene_as_fourth_file_when_role_vector_upload_is_disabled()
     {
         var workflow = CreateWorkflow();
         try
@@ -30,7 +30,9 @@ public sealed class TikTokSourceFileInfoUploadPackageServiceTests
             files.Select(Path.GetFileName).Should().Equal(
                 TikTokSourceFileInfoUploadPackageService.OutlineFileName,
                 TikTokSourceFileInfoUploadPackageService.ScriptFileName,
-                TikTokSourceFileInfoUploadPackageService.ProjectInfoImageFileName);
+                TikTokSourceFileInfoUploadPackageService.ProjectInfoImageFileName,
+                TikTokSourceFileInfoUploadPackageService.RoleSceneImageFileName);
+            files.Should().HaveCount(TikTokSourceFileInfoUploadPackageService.RequiredFileCount);
             files.Should().NotContain(path =>
                 Path.GetFileName(path) == TikTokSourceFileInfoUploadPackageService.RoleVectorImageFileName);
             TikTokSourceFileInfoUploadPackageService.HasCurrentOutput(
@@ -60,13 +62,45 @@ public sealed class TikTokSourceFileInfoUploadPackageServiceTests
                 IncludeScript: true,
                 IncludeRoleVector: false,
                 IncludeRoleSceneScreenshot: false);
+            SaveImage(
+                Path.Combine(
+                    TikTokSourceFileInfoUploadPackageService.GetOutputDirectory(workflow),
+                    TikTokSourceFileInfoUploadPackageService.RoleSceneImageFileName),
+                1280,
+                720);
             var files = TikTokSourceFileInfoUploadPackageService.Generate(
                 workflow,
                 selection: selection);
 
             files.Should().NotContain(path =>
                 Path.GetFileName(path) == TikTokSourceFileInfoUploadPackageService.RoleVectorImageFileName);
+            files.Should().Contain(path =>
+                Path.GetFileName(path) == TikTokSourceFileInfoUploadPackageService.RoleSceneImageFileName);
             File.Exists(roleVectorCopy).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Generate_rejects_selected_source_info_when_configuration_cannot_supply_four_files()
+    {
+        var workflow = CreateWorkflow();
+        try
+        {
+            var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
+                [TikTokPublisher.Core.Queue.QueueStepRegistry.GenerateProofMaterial],
+                includeRoleVector: false,
+                includeRoleSceneScreenshot: false);
+
+            var action = () => TikTokSourceFileInfoUploadPackageService.Generate(
+                workflow,
+                selection: selection);
+
+            action.Should().Throw<InvalidOperationException>()
+                .WithMessage("*至少需要 4 个文件*当前上传材料配置只能生成 2 个*");
         }
         finally
         {
@@ -314,6 +348,10 @@ public sealed class TikTokSourceFileInfoUploadPackageServiceTests
         Directory.CreateDirectory(screenshotDirectory);
         SaveImage(
             Path.Combine(screenshotDirectory, TikTokSourceFileInfoUploadPackageService.ProjectInfoImageFileName),
+            1280,
+            720);
+        SaveImage(
+            Path.Combine(screenshotDirectory, TikTokSourceFileInfoUploadPackageService.RoleSceneImageFileName),
             1280,
             720);
         var referenceRoot = TikTokReferenceSourcePackageService.GetRoot(workflow);
