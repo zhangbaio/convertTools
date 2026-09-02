@@ -218,7 +218,12 @@ public sealed class MapleleafApiServiceTests
             CancellationToken.None);
 
         playback.Url.Should().Be("https://cdn.example/video-3.mp4");
-        handler.Requests.Should().Contain(item =>
+        var parse = handler.Requests.Single(item =>
+            item.Path.EndsWith("/jxurl.php", StringComparison.Ordinal));
+        parse.Body.Should().Contain("\"videoId\":\"video-3\"");
+        parse.Body.Should().Contain("\"video_id\":\"video-3\"");
+        parse.Body.Should().Contain("\"wrap\":\"1\"");
+        handler.Requests.Should().NotContain(item =>
             item.Path.EndsWith("/ThirdParty/videoparse", StringComparison.Ordinal));
         handler.Requests.Should().NotContain(item =>
             item.Path.EndsWith("/api/hongguo/video_url", StringComparison.Ordinal));
@@ -242,6 +247,8 @@ public sealed class MapleleafApiServiceTests
             "https://backup.example/video-3.mp4");
         playback.SpadeA.Should().Be("spade-value");
         playback.Encrypted.Should().BeTrue();
+        handler.Requests.Should().Contain(item =>
+            item.Path.EndsWith("/jxurl.php", StringComparison.Ordinal));
         handler.Requests.Should().Contain(item =>
             item.Path.EndsWith("/ThirdParty/videoparse", StringComparison.Ordinal));
         handler.Requests.Should().Contain(item =>
@@ -278,7 +285,8 @@ public sealed class MapleleafApiServiceTests
             new HongguoLocalApiService(http),
             apiBases ?? ["https://maple.test/api"],
             "https://maple.test/index.php",
-            latestCachePathResolver ?? (_ => null));
+            latestCachePathResolver ?? (_ => null),
+            "https://maple.test/jxurl.php");
     }
 
     private static DramaSourceSettings Settings() => new()
@@ -373,6 +381,24 @@ public sealed class MapleleafApiServiceTests
                     return Json("""{"success":false,"message":"official parser unavailable"}""");
                 }
                 return Json("""{"success":true,"data":{"url":"https://cdn.example/video-3.mp4","size":"12MB"}}""");
+            }
+
+            if (request.RequestUri.AbsolutePath.EndsWith("/jxurl.php", StringComparison.Ordinal))
+            {
+                if (videoParseFails)
+                {
+                    return Json("""{"code":500,"msg":"official php parser unavailable"}""");
+                }
+                return Json("""
+                    {
+                      "code":200,
+                      "msg":"ok",
+                      "data":[
+                        {"quality":"720p","play_url":"https://cdn.example/video-3-720.mp4"},
+                        {"quality":"1080p","play_url":"https://cdn.example/video-3.mp4"}
+                      ]
+                    }
+                    """);
             }
 
             if (request.RequestUri.AbsolutePath.EndsWith("/ThirdParty/latest", StringComparison.Ordinal))

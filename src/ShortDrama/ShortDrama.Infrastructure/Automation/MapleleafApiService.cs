@@ -28,6 +28,7 @@ public sealed class MapleleafApiService
 
     private const string PreferredSearchBase = "http://118.89.198.57/api";
     private const string DefaultPhpParseUrl = "http://47.116.45.15/index.php";
+    private const string DefaultOfficialVideoParseUrl = "http://118.89.198.57/api/jxurl.php";
     private const int SearchPageSize = 10;
     private const int LatestMaxPages = 20;
 
@@ -35,6 +36,7 @@ public sealed class MapleleafApiService
     private readonly HongguoLocalApiService _localService;
     private readonly IReadOnlyList<string> _apiBases;
     private readonly string _phpParseUrl;
+    private readonly string _officialVideoParseUrl;
     private readonly Func<string, string?> _latestCachePathResolver;
     private readonly SemaphoreSlim _loginGate = new(1, 1);
     private string _token = string.Empty;
@@ -47,7 +49,8 @@ public sealed class MapleleafApiService
             new HongguoLocalApiService(httpClient),
             null,
             null,
-            ResolveOfficialLatestCachePath)
+            ResolveOfficialLatestCachePath,
+            null)
     {
     }
 
@@ -56,12 +59,16 @@ public sealed class MapleleafApiService
         HongguoLocalApiService localService,
         IReadOnlyList<string>? apiBases,
         string? phpParseUrl,
-        Func<string, string?>? latestCachePathResolver = null)
+        Func<string, string?>? latestCachePathResolver = null,
+        string? officialVideoParseUrl = null)
     {
         _httpClient = httpClient;
         _localService = localService;
         _apiBases = apiBases is { Count: > 0 } ? apiBases : DefaultApiBases;
         _phpParseUrl = string.IsNullOrWhiteSpace(phpParseUrl) ? DefaultPhpParseUrl : phpParseUrl.Trim();
+        _officialVideoParseUrl = string.IsNullOrWhiteSpace(officialVideoParseUrl)
+            ? DefaultOfficialVideoParseUrl
+            : officialVideoParseUrl.Trim();
         _latestCachePathResolver = latestCachePathResolver ?? ResolveOfficialLatestCachePath;
     }
 
@@ -358,9 +365,26 @@ public sealed class MapleleafApiService
                 requestTimeoutSeconds,
                 cancellationToken).ConfigureAwait(false);
 
-        // Mapleleaf 1.6.5 can return a signed plaintext Xigua CDN URL. Prefer it so
-        // the downloader can use the full 16-way Range path without proxying or decrypting.
+        // Mapleleaf 1.6.5 uses a dedicated PHP endpoint for episode parsing. It is not
+        // /ThirdParty/videoparse: the official client posts both videoId aliases and wrap=1
+        // to 118.89.198.57/api/jxurl.php, authenticated with the Mapleleaf bearer token.
         Exception? lastError = null;
+        try
+        {
+            return await ParseVideoViaOfficialClientAsync(
+                settings,
+                videoId,
+                quality,
+                requestTimeoutSeconds,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            lastError = ex;
+        }
+
+        // Keep the historical REST endpoint as a compatibility fallback in case a
+        // deployment still exposes it, but never let it replace the official PHP path.
         try
         {
             var inner = await SendAuthenticatedAsync(
@@ -418,6 +442,69 @@ public sealed class MapleleafApiService
         if (!string.IsNullOrWhiteSpace(lastError?.Message))
             hint += $"（{lastError.Message}）";
         throw new MapleleafException(hint, inner: lastError);
+    }
+
+    private async Task<MapleleafVideoPlayback> ParseVideoViaOfficialClientAsync(
+        DramaSourceSettings settings,
+        string videoId,
+        string quality,
+        int requestTimeoutSeconds,
+        CancellationToken cancellationToken)
+    {
+        var inner = await SendAuthenticatedUrlAsync(
+            settings,
+            _officialVideoParseUrl,
+            new JsonObject
+            {
+                ["videoId"] = videoId,
+                ["video_id"] = videoId,
+                ["level"] = NormalizeQuality(quality),
+                ["wrap"] = "1"
+            },
+            cancellationToken,
+            requestTimeoutSeconds).ConfigureAwait(false);
+        var url = ExtractPlayUrlForQuality(inner, NormalizeQuality(quality));
+        if (url.Length == 0)
+        {
+            throw new MapleleafException(
+                ReadString(inner, "message", "msg") is { Length: > 0 } message
+                    ? message
+                    : "Mapleleaf 官方 jxurl.php 未返回播放直链");
+        }
+
+        return new MapleleafVideoPlayback(url, ReadSize(inner));
+    }
+
+    private static string ExtractPlayUrlForQuality(JsonNode? node, string requestedQuality)
+    {
+        if (node is not JsonArray options || options.Count == 0)
+        {
+            return ExtractPlayUrl(node);
+        }
+
+        var order = new[] { "2160p", "1440p", "1080p", "720p", "540p", "480p", "360p" };
+        var normalized = NormalizeQuality(requestedQuality);
+        var requestedIndex = Array.IndexOf(order, normalized);
+        IEnumerable<string> candidates = requestedIndex >= 0 ? order.Skip(requestedIndex) : [normalized];
+        foreach (var quality in candidates)
+        {
+            foreach (var option in options.OfType<JsonObject>())
+            {
+                var actual = ReadString(option, "quality", "definition").ToLowerInvariant();
+                if (!string.Equals(actual, quality, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var url = ExtractPlayUrl(option);
+                if (url.Length > 0)
+                {
+                    return url;
+                }
+            }
+        }
+
+        return ExtractPlayUrl(options[^1]);
     }
 
     private async Task<MapleleafVideoPlayback> ParseShareUrlAsync(
