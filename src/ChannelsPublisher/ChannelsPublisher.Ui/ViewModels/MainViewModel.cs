@@ -53,6 +53,13 @@ public sealed partial class MainViewModel : ViewModelBase
                ?? Accounts.FirstOrDefault(a => a.Name == key);
     }
 
+    public void RecordAccountLogin(AccountItemViewModel account)
+    {
+        account.MarkLoggedIn(DateTimeOffset.Now);
+        _store.Update(account.Model);
+        StatusMessage = $"[{account.Name}] 登录会话已就绪";
+    }
+
     /// <summary>请求视图把某账号的内嵌浏览器导航到 url（View 侧持有 WebView2Host）。</summary>
     public event Action<AccountItemViewModel, string>? NavigateRequested;
 
@@ -104,6 +111,22 @@ public sealed partial class MainViewModel : ViewModelBase
         SelectedAccount.Status = AccountStatus.LoggingIn;
         StatusMessage = $"[{SelectedAccount.Name}] 打开视频号登录页扫码…";
         NavigateRequested?.Invoke(SelectedAccount, ChannelsLoginUrl);
+    }
+
+    [RelayCommand]
+    private void SaveAccountConfig()
+    {
+        if (SelectedAccount is null)
+        {
+            StatusMessage = "请先在左侧选择账号";
+            return;
+        }
+        SelectedAccount.Name = string.IsNullOrWhiteSpace(SelectedAccount.Name)
+            ? SelectedAccount.Id
+            : SelectedAccount.Name.Trim();
+        SelectedAccount.Nickname = SelectedAccount.Nickname?.Trim() ?? string.Empty;
+        _store.Update(SelectedAccount.Model);
+        StatusMessage = $"[{SelectedAccount.Name}] 账号配置已保存";
     }
 
     [RelayCommand]

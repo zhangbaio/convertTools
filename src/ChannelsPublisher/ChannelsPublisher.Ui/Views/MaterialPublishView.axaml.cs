@@ -168,7 +168,7 @@ public partial class MaterialPublishView : UserControl
             RemoteDebuggingPort = 9222 + _hosts.Count, // 每账号唯一 CDP 端口
             IsVisible = false,
         };
-        host.Ready += () => account.Status = AccountStatus.Online;
+        host.Ready += () => _vm?.RecordAccountLogin(account);
         _hosts[account.Id] = host;
         BrowserArea.Children.Add(host);
 

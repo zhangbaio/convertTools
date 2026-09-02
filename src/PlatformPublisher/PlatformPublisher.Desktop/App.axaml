@@ -58,6 +58,21 @@
         <Style Selector="Grid.platformPipeline TextBlock">
             <Setter Property="Foreground" Value="#111827" />
         </Style>
+        <Style Selector="Grid.platformPipeline Button.compactAction">
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="MinHeight" Value="30" />
+        </Style>
+        <Style Selector="Border.toolbarGroup">
+            <Setter Property="Background" Value="#F8FAFC" />
+            <Setter Property="BorderBrush" Value="#E2E8F0" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,8" />
+        </Style>
+        <Style Selector="Grid.platformPipeline TextBlock.sectionHint">
+            <Setter Property="Foreground" Value="#64748B" />
+            <Setter Property="FontSize" Value="11" />
+        </Style>
         <Style Selector="Grid.platformPipeline CheckBox">
             <Setter Property="Foreground" Value="#111827" />
         </Style>

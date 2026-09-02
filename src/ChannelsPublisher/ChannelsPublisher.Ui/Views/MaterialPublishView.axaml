@@ -232,6 +232,37 @@
         </Grid>
         </TabItem>
 
+        <TabItem Header="账号配置">
+            <Grid RowDefinitions="Auto,*" Margin="0,4,0,0">
+                <Border Classes="panel" Padding="16" Margin="0,0,0,10">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="账号配置" FontSize="18" FontWeight="Bold" Foreground="#0B74D1" />
+                            <TextBlock Text="配置跟随左侧当前账号，浏览器会话目录保持独立。" Foreground="#64748B" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Content="登录当前账号" Command="{Binding LoginCommand}" Classes="secondaryAction" />
+                            <Button Content="保存配置" Command="{Binding SaveAccountConfigCommand}" Classes="primaryAction" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                <Border Grid.Row="1" Classes="panel" Padding="18">
+                    <Grid ColumnDefinitions="150,560,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
+                        <TextBlock Text="账号名称" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBox Grid.Column="1" Text="{Binding SelectedAccount.Name}" Watermark="用于左侧列表和任务归属展示" />
+                        <TextBlock Grid.Row="1" Text="视频号昵称" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedAccount.Nickname}" Watermark="可选；填写平台显示昵称" />
+                        <TextBlock Grid.Row="2" Text="稳定账号 ID" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedAccount.Id}" IsReadOnly="True" />
+                        <TextBlock Grid.Row="3" Text="独立会话目录" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SelectedAccount.ProfileDir}" IsReadOnly="True" />
+                        <TextBlock Grid.Row="4" Text="最近登录" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SelectedAccount.LastLoginText}" VerticalAlignment="Center" Foreground="#64748B" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </TabItem>
+
         <TabItem Header="剧集上架">
             <ContentControl x:Name="SeriesPublishContentHost">
                 <TextBlock Text="当前宿主尚未绑定视频号剧集上架服务。"

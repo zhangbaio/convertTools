@@ -12,13 +12,24 @@ public sealed partial class AccountItemViewModel : ViewModelBase
     {
         Model = model;
         _name = model.Name;
+        _nickname = model.Nickname;
         _status = model.Status;
     }
 
     [ObservableProperty] private string _name;
+    [ObservableProperty] private string _nickname;
     [ObservableProperty] private AccountStatus _status;
 
     public string Id => Model.Id;
+    public string ProfileDir => Model.ProfileDir;
+    public string LastLoginText => Model.LastLoginAt?.LocalDateTime.ToString("yyyy-MM-dd HH:mm") ?? "尚未记录";
+
+    public void MarkLoggedIn(DateTimeOffset timestamp)
+    {
+        Model.LastLoginAt = timestamp;
+        Status = AccountStatus.Online;
+        OnPropertyChanged(nameof(LastLoginText));
+    }
 
     public string StatusText => Status switch
     {
@@ -28,6 +39,7 @@ public sealed partial class AccountItemViewModel : ViewModelBase
     };
 
     partial void OnNameChanged(string value) => Model.Name = value;
+    partial void OnNicknameChanged(string value) => Model.Nickname = value;
 
     partial void OnStatusChanged(AccountStatus value)
     {
