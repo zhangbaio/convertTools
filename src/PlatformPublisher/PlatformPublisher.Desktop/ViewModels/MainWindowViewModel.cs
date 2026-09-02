@@ -343,6 +343,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public bool IsSystemHighlightKind => SelectedJobKind.Value == PublishJobKind.SystemHighlight;
     public bool IsWeixinPlatform => SelectedPlatform.Value == PublishPlatform.WeixinChannel;
+    public bool IsKuaishouPersonalPlatform => SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue;
     public bool IsCustomVideoKind => SelectedJobKind.Value == PublishJobKind.CustomVideos;
     public bool IsStandardMaterialKind => SelectedJobKind.Value is
         PublishJobKind.ProjectMaterials or PublishJobKind.LocalVideos or PublishJobKind.CustomVideos;
@@ -353,7 +354,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         RefreshVisibleAccounts();
         OnPropertyChanged(nameof(SelectedPlatformCapability));
         OnPropertyChanged(nameof(IsWeixinPlatform));
+        OnPropertyChanged(nameof(IsKuaishouPersonalPlatform));
         NotifyCommands();
+    }
+
+    public async Task UpdateSelectedAccountConfigPathAsync(string configPath)
+    {
+        if (SelectedAccount is null) throw new InvalidOperationException("请先在左侧选择快手分账个人版账号。");
+        SelectedAccount.Model.BaseConfigPath = Path.GetFullPath(configPath);
+        DraftConfigPath = SelectedAccount.Model.BaseConfigPath;
+        await PersistAsync();
+        RefreshVisibleAccounts(SelectedAccount.Model.Id);
+        StatusMessage = $"快手分账个人版配置已保存：{SelectedAccount.Model.BaseConfigPath}";
     }
 
     partial void OnSelectedJobChanged(PublishJobRowViewModel? value) => NotifyCommands();

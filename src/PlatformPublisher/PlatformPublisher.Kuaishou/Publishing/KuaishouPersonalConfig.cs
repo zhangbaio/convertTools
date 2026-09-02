@@ -6,6 +6,11 @@ namespace PlatformPublisher.Kuaishou.Publishing;
 
 public sealed class KuaishouPersonalConfig
 {
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = true,
+    };
     public string EntryUrl { get; set; } = "https://kdj.kuaishou.com/home/content/content-management";
     public string AuthStatePath { get; set; } = string.Empty;
     public string BrowserProfileDirectory { get; set; } = string.Empty;
@@ -44,14 +49,17 @@ public sealed class KuaishouPersonalConfig
         var accountKey = string.IsNullOrWhiteSpace(job.AccountId) ? "default" : Safe(job.AccountId);
         var accountRoot = Path.Combine(PlatformPublisherPaths.DataRoot, "kuaishou-personal", "accounts", accountKey);
         Directory.CreateDirectory(accountRoot);
+        var configuredPath = !string.IsNullOrWhiteSpace(job.ConfigPath) && File.Exists(job.ConfigPath)
+            ? Path.GetFullPath(job.ConfigPath)
+            : DefaultConfigPath(job.AccountId);
         KuaishouPersonalConfig config;
-        if (!string.IsNullOrWhiteSpace(job.ConfigPath) && File.Exists(job.ConfigPath))
+        if (File.Exists(configuredPath))
         {
             try
             {
                 config = JsonSerializer.Deserialize<KuaishouPersonalConfig>(
-                             File.ReadAllText(job.ConfigPath),
-                             new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                             File.ReadAllText(configuredPath),
+                             JsonOptions)
                          ?? new KuaishouPersonalConfig();
             }
             catch (JsonException ex)
@@ -71,6 +79,27 @@ public sealed class KuaishouPersonalConfig
         Directory.CreateDirectory(Path.GetDirectoryName(config.AuthStatePath)!);
         Directory.CreateDirectory(config.BrowserProfileDirectory);
         return config;
+    }
+
+    public static string DefaultConfigPath(string? accountId)
+    {
+        var accountKey = string.IsNullOrWhiteSpace(accountId) ? "default" : Safe(accountId);
+        return Path.Combine(
+            PlatformPublisherPaths.DataRoot,
+            "kuaishou-personal",
+            "accounts",
+            accountKey,
+            "kuaishou-personal-config.json");
+    }
+
+    public async Task SaveAsync(string path, CancellationToken cancellationToken = default)
+    {
+        var fullPath = Path.GetFullPath(path);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        var temporaryPath = fullPath + ".tmp";
+        await using (var stream = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            await JsonSerializer.SerializeAsync(stream, this, JsonOptions, cancellationToken);
+        File.Move(temporaryPath, fullPath, true);
     }
 
     private static string Resolve(string value, string root, string fallback) =>

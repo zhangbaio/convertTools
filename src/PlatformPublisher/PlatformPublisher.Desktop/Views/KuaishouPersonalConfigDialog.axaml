@@ -1,0 +1,112 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PlatformPublisher.Desktop.Views.KuaishouPersonalConfigDialog"
+        Width="900" Height="720" MinWidth="760" MinHeight="600"
+        WindowStartupLocation="CenterOwner"
+        Title="快手分账个人版配置">
+    <Grid RowDefinitions="Auto,*,Auto" Margin="18" RowSpacing="12">
+        <StackPanel Spacing="3">
+            <TextBlock Text="快手分账个人版配置" FontSize="20" FontWeight="Bold" Foreground="#0B74D1" />
+            <TextBlock Text="配置按左侧账号独立保存，不读写 TikTok 助手配置。" Foreground="#64748B" />
+        </StackPanel>
+
+        <TabControl Grid.Row="1">
+            <TabItem Header="登录授权">
+                <ScrollViewer>
+                    <Grid Margin="16" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                        <TextBlock Text="经营者平台入口" VerticalAlignment="Center" />
+                        <TextBox x:Name="EntryUrlBox" Grid.Column="1" />
+                        <TextBlock Grid.Row="1" Text="真实姓名" VerticalAlignment="Center" />
+                        <TextBox x:Name="RealNameBox" Grid.Row="1" Grid.Column="1" />
+                        <TextBlock Grid.Row="2" Text="性别" VerticalAlignment="Center" />
+                        <ComboBox x:Name="GenderBox" Grid.Row="2" Grid.Column="1" ItemsSource="{Binding GenderOptions}" />
+                        <TextBlock Grid.Row="3" Text="快手昵称" VerticalAlignment="Center" />
+                        <TextBox x:Name="NicknameBox" Grid.Row="3" Grid.Column="1" />
+                        <TextBlock Grid.Row="4" Text="用户快手号 ID" VerticalAlignment="Center" />
+                        <TextBox x:Name="KuaishouIdBox" Grid.Row="4" Grid.Column="1" />
+                        <CheckBox x:Name="HeadlessBox" Grid.Row="5" Grid.Column="1" Content="使用无头浏览器" />
+                        <CheckBox x:Name="KeepBrowserBox" Grid.Row="6" Grid.Column="1" Content="失败时保留浏览器，等待人工处理" />
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="承诺函">
+                <ScrollViewer>
+                    <Grid Margin="16" ColumnDefinitions="170,*,Auto" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <TextBlock Text="固定承诺函 PDF" VerticalAlignment="Center" />
+                        <TextBox x:Name="CommitmentPdfBox" Grid.Column="1" Watermark="选择快手分账个人版承诺函 PDF" />
+                        <Button Grid.Column="2" Content="选择文件" Click="PickCommitmentPdf_Click" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                                   Text="当前阶段复用现成 PDF；Word 模板、印章与自动生成将在后续迁移。"
+                                   Foreground="#64748B" TextWrapping="Wrap" />
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="基础字段">
+                <ScrollViewer>
+                    <Grid Margin="16" ColumnDefinitions="170,*,170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                        <TextBlock Text="短剧分类" VerticalAlignment="Center" />
+                        <TextBox x:Name="CategoryBox" Grid.Column="1" />
+                        <TextBlock Grid.Column="2" Text="内容类型" VerticalAlignment="Center" />
+                        <TextBox x:Name="ContentTypeBox" Grid.Column="3" />
+                        <TextBlock Grid.Row="1" Text="漫剧制作方式" VerticalAlignment="Center" />
+                        <TextBox x:Name="ProductionMethodBox" Grid.Row="1" Grid.Column="1" />
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="制作形式" VerticalAlignment="Center" />
+                        <TextBox x:Name="ProductionFormBox" Grid.Row="1" Grid.Column="3" />
+                        <TextBlock Grid.Row="2" Text="出品年份" VerticalAlignment="Center" />
+                        <TextBox x:Name="ProductionYearBox" Grid.Row="2" Grid.Column="1" />
+                        <TextBlock Grid.Row="2" Grid.Column="2" Text="制作成本" VerticalAlignment="Center" />
+                        <TextBox x:Name="ProductionCostBox" Grid.Row="2" Grid.Column="3" />
+                        <TextBlock Grid.Row="3" Text="单集平均时长（分）" VerticalAlignment="Center" />
+                        <TextBox x:Name="AverageDurationBox" Grid.Row="3" Grid.Column="1" />
+                        <TextBlock Grid.Row="3" Grid.Column="2" Text="播出平台" VerticalAlignment="Center" />
+                        <TextBox x:Name="BroadcastPlatformBox" Grid.Row="3" Grid.Column="3" />
+                        <TextBlock Grid.Row="4" Text="播出途径" VerticalAlignment="Center" />
+                        <TextBox x:Name="BroadcastChannelBox" Grid.Row="4" Grid.Column="1" />
+                        <TextBlock Grid.Row="4" Grid.Column="2" Text="播出日期" VerticalAlignment="Center" />
+                        <TextBox x:Name="BroadcastDateBox" Grid.Row="4" Grid.Column="3" Watermark="yyyy-MM-dd" />
+                        <CheckBox x:Name="FinishedBox" Grid.Row="5" Grid.Column="1" Content="短剧已完结" />
+                        <CheckBox x:Name="HasRecordNumberBox" Grid.Row="5" Grid.Column="3" Content="已有备案号" />
+                        <TextBlock Grid.Row="6" Text="主要演员" VerticalAlignment="Top" />
+                        <TextBox x:Name="ActorsBox" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3"
+                                 AcceptsReturn="True" MinHeight="86" TextWrapping="Wrap"
+                                 Watermark="演员A:男:男主;演员B:女:女主" />
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="分账配置">
+                <ScrollViewer>
+                    <Grid Margin="16" ColumnDefinitions="170,*,170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                        <TextBlock Text="售卖方式" VerticalAlignment="Center" />
+                        <TextBox x:Name="SaleTypeBox" Grid.Column="1" />
+                        <TextBlock Grid.Column="2" Text="单集价格" VerticalAlignment="Center" />
+                        <TextBox x:Name="EpisodePriceBox" Grid.Column="3" />
+                        <TextBlock Grid.Row="1" Text="免费集数" VerticalAlignment="Center" />
+                        <TextBox x:Name="FreeEpisodeCountBox" Grid.Row="1" Grid.Column="1" />
+                        <TextBlock Grid.Row="1" Grid.Column="2" Text="广告解锁集数" VerticalAlignment="Center" />
+                        <TextBox x:Name="UnlockEpisodeCountBox" Grid.Row="1" Grid.Column="3" />
+                        <TextBlock Grid.Row="2" Text="第一页动作" VerticalAlignment="Center" />
+                        <ComboBox x:Name="FirstPageActionBox" Grid.Row="2" Grid.Column="1" ItemsSource="{Binding FirstPageActions}" />
+                        <TextBlock Grid.Row="2" Grid.Column="2" Text="最终动作" VerticalAlignment="Center" />
+                        <ComboBox x:Name="FinalActionBox" Grid.Row="2" Grid.Column="3" ItemsSource="{Binding FinalActions}" />
+                        <TextBlock Grid.Row="3" Text="运行模式" VerticalAlignment="Center" />
+                        <ComboBox x:Name="RunModeBox" Grid.Row="3" Grid.Column="1" ItemsSource="{Binding RunModes}" />
+                        <TextBlock Grid.Row="3" Grid.Column="2" Text="上传超时（分钟）" VerticalAlignment="Center" />
+                        <TextBox x:Name="UploadTimeoutBox" Grid.Row="3" Grid.Column="3" />
+                        <CheckBox x:Name="ForceRerunBox" Grid.Row="4" Grid.Column="1" Content="忽略旧状态并重新执行" />
+                        <TextBlock Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Foreground="#64748B" TextWrapping="Wrap"
+                                   Text="draft=保存第一页草稿；next=继续上传视频。keep=保持在审核前；submit_review=提交审核。auto 优先续传已有剧集。" />
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+            <TextBlock x:Name="ValidationText" Foreground="#DC2626" VerticalAlignment="Center" TextWrapping="Wrap" />
+            <Button Grid.Column="1" Content="取消" Click="Cancel_Click" />
+            <Button Grid.Column="2" Classes="primary" Content="保存配置" Click="Save_Click" />
+        </Grid>
+    </Grid>
+</Window>

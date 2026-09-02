@@ -6,6 +6,7 @@ using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Common.Services;
 using PlatformPublisher.Weixin.Publishing;
+using PlatformPublisher.Kuaishou.Publishing;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace PlatformPublisher.Desktop.Views;
@@ -154,7 +155,7 @@ public partial class MainWindow : Window
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "选择视频号自动化配置",
+            Title = "选择平台账号配置",
             AllowMultiple = false,
             FileTypeFilter =
             [
@@ -211,5 +212,29 @@ public partial class MainWindow : Window
         ViewModel.DraftDeclareOriginal = result.DeclareOriginal;
         ViewModel.DraftHideLocation = !string.IsNullOrWhiteSpace(result.LocationOptionText);
         ViewModel.StatusMessage = "视频号高级发表配置已应用到新任务。";
+    }
+
+    private async void OpenKuaishouPersonalConfig_Click(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel?.SelectedAccount is null)
+        {
+            if (ViewModel is not null) ViewModel.StatusMessage = "请先在左侧选择快手分账个人版账号。";
+            return;
+        }
+
+        var account = ViewModel.SelectedAccount.Model;
+        var configuredPath = account.BaseConfigPath?.Trim() ?? string.Empty;
+        var path = string.IsNullOrWhiteSpace(configuredPath)
+            ? KuaishouPersonalConfig.DefaultConfigPath(account.Id)
+            : Path.GetFullPath(configuredPath);
+        var config = KuaishouPersonalConfig.Load(new PublishJob
+        {
+            AccountId = account.Id,
+            ConfigPath = File.Exists(path) ? path : string.Empty,
+        });
+        var result = await KuaishouPersonalConfigDialog.ShowAsync(this, config);
+        if (result is null) return;
+        await result.SaveAsync(path);
+        await ViewModel.UpdateSelectedAccountConfigPathAsync(path);
     }
 }
