@@ -4,9 +4,9 @@
              x:Class="PlatformPublisher.Desktop.Views.WeixinWorkflowView"
              x:DataType="vm:MainWindowViewModel"
              Background="#F3F6FA">
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,96,30" RowSpacing="8">
+    <Grid RowDefinitions="Auto,Auto,Auto,1.15*,0.85*,30" RowSpacing="8">
         <Border Grid.Row="0" Classes="panel" Padding="10">
-            <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="7">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="7">
                 <Grid ColumnDefinitions="78,*,Auto" ColumnSpacing="8">
                     <TextBlock Text="工作目录" VerticalAlignment="Center" FontWeight="SemiBold" />
                     <TextBox Grid.Column="1" Text="{Binding DraftProjectDirectory}"
@@ -40,57 +40,10 @@
                     <Button Content="刷新账号" Click="OnRefreshAccountClick" Classes="secondaryAction compactAction" />
                 </WrapPanel>
 
-                <Expander Grid.Row="2" Header="任务创建与高级选项" IsExpanded="False">
-                    <Border Classes="toolbarGroup" Margin="0,6,0,0">
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="86,*,Auto" RowSpacing="7" ColumnSpacing="8">
-                            <TextBlock Text="账号配置" VerticalAlignment="Center" />
-                            <TextBox Grid.Column="1" Text="{Binding DraftConfigPath}" Watermark="剧集上传时可选；素材发表可留空" />
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                                <Button Content="选择配置" Click="OnPickConfigClick" Classes="secondaryAction compactAction" />
-                                <Button Content="高级发表配置" Click="OnAdvancedConfigClick" Classes="secondaryAction compactAction" />
-                            </StackPanel>
-                            <TextBlock Grid.Row="1" Text="发表选项" VerticalAlignment="Center" />
-                            <WrapPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2">
-                                <CheckBox Content="声明原创" IsChecked="{Binding DraftDeclareOriginal}" Margin="0,0,16,0" />
-                                <CheckBox Content="不显示位置" IsChecked="{Binding DraftHideLocation}" Margin="0,0,16,0" />
-                                <CheckBox Content="允许重复发表" IsChecked="{Binding DraftAllowDuplicatePublish}" Margin="0,0,16,0" />
-                                <CheckBox Content="定时执行" IsChecked="{Binding DraftScheduleEnabled}" Margin="0,0,8,0" />
-                                <TextBox Width="170" Text="{Binding DraftScheduleText}" IsEnabled="{Binding DraftScheduleEnabled}"
-                                         Watermark="yyyy-MM-dd HH:mm" />
-                            </WrapPanel>
-                            <TextBlock Grid.Row="2" Text="自选视频" VerticalAlignment="Center" IsVisible="{Binding IsCustomVideoKind}" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding DraftCustomVideoFilesText}"
-                                     Watermark="每行一个视频文件" IsVisible="{Binding IsCustomVideoKind}" />
-                            <Button Grid.Row="2" Grid.Column="2" Content="选择视频" Click="OnPickCustomVideosClick"
-                                    Classes="secondaryAction compactAction" IsVisible="{Binding IsCustomVideoKind}" />
-                            <TextBlock Grid.Row="3" Text="重剪参数" VerticalAlignment="Center" />
-                            <WrapPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2">
-                                <TextBlock Text="输出集数" VerticalAlignment="Center" Margin="0,0,4,0" />
-                                <NumericUpDown Width="62" Value="{Binding SmartRecutEpisodeCount}" Minimum="0" Maximum="100" Margin="0,0,10,0" />
-                                <TextBlock Text="时长" VerticalAlignment="Center" Margin="0,0,4,0" />
-                                <NumericUpDown Width="64" Value="{Binding SmartRecutMinSeconds}" Minimum="30" Maximum="1800" Margin="0,0,3,0" />
-                                <TextBlock Text="–" VerticalAlignment="Center" Margin="0,0,3,0" />
-                                <NumericUpDown Width="64" Value="{Binding SmartRecutMaxSeconds}" Minimum="30" Maximum="3600" />
-                            </WrapPanel>
-                        </Grid>
-                    </Border>
-                </Expander>
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Classes="panel" Padding="10" IsVisible="{Binding IsSystemHighlightKind}">
-            <Grid ColumnDefinitions="Auto,1.2*,Auto,90,Auto,1.1*,Auto" ColumnSpacing="8">
-                <TextBlock Text="系统高光" VerticalAlignment="Center" />
-                <TextBox Grid.Column="1" Text="{Binding DraftDramaTitle}" Watermark="剧名" />
-                <TextBlock Grid.Column="2" Text="数量" VerticalAlignment="Center" />
-                <NumericUpDown Grid.Column="3" Value="{Binding DraftPublishCount}" Minimum="1" Maximum="100" />
-                <TextBlock Grid.Column="4" Text="类型" VerticalAlignment="Center" />
-                <TextBox Grid.Column="5" Text="{Binding DraftPublishVideoTypes}" Watermark="混剪,解说,切片" />
-                <CheckBox Grid.Column="6" Content="发表后重新生成" IsChecked="{Binding DraftRegenerateHighlightsAfterPublish}" VerticalAlignment="Center" />
-            </Grid>
-        </Border>
-
-        <Border Grid.Row="2" Classes="panel" Padding="10">
+        <Border Grid.Row="1" Classes="panel" Padding="10">
             <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="7">
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                     <TextBlock Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
@@ -123,7 +76,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="3" Classes="panel" Padding="9">
+        <Border Grid.Row="2" Classes="panel" Padding="9">
             <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="7">
                 <Grid ColumnDefinitions="58,*,Auto" ColumnSpacing="8">
                     <TextBlock Text="搜索" VerticalAlignment="Center" FontWeight="SemiBold" />
@@ -185,7 +138,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="4" Classes="panel" ClipToBounds="True">
+        <Border Grid.Row="3" Classes="panel" ClipToBounds="True">
             <Grid RowDefinitions="Auto,*">
                 <Border Background="#F5F3FF" BorderBrush="#C4B5FD" BorderThickness="0,0,0,1" Padding="10"
                         IsVisible="{Binding HasInteractionRequest}">
@@ -271,25 +224,63 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="5" Classes="panel" ClipToBounds="True">
+        <Border Grid.Row="4" Classes="panel" ClipToBounds="True">
             <Grid RowDefinitions="Auto,*">
                 <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,6">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Text="运行日志" FontWeight="SemiBold" />
-                        <Button Grid.Column="1" Content="清空日志" Command="{Binding ClearActivityLogsCommand}"
-                                Classes="secondaryAction" Padding="8,3" MinHeight="26" />
+                    <Grid ColumnDefinitions="*,Auto,Auto">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="剧集列表" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding EpisodeListSummary}" Foreground="#64748B" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="刷新列表" Command="{Binding RefreshSelectedEpisodesCommand}"
+                                Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                        <Button Grid.Column="2" Content="打开所在目录" Command="{Binding OpenSelectedEpisodeDirectoryCommand}"
+                                Classes="secondaryAction compactAction" />
                     </Grid>
                 </Border>
-                <ListBox Grid.Row="1" ItemsSource="{Binding ActivityLogs}" Background="#FBFCFE" BorderThickness="0"
-                         FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI" FontSize="12">
+                <Grid Grid.Row="1" RowDefinitions="36,*">
+                    <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="10,0">
+                        <Grid ColumnDefinitions="70,1.6*,90,90,100,100,100,80,1.2*" ColumnSpacing="10">
+                            <TextBlock Text="集号" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="1" Text="文件名" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="视频大小" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="3" Text="时长" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="4" Text="分辨率" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="5" Text="准备状态" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="6" Text="上传状态" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="7" Text="尝试" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="8" Text="当前信息" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        </Grid>
+                    </Border>
+                    <ListBox Grid.Row="1" ItemsSource="{Binding SelectedProjectEpisodes}" SelectedItem="{Binding SelectedEpisode}"
+                             Background="#FFFFFF" BorderThickness="0">
+                        <ListBox.Styles>
+                            <Style Selector="ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style>
+                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="#DCEBFF" /></Style>
+                        </ListBox.Styles>
                     <ListBox.ItemTemplate>
-                        <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="8,3" Foreground="#334155" /></DataTemplate>
+                            <DataTemplate x:DataType="vm:EpisodeRowViewModel">
+                                <Border BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="10,6">
+                                    <Grid ColumnDefinitions="70,1.6*,90,90,100,100,100,80,1.2*" ColumnSpacing="10">
+                                        <TextBlock Text="{Binding EpisodeText}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="2" Text="{Binding FileSizeText}" />
+                                        <TextBlock Grid.Column="3" Text="{Binding DurationText}" />
+                                        <TextBlock Grid.Column="4" Text="{Binding ResolutionText}" />
+                                        <TextBlock Grid.Column="5" Text="{Binding PreparationStatus}" Foreground="#047857" />
+                                        <TextBlock Grid.Column="6" Text="{Binding UploadStatus}" />
+                                        <TextBlock Grid.Column="7" Text="{Binding AttemptText}" />
+                                        <TextBlock Grid.Column="8" Text="{Binding Message}" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+                </Grid>
             </Grid>
         </Border>
 
-        <Border Grid.Row="6" Background="#EEF3F8" BorderBrush="#D9E2EC" BorderThickness="1,0,1,1">
+        <Border Grid.Row="5" Background="#EEF3F8" BorderBrush="#D9E2EC" BorderThickness="1,0,1,1">
             <TextBlock Text="{Binding StatusMessage}" Margin="10,0" VerticalAlignment="Center" FontSize="12" Foreground="#64748B" />
         </Border>
     </Grid>

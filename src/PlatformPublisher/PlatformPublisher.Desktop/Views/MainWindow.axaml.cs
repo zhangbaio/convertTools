@@ -45,6 +45,7 @@ public partial class MainWindow : Window
         };
         WeixinPublisherView.SetWorkflowContent(workflowView);
         WeixinPublisherView.SetMaterialWorkflowContent(materialView);
+        WeixinPublisherView.SetRuntimeLogContent(new WeixinRuntimeLogView { DataContext = viewModel });
         WeixinPublisherView.SetArchivedProjectsContent(new WeixinArchivedProjectsView { DataContext = viewModel });
     }
 

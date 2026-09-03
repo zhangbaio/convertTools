@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Avalonia.Threading;
@@ -59,6 +60,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly DispatcherTimer _scheduleTimer;
     private CancellationTokenSource? _operationCts;
     private bool _scheduleTickRunning;
+    private CancellationTokenSource? _episodeLoadCts;
     private WorkflowInteractionRequest? _currentInteractionRequest;
     private string _activeWeixinAccountId = string.Empty;
     private string _activeWeixinAccountSessionDirectory = string.Empty;
@@ -136,7 +138,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SkipCurrentVideoCommand = new RelayCommand(() => ResolveInteraction("skip_video"), () => CanResolveInteraction("skip_video"));
         SkipCurrentProjectCommand = new RelayCommand(() => ResolveInteraction("skip_project"), () => CanResolveInteraction("skip_project"));
         StopInteractionCommand = new RelayCommand(() => ResolveInteraction("stop"), () => CanResolveInteraction("stop"));
-        ClearActivityLogsCommand = new RelayCommand(ActivityLogs.Clear);
+        ClearActivityLogsCommand = new RelayCommand(ClearActivityLogs);
+        RefreshSelectedEpisodesCommand = new AsyncRelayCommand(() => LoadSelectedProjectEpisodesAsync(SelectedJob));
+        OpenSelectedEpisodeDirectoryCommand = new RelayCommand(OpenSelectedEpisodeDirectory, () => SelectedEpisode is not null);
         RunSharedPipelineCommand = new AsyncRelayCommand(RunSharedPipelineAsync, CanRunSharedPipeline);
         ScanWorkspaceCommand = new AsyncRelayCommand(ScanWorkspaceAsync, CanScanWorkspace);
         RefreshArchivedProjectsCommand = new RelayCommand(RefreshArchivedProjects);
@@ -172,6 +176,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<PublishJobRowViewModel> PagedJobs { get; } = [];
     public ObservableCollection<PublishAccountItemViewModel> VisibleAccounts { get; } = [];
     public ObservableCollection<string> ActivityLogs { get; } = [];
+    public ObservableCollection<string> FilteredActivityLogs { get; } = [];
+    public ObservableCollection<EpisodeRowViewModel> SelectedProjectEpisodes { get; } = [];
     public ObservableCollection<ArchivedProjectRowViewModel> ArchivedProjects { get; } = [];
     public IAsyncRelayCommand AddJobCommand { get; }
     public IAsyncRelayCommand RunSelectedCommand { get; }
@@ -189,6 +195,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public IRelayCommand SkipCurrentProjectCommand { get; }
     public IRelayCommand StopInteractionCommand { get; }
     public IRelayCommand ClearActivityLogsCommand { get; }
+    public IAsyncRelayCommand RefreshSelectedEpisodesCommand { get; }
+    public IRelayCommand OpenSelectedEpisodeDirectoryCommand { get; }
     public IAsyncRelayCommand RunSharedPipelineCommand { get; }
     public IAsyncRelayCommand ScanWorkspaceCommand { get; }
     public IRelayCommand RefreshArchivedProjectsCommand { get; }
@@ -218,6 +226,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private PublishJobRowViewModel? _selectedJob;
+
+    [ObservableProperty]
+    private EpisodeRowViewModel? _selectedEpisode;
+
+    [ObservableProperty]
+    private bool _isEpisodeListLoading;
+
+    [ObservableProperty]
+    private string _episodeListSummary = "请选择上方项目查看剧集";
+
+    [ObservableProperty]
+    private string _runtimeLogFilterText = string.Empty;
+
+    [ObservableProperty]
+    private bool _runtimeLogProblemsOnly;
+
+    [ObservableProperty]
+    private string _runtimeLogScope = "全部日志";
+
+    public IReadOnlyList<string> RuntimeLogScopes { get; } = ["全部日志", "视频号剧集", "视频号素材", "快手个人版", "快手企业版", "系统日志"];
 
     [ObservableProperty]
     private PublishJobStatusOptionViewModel _selectedJobStatusChoice;
@@ -383,6 +411,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (option is not null) SelectedJobKind = option;
     }
 
+    public void ActivateRuntimeLogView() => RefreshFilteredActivityLogs();
+
     partial void OnSelectedPlatformChanged(PlatformOptionViewModel value)
     {
         RefreshVisibleJobs();
@@ -403,7 +433,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         StatusMessage = $"快手分账个人版配置已保存：{SelectedAccount.Model.BaseConfigPath}";
     }
 
-    partial void OnSelectedJobChanged(PublishJobRowViewModel? value) => NotifyCommands();
+    partial void OnSelectedJobChanged(PublishJobRowViewModel? value)
+    {
+        NotifyCommands();
+        _ = LoadSelectedProjectEpisodesAsync(value);
+    }
+    partial void OnSelectedEpisodeChanged(EpisodeRowViewModel? value) => OpenSelectedEpisodeDirectoryCommand.NotifyCanExecuteChanged();
+    partial void OnRuntimeLogFilterTextChanged(string value) => RefreshFilteredActivityLogs();
+    partial void OnRuntimeLogProblemsOnlyChanged(bool value) => RefreshFilteredActivityLogs();
+    partial void OnRuntimeLogScopeChanged(string value) => RefreshFilteredActivityLogs();
     partial void OnWorkflowFilterTextChanged(string value) => RefreshVisibleJobs(SelectedJob?.Id);
     partial void OnWorkflowPageSizeChanged(int value)
     {
@@ -1770,6 +1808,149 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private async Task PersistAsync(CancellationToken cancellationToken = default) =>
         await _store.SaveAsync(_jobs, cancellationToken);
 
+    private async Task LoadSelectedProjectEpisodesAsync(PublishJobRowViewModel? row)
+    {
+        _episodeLoadCts?.Cancel();
+        _episodeLoadCts?.Dispose();
+        _episodeLoadCts = new CancellationTokenSource();
+        var cancellationToken = _episodeLoadCts.Token;
+        SelectedProjectEpisodes.Clear();
+        SelectedEpisode = null;
+        if (row is null || row.Model.Kind != PublishJobKind.Series)
+        {
+            EpisodeListSummary = "请选择上方剧集项目查看剧集";
+            return;
+        }
+
+        IsEpisodeListLoading = true;
+        EpisodeListSummary = $"正在读取《{row.ProjectName}》剧集…";
+        try
+        {
+            var paths = await Task.Run(() => ResolveEpisodeVideoPaths(row.ProjectDirectory), cancellationToken);
+            if (paths.Count == 0)
+            {
+                EpisodeListSummary = "未找到剧集视频；请检查项目 videos 目录或源项目目录";
+                return;
+            }
+
+            using var gate = new SemaphoreSlim(4);
+            var tasks = paths.Select(async path =>
+            {
+                await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    return await EpisodeRowViewModel.CreateAsync(
+                        path,
+                        row.UploadStepStatus,
+                        row.Model.AttemptCount,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }).ToArray();
+            var episodes = await Task.WhenAll(tasks);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (SelectedJob?.Id != row.Id) return;
+            foreach (var episode in episodes.OrderBy(item => item.EpisodeNumber == 0 ? int.MaxValue : item.EpisodeNumber).ThenBy(item => item.FileName))
+                SelectedProjectEpisodes.Add(episode);
+            EpisodeListSummary = $"《{row.NewTitle}》共 {SelectedProjectEpisodes.Count} 集";
+            SelectedEpisode = SelectedProjectEpisodes.FirstOrDefault();
+        }
+        catch (OperationCanceledException)
+        {
+            // 快速切换项目时丢弃旧项目结果。
+        }
+        catch (Exception ex)
+        {
+            EpisodeListSummary = $"读取剧集失败：{ex.Message}";
+        }
+        finally
+        {
+            if (!cancellationToken.IsCancellationRequested) IsEpisodeListLoading = false;
+        }
+    }
+
+    private static IReadOnlyList<string> ResolveEpisodeVideoPaths(string projectDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory)) return [];
+        var selected = Path.GetFullPath(projectDirectory);
+        var candidates = new List<string>();
+        var metadataPath = Path.Combine(selected, "shortdrama-project.json");
+        if (File.Exists(metadataPath))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
+                if (document.RootElement.TryGetProperty("workflowProjectDir", out var workflow) &&
+                    workflow.ValueKind == JsonValueKind.String && Directory.Exists(workflow.GetString()))
+                    candidates.Add(Path.Combine(workflow.GetString()!, "videos"));
+            }
+            catch (JsonException) { }
+        }
+        candidates.Add(Path.Combine(selected, "videos"));
+        candidates.Add(selected);
+        var extensions = new HashSet<string>([".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"], StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!Directory.Exists(directory)) continue;
+            var paths = Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)
+                .Where(path => extensions.Contains(Path.GetExtension(path)))
+                .OrderBy(EpisodeRowViewModel.ParseEpisodeNumber)
+                .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (paths.Length > 0) return paths;
+        }
+        return [];
+    }
+
+    private void OpenSelectedEpisodeDirectory()
+    {
+        if (SelectedEpisode is null || !File.Exists(SelectedEpisode.FilePath)) return;
+        Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{SelectedEpisode.FilePath}\"") { UseShellExecute = true });
+    }
+
+    private void ClearActivityLogs()
+    {
+        ActivityLogs.Clear();
+        FilteredActivityLogs.Clear();
+    }
+
+    private void RefreshFilteredActivityLogs()
+    {
+        void Refresh()
+        {
+            FilteredActivityLogs.Clear();
+            foreach (var entry in ActivityLogs.Where(MatchesRuntimeLogFilter))
+                FilteredActivityLogs.Add(entry);
+        }
+        if (Dispatcher.UIThread.CheckAccess()) Refresh();
+        else Dispatcher.UIThread.Post(Refresh);
+    }
+
+    private bool MatchesRuntimeLogFilter(string entry)
+    {
+        if (RuntimeLogProblemsOnly &&
+            !entry.Contains("失败", StringComparison.OrdinalIgnoreCase) &&
+            !entry.Contains("错误", StringComparison.OrdinalIgnoreCase) &&
+            !entry.Contains("WARN", StringComparison.OrdinalIgnoreCase) &&
+            !entry.Contains("ERROR", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!string.IsNullOrWhiteSpace(RuntimeLogFilterText) &&
+            !entry.Contains(RuntimeLogFilterText.Trim(), StringComparison.CurrentCultureIgnoreCase))
+            return false;
+        return RuntimeLogScope switch
+        {
+            "视频号剧集" => entry.Contains("视频号", StringComparison.OrdinalIgnoreCase) || entry.Contains("剧集", StringComparison.OrdinalIgnoreCase),
+            "视频号素材" => entry.Contains("素材", StringComparison.OrdinalIgnoreCase) || entry.Contains("发表", StringComparison.OrdinalIgnoreCase),
+            "快手个人版" => entry.Contains("快手个人", StringComparison.OrdinalIgnoreCase),
+            "快手企业版" => entry.Contains("快手企业", StringComparison.OrdinalIgnoreCase),
+            "系统日志" => entry.Contains("系统", StringComparison.OrdinalIgnoreCase) || entry.Contains("服务", StringComparison.OrdinalIgnoreCase),
+            _ => true,
+        };
+    }
+
     private void AppendActivityLog(string message)
     {
         void Append()
@@ -1777,6 +1958,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ActivityLogs.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
             while (ActivityLogs.Count > 500)
                 ActivityLogs.RemoveAt(0);
+            RefreshFilteredActivityLogs();
         }
 
         if (Dispatcher.UIThread.CheckAccess())

@@ -340,6 +340,14 @@
             </ContentControl>
         </TabItem>
 
+        <TabItem Header="运行日志">
+            <ContentControl x:Name="RuntimeLogContentHost">
+                <TextBlock Text="当前宿主尚未绑定统一运行日志面板。"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="#64748B" />
+            </ContentControl>
+        </TabItem>
+
         <TabItem Header="短剧下载">
             <ContentControl x:Name="DramaDownloadContentHost">
                 <TextBlock Text="当前宿主尚未绑定短剧搜索与下载。"
