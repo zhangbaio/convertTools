@@ -1,10 +1,12 @@
 using System.Text.Json;
 using PlatformPublisher.Common.Services;
+using PlatformPublisher.Persistence;
 
 namespace PlatformPublisher.Desktop.Services;
 
 public sealed class WeixinWorkflowSettingsStore
 {
+    private const string SettingsKey = "weixin.workflow";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -12,8 +14,25 @@ public sealed class WeixinWorkflowSettingsStore
     };
 
     private readonly string _path = Path.Combine(PlatformPublisherPaths.DataRoot, "weixin-workflow-settings.json");
+    private readonly IJsonSettingStore? _databaseStore;
+
+    public WeixinWorkflowSettingsStore() { }
+    public WeixinWorkflowSettingsStore(IJsonSettingStore databaseStore) => _databaseStore = databaseStore;
 
     public async Task<WeixinWorkflowSettings> LoadAsync(CancellationToken cancellationToken = default)
+    {
+        if (_databaseStore is not null)
+        {
+            if (_databaseStore.TryLoad<WeixinWorkflowSettings>(SettingsKey, out var stored) && stored is not null)
+                return stored;
+            var legacy = await LoadLegacyAsync(cancellationToken);
+            _databaseStore.Save(SettingsKey, legacy);
+            return legacy;
+        }
+        return await LoadLegacyAsync(cancellationToken);
+    }
+
+    private async Task<WeixinWorkflowSettings> LoadLegacyAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(_path)) return new WeixinWorkflowSettings();
         try
@@ -30,12 +49,19 @@ public sealed class WeixinWorkflowSettingsStore
 
     public async Task SaveAsync(WeixinWorkflowSettings settings, CancellationToken cancellationToken = default)
     {
+        if (_databaseStore is not null)
+        {
+            _databaseStore.Save(SettingsKey, settings);
+            await Task.CompletedTask;
+            return;
+        }
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
         var tempPath = _path + ".tmp";
         await using (var stream = File.Create(tempPath))
             await JsonSerializer.SerializeAsync(stream, settings, JsonOptions, cancellationToken);
         File.Move(tempPath, _path, overwrite: true);
     }
+
 }
 
 public sealed class WeixinWorkflowSettings

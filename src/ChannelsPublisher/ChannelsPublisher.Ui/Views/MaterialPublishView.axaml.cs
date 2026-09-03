@@ -65,6 +65,8 @@ public partial class MaterialPublishView : UserControl
 
     public event Action<PublishAccount?>? SelectedAccountChanged;
 
+    public void UseAccountStore(AccountStore store) => DataContext = new MainViewModel(store);
+
     public void SetSeriesPublishContent(Control content)
     {
         SeriesPublishContentHost.Content = content;

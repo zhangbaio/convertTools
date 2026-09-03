@@ -1,11 +1,14 @@
 using System.Text.Json;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Services;
+using PlatformPublisher.Persistence;
 
 namespace PlatformPublisher.Kuaishou.Publishing;
 
 public sealed class KuaishouPersonalConfig
 {
+    private const string DatabaseKey = "kuaishou.personal.config";
+    private static AccountJsonSettingStore? DatabaseStore;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -50,6 +53,8 @@ public sealed class KuaishouPersonalConfig
     public bool ForceRerun { get; set; }
     public string RunMode { get; set; } = "auto";
 
+    public static void ConfigureDatabase(AccountJsonSettingStore store) => DatabaseStore = store;
+
     public static KuaishouPersonalConfig Load(PublishJob job)
     {
         var accountKey = string.IsNullOrWhiteSpace(job.AccountId) ? "default" : Safe(job.AccountId);
@@ -59,7 +64,9 @@ public sealed class KuaishouPersonalConfig
             ? Path.GetFullPath(job.ConfigPath)
             : DefaultConfigPath(job.AccountId);
         KuaishouPersonalConfig config;
-        if (File.Exists(configuredPath))
+        if (DatabaseStore?.TryLoad<KuaishouPersonalConfig>(job.AccountId, DatabaseKey, out var stored) == true && stored is not null)
+            config = stored;
+        else if (File.Exists(configuredPath))
         {
             try
             {
@@ -74,6 +81,7 @@ public sealed class KuaishouPersonalConfig
             }
         }
         else config = new KuaishouPersonalConfig();
+        if (DatabaseStore is not null) DatabaseStore.Save(job.AccountId, DatabaseKey, config);
 
         config.EntryUrl = string.IsNullOrWhiteSpace(config.EntryUrl)
             ? "https://kdj.kuaishou.com/home/content/content-management"
@@ -106,6 +114,8 @@ public sealed class KuaishouPersonalConfig
         await using (var stream = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None))
             await JsonSerializer.SerializeAsync(stream, this, JsonOptions, cancellationToken);
         File.Move(temporaryPath, fullPath, true);
+        var accountId = Path.GetFileName(Path.GetDirectoryName(fullPath));
+        if (!string.IsNullOrWhiteSpace(accountId)) DatabaseStore?.Save(accountId, DatabaseKey, this);
     }
 
     private static string Resolve(string value, string root, string fallback) =>

@@ -81,6 +81,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlatformPublisher.Analytics
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlatformPublisher.Analytics.Tests", "tests\PlatformPublisher.Analytics.Tests\PlatformPublisher.Analytics.Tests.csproj", "{046976AB-E5BF-4388-A335-BA9D8F813657}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlatformPublisher.Persistence", "src\PlatformPublisher\PlatformPublisher.Persistence\PlatformPublisher.Persistence.csproj", "{3FD3482A-EC1D-448D-9828-A6B8D141FCFB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlatformPublisher.Persistence.Tests", "tests\PlatformPublisher.Persistence.Tests\PlatformPublisher.Persistence.Tests.csproj", "{3744F739-B58D-4BA4-A2EC-A8B1F7B6954C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -218,6 +222,14 @@ Global
 		{046976AB-E5BF-4388-A335-BA9D8F813657}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{046976AB-E5BF-4388-A335-BA9D8F813657}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{046976AB-E5BF-4388-A335-BA9D8F813657}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3FD3482A-EC1D-448D-9828-A6B8D141FCFB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3FD3482A-EC1D-448D-9828-A6B8D141FCFB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3FD3482A-EC1D-448D-9828-A6B8D141FCFB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3FD3482A-EC1D-448D-9828-A6B8D141FCFB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3744F739-B58D-4BA4-A2EC-A8B1F7B6954C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3744F739-B58D-4BA4-A2EC-A8B1F7B6954C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3744F739-B58D-4BA4-A2EC-A8B1F7B6954C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3744F739-B58D-4BA4-A2EC-A8B1F7B6954C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{8E3335D2-1EB3-4188-85CB-67F6057886A0} = {10871E69-F49D-4411-B029-CE261D01D6D5}
@@ -256,5 +268,7 @@ Global
 		{B1A76D7C-44DB-4E01-B93C-1376767397B2} = {D5D117F1-7555-4720-BD22-2B6AEC8F491A}
 		{FBE3AE0A-00F1-46C0-8A33-EEAD9EB334C7} = {31320864-2C29-492F-B38B-C2DBF8B112D4}
 		{046976AB-E5BF-4388-A335-BA9D8F813657} = {D5D117F1-7555-4720-BD22-2B6AEC8F491A}
+		{3FD3482A-EC1D-448D-9828-A6B8D141FCFB} = {31320864-2C29-492F-B38B-C2DBF8B112D4}
+		{3744F739-B58D-4BA4-A2EC-A8B1F7B6954C} = {D5D117F1-7555-4720-BD22-2B6AEC8F491A}
 	EndGlobalSection
 EndGlobal

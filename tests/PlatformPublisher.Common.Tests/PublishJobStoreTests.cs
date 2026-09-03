@@ -75,6 +75,6 @@ public sealed class PublishJobStoreTests
 
         Assert.Contains("YunfanPlatformPublisher", store.StorePath, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(".tiktok-task-queue", store.StorePath, StringComparison.OrdinalIgnoreCase);
-        Assert.EndsWith("publish-jobs.json", store.StorePath, StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith("app.db", store.StorePath, StringComparison.OrdinalIgnoreCase);
     }
 }

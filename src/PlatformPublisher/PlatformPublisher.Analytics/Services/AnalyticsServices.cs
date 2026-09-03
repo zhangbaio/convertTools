@@ -2,6 +2,7 @@ using System.Text;
 using PlatformPublisher.Analytics.Models;
 using PlatformPublisher.Analytics.Storage;
 using PlatformPublisher.Common.Models;
+using PlatformPublisher.Persistence;
 
 namespace PlatformPublisher.Analytics.Services;
 
@@ -49,7 +50,12 @@ public interface IAnalyticsActivitySink
 public sealed class AnalyticsActivitySink : IAnalyticsActivitySink
 {
     private readonly AnalyticsRepository _repository;
-    public AnalyticsActivitySink(AnalyticsRepository repository) => _repository = repository;
+    private readonly PublishItemEventStore? _eventStore;
+    public AnalyticsActivitySink(AnalyticsRepository repository, PublishItemEventStore? eventStore = null)
+    {
+        _repository = repository;
+        _eventStore = eventStore;
+    }
     public void Record(PublishJob job, string itemKey, string status, DateTimeOffset occurredAt)
     {
         var digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(itemKey.ToLowerInvariant())))[..16];
@@ -60,6 +66,9 @@ public sealed class AnalyticsActivitySink : IAnalyticsActivitySink
             AccountName = job.AccountName, ProjectName = job.ProjectName, OccurredAt = occurredAt,
             Status = status is "success" ? "success" : status is "failed" ? "failed" : "draft", ItemCount = 1,
         });
+        _eventStore?.Save(new PublishItemEvent(
+            $"item:{job.Id}:{digest}", job.Id, job.AccountId, itemKey, status, string.Empty, occurredAt,
+            new { job.ProjectName, job.Platform }));
     }
 }
 

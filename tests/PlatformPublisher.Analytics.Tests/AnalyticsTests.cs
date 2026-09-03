@@ -6,6 +6,8 @@ using PlatformPublisher.Common.Models;
 using PlatformPublisher.Kuaishou.Analytics;
 using PlatformPublisher.Weixin.Analytics;
 using Xunit;
+using PlatformPublisher.Persistence;
+using PlatformPublisher.Kuaishou.Publishing;
 
 namespace PlatformPublisher.Analytics.Tests;
 
@@ -53,6 +55,17 @@ public sealed class AnalyticsTests : IDisposable
 
     [Fact]
     public void DateRangeRejectsMoreThanThirtyOneDays()=>Assert.Throws<ArgumentOutOfRangeException>(()=>AnalyticsDatePolicy.Range(new(2026,1,1),new(2026,2,1)));
+
+    [Fact]
+    public async Task KuaishouUploadStateUsesProjectDatabaseAndKeepsSidecar()
+    {
+        var workflow=Path.Combine(_root,"kuaishou-workflow");Directory.CreateDirectory(workflow);
+        var projectState=new ProjectStateDocumentStore();var store=new KuaishouPersonalUploadStateStore(projectState);
+        await store.SaveAsync(workflow,new KuaishouPersonalUploadState{Status="running",MiniSeriesId="series-1"},CancellationToken.None);
+        Assert.True(File.Exists(KuaishouPersonalUploadStateStore.GetPath(workflow)));
+        File.Delete(KuaishouPersonalUploadStateStore.GetPath(workflow));
+        Assert.Equal("series-1",store.Load(workflow).MiniSeriesId);
+    }
 
     private AnalyticsRepository Repository(string name="analytics.db"){Directory.CreateDirectory(_root);return new(Path.Combine(_root,name));}
     public void Dispose(){if(Directory.Exists(_root))Directory.Delete(_root,true);}

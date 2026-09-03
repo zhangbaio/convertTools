@@ -2,6 +2,8 @@
 
 这是与 `TikTokPublisher` 完全分离的桌面应用。它拥有独立的程序集、启动入口和任务存储，不读写 TikTok 助手的账号与队列数据库。
 
+平台助手使用独立的两级 SQLite：`%LocalAppData%\YunfanPlatformPublisher\app.db` 保存全局配置、平台账号、发布任务、逐素材事件和统计数据；项目目录中的 `.yunfan-platform.db` 保存快手上传断点、ADX批次等可随项目移动的状态。旧 JSON/旧数据库首次启动时幂等导入并保留为兼容备份。
+
 ## 模块边界
 
 ```text

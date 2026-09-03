@@ -20,6 +20,7 @@ using PlatformPublisher.Analytics.Services;
 using PlatformPublisher.Analytics.Storage;
 using PlatformPublisher.Kuaishou.Analytics;
 using PlatformPublisher.Weixin.Analytics;
+using PlatformPublisher.Persistence;
 
 namespace PlatformPublisher.Desktop;
 
@@ -34,10 +35,17 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             _services = BuildServices();
+            _ = _services.GetRequiredService<AnalyticsRepository>();
+            _services.GetRequiredService<LegacyDatabaseImporter>().Import(
+                PlatformPublisherPaths.LegacySettingsDatabasePath,
+                PlatformPublisherPaths.LegacyAnalyticsDatabasePath);
+            KuaishouPersonalConfig.ConfigureDatabase(_services.GetRequiredService<AccountJsonSettingStore>());
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
             var settingsViewModel = _services.GetRequiredService<SystemSettingsViewModel>();
             var publishCoordinator = _services.GetRequiredService<PlatformPublishCoordinator>();
             var mainWindow = new MainWindow { DataContext = viewModel };
+            mainWindow.BindDatabaseMaintenance(_services.GetRequiredService<PlatformDatabase>(),_services.GetRequiredService<DatabaseBackupService>());
+            mainWindow.BindAccountDatabase(_services.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>());
             mainWindow.BindSettings(settingsViewModel);
             mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
             mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<AdxAutomationService>(), _services.GetRequiredService<AdxBatchStore>());
@@ -55,9 +63,24 @@ public partial class App : Application
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Information));
         services.AddShortDramaServices();
+        services.AddSingleton(_ =>
+        {
+            var database = new PlatformDatabase(PlatformPublisherPaths.MainDatabasePath);
+            PlatformDatabaseInitializer.EnsureMainDatabase(database);
+            return database;
+        });
+        services.AddSingleton<IJsonSettingStore, JsonSettingStore>();
+        services.AddSingleton<ISecureBlobStore, SecureBlobStore>();
+        services.AddSingleton<AccountJsonSettingStore>();
+        services.AddSingleton<DatabaseBackupService>();
+        services.AddSingleton<LegacyDatabaseImporter>();
+        services.AddSingleton<PublishItemEventStore>();
+        services.AddSingleton<ProjectStateDocumentStore>();
         services.AddSingleton<PublishJobStore>();
         services.AddSingleton<PublishAccountStore>();
-        services.AddSingleton(_ => new AnalyticsRepository(PlatformPublisherPaths.AnalyticsDatabasePath));
+        services.AddSingleton(provider => new ChannelsPublisher.Core.Services.AccountStore(
+            provider.GetRequiredService<PlatformDatabase>(), ChannelsPublisher.Core.Services.AppPaths.AccountsFile));
+        services.AddSingleton(_ => new AnalyticsRepository(PlatformPublisherPaths.MainDatabasePath));
         services.AddSingleton<AnalyticsQueryService>();
         services.AddSingleton<LocalPublishActivitySyncService>();
         services.AddSingleton<IAnalyticsActivitySink, AnalyticsActivitySink>();
@@ -71,13 +94,17 @@ public partial class App : Application
         services.AddSingleton<WeixinLocalVideoPublishService>();
         services.AddSingleton<WeixinAdxMaterialPublishService>();
         services.AddSingleton<IAdxDataProtector, WindowsAdxDataProtector>();
-        services.AddSingleton(_ => new AdxSettingsStore(Path.Combine(PlatformPublisherPaths.DataRoot, "adx", "settings.json")));
+        services.AddSingleton(provider => new AdxSettingsStore(
+            provider.GetRequiredService<IJsonSettingStore>(),
+            Path.Combine(PlatformPublisherPaths.DataRoot, "adx", "settings.json")));
         services.AddSingleton(provider => new AdxCredentialStore(
             Path.Combine(PlatformPublisherPaths.DataRoot, "adx", "password.dat"),
-            provider.GetRequiredService<IAdxDataProtector>()));
+            provider.GetRequiredService<IAdxDataProtector>(),
+            provider.GetRequiredService<ISecureBlobStore>()));
         services.AddSingleton(provider => new AdxSessionStore(
             Path.Combine(PlatformPublisherPaths.DataRoot, "adx", "auth-state.dat"),
-            provider.GetRequiredService<IAdxDataProtector>()));
+            provider.GetRequiredService<IAdxDataProtector>(),
+            provider.GetRequiredService<ISecureBlobStore>()));
         services.AddSingleton<AdxBatchStore>();
         services.AddSingleton<AdxAutomationService>();
         services.AddSingleton<WeixinAutoShelfService>();

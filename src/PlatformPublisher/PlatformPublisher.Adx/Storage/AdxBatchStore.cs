@@ -1,5 +1,6 @@
 using System.Text.Json;
 using PlatformPublisher.Adx.Models;
+using PlatformPublisher.Persistence;
 
 namespace PlatformPublisher.Adx.Storage;
 
@@ -13,6 +14,10 @@ public sealed class AdxBatchStore
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
     private readonly object _gate = new();
+    private readonly ProjectStateDocumentStore? _projectStateStore;
+
+    public AdxBatchStore() { }
+    public AdxBatchStore(ProjectStateDocumentStore projectStateStore) => _projectStateStore = projectStateStore;
 
     public IReadOnlyList<AdxBatchManifest> List(string workflowDirectory)
     {
@@ -27,6 +32,8 @@ public sealed class AdxBatchStore
             var manifest = Read(manifestPath);
             if (manifest is not null && manifest.Items.Count > 0) result.Add(manifest);
         }
+        if (result.Count == 0 && _projectStateStore?.Load<List<AdxBatchManifest>>(workflowDirectory, "adx_batches") is { } stored)
+            result.AddRange(stored.Where(batch => batch.Items.Any(item => File.Exists(item.VideoPath))));
         return result.OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.BatchId).ToArray();
     }
 
@@ -60,6 +67,14 @@ public sealed class AdxBatchStore
             manifest.Version = 2;
             manifest.UpdatedAt = DateTimeOffset.UtcNow;
             AdxSettingsStore.AtomicWrite(manifest.ManifestPath, JsonSerializer.Serialize(manifest, JsonOptions));
+            if (_projectStateStore is not null)
+            {
+                var batches = _projectStateStore.Load<List<AdxBatchManifest>>(manifest.WorkflowDir, "adx_batches") ?? [];
+                var next = batches.Where(item => !item.BatchId.Equals(manifest.BatchId, StringComparison.OrdinalIgnoreCase)).ToList();
+                next.Add(manifest);
+                _projectStateStore.Save(manifest.WorkflowDir, "adx_batches", next);
+                MirrorRelational(manifest);
+            }
         }
     }
 
@@ -127,4 +142,23 @@ public sealed class AdxBatchStore
     private static string? LastDigits(string value) => System.Text.RegularExpressions.Regex.Match(value, @"(\d+)$").Groups[1].Value is { Length: > 0 } result ? result : null;
     private static int? ParseRank(string value) => int.TryParse(System.Text.RegularExpressions.Regex.Match(value, @"TOP(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Groups[1].Value, out var rank) ? rank : null;
     private static bool IsSucceeded(string status) => status is "success" or "draft_saved";
+
+    private static void MirrorRelational(AdxBatchManifest manifest)
+    {
+        var database=ProjectStateDocumentStore.ForProject(manifest.WorkflowDir);PlatformDatabaseInitializer.EnsureWorkspaceDatabase(database);
+        database.WriteGate.Wait();try
+        {
+            using var connection=database.Open();using var transaction=connection.BeginTransaction();
+            using(var batch=connection.CreateCommand()){batch.Transaction=transaction;batch.CommandText="""
+                INSERT INTO adx_batches(batch_id,project_directory,manifest_path,original_title,new_title,created_at,updated_at,payload_json)
+                VALUES($id,$project,$manifest,$original,$new,$created,$updated,$json)
+                ON CONFLICT(batch_id) DO UPDATE SET manifest_path=excluded.manifest_path,original_title=excluded.original_title,
+                new_title=excluded.new_title,updated_at=excluded.updated_at,payload_json=excluded.payload_json
+                """;batch.Parameters.AddWithValue("$id",manifest.BatchId);batch.Parameters.AddWithValue("$project",manifest.WorkflowDir);batch.Parameters.AddWithValue("$manifest",manifest.ManifestPath);batch.Parameters.AddWithValue("$original",manifest.OriginalTitle);batch.Parameters.AddWithValue("$new",manifest.NewTitle);batch.Parameters.AddWithValue("$created",manifest.CreatedAt.ToString("O"));batch.Parameters.AddWithValue("$updated",manifest.UpdatedAt.ToString("O"));batch.Parameters.AddWithValue("$json",JsonSerializer.Serialize(manifest,JsonOptions));batch.ExecuteNonQuery();}
+            using(var clear=connection.CreateCommand()){clear.Transaction=transaction;clear.CommandText="DELETE FROM adx_batch_items WHERE batch_id=$id";clear.Parameters.AddWithValue("$id",manifest.BatchId);clear.ExecuteNonQuery();}
+            foreach(var item in manifest.Items){using var command=connection.CreateCommand();command.Transaction=transaction;command.CommandText="INSERT INTO adx_batch_items(batch_id,material_id,rank,video_path,cover_path,status,payload_json) VALUES($batch,$material,$rank,$video,$cover,$status,$json)";command.Parameters.AddWithValue("$batch",manifest.BatchId);command.Parameters.AddWithValue("$material",item.MaterialId);command.Parameters.AddWithValue("$rank",item.Rank);command.Parameters.AddWithValue("$video",item.VideoPath);command.Parameters.AddWithValue("$cover",item.CoverPath??(object)DBNull.Value);command.Parameters.AddWithValue("$status",item.Status);command.Parameters.AddWithValue("$json",JsonSerializer.Serialize(item,JsonOptions));command.ExecuteNonQuery();}
+            foreach(var account in manifest.PublishByAccount)foreach(var result in account.Value.Items){using var command=connection.CreateCommand();command.Transaction=transaction;command.CommandText="INSERT INTO adx_publish_results VALUES($batch,$account,$material,$status,$message,$updated) ON CONFLICT(batch_id,account_id,material_id) DO UPDATE SET status=excluded.status,message=excluded.message,updated_at=excluded.updated_at";command.Parameters.AddWithValue("$batch",manifest.BatchId);command.Parameters.AddWithValue("$account",account.Key);command.Parameters.AddWithValue("$material",result.Key);command.Parameters.AddWithValue("$status",result.Value.Status);command.Parameters.AddWithValue("$message",result.Value.Message);command.Parameters.AddWithValue("$updated",result.Value.UpdatedAt.ToString("O"));command.ExecuteNonQuery();}
+            transaction.Commit();
+        }finally{database.WriteGate.Release();}
+    }
 }

@@ -11,11 +11,14 @@ using TikTokPublisher.Ui.ViewModels;
 using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Storage;
 using PlatformPublisher.Analytics.Models;
+using PlatformPublisher.Persistence;
 
 namespace PlatformPublisher.Desktop.Views;
 
 public partial class MainWindow : Window
 {
+    private PlatformDatabase? _platformDatabase;
+    private DatabaseBackupService? _databaseBackupService;
     public MainWindow()
     {
         InitializeComponent();
@@ -26,6 +29,11 @@ public partial class MainWindow : Window
     {
         SharedSettingsView.Bind(viewModel);
         viewModel.Load();
+    }
+
+    public void BindDatabaseMaintenance(PlatformDatabase database,DatabaseBackupService backupService)
+    {
+        _platformDatabase=database;_databaseBackupService=backupService;
     }
 
     public void BindWeixinSeries(IPlatformPublishAdapter adapter)
@@ -51,6 +59,9 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetRuntimeLogContent(new WeixinRuntimeLogView { DataContext = viewModel });
         WeixinPublisherView.SetArchivedProjectsContent(new WeixinArchivedProjectsView { DataContext = viewModel });
     }
+
+    public void BindAccountDatabase(ChannelsPublisher.Core.Services.AccountStore accountStore) =>
+        WeixinPublisherView.UseAccountStore(accountStore);
 
     public void BindWeixinDownload(MainWindowViewModel mainViewModel)
     {
@@ -115,6 +126,11 @@ public partial class MainWindow : Window
 
     private void OnSettingsNavClick(object? sender, RoutedEventArgs e) => ShowSettingsPage();
     private void OnAnalyticsNavClick(object? sender, RoutedEventArgs e) => ShowAnalyticsPage();
+    private async void OnDatabaseClick(object? sender,RoutedEventArgs e)
+    {
+        if(_platformDatabase is null||_databaseBackupService is null)return;
+        await new DatabaseMaintenanceDialog(_platformDatabase,_databaseBackupService).ShowDialog(this);
+    }
 
     private void ShowWeixinPage()
     {

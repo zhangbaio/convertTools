@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PlatformPublisher.Persistence;
 
 namespace PlatformPublisher.Kuaishou.Publishing;
 
@@ -18,15 +19,22 @@ public sealed class KuaishouPersonalUploadState
 
 public sealed class KuaishouPersonalUploadStateStore
 {
+    private const string DocumentType = "kuaishou_personal_upload_state";
     private const string FileName = ".kuaishou-personal-upload-state.json";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
         WriteIndented = true,
     };
+    private readonly ProjectStateDocumentStore? _databaseStore;
+
+    public KuaishouPersonalUploadStateStore() { }
+    public KuaishouPersonalUploadStateStore(ProjectStateDocumentStore databaseStore) => _databaseStore = databaseStore;
 
     public KuaishouPersonalUploadState Load(string workflowDirectory)
     {
+        var stored = _databaseStore?.Load<KuaishouPersonalUploadState>(workflowDirectory, DocumentType);
+        if (stored is not null) return stored;
         var path = GetPath(workflowDirectory);
         if (!File.Exists(path)) return new KuaishouPersonalUploadState();
         try
@@ -36,6 +44,7 @@ public sealed class KuaishouPersonalUploadStateStore
                         ?? new KuaishouPersonalUploadState();
             using var document = JsonDocument.Parse(json);
             ApplyLegacyState(document.RootElement, state);
+            _databaseStore?.Save(workflowDirectory, DocumentType, state);
             return state;
         }
         catch (JsonException)
@@ -56,6 +65,7 @@ public sealed class KuaishouPersonalUploadStateStore
     {
         Directory.CreateDirectory(workflowDirectory);
         state.UpdatedAt = DateTimeOffset.Now;
+        _databaseStore?.Save(workflowDirectory, DocumentType, state);
         var path = GetPath(workflowDirectory);
         var temporaryPath = path + ".tmp";
         await using (var stream = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None))

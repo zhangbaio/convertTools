@@ -4,6 +4,7 @@ using PlatformPublisher.Adx.Models;
 using PlatformPublisher.Adx.Security;
 using PlatformPublisher.Adx.Storage;
 using Xunit;
+using PlatformPublisher.Persistence;
 
 namespace PlatformPublisher.Adx.Tests;
 
@@ -82,6 +83,21 @@ public sealed class AdxStoreTests : IDisposable
         var protector = new WindowsAdxDataProtector();
         var input = System.Text.Encoding.UTF8.GetBytes("adx-secret-roundtrip");
         Assert.Equal(input, protector.Unprotect(protector.Protect(input)));
+    }
+
+    [Fact]
+    public void BatchIsMirroredToProjectDatabase()
+    {
+        var workflow=Path.Combine(_root,"db-workflow");var directory=Path.Combine(workflow,"materials","adx","202609031300");Directory.CreateDirectory(directory);
+        var video=Path.Combine(directory,"item.mp4");File.WriteAllText(video,"video");
+        var projectState=new ProjectStateDocumentStore();var store=new AdxBatchStore(projectState);
+        store.Write(new AdxBatchManifest{BatchId="202609031300",WorkflowDir=workflow,ManifestPath=Path.Combine(directory,AdxBatchStore.ManifestFileName),CreatedAt=DateTimeOffset.UtcNow,Items=[new AdxBatchItem{MaterialId="1",Rank=1,VideoPath=video}]});
+        var mirrored=Assert.Single(projectState.Load<List<AdxBatchManifest>>(workflow,"adx_batches")!);
+        Assert.Equal("1",Assert.Single(mirrored.Items).MaterialId);
+        Assert.True(File.Exists(Path.Combine(workflow,ProjectStateDocumentStore.DatabaseFileName)));
+        using var connection=ProjectStateDocumentStore.ForProject(workflow).Open(readOnly:true);
+        using var command=connection.CreateCommand();command.CommandText="SELECT COUNT(*) FROM adx_batch_items";
+        Assert.Equal(1L,command.ExecuteScalar());
     }
 
     public void Dispose()
