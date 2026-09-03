@@ -49,6 +49,8 @@ public partial class App : Application
                 _services.GetRequiredService<KuaishouCredentialStore>());
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
             viewModel.Initialization.GetAwaiter().GetResult();
+            var kuaishouOnlineWorker = _services.GetRequiredService<KuaishouOnlineQueueWorker>();
+            kuaishouOnlineWorker.Start();
             var migratedDrafts=_services.GetRequiredService<LegacyPublishDraftMigrator>().MigrateAsync().GetAwaiter().GetResult();
             var settingsViewModel = _services.GetRequiredService<SystemSettingsViewModel>();
             var publishCoordinator = _services.GetRequiredService<PlatformPublishCoordinator>();
@@ -62,7 +64,11 @@ public partial class App : Application
             mainWindow.BindWeixinDownload(viewModel);
             mainWindow.BindAnalytics(_services.GetRequiredService<AnalyticsViewModel>(), viewModel);
             desktop.MainWindow = mainWindow;
-            desktop.Exit += (_, _) => viewModel.Shutdown();
+            desktop.Exit += (_, _) =>
+            {
+                kuaishouOnlineWorker.Dispose();
+                viewModel.Shutdown();
+            };
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -153,6 +159,8 @@ public partial class App : Application
         services.AddSingleton<KuaishouContentComplianceService>();
         services.AddSingleton<KuaishouDistributionService>();
         services.AddSingleton<KuaishouOnlineQueueStore>();
+        services.AddSingleton<KuaishouOnlineQueueProcessor>();
+        services.AddSingleton<KuaishouOnlineQueueWorker>();
         services.AddSingleton<KuaishouPersonalUploadService>();
         services.AddSingleton<IPlatformPublishAdapter, KuaishouPersonalPublishAdapter>();
         services.AddSingleton<IPlatformPublishAdapter, KuaishouEnterprisePublishAdapter>();

@@ -202,6 +202,47 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
         Assert.Empty(queue.Load("account-a", PublishPlatform.KuaishouEnterpriseRevenue));
     }
 
+    [Fact]
+    public async Task OnlineProcessorChecksAuditBeforeCallingOnlineEndpoint()
+    {
+        Directory.CreateDirectory(_root);
+        var database = new PlatformDatabase(Path.Combine(_root, "processor.db"));
+        var jsonStore = new AccountJsonSettingStore(database);
+        var credentialStore = new KuaishouCredentialStore(new SecureBlobStore(database), new PassthroughProtector());
+        KuaishouPersonalConfig.ConfigureDatabase(jsonStore, credentialStore);
+        var job = new PublishJob { AccountId = "processor-account", Platform = PublishPlatform.KuaishouPersonalRevenue };
+        var config = KuaishouPersonalConfig.Load(job);
+        config.AutoOnlineEnabled = true;
+        config.ApiBaseUrl = "https://example.test";
+        config.AccessToken = "token";
+        config.AdvertiserId = "67890";
+        await config.SaveAsync(KuaishouPersonalConfig.DefaultConfigPath(job.AccountId, job.Platform));
+
+        var queue = new KuaishouOnlineQueueStore(jsonStore);
+        var data = new KuaishouPersonalProjectData(
+            _root, _root, "审核通过短剧", "简介", "短标题", [], "", "", "", [], [], []);
+        queue.Register(job, data, new KuaishouPersonalUploadState { MiniSeriesId = "12345", ReviewSubmitted = true }, config);
+        var items = queue.Load(job.AccountId, job.Platform).ToList();
+        items[0].NextCheckAt = DateTimeOffset.UtcNow.AddMinutes(-1);
+        queue.Save(job.AccountId, job.Platform, items);
+        var handler = new SequenceHttpHandler(
+            """{"data":{"audit_status":3,"selling_status":2}}""",
+            """{"code":0,"message":"ok"}""");
+        var httpClient = new HttpClient(handler);
+        var processor = new KuaishouOnlineQueueProcessor(
+            httpClient,
+            queue,
+            new KuaishouDistributionService(httpClient));
+
+        var count = await processor.ProcessDueAsync(job.AccountId, job.Platform, null, CancellationToken.None);
+
+        Assert.Equal(1, count);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.EndsWith("/seriesBaseInfo", handler.Requests[0].RequestUri!.AbsolutePath);
+        Assert.EndsWith("/onlineOfflineManage", handler.Requests[1].RequestUri!.AbsolutePath);
+        Assert.Equal("online", Assert.Single(queue.Load(job.AccountId, job.Platform)).Status);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);
@@ -223,6 +264,24 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
         {
             RequestCount++;
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK));
+        }
+    }
+
+    private sealed class SequenceHttpHandler(params string[] responses) : HttpMessageHandler
+    {
+        private int _index;
+        public List<HttpRequestMessage> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            var response = responses[Math.Min(_index++, responses.Length - 1)];
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(response, System.Text.Encoding.UTF8, "application/json"),
+            });
         }
     }
 

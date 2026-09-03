@@ -34,6 +34,12 @@ public sealed class KuaishouOnlineQueueStore
             return LoadCore(accountId, platform).Select(Clone).ToArray();
     }
 
+    public void Save(string accountId, PublishPlatform platform, IReadOnlyList<KuaishouOnlineQueueItem> items)
+    {
+        lock (Sync)
+            SaveCore(accountId, platform, items);
+    }
+
     public KuaishouOnlineQueueItem? Register(
         PublishJob job,
         KuaishouPersonalProjectData data,
