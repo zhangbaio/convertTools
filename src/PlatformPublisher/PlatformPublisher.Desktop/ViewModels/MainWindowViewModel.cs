@@ -13,8 +13,10 @@ using PlatformPublisher.Kuaishou.Publishing;
 using PlatformPublisher.Weixin.Publishing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Ui.ViewModels;
 using GlobalAccount = ChannelsPublisher.Core.Models.PublishAccount;
 using GlobalAccountStore = ChannelsPublisher.Core.Services.AccountStore;
 
@@ -308,6 +310,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     private string _activeWeixinAccountName = "请先在左侧选择账号";
 
+    [ObservableProperty]
+    private string _dramaSourceStatusText = "正在读取数据链路配置…";
+
     public bool HasActiveWeixinAccount => !string.IsNullOrWhiteSpace(_activeWeixinAccountId);
 
     [ObservableProperty] private bool _pipelineDownloadEnabled;
@@ -392,6 +397,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         UseWeixinAccount(account?.Id, account?.Name, account?.ProfileDir);
         DraftAccountName = account?.Name ?? string.Empty;
         DraftConfigPath = ResolveGlobalConfigPath(account, SelectedPlatform.Value);
+        RefreshVisibleJobs();
         RefreshVisibleAccounts(account?.Id);
         OnPropertyChanged(nameof(QueueSummary));
         NotifyCommands();
@@ -404,11 +410,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
         UseGlobalAccount(selectedAccount);
     }
 
-    public bool IsSystemHighlightKind => SelectedJobKind.Value == PublishJobKind.SystemHighlight;
+    public DramaSourceConfigurationStatus GetDramaSourceConfigurationStatus()
+    {
+        var status = DramaSourceConfigurationValidator.Check(
+            ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath));
+        DramaSourceStatusText = status.Message;
+        return status;
+    }
+
+    public void RefreshDramaSourceStatus() => GetDramaSourceConfigurationStatus();
+
+    private PublishJobKind SelectedJobKindValue => SelectedJobKind?.Value ?? PublishJobKind.Series;
+
+    public bool IsSystemHighlightKind => SelectedJobKindValue == PublishJobKind.SystemHighlight;
     public bool IsWeixinPlatform => SelectedPlatform.Value == PublishPlatform.WeixinChannel;
     public bool IsKuaishouPersonalPlatform => SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue;
-    public bool IsCustomVideoKind => SelectedJobKind.Value == PublishJobKind.CustomVideos;
-    public bool IsStandardMaterialKind => SelectedJobKind.Value is
+    public bool IsCustomVideoKind => SelectedJobKindValue == PublishJobKind.CustomVideos;
+    public bool IsStandardMaterialKind => SelectedJobKindValue is
         PublishJobKind.ProjectMaterials or PublishJobKind.LocalVideos or PublishJobKind.CustomVideos;
 
     private bool _materialWorkflowActive;
@@ -423,7 +441,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public void ActivateMaterialWorkflow()
     {
         _materialWorkflowActive = true;
-        if (SelectedJobKind.Value == PublishJobKind.Series)
+        // A ComboBox can briefly write null while Avalonia swaps TabControl content.
+        // Normalize it before reading the selection so opening this tab cannot terminate the app.
+        if (SelectedJobKind is null || SelectedJobKindValue == PublishJobKind.Series)
             SelectedJobKind = MaterialJobKinds[0];
         RefreshVisibleJobs();
     }
@@ -572,6 +592,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
             RefreshVisibleJobs();
             RefreshVisibleAccounts(_activeGlobalAccount?.Id);
+            RefreshDramaSourceStatus();
         }
         catch (Exception ex)
         {
@@ -583,12 +604,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         !IsBusy &&
         _activeGlobalAccount is not null &&
         HasValidDraftSource() &&
-        (SelectedJobKind.Value != PublishJobKind.SystemHighlight || !string.IsNullOrWhiteSpace(DraftDramaTitle)) &&
+        (SelectedJobKindValue != PublishJobKind.SystemHighlight || !string.IsNullOrWhiteSpace(DraftDramaTitle)) &&
         (!DraftScheduleEnabled || PublishSchedulePolicy.TryParseLocal(DraftScheduleText, out _));
 
     private bool HasValidDraftSource()
     {
-        if (SelectedJobKind.Value != PublishJobKind.CustomVideos)
+        if (SelectedJobKindValue != PublishJobKind.CustomVideos)
             return Directory.Exists(DraftProjectDirectory);
 
         return ParseCustomVideoFiles().Any(File.Exists);
@@ -616,8 +637,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var job = new PublishJob
         {
             Platform = SelectedPlatform.Value,
-            Kind = SelectedJobKind.Value,
-            ProjectName = SelectedJobKind.Value == PublishJobKind.SystemHighlight
+            Kind = SelectedJobKindValue,
+            ProjectName = SelectedJobKindValue == PublishJobKind.SystemHighlight
                 ? DraftDramaTitle.Trim()
                 : Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
             ProjectDirectory = directory,
@@ -696,10 +717,36 @@ public sealed partial class MainWindowViewModel : ObservableObject
         return added;
     }
 
-    public async Task ImportDramaTitlesAsync(string titlesText)
+    public async Task<int> ImportVideoChannelProjectDirectoriesAsync(TikTokQueueImportRequest request)
     {
-        if(!HasActiveWeixinAccount){StatusMessage="请先在左侧选择视频号账号。";return;}
-        if(!Directory.Exists(DraftProjectDirectory)){StatusMessage="请先选择有效的工作目录。";return;}
+        ArgumentNullException.ThrowIfNull(request);
+        var account = _globalAccounts.FirstOrDefault(item =>
+            string.Equals(item.Id, request.Target.AccountProfileId, StringComparison.OrdinalIgnoreCase));
+        if (account is null)
+        {
+            StatusMessage = $"视频号队列导入失败：账号「{request.Target.AccountProfileName}」已不存在。";
+            AppendActivityLog(StatusMessage);
+            return 0;
+        }
+
+        var added = await AddImportedProjectJobsAsync(
+            request.ProjectDirs,
+            account.Id,
+            account.Name,
+            account.ProfileDir);
+        StatusMessage = $"已加入「{account.Name}」的视频号队列：新增 {added} 个任务，工作目录 {request.Target.WorkspaceRoot}";
+        AppendActivityLog(StatusMessage);
+        return added;
+    }
+
+    public async Task<string> ImportDramaTitlesAsync(string titlesText)
+    {
+        if(!HasActiveWeixinAccount){StatusMessage="请先在左侧选择视频号账号。";return StatusMessage;}
+        if(!Directory.Exists(DraftProjectDirectory)){StatusMessage="请先选择有效的工作目录。";return StatusMessage;}
+        var sourceStatus=GetDramaSourceConfigurationStatus();
+        if(!sourceStatus.IsConfigured){StatusMessage=sourceStatus.Message;AppendActivityLog(StatusMessage);return StatusMessage;}
+        if(IsBusy){StatusMessage="当前已有任务正在执行，请稍后再上传短剧。";return StatusMessage;}
+        var resultMessage=string.Empty;
         await RunBusyAsync(async cancellationToken=>
         {
             try
@@ -709,18 +756,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 var added=await AddImportedProjectJobsAsync(outcome.ProjectDirectories);
                 var existing=outcome.ProjectDirectories.Count-added;
                 StatusMessage=$"上传短剧完成：请求 {outcome.RequestedCount} 个，新增 {added} 个，已存在 {existing} 个，失败 {outcome.Failures.Count} 个。";
+                if(outcome.Failures.Count>0)
+                    StatusMessage += Environment.NewLine + string.Join(Environment.NewLine,
+                        outcome.Failures.Take(3).Select(failure=>$"{failure.Title}：{failure.Reason}"));
+                resultMessage=StatusMessage;
                 AppendActivityLog(StatusMessage);
                 foreach(var failure in outcome.Failures.Take(20))AppendActivityLog($"[{failure.Title}] {failure.Reason}");
             }
-            catch(OperationCanceledException){StatusMessage="上传短剧已停止。";AppendActivityLog(StatusMessage);}
-            catch(Exception ex){StatusMessage="上传短剧失败："+ex.Message;AppendActivityLog(StatusMessage);}
+            catch(OperationCanceledException){StatusMessage="上传短剧已停止。";resultMessage=StatusMessage;AppendActivityLog(StatusMessage);}
+            catch(Exception ex){StatusMessage="上传短剧失败："+ex.Message;resultMessage=StatusMessage;AppendActivityLog(StatusMessage);}
         });
+        return string.IsNullOrWhiteSpace(resultMessage) ? StatusMessage : resultMessage;
     }
 
-    private async Task<int> AddImportedProjectJobsAsync(IEnumerable<string> directories)
+    private async Task<int> AddImportedProjectJobsAsync(
+        IEnumerable<string> directories,
+        string? targetAccountId = null,
+        string? targetAccountName = null,
+        string? targetSessionDirectory = null)
     {
+        var effectiveAccountId = string.IsNullOrWhiteSpace(targetAccountId) ? _activeWeixinAccountId : targetAccountId;
         var existing = _jobs
             .Where(job => job.Platform == PublishPlatform.WeixinChannel && job.Kind == PublishJobKind.Series)
+            .Where(job => string.Equals(job.AccountId, effectiveAccountId, StringComparison.OrdinalIgnoreCase))
             .Where(job => !string.IsNullOrWhiteSpace(job.ProjectDirectory))
             .Select(job => Path.GetFullPath(job.ProjectDirectory))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -737,9 +795,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ProjectName = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
                 ProjectDirectory = directory,
                 ConfigPath = ResolveScannedWeixinConfig(directory),
-                AccountId = _activeWeixinAccountId,
-                AccountName = ActiveWeixinAccountName,
-                AccountSessionDirectory = _activeWeixinAccountSessionDirectory,
+                AccountId = effectiveAccountId,
+                AccountName = string.IsNullOrWhiteSpace(targetAccountName) ? ActiveWeixinAccountName : targetAccountName,
+                AccountSessionDirectory = string.IsNullOrWhiteSpace(targetSessionDirectory)
+                    ? _activeWeixinAccountSessionDirectory
+                    : targetSessionDirectory,
                 Status = PublishJobStatus.Pending,
                 StatusMessage = "本地导入，等待执行",
             };
@@ -2064,6 +2124,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             VisibleJobs.Clear();
             foreach (var job in _jobs
                          .Where(job => job.Platform == SelectedPlatform.Value)
+                         .Where(job => _activeGlobalAccount is null ||
+                                       string.Equals(job.AccountId, _activeGlobalAccount.Id, StringComparison.OrdinalIgnoreCase))
                          .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||
                                        (_materialWorkflowActive
                                            ? job.Kind != PublishJobKind.Series

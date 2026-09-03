@@ -285,7 +285,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     public void UpdateTikTokQueueTarget(TikTokQueueImportTarget? target)
     {
         TikTokQueueTargetText = target is null
-            ? "目标账号：未配置上传工作目录"
+            ? $"目标账号：未配置{QueuePlatformLabel}上传工作目录"
             : $"目标账号：{target.AccountProfileName} · {target.WorkspaceRoot}";
     }
 
@@ -909,7 +909,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var target = TikTokQueueTargetRequested?.Invoke();
         UpdateTikTokQueueTarget(target);
         if (target is not null) return target;
-        LogRequested?.Invoke("请先为左侧选择账号配置有效的 TikTok 上传工作目录");
+        LogRequested?.Invoke($"请先为左侧所选账号配置有效的{QueuePlatformLabel}上传工作目录");
         return null;
     }
 

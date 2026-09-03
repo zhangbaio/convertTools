@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     {
         SharedSettingsView.Bind(viewModel);
         viewModel.Load();
+        viewModel.SettingsSaved += _ => ViewModel?.RefreshDramaSourceStatus();
     }
 
     public void BindDatabaseMaintenance(PlatformDatabase database,DatabaseBackupService backupService)
@@ -58,6 +59,7 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetUnifiedPublishContent(unifiedPublishView);
         var workflowView = new WeixinWorkflowView { DataContext = viewModel };
         workflowView.Bind(() => WeixinPublisherView.SelectedAccountProfile);
+        workflowView.SettingsRequested += (_, _) => ShowSettingsPage();
         var materialView = new WeixinMaterialUploadView { DataContext = viewModel };
         materialView.Bind(() => WeixinPublisherView.SelectedAccountProfile, adxService, adxBatchStore,unifiedPublishViewModel,WeixinPublisherView.ShowUnifiedPublish);
         WeixinPublisherView.SelectedAccountChanged += account =>
@@ -88,13 +90,13 @@ public partial class MainWindow : Window
         viewModel.TikTokQueueTargetRequested += () =>
         {
             var account = WeixinPublisherView.SelectedAccountProfile;
-            var workspace = viewModel.DownloadWorkspace;
+            var workspace = account?.WorkRootDirectory;
             if (account is null || string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace)) return null;
             return new TikTokPublisher.Ui.ViewModels.TikTokQueueImportTarget(account.Id, account.Name, workspace);
         };
         viewModel.ImportToQueueRequested += async request =>
         {
-            await mainViewModel.ImportLocalProjectDirectoriesAsync(request.ProjectDirs);
+            await mainViewModel.ImportVideoChannelProjectDirectoriesAsync(request);
         };
         var view = new TikTokPublisher.Ui.Views.DramaDownloadView();
         view.Bind(viewModel, message => mainViewModel.StatusMessage = message);
@@ -102,9 +104,10 @@ public partial class MainWindow : Window
         void RefreshTarget()
         {
             var account = WeixinPublisherView.SelectedAccountProfile;
-            viewModel.UpdateTikTokQueueTarget(account is null || string.IsNullOrWhiteSpace(viewModel.DownloadWorkspace)
+            var workspace = account?.WorkRootDirectory;
+            viewModel.UpdateTikTokQueueTarget(account is null || string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace)
                 ? null
-                : new TikTokPublisher.Ui.ViewModels.TikTokQueueImportTarget(account.Id, account.Name, viewModel.DownloadWorkspace));
+                : new TikTokPublisher.Ui.ViewModels.TikTokQueueImportTarget(account.Id, account.Name, workspace));
         }
         WeixinPublisherView.SelectedAccountChanged += _ => RefreshTarget();
         viewModel.PropertyChanged += (_, args) =>

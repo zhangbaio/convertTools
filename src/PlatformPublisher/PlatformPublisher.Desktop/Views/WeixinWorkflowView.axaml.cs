@@ -4,12 +4,14 @@ using Avalonia.Platform.Storage;
 using ChannelsPublisher.Core.Models;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Weixin.Publishing;
+using TikTokPublisher.Ui.Views;
 
 namespace PlatformPublisher.Desktop.Views;
 
 public partial class WeixinWorkflowView : UserControl
 {
     private Func<PublishAccount?>? _accountProvider;
+    public event EventHandler? SettingsRequested;
 
     public WeixinWorkflowView()
     {
@@ -68,10 +70,37 @@ public partial class WeixinWorkflowView : UserControl
         var owner=TopLevel.GetTopLevel(this) as Window;if(owner is null||ViewModel is null)return;
         if(string.IsNullOrWhiteSpace(ViewModel.DraftProjectDirectory)||!Directory.Exists(ViewModel.DraftProjectDirectory))
         {
-            ViewModel.StatusMessage="请先选择有效的工作目录。";return;
+            ViewModel.StatusMessage="请先选择有效的工作目录。";
+            var folders=await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title="上传短剧前请选择工作目录",
+                AllowMultiple=false,
+            });
+            if(folders.Count==0)return;
+            ViewModel.DraftProjectDirectory=folders[0].Path.LocalPath;
+        }
+        var sourceStatus=ViewModel.GetDramaSourceConfigurationStatus();
+        if(!sourceStatus.IsConfigured)
+        {
+            var openSettings=await ConfirmDialog.ShowAsync(owner,"下载数据链路未配置",sourceStatus.Message+Environment.NewLine+Environment.NewLine+"是否立即打开系统设置？");
+            if(openSettings)SettingsRequested?.Invoke(this,EventArgs.Empty);
+            return;
         }
         var titles=await UploadDramaTitlesDialog.ShowAsync(owner);if(string.IsNullOrWhiteSpace(titles))return;
-        await ViewModel.ImportDramaTitlesAsync(titles);
+        UploadDramasButton.IsEnabled=false;
+        UploadDramasButton.Content="正在处理…";
+        try
+        {
+            ViewModel.StatusMessage="已接收剧名，正在搜索并创建项目…";
+            var message=await ViewModel.ImportDramaTitlesAsync(titles);
+            await InfoDialog.ShowAsync(owner,message,
+                message.StartsWith("上传短剧完成",StringComparison.Ordinal)?"上传短剧完成":"上传短剧未完成",520,220);
+        }
+        finally
+        {
+            UploadDramasButton.Content="上传短剧";
+            UploadDramasButton.IsEnabled=true;
+        }
     }
 
     private async void OnPickConfigClick(object? sender, RoutedEventArgs e)

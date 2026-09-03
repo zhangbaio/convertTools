@@ -6,7 +6,7 @@
              Background="#F3F6FA">
     <Grid RowDefinitions="Auto,Auto,Auto,*,30" RowSpacing="8">
         <Border Grid.Row="0" Classes="panel" Padding="10">
-            <Grid RowDefinitions="Auto,Auto" RowSpacing="7">
+            <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="7">
                 <Grid ColumnDefinitions="78,*,Auto" ColumnSpacing="8">
                     <TextBlock Text="工作目录" VerticalAlignment="Center" FontWeight="SemiBold" />
                     <TextBox Grid.Column="1" Text="{Binding DraftProjectDirectory}"
@@ -27,8 +27,8 @@
                     </Border>
                     <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0"
                             ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
-                    <Button Content="上传短剧" Click="OnUploadDramasClick" Classes="primaryAction compactAction" Margin="0,0,6,0"
-                            ToolTip.Tip="按剧名精确搜索，创建项目并加入执行队列" />
+                    <Button x:Name="UploadDramasButton" Content="上传短剧" Click="OnUploadDramasClick" Classes="primaryAction compactAction" Margin="0,0,6,0"
+                             ToolTip.Tip="按剧名精确搜索，创建项目并加入执行队列" />
                     <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <TextBox Width="220" Text="{Binding DraftNewProjectName}" Watermark="按剧名创建项目" Margin="0,0,6,0" />
@@ -41,6 +41,12 @@
                                Foreground="#0B74D1" FontWeight="SemiBold" Margin="0,0,6,0" />
                     <Button Content="刷新账号" Click="OnRefreshAccountClick" Classes="secondaryAction compactAction" />
                 </WrapPanel>
+
+                <TextBlock Grid.Row="2"
+                           Text="{Binding DramaSourceStatusText}"
+                           Foreground="#B45309"
+                           FontSize="12"
+                           TextWrapping="Wrap" />
 
             </Grid>
         </Border>
