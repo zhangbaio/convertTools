@@ -318,21 +318,23 @@ public partial class MainWindow : Window
     {
         if (ViewModel?.SelectedAccount is null)
         {
-            if (ViewModel is not null) ViewModel.StatusMessage = "请先在左侧选择快手分账个人版账号。";
+            if (ViewModel is not null) ViewModel.StatusMessage = "请先在左侧选择全局账号。";
             return;
         }
 
         var account = ViewModel.SelectedAccount.Model;
+        var platform = ViewModel.SelectedPlatform.Value;
         var configuredPath = account.BaseConfigPath?.Trim() ?? string.Empty;
         var path = string.IsNullOrWhiteSpace(configuredPath)
-            ? KuaishouPersonalConfig.DefaultConfigPath(account.Id)
+            ? KuaishouPersonalConfig.DefaultConfigPath(account.Id, platform)
             : Path.GetFullPath(configuredPath);
         var config = KuaishouPersonalConfig.Load(new PublishJob
         {
+            Platform = platform,
             AccountId = account.Id,
             ConfigPath = File.Exists(path) ? path : string.Empty,
         });
-        var result = await KuaishouPersonalConfigDialog.ShowAsync(this, config);
+        var result = await KuaishouPersonalConfigDialog.ShowAsync(this, config, platform);
         if (result is null) return;
         await result.SaveAsync(path);
         await ViewModel.UpdateSelectedAccountConfigPathAsync(path);

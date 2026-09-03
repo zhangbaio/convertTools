@@ -113,7 +113,7 @@
                         <Button Grid.Column="2"
                                 Content="快手分账配置"
                                 Click="OpenKuaishouPersonalConfig_Click"
-                                IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                                IsVisible="{Binding IsKuaishouPlatform}" />
 
                         <TextBlock Grid.Row="1" Text="项目目录" VerticalAlignment="Center" />
                         <TextBox Grid.Row="1" Grid.Column="1"

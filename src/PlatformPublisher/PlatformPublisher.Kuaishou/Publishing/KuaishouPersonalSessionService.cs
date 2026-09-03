@@ -12,9 +12,10 @@ public sealed class KuaishouPersonalSessionService
     public async Task OpenLoginAsync(PublishJob job, CancellationToken cancellationToken)
     {
         var config = KuaishouPersonalConfig.Load(job);
+        var timeout = Math.Clamp(config.LoginTimeoutSeconds, 30, 900) * 1000;
         await RunBrowserAsync(config, headless: false, async (page, context, ct) =>
         {
-            await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60_000 });
+            await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = timeout });
             await page.BringToFrontAsync();
             while (!ct.IsCancellationRequested && context.Pages.Count > 0)
                 await Task.Delay(500, ct);
@@ -24,14 +25,16 @@ public sealed class KuaishouPersonalSessionService
     public async Task ValidateLoginAsync(PublishJob job, IProgress<string>? progress, CancellationToken cancellationToken)
     {
         var config = KuaishouPersonalConfig.Load(job);
+        var label = job.Platform.DisplayName();
+        var timeout = Math.Clamp(config.LoginTimeoutSeconds, 30, 900) * 1000;
         await RunBrowserAsync(config, config.Headless, async (page, _, ct) =>
         {
-            progress?.Report("快手分账个人版：正在打开经营者管理平台…");
-            await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60_000 });
+            progress?.Report($"{label}：正在打开经营者管理平台…");
+            await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = timeout });
             await page.WaitForTimeoutAsync(1500);
             if (!await IsLoggedInAsync(page))
-                throw new InvalidOperationException("快手分账个人版登录态无效，请先点击“登录 / 打开浏览器”扫码登录。");
-            progress?.Report("快手分账个人版：经营者管理平台登录态有效。 ");
+                throw new InvalidOperationException($"{label}登录态无效，请先点击“登录 / 打开浏览器”扫码登录。");
+            progress?.Report($"{label}：经营者管理平台登录态有效。 ");
         }, cancellationToken);
     }
 
@@ -41,12 +44,14 @@ public sealed class KuaishouPersonalSessionService
         CancellationToken cancellationToken)
     {
         var config = KuaishouPersonalConfig.Load(job);
+        var label = job.Platform.DisplayName();
+        var timeout = Math.Clamp(config.LoginTimeoutSeconds, 30, 900) * 1000;
         await RunBrowserAsync(config, config.Headless, async (page, _, ct) =>
         {
-            await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60_000 });
+            await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = timeout });
             await page.WaitForTimeoutAsync(1200);
             if (!await IsLoggedInAsync(page))
-                throw new InvalidOperationException("快手分账个人版登录态无效，请先扫码登录。");
+                throw new InvalidOperationException($"{label}登录态无效，请先扫码登录。");
             await action(page, config, ct);
         }, cancellationToken);
     }

@@ -450,6 +450,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public bool IsSystemHighlightKind => SelectedJobKindValue == PublishJobKind.SystemHighlight;
     public bool IsWeixinPlatform => SelectedPlatform.Value == PublishPlatform.WeixinChannel;
     public bool IsKuaishouPersonalPlatform => SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue;
+    public bool IsKuaishouPlatform => SelectedPlatform.Value is
+        PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue;
     public bool IsCustomVideoKind => SelectedJobKindValue == PublishJobKind.CustomVideos;
     public bool IsStandardMaterialKind => SelectedJobKindValue is
         PublishJobKind.ProjectMaterials or PublishJobKind.LocalVideos or PublishJobKind.CustomVideos;
@@ -490,6 +492,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedPlatformCapability));
         OnPropertyChanged(nameof(IsWeixinPlatform));
         OnPropertyChanged(nameof(IsKuaishouPersonalPlatform));
+        OnPropertyChanged(nameof(IsKuaishouPlatform));
         NotifyCommands();
     }
 

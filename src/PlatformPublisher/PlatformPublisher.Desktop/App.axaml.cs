@@ -12,6 +12,8 @@ using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Desktop.Views;
 using ShortDrama.Infrastructure.DependencyInjection;
+using ShortDrama.Core.Interfaces;
+using ShortDrama.Infrastructure.Rendering;
 using TikTokPublisher.Ui.ViewModels;
 using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Security;
@@ -42,7 +44,9 @@ public partial class App : Application
             _services.GetRequiredService<LegacyDatabaseImporter>().Import(
                 PlatformPublisherPaths.LegacySettingsDatabasePath,
                 PlatformPublisherPaths.LegacyAnalyticsDatabasePath);
-            KuaishouPersonalConfig.ConfigureDatabase(_services.GetRequiredService<AccountJsonSettingStore>());
+            KuaishouPersonalConfig.ConfigureDatabase(
+                _services.GetRequiredService<AccountJsonSettingStore>(),
+                _services.GetRequiredService<KuaishouCredentialStore>());
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
             viewModel.Initialization.GetAwaiter().GetResult();
             var migratedDrafts=_services.GetRequiredService<LegacyPublishDraftMigrator>().MigrateAsync().GetAwaiter().GetResult();
@@ -69,6 +73,7 @@ public partial class App : Application
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Information));
         services.AddShortDramaServices();
+        services.AddSingleton<IDocumentRenderService, LibreOfficeDocumentRenderService>();
         services.AddSingleton(_ =>
         {
             var database = new PlatformDatabase(PlatformPublisherPaths.MainDatabasePath);
@@ -77,6 +82,8 @@ public partial class App : Application
         });
         services.AddSingleton<IJsonSettingStore, JsonSettingStore>();
         services.AddSingleton<ISecureBlobStore, SecureBlobStore>();
+        services.AddSingleton<IDataProtector, WindowsDataProtector>();
+        services.AddSingleton<KuaishouCredentialStore>();
         services.AddSingleton<AccountJsonSettingStore>();
         services.AddSingleton<DatabaseBackupService>();
         services.AddSingleton<LegacyDatabaseImporter>();
@@ -142,10 +149,12 @@ public partial class App : Application
         services.AddSingleton<KuaishouPersonalFirstPageService>();
         services.AddSingleton<KuaishouPersonalEpisodeUploadService>();
         services.AddSingleton<KuaishouPersonalUploadStateStore>();
+        services.AddSingleton<KuaishouCommitmentService>();
+        services.AddSingleton<KuaishouContentComplianceService>();
+        services.AddSingleton<KuaishouDistributionService>();
         services.AddSingleton<KuaishouPersonalUploadService>();
         services.AddSingleton<IPlatformPublishAdapter, KuaishouPersonalPublishAdapter>();
-        services.AddSingleton<IPlatformPublishAdapter>(
-            _ => new UnavailableKuaishouPublishAdapter(PublishPlatform.KuaishouEnterpriseRevenue));
+        services.AddSingleton<IPlatformPublishAdapter, KuaishouEnterprisePublishAdapter>();
         services.AddSingleton<PlatformPublishCoordinator>();
         services.AddSingleton<MainWindowViewModel>();
         services.AddSingleton<AnalyticsViewModel>();

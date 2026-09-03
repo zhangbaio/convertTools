@@ -42,10 +42,12 @@ public sealed class KuaishouPersonalEpisodeUploadService
 
         if (string.Equals(config.FinalAction, "submit_review", StringComparison.OrdinalIgnoreCase))
         {
+            if (config.SubmitPreCheckWaitSeconds > 0)
+                await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(config.SubmitPreCheckWaitSeconds, 0, 120)), cancellationToken);
             if (!await ClickVisibleEnabledButtonAsync(page, "提交审核", 30_000, cancellationToken))
                 throw new InvalidOperationException("剧集上传完成，但未找到“提交审核”按钮。");
             await ConfirmDialogAsync(page);
-            await WaitForReviewSubmissionAsync(page, data.Title, cancellationToken);
+            await WaitForReviewSubmissionAsync(page, data.Title, config, cancellationToken);
             if (stageChanged is not null) await stageChanged("review_submitted");
             progress?.Report("快手分账个人版：已提交审核。 ");
         }
@@ -227,9 +229,12 @@ public sealed class KuaishouPersonalEpisodeUploadService
     private static async Task WaitForReviewSubmissionAsync(
         IPage page,
         string title,
+        KuaishouPersonalConfig config,
         CancellationToken cancellationToken)
     {
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(45);
+        var intervalSeconds = Math.Clamp(config.SubmitReadyCheckIntervalSeconds, 1, 60);
+        var maxChecks = Math.Clamp(config.SubmitReadyCheckMax, 1, 600);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(intervalSeconds * maxChecks);
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -240,7 +245,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
                 return;
             if (new[] { "提交失败", "发布失败", "审核提交失败" }.Any(body.Contains))
                 throw new InvalidOperationException("快手个人版提交审核失败，平台页面返回失败提示。");
-            await page.WaitForTimeoutAsync(500);
+            await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cancellationToken);
         }
         throw new TimeoutException("点击提交审核后，未检测到“提交成功/审核中”等平台最终状态；任务不会标记为完成。");
     }

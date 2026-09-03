@@ -114,8 +114,8 @@ public sealed class KuaishouPersonalPreparationService
             ["content_type"] = config.ContentType,
             ["comic_product_method"] = ProductionMethodValue(config.ProductionMethod),
             ["is_finished"] = config.Finished,
-            ["full_scene_display"] = false,
-            ["copyright_proof_type"] = "1",
+            ["full_scene_display"] = config.FullSceneDisplay,
+            ["copyright_proof_type"] = First(config.CopyrightProofType, "1"),
             ["has_record_number"] = config.HasRecordNumber,
             ["production_form"] = config.ProductionForm,
             ["production_year"] = ParseInt(config.ProductionYear, DateTime.Now.Year),
@@ -135,7 +135,7 @@ public sealed class KuaishouPersonalPreparationService
             ["free_episode_count"] = config.FreeEpisodeCount,
             ["unlock_count"] = Math.Max(1, config.UnlockEpisodeCount),
             ["small_amount_unlock"] = false,
-            ["series_price_yuan"] = 1.0,
+            ["series_price_yuan"] = ParseDouble(config.EpisodePrice, 1.0),
         };
     }
 
@@ -197,8 +197,8 @@ public sealed class KuaishouPersonalPreparationService
             ["product_method"] = autoFill["comic_product_method"]?.DeepClone(),
             ["product_method_label"] = config.ProductionMethod,
             ["sync_profile"] = false,
-            ["has_copyright_proof"] = true,
-            ["copyright_proof_type"] = 1,
+            ["has_copyright_proof"] = config.HasCopyrightProof,
+            ["copyright_proof_type"] = ParseInt(config.CopyrightProofType, 1),
             ["has_filing_no"] = config.HasRecordNumber,
             ["production_form"] = autoFill["production_form"]?.DeepClone(),
             ["episode_average_duration_minutes"] = autoFill["episode_average_duration_minutes"]?.DeepClone(),
@@ -212,9 +212,9 @@ public sealed class KuaishouPersonalPreparationService
             ["commitment_key_list"] = string.IsNullOrWhiteSpace(data.CommitmentPdfPath)
                 ? new JsonArray()
                 : new JsonArray(JsonValue.Create(data.CommitmentPdfPath)),
-            ["copyright_proof_valid_start_time"] = now.ToUnixTimeMilliseconds(),
-            ["copyright_proof_valid_end_time"] = now.AddYears(10).ToUnixTimeMilliseconds(),
-            ["has_sub_authorization_right"] = true,
+            ["copyright_proof_valid_start_time"] = ParseDate(config.CopyrightValidStartTime, now).ToUnixTimeMilliseconds(),
+            ["copyright_proof_valid_end_time"] = ParseDate(config.CopyrightValidEndTime, now.AddYears(10)).ToUnixTimeMilliseconds(),
+            ["has_sub_authorization_right"] = config.HasSubAuthorizationRight,
             ["copyright_proof_material_info_list"] = copyrightRows,
             ["series_content_type"] = 2,
             ["display_info_list"] = new JsonArray(new JsonObject
@@ -241,7 +241,7 @@ public sealed class KuaishouPersonalPreparationService
             }).ToArray()),
             ["producer_info"] = screenwriters?.FirstOrDefault()?.DeepClone(),
             ["producer"] = screenwriters?.FirstOrDefault()?["name"]?.DeepClone(),
-            ["author_declaration"] = 1,
+            ["author_declaration"] = AuthorDeclarationValue(config.AuthorDeclaration),
         };
     }
 
@@ -342,6 +342,10 @@ public sealed class KuaishouPersonalPreparationService
     private static int EpisodeNumber(string path) => ParseInt(Regex.Match(Path.GetFileNameWithoutExtension(path), @"第\s*(\d+)\s*集").Groups[1].Value);
     private static int ParseInt(string? value, int fallback = 0) => int.TryParse(Regex.Match(value ?? string.Empty, @"\d+").Value, out var result) ? result : fallback;
     private static double ParseDouble(string? value, double fallback) => double.TryParse(Regex.Match(value ?? string.Empty, @"\d+(?:\.\d+)?").Value, out var result) ? result : fallback;
+    private static DateTimeOffset ParseDate(string? value, DateTimeOffset fallback) =>
+        DateTimeOffset.TryParse(value, out var result) ? result : fallback;
+    private static int AuthorDeclarationValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) || value.Contains('无') ? 0 : int.TryParse(value, out var result) ? result : 1;
     private static int ProductionMethodValue(string value) => value.Contains("AIGC", StringComparison.OrdinalIgnoreCase) ? 3 : 1;
     private static int SaleTypeValue(string value) => value.Contains("广告", StringComparison.Ordinal) ? 3 : value.Contains("单集", StringComparison.Ordinal) ? 2 : 0;
     private static string First(params string?[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;

@@ -11,19 +11,28 @@ public sealed class KuaishouPersonalUploadService
     private readonly KuaishouPersonalFirstPageService _firstPageService;
     private readonly KuaishouPersonalEpisodeUploadService _episodeUploadService;
     private readonly KuaishouPersonalUploadStateStore _stateStore;
+    private readonly KuaishouCommitmentService _commitmentService;
+    private readonly KuaishouContentComplianceService _contentComplianceService;
+    private readonly KuaishouDistributionService _distributionService;
 
     public KuaishouPersonalUploadService(
         KuaishouPersonalSessionService sessionService,
         KuaishouPersonalProjectDataService projectDataService,
         KuaishouPersonalFirstPageService firstPageService,
         KuaishouPersonalEpisodeUploadService episodeUploadService,
-        KuaishouPersonalUploadStateStore stateStore)
+        KuaishouPersonalUploadStateStore stateStore,
+        KuaishouCommitmentService commitmentService,
+        KuaishouContentComplianceService contentComplianceService,
+        KuaishouDistributionService distributionService)
     {
         _sessionService = sessionService;
         _projectDataService = projectDataService;
         _firstPageService = firstPageService;
         _episodeUploadService = episodeUploadService;
         _stateStore = stateStore;
+        _commitmentService = commitmentService;
+        _contentComplianceService = contentComplianceService;
+        _distributionService = distributionService;
     }
 
     public async Task RunAsync(
@@ -32,25 +41,33 @@ public sealed class KuaishouPersonalUploadService
         CancellationToken cancellationToken)
     {
         var config = KuaishouPersonalConfig.Load(job);
+        var configurationIssues = KuaishouConfigurationValidator.Validate(config);
+        if (configurationIssues.Count > 0)
+            throw new InvalidOperationException("快手配置校验失败：" + string.Join("；", configurationIssues));
+        var label = job.Platform.DisplayName();
         var data = await _projectDataService.ResolveAsync(job.ProjectDirectory, config, cancellationToken);
-        if (data.VideoPaths.Count == 0) throw new InvalidOperationException("快手个人版项目没有可上传的剧集视频。");
-        var state = _stateStore.Load(data.WorkflowDirectory);
+        var commitmentPdf = await _commitmentService.ResolveAsync(data, config, cancellationToken);
+        if (!string.Equals(commitmentPdf, data.CommitmentPdfPath, StringComparison.OrdinalIgnoreCase))
+            data = data with { CommitmentPdfPath = commitmentPdf };
+        _contentComplianceService.Validate(data, config);
+        if (data.VideoPaths.Count == 0) throw new InvalidOperationException($"{label}项目没有可上传的剧集视频。");
+        var state = _stateStore.Load(data.WorkflowDirectory, job.Platform);
         if (config.ForceRerun)
         {
             state = new KuaishouPersonalUploadState();
-            progress?.Report("快手分账个人版：已按配置忽略旧状态并从头执行。 ");
+            progress?.Report($"{label}：已按配置忽略旧状态并从头执行。 ");
         }
         if (state.Status == "completed" &&
             (!string.Equals(config.FinalAction, "submit_review", StringComparison.OrdinalIgnoreCase) || state.ReviewSubmitted))
         {
-            progress?.Report("快手分账个人版：项目已经完成，跳过重复执行。 ");
+            progress?.Report($"{label}：项目已经完成，跳过重复执行。 ");
             return;
         }
-        progress?.Report($"快手个人版项目解析完成：《{data.Title}》，视频 {data.VideoPaths.Count} 集，工程图 {data.ProjectImagePaths.Count} 张。 ");
+        progress?.Report($"{label}项目解析完成：《{data.Title}》，视频 {data.VideoPaths.Count} 集，工程图 {data.ProjectImagePaths.Count} 张。 ");
         state.Status = "running";
         state.CurrentStage = "opening_browser";
         state.LastError = string.Empty;
-        await _stateStore.SaveAsync(data.WorkflowDirectory, state, cancellationToken);
+        await _stateStore.SaveAsync(data.WorkflowDirectory, state, cancellationToken, job.Platform);
         try
         {
             await _sessionService.ExecuteAuthenticatedAsync(job, async (page, effectiveConfig, ct) =>
@@ -63,7 +80,7 @@ public sealed class KuaishouPersonalUploadService
                 else
                 {
                     state.CurrentStage = "first_page";
-                    await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct);
+                    await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
                     await _firstPageService.FillAndSaveDraftAsync(page, data, effectiveConfig, progress, ct);
                 }
 
@@ -72,12 +89,12 @@ public sealed class KuaishouPersonalUploadService
                     CaptureMiniSeriesId(page, state);
                     state.Status = "draft_saved";
                     state.CurrentStage = "draft_saved";
-                    await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct);
+                    await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
                     return;
                 }
 
                 state.CurrentStage = state.VideosUploaded ? "final_action" : "episode_upload";
-                await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct);
+                await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
                 await _episodeUploadService.UploadAsync(
                     page,
                     data,
@@ -85,19 +102,20 @@ public sealed class KuaishouPersonalUploadService
                     progress,
                     resume,
                     state.VideosUploaded,
-                    stage => RecordStageAsync(page, data.WorkflowDirectory, state, stage, ct),
+                    stage => RecordStageAsync(page, data.WorkflowDirectory, state, stage, ct, job.Platform),
                     ct);
                 CaptureMiniSeriesId(page, state);
                 state.Status = "completed";
                 state.CurrentStage = state.ReviewSubmitted ? "review_submitted" : "videos_uploaded";
-                await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct);
+                await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
+                await _distributionService.ApplyAsync(state.MiniSeriesId, effectiveConfig, progress, ct);
             }, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             state.Status = "failed";
             state.LastError = ex.Message;
-            await _stateStore.SaveAsync(data.WorkflowDirectory, state, CancellationToken.None);
+            await _stateStore.SaveAsync(data.WorkflowDirectory, state, CancellationToken.None, job.Platform);
             throw;
         }
     }
@@ -107,7 +125,8 @@ public sealed class KuaishouPersonalUploadService
         string workflowDirectory,
         KuaishouPersonalUploadState state,
         string stage,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PublishPlatform platform)
     {
         CaptureMiniSeriesId(page, state);
         state.CurrentStage = stage;
@@ -115,7 +134,7 @@ public sealed class KuaishouPersonalUploadService
         state.FirstPageCompleted |= stage is "first_page_completed" or "videos_uploaded" or "review_submitted";
         state.VideosUploaded |= stage is "videos_uploaded" or "review_submitted";
         state.ReviewSubmitted |= stage == "review_submitted";
-        await _stateStore.SaveAsync(workflowDirectory, state, cancellationToken);
+        await _stateStore.SaveAsync(workflowDirectory, state, cancellationToken, platform);
     }
 
     private static bool ShouldResume(KuaishouPersonalConfig config, KuaishouPersonalUploadState state)

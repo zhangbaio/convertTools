@@ -1,4 +1,5 @@
 using Microsoft.Playwright;
+using PlatformPublisher.Common.Models;
 
 namespace PlatformPublisher.Kuaishou.Publishing;
 
@@ -27,7 +28,9 @@ public sealed class KuaishouPersonalFirstPageService
         await FillTextAsync(page, "出品年份", config.ProductionYear, required: false);
         await FillTextAsync(page, "制作成本", config.ProductionCost, required: false);
         await FillTextAsync(page, "单集平均时长", config.AverageEpisodeMinutes, required: false);
-        var organization = string.Join('+', new[] { config.KuaishouNickname, config.KuaishouId }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var organization = string.IsNullOrWhiteSpace(config.ProductionOrganization)
+            ? string.Join('+', new[] { config.KuaishouNickname, config.KuaishouId }.Where(value => !string.IsNullOrWhiteSpace(value)))
+            : config.ProductionOrganization;
         await FillTextAsync(page, "制作机构", organization, required: false);
         await FillPeopleAsync(page, config, cancellationToken);
         await FillActorsAsync(page, data.Actors, cancellationToken);
@@ -36,21 +39,21 @@ public sealed class KuaishouPersonalFirstPageService
         await FillTextAsync(page, "播出时间", config.BroadcastDate, required: false);
         await SetRadioAsync(page, "是否涉及重大革命和历史或特殊题材", "否", required: false);
         await SetRadioAsync(page, "是否完结", config.Finished ? "是" : "否", required: true);
-        await SelectAsync(page, "版权证明类型", "自有版权", required: false);
-        await SelectAsync(page, "版权证明材料", "现场拍摄图/短剧工程文件", required: false);
-        await UploadProofMaterialsAsync(page, data, cancellationToken);
+        await SelectAsync(page, "版权证明类型", string.IsNullOrWhiteSpace(config.CopyrightProofType) ? "自有版权" : config.CopyrightProofType, required: false);
+        await SelectAsync(page, "版权证明材料", string.IsNullOrWhiteSpace(config.AuthorDeclaration) ? "现场拍摄图/短剧工程文件" : config.AuthorDeclaration, required: false);
+        await UploadProofMaterialsAsync(page, data, config, cancellationToken);
         await SelectAsync(page, "售卖方式", config.SaleType, required: false);
         await FillTextAsync(page, "免费集数", config.FreeEpisodeCount.ToString(), required: false);
         await FillTextAsync(page, "广告解锁集数", config.UnlockEpisodeCount.ToString(), required: false);
         await FillTextAsync(page, "单集价格", config.EpisodePrice, required: false);
         await SetCheckboxAsync(page, ["付费短剧经营者服务协议", "我已阅读并同意"]);
 
-        progress?.Report("快手分账个人版：第一页基础字段和证明材料已填写。 ");
+        progress?.Report($"{config.StoragePlatform.DisplayName()}：第一页基础字段和证明材料已填写。 ");
         if (string.Equals(config.FirstPageAction, "draft", StringComparison.OrdinalIgnoreCase))
         {
             var saved = await ClickVisibleTextAsync(page, ["保存草稿", "存草稿"], 8_000);
             if (!saved) throw new InvalidOperationException("未找到“保存草稿”按钮。");
-            progress?.Report("快手分账个人版：第一页草稿已保存。 ");
+            progress?.Report($"{config.StoragePlatform.DisplayName()}：第一页草稿已保存。 ");
         }
     }
 
@@ -152,14 +155,18 @@ public sealed class KuaishouPersonalFirstPageService
         if (required) throw new InvalidOperationException($"未找到上传入口：{string.Join('/', labels)}");
     }
 
-    private static async Task UploadProofMaterialsAsync(IPage page, KuaishouPersonalProjectData data, CancellationToken cancellationToken)
+    private static async Task UploadProofMaterialsAsync(
+        IPage page,
+        KuaishouPersonalProjectData data,
+        KuaishouPersonalConfig config,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(data.CommitmentPdfPath) || !File.Exists(data.CommitmentPdfPath))
-            throw new FileNotFoundException("快手分账个人版缺少承诺函 PDF。", data.CommitmentPdfPath);
+            throw new FileNotFoundException($"{config.StoragePlatform.DisplayName()}缺少承诺函 PDF。", data.CommitmentPdfPath);
         await ClickVisibleTextAsync(page, ["切换为上传PDF"], 3_000);
         await UploadScopedAsync(page, ["承诺函", "上传承诺函"], data.CommitmentPdfPath, required: true);
         if (data.ProjectImagePaths.Count < 4)
-            throw new InvalidOperationException($"快手个人版要求 4 张工程图，当前只有 {data.ProjectImagePaths.Count} 张。");
+            throw new InvalidOperationException($"{config.StoragePlatform.DisplayName()}要求 4 张工程图，当前只有 {data.ProjectImagePaths.Count} 张。");
         foreach (var image in data.ProjectImagePaths.Take(4))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -170,11 +177,16 @@ public sealed class KuaishouPersonalFirstPageService
 
     private static async Task FillPeopleAsync(IPage page, KuaishouPersonalConfig config, CancellationToken cancellationToken)
     {
-        foreach (var label in new[] { "导演", "编剧", "制片人" })
+        foreach (var item in new[]
+                 {
+                     (Label: "导演", Value: First(config.Directors, config.RealName)),
+                     (Label: "编剧", Value: First(config.Screenwriters, config.RealName)),
+                     (Label: "制片人", Value: First(config.ProductionOrganization, config.RealName)),
+                 })
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await FillTextAsync(page, label, config.RealName, required: false);
-            await SetRadioAsync(page, label, config.Gender, required: false);
+            await FillTextAsync(page, item.Label, item.Value, required: false);
+            await SetRadioAsync(page, item.Label, config.Gender, required: false);
         }
     }
 
@@ -253,4 +265,7 @@ public sealed class KuaishouPersonalFirstPageService
         }
         return false;
     }
+
+    private static string First(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
 }
